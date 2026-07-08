@@ -1,0 +1,66 @@
+<svg viewBox="0 0 1000 620" xmlns="http://www.w3.org/2000/svg" font-family="Helvetica, Arial, sans-serif">
+  <defs>
+    <marker id="arrow" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto" markerUnits="strokeWidth">
+      <path d="M0,0 L0,6 L9,3 z" fill="#555" />
+    </marker>
+  </defs>
+
+  <rect width="1000" height="620" fill="#ffffff" />
+
+  <!-- RunPod group -->
+  <rect x="30" y="30" width="360" height="200" rx="10" fill="#fef6e4" stroke="#e0a94b" stroke-width="1.5" />
+  <text x="50" y="55" font-size="16" font-weight="bold" fill="#7a5210">RunPod (GPU Pod)</text>
+
+  <rect x="55" y="75" width="140" height="70" rx="6" fill="#ffffff" stroke="#e0a94b" />
+  <text x="70" y="98" font-size="12" fill="#333">Network Volume</text>
+  <text x="70" y="114" font-size="11" fill="#666">라이브러리 /</text>
+  <text x="70" y="128" font-size="11" fill="#666">소스코드 (소규모)</text>
+
+  <rect x="225" y="75" width="140" height="70" rx="6" fill="#ffffff" stroke="#e0a94b" />
+  <text x="240" y="98" font-size="12" fill="#333">임베딩 프로세스</text>
+  <text x="240" y="114" font-size="11" fill="#666">Marqo-Fashion</text>
+  <text x="240" y="128" font-size="11" fill="#666">SigLIP 추론</text>
+
+  <line x1="195" y1="110" x2="225" y2="110" stroke="#555" stroke-width="1.5" marker-end="url(#arrow)" />
+
+  <!-- S3 origin -->
+  <rect x="30" y="290" width="200" height="90" rx="10" fill="#eaf3ff" stroke="#4a86c8" stroke-width="1.5" />
+  <text x="48" y="315" font-size="14" font-weight="bold" fill="#1c4c86">AWS S3 (Seoul)</text>
+  <text x="48" y="335" font-size="11" fill="#333">원본 이미지 / JSON</text>
+  <text x="48" y="352" font-size="11" fill="#888">(읽기 전용)</text>
+
+  <!-- EC2 / Qdrant / EBS -->
+  <rect x="600" y="270" width="370" height="260" rx="10" fill="#eefaf0" stroke="#3f9e5c" stroke-width="1.5" />
+  <text x="620" y="295" font-size="16" font-weight="bold" fill="#1f6b34">AWS EC2 (Seoul, r6i 등)</text>
+
+  <rect x="630" y="315" width="310" height="70" rx="6" fill="#ffffff" stroke="#3f9e5c" />
+  <text x="645" y="340" font-size="13" fill="#333">Qdrant 서버 (Docker container)</text>
+  <text x="645" y="358" font-size="11" fill="#666">REST(6333) / gRPC(6334) API</text>
+
+  <line x1="785" y1="385" x2="785" y2="410" stroke="#555" stroke-width="1.5" marker-end="url(#arrow)" />
+  <text x="800" y="402" font-size="10" fill="#666">내부적으로 저장</text>
+
+  <rect x="630" y="410" width="310" height="80" rx="6" fill="#ffffff" stroke="#3f9e5c" />
+  <text x="645" y="435" font-size="13" fill="#333">EBS 볼륨 (gp3)</text>
+  <text x="645" y="453" font-size="11" fill="#666">벡터 인덱스 / 컬렉션 데이터</text>
+  <text x="645" y="469" font-size="11" fill="#666">(HNSW 등)</text>
+
+  <!-- S3 backup -->
+  <rect x="700" y="565" width="200" height="45" rx="10" fill="#eaf3ff" stroke="#4a86c8" stroke-width="1.5" />
+  <text x="718" y="592" font-size="12" fill="#1c4c86">AWS S3 (백업 버킷)</text>
+
+  <!-- Arrows: RunPod -> S3 (read) -->
+  <path d="M 125 230 C 125 260, 125 260, 125 290" fill="none" stroke="#555" stroke-width="1.5" marker-end="url(#arrow)" />
+  <text x="132" y="260" font-size="11" fill="#444">① S3 원본 read</text>
+  <text x="132" y="274" font-size="10" fill="#888">(boto3 / S3 API)</text>
+
+  <!-- Arrows: RunPod -> Qdrant (upsert) -->
+  <path d="M 295 145 C 295 220, 600 220, 700 315" fill="none" stroke="#555" stroke-width="1.5" marker-end="url(#arrow)" />
+  <text x="420" y="215" font-size="11" fill="#444">② 임베딩 벡터 upsert</text>
+  <text x="420" y="229" font-size="10" fill="#888">(Qdrant REST / gRPC API)</text>
+
+  <!-- Arrows: EBS -> S3 backup -->
+  <path d="M 800 490 C 800 520, 800 540, 800 565" fill="none" stroke="#555" stroke-width="1.5" marker-end="url(#arrow)" />
+  <text x="810" y="530" font-size="11" fill="#444">③ 주기적</text>
+  <text x="810" y="544" font-size="11" fill="#444">스냅샷 백업</text>
+</svg>
