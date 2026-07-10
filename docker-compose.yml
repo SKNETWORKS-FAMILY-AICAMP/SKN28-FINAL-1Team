@@ -1,18 +1,19 @@
+# .env는 프로젝트 루트의 .env를 사용한다 (env_file: .env).
+# collector/*/docker-compose.*.yml 과 동일한 방식으로 통일.
 services:
   db:
     image: postgres:16-alpine
     container_name: skn28-postgres
     restart: unless-stopped
-    environment:
-      POSTGRES_DB: ${POSTGRES_DB:-fashion_db}
-      POSTGRES_USER: ${POSTGRES_USER:-postgres}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
+    env_file:
+      - .env                  # POSTGRES_DB / POSTGRES_USER / POSTGRES_PASSWORD
     ports:
-      - "${POSTGRES_PORT:-5432}:5432"
+      - "5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres} -d ${POSTGRES_DB:-fashion_db}"]
+      # $$: 컨테이너 내부 환경변수 참조 (compose 보간 아님 → .env 위치와 무관)
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
       interval: 10s
       timeout: 5s
       retries: 5

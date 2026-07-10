@@ -41,10 +41,11 @@ python naver_collector_db.py --job retag              # pending/failed 재태깅
 python naver_collector_db.py --scheduler              # 매일 03:00 KST 자동 수집
 ```
 
-Docker:
+Docker (환경변수는 **프로젝트 루트의 `.env`** 하나로 관리, compose가 `env_file: ../../.env`로 참조):
 
 ```bash
-docker compose -f docker-compose.naver.yml up -d --build
+docker compose -f collector/naver/docker-compose.naver.yml up -d --build
+# collector/naver 안에서 실행해도 동일하게 루트 .env를 사용한다.
 ```
 
 ## LLM 이미지 태깅 (`NAVER_LLM_IMAGE_MODE`)

@@ -1,12 +1,15 @@
+# .env는 항상 프로젝트 루트의 .env를 사용한다 (env_file: ../../.env).
+# env_file 경로는 이 compose 파일 기준 상대경로라서 어느 디렉터리에서 실행해도 동일하다.
+# 주의: ${VAR} 보간은 "실행 시 프로젝트 디렉터리"의 .env를 읽어 위치 의존이 생기므로
+#       이 파일에서는 사용하지 않는다. 값 변경은 루트 .env에서 한다.
 services:
   weather-db:
     image: postgres:16
     container_name: weather-db
     restart: unless-stopped
+    env_file:
+      - ../../.env            # POSTGRES_DB / POSTGRES_USER / POSTGRES_PASSWORD
     environment:
-      POSTGRES_DB: ${POSTGRES_DB:-weather_db}
-      POSTGRES_USER: ${POSTGRES_USER:-postgres}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
       TZ: Asia/Seoul
     ports:
       - "5432:5432"
@@ -21,25 +24,16 @@ services:
     restart: unless-stopped
     depends_on:
       - weather-db
+    env_file:
+      - ../../.env            # KMA_AUTH_KEY, POSTGRES_*, MID_*_URL, LOG_LEVEL 등
+    # environment는 env_file보다 우선한다. 컨테이너 전용 고정값만 여기에 둔다.
     environment:
       TZ: Asia/Seoul
-      KMA_AUTH_KEY: ${KMA_AUTH_KEY}
-      KMA_AUTH_PARAM_NAME: ${KMA_AUTH_PARAM_NAME:-authKey}
-      POSTGRES_DB: ${POSTGRES_DB:-weather_db}
-      POSTGRES_USER: ${POSTGRES_USER:-postgres}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
       POSTGRES_HOST: weather-db
       POSTGRES_PORT: 5432
       GRID_FILE_PATH: /app/data/동네예보지점좌표(위경도)_202601.xlsx
       MID_LAND_AREA_FILE: /app/data/mid_land_areas.json
       MID_TEMP_AREA_FILE: /app/data/mid_temp_areas.json
-      # 실제 APIHub 신청 URL이 다르면 아래 값들을 .env에서 덮어쓴다.
-      ODAM_GRID_URL: ${ODAM_GRID_URL:-https://apihub.kma.go.kr/api/typ01/cgi-bin/url/nph-dfs_odam_grd}
-      VSRT_GRID_URL: ${VSRT_GRID_URL:-https://apihub.kma.go.kr/api/typ01/cgi-bin/url/nph-dfs_vsrt_grd}
-      SHRT_GRID_URL: ${SHRT_GRID_URL:-https://apihub.kma.go.kr/api/typ01/cgi-bin/url/nph-dfs_shrt_grd}
-      MID_LAND_URL: ${MID_LAND_URL:-}
-      MID_TEMP_URL: ${MID_TEMP_URL:-}
-      LOG_LEVEL: ${LOG_LEVEL:-INFO}
     volumes:
       - ./data:/app/data:ro
     # 로컬 테스트용: Django migration을 쓰는 경우 --init-schema는 제거하고, migration 이후 --sync-areas만 실행한다.

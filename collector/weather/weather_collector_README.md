@@ -22,14 +22,18 @@ python weather_collector_db.py --scheduler
 
 ## Docker 실행 예시
 
+환경변수는 **프로젝트 루트의 `.env`** 하나로 관리한다 (compose가 `env_file: ../../.env`로 참조).
+
 ```bash
-cp .env.weather.example .env
+# 프로젝트 루트에서
+cp .env.example .env
 # .env의 KMA_AUTH_KEY와 URL 수정
-mkdir -p data
+mkdir -p collector/weather/data
 # data/동네예보지점좌표(위경도)_202601.xlsx 배치
 # 중기 수집 시 data/mid_land_areas.json, data/mid_temp_areas.json 배치
 
-docker compose -f docker-compose.weather.yml up --build
+docker compose -f collector/weather/docker-compose.weather.yml up --build
+# collector/weather 안에서 실행해도 동일하게 루트 .env를 사용한다.
 ```
 
 ## 수집 스케줄
