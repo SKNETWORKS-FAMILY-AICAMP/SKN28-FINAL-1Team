@@ -1,0 +1,47 @@
+services:
+  naver-db:
+    image: postgres:16
+    container_name: naver-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-fashion_db}
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
+      TZ: Asia/Seoul
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - naver_db_data:/var/lib/postgresql/data
+
+  naver-collector:
+    build:
+      context: .
+      dockerfile: Dockerfile.naver
+    container_name: naver-collector
+    restart: unless-stopped
+    depends_on:
+      - naver-db
+    environment:
+      TZ: Asia/Seoul
+      NAVER_CLIENT_ID: ${NAVER_CLIENT_ID:?NAVER_CLIENT_ID is required}
+      NAVER_CLIENT_SECRET: ${NAVER_CLIENT_SECRET:?NAVER_CLIENT_SECRET is required}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:?OPENAI_API_KEY is required}
+      OPENAI_MODEL: ${OPENAI_MODEL:-gpt-4o-mini}
+      NAVER_LLM_IMAGE_MODE: ${NAVER_LLM_IMAGE_MODE:-auto}
+      NAVER_MAX_ITEMS_PER_KEYWORD: ${NAVER_MAX_ITEMS_PER_KEYWORD:-300}
+      NAVER_KEYWORD_GENDER_PREFIXES: ${NAVER_KEYWORD_GENDER_PREFIXES:-}
+      NAVER_SCHEDULE_HOUR: ${NAVER_SCHEDULE_HOUR:-3}
+      NAVER_SCHEDULE_MINUTE: ${NAVER_SCHEDULE_MINUTE:-0}
+      POSTGRES_DB: ${POSTGRES_DB:-fashion_db}
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
+      POSTGRES_HOST: naver-db
+      POSTGRES_PORT: 5432
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+    # 로컬 테스트용: 운영 전환 시 --init-schema는 Django migration으로 대체한다.
+    command: >
+      sh -c "python /app/naver_collector_db.py --init-schema &&
+             python /app/naver_collector_db.py --scheduler"
+
+volumes:
+  naver_db_data:
