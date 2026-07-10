@@ -1,1 +1,45 @@
 local/
+# 환경 변수 / 시크릿
+.env
+.env.*
+*.env
+
+# 테스트 산출물 - 출력 폴더
+collector/output/
+
+# 테스트 산출물 - 파일
+collector/weather_output_file.json
+collector/weather_output_file.xml
+
+# 테스트용 스크립트 (CSV 추출용)
+collector/weather_grid_all_to_csv.py
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.Python
+
+# 가상환경
+.venv/
+venv/
+env/
+ENV/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# 로그
+*.log
+
+# 임시 파일
+*.tmp
+*.bak

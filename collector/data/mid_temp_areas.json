@@ -1,0 +1,1220 @@
+[
+  {
+    "name": "백령도",
+    "reg_id": "11A00101",
+    "address_label": "백령도",
+    "is_active": true
+  },
+  {
+    "name": "서울",
+    "reg_id": "11B10101",
+    "address_label": "서울",
+    "is_active": true
+  },
+  {
+    "name": "과천",
+    "reg_id": "11B10102",
+    "address_label": "과천",
+    "is_active": true
+  },
+  {
+    "name": "광명",
+    "reg_id": "11B10103",
+    "address_label": "광명",
+    "is_active": true
+  },
+  {
+    "name": "강화",
+    "reg_id": "11B20101",
+    "address_label": "강화",
+    "is_active": true
+  },
+  {
+    "name": "김포",
+    "reg_id": "11B20102",
+    "address_label": "김포",
+    "is_active": true
+  },
+  {
+    "name": "인천",
+    "reg_id": "11B20201",
+    "address_label": "인천",
+    "is_active": true
+  },
+  {
+    "name": "시흥",
+    "reg_id": "11B20202",
+    "address_label": "시흥",
+    "is_active": true
+  },
+  {
+    "name": "안산",
+    "reg_id": "11B20203",
+    "address_label": "안산",
+    "is_active": true
+  },
+  {
+    "name": "부천",
+    "reg_id": "11B20204",
+    "address_label": "부천",
+    "is_active": true
+  },
+  {
+    "name": "의정부",
+    "reg_id": "11B20301",
+    "address_label": "의정부",
+    "is_active": true
+  },
+  {
+    "name": "고양",
+    "reg_id": "11B20302",
+    "address_label": "고양",
+    "is_active": true
+  },
+  {
+    "name": "양주",
+    "reg_id": "11B20304",
+    "address_label": "양주",
+    "is_active": true
+  },
+  {
+    "name": "파주",
+    "reg_id": "11B20305",
+    "address_label": "파주",
+    "is_active": true
+  },
+  {
+    "name": "동두천",
+    "reg_id": "11B20401",
+    "address_label": "동두천",
+    "is_active": true
+  },
+  {
+    "name": "연천",
+    "reg_id": "11B20402",
+    "address_label": "연천",
+    "is_active": true
+  },
+  {
+    "name": "포천",
+    "reg_id": "11B20403",
+    "address_label": "포천",
+    "is_active": true
+  },
+  {
+    "name": "가평",
+    "reg_id": "11B20404",
+    "address_label": "가평",
+    "is_active": true
+  },
+  {
+    "name": "구리",
+    "reg_id": "11B20501",
+    "address_label": "구리",
+    "is_active": true
+  },
+  {
+    "name": "남양주",
+    "reg_id": "11B20502",
+    "address_label": "남양주",
+    "is_active": true
+  },
+  {
+    "name": "양평",
+    "reg_id": "11B20503",
+    "address_label": "양평",
+    "is_active": true
+  },
+  {
+    "name": "하남",
+    "reg_id": "11B20504",
+    "address_label": "하남",
+    "is_active": true
+  },
+  {
+    "name": "수원",
+    "reg_id": "11B20601",
+    "address_label": "수원",
+    "is_active": true
+  },
+  {
+    "name": "안양",
+    "reg_id": "11B20602",
+    "address_label": "안양",
+    "is_active": true
+  },
+  {
+    "name": "오산",
+    "reg_id": "11B20603",
+    "address_label": "오산",
+    "is_active": true
+  },
+  {
+    "name": "화성",
+    "reg_id": "11B20604",
+    "address_label": "화성",
+    "is_active": true
+  },
+  {
+    "name": "성남",
+    "reg_id": "11B20605",
+    "address_label": "성남",
+    "is_active": true
+  },
+  {
+    "name": "평택",
+    "reg_id": "11B20606",
+    "address_label": "평택",
+    "is_active": true
+  },
+  {
+    "name": "의왕",
+    "reg_id": "11B20609",
+    "address_label": "의왕",
+    "is_active": true
+  },
+  {
+    "name": "군포",
+    "reg_id": "11B20610",
+    "address_label": "군포",
+    "is_active": true
+  },
+  {
+    "name": "안성",
+    "reg_id": "11B20611",
+    "address_label": "안성",
+    "is_active": true
+  },
+  {
+    "name": "용인",
+    "reg_id": "11B20612",
+    "address_label": "용인",
+    "is_active": true
+  },
+  {
+    "name": "이천",
+    "reg_id": "11B20701",
+    "address_label": "이천",
+    "is_active": true
+  },
+  {
+    "name": "광주",
+    "reg_id": "11B20702",
+    "address_label": "광주",
+    "is_active": true
+  },
+  {
+    "name": "여주",
+    "reg_id": "11B20703",
+    "address_label": "여주",
+    "is_active": true
+  },
+  {
+    "name": "충주",
+    "reg_id": "11C10101",
+    "address_label": "충주",
+    "is_active": true
+  },
+  {
+    "name": "진천",
+    "reg_id": "11C10102",
+    "address_label": "진천",
+    "is_active": true
+  },
+  {
+    "name": "음성",
+    "reg_id": "11C10103",
+    "address_label": "음성",
+    "is_active": true
+  },
+  {
+    "name": "제천",
+    "reg_id": "11C10201",
+    "address_label": "제천",
+    "is_active": true
+  },
+  {
+    "name": "단양",
+    "reg_id": "11C10202",
+    "address_label": "단양",
+    "is_active": true
+  },
+  {
+    "name": "청주",
+    "reg_id": "11C10301",
+    "address_label": "청주",
+    "is_active": true
+  },
+  {
+    "name": "보은",
+    "reg_id": "11C10302",
+    "address_label": "보은",
+    "is_active": true
+  },
+  {
+    "name": "괴산",
+    "reg_id": "11C10303",
+    "address_label": "괴산",
+    "is_active": true
+  },
+  {
+    "name": "증평",
+    "reg_id": "11C10304",
+    "address_label": "증평",
+    "is_active": true
+  },
+  {
+    "name": "추풍령",
+    "reg_id": "11C10401",
+    "address_label": "추풍령",
+    "is_active": true
+  },
+  {
+    "name": "영동",
+    "reg_id": "11C10402",
+    "address_label": "영동",
+    "is_active": true
+  },
+  {
+    "name": "옥천",
+    "reg_id": "11C10403",
+    "address_label": "옥천",
+    "is_active": true
+  },
+  {
+    "name": "서산",
+    "reg_id": "11C20101",
+    "address_label": "서산",
+    "is_active": true
+  },
+  {
+    "name": "태안",
+    "reg_id": "11C20102",
+    "address_label": "태안",
+    "is_active": true
+  },
+  {
+    "name": "당진",
+    "reg_id": "11C20103",
+    "address_label": "당진",
+    "is_active": true
+  },
+  {
+    "name": "홍성",
+    "reg_id": "11C20104",
+    "address_label": "홍성",
+    "is_active": true
+  },
+  {
+    "name": "보령",
+    "reg_id": "11C20201",
+    "address_label": "보령",
+    "is_active": true
+  },
+  {
+    "name": "서천",
+    "reg_id": "11C20202",
+    "address_label": "서천",
+    "is_active": true
+  },
+  {
+    "name": "천안",
+    "reg_id": "11C20301",
+    "address_label": "천안",
+    "is_active": true
+  },
+  {
+    "name": "아산",
+    "reg_id": "11C20302",
+    "address_label": "아산",
+    "is_active": true
+  },
+  {
+    "name": "예산",
+    "reg_id": "11C20303",
+    "address_label": "예산",
+    "is_active": true
+  },
+  {
+    "name": "대전",
+    "reg_id": "11C20401",
+    "address_label": "대전",
+    "is_active": true
+  },
+  {
+    "name": "공주",
+    "reg_id": "11C20402",
+    "address_label": "공주",
+    "is_active": true
+  },
+  {
+    "name": "계룡",
+    "reg_id": "11C20403",
+    "address_label": "계룡",
+    "is_active": true
+  },
+  {
+    "name": "세종",
+    "reg_id": "11C20404",
+    "address_label": "세종",
+    "is_active": true
+  },
+  {
+    "name": "부여",
+    "reg_id": "11C20501",
+    "address_label": "부여",
+    "is_active": true
+  },
+  {
+    "name": "청양",
+    "reg_id": "11C20502",
+    "address_label": "청양",
+    "is_active": true
+  },
+  {
+    "name": "금산",
+    "reg_id": "11C20601",
+    "address_label": "금산",
+    "is_active": true
+  },
+  {
+    "name": "논산",
+    "reg_id": "11C20602",
+    "address_label": "논산",
+    "is_active": true
+  },
+  {
+    "name": "철원",
+    "reg_id": "11D10101",
+    "address_label": "철원",
+    "is_active": true
+  },
+  {
+    "name": "화천",
+    "reg_id": "11D10102",
+    "address_label": "화천",
+    "is_active": true
+  },
+  {
+    "name": "인제",
+    "reg_id": "11D10201",
+    "address_label": "인제",
+    "is_active": true
+  },
+  {
+    "name": "양구",
+    "reg_id": "11D10202",
+    "address_label": "양구",
+    "is_active": true
+  },
+  {
+    "name": "춘천",
+    "reg_id": "11D10301",
+    "address_label": "춘천",
+    "is_active": true
+  },
+  {
+    "name": "홍천",
+    "reg_id": "11D10302",
+    "address_label": "홍천",
+    "is_active": true
+  },
+  {
+    "name": "원주",
+    "reg_id": "11D10401",
+    "address_label": "원주",
+    "is_active": true
+  },
+  {
+    "name": "횡성",
+    "reg_id": "11D10402",
+    "address_label": "횡성",
+    "is_active": true
+  },
+  {
+    "name": "영월",
+    "reg_id": "11D10501",
+    "address_label": "영월",
+    "is_active": true
+  },
+  {
+    "name": "정선",
+    "reg_id": "11D10502",
+    "address_label": "정선",
+    "is_active": true
+  },
+  {
+    "name": "평창",
+    "reg_id": "11D10503",
+    "address_label": "평창",
+    "is_active": true
+  },
+  {
+    "name": "대관령",
+    "reg_id": "11D20201",
+    "address_label": "대관령",
+    "is_active": true
+  },
+  {
+    "name": "태백",
+    "reg_id": "11D20301",
+    "address_label": "태백",
+    "is_active": true
+  },
+  {
+    "name": "속초",
+    "reg_id": "11D20401",
+    "address_label": "속초",
+    "is_active": true
+  },
+  {
+    "name": "고성",
+    "reg_id": "11D20402",
+    "address_label": "고성",
+    "is_active": true
+  },
+  {
+    "name": "양양",
+    "reg_id": "11D20403",
+    "address_label": "양양",
+    "is_active": true
+  },
+  {
+    "name": "강릉",
+    "reg_id": "11D20501",
+    "address_label": "강릉",
+    "is_active": true
+  },
+  {
+    "name": "동해",
+    "reg_id": "11D20601",
+    "address_label": "동해",
+    "is_active": true
+  },
+  {
+    "name": "삼척",
+    "reg_id": "11D20602",
+    "address_label": "삼척",
+    "is_active": true
+  },
+  {
+    "name": "울릉도",
+    "reg_id": "11E00101",
+    "address_label": "울릉도",
+    "is_active": true
+  },
+  {
+    "name": "독도",
+    "reg_id": "11E00102",
+    "address_label": "독도",
+    "is_active": true
+  },
+  {
+    "name": "전주",
+    "reg_id": "11F10201",
+    "address_label": "전주",
+    "is_active": true
+  },
+  {
+    "name": "익산",
+    "reg_id": "11F10202",
+    "address_label": "익산",
+    "is_active": true
+  },
+  {
+    "name": "정읍",
+    "reg_id": "11F10203",
+    "address_label": "정읍",
+    "is_active": true
+  },
+  {
+    "name": "완주",
+    "reg_id": "11F10204",
+    "address_label": "완주",
+    "is_active": true
+  },
+  {
+    "name": "장수",
+    "reg_id": "11F10301",
+    "address_label": "장수",
+    "is_active": true
+  },
+  {
+    "name": "무주",
+    "reg_id": "11F10302",
+    "address_label": "무주",
+    "is_active": true
+  },
+  {
+    "name": "진안",
+    "reg_id": "11F10303",
+    "address_label": "진안",
+    "is_active": true
+  },
+  {
+    "name": "남원",
+    "reg_id": "11F10401",
+    "address_label": "남원",
+    "is_active": true
+  },
+  {
+    "name": "임실",
+    "reg_id": "11F10402",
+    "address_label": "임실",
+    "is_active": true
+  },
+  {
+    "name": "순창",
+    "reg_id": "11F10403",
+    "address_label": "순창",
+    "is_active": true
+  },
+  {
+    "name": "완도",
+    "reg_id": "11F20301",
+    "address_label": "완도",
+    "is_active": true
+  },
+  {
+    "name": "해남",
+    "reg_id": "11F20302",
+    "address_label": "해남",
+    "is_active": true
+  },
+  {
+    "name": "강진",
+    "reg_id": "11F20303",
+    "address_label": "강진",
+    "is_active": true
+  },
+  {
+    "name": "장흥",
+    "reg_id": "11F20304",
+    "address_label": "장흥",
+    "is_active": true
+  },
+  {
+    "name": "여수",
+    "reg_id": "11F20401",
+    "address_label": "여수",
+    "is_active": true
+  },
+  {
+    "name": "광양",
+    "reg_id": "11F20402",
+    "address_label": "광양",
+    "is_active": true
+  },
+  {
+    "name": "고흥",
+    "reg_id": "11F20403",
+    "address_label": "고흥",
+    "is_active": true
+  },
+  {
+    "name": "보성",
+    "reg_id": "11F20404",
+    "address_label": "보성",
+    "is_active": true
+  },
+  {
+    "name": "순천시",
+    "reg_id": "11F20405",
+    "address_label": "순천시",
+    "is_active": true
+  },
+  {
+    "name": "광주",
+    "reg_id": "11F20501",
+    "address_label": "광주",
+    "is_active": true
+  },
+  {
+    "name": "장성",
+    "reg_id": "11F20502",
+    "address_label": "장성",
+    "is_active": true
+  },
+  {
+    "name": "나주",
+    "reg_id": "11F20503",
+    "address_label": "나주",
+    "is_active": true
+  },
+  {
+    "name": "담양",
+    "reg_id": "11F20504",
+    "address_label": "담양",
+    "is_active": true
+  },
+  {
+    "name": "화순",
+    "reg_id": "11F20505",
+    "address_label": "화순",
+    "is_active": true
+  },
+  {
+    "name": "구례",
+    "reg_id": "11F20601",
+    "address_label": "구례",
+    "is_active": true
+  },
+  {
+    "name": "곡성",
+    "reg_id": "11F20602",
+    "address_label": "곡성",
+    "is_active": true
+  },
+  {
+    "name": "순천",
+    "reg_id": "11F20603",
+    "address_label": "순천",
+    "is_active": true
+  },
+  {
+    "name": "흑산도",
+    "reg_id": "11F20701",
+    "address_label": "흑산도",
+    "is_active": true
+  },
+  {
+    "name": "성산",
+    "reg_id": "11G00101",
+    "address_label": "성산",
+    "is_active": true
+  },
+  {
+    "name": "제주",
+    "reg_id": "11G00201",
+    "address_label": "제주",
+    "is_active": true
+  },
+  {
+    "name": "성판악",
+    "reg_id": "11G00302",
+    "address_label": "성판악",
+    "is_active": true
+  },
+  {
+    "name": "서귀포",
+    "reg_id": "11G00401",
+    "address_label": "서귀포",
+    "is_active": true
+  },
+  {
+    "name": "고산",
+    "reg_id": "11G00501",
+    "address_label": "고산",
+    "is_active": true
+  },
+  {
+    "name": "이어도",
+    "reg_id": "11G00601",
+    "address_label": "이어도",
+    "is_active": true
+  },
+  {
+    "name": "추자도",
+    "reg_id": "11G00800",
+    "address_label": "추자도",
+    "is_active": true
+  },
+  {
+    "name": "산천단",
+    "reg_id": "11G00901",
+    "address_label": "산천단",
+    "is_active": true
+  },
+  {
+    "name": "한남",
+    "reg_id": "11G01001",
+    "address_label": "한남",
+    "is_active": true
+  },
+  {
+    "name": "울진",
+    "reg_id": "11H10101",
+    "address_label": "울진",
+    "is_active": true
+  },
+  {
+    "name": "영덕",
+    "reg_id": "11H10102",
+    "address_label": "영덕",
+    "is_active": true
+  },
+  {
+    "name": "포항",
+    "reg_id": "11H10201",
+    "address_label": "포항",
+    "is_active": true
+  },
+  {
+    "name": "경주",
+    "reg_id": "11H10202",
+    "address_label": "경주",
+    "is_active": true
+  },
+  {
+    "name": "문경",
+    "reg_id": "11H10301",
+    "address_label": "문경",
+    "is_active": true
+  },
+  {
+    "name": "상주",
+    "reg_id": "11H10302",
+    "address_label": "상주",
+    "is_active": true
+  },
+  {
+    "name": "예천",
+    "reg_id": "11H10303",
+    "address_label": "예천",
+    "is_active": true
+  },
+  {
+    "name": "영주",
+    "reg_id": "11H10401",
+    "address_label": "영주",
+    "is_active": true
+  },
+  {
+    "name": "봉화",
+    "reg_id": "11H10402",
+    "address_label": "봉화",
+    "is_active": true
+  },
+  {
+    "name": "영양",
+    "reg_id": "11H10403",
+    "address_label": "영양",
+    "is_active": true
+  },
+  {
+    "name": "안동",
+    "reg_id": "11H10501",
+    "address_label": "안동",
+    "is_active": true
+  },
+  {
+    "name": "의성",
+    "reg_id": "11H10502",
+    "address_label": "의성",
+    "is_active": true
+  },
+  {
+    "name": "청송",
+    "reg_id": "11H10503",
+    "address_label": "청송",
+    "is_active": true
+  },
+  {
+    "name": "김천",
+    "reg_id": "11H10601",
+    "address_label": "김천",
+    "is_active": true
+  },
+  {
+    "name": "구미",
+    "reg_id": "11H10602",
+    "address_label": "구미",
+    "is_active": true
+  },
+  {
+    "name": "고령",
+    "reg_id": "11H10604",
+    "address_label": "고령",
+    "is_active": true
+  },
+  {
+    "name": "성주",
+    "reg_id": "11H10605",
+    "address_label": "성주",
+    "is_active": true
+  },
+  {
+    "name": "대구",
+    "reg_id": "11H10701",
+    "address_label": "대구",
+    "is_active": true
+  },
+  {
+    "name": "영천",
+    "reg_id": "11H10702",
+    "address_label": "영천",
+    "is_active": true
+  },
+  {
+    "name": "경산",
+    "reg_id": "11H10703",
+    "address_label": "경산",
+    "is_active": true
+  },
+  {
+    "name": "청도",
+    "reg_id": "11H10704",
+    "address_label": "청도",
+    "is_active": true
+  },
+  {
+    "name": "칠곡",
+    "reg_id": "11H10705",
+    "address_label": "칠곡",
+    "is_active": true
+  },
+  {
+    "name": "군위",
+    "reg_id": "11H10707",
+    "address_label": "군위",
+    "is_active": true
+  },
+  {
+    "name": "울산",
+    "reg_id": "11H20101",
+    "address_label": "울산",
+    "is_active": true
+  },
+  {
+    "name": "양산",
+    "reg_id": "11H20102",
+    "address_label": "양산",
+    "is_active": true
+  },
+  {
+    "name": "부산",
+    "reg_id": "11H20201",
+    "address_label": "부산",
+    "is_active": true
+  },
+  {
+    "name": "창원",
+    "reg_id": "11H20301",
+    "address_label": "창원",
+    "is_active": true
+  },
+  {
+    "name": "김해",
+    "reg_id": "11H20304",
+    "address_label": "김해",
+    "is_active": true
+  },
+  {
+    "name": "통영",
+    "reg_id": "11H20401",
+    "address_label": "통영",
+    "is_active": true
+  },
+  {
+    "name": "사천",
+    "reg_id": "11H20402",
+    "address_label": "사천",
+    "is_active": true
+  },
+  {
+    "name": "거제",
+    "reg_id": "11H20403",
+    "address_label": "거제",
+    "is_active": true
+  },
+  {
+    "name": "고성",
+    "reg_id": "11H20404",
+    "address_label": "고성",
+    "is_active": true
+  },
+  {
+    "name": "남해",
+    "reg_id": "11H20405",
+    "address_label": "남해",
+    "is_active": true
+  },
+  {
+    "name": "함양",
+    "reg_id": "11H20501",
+    "address_label": "함양",
+    "is_active": true
+  },
+  {
+    "name": "거창",
+    "reg_id": "11H20502",
+    "address_label": "거창",
+    "is_active": true
+  },
+  {
+    "name": "합천",
+    "reg_id": "11H20503",
+    "address_label": "합천",
+    "is_active": true
+  },
+  {
+    "name": "밀양",
+    "reg_id": "11H20601",
+    "address_label": "밀양",
+    "is_active": true
+  },
+  {
+    "name": "의령",
+    "reg_id": "11H20602",
+    "address_label": "의령",
+    "is_active": true
+  },
+  {
+    "name": "함안",
+    "reg_id": "11H20603",
+    "address_label": "함안",
+    "is_active": true
+  },
+  {
+    "name": "창녕",
+    "reg_id": "11H20604",
+    "address_label": "창녕",
+    "is_active": true
+  },
+  {
+    "name": "진주",
+    "reg_id": "11H20701",
+    "address_label": "진주",
+    "is_active": true
+  },
+  {
+    "name": "산청",
+    "reg_id": "11H20703",
+    "address_label": "산청",
+    "is_active": true
+  },
+  {
+    "name": "하동",
+    "reg_id": "11H20704",
+    "address_label": "하동",
+    "is_active": true
+  },
+  {
+    "name": "사리원",
+    "reg_id": "11I10001",
+    "address_label": "사리원",
+    "is_active": true
+  },
+  {
+    "name": "신계",
+    "reg_id": "11I10002",
+    "address_label": "신계",
+    "is_active": true
+  },
+  {
+    "name": "해주",
+    "reg_id": "11I20001",
+    "address_label": "해주",
+    "is_active": true
+  },
+  {
+    "name": "개성",
+    "reg_id": "11I20002",
+    "address_label": "개성",
+    "is_active": true
+  },
+  {
+    "name": "장연(용연)",
+    "reg_id": "11I20003",
+    "address_label": "장연(용연)",
+    "is_active": true
+  },
+  {
+    "name": "신의주",
+    "reg_id": "11J10001",
+    "address_label": "신의주",
+    "is_active": true
+  },
+  {
+    "name": "삭주(수풍)",
+    "reg_id": "11J10002",
+    "address_label": "삭주(수풍)",
+    "is_active": true
+  },
+  {
+    "name": "구성",
+    "reg_id": "11J10003",
+    "address_label": "구성",
+    "is_active": true
+  },
+  {
+    "name": "자성(중강)",
+    "reg_id": "11J10004",
+    "address_label": "자성(중강)",
+    "is_active": true
+  },
+  {
+    "name": "강계",
+    "reg_id": "11J10005",
+    "address_label": "강계",
+    "is_active": true
+  },
+  {
+    "name": "희천",
+    "reg_id": "11J10006",
+    "address_label": "희천",
+    "is_active": true
+  },
+  {
+    "name": "평양",
+    "reg_id": "11J20001",
+    "address_label": "평양",
+    "is_active": true
+  },
+  {
+    "name": "진남포(남포)",
+    "reg_id": "11J20002",
+    "address_label": "진남포(남포)",
+    "is_active": true
+  },
+  {
+    "name": "안주",
+    "reg_id": "11J20004",
+    "address_label": "안주",
+    "is_active": true
+  },
+  {
+    "name": "양덕",
+    "reg_id": "11J20005",
+    "address_label": "양덕",
+    "is_active": true
+  },
+  {
+    "name": "청진",
+    "reg_id": "11K10001",
+    "address_label": "청진",
+    "is_active": true
+  },
+  {
+    "name": "웅기(선봉)",
+    "reg_id": "11K10002",
+    "address_label": "웅기(선봉)",
+    "is_active": true
+  },
+  {
+    "name": "성진(김책)",
+    "reg_id": "11K10003",
+    "address_label": "성진(김책)",
+    "is_active": true
+  },
+  {
+    "name": "무산(삼지연)",
+    "reg_id": "11K10004",
+    "address_label": "무산(삼지연)",
+    "is_active": true
+  },
+  {
+    "name": "함흥",
+    "reg_id": "11K20001",
+    "address_label": "함흥",
+    "is_active": true
+  },
+  {
+    "name": "장진",
+    "reg_id": "11K20002",
+    "address_label": "장진",
+    "is_active": true
+  },
+  {
+    "name": "북청(신포)",
+    "reg_id": "11K20003",
+    "address_label": "북청(신포)",
+    "is_active": true
+  },
+  {
+    "name": "혜산",
+    "reg_id": "11K20004",
+    "address_label": "혜산",
+    "is_active": true
+  },
+  {
+    "name": "풍산",
+    "reg_id": "11K20005",
+    "address_label": "풍산",
+    "is_active": true
+  },
+  {
+    "name": "원산",
+    "reg_id": "11L10001",
+    "address_label": "원산",
+    "is_active": true
+  },
+  {
+    "name": "고성(장전)",
+    "reg_id": "11L10002",
+    "address_label": "고성(장전)",
+    "is_active": true
+  },
+  {
+    "name": "평강",
+    "reg_id": "11L10003",
+    "address_label": "평강",
+    "is_active": true
+  },
+  {
+    "name": "군산",
+    "reg_id": "21F10501",
+    "address_label": "군산",
+    "is_active": true
+  },
+  {
+    "name": "김제",
+    "reg_id": "21F10502",
+    "address_label": "김제",
+    "is_active": true
+  },
+  {
+    "name": "고창",
+    "reg_id": "21F10601",
+    "address_label": "고창",
+    "is_active": true
+  },
+  {
+    "name": "부안",
+    "reg_id": "21F10602",
+    "address_label": "부안",
+    "is_active": true
+  },
+  {
+    "name": "함평",
+    "reg_id": "21F20101",
+    "address_label": "함평",
+    "is_active": true
+  },
+  {
+    "name": "영광",
+    "reg_id": "21F20102",
+    "address_label": "영광",
+    "is_active": true
+  },
+  {
+    "name": "진도",
+    "reg_id": "21F20201",
+    "address_label": "진도",
+    "is_active": true
+  },
+  {
+    "name": "목포",
+    "reg_id": "21F20801",
+    "address_label": "목포",
+    "is_active": true
+  },
+  {
+    "name": "영암",
+    "reg_id": "21F20802",
+    "address_label": "영암",
+    "is_active": true
+  },
+  {
+    "name": "신안",
+    "reg_id": "21F20803",
+    "address_label": "신안",
+    "is_active": true
+  },
+  {
+    "name": "무안",
+    "reg_id": "21F20804",
+    "address_label": "무안",
+    "is_active": true
+  }
+]

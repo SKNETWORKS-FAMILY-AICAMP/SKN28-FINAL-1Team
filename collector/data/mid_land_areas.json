@@ -1,0 +1,62 @@
+[
+  {
+    "name": "서울·인천·경기도",
+    "reg_id": "11B00000",
+    "address_label": "서울·인천·경기도",
+    "is_active": true
+  },
+  {
+    "name": "강원도영서",
+    "reg_id": "11D10000",
+    "address_label": "강원도영서",
+    "is_active": true
+  },
+  {
+    "name": "강원도영동",
+    "reg_id": "11D20000",
+    "address_label": "강원도영동",
+    "is_active": true
+  },
+  {
+    "name": "충청북도",
+    "reg_id": "11C10000",
+    "address_label": "충청북도",
+    "is_active": true
+  },
+  {
+    "name": "대전·세종·충청남도",
+    "reg_id": "11C20000",
+    "address_label": "대전·세종·충청남도",
+    "is_active": true
+  },
+  {
+    "name": "전북자치도",
+    "reg_id": "11F10000",
+    "address_label": "전북자치도",
+    "is_active": true
+  },
+  {
+    "name": "광주·전라남도",
+    "reg_id": "11F20000",
+    "address_label": "광주·전라남도",
+    "is_active": true
+  },
+  {
+    "name": "대구·경상북도",
+    "reg_id": "11H10000",
+    "address_label": "대구·경상북도",
+    "is_active": true
+  },
+  {
+    "name": "부산·울산·경상남도",
+    "reg_id": "11H20000",
+    "address_label": "부산·울산·경상남도",
+    "is_active": true
+  },
+  {
+    "name": "제주도",
+    "reg_id": "11G00000",
+    "address_label": "제주도",
+    "is_active": true
+  }
+]
