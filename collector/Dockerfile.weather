@@ -1,0 +1,14 @@
+FROM python:3.11-slim
+
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    TZ=Asia/Seoul
+
+WORKDIR /app
+
+COPY requirements.weather.txt /app/requirements.txt
+RUN pip install --no-cache-dir -r /app/requirements.txt
+
+COPY weather_collector_db.py /app/weather_collector_db.py
+
+CMD ["python", "/app/weather_collector_db.py", "--scheduler"]
