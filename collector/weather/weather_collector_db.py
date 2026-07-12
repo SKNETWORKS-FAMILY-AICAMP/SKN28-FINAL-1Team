@@ -10,8 +10,8 @@ Weather collector for 전국 자동수집 + PostgreSQL 저장.
 - WeatherMidTempRaw: 중기 기온예보 Raw
 
 주의
-- Django 프로젝트에 붙일 때는 이 파일의 SQL DDL을 그대로 운영 DB에 쓰기보다 Django model/migration으로 옮기는 것을 권장한다.
-- --init-schema는 로컬 PostgreSQL 테스트용이다.
+- 테이블 스키마는 Django migration(api/apps/weather)이 소유한다. collector는 upsert만 한다.
+  실행 전에 api에서 `python manage.py migrate`가 적용되어 있어야 한다.
 - 단기/중기 APIHub URL은 계정에서 신청한 하위 API URL과 다를 수 있으므로 .env에서 반드시 확인한다.
 """
 
@@ -311,136 +311,17 @@ def get_connection():
     )
 
 
-def init_schema(conn) -> None:
-    """로컬 테스트용 테이블 생성. 운영에서는 Django migration으로 옮기는 것을 권장."""
-    ddl = """
-    CREATE TABLE IF NOT EXISTS weather_area (
-        id BIGSERIAL PRIMARY KEY,
-        area_type VARCHAR(20) NOT NULL,
-        name VARCHAR(200) NOT NULL,
-        nx SMALLINT,
-        ny SMALLINT,
-        latitude NUMERIC(10, 6),
-        longitude NUMERIC(10, 6),
-        sido VARCHAR(60),
-        sigungu VARCHAR(100),
-        eupmyeondong VARCHAR(100),
-        address_label VARCHAR(255),
-        reg_id VARCHAR(30),
-        is_active BOOLEAN NOT NULL DEFAULT TRUE,
-        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-        updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-    );
-
-    CREATE UNIQUE INDEX IF NOT EXISTS ux_weather_area_grid
-        ON weather_area (area_type, nx, ny)
-        WHERE area_type = 'GRID';
-
-    CREATE UNIQUE INDEX IF NOT EXISTS ux_weather_area_mid
-        ON weather_area (area_type, reg_id)
-        WHERE area_type IN ('MID_LAND', 'MID_TEMP');
-
-    CREATE TABLE IF NOT EXISTS weather_nowcast_raw (
-        id BIGSERIAL PRIMARY KEY,
-        area_id BIGINT NOT NULL REFERENCES weather_area(id) ON DELETE CASCADE,
-        base_datetime TIMESTAMPTZ NOT NULL,
-        collected_at TIMESTAMPTZ NOT NULL,
-        temperature NUMERIC(6, 2),
-        precipitation_type_code VARCHAR(20),
-        precipitation_type_label VARCHAR(50),
-        precipitation_amount VARCHAR(50),
-        humidity NUMERIC(6, 2),
-        wind_speed NUMERIC(6, 2),
-        wind_direction_deg NUMERIC(6, 2),
-        wind_direction_label VARCHAR(50),
-        raw_data JSONB NOT NULL DEFAULT '{}'::jsonb,
-        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-        updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-        UNIQUE (area_id, base_datetime)
-    );
-
-    CREATE TABLE IF NOT EXISTS weather_very_short_raw (
-        id BIGSERIAL PRIMARY KEY,
-        area_id BIGINT NOT NULL REFERENCES weather_area(id) ON DELETE CASCADE,
-        base_datetime TIMESTAMPTZ NOT NULL,
-        collected_at TIMESTAMPTZ NOT NULL,
-        forecast_date DATE NOT NULL,
-        forecast_time TIME NOT NULL,
-        temperature NUMERIC(6, 2),
-        sky_code VARCHAR(20),
-        sky_label VARCHAR(50),
-        precipitation_type_code VARCHAR(20),
-        precipitation_type_label VARCHAR(50),
-        precipitation_amount VARCHAR(50),
-        humidity NUMERIC(6, 2),
-        wind_speed NUMERIC(6, 2),
-        wind_direction_deg NUMERIC(6, 2),
-        wind_direction_label VARCHAR(50),
-        raw_data JSONB NOT NULL DEFAULT '{}'::jsonb,
-        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-        updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-        UNIQUE (area_id, base_datetime, forecast_date, forecast_time)
-    );
-
-    CREATE TABLE IF NOT EXISTS weather_short_raw (
-        id BIGSERIAL PRIMARY KEY,
-        area_id BIGINT NOT NULL REFERENCES weather_area(id) ON DELETE CASCADE,
-        base_datetime TIMESTAMPTZ NOT NULL,
-        collected_at TIMESTAMPTZ NOT NULL,
-        forecast_date DATE NOT NULL,
-        forecast_time TIME NOT NULL,
-        temperature NUMERIC(6, 2),
-        min_temperature NUMERIC(6, 2),
-        max_temperature NUMERIC(6, 2),
-        sky_code VARCHAR(20),
-        sky_label VARCHAR(50),
-        precipitation_type_code VARCHAR(20),
-        precipitation_type_label VARCHAR(50),
-        precipitation_probability NUMERIC(6, 2),
-        precipitation_amount VARCHAR(50),
-        humidity NUMERIC(6, 2),
-        wind_speed NUMERIC(6, 2),
-        wind_direction_deg NUMERIC(6, 2),
-        wind_direction_label VARCHAR(50),
-        raw_data JSONB NOT NULL DEFAULT '{}'::jsonb,
-        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-        updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-        UNIQUE (area_id, base_datetime, forecast_date, forecast_time)
-    );
-
-    CREATE TABLE IF NOT EXISTS weather_mid_land_raw (
-        id BIGSERIAL PRIMARY KEY,
-        area_id BIGINT NOT NULL REFERENCES weather_area(id) ON DELETE CASCADE,
-        base_datetime TIMESTAMPTZ NOT NULL,
-        collected_at TIMESTAMPTZ NOT NULL,
-        forecast_date DATE NOT NULL,
-        forecast_period VARCHAR(2) NOT NULL CHECK (forecast_period IN ('AM', 'PM')),
-        sky_label VARCHAR(100),
-        precipitation_probability NUMERIC(6, 2),
-        raw_data JSONB NOT NULL DEFAULT '{}'::jsonb,
-        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-        updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-        UNIQUE (area_id, base_datetime, forecast_date, forecast_period)
-    );
-
-    CREATE TABLE IF NOT EXISTS weather_mid_temp_raw (
-        id BIGSERIAL PRIMARY KEY,
-        area_id BIGINT NOT NULL REFERENCES weather_area(id) ON DELETE CASCADE,
-        base_datetime TIMESTAMPTZ NOT NULL,
-        collected_at TIMESTAMPTZ NOT NULL,
-        forecast_date DATE NOT NULL,
-        min_temperature NUMERIC(6, 2),
-        max_temperature NUMERIC(6, 2),
-        raw_data JSONB NOT NULL DEFAULT '{}'::jsonb,
-        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-        updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-        UNIQUE (area_id, base_datetime, forecast_date)
-    );
-    """
+def ensure_schema(conn) -> None:
+    """weather 테이블 존재 확인. 스키마는 Django migration(api/apps/weather)이 관리한다."""
     with conn.cursor() as cur:
-        cur.execute(ddl)
-    conn.commit()
-    logger.info("테스트용 DB 스키마 생성/확인 완료")
+        cur.execute("SELECT to_regclass('public.weather_area')")
+        exists = cur.fetchone()[0] is not None
+    if not exists:
+        raise RuntimeError(
+            "weather_area 테이블이 없습니다. 스키마는 Django migration이 관리합니다. "
+            "api 컨테이너(또는 api/에서 `python manage.py migrate`)를 먼저 실행하세요."
+        )
+    logger.info("스키마 확인 완료 (weather_area 존재)")
 
 
 # ============================================================
@@ -1342,7 +1223,6 @@ def run_scheduler(conn) -> None:
 
 def parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="KMA weather DB collector")
-    parser.add_argument("--init-schema", action="store_true", help="로컬 테스트용 테이블 생성")
     parser.add_argument("--sync-areas", action="store_true", help="WeatherArea 마스터 동기화")
     parser.add_argument(
         "--job",
@@ -1359,8 +1239,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     args = parse_args(argv)
     conn = get_connection()
     try:
-        if args.init_schema:
-            init_schema(conn)
+        ensure_schema(conn)  # 스키마는 Django migration이 관리. 없으면 즉시 실패.
         if args.sync_areas:
             sync_weather_areas(conn, include_grid=not args.no_grid, include_mid=not args.no_mid)
         if args.job:
@@ -1371,7 +1250,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
                 run_with_retry(args.job, conn)
         if args.scheduler:
             run_scheduler(conn)
-        if not any([args.init_schema, args.sync_areas, args.job, args.scheduler]):
+        if not any([args.sync_areas, args.job, args.scheduler]):
             logger.info("실행할 작업이 없습니다. --help를 확인하세요.")
         return 0
     finally:

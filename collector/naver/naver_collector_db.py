@@ -10,8 +10,9 @@
   6. llm_tagger로 season/style/usage/layer_* 및 누락 속성 태깅 (이미지 auto fallback)
   7. naver_product upsert
 
+스키마는 Django migration(api/apps/catalog)이 관리한다. 실행 전 migrate 필요.
+
 사용 예:
-  python naver_collector_db.py --init-schema
   python naver_collector_db.py --job collect                       # 전체 키워드 수집
   python naver_collector_db.py --job collect --category-large 상의
   python naver_collector_db.py --job collect --keyword "린넨 셔츠" --limit 50 --skip-llm
@@ -331,7 +332,6 @@ def run_scheduler(limit_per_keyword: int, skip_llm: bool) -> None:
 
 def parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="네이버 쇼핑 의류 상품 collector")
-    parser.add_argument("--init-schema", action="store_true", help="로컬 테스트용 테이블 생성")
     parser.add_argument("--job", choices=["collect", "retag"], help="1회 실행할 작업")
     parser.add_argument("--scheduler", action="store_true", help="매일 자동 수집")
     parser.add_argument("--category-large", help="특정 대분류만 수집 (예: 상의)")
@@ -349,8 +349,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     args = parse_args(argv)
     conn = db.get_connection()
     try:
-        if args.init_schema:
-            db.init_schema(conn)
+        db.ensure_schema(conn)  # 스키마는 Django migration이 관리. 없으면 즉시 실패.
         if args.job == "collect":
             entries = iter_keywords(
                 category_large=args.category_large,
@@ -362,7 +361,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
             retag(conn, args.limit)
         if args.scheduler:
             run_scheduler(args.limit, args.skip_llm)
-        if not any([args.init_schema, args.job, args.scheduler]):
+        if not any([args.job, args.scheduler]):
             logger.info("실행할 작업이 없습니다. --help를 확인하세요.")
         return 0
     finally:

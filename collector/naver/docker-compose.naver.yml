@@ -35,10 +35,9 @@ services:
       TZ: Asia/Seoul
       POSTGRES_HOST: naver-db
       POSTGRES_PORT: 5432
-    # 로컬 테스트용: 운영 전환 시 --init-schema는 Django migration으로 대체한다.
-    command: >
-      sh -c "python /app/naver_collector_db.py --init-schema &&
-             python /app/naver_collector_db.py --scheduler"
+    # 스키마는 Django migration(api/apps/catalog)이 관리한다.
+    # 이 단독 스택의 naver-db에는 api/에서 해당 DB를 가리키게 한 뒤 migrate를 먼저 적용해야 한다.
+    command: python /app/naver_collector_db.py --scheduler
 
 volumes:
   naver_db_data:

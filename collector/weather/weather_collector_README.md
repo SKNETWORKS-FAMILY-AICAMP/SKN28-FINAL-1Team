@@ -12,7 +12,7 @@
 ## 실행 예시
 
 ```bash
-python weather_collector_db.py --init-schema
+# 스키마는 Django migration이 관리: api/에서 `python manage.py migrate` 선행 필수
 python weather_collector_db.py --sync-areas
 python weather_collector_db.py --job nowcast
 python weather_collector_db.py --job very_short
@@ -45,7 +45,7 @@ docker compose -f collector/weather/docker-compose.weather.yml up --build
 
 ## 주의
 
-- `--init-schema`는 로컬 테스트용이다. Django 프로젝트에 붙일 때는 Django model/migration으로 스키마를 만들고, collector에서는 `--sync-areas`, `--scheduler`만 실행하는 방식이 낫다.
+- 스키마는 Django migration(`api/apps/weather`)이 소유한다. collector는 `--sync-areas`, `--job`, `--scheduler`만 수행하며, 시작 시 테이블이 없으면 migrate 안내와 함께 종료한다. 컬럼 변경 시 weather 모델 + 마이그레이션 + collector INSERT 컬럼을 함께 갱신한다.
 - `updated_at`은 DB row 수정 시각이다. 예보 최신성 판단은 `base_datetime` 기준으로 해야 한다.
 - `raw_data`는 API 전체 응답이 아니라 해당 row 생성에 사용된 원본 item/필드 묶음으로 저장한다.
 - 중기 API URL은 계정에서 신청한 URL을 `MID_LAND_URL`, `MID_TEMP_URL`에 넣어야 한다.

@@ -32,12 +32,15 @@ INSTALLED_APPS = [
     "django.contrib.sessions",
     "django.contrib.messages",
     "django.contrib.staticfiles",
+    "django.contrib.postgres",  # ArrayField/GinIndex 시스템 체크 지원
     # 3rd party
     "rest_framework",
     "rest_framework_simplejwt",
     "rest_framework_simplejwt.token_blacklist",
     # local apps
     "apps.users",
+    "apps.catalog",
+    "apps.weather",
 ]
 
 MIDDLEWARE = [

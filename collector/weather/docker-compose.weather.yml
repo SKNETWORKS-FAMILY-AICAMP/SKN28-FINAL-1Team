@@ -40,9 +40,10 @@ services:
       MID_TEMP_AREA_FILE: /app/data/mid_temp_areas.json
     volumes:
       - ./data:/app/data:ro
-    # 로컬 테스트용: Django migration을 쓰는 경우 --init-schema는 제거하고, migration 이후 --sync-areas만 실행한다.
+    # 스키마는 Django migration(api/apps/weather)이 관리한다.
+    # 이 단독 스택의 weather-db에는 api/에서 해당 DB를 가리키게 한 뒤 migrate를 먼저 적용해야 한다.
     command: >
-      sh -c "python /app/weather_collector_db.py --init-schema --sync-areas &&
+      sh -c "python /app/weather_collector_db.py --sync-areas &&
              python /app/weather_collector_db.py --scheduler"
 
 volumes:

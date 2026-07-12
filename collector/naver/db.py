@@ -3,11 +3,13 @@
 
 테이블
 - naver_product      : 수집 상품 원본 + 문서 분류/태그 (insert 전에 태깅 완료가 원칙)
-- naver_product_size : 상품 사이즈별 치수/측정값 (하위 종속 테이블, 스키마만 정의)
+- naver_product_size : 상품 사이즈별 치수/측정값 (하위 종속 테이블)
 
-주의
-- weather collector와 동일하게, 운영 전환 시 이 DDL은 Django model/migration으로
-  옮기는 것을 권장한다. --init-schema는 로컬/개발 PostgreSQL용이다.
+스키마 소유권
+- 테이블 스키마는 Django migration(api/apps/catalog)이 소유한다.
+  collector는 upsert만 수행하므로, 수집 실행 전에 api에서
+  `python manage.py migrate`가 적용되어 있어야 한다.
+  컬럼 변경 시 catalog 모델과 이 파일의 PRODUCT_COLUMNS를 함께 갱신한다.
 """
 
 from __future__ import annotations
@@ -41,114 +43,17 @@ def get_connection():
     )
 
 
-DDL = """
-CREATE TABLE IF NOT EXISTS naver_product (
-    id BIGSERIAL PRIMARY KEY,
-
-    -- 네이버 원본 필드
-    naver_product_id VARCHAR(40) NOT NULL,
-    product_type SMALLINT,                 -- 1~3 일반 / 4~6 중고 / 7~9 단종 / 10~12 판매예정
-    title VARCHAR(500) NOT NULL,           -- <b> 태그 등 제거한 상품명
-    title_raw VARCHAR(500),                -- API 원본 title
-    link TEXT,
-    image_url TEXT,
-    lprice INTEGER,                        -- 최저가 (원)
-    hprice INTEGER,                        -- 최고가 (원, 없으면 NULL)
-    mall_name VARCHAR(200),
-    brand VARCHAR(200),
-    maker VARCHAR(200),
-    naver_category1 VARCHAR(100),
-    naver_category2 VARCHAR(100),
-    naver_category3 VARCHAR(100),
-    naver_category4 VARCHAR(100),
-
-    -- 컨플루언스 문서 분류 (카테고리-태그 매핑 문서 기준)
-    category_large VARCHAR(30) NOT NULL,
-    category_small VARCHAR(50) NOT NULL,
-    category_source VARCHAR(20) NOT NULL DEFAULT 'keyword',  -- naver_category | keyword
-
-    -- 문서 태그 체계 (규칙 추출 + LLM 태깅)
-    season TEXT[] NOT NULL DEFAULT '{}',       -- 봄/여름/가을/겨울/간절기
-    style TEXT[] NOT NULL DEFAULT '{}',        -- 캐주얼/포멀/미니멀 등 후보군
-    color TEXT[] NOT NULL DEFAULT '{}',
-    pattern TEXT[] NOT NULL DEFAULT '{}',
-    fit VARCHAR(30),
-    material TEXT[] NOT NULL DEFAULT '{}',
-    sleeve VARCHAR(20),
-    length VARCHAR(20),
-    usage TEXT[] NOT NULL DEFAULT '{}',
-    layer_role VARCHAR(30),
-    layer_order SMALLINT,
-
-    -- 태깅 메타
-    tag_source JSONB NOT NULL DEFAULT '{}'::jsonb,  -- 필드별 출처 {"color": "rule", "style": "llm", ...}
-    tagging_status VARCHAR(20) NOT NULL DEFAULT 'pending',  -- pending | tagged | failed
-    tagging_model VARCHAR(60),
-    tagging_used_image BOOLEAN NOT NULL DEFAULT FALSE,
-    tagged_at TIMESTAMPTZ,
-
-    -- 수집 메타
-    search_keyword VARCHAR(100),           -- 이 상품을 발견한 검색어
-    raw_data JSONB NOT NULL DEFAULT '{}'::jsonb,
-    collected_at TIMESTAMPTZ NOT NULL,
-    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-
-    UNIQUE (naver_product_id)
-);
-
-CREATE INDEX IF NOT EXISTS ix_naver_product_category
-    ON naver_product (category_large, category_small);
-CREATE INDEX IF NOT EXISTS ix_naver_product_tagging_status
-    ON naver_product (tagging_status);
-CREATE INDEX IF NOT EXISTS ix_naver_product_season
-    ON naver_product USING GIN (season);
-CREATE INDEX IF NOT EXISTS ix_naver_product_style
-    ON naver_product USING GIN (style);
-
--- 사이즈별 치수/측정값 하위 테이블.
--- 네이버 검색 API는 치수 정보를 제공하지 않으므로 별도 수집(상세페이지, 수동 입력 등)으로
--- 채우는 것을 전제로 스키마만 정의한다.
-CREATE TABLE IF NOT EXISTS naver_product_size (
-    id BIGSERIAL PRIMARY KEY,
-    product_id BIGINT NOT NULL REFERENCES naver_product(id) ON DELETE CASCADE,
-
-    size_label VARCHAR(30) NOT NULL,       -- S/M/L/XL, 90~110, 26~34, 230~290, FREE 등
-    size_system VARCHAR(20),               -- KR/US/EU/UK 등 표기 체계
-
-    -- 공통 측정값 (cm 단위, 해당 없는 항목은 NULL)
-    total_length NUMERIC(6, 2),            -- 총장
-    shoulder_width NUMERIC(6, 2),          -- 어깨너비
-    chest_width NUMERIC(6, 2),             -- 가슴단면
-    sleeve_length NUMERIC(6, 2),           -- 소매길이
-    waist_width NUMERIC(6, 2),             -- 허리단면
-    hip_width NUMERIC(6, 2),               -- 힙단면
-    rise NUMERIC(6, 2),                    -- 밑위
-    thigh_width NUMERIC(6, 2),             -- 허벅지단면
-    hem_width NUMERIC(6, 2),               -- 밑단단면
-    foot_length_mm NUMERIC(6, 1),          -- 신발 발길이 (mm)
-
-    -- 위 공통 컬럼으로 표현 안 되는 측정값 {"스트랩길이": 120.0, ...}
-    extra_measurements JSONB NOT NULL DEFAULT '{}'::jsonb,
-
-    source VARCHAR(30) NOT NULL DEFAULT 'manual',  -- manual | csv | detail_page | llm
-    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-
-    UNIQUE (product_id, size_label)
-);
-
-CREATE INDEX IF NOT EXISTS ix_naver_product_size_product
-    ON naver_product_size (product_id);
-"""
-
-
-def init_schema(conn) -> None:
-    """로컬/개발용 테이블 생성. 운영에서는 Django migration 사용 권장."""
+def ensure_schema(conn) -> None:
+    """naver_product 테이블 존재 확인. 없으면 migrate 안내와 함께 실패한다."""
     with conn.cursor() as cur:
-        cur.execute(DDL)
-    conn.commit()
-    logger.info("naver_product / naver_product_size 스키마 생성/확인 완료")
+        cur.execute("SELECT to_regclass('public.naver_product')")
+        exists = cur.fetchone()[0] is not None
+    if not exists:
+        raise RuntimeError(
+            "naver_product 테이블이 없습니다. 스키마는 Django migration이 관리합니다. "
+            "api 컨테이너(또는 api/에서 `python manage.py migrate`)를 먼저 실행하세요."
+        )
+    logger.info("스키마 확인 완료 (naver_product 존재)")
 
 
 PRODUCT_COLUMNS = [
