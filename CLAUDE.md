@@ -31,29 +31,36 @@
 
 ---
 
-## 3. 디렉터리 구조 (권장)
+## 3. 디렉터리 구조
 
 ```
 SKN28-FINAL-1Team/
 ├── CLAUDE.md              # 본 문서 (기초 지침)
-├── README.md             # 프로젝트 소개·실행법
-├── requirements.txt      # 또는 pyproject.toml
-├── .env.example          # 환경변수 템플릿 (실제 .env는 커밋 금지)
+├── README.md              # 프로젝트 소개·실행법
+├── .env.example           # 환경변수 템플릿 (실제 .env는 커밋 금지, 루트 .env 하나로 통합 관리)
 ├── .gitignore
-├── config/               # Django 프로젝트 설정 (settings, urls, wsgi/asgi)
-│   └── settings/         # base.py / dev.py / prod.py 분리
-├── apps/                 # Django 앱 모음
-│   ├── users/            # 사용자·인증
-│   ├── recommend/        # 추천 API·로직
-│   └── catalog/          # 상품/패션 아이템
-├── ml/                   # 모델 학습·추론 코드
-│   ├── train/
-│   ├── inference/
-│   └── models/           # 학습된 가중치 (Git 미포함, S3 등 사용)
-├── scripts/              # 배포·데이터 처리 스크립트
-├── tests/                # 테스트
-└── docs/                 # 설계·아키텍처 문서
+├── docker-compose.yml     # 통합 compose: db + migrate + api + collector 2종 (profiles로 선택 실행)
+├── api/                   # Django REST API 서버
+│   ├── manage.py
+│   ├── requirements.txt
+│   ├── config/            # 프로젝트 설정 (urls, wsgi/asgi)
+│   │   └── settings/      # base.py / dev.py / prod.py 분리
+│   └── apps/              # Django 앱 모음
+│       ├── users/         # 사용자·인증 (naver/kakao/google OAuth + JWT)
+│       ├── catalog/       # 상품 (naver_product 등, collector/naver가 사용)
+│       ├── weather/       # 날씨 (weather_* 테이블, collector/weather가 사용)
+│       └── recommend/     # 추천 API·로직 (예정)
+├── collector/             # 독립 실행 데이터 수집기 (스키마는 Django migration이 소유)
+│   ├── weather/           # 기상청 APIHub 수집
+│   └── naver/             # 네이버 쇼핑 상품 수집 + LLM 태깅
+├── ml/                    # 모델 학습·추론 코드 (예정)
+├── scripts/               # 배포·데이터 처리 스크립트
+└── docs/                  # 설계·아키텍처 문서
 ```
+
+> **스키마 소유권**: 모든 테이블(collector가 쓰는 테이블 포함)의 DDL은 Django migration이 관리한다.
+> collector는 raw SQL upsert만 수행하며, 테이블 컬럼 변경 시 Django 모델·마이그레이션과
+> collector의 INSERT 컬럼 목록을 함께 갱신한다.
 
 ---
 
@@ -145,4 +152,4 @@ python manage.py runserver
 
 ---
 
-_마지막 업데이트: 2026-07-02_
+_마지막 업데이트: 2026-07-12_

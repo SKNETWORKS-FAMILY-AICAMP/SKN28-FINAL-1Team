@@ -1,0 +1,15 @@
+FROM python:3.11-slim
+
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    TZ=Asia/Seoul
+
+WORKDIR /app
+
+COPY requirements.naver.txt /app/requirements.txt
+RUN pip install --no-cache-dir -r /app/requirements.txt
+
+COPY config.py category_mapping.py keywords.py attribute_extractor.py \
+     llm_tagger.py db.py naver_collector_db.py /app/
+
+CMD ["python", "/app/naver_collector_db.py", "--scheduler"]
