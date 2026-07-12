@@ -41,6 +41,21 @@ python manage.py runserver
 python manage.py test apps.users   # 테스트
 ```
 
+## Docker (통합 compose)
+
+루트 `docker-compose.yml`이 db/api/collector를 profiles로 관리한다.
+
+```bash
+# 프로젝트 루트에서
+docker compose --profile api up -d --build      # db + api
+docker compose --profile all up -d --build      # db + api + collector 2종
+# 또는 .env에 COMPOSE_PROFILES=api 지정 후: docker compose up -d
+```
+
+컨테이너 기동 시 `migrate` → `collectstatic` → gunicorn(8000) 순으로 실행된다.
+로컬 http 테스트 시 `.env`에 `DJANGO_SECURE_SSL_REDIRECT=false`
+(또는 `DJANGO_SETTINGS_MODULE=config.settings.dev`)를 설정한다.
+
 ## 소셜 로그인 API
 
 | 메서드 | 경로 | 설명 |

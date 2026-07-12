@@ -1,22 +1,108 @@
-# .env는 프로젝트 루트의 .env를 사용한다 (env_file: .env).
-# collector/*/docker-compose.*.yml 과 동일한 방식으로 통일.
+# ============================================================
+# 통합 compose: db + api + weather-collector + naver-collector
+#
+# 모든 서비스는 profiles로 선택 실행한다. db는 어떤 스택을 켜도 함께 뜬다.
+#
+#   docker compose --profile api up -d                  # db + api
+#   docker compose --profile naver up -d                # db + naver collector
+#   docker compose --profile weather --profile api up -d
+#   docker compose --profile all up -d --build          # 4개 전부
+#
+# .env에 COMPOSE_PROFILES=api,naver 처럼 지정하면 --profile 없이 up만으로 동작.
+# 환경변수는 프로젝트 루트 .env 하나로 관리한다 (이 파일이 루트에 있으므로
+# ${} 보간과 env_file 모두 루트 .env를 읽는다).
+# ============================================================
 services:
   db:
     image: postgres:16-alpine
     container_name: skn28-postgres
     restart: unless-stopped
+    profiles: ["db", "api", "weather", "naver", "all"]
     env_file:
       - .env                  # POSTGRES_DB / POSTGRES_USER / POSTGRES_PASSWORD
+    environment:
+      TZ: Asia/Seoul
     ports:
       - "5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
-      # $$: 컨테이너 내부 환경변수 참조 (compose 보간 아님 → .env 위치와 무관)
+      # $$: 컨테이너 내부 환경변수 참조 (compose 보간 아님)
       test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
       interval: 10s
       timeout: 5s
       retries: 5
+
+  api:
+    build:
+      context: ./api
+    container_name: skn28-api
+    restart: unless-stopped
+    profiles: ["api", "all"]
+    depends_on:
+      db:
+        condition: service_healthy
+    env_file:
+      - .env                  # DJANGO_*, *_OAUTH_*, POSTGRES_* 등
+    environment:
+      TZ: Asia/Seoul
+      POSTGRES_HOST: db
+      POSTGRES_PORT: 5432
+      DJANGO_SETTINGS_MODULE: ${DJANGO_SETTINGS_MODULE:-config.settings.prod}
+    ports:
+      - "8000:8000"
+    command: >
+      sh -c "python manage.py migrate --noinput &&
+             python manage.py collectstatic --noinput &&
+             gunicorn config.wsgi:application --bind 0.0.0.0:8000
+             --workers ${GUNICORN_WORKERS:-3}"
+
+  weather-collector:
+    build:
+      context: ./collector/weather
+      dockerfile: Dockerfile.weather
+    container_name: weather-collector
+    restart: unless-stopped
+    profiles: ["weather", "all"]
+    depends_on:
+      db:
+        condition: service_healthy
+    env_file:
+      - .env                  # KMA_AUTH_KEY, MID_*_URL, POSTGRES_* 등
+    environment:              # env_file보다 우선하는 컨테이너 전용 고정값
+      TZ: Asia/Seoul
+      POSTGRES_HOST: db
+      POSTGRES_PORT: 5432
+      GRID_FILE_PATH: /app/data/동네예보지점좌표(위경도)_202601.xlsx
+      MID_LAND_AREA_FILE: /app/data/mid_land_areas.json
+      MID_TEMP_AREA_FILE: /app/data/mid_temp_areas.json
+    volumes:
+      - ./collector/weather/data:/app/data:ro
+    # 로컬 테스트용: Django migration 도입 후에는 --init-schema를 제거한다.
+    command: >
+      sh -c "python /app/weather_collector_db.py --init-schema --sync-areas &&
+             python /app/weather_collector_db.py --scheduler"
+
+  naver-collector:
+    build:
+      context: ./collector/naver
+      dockerfile: Dockerfile.naver
+    container_name: naver-collector
+    restart: unless-stopped
+    profiles: ["naver", "all"]
+    depends_on:
+      db:
+        condition: service_healthy
+    env_file:
+      - .env                  # NAVER_*, OPENAI_*, POSTGRES_* 등
+    environment:
+      TZ: Asia/Seoul
+      POSTGRES_HOST: db
+      POSTGRES_PORT: 5432
+    # 로컬 테스트용: Django migration 도입 후에는 --init-schema를 제거한다.
+    command: >
+      sh -c "python /app/naver_collector_db.py --init-schema &&
+             python /app/naver_collector_db.py --scheduler"
 
 volumes:
   postgres_data:
