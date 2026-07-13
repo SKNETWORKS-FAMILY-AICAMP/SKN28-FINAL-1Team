@@ -1,12 +1,12 @@
 # ============================================================
-# 통합 compose: db + api + weather-collector + naver-collector
+# 통합 compose: db + qdrant + api + weather-collector + naver-collector
 #
 # 모든 서비스는 profiles로 선택 실행한다. db는 어떤 스택을 켜도 함께 뜬다.
 #
-#   docker compose --profile api up -d                  # db + api
+#   docker compose --profile api up -d                  # db + qdrant + api
 #   docker compose --profile naver up -d                # db + naver collector
-#   docker compose --profile weather --profile api up -d
-#   docker compose --profile all up -d --build          # 4개 전부
+#   docker compose --profile qdrant up -d               # db + qdrant만
+#   docker compose --profile all up -d --build          # 전부
 #
 # .env에 COMPOSE_PROFILES=api,naver 처럼 지정하면 --profile 없이 up만으로 동작.
 # 환경변수는 프로젝트 루트 .env 하나로 관리한다 (이 파일이 루트에 있으므로
@@ -29,6 +29,31 @@ services:
     healthcheck:
       # $$: 컨테이너 내부 환경변수 참조 (compose 보간 아님)
       test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # 벡터 검색 (추천 RAG). 스키마(컬렉션)는 Django 커맨드가 소유:
+  #   docker compose exec api python manage.py init_qdrant
+  # 프로덕션(EC2)에서는 named volume 대신 EBS 마운트 경로를 바인드하고
+  # QDRANT_API_KEY를 반드시 설정한다 (미설정 시 무인증 — 로컬 전용).
+  qdrant:
+    image: qdrant/qdrant:v1.17.0
+    container_name: skn28-qdrant
+    restart: unless-stopped
+    profiles: ["qdrant", "api", "all"]
+    environment:
+      TZ: Asia/Seoul
+      # 비어 있으면 Qdrant가 인증 없이 뜬다. 외부 노출 시 필수.
+      QDRANT__SERVICE__API_KEY: ${QDRANT_API_KEY:-}
+    ports:
+      - "6333:6333"             # REST
+      - "6334:6334"             # gRPC
+    volumes:
+      - qdrant_data:/qdrant/storage
+    healthcheck:
+      # 이미지에 curl이 없어 bash TCP 소켓으로 포트 오픈만 확인
+      test: ["CMD-SHELL", "bash -c ':> /dev/tcp/127.0.0.1/6333' || exit 1"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -70,6 +95,7 @@ services:
       TZ: Asia/Seoul
       POSTGRES_HOST: db
       POSTGRES_PORT: 5432
+      QDRANT_URL: http://qdrant:6333   # 컨테이너 네트워크 내부 주소
       DJANGO_SETTINGS_MODULE: ${DJANGO_SETTINGS_MODULE:-config.settings.prod}
     ports:
       - "8000:8000"
@@ -129,3 +155,4 @@ services:
 
 volumes:
   postgres_data:
+  qdrant_data:
