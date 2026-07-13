@@ -7,14 +7,27 @@
 
 from __future__ import annotations
 
-from django.contrib.auth.models import AbstractUser
+from django.contrib.auth.models import AbstractUser, Permission
 from django.db import models
+from django.utils.translation import gettext_lazy as _
 
 
 class User(AbstractUser):
     # 소셜 로그인 전용이므로 password는 사용하지 않는다 (set_unusable_password).
     nickname = models.CharField("닉네임", max_length=100, blank=True)
     profile_image = models.URLField("프로필 이미지", blank=True)
+
+    # PermissionsMixin의 필드를 재정의해 자동 M2M 테이블명(users_user_permissions)을
+    # users_permissions로 단순화한다. db_table 외 옵션은 원본과 동일하게 유지한다.
+    user_permissions = models.ManyToManyField(
+        Permission,
+        verbose_name=_("user permissions"),
+        blank=True,
+        help_text=_("Specific permissions for this user."),
+        related_name="user_set",
+        related_query_name="user",
+        db_table="users_permissions",
+    )
 
     class Meta:
         db_table = "users"
