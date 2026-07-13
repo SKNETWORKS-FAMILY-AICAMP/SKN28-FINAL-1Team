@@ -124,6 +124,82 @@ _SYSTEM_PROMPT = """\
 """
 
 
+def build_messages(
+    title: str,
+    category_large: str,
+    category_small: str,
+    naver_categories: list[str],
+    rule_attrs: Dict[str, Any],
+    image_url: Optional[str] = None,
+) -> list[dict]:
+    """chat.completions 메시지 구성. 동기 태깅과 Batch API가 공용으로 쓴다."""
+    payload = {
+        "item_name": title,
+        "category_large": category_large,
+        "category_small": category_small,
+        "naver_category_path": " > ".join(c for c in naver_categories if c),
+        "rule_extracted": rule_attrs,
+    }
+    content: list[dict] = [{"type": "text", "text": json.dumps(payload, ensure_ascii=False)}]
+    if image_url:
+        content.append({"type": "image_url", "image_url": {"url": image_url, "detail": "low"}})
+    return [
+        {"role": "system", "content": _SYSTEM_PROMPT},
+        {"role": "user", "content": content},
+    ]
+
+
+def response_format() -> dict:
+    """structured output 스펙. 동기/배치 공용."""
+    return {"type": "json_schema", "json_schema": _JSON_SCHEMA}
+
+
+def merge_tags(rule_attrs: Dict[str, Any], llm_tags: Dict[str, Any]) -> Tuple[Dict[str, Any], Dict[str, str]]:
+    """
+    규칙 추출값 우선 병합. 규칙값이 비어 있으면 LLM 값을 쓰고 출처를 기록한다.
+    season/style/usage/layer_*는 LLM 전용 필드.
+    """
+    merged: Dict[str, Any] = {}
+    source: Dict[str, str] = {}
+
+    for field in ("color", "pattern", "material"):
+        rule_val = rule_attrs.get(field) or []
+        if rule_val:
+            merged[field], source[field] = rule_val, "rule"
+        else:
+            merged[field] = llm_tags.get(field) or []
+            if merged[field]:
+                source[field] = "llm"
+
+    for field in ("fit", "sleeve", "length"):
+        rule_val = rule_attrs.get(field)
+        if rule_val:
+            merged[field], source[field] = rule_val, "rule"
+        else:
+            merged[field] = llm_tags.get(field)
+            if merged[field]:
+                source[field] = "llm"
+
+    for field in ("season", "style", "usage"):
+        merged[field] = llm_tags.get(field) or []
+        if merged[field]:
+            source[field] = "llm"
+
+    for field in ("layer_role", "layer_order"):
+        merged[field] = llm_tags.get(field)
+        if merged[field] is not None:
+            source[field] = "llm"
+
+    # 후보군 밖 값 방어
+    merged["season"] = [s for s in merged["season"] if s in SEASONS]
+    merged["style"] = [s for s in merged["style"] if s in STYLES][:3]
+    if merged.get("layer_role") not in LAYER_ROLES:
+        merged["layer_role"] = None
+        source.pop("layer_role", None)
+
+    return merged, source
+
+
 class LLMTagger:
     def __init__(self) -> None:
         if OpenAI is None:
@@ -175,7 +251,7 @@ class LLMTagger:
                 "tag_source": {},
             }
 
-        merged, tag_source = self._merge(rule_attrs, tags)
+        merged, tag_source = merge_tags(rule_attrs, tags)
         return merged, {
             "tagging_status": "tagged",
             "tagging_model": self.model,
@@ -193,27 +269,17 @@ class LLMTagger:
         rule_attrs: Dict[str, Any],
         image_url: Optional[str],
     ) -> Optional[Dict[str, Any]]:
-        payload = {
-            "item_name": title,
-            "category_large": category_large,
-            "category_small": category_small,
-            "naver_category_path": " > ".join(c for c in naver_categories if c),
-            "rule_extracted": rule_attrs,
-        }
-        content: list[dict] = [{"type": "text", "text": json.dumps(payload, ensure_ascii=False)}]
-        if image_url:
-            content.append({"type": "image_url", "image_url": {"url": image_url, "detail": "low"}})
+        messages = build_messages(
+            title, category_large, category_small, naver_categories, rule_attrs, image_url
+        )
 
         for attempt in range(LLM_MAX_RETRIES + 1):
             try:
                 response = self.client.chat.completions.create(
                     model=self.model,
                     temperature=LLM_TEMPERATURE,
-                    messages=[
-                        {"role": "system", "content": _SYSTEM_PROMPT},
-                        {"role": "user", "content": content},
-                    ],
-                    response_format={"type": "json_schema", "json_schema": _JSON_SCHEMA},
+                    messages=messages,
+                    response_format=response_format(),
                 )
                 return json.loads(response.choices[0].message.content)
             except Exception:  # noqa: BLE001
@@ -223,49 +289,3 @@ class LLMTagger:
                     time.sleep(2 ** attempt)
         return None
 
-    # --------------------------------------------------------
-    @staticmethod
-    def _merge(rule_attrs: Dict[str, Any], llm_tags: Dict[str, Any]) -> Tuple[Dict[str, Any], Dict[str, str]]:
-        """
-        규칙 추출값 우선 병합. 규칙값이 비어 있으면 LLM 값을 쓰고 출처를 기록한다.
-        season/style/usage/layer_*는 LLM 전용 필드.
-        """
-        merged: Dict[str, Any] = {}
-        source: Dict[str, str] = {}
-
-        for field in ("color", "pattern", "material"):
-            rule_val = rule_attrs.get(field) or []
-            if rule_val:
-                merged[field], source[field] = rule_val, "rule"
-            else:
-                merged[field] = llm_tags.get(field) or []
-                if merged[field]:
-                    source[field] = "llm"
-
-        for field in ("fit", "sleeve", "length"):
-            rule_val = rule_attrs.get(field)
-            if rule_val:
-                merged[field], source[field] = rule_val, "rule"
-            else:
-                merged[field] = llm_tags.get(field)
-                if merged[field]:
-                    source[field] = "llm"
-
-        for field in ("season", "style", "usage"):
-            merged[field] = llm_tags.get(field) or []
-            if merged[field]:
-                source[field] = "llm"
-
-        for field in ("layer_role", "layer_order"):
-            merged[field] = llm_tags.get(field)
-            if merged[field] is not None:
-                source[field] = "llm"
-
-        # 후보군 밖 값 방어
-        merged["season"] = [s for s in merged["season"] if s in SEASONS]
-        merged["style"] = [s for s in merged["style"] if s in STYLES][:3]
-        if merged.get("layer_role") not in LAYER_ROLES:
-            merged["layer_role"] = None
-            source.pop("layer_role", None)
-
-        return merged, source
