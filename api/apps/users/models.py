@@ -17,7 +17,7 @@ class User(AbstractUser):
     profile_image = models.URLField("프로필 이미지", blank=True)
 
     class Meta:
-        db_table = "users_user"
+        db_table = "users"
         verbose_name = "사용자"
         verbose_name_plural = "사용자"
 
@@ -43,7 +43,7 @@ class SocialAccount(models.Model):
     last_login_at = models.DateTimeField("마지막 로그인", auto_now=True)
 
     class Meta:
-        db_table = "users_social_account"
+        db_table = "social_accounts"
         verbose_name = "소셜 계정"
         verbose_name_plural = "소셜 계정"
         constraints = [
