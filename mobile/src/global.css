@@ -1,0 +1,33 @@
+:root {
+  --font-display:
+    Spline Sans, Inter, ui-sans-serif, system-ui, sans-serif, Apple Color Emoji, Segoe UI Emoji,
+    Segoe UI Symbol, Noto Color Emoji;
+  --font-mono:
+    ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, Liberation Mono, Courier New, monospace;
+  --font-rounded: 'SF Pro Rounded', 'Hiragino Maru Gothic ProN', Meiryo, 'MS PGothic', sans-serif;
+  --font-serif: Georgia, 'Times New Roman', serif;
+}
+
+/* 웹(데스크톱)에서 앱을 가운데 '모바일 폭' 프레임으로만 표시.
+   폰(≤440px)에선 그대로 꽉 차게 나옴. 440은 closet/lookbook/onboarding의 캡 값과 일치시킬 것. */
+@media screen and (min-width: 440px) {
+  html,
+  body {
+    background-color: #dcd9d3;
+  }
+  #root {
+    max-width: 440px;
+    margin-left: auto;
+    margin-right: auto;
+    background-color: #ffffff;
+    box-shadow: 0 0 50px rgba(0, 0, 0, 0.13);
+  }
+}
+
+/* 하단 탭바 글래스(프로스티드 유리) 효과 — 스크롤 콘텐츠가 반투명 바 뒤로 비쳐 흐려짐.
+   탭바는 app-tabs.web.tsx에서 nativeID="cozy-tabbar" + position:absolute로 콘텐츠 위에 떠 있음. */
+#cozy-tabbar {
+  -webkit-backdrop-filter: saturate(180%) blur(24px);
+  backdrop-filter: saturate(180%) blur(24px);
+  box-shadow: 0 -6px 20px rgba(0, 0, 0, 0.05);
+}
