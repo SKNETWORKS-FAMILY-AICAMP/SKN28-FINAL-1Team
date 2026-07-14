@@ -156,6 +156,15 @@ OAUTH_PROVIDERS = {
         "token_url": "https://oauth2.googleapis.com/token",
         "profile_url": "https://www.googleapis.com/oauth2/v3/userinfo",
     },
+    # 애플은 client_secret을 정적 문자열이 아닌 ES256 JWT로 동적 생성한다.
+    # profile_url 없음 — 사용자 정보는 id_token(JWT) 디코딩으로 획득한다.
+    "apple": {
+        "client_id":   os.getenv("APPLE_CLIENT_ID", ""),    # Service ID (com.example.app)
+        "team_id":     os.getenv("APPLE_TEAM_ID", ""),      # 10자리 팀 ID
+        "key_id":      os.getenv("APPLE_KEY_ID", ""),       # 개인키 Key ID
+        "private_key": os.getenv("APPLE_PRIVATE_KEY", ""),  # PEM 전체 문자열 (\n 포함)
+        "token_url":   "https://appleid.apple.com/auth/token",
+    },
 }
 
 OAUTH_REQUEST_TIMEOUT = int(os.getenv("OAUTH_REQUEST_TIMEOUT", "10"))

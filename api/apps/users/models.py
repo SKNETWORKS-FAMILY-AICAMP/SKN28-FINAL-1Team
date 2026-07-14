@@ -43,6 +43,7 @@ class SocialAccount(models.Model):
         NAVER = "naver", "네이버"
         KAKAO = "kakao", "카카오"
         GOOGLE = "google", "구글"
+        APPLE = "apple", "애플"
 
     user = models.ForeignKey(
         User, on_delete=models.CASCADE, related_name="social_accounts"

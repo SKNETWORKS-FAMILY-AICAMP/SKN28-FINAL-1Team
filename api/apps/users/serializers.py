@@ -11,6 +11,8 @@ class SocialLoginSerializer(serializers.Serializer):
     redirect_uri = serializers.URLField(required=False, allow_blank=True)
     # 네이버는 state 검증을 사용한다.
     state = serializers.CharField(required=False, allow_blank=True)
+    # 애플 전용: 최초 로그인 시 Apple SDK가 전달하는 사용자 이름 (이후 로그인엔 빈값).
+    user_name = serializers.CharField(required=False, allow_blank=True)
 
 
 class SocialAccountSerializer(serializers.ModelSerializer):

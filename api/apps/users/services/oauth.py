@@ -16,9 +16,11 @@
 
 from __future__ import annotations
 
+import time
 from dataclasses import dataclass
 from typing import Any, Dict, Optional
 
+import jwt
 import requests
 from django.conf import settings
 
@@ -39,6 +41,36 @@ class SocialProfile:
 
 # client_secret이 필수인 제공사 (카카오는 콘솔에서 활성화한 경우만 선택 사용)
 _SECRET_REQUIRED = {"naver", "google"}
+
+
+def _generate_apple_client_secret(config: Dict[str, str]) -> str:
+    """
+    Apple Sign In용 client_secret JWT를 동적으로 생성한다.
+
+    Apple은 정적 client_secret 대신 개발자 개인키(ES256)로 서명한 JWT를 요구한다.
+    유효시간은 Apple 권장에 따라 5분으로 제한한다.
+    """
+    if not config.get("team_id"):
+        raise OAuthError("APPLE_TEAM_ID가 설정되지 않았습니다 (.env 확인).")
+    if not config.get("key_id"):
+        raise OAuthError("APPLE_KEY_ID가 설정되지 않았습니다 (.env 확인).")
+    if not config.get("private_key"):
+        raise OAuthError("APPLE_PRIVATE_KEY가 설정되지 않았습니다 (.env 확인).")
+
+    now = int(time.time())
+    payload = {
+        "iss": config["team_id"],
+        "iat": now,
+        "exp": now + 300,  # 5분 (Apple 권장 최대값)
+        "aud": "https://appleid.apple.com",
+        "sub": config["client_id"],
+    }
+    return jwt.encode(
+        payload,
+        config["private_key"],
+        algorithm="ES256",
+        headers={"kid": config["key_id"]},
+    )
 
 
 def _provider_config(provider: str) -> Dict[str, str]:
@@ -122,8 +154,21 @@ def exchange_code(
         data["client_secret"] = config["client_secret"]
         if redirect_uri:
             data["redirect_uri"] = redirect_uri
+    elif provider == "apple":
+        # client_secret은 개인키로 서명한 JWT를 동적 생성한다.
+        data["client_secret"] = _generate_apple_client_secret(config)
+        if redirect_uri:
+            data["redirect_uri"] = redirect_uri
 
     payload = _post_token(config["token_url"], data)
+
+    # Apple은 access_token으로 프로필 API를 제공하지 않는다.
+    # 대신 토큰 교환 응답에 포함된 id_token(JWT)으로 사용자 정보를 얻는다.
+    if provider == "apple":
+        if "id_token" not in payload:
+            raise OAuthError(f"Apple 토큰 교환 실패: id_token 없음 {payload}")
+        return payload["id_token"]
+
     return payload["access_token"]
 
 
@@ -132,8 +177,17 @@ def exchange_code(
 # ------------------------------------------------------------
 
 
-def fetch_profile(provider: str, access_token: str) -> SocialProfile:
+def fetch_profile(
+    provider: str,
+    access_token: str,
+    apple_user_name: Optional[str] = None,
+) -> SocialProfile:
     config = _provider_config(provider)
+
+    # Apple은 profile_url이 없고 id_token(JWT)에서 사용자 정보를 추출한다.
+    if provider == "apple":
+        return _fetch_apple_profile(config, id_token=access_token, user_name=apple_user_name)
+
     raw = _get_profile(config["profile_url"], access_token)
 
     if provider == "naver":
@@ -181,12 +235,70 @@ def fetch_profile(provider: str, access_token: str) -> SocialProfile:
     raise OAuthError(f"지원하지 않는 provider: {provider}")
 
 
+def _fetch_apple_profile(
+    config: Dict[str, str],
+    id_token: str,
+    user_name: Optional[str] = None,
+) -> SocialProfile:
+    """
+    Apple id_token(JWT)을 Apple 공개키로 검증하고 SocialProfile로 변환한다.
+
+    Apple은 최초 로그인 시에만 프론트엔드에 사용자 이름을 전달한다.
+    이후 로그인에서는 이름이 없으므로 user_name이 없으면 빈 문자열로 저장한다
+    (accounts.py의 _refresh_profile이 빈 값을 덮어쓰지 않으므로 기존 닉네임 유지됨).
+    """
+    try:
+        jwks_response = requests.get(
+            "https://appleid.apple.com/auth/keys",
+            timeout=settings.OAUTH_REQUEST_TIMEOUT,
+        )
+        jwks = _json_or_error(jwks_response)
+    except requests.RequestException as exc:
+        raise OAuthError(f"Apple 공개키 조회 실패: {exc}") from exc
+
+    try:
+        header = jwt.get_unverified_header(id_token)
+        matched_key = next(
+            (k for k in jwks.get("keys", []) if k.get("kid") == header.get("kid")),
+            None,
+        )
+        if not matched_key:
+            raise OAuthError("Apple id_token의 kid와 일치하는 공개키가 없습니다.")
+
+        from jwt.algorithms import RSAAlgorithm  # noqa: PLC0415
+
+        public_key = RSAAlgorithm.from_jwk(matched_key)
+        claims = jwt.decode(
+            id_token,
+            public_key,
+            algorithms=["RS256"],
+            audience=config["client_id"],
+            issuer="https://appleid.apple.com",
+        )
+    except jwt.PyJWTError as exc:
+        raise OAuthError(f"Apple id_token 검증 실패: {exc}") from exc
+
+    sub = claims.get("sub")
+    if not sub:
+        raise OAuthError("Apple id_token에 sub 클레임이 없습니다.")
+
+    return SocialProfile(
+        provider="apple",
+        provider_user_id=str(sub),
+        email=claims.get("email") or "",
+        nickname=user_name or "",
+        profile_image="",  # Apple은 프로필 이미지를 제공하지 않는다.
+        raw=claims,
+    )
+
+
 def authenticate(
     provider: str,
     code: str,
     redirect_uri: Optional[str] = None,
     state: Optional[str] = None,
+    apple_user_name: Optional[str] = None,
 ) -> SocialProfile:
     """code 교환 + 프로필 조회를 한 번에."""
     access_token = exchange_code(provider, code, redirect_uri, state)
-    return fetch_profile(provider, access_token)
+    return fetch_profile(provider, access_token, apple_user_name=apple_user_name)

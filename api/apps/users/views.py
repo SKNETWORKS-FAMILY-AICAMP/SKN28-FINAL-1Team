@@ -38,7 +38,7 @@ class SocialLoginView(APIView):
 
         # 제공사별 필수 파라미터: 카카오/구글은 인가 요청과 동일한 redirect_uri를
         # 토큰 교환에 다시 보내야 하고, 네이버는 state가 필수다.
-        if provider in ("kakao", "google") and not data.get("redirect_uri"):
+        if provider in ("kakao", "google", "apple") and not data.get("redirect_uri"):
             return Response(
                 {"detail": "redirect_uri가 필요합니다."}, status=status.HTTP_400_BAD_REQUEST
             )
@@ -53,6 +53,7 @@ class SocialLoginView(APIView):
                 code=data["code"],
                 redirect_uri=data.get("redirect_uri") or None,
                 state=data.get("state") or None,
+                apple_user_name=data.get("user_name") or None,
             )
         except oauth.OAuthError as exc:
             # 제공사 원본 응답에 내부 정보가 포함될 수 있어 로그에만 남긴다.
