@@ -147,7 +147,11 @@ OAUTH_PROVIDERS = {
     "kakao": {
         "client_id": os.getenv("KAKAO_OAUTH_REST_API_KEY", ""),
         "client_secret": os.getenv("KAKAO_OAUTH_CLIENT_SECRET", ""),  # 선택(보안 강화 시)
+        # token 방식 로그인(네이티브 앱 SDK) 검증용 앱 ID (숫자).
+        # 다른 카카오 앱에서 발급된 access_token으로 로그인하는 것을 차단한다.
+        "app_id": os.getenv("KAKAO_APP_ID", ""),
         "token_url": "https://kauth.kakao.com/oauth/token",
+        "token_info_url": "https://kapi.kakao.com/v1/user/access_token_info",
         "profile_url": "https://kapi.kakao.com/v2/user/me",
     },
     "google": {

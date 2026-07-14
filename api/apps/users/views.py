@@ -18,7 +18,8 @@ class SocialLoginView(APIView):
     """
     POST /api/v1/auth/{provider}/login/
 
-    body: {"code": "...", "redirect_uri": "...", "state": "..."}
+    body (code 방식): {"code": "...", "redirect_uri": "...", "state": "..."}
+    body (token 방식, 카카오 네이티브 앱 SDK 전용): {"access_token": "..."}
     응답: {"access": "...", "refresh": "...", "user": {...}, "is_new_user": bool}
     """
 
@@ -36,30 +37,41 @@ class SocialLoginView(APIView):
         serializer.is_valid(raise_exception=True)
         data = serializer.validated_data
 
-        # 제공사별 필수 파라미터: 카카오/구글은 인가 요청과 동일한 redirect_uri를
-        # 토큰 교환에 다시 보내야 하고, 네이버는 state가 필수다.
-        if provider in ("kakao", "google", "apple") and not data.get("redirect_uri"):
-            return Response(
-                {"detail": "redirect_uri가 필요합니다."}, status=status.HTTP_400_BAD_REQUEST
-            )
-        if provider == "naver" and not data.get("state"):
-            return Response(
-                {"detail": "state가 필요합니다."}, status=status.HTTP_400_BAD_REQUEST
-            )
+        # token 방식(카카오 네이티브 앱 SDK): 앱이 SDK로 받은 access_token을 전달.
+        # code 방식: 웹 프론트가 받은 인가 코드를 전달 (기존 흐름).
+        use_token_login = bool(data.get("access_token")) and not data.get("code")
+
+        if not use_token_login:
+            # 제공사별 필수 파라미터: 카카오/구글은 인가 요청과 동일한 redirect_uri를
+            # 토큰 교환에 다시 보내야 하고, 네이버는 state가 필수다.
+            if provider in ("kakao", "google", "apple") and not data.get("redirect_uri"):
+                return Response(
+                    {"detail": "redirect_uri가 필요합니다."}, status=status.HTTP_400_BAD_REQUEST
+                )
+            if provider == "naver" and not data.get("state"):
+                return Response(
+                    {"detail": "state가 필요합니다."}, status=status.HTTP_400_BAD_REQUEST
+                )
 
         try:
-            profile = oauth.authenticate(
-                provider=provider,
-                code=data["code"],
-                redirect_uri=data.get("redirect_uri") or None,
-                state=data.get("state") or None,
-                apple_user_name=data.get("user_name") or None,
-            )
+            if use_token_login:
+                profile = oauth.authenticate_with_token(
+                    provider=provider,
+                    access_token=data["access_token"],
+                )
+            else:
+                profile = oauth.authenticate(
+                    provider=provider,
+                    code=data["code"],
+                    redirect_uri=data.get("redirect_uri") or None,
+                    state=data.get("state") or None,
+                    apple_user_name=data.get("user_name") or None,
+                )
         except oauth.OAuthError as exc:
             # 제공사 원본 응답에 내부 정보가 포함될 수 있어 로그에만 남긴다.
             logger.warning("소셜 로그인 실패 (%s): %s", provider, exc)
             return Response(
-                {"detail": "소셜 로그인에 실패했습니다. 인가 코드를 확인해주세요."},
+                {"detail": "소셜 로그인에 실패했습니다. 인가 코드 또는 토큰을 확인해주세요."},
                 status=status.HTTP_401_UNAUTHORIZED,
             )
 

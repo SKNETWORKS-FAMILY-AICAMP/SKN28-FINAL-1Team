@@ -172,3 +172,5 @@ logs/
 *.bak
 *.orig
 *.rej
+
+output

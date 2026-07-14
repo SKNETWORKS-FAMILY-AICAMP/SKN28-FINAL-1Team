@@ -302,3 +302,45 @@ def authenticate(
     """code 교환 + 프로필 조회를 한 번에."""
     access_token = exchange_code(provider, code, redirect_uri, state)
     return fetch_profile(provider, access_token, apple_user_name=apple_user_name)
+
+
+# ------------------------------------------------------------
+# token 방식 로그인 (카카오 네이티브 앱 SDK 전용)
+# ------------------------------------------------------------
+
+# token 방식을 허용하는 제공사. 카카오 Android/iOS SDK는 인가 코드를 앱에
+# 노출하지 않고 access_token을 직접 반환하므로 code 방식이 불가능하다.
+_TOKEN_LOGIN_PROVIDERS = {"kakao"}
+
+
+def _verify_kakao_token(config: Dict[str, str], access_token: str) -> None:
+    """
+    access_token이 '우리 앱'에서 발급된 것인지 검증한다.
+
+    프론트가 보낸 토큰을 무검증으로 신뢰하면, 공격자가 다른 카카오 앱에서
+    피해자에게 발급된 토큰으로 우리 서비스에 로그인할 수 있다.
+    /v1/user/access_token_info의 app_id를 반드시 대조한다.
+    """
+    expected_app_id = config.get("app_id")
+    if not expected_app_id:
+        raise OAuthError("KAKAO_APP_ID가 설정되지 않았습니다 (.env 확인).")
+
+    info = _get_profile(config["token_info_url"], access_token)
+    if str(info.get("app_id")) != str(expected_app_id):
+        raise OAuthError(
+            f"access_token의 app_id가 서비스 앱과 일치하지 않습니다: {info.get('app_id')}"
+        )
+
+
+def authenticate_with_token(provider: str, access_token: str) -> SocialProfile:
+    """
+    프론트(네이티브 앱 SDK)가 전달한 제공사 access_token으로 인증한다.
+
+    앱 소유권 검증(app_id 대조) 후 프로필을 조회한다.
+    """
+    if provider not in _TOKEN_LOGIN_PROVIDERS:
+        raise OAuthError(f"{provider}는 access_token 방식 로그인을 지원하지 않습니다.")
+
+    config = _provider_config(provider)
+    _verify_kakao_token(config, access_token)
+    return fetch_profile(provider, access_token)
