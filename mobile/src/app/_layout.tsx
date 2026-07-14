@@ -1,11 +1,13 @@
+import { initializeKakaoSDK } from '@react-native-kakao/core';
 import { DarkTheme, DefaultTheme, Stack, ThemeProvider } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';
 import { useEffect } from 'react';
-import { useColorScheme } from 'react-native';
+import { Platform, useColorScheme } from 'react-native';
 
 import { AnimatedSplashOverlay } from '@/components/animated-icon';
 import { DevReset } from '@/components/dev-reset';
 import { ConfirmProvider, ToastProvider } from '@/components/ui';
+import { KAKAO_NATIVE_APP_KEY } from '@/constants/config';
 import { authStore } from '@/state/auth';
 
 SplashScreen.preventAutoHideAsync();
@@ -13,8 +15,11 @@ SplashScreen.preventAutoHideAsync();
 export default function RootLayout() {
   const colorScheme = useColorScheme();
 
-  // 앱 시작 시 저장된 토큰으로 세션 복원 (없으면 게스트)
+  // 앱 시작 시: 카카오 SDK 초기화 + 저장된 토큰으로 세션 복원
   useEffect(() => {
+    if (Platform.OS !== 'web') {
+      initializeKakaoSDK(KAKAO_NATIVE_APP_KEY);
+    }
     authStore.bootstrap();
   }, []);
   return (

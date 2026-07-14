@@ -5,6 +5,7 @@ import type { SocialProvider } from '@/constants/config';
 import {
   loginWith,
   loginWithApple,
+  loginWithKakao,
   type SocialLoginResult,
 } from '@/lib/socialLogin';
 
@@ -42,7 +43,7 @@ export function useSocialLogin() {
 
   return {
     pending,
-    kakao: () => run('kakao', () => loginWith('kakao')),
+    kakao: () => run('kakao', loginWithKakao),
     naver: () => run('naver', () => loginWith('naver')),
     google: () => run('google', () => loginWith('google')),
     apple: () => run('apple', loginWithApple),

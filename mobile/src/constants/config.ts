@@ -15,11 +15,12 @@ export const API_BASE_URL =
 export type SocialProvider = 'kakao' | 'naver' | 'google';
 
 /**
- * 카카오 REST API 키 — authorize 요청의 client_id 로 쓴다.
- * 공개키라 앱에 둬도 안전하다. (client_secret 은 백엔드 전용, 앱엔 절대 넣지 않음)
- * 카카오 개발자 콘솔에서 발급받아 .env 의 EXPO_PUBLIC_KAKAO_REST_API_KEY 에 넣으면 된다.
+ * 카카오 네이티브 앱 키 — 네이티브 SDK 초기화(initializeKakaoSDK)에 사용.
+ * 앱 바이너리(URL 스킴)에 어차피 포함되는 준공개값이라 app.json/여기에 둔다.
+ * (client_secret 같은 진짜 시크릿은 백엔드 전용, 앱엔 절대 넣지 않음)
  */
-export const KAKAO_REST_API_KEY = process.env.EXPO_PUBLIC_KAKAO_REST_API_KEY ?? '';
+export const KAKAO_NATIVE_APP_KEY =
+  process.env.EXPO_PUBLIC_KAKAO_NATIVE_APP_KEY ?? '1366adcd2e8c643a4b5471fabd32b6ea';
 
 /** 네이버 Client ID (authorize 요청용). client_secret 은 백엔드 전용. */
 export const NAVER_CLIENT_ID = process.env.EXPO_PUBLIC_NAVER_CLIENT_ID ?? '';
@@ -33,9 +34,12 @@ export const GOOGLE_CLIENT_ID = process.env.EXPO_PUBLIC_GOOGLE_CLIENT_ID ?? '';
 
 /**
  * 인증 엔드포인트 (api/apps/users/urls.py 기준).
- *   POST /api/v1/auth/{provider}/login/   authorization code → JWT
- *     body: { code, redirect_uri(kakao·google 필수), state(naver 필수) }
- *     resp: { access, refresh, user, is_new_user }
+ *   POST /api/v1/auth/{provider}/login/   → { access, refresh, user, is_new_user }
+ *     body (제공자별):
+ *       - kakao : { access_token }        (네이티브 SDK)
+ *       - naver : { code, state }          (expo-auth-session)
+ *       - google: { code, redirect_uri }   (expo-auth-session)
+ *       - apple : { identity_token, ... }  (iOS 네이티브, 백엔드 미구현)
  *   POST /api/v1/auth/token/refresh/      { refresh } → { access }
  *   GET/PATCH /api/v1/users/me/           내 정보 (Bearer 필요)
  *

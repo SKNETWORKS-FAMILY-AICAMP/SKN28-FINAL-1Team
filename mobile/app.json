@@ -36,7 +36,29 @@
           "imageWidth": 76
         }
       ],
-      "expo-secure-store"
+      "expo-secure-store",
+      [
+        "@react-native-kakao/core",
+        {
+          "nativeAppKey": "1366adcd2e8c643a4b5471fabd32b6ea",
+          "ios": {
+            "handleKakaoOpenUrl": true
+          },
+          "android": {
+            "authCodeHandlerActivity": true
+          }
+        }
+      ],
+      [
+        "expo-build-properties",
+        {
+          "android": {
+            "extraMavenRepos": [
+              "https://devrepo.kakao.com/nexus/content/groups/public/"
+            ]
+          }
+        }
+      ]
     ],
     "experiments": {
       "typedRoutes": true,

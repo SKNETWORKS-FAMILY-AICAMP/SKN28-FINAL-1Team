@@ -55,18 +55,17 @@ export const authStore = {
 
   /** 앱 시작 시 1회: 저장된 토큰으로 세션 복원 */
   async bootstrap(): Promise<void> {
-    const token = await getAccessToken();
-    if (!token) {
-      setState({ status: 'guest', user: null });
-      return;
-    }
     try {
-      const user = await api.get<AuthUser>(AuthEndpoints.me);
-      setState({ status: 'authed', user });
+      const token = await getAccessToken();
+      if (token) {
+        const user = await api.get<AuthUser>(AuthEndpoints.me);
+        setState({ status: 'authed', user });
+        return;
+      }
     } catch {
-      // 토큰이 있으나 검증 실패 → 게스트로. (401 이면 apiClient 가 이미 토큰 정리)
-      setState({ status: 'guest', user: null });
+      // 토큰 없음/검증실패/저장소 접근불가 → 게스트. (401 이면 apiClient 가 토큰 정리)
     }
+    setState({ status: 'guest', user: null });
   },
 
   /** 로그인 성공(일반/소셜 공통): 토큰 저장 + 상태 갱신 */
