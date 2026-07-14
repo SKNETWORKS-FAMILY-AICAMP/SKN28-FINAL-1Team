@@ -41,6 +41,7 @@ INSTALLED_APPS = [
     "apps.users",
     "apps.catalog",
     "apps.weather",
+    "apps.home",
 ]
 
 MIDDLEWARE = [
