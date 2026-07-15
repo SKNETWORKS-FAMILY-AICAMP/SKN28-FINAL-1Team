@@ -50,6 +50,18 @@
         }
       ],
       [
+        "@react-native-seoul/naver-login",
+        {
+          "urlScheme": "cozynaverlogin"
+        }
+      ],
+      [
+        "@react-native-google-signin/google-signin",
+        {
+          "iosUrlScheme": "com.googleusercontent.apps.12014138361-9204huiqjo6bgrgcju22dac7jg2dculu"
+        }
+      ],
+      [
         "expo-build-properties",
         {
           "android": {
@@ -58,7 +70,8 @@
             ]
           }
         }
-      ]
+      ],
+      "./plugins/withModularHeaders"
     ],
     "experiments": {
       "typedRoutes": true,

@@ -22,24 +22,44 @@ export type SocialProvider = 'kakao' | 'naver' | 'google';
 export const KAKAO_NATIVE_APP_KEY =
   process.env.EXPO_PUBLIC_KAKAO_NATIVE_APP_KEY ?? '1366adcd2e8c643a4b5471fabd32b6ea';
 
-/** 네이버 Client ID (authorize 요청용). client_secret 은 백엔드 전용. */
-export const NAVER_CLIENT_ID = process.env.EXPO_PUBLIC_NAVER_CLIENT_ID ?? '';
+/**
+ * 네이버 로그인 (네이티브 SDK, @react-native-seoul/naver-login).
+ * consumerKey/Secret 은 네이버 개발자센터 발급값. 네이버 모바일 SDK 는 secret 을 앱에
+ * 내장하도록 요구하므로(카카오 네이티브 키와 동일한 준공개값) EXPO_PUBLIC_ 로 주입한다 — .env(gitignore).
+ * URL_SCHEME 은 iOS 콜백용으로 우리가 정하는 값이며, app.json 플러그인 설정(urlScheme)과 반드시 일치해야 한다.
+ */
+export const NAVER_CONSUMER_KEY = process.env.EXPO_PUBLIC_NAVER_CONSUMER_KEY ?? '';
+export const NAVER_CONSUMER_SECRET = process.env.EXPO_PUBLIC_NAVER_CONSUMER_SECRET ?? '';
+export const NAVER_URL_SCHEME =
+  process.env.EXPO_PUBLIC_NAVER_URL_SCHEME ?? 'cozynaverlogin';
 
 /**
- * 구글 OAuth Client ID (authorize 요청용).
- * ⚠️ 백엔드가 code 를 교환하는 구조라 client 종류/redirect_uri 방식을 백엔드와 맞춰야 한다
- *    (구글 웹 클라이언트는 https redirect 를 요구하는 등 카카오보다 까다롭다).
+ * 구글 로그인 (네이티브 SDK, @react-native-google-signin/google-signin).
+ * webClientId = Google Cloud "웹 애플리케이션" 클라이언트(백엔드 토큰 검증/aud 기준),
+ * iosClientId = "iOS" 클라이언트. app.json 의 iosUrlScheme 은 iosClientId 를 역순(reversed)한 값이어야 한다.
  */
-export const GOOGLE_CLIENT_ID = process.env.EXPO_PUBLIC_GOOGLE_CLIENT_ID ?? '';
+export const GOOGLE_WEB_CLIENT_ID = process.env.EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID ?? '';
+export const GOOGLE_IOS_CLIENT_ID = process.env.EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID ?? '';
+
+/**
+ * 키가 채워졌을 때만 해당 SDK 를 초기화/호출한다.
+ * 미설정(스캐폴딩) 상태에선 네이티브 SDK 를 건드리지 않아, 재빌드 전에도 앱이 안전하게 뜬다.
+ */
+export const isNaverConfigured = (): boolean =>
+  Boolean(NAVER_CONSUMER_KEY && NAVER_CONSUMER_SECRET);
+export const isGoogleConfigured = (): boolean =>
+  Boolean(GOOGLE_WEB_CLIENT_ID || GOOGLE_IOS_CLIENT_ID);
 
 /**
  * 인증 엔드포인트 (api/apps/users/urls.py 기준).
  *   POST /api/v1/auth/{provider}/login/   → { access, refresh, user, is_new_user }
  *     body (제공자별):
  *       - kakao : { access_token }        (네이티브 SDK)
- *       - naver : { code, state }          (expo-auth-session)
- *       - google: { code, redirect_uri }   (expo-auth-session)
+ *       - naver : { access_token }        (네이티브 SDK)
+ *       - google: { access_token }        (네이티브 SDK)
  *       - apple : { identity_token, ... }  (iOS 네이티브, 백엔드 미구현)
+ *     ⚠️ naver/google 의 access_token 방식은 백엔드가 _TOKEN_LOGIN_PROVIDERS 에
+ *        naver/google 을 추가해야 동작한다(현재 kakao 전용). 팀장 백엔드 변경 대기.
  *   POST /api/v1/auth/token/refresh/      { refresh } → { access }
  *   GET/PATCH /api/v1/users/me/           내 정보 (Bearer 필요)
  *

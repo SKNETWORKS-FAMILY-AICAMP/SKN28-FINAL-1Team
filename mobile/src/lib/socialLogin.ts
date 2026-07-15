@@ -1,22 +1,38 @@
+import { initializeKakaoSDK } from '@react-native-kakao/core';
 import { login as kakaoNativeLogin } from '@react-native-kakao/user';
+import NaverLogin from '@react-native-seoul/naver-login';
 import * as AppleAuthentication from 'expo-apple-authentication';
-import * as AuthSession from 'expo-auth-session';
 import { Platform } from 'react-native';
 
-import { AuthEndpoints, GOOGLE_CLIENT_ID, NAVER_CLIENT_ID } from '@/constants/config';
+import {
+  AuthEndpoints,
+  GOOGLE_IOS_CLIENT_ID,
+  GOOGLE_WEB_CLIENT_ID,
+  isGoogleConfigured,
+  isNaverConfigured,
+  KAKAO_NATIVE_APP_KEY,
+  NAVER_CONSUMER_KEY,
+  NAVER_CONSUMER_SECRET,
+  NAVER_URL_SCHEME,
+} from '@/constants/config';
 import { api } from '@/lib/apiClient';
 import { authStore, type AuthUser } from '@/state/auth';
 
 /**
  * 소셜 로그인.
- * 프론트는 인가정보(토큰/코드)만 받아 백엔드로 넘기고, JWT 발급은 백엔드가 한다.
+ * 프론트는 인가정보(access_token)만 받아 백엔드로 넘기고, JWT 발급은 백엔드가 한다.
  *
- * - 카카오: 네이티브 SDK(@react-native-kakao)로 access_token → 백엔드
- *   (카카오는 커스텀 스킴 redirect 를 허용하지 않아 code 방식 불가)
- * - 네이버/구글: expo-auth-session 으로 code → 백엔드
+ * 세 제공자 모두 네이티브 SDK 로 access_token 을 받아 백엔드로 보낸다
+ * (카카오·네이버·구글 다 커스텀 스킴 redirect 가 막혀 브라우저 code 방식을 쓰지 않는다).
+ * - 카카오: @react-native-kakao
+ * - 네이버: @react-native-seoul/naver-login (import 안전 — 네이티브 모듈을 지연 참조)
+ * - 구글:   @react-native-google-signin/google-signin
+ *           ⚠️ import 시점에 네이티브 모듈을 강제 로드(getEnforcing)하므로, 미설정/미빌드 상태의
+ *           앱이 죽지 않도록 "동적 import" 로 실제 호출 시점까지 로딩을 미룬다.
  * - 애플: iOS 네이티브(expo-apple-authentication)로 identity_token → 백엔드
  *
  * 백엔드 계약: POST /api/v1/auth/{provider}/login/  (api/apps/users/views.py)
+ * ⚠️ 네이버/구글 access_token 경로는 백엔드 _TOKEN_LOGIN_PROVIDERS 확장이 선행돼야 동작한다(현재 kakao 전용).
  */
 
 /** 백엔드 SocialLoginView 응답 형식 */
@@ -50,6 +66,40 @@ function isCancel(e: unknown): boolean {
 }
 
 /**
+ * 앱 시작 시 소셜 SDK 초기화 (_layout 에서 1회 호출).
+ * 카카오는 항상 초기화하고, 네이버/구글은 키가 채워졌을 때만 초기화한다
+ * — 미설정 상태에선 네이티브 모듈을 건드리지 않아 재빌드 전에도 앱이 안전하게 뜬다.
+ */
+export function initSocialSDKs(): void {
+  if (Platform.OS === 'web') return;
+
+  initializeKakaoSDK(KAKAO_NATIVE_APP_KEY);
+
+  if (isNaverConfigured()) {
+    NaverLogin.initialize({
+      appName: 'cozy',
+      consumerKey: NAVER_CONSUMER_KEY,
+      consumerSecret: NAVER_CONSUMER_SECRET,
+      serviceUrlSchemeIOS: NAVER_URL_SCHEME,
+    });
+  }
+
+  if (isGoogleConfigured()) {
+    // 동적 import: 여기서 처음 네이티브 모듈을 로드한다 (위 주석 참고).
+    void import('@react-native-google-signin/google-signin')
+      .then(({ GoogleSignin }) =>
+        GoogleSignin.configure({
+          webClientId: GOOGLE_WEB_CLIENT_ID || undefined,
+          iosClientId: GOOGLE_IOS_CLIENT_ID || undefined,
+        }),
+      )
+      .catch(() => {
+        // 설정 실패는 조용히 무시 — 실제 안내는 로그인 시도 시점에 한다.
+      });
+  }
+}
+
+/**
  * 카카오 로그인 — 네이티브 SDK.
  * SDK 초기화(initializeKakaoSDK)는 앱 시작 시 _layout 에서 1회 수행된다.
  * ⚠️ 백엔드 필드명은 팀 백엔드와 맞춘다 (현재 access_token 으로 가정).
@@ -66,76 +116,45 @@ export async function loginWithKakao(): Promise<SocialLoginResult> {
   }
 }
 
-/** expo-auth-session(code 방식)으로 처리하는 제공자 */
-type CodeProvider = 'naver' | 'google';
+/**
+ * 네이버 로그인 — 네이티브 SDK.
+ * SDK 초기화(NaverLogin.initialize)는 앱 시작 시 initSocialSDKs 에서 수행된다.
+ */
+export async function loginWithNaver(): Promise<SocialLoginResult> {
+  if (!isNaverConfigured()) {
+    throw new Error('네이버 로그인 설정이 아직 없습니다. (키 대기 중)');
+  }
 
-type ProviderConfig = {
-  clientId: string;
-  authorizationEndpoint: string;
-  scopes: string[];
-};
+  const res = await NaverLogin.login();
+  if (!res.isSuccess || !res.successResponse) {
+    if (res.failureResponse?.isCancel) return null; // 사용자가 취소
+    throw new Error(res.failureResponse?.message ?? '네이버 로그인에 실패했습니다.');
+  }
 
-// promptAsync 는 authorizationEndpoint 만 있으면 된다 (토큰 교환은 백엔드 몫).
-const PROVIDERS: Record<CodeProvider, ProviderConfig> = {
-  naver: {
-    clientId: NAVER_CLIENT_ID,
-    authorizationEndpoint: 'https://nid.naver.com/oauth2.0/authorize',
-    scopes: [],
-  },
-  google: {
-    clientId: GOOGLE_CLIENT_ID,
-    authorizationEndpoint: 'https://accounts.google.com/o/oauth2/v2/auth',
-    scopes: ['openid', 'profile', 'email'],
-  },
-};
+  return finishLogin(AuthEndpoints.socialLogin('naver'), {
+    access_token: res.successResponse.accessToken,
+  });
+}
 
 /**
- * 코드 방식 소셜 로그인 (naver / google).
- * - naver: 백엔드가 state 필요 (CSRF 검증)
- * - google: 백엔드가 redirect_uri 필요
- * ⚠️ 두 제공자 모두 커스텀 스킴 redirect 허용 여부는 콘솔 설정에서 확인 필요.
+ * 구글 로그인 — 네이티브 SDK(동적 import).
+ * configure 는 앱 시작 시 initSocialSDKs 에서 수행된다.
+ * getTokens() 의 accessToken 을 백엔드로 보낸다 (백엔드가 userinfo 로 프로필 조회).
  */
-export async function loginWith(provider: CodeProvider): Promise<SocialLoginResult> {
-  const cfg = PROVIDERS[provider];
-  if (!cfg.clientId) {
-    throw new Error(`${provider} client id 가 설정되지 않았습니다. (.env 확인)`);
+export async function loginWithGoogle(): Promise<SocialLoginResult> {
+  if (!isGoogleConfigured()) {
+    throw new Error('구글 로그인 설정이 아직 없습니다. (키 대기 중)');
   }
 
-  const redirectUri = AuthSession.makeRedirectUri({
-    scheme: 'mobile',
-    path: `oauth/${provider}`,
+  const { GoogleSignin } = await import('@react-native-google-signin/google-signin');
+  await GoogleSignin.hasPlayServices(); // iOS 에선 no-op, Android Play 서비스 확인
+  const result = await GoogleSignin.signIn();
+  if (result.type !== 'success') return null; // 사용자가 취소
+
+  const { accessToken } = await GoogleSignin.getTokens();
+  return finishLogin(AuthEndpoints.socialLogin('google'), {
+    access_token: accessToken,
   });
-
-  const request = new AuthSession.AuthRequest({
-    clientId: cfg.clientId,
-    redirectUri,
-    responseType: AuthSession.ResponseType.Code,
-    scopes: cfg.scopes,
-    usePKCE: false,
-  });
-
-  const result = await request.promptAsync({
-    authorizationEndpoint: cfg.authorizationEndpoint,
-  });
-
-  if (result.type === 'error') {
-    throw new Error(result.error?.message ?? `${provider} 인증에 실패했습니다.`);
-  }
-  if (result.type !== 'success') {
-    return null; // cancel / dismiss
-  }
-
-  const code = result.params.code;
-  if (!code) {
-    throw new Error(`${provider} 인가 코드를 받지 못했습니다.`);
-  }
-
-  const body: Record<string, string> =
-    provider === 'naver'
-      ? { code, state: request.state, redirect_uri: redirectUri }
-      : { code, redirect_uri: redirectUri };
-
-  return finishLogin(AuthEndpoints.socialLogin(provider), body);
 }
 
 /**

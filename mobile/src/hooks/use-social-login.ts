@@ -3,9 +3,10 @@ import { useCallback, useState } from 'react';
 import { useToast } from '@/components/ui';
 import type { SocialProvider } from '@/constants/config';
 import {
-  loginWith,
   loginWithApple,
+  loginWithGoogle,
   loginWithKakao,
+  loginWithNaver,
   type SocialLoginResult,
 } from '@/lib/socialLogin';
 
@@ -44,8 +45,8 @@ export function useSocialLogin() {
   return {
     pending,
     kakao: () => run('kakao', loginWithKakao),
-    naver: () => run('naver', () => loginWith('naver')),
-    google: () => run('google', () => loginWith('google')),
+    naver: () => run('naver', loginWithNaver),
+    google: () => run('google', loginWithGoogle),
     apple: () => run('apple', loginWithApple),
   };
 }
