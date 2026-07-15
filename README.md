@@ -95,3 +95,50 @@ python naver_collector_db.py --job collect --keyword "린넨 셔츠" --limit 30 
 주요 그룹: `POSTGRES_*`(DB), `DJANGO_*`/`JWT_*`(api), `*_OAUTH_*`(소셜 로그인),
 `NAVER_CLIENT_*`(쇼핑 검색 API), `OPENAI_*`(상품 태깅), `KMA_*`(기상청).
 자세한 항목과 설명은 `.env.example` 주석 참고. **실제 `.env`는 커밋 금지.**
+
+
+# 카테고리별 자동 비율 상품 이미지 생성
+
+## 파일 배치
+
+```text
+SKN28-FINAL-1Team/
+├─ .env
+├─ common/
+│  └─ product_image_generator.py
+└─ test/
+   └─ generate_product_images.py
+```
+
+## `.env`
+
+```env
+OPENAI_API_KEY=sk-실제키
+OPENAI_IMAGE_MODEL=gpt-image-1
+```
+
+## 설치
+
+```bash
+python -m pip install openai python-dotenv pillow
+```
+
+## 바지만 다시 생성
+
+현재 test 폴더에서 실행할 경우:
+
+```bat
+python -m generate_product_images output\grounded_sam2\sample\items.json --mode ecommerce --only-category 하의 --size auto --overwrite
+```
+
+프로젝트 루트에서 실행할 경우:
+
+```bat
+python -m test.generate_product_images test\output\grounded_sam2\sample\items.json --mode ecommerce --only-category 하의 --size auto --overwrite
+```
+
+## 전체 다시 생성
+
+```bat
+python -m generate_product_images output\grounded_sam2\sample\items.json --mode ecommerce --size auto --overwrite
+```
