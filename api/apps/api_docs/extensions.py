@@ -93,15 +93,30 @@ SOCIAL_LOGIN_DESCRIPTION = """소셜 로그인 제공자의 인증 정보를 서
 | code 방식 | `code`, `redirect_uri` | 웹 프론트엔드 (인가 코드 플로우) |
 | token 방식 | `access_token` | 네이티브 앱 (Android/iOS SDK) |
 
-- code 방식: `redirect_uri`는 인가 요청 시 사용한 값과 동일해야 합니다.
-- token 방식: SDK가 발급한 카카오 access token을 그대로 전달합니다. 백엔드가 토큰의 `app_id`를 검증하므로 다른 앱에서 발급된 토큰은 거부됩니다.
+token 방식은 백엔드가 토큰의 `app_id`를 검증하므로 다른 앱에서 발급된 토큰은 거부됩니다.
+
+### google — 두 가지 방식 지원
+| 방식 | 필수값 | 사용처 |
+|------|--------|--------|
+| code 방식 | `code`, `redirect_uri` | 웹 프론트엔드 (인가 코드 플로우) |
+| token 방식 | `access_token` | 네이티브 앱 (Android/iOS SDK) |
+
+token 방식은 백엔드가 토큰의 `aud`(발급 대상 client_id)를 검증하므로 다른 앱에서 발급된 토큰은 거부됩니다.
+
+### naver — 두 가지 방식 지원
+| 방식 | 필수값 | 사용처 |
+|------|--------|--------|
+| code 방식 | `code`, `state` | 웹 프론트엔드 (redirect_uri 대신 CSRF 방지용 state 검증) |
+| token 방식 | `access_token` | 네이티브 앱 (Android/iOS SDK) |
+
+⚠️ naver token 방식은 토큰 유효성 확인과 사용자 식별(`/v1/nid/me`)만 수행합니다.
+naver는 발급 앱을 확인할 API를 제공하지 않아 **다른 naver 앱에서 발급된 토큰을
+구분할 수 없습니다** (kakao/google과 달리 발급 앱 검증 없음). 이 한계를 수용한
+구현이므로, 가능하면 code 방식을 우선 사용하세요.
+
+### 공통 규칙
+- code 방식의 `redirect_uri`는 인가 요청 시 사용한 값과 동일해야 합니다.
 - `code`와 `access_token`을 함께 보내면 code 방식으로 처리됩니다.
-
-### google — code 방식만 지원
-필수값: `code`, `redirect_uri` (인가 요청 시 사용한 값과 동일)
-
-### naver — code 방식만 지원
-필수값: `code`, `state` (naver는 redirect_uri 대신 CSRF 방지용 state를 검증)
 
 ## 응답
 성공 시 서비스 자체 JWT(`access`/`refresh`)와 사용자 정보를 반환합니다.
@@ -131,8 +146,18 @@ SOCIAL_LOGIN_EXAMPLES = [
         request_only=True,
     ),
     OpenApiExample(
+        name="google (token 방식, 네이티브 앱)",
+        value={"access_token": "구글_SDK가_발급한_액세스_토큰"},
+        request_only=True,
+    ),
+    OpenApiExample(
         name="naver (code 방식)",
         value={"code": "인가_코드", "state": "인가_요청_시_보낸_state"},
+        request_only=True,
+    ),
+    OpenApiExample(
+        name="naver (token 방식, 네이티브 앱)",
+        value={"access_token": "네이버_SDK가_발급한_액세스_토큰"},
         request_only=True,
     ),
 ]

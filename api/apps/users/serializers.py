@@ -15,12 +15,13 @@ class SocialLoginSerializer(serializers.Serializer):
         allow_blank=True,
         help_text="인가 코드 (code 방식). naver/google/kakao 웹 로그인에서 필수.",
     )
-    # 카카오 전용(token 방식): 네이티브 앱 SDK는 인가 코드를 노출하지 않고
-    # access_token을 직접 반환하므로, 앱은 이 값을 백엔드로 전달한다.
+    # token 방식: 네이티브 앱 SDK는 인가 코드를 노출하지 않고 access_token을
+    # 직접 반환하므로, 앱은 이 값을 백엔드로 전달한다.
+    # 주의: naver는 발급 앱 검증이 불가해 토큰 유효성·사용자 식별만 수행한다.
     access_token = serializers.CharField(
         required=False,
         allow_blank=True,
-        help_text="카카오 전용(token 방식). 네이티브 앱 SDK가 발급한 카카오 access token.",
+        help_text="token 방식 전용. 네이티브 앱 SDK가 발급한 제공사 access token.",
     )
     # 카카오/구글은 토큰 교환 시 인가 요청과 동일한 redirect_uri가 필요하다.
     redirect_uri = serializers.URLField(
