@@ -70,3 +70,11 @@ export const AuthEndpoints = {
   refresh: '/api/v1/auth/token/refresh/',
   me: '/api/v1/users/me/',
 } as const;
+
+/**
+ * 홈 화면 통합 조회 (api/apps/home/urls.py 기준).
+ *   GET /api/v1/home/?lat=&lon=  → { nickname, weather, today_look, quick_recommends, closet_count, saved_look_count }
+ *   - lat/lon 생략 시 백엔드가 서울시청 좌표로 대체. (위치 권한 붙기 전까진 생략 호출)
+ *   - JWT 필요.
+ */
+export const HomeEndpoint = '/api/v1/home/';
