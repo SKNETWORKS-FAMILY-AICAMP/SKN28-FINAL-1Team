@@ -1,4 +1,7 @@
-from drf_spectacular.extensions import OpenApiViewExtension
+from drf_spectacular.extensions import (
+    OpenApiAuthenticationExtension,
+    OpenApiViewExtension,
+)
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import (
     OpenApiExample,
@@ -14,6 +17,60 @@ from apps.api_docs.serializers import (
     SocialLoginResponseSerializer,
 )
 from apps.users.serializers import SocialLoginSerializer, UserSerializer
+
+
+class JWTAuthenticationExtension(OpenApiAuthenticationExtension):
+    """
+    simplejwt 기본 확장을 대체(priority)해 헤더 인증 구조 설명을 추가한다.
+
+    보호된 엔드포인트는 소셜 로그인으로 발급받은 access 토큰을
+    Authorization 헤더에 담아 호출해야 한다.
+    """
+
+    target_class = "rest_framework_simplejwt.authentication.JWTAuthentication"
+    name = "jwtAuth"
+    priority = 1  # drf-spectacular 내장 simplejwt 확장(priority 0)보다 우선
+
+    def get_security_definition(self, auto_schema):
+        return {
+            "type": "http",
+            "scheme": "bearer",
+            "bearerFormat": "JWT",
+            "description": (
+                "소셜 로그인(`POST /api/v1/auth/{provider}/login/`)이 발급한 "
+                "**access 토큰**을 `Authorization: Bearer <access>` 헤더로 전달합니다.\n\n"
+                "- access 토큰 만료 시 401이 반환되며, "
+                "`POST /api/v1/auth/token/refresh/`로 재발급합니다.\n"
+                "- refresh 토큰은 회전(rotate)되므로 갱신 응답의 새 refresh 토큰으로 "
+                "교체 저장해야 합니다 (이전 refresh 토큰은 블랙리스트 처리)."
+            ),
+        }
+
+
+class TokenRefreshViewExtension(OpenApiViewExtension):
+    """simplejwt 기본 영문 설명을 서비스 맥락에 맞는 한국어 문서로 교체한다."""
+
+    target_class = "rest_framework_simplejwt.views.TokenRefreshView"
+
+    def view_replacement(self):
+        @extend_schema_view(
+            post=extend_schema(
+                operation_id="token_refresh",
+                tags=["Authentication"],
+                summary="JWT 토큰 갱신",
+                description=(
+                    "refresh 토큰으로 새 access 토큰을 발급합니다.\n\n"
+                    "- refresh 토큰이 회전되므로 응답에 **새 refresh 토큰**도 함께 "
+                    "반환됩니다. 클라이언트는 두 토큰 모두 교체 저장해야 합니다.\n"
+                    "- 이전 refresh 토큰은 블랙리스트 처리되어 재사용 시 401이 "
+                    "반환됩니다."
+                ),
+            )
+        )
+        class DocumentedTokenRefreshView(self.target_class):
+            pass
+
+        return DocumentedTokenRefreshView
 
 
 # apple은 백엔드 코드는 있으나 서비스 구현 보류 상태라 문서에서 제외한다.
