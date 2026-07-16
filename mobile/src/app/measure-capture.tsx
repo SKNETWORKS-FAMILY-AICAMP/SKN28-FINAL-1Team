@@ -106,6 +106,13 @@ export default function MeasureCapture() {
               {both ? '측정 시작하기' : '두 사진을 촬영해주세요'}
             </Text>
           </Pressable>
+          {/* 사진 촬영이 번거로운 사용자를 위한 건너뛰기 — 키/몸무게만으로 추정 진행 */}
+          <Pressable
+            style={styles.skip}
+            hitSlop={8}
+            onPress={() => router.push('/measure-result?photos=0')}>
+            <Text style={styles.skipText}>사진 없이 진행할게요</Text>
+          </Pressable>
         </View>
       </SafeAreaView>
     </View>
@@ -186,4 +193,7 @@ const styles = StyleSheet.create({
   },
   ctaDisabled: { backgroundColor: ink(0.22) },
   ctaText: { color: '#fff', fontSize: 15, fontWeight: '500' },
+
+  skip: { alignSelf: 'center', paddingVertical: 12, marginTop: 2 },
+  skipText: { fontSize: 13, color: ink(0.5), textDecorationLine: 'underline' },
 });

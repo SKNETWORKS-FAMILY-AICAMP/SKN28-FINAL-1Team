@@ -1,6 +1,14 @@
 import { Icon } from '@/components/icon';
-import { router } from 'expo-router';
-import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { router, useLocalSearchParams } from 'expo-router';
+import { useState } from 'react';
+import {
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  View,
+} from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { Fonts } from '@/constants/theme';
@@ -18,7 +26,8 @@ function Steps({ active }: { active: number }) {
   );
 }
 
-const MEASURES = [
+// 초기 추정값(현재 mock — 추후 API 응답으로 대체). 사용자가 직접 수정 가능.
+const INITIAL_MEASURES = [
   { label: '어깨너비', value: '41.2', unit: 'cm' },
   { label: '가슴둘레', value: '92.5', unit: 'cm' },
   { label: '허리둘레', value: '78.0', unit: 'cm' },
@@ -33,6 +42,17 @@ const SIZES = [
 
 // G3 치수 결과·사이즈 매칭 — 완료 시 측정 플로우 닫기
 export default function MeasureResult() {
+  // 사진 없이 진행했으면(photos=0) 추정 근거 안내문을 다르게 보여준다.
+  const { photos } = useLocalSearchParams<{ photos?: string }>();
+  const noPhoto = photos === '0';
+
+  // 추정 치수는 사용자가 직접 손볼 수 있도록 편집 가능한 상태로 둔다.
+  const [measures, setMeasures] = useState(INITIAL_MEASURES);
+  const updateMeasure = (index: number, value: string) =>
+    setMeasures((prev) =>
+      prev.map((m, i) => (i === index ? { ...m, value } : m)),
+    );
+
   return (
     <View style={styles.container}>
       <SafeAreaView edges={['top', 'bottom']} style={styles.safe}>
@@ -44,17 +64,32 @@ export default function MeasureResult() {
               <Icon name="checkmark" tintColor="#fff" size={22} />
             </View>
             <Text style={styles.title}>치수 측정 완료</Text>
-            <Text style={styles.lead}>사진과 입력 정보로 추정한 결과예요.</Text>
+            <Text style={styles.lead}>
+              {noPhoto
+                ? '키·몸무게로 추정한 결과예요.'
+                : '사진과 입력 정보로 추정한 결과예요.'}
+            </Text>
           </View>
 
-          {/* 추정 치수 */}
-          <Text style={styles.sectionTitle}>추정 치수</Text>
+          {/* 추정 치수 — 각 값 탭하여 직접 수정 가능 */}
+          <View style={styles.sectionHead}>
+            <Text style={styles.sectionTitlePlain}>추정 치수</Text>
+            <Text style={styles.editHint}>탭하여 수정</Text>
+          </View>
           <View style={styles.measureGrid}>
-            {MEASURES.map((m) => (
+            {measures.map((m, i) => (
               <View key={m.label} style={styles.measureTile}>
                 <Text style={styles.measureLabel}>{m.label}</Text>
                 <View style={styles.measureValueRow}>
-                  <Text style={styles.measureValue}>{m.value}</Text>
+                  <TextInput
+                    style={styles.measureInput}
+                    value={m.value}
+                    onChangeText={(t) => updateMeasure(i, t)}
+                    keyboardType="decimal-pad"
+                    selectTextOnFocus
+                    maxLength={5}
+                    returnKeyType="done"
+                  />
                   <Text style={styles.measureUnit}>{m.unit}</Text>
                 </View>
               </View>
@@ -127,6 +162,15 @@ const styles = StyleSheet.create({
   lead: { fontSize: 14, color: ink(0.5) },
 
   sectionTitle: { fontSize: 13, fontWeight: '600', color: INK, marginTop: 30, marginBottom: 12 },
+  sectionHead: {
+    flexDirection: 'row',
+    alignItems: 'baseline',
+    justifyContent: 'space-between',
+    marginTop: 30,
+    marginBottom: 12,
+  },
+  sectionTitlePlain: { fontSize: 13, fontWeight: '600', color: INK },
+  editHint: { fontSize: 11.5, color: ink(0.4) },
   measureGrid: {
     flexDirection: 'row',
     flexWrap: 'wrap',
@@ -138,7 +182,17 @@ const styles = StyleSheet.create({
   measureTile: { width: '50%', paddingHorizontal: 18, paddingVertical: 16, gap: 6 },
   measureLabel: { fontSize: 12, color: ink(0.45) },
   measureValueRow: { flexDirection: 'row', alignItems: 'flex-end', gap: 4 },
-  measureValue: { fontFamily: Fonts.serif, fontSize: 26, fontWeight: '600', color: INK },
+  measureInput: {
+    fontFamily: Fonts.serif,
+    fontSize: 26,
+    fontWeight: '600',
+    color: INK,
+    padding: 0,
+    minWidth: 56,
+    borderBottomWidth: 1,
+    borderBottomColor: ink(0.18),
+    paddingBottom: 2,
+  },
   measureUnit: { fontSize: 13, color: ink(0.4), marginBottom: 4 },
 
   sizeCard: { borderWidth: 1, borderColor: ink(0.09), borderRadius: 16, paddingHorizontal: 16 },
