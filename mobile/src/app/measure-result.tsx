@@ -1,6 +1,6 @@
 import { Icon } from '@/components/icon';
-import { router, useLocalSearchParams } from 'expo-router';
-import { useState } from 'react';
+import { router } from 'expo-router';
+import { useEffect, useState } from 'react';
 import {
   Pressable,
   ScrollView,
@@ -11,7 +11,9 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import { ErrorState, LoadingState } from '@/components/ui';
 import { Fonts } from '@/constants/theme';
+import { measureStore, useMeasure } from '@/state/measure';
 
 const INK = '#1c1917';
 const ink = (a: number) => `rgba(28,25,23,${a})`;
@@ -26,32 +28,76 @@ function Steps({ active }: { active: number }) {
   );
 }
 
-// 초기 추정값(현재 mock — 추후 API 응답으로 대체). 사용자가 직접 수정 가능.
-const INITIAL_MEASURES = [
-  { label: '어깨너비', value: '41.2', unit: 'cm' },
-  { label: '가슴둘레', value: '92.5', unit: 'cm' },
-  { label: '허리둘레', value: '78.0', unit: 'cm' },
-  { label: '엉덩이둘레', value: '95.8', unit: 'cm' },
-];
+// 추정 치수 표시 순서·라벨 (값은 measureStore 결과에서). measures 키와 일치.
+const MEASURE_ROWS = [
+  { key: 'shoulder', label: '어깨너비' },
+  { key: 'chest', label: '가슴둘레' },
+  { key: 'waist', label: '허리둘레' },
+  { key: 'hip', label: '엉덩이둘레' },
+] as const;
 
-const SIZES = [
-  { brand: '무신사 스탠다드', size: 'M', fit: '딱 맞음' },
-  { brand: '유니클로', size: 'L', fit: '여유 있음' },
-  { brand: 'COS', size: 'M', fit: '딱 맞음' },
-];
-
-// G3 치수 결과·사이즈 매칭 — 완료 시 측정 플로우 닫기
+// G3 치수 결과·사이즈 매칭 — measureStore 결과를 구독. 완료 시 측정 플로우 닫기
 export default function MeasureResult() {
-  // 사진 없이 진행했으면(photos=0) 추정 근거 안내문을 다르게 보여준다.
-  const { photos } = useLocalSearchParams<{ photos?: string }>();
-  const noPhoto = photos === '0';
+  const { status, result } = useMeasure();
 
-  // 추정 치수는 사용자가 직접 손볼 수 있도록 편집 가능한 상태로 둔다.
-  const [measures, setMeasures] = useState(INITIAL_MEASURES);
-  const updateMeasure = (index: number, value: string) =>
-    setMeasures((prev) =>
-      prev.map((m, i) => (i === index ? { ...m, value } : m)),
+  // 플로우를 거치지 않고 직접 진입했으면(status idle) 추정을 시작한다.
+  useEffect(() => {
+    if (status === 'idle') measureStore.estimate();
+  }, [status]);
+
+  // 사용자가 직접 수정하는 편집값(문자열) — 결과가 도착하면 초기화
+  const [values, setValues] = useState<Record<string, string>>({});
+  useEffect(() => {
+    if (result) {
+      // 소수점 1자리로 표기 (예: 78 → "78.0")
+      setValues({
+        shoulder: result.measures.shoulder.toFixed(1),
+        chest: result.measures.chest.toFixed(1),
+        waist: result.measures.waist.toFixed(1),
+        hip: result.measures.hip.toFixed(1),
+      });
+    }
+  }, [result]);
+
+  // 로딩 / 에러 — 결과가 아직 없을 때
+  if (status !== 'success' || !result) {
+    return (
+      <View style={styles.container}>
+        <SafeAreaView edges={['top', 'bottom']} style={styles.safe}>
+          <View style={styles.stateWrap}>
+            <Steps active={2} />
+            {status === 'error' ? (
+              <ErrorState
+                title="치수 추정에 실패했어요"
+                onRetry={() => measureStore.estimate()}
+                style={styles.stateFill}
+              />
+            ) : (
+              <LoadingState
+                message="입력 정보로 치수를 추정하고 있어요…"
+                style={styles.stateFill}
+              />
+            )}
+          </View>
+        </SafeAreaView>
+      </View>
     );
+  }
+
+  // 완료 — 수정한 값을 스토어에 반영하고 플로우 닫기
+  const onDone = () => {
+    const num = (k: keyof typeof result.measures) => {
+      const v = parseFloat(values[k]);
+      return Number.isFinite(v) ? v : result.measures[k];
+    };
+    measureStore.updateMeasures({
+      shoulder: num('shoulder'),
+      chest: num('chest'),
+      waist: num('waist'),
+      hip: num('hip'),
+    });
+    router.canDismiss() ? router.dismissAll() : router.replace('/home');
+  };
 
   return (
     <View style={styles.container}>
@@ -65,9 +111,9 @@ export default function MeasureResult() {
             </View>
             <Text style={styles.title}>치수 측정 완료</Text>
             <Text style={styles.lead}>
-              {noPhoto
-                ? '키·몸무게로 추정한 결과예요.'
-                : '사진과 입력 정보로 추정한 결과예요.'}
+              {result.usedPhotos
+                ? '사진과 입력 정보로 추정한 결과예요.'
+                : '키·몸무게로 추정한 결과예요.'}
             </Text>
           </View>
 
@@ -77,20 +123,22 @@ export default function MeasureResult() {
             <Text style={styles.editHint}>탭하여 수정</Text>
           </View>
           <View style={styles.measureGrid}>
-            {measures.map((m, i) => (
-              <View key={m.label} style={styles.measureTile}>
-                <Text style={styles.measureLabel}>{m.label}</Text>
+            {MEASURE_ROWS.map((row) => (
+              <View key={row.key} style={styles.measureTile}>
+                <Text style={styles.measureLabel}>{row.label}</Text>
                 <View style={styles.measureValueRow}>
                   <TextInput
                     style={styles.measureInput}
-                    value={m.value}
-                    onChangeText={(t) => updateMeasure(i, t)}
+                    value={values[row.key] ?? ''}
+                    onChangeText={(t) =>
+                      setValues((prev) => ({ ...prev, [row.key]: t }))
+                    }
                     keyboardType="decimal-pad"
                     selectTextOnFocus
                     maxLength={5}
                     returnKeyType="done"
                   />
-                  <Text style={styles.measureUnit}>{m.unit}</Text>
+                  <Text style={styles.measureUnit}>cm</Text>
                 </View>
               </View>
             ))}
@@ -99,7 +147,7 @@ export default function MeasureResult() {
           {/* 사이즈 매칭 */}
           <Text style={styles.sectionTitle}>브랜드 사이즈 매칭</Text>
           <View style={styles.sizeCard}>
-            {SIZES.map((s, i) => (
+            {result.sizes.map((s, i) => (
               <View key={s.brand}>
                 <View style={styles.sizeRow}>
                   <Text style={styles.sizeBrand}>{s.brand}</Text>
@@ -110,7 +158,7 @@ export default function MeasureResult() {
                     <Text style={styles.sizeFit}>{s.fit}</Text>
                   </View>
                 </View>
-                {i < SIZES.length - 1 ? <View style={styles.sizeLine} /> : null}
+                {i < result.sizes.length - 1 ? <View style={styles.sizeLine} /> : null}
               </View>
             ))}
           </View>
@@ -126,11 +174,7 @@ export default function MeasureResult() {
         </ScrollView>
 
         <View style={styles.bottomBar}>
-          <Pressable
-            style={styles.cta}
-            onPress={() =>
-              router.canDismiss() ? router.dismissAll() : router.replace('/home')
-            }>
+          <Pressable style={styles.cta} onPress={onDone}>
             <Text style={styles.ctaText}>완료</Text>
           </Pressable>
         </View>
@@ -143,6 +187,8 @@ const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#ffffff' },
   safe: { flex: 1 },
   content: { paddingHorizontal: 24, paddingTop: 12, paddingBottom: 24 },
+  stateWrap: { flex: 1, paddingHorizontal: 24, paddingTop: 12 },
+  stateFill: { flex: 1 },
 
   steps: { flexDirection: 'row', gap: 6, marginBottom: 28 },
   step: { flex: 1, height: 3, borderRadius: 2, backgroundColor: ink(0.1) },

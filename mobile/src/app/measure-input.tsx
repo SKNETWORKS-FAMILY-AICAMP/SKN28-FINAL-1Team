@@ -1,5 +1,5 @@
 import { router } from 'expo-router';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import {
   Pressable,
   ScrollView,
@@ -11,6 +11,7 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { Fonts } from '@/constants/theme';
+import { measureStore } from '@/state/measure';
 
 const INK = '#1c1917';
 const WINE = '#5E2B2F';
@@ -31,6 +32,11 @@ export default function MeasureInput() {
   const [height, setHeight] = useState('');
   const [weight, setWeight] = useState('');
   const [sex, setSex] = useState<'female' | 'male' | 'none'>('none');
+
+  // 새 측정 플로우 진입 → 이전 데이터 초기화
+  useEffect(() => {
+    measureStore.reset();
+  }, []);
 
   const h = parseFloat(height);
   const w = parseFloat(weight);
@@ -137,7 +143,10 @@ export default function MeasureInput() {
           <Pressable
             style={[styles.cta, !canNext && styles.ctaDisabled]}
             disabled={!canNext}
-            onPress={() => router.push('/measure-capture')}>
+            onPress={() => {
+              measureStore.setInput({ height: h, weight: w, sex });
+              router.push('/measure-capture');
+            }}>
             <Text style={styles.ctaText}>다음</Text>
           </Pressable>
         </View>

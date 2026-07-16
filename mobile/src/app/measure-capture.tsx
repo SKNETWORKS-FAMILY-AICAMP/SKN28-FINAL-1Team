@@ -5,6 +5,7 @@ import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { Fonts } from '@/constants/theme';
+import { measureStore } from '@/state/measure';
 
 const INK = '#1c1917';
 const BONE = '#ecebe7';
@@ -58,7 +59,11 @@ export default function MeasureCapture() {
                 <Pressable
                   key={k}
                   style={styles.slot}
-                  onPress={() => setShots((s) => ({ ...s, [k]: true }))}>
+                  onPress={() => {
+                    setShots((s) => ({ ...s, [k]: true }));
+                    // 실제 카메라 연동 전까지 mock URI 를 스토어에 기록
+                    measureStore.setPhoto(k, `mock://photo/${k}`);
+                  }}>
                   <View style={styles.silhouette}>
                     <Icon
                       name={done ? 'checkmark.circle.fill' : 'camera'}
@@ -101,7 +106,10 @@ export default function MeasureCapture() {
           <Pressable
             style={[styles.cta, !both && styles.ctaDisabled]}
             disabled={!both}
-            onPress={() => router.push('/measure-result')}>
+            onPress={() => {
+              measureStore.estimate(); // 추정 시작(비동기) — STEP3 가 결과를 구독
+              router.push('/measure-result');
+            }}>
             <Text style={styles.ctaText}>
               {both ? '측정 시작하기' : '두 사진을 촬영해주세요'}
             </Text>
@@ -110,7 +118,10 @@ export default function MeasureCapture() {
           <Pressable
             style={styles.skip}
             hitSlop={8}
-            onPress={() => router.push('/measure-result?photos=0')}>
+            onPress={() => {
+              measureStore.estimate(); // 사진 없이(키·몸무게만) 추정
+              router.push('/measure-result');
+            }}>
             <Text style={styles.skipText}>사진 없이 진행할게요</Text>
           </Pressable>
         </View>
