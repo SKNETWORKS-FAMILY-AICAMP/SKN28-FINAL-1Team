@@ -1,0 +1,154 @@
+{
+  "name": "Data Cleaning Pipeline",
+  "nodes": [
+    {
+      "id": "webhook-trigger",
+      "type": "n8n-nodes-base.webhook",
+      "position": [250, 300],
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "clean",
+        "responseMode": "lastNode",
+        "options": {}
+      },
+      "name": "Webhook Trigger",
+      "typeVersion": 2
+    },
+    {
+      "id": "exec-clean",
+      "type": "n8n-nodes-base.executeCommand",
+      "position": [500, 300],
+      "parameters": {
+        "command": "python3 /repo/data/pipeline/02_clean_encoding.py --batch /tmp/clean_batch.json",
+        "timeOut": 300
+      },
+      "name": "Run Encoding Cleaner",
+      "typeVersion": 1,
+      "continueOnFail": true
+    },
+    {
+      "id": "exec-validate",
+      "type": "n8n-nodes-base.executeCommand",
+      "position": [1000, 300],
+      "parameters": {
+        "command": "python3 /repo/data/pipeline/02_validate_json.py --batch /tmp/validate_batch.json",
+        "timeOut": 120
+      },
+      "name": "Validate JSON Schemas",
+      "typeVersion": 1,
+      "continueOnFail": true
+    },
+    {
+      "id": "code-parse",
+      "type": "n8n-nodes-base.code",
+      "position": [500, 500],
+      "parameters": {
+        "jsCode": "// Normalize keys from workflow 1 or a direct webhook call\nconst input = $input.first().json;\nconst candidates = Array.isArray(input)\n  ? input\n  : [\n      ...(input.new_file_keys || []),\n      ...(input.modified_file_keys || []),\n      ...(input.keys || []),\n      ...(input.image_keys || [])\n    ];\n\nconst allKeys = [...new Set(candidates\n  .map(item => typeof item === 'string' ? item : (item.key || item.Key))\n  .filter(Boolean))];\nconst textExts = /\\.(json|txt|csv|md|tsv)$/i;\nconst imageExts = /\\.(jpg|jpeg|png|webp)$/i;\nconst textKeys = allKeys.filter(key => textExts.test(key));\nconst imageKeys = allKeys.filter(key => imageExts.test(key));\n\nconst fs = require('fs');\nfs.writeFileSync('/tmp/clean_batch.json', JSON.stringify(textKeys));\n\nreturn {\n  json: {\n    batch_size: textKeys.length,\n    image_files: imageKeys.length,\n    all_keys: allKeys,\n    text_keys: textKeys,\n    image_keys: imageKeys\n  }\n};"
+      },
+      "name": "Prepare Batch Files",
+      "typeVersion": 2
+    },
+    {
+      "id": "prepare-validation",
+      "type": "n8n-nodes-base.code",
+      "position": [750, 300],
+      "parameters": {
+        "jsCode": "// Build the validator batch from cleaner-local JSON paths\nconst item = $input.first().json;\nconst raw = typeof item === 'string' ? item : (item.stdout ?? '');\nlet report = {};\ntry { report = JSON.parse(raw); } catch (e) { report = {}; }\n\nconst files = Array.isArray(report.files) ? report.files : [];\nconst localJsonFiles = files\n  .filter(file => file.status === 'success' && String(file.file).toLowerCase().endsWith('.json'))\n  .map(file => file.file);\nconst fs = require('fs');\nfs.writeFileSync('/tmp/validate_batch.json', JSON.stringify(localJsonFiles));\n\nconst prepared = $('Prepare Batch Files').first().json;\nconst exitFailed = Number(item.exitCode || 0) !== 0 || Boolean(item.error);\nconst cleaningErrors = (report.stats?.error || 0) + (exitFailed && !report.stats?.error ? 1 : 0);\n\nreturn {\n  json: {\n    cleaning_report: report,\n    cleaning_errors: cleaningErrors,\n    local_json_files: localJsonFiles,\n    all_keys: prepared.all_keys || [],\n    image_keys: prepared.image_keys || []\n  }\n};"
+      },
+      "name": "Prepare Validation Batch",
+      "typeVersion": 2
+    },
+    {
+      "id": "parse-clean-result",
+      "type": "n8n-nodes-base.code",
+      "position": [1250, 300],
+      "parameters": {
+        "jsCode": "// Merge cleaner and validator results while preserving embedding keys\nconst item = $input.first().json;\nconst raw = typeof item === 'string' ? item : (item.stdout ?? '');\nlet report = {};\ntry { report = JSON.parse(raw); } catch (e) { report = {}; }\n\nconst validation = report.stats || {};\nconst prepared = $('Prepare Validation Batch').first().json;\nconst exitFailed = Number(item.exitCode || 0) !== 0 || Boolean(item.error);\nconst validationErrors = (validation.failed || 0) + (exitFailed && !validation.failed ? 1 : 0);\nconst failed = (prepared.cleaning_errors || 0) + validationErrors;\n\nreturn {\n  json: {\n    total: validation.total || 0,\n    passed: validation.passed || 0,\n    failed,\n    has_failures: failed > 0,\n    json_files: prepared.local_json_files?.length || 0,\n    all_keys: prepared.all_keys || [],\n    image_keys: prepared.image_keys || []\n  }\n};"
+      },
+      "name": "Parse Cleaning Results",
+      "typeVersion": 2
+    },
+    {
+      "id": "if-clean-success",
+      "type": "n8n-nodes-base.if",
+      "position": [1000, 300],
+      "parameters": {
+        "conditions": {
+          "conditions": [
+            {
+              "id": "has-failures",
+              "leftValue": "{{ $json.has_failures }}",
+              "rightValue": false,
+              "operator": {"type": "boolean", "operation": "equals"}
+            }
+          ]
+        }
+      },
+      "name": "If Cleaning Success",
+      "typeVersion": 2
+    },
+    {
+      "id": "slack-clean-fail",
+      "type": "n8n-nodes-base.slack",
+      "position": [1250, 400],
+      "parameters": {
+        "resource": "message",
+        "operation": "post",
+        "channel": {"__rl": true, "mode": "name", "value": "#fashion-data-alerts"},
+        "text": "=Cleaning or validation failed: {{ $json.failed }} errors"
+      },
+      "credentials": {"slackApi": {"__rl": true, "mode": "credential", "name": "Slack"}},
+      "name": "Slack: Cleaning Failed",
+      "typeVersion": 3,
+      "continueOnFail": true
+    },
+    {
+      "id": "trigger-embed",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "position": [1250, 200],
+      "parameters": {
+        "workflowId": {"__rl": true, "mode": "id", "value": "WORKFLOW_ID_EMBED"},
+        "dataVariables": {"__rl": true, "mode": "json", "value": "={{ $json.image_keys }}"}
+      },
+      "name": "Trigger Embedding Workflow",
+      "typeVersion": 1
+    }
+  ],
+  "connections": {
+    "Webhook Trigger": {
+      "main": [[{"node": "Prepare Batch Files", "type": "main", "index": 0}]]
+    },
+    "Prepare Batch Files": {
+      "main": [[{"node": "Run Encoding Cleaner", "type": "main", "index": 0}]]
+    },
+    "Run Encoding Cleaner": {
+      "main": [[{"node": "Prepare Validation Batch", "type": "main", "index": 0}]]
+    },
+    "Prepare Validation Batch": {
+      "main": [[{"node": "Validate JSON Schemas", "type": "main", "index": 0}]]
+    },
+    "Validate JSON Schemas": {
+      "main": [[{"node": "Parse Cleaning Results", "type": "main", "index": 0}]]
+    },
+    "Parse Cleaning Results": {
+      "main": [[{"node": "If Cleaning Success", "type": "main", "index": 0}]]
+    },
+    "If Cleaning Success": {
+      "main": [
+        [{"node": "Trigger Embedding Workflow", "type": "main", "index": 0}],
+        [{"node": "Slack: Cleaning Failed", "type": "main", "index": 0}]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "saveManualExecutions": true,
+    "timezone": "Asia/Seoul"
+  },
+  "staticData": null,
+  "tags": ["cleaning", "encoding", "validation", "pipeline"],
+  "triggerCount": 0,
+  "updatedAt": "2026-07-10T00:00:00.000Z",
+  "versionId": "1",
+  "id": "WORKFLOW_ID_CLEAN"
+}

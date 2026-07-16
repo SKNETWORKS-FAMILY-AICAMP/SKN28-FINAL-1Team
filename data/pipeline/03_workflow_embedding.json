@@ -1,0 +1,148 @@
+{
+  "name": "Embedding Pipeline",
+  "nodes": [
+    {
+      "id": "webhook-trigger",
+      "type": "n8n-nodes-base.webhook",
+      "position": [250, 300],
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "embed",
+        "responseMode": "lastNode",
+        "options": {}
+      },
+      "name": "Webhook Trigger",
+      "typeVersion": 2
+    },
+    {
+      "id": "code-prepare",
+      "type": "n8n-nodes-base.code",
+      "position": [500, 300],
+      "parameters": {
+        "jsCode": "// Normalize image keys from workflow 2 or a direct webhook call\nconst input = $input.first().json;\nconst candidates = Array.isArray(input)\n  ? input\n  : [...(input.image_keys || []), ...(input.keys || [])];\nconst imageKeys = [...new Set(candidates\n  .map(item => typeof item === 'string' ? item : (item.key || item.Key))\n  .filter(key => key && /\\.(jpg|jpeg|png|webp)$/i.test(key)))];\n\nconst fs = require('fs');\nfs.writeFileSync('/tmp/embed_keys.json', JSON.stringify(imageKeys));\n\nreturn {\n  json: {\n    total_keys: candidates.length,\n    image_keys: imageKeys.length,\n    keys: imageKeys,\n    keys_file: '/tmp/embed_keys.json'\n  }\n};"
+      },
+      "name": "Prepare Embedding Batch",
+      "typeVersion": 2
+    },
+    {
+      "id": "exec-embed",
+      "type": "n8n-nodes-base.executeCommand",
+      "position": [750, 300],
+      "parameters": {
+        "command": "python3 /repo/data/pipeline/03_embed_pipeline.py --keys /tmp/embed_keys.json --collection fashion_items --batch-size 32",
+        "timeOut": 3600
+      },
+      "name": "Run Embedding Pipeline",
+      "typeVersion": 1
+    },
+    {
+      "id": "http-qdrant-verify",
+      "type": "n8n-nodes-base.httpRequest",
+      "position": [1000, 300],
+      "parameters": {
+        "method": "GET",
+        "url": "={{ $env.QDRANT_URL || 'http://localhost:6333' }}/collections/fashion_items",
+        "options": {
+          "timeout": 10000
+        }
+      },
+      "name": "Verify Qdrant Collection",
+      "typeVersion": 4
+    },
+    {
+      "id": "code-parse-embed",
+      "type": "n8n-nodes-base.code",
+      "position": [750, 500],
+      "parameters": {
+        "jsCode": "// Parse embedding results from the Execute Command stdout\n// executeCommand 노드는 { stdout, stderr, exitCode } 를 반환한다.\nconst item = $input.first().json;\nconst raw = typeof item === 'string' ? item : (item.stdout ?? JSON.stringify(item));\nlet report = {};\ntry { report = JSON.parse(raw); } catch (e) { report = {}; }\n\n// embed_pipeline.py 는 {total, success, failed} 를 최상위로 출력한다.\nconst stats = report.stats || report || {};\nconst expected = $('Prepare Embedding Batch').first().json.image_keys || 0;\nconst success = stats.success ?? 0;\n\nreturn {\n  json: {\n    total: stats.total ?? 0,\n    success,\n    failed: stats.failed ?? 0,\n    expected,\n    matches_expected: success === expected,\n    mismatch: success !== expected\n  }\n};"
+      },
+      "name": "Parse Embedding Results",
+      "typeVersion": 2
+    },
+    {
+      "id": "if-match",
+      "type": "n8n-nodes-base.if",
+      "position": [1250, 300],
+      "parameters": {
+        "conditions": {
+          "conditions": [
+            {
+              "id": "mismatch",
+              "leftValue": "{{ $json.mismatch }}",
+              "rightValue": false,
+              "operator": {"type": "boolean", "operation": "equals"}
+            }
+          ]
+        }
+      },
+      "name": "If Count Matches",
+      "typeVersion": 2
+    },
+    {
+      "id": "slack-success",
+      "type": "n8n-nodes-base.slack",
+      "position": [1500, 200],
+      "parameters": {
+        "resource": "message",
+        "operation": "post",
+        "channel": {"__rl": true, "mode": "name", "value": "#fashion-data-alerts"},
+        "text": "=Embedding complete: {{ $json.success }}/{{ $json.expected }} vectors upserted to Qdrant fashion_items"
+      },
+      "credentials": {"slackApi": {"__rl": true, "mode": "credential", "name": "Slack"}},
+      "name": "Slack: Embedding Success",
+      "typeVersion": 3,
+      "continueOnFail": true
+    },
+    {
+      "id": "slack-warning",
+      "type": "n8n-nodes-base.slack",
+      "position": [1500, 400],
+      "parameters": {
+        "resource": "message",
+        "operation": "post",
+        "channel": {"__rl": true, "mode": "name", "value": "#fashion-data-alerts"},
+        "text": "=Embedding MISMATCH: Expected {{ $json.expected }}, got {{ $json.success }}. Check logs."
+      },
+      "credentials": {"slackApi": {"__rl": true, "mode": "credential", "name": "Slack"}},
+      "name": "Slack: Count Mismatch Warning",
+      "typeVersion": 3,
+      "continueOnFail": true
+    }
+  ],
+  "connections": {
+    "Webhook Trigger": {
+      "main": [[{"node": "Prepare Embedding Batch", "type": "main", "index": 0}]]
+    },
+    "Prepare Embedding Batch": {
+      "main": [[{"node": "Run Embedding Pipeline", "type": "main", "index": 0}]]
+    },
+    "Run Embedding Pipeline": {
+      "main": [
+        [
+          {"node": "Verify Qdrant Collection", "type": "main", "index": 0},
+          {"node": "Parse Embedding Results", "type": "main", "index": 0}
+        ]
+      ]
+    },
+    "Parse Embedding Results": {
+      "main": [[{"node": "If Count Matches", "type": "main", "index": 0}]]
+    },
+    "If Count Matches": {
+      "main": [
+        [{"node": "Slack: Embedding Success", "type": "main", "index": 0}],
+        [{"node": "Slack: Count Mismatch Warning", "type": "main", "index": 0}]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "saveManualExecutions": true,
+    "timezone": "Asia/Seoul"
+  },
+  "staticData": null,
+  "tags": ["embedding", "marqo", "qdrant", "pipeline"],
+  "triggerCount": 0,
+  "updatedAt": "2026-07-10T00:00:00.000Z",
+  "versionId": "1",
+  "id": "WORKFLOW_ID_EMBED"
+}

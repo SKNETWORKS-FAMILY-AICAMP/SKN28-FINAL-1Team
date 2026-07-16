@@ -1,0 +1,128 @@
+[
+  {
+    "id": "skin_cool_bright",
+    "skin_tone_group": "쿨톤",
+    "skin_tone_subgroup": "브라이트 쿨",
+    "description": "명확하고 선명한 밝은 피부의 쿨톤. 순수하고 또렷한 인상이 특징.",
+    "best_colors": ["진한 파랑", "전기 블루", "핫핑크", "로열 블루", "시안", "형광 톤"],
+    "avoid_colors": ["베이지", "카키", "노란색", "주황색", "마른색"],
+    "palette_reference": "패턴톤순환 12색 중 Bright Cool 시즌"
+  },
+  {
+    "id": "skin_cool_base",
+    "skin_tone_group": "쿨톤",
+    "skin_tone_subgroup": "쿨베이스",
+    "description": "적당한 밝기의 피부에 파란기를 띤 쿨톤. 차분하고 세련된 인상.",
+    "best_colors": ["순수한 화이트", "라벤더", "보라", "네이비", "스카이 블루", "민트"],
+    "avoid_colors": ["오렌지", "골드", "테라코타", "황금색"],
+    "palette_reference": "패턴톤순환 12색 중 Cool Base 시즌"
+  },
+  {
+    "id": "skin_cool_deep",
+    "skin_tone_group": "쿨톤",
+    "skin_tone_subgroup": "딥 쿨",
+    "description": "깊고 어두운 피부에 시원한 기운을 띤 쿨톤. 고급스럽고 도발적인 인상.",
+    "best_colors": ["짙은 보라", "딥 퍼플", "미드나잇 블루", "에메랄드", "검정", "오리엔탈"],
+    "avoid_colors": ["라이트 핑크", "라벤더", "피치", "노란색"],
+    "palette_reference": "패턴톤순환 12색 중 Deep Cool 시즌"
+  },
+  {
+    "id": "skin_cool_light",
+    "skin_tone_group": "쿨톤",
+    "skin_tone_subgroup": "라이트 쿨",
+    "description": "밝고 가벼운 피부에 시원한 기운을 띤 쿨톤. 부드럽고 깨끗한 인상.",
+    "best_colors": ["파스텔 핑크", "파스텔 블루", "라일락", "아이스 블루", "화이트", "라벤더"],
+    "avoid_colors": ["다크 브라운", "올리브", "딥 오렌지", "와인"],
+    "palette_reference": "패턴톤순환 12색 중 Light Cool 시즌"
+  },
+  {
+    "id": "skin_warm_bright",
+    "skin_tone_group": "웜톤",
+    "skin_tone_subgroup": "브라이트 웜",
+    "description": "명확하고 따뜻한 밝은 피부의 웜톤. 활발하고 긍정적인 인상.",
+    "best_colors": ["오렌지 레드", "토마토", "해골사파리", "레몬 옐로우", "에너지 그린", "피치 브라운"],
+    "avoid_colors": ["파랑", "보라", "민트", "파스텔 톤"],
+    "palette_reference": "패턴톤순환 12색 중 Bright Warm 시즌"
+  },
+  {
+    "id": "skin_warm_base",
+    "skin_tone_group": "웜톤",
+    "skin_tone_subgroup": "웜베이스",
+    "description": "적당한 밝기의 피부에 따뜻한 기운을 띤 웜톤. 자연스럽고 편안한 인상.",
+    "best_colors": ["버건디", "올리브", "머스타드", "테라코타", "샌드", "카모플라쥬"],
+    "avoid_colors": ["네이비", "블랙", "라벤더", "핑크"],
+    "palette_reference": "패턴톤순환 12색 중 Warm Base 시즌"
+  },
+  {
+    "id": "skin_warm_deep",
+    "skin_tone_group": "웜톤",
+    "skin_tone_subgroup": "딥 웜",
+    "description": "깊고 어두운 피부에 따뜻한 기운을 띤 웜톤. 풍부하고 관대한 인상.",
+    "best_colors": ["다크 브라운", "셔런트", "딥 오렌지", "에메랄드 그린", "와인", "골드"],
+    "avoid_colors": ["파스텔 핑크", "아이시 블루", "라벤더"],
+    "palette_reference": "패턴톤순환 12색 중 Deep Warm 시즌"
+  },
+  {
+    "id": "skin_warm_light",
+    "skin_tone_group": "웜톤",
+    "skin_tone_subgroup": "라이트 웜",
+    "description": "밝고 가벼운 피부에 따뜻한 기운을 띤 웜톤. 부드럽고 친근한 인상.",
+    "best_colors": ["피치", "크림 옐로우", "로즈 핑크", "코랄", "민트 그린", "스카이 블루"],
+    "avoid_colors": ["블랙", "딥 퍼플", "네이비", "마젠타"],
+    "palette_reference": "패턴톤순환 12색 중 Light Warm 시즌"
+  },
+  {
+    "id": "skin_neutral_spring",
+    "skin_tone_group": "뉴트럴",
+    "skin_tone_subgroup": "스프링 뉴트럴",
+    "description": "웜과 쿨이 섞인 중립 피부. 따뜻한 빛을 띤 봄 기운이 가미됨.",
+    "best_colors": ["피치", "코랄", "미디엄 브라운", "오프 화이트", "에메랄드", "사파이어"],
+    "avoid_colors": ["블랙", "네이비", "딥 퍼플", "와인"],
+    "palette_reference": "패턴톤순환 12색 중 Spring Neutral 시즌"
+  },
+  {
+    "id": "skin_neutral_autumn",
+    "skin_tone_group": "뉴트럴",
+    "skin_tone_subgroup": "오텀 뉴트럴",
+    "description": "웜과 쿨이 섞인 중립 피부. 차분한 가을 기운이 가미됨.",
+    "best_colors": ["머스타드", "올리브", "테라코타", "딥 그린", "버건디", "케이크 브라운"],
+    "avoid_colors": ["파스텔 핑크", "라벤더", "블랙", "네이비"],
+    "palette_reference": "패턴톤순환 12색 중 Autumn Neutral 시즌"
+  },
+  {
+    "id": "skin_neutral_true",
+    "skin_tone_group": "뉴트럴",
+    "skin_tone_subgroup": "트루 뉴트럴",
+    "description": "웜과 쿨이 거의 균형 있게 섞인 중립 피부. 다양한 색상에 잘 어울림.",
+    "best_colors": ["베이지", "그레이지", "카키", "로즈", "새먼", "슬레이트 블루"],
+    "avoid_colors": ["너무 진하거나 강렬한 원색", "과하게 선명한 네온 컬러"],
+    "palette_reference": "패턴톤순환 12색 중 True Neutral 시즌"
+  },
+  {
+    "id": "skin_cool_muted",
+    "skin_tone_group": "쿨톤",
+    "skin_tone_subgroup": "머텃 쿨",
+    "description": "부드럽고 차분한 피부에 시원한 기운을 띤 쿨톤. 절제되고 세련된 인상.",
+    "best_colors": ["라일락", "세이지 그린", "스모크 블루", "오리엔탈 블루", "딥 로즈", "미스트"],
+    "avoid_colors": ["오렌지", "골드", "레드", "네온 컬러"],
+    "palette_reference": "패턴톤순환 12색 중 Muted Cool 시즌"
+  },
+  {
+    "id": "skin_warm_muted",
+    "skin_tone_group": "웜톤",
+    "skin_tone_subgroup": "머텃 웜",
+    "description": "부드럽고 차분한 피부에 따뜻한 기운을 띤 웜톤. 우아하고 조용한 인상.",
+    "best_colors": ["올리브", "세이지", "테라코타", "모카", "더스티 핑크", "머드 그린"],
+    "avoid_colors": ["네온 컬러", "전기 블루", "마젠타", "라벤더"],
+    "palette_reference": "패턴톤순환 12색 중 Muted Warm 시즌"
+  },
+  {
+    "id": "skin_summer_muted",
+    "skin_tone_group": "쿨톤",
+    "skin_tone_subgroup": "서머 머텃",
+    "description": "여름의 부드러운 햇빛처럼 차갑고 부드러운 쿨톤. 낭만적이고 몽환적인 인상.",
+    "best_colors": ["라벤더", "더스티 핑크", "세피아", "파스텔 블루", "미디엄 그레이", "슬레이트"],
+    "avoid_colors": ["오렌지", "골드", "레드", "블랙"],
+    "palette_reference": "패턴톤순환 12색 중 Summer Muted 시즌"
+  }
+]

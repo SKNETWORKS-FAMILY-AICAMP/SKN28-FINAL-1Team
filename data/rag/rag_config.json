@@ -1,0 +1,138 @@
+{
+  "rag_stack": {
+    "vector_db": "Qdrant",
+    "embedding_model": "Marqo-FashionSigLIP",
+    "description": "Fashion-specific embedding model for Korean fashion data"
+  },
+  "modules": [
+    {
+      "module_id": "rag_01_outfit_recommendation",
+      "module_name": "코디 추천 RAG",
+      "module_name_en": "Outfit Recommendation RAG",
+      "description": "사용자 옷장 + 날씨 + TPO(시간·장소·목적)를 입력으로 받아 상황별 최적 코디를 추천",
+      "version": "1.0.0",
+      "input_schema": {
+        "user_wardrobe_item_ids": "array of string (옷장 아이템 ID 리스트)",
+        "weather": "object { temperature, condition, precipitation_probability }",
+        "tpo": "string (출근/면접/데이트/여행/결혼식/주말나들이/파티/운동)"
+      },
+      "context_sources": [
+        {
+          "type": "vector_store",
+          "collection": "fashion_items",
+          "filter_field": "item_category",
+          "description": "사용자 옷장 아이템 임베딩"
+        },
+        {
+          "type": "rule",
+          "file": "data/weather/weather_outfit_rules.json",
+          "description": "날씨별 코디 룰"
+        },
+        {
+          "type": "rule",
+          "file": "data/tpo/tpo_outfit_rules.json",
+          "description": "TPO별 코디 룰"
+        },
+        {
+          "type": "rule",
+          "file": "data/style/style_definitions.json",
+          "description": "스타일 정의 (키워드 매칭용)"
+        },
+        {
+          "type": "rule",
+          "file": "data/combination/item_combination_rules.json",
+          "description": "아이템 조합 룰"
+        }
+      ],
+      "search_method": "hybrid (vector similarity + keyword filtering)",
+      "output_format": "코디 추천 결과 (선택된 아이템 목록 + 스타일링 팁)",
+      "data_source_datasets": ["03_패션상품_착용영상", "05_polyvore_outfits"],
+      "qdrant_collection": "fashion_items",
+      "priority": 1
+    },
+    {
+      "module_id": "rag_02_new_item_recommendation",
+      "module_name": "신규 아이템 추천 RAG",
+      "module_name_en": "New Item Recommendation RAG",
+      "description": "사용자 체형(키/체중/체형 특징) + 기존 옷장을 입력으로 받아 임베딩 유사도로 신규 아이템 추천",
+      "version": "1.0.0",
+      "input_schema": {
+        "body_measurements": "object { height, weight, bust, waist, hip, arm_length, shoulder_width, foot_size }",
+        "body_shape_type": "string (slender/average/muscular/curvy)",
+        "existing_wardrobe_item_ids": "array of string",
+        "prefer_style_keywords": "array of string"
+      },
+      "context_sources": [
+        {
+          "type": "vector_store",
+          "collection": "fashion_items",
+          "filter_field": "item_category",
+          "description": "전체 패션 아이템 임베딩"
+        },
+        {
+          "type": "dataset",
+          "dataset_id": "20_전신형상치수",
+          "description": "한국인 체형 측정 데이터 → 체형군 클러스터링 기준"
+        },
+        {
+          "type": "rule",
+          "file": "data/color/color_matching_rules.json",
+          "description": "피부톤별 컬러 매칭 룰"
+        },
+        {
+          "type": "rule",
+          "file": "data/style/style_definitions.json",
+          "description": "스타일 키워드"
+        }
+      ],
+      "search_method": "embedding similarity (cosine) filtered by body_shape and style",
+      "output_format": "추천 아이템 목록 (유사도 점수 포함)",
+      "data_source_datasets": ["20_전신형상치수", "03_패션상품_착용영상"],
+      "qdrant_collection": "fashion_items",
+      "priority": 2
+    },
+    {
+      "module_id": "rag_03_size_recommendation",
+      "module_name": "사이즈 추천 RAG",
+      "module_name_en": "Size Recommendation RAG",
+      "description": "사용자 체형 측정값과 상품 치수를 비교하여 최적 사이즈를 실측 매칭",
+      "version": "1.0.0",
+      "input_schema": {
+        "body_measurements": "object { height, weight, bust, waist, hip, arm_length, shoulder_width }",
+        "body_shape_type": "string",
+        "product_id": "string (추천받을 상품 ID)"
+      },
+      "context_sources": [
+        {
+          "type": "dataset",
+          "dataset_id": "20_전신형상치수",
+          "description": "한국인 체형 실측 데이터"
+        },
+        {
+          "type": "dataset",
+          "dataset_id": "22_사이즈코리아",
+          "description": "사이즈코리아 의류 치수 데이터 (상품 치수 기준)"
+        },
+        {
+          "type": "rule",
+          "file": "data/combination/item_combination_rules.json",
+          "description": "체형별 사이즈 여유분 룰"
+        }
+      ],
+      "search_method": "rule-based matching (not vector search)",
+      "output_format": "추천 사이즈 (95/S, 100/M, 105/L 등) + 여유분 설명",
+      "data_source_datasets": ["20_전신형상치수", "22_사이즈코리아"],
+      "qdrant_collection": null,
+      "note": "사이즈 추정은 벡터 검색 없이 체형 측정값 직접 비교로 처리",
+      "priority": 3
+    }
+  ],
+  "config_version": "1.0.0",
+  "last_updated": "2026-07-10",
+  "notes": {
+    "module_add": "새 모듈 추가 시: modules 배열에 새 객체를 추가하고, module_id를 고유하게 부여",
+    "module_remove": "모듈 제거 시: modules 배열에서 제거 후 qdrant collection 정리 (현재 collection은 공유 중)",
+    "priority_order": "priority 필드는 초기화 순서. 1=highest, 3=lowest",
+    "qdrant_sharing": "현재 rag_01과 rag_02는 동일한 collection(fashion_items)을 공유. 모듈 분리 시 collection 분리 고려"
+  }
+}

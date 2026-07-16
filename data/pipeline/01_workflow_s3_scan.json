@@ -1,0 +1,153 @@
+{
+  "name": "S3 Inventory Scan",
+  "nodes": [
+    {
+      "id": "schedule-trigger",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "position": [250, 300],
+      "parameters": {
+        "rule": {
+          "interval": [
+            {"field": "cron", "expression": "0 9 * * *"}
+          ]
+        }
+      },
+      "name": "Schedule Trigger",
+      "typeVersion": 1.2
+    },
+    {
+      "id": "s3-list",
+      "type": "n8n-nodes-base.executeCommand",
+      "position": [500, 300],
+      "parameters": {
+        "command": "python3 /repo/data/pipeline/01_s3_scan.py --output /tmp/s3_inventory.json --state-file /home/node/.n8n/s3_previous_inventory.json",
+        "timeOut": 3600
+      },
+      "name": "Run S3 Scanner",
+      "typeVersion": 1
+    },
+    {
+      "id": "code-diff",
+      "type": "n8n-nodes-base.code",
+      "position": [750, 300],
+      "parameters": {
+        "jsCode": "// Parse s3_scan.py output file\nconst fs = require('fs');\nconst report = JSON.parse(fs.readFileSync('/tmp/s3_inventory.json', 'utf8'));\nconst diff = report.diff || {};\nconst newFiles = diff.new || [];\nconst removedFiles = diff.removed || [];\nconst modifiedFiles = diff.modified || [];\n\nreturn {\n  json: {\n    new_files: newFiles.length,\n    removed_files: removedFiles.length,\n    modified_files: modifiedFiles.length,\n    total_files: report.total_files || 0,\n    has_changes: newFiles.length > 0 || modifiedFiles.length > 0,\n    new_file_keys: newFiles.map(f => f.key),\n    modified_file_keys: modifiedFiles.map(f => f.key)\n  }\n};"
+      },
+      "name": "Diff with Previous Scan",
+      "typeVersion": 2
+    },
+    {
+      "id": "if-changes",
+      "type": "n8n-nodes-base.if",
+      "position": [1000, 300],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true
+          },
+          "conditions": [
+            {
+              "id": "has-changes",
+              "leftValue": "{{ $json.has_changes }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "name": "If Changes Exist",
+      "typeVersion": 2
+    },
+    {
+      "id": "slack-notify",
+      "type": "n8n-nodes-base.slack",
+      "position": [1250, 200],
+      "parameters": {
+        "resource": "message",
+        "operation": "post",
+        "channel": {
+          "__rl": true,
+          "mode": "name",
+          "value": "#fashion-data-alerts"
+        },
+        "text": {
+          "__rl": true,
+          "mode": "expression",
+          "value": "=S3 변경 감지: New {{ $json.new_files }} files, Modified {{ $json.modified_files }} files (Total: {{ $json.total_files }})"
+        }
+      },
+      "credentials": {
+        "slackApi": {
+          "__rl": true,
+          "mode": "credential",
+          "name": "Slack (workflow notifications)"
+        }
+      },
+      "name": "Slack: Notify Changes",
+      "typeVersion": 3,
+      "continueOnFail": true
+    },
+    {
+      "id": "trigger-clean",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "position": [1250, 400],
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "WORKFLOW_ID_CLEAN"
+        },
+        "dataVariables": {
+          "__rl": true,
+          "mode": "json",
+          "value": "={{ $json }}"
+        }
+      },
+      "name": "Trigger Cleaning Workflow",
+      "typeVersion": 1
+    },
+    {
+      "id": "no-changes",
+      "type": "n8n-nodes-base.noOp",
+      "position": [1250, 550],
+      "name": "No Changes - Skip",
+      "typeVersion": 1
+    }
+  ],
+  "connections": {
+    "Schedule Trigger": {
+      "main": [[{"node": "Run S3 Scanner", "type": "main", "index": 0}]]
+    },
+    "Run S3 Scanner": {
+      "main": [[{"node": "Diff with Previous Scan", "type": "main", "index": 0}]]
+    },
+    "Diff with Previous Scan": {
+      "main": [[{"node": "If Changes Exist", "type": "main", "index": 0}]]
+    },
+    "If Changes Exist": {
+      "main": [
+        [
+          {"node": "Slack: Notify Changes", "type": "main", "index": 0},
+          {"node": "Trigger Cleaning Workflow", "type": "main", "index": 0}
+        ],
+        [{"node": "No Changes - Skip", "type": "main", "index": 0}]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "saveManualExecutions": true,
+    "timezone": "Asia/Seoul"
+  },
+  "staticData": null,
+  "tags": ["s3", "scan", "inventory", "pipeline"],
+  "triggerCount": 1,
+  "updatedAt": "2026-07-10T00:00:00.000Z",
+  "versionId": "1",
+  "id": "WORKFLOW_ID_SCAN"
+}

@@ -1,0 +1,127 @@
+[
+  {
+    "id": "top_bottom_basic_tshirt_jeans",
+    "combination_type": "상의+하의 기본 조합",
+    "description": "반팔 티셔츠와 청바지의 클래식한 캐주얼 조합",
+    "compatible_tops": ["반팔 티셔츠", "오버사이즈 티셔츠", "그래픽 티셔츠"],
+    "compatible_bottoms": ["스키니 진", "레귤러 진", "와이드 진", "슬림 진"],
+    "avoid_combinations": ["검정 반팔 + 검정 진 (딸딸한 이미지)", "오버사이즈 티셔츠 + 스키니 진 (체형 강조 과함)"],
+    "styling_tip": "티셔츠 앞자락만 반쯤 넣어 입으면(프렌치 턱) 자연스러운 캐주얼 룩 완성"
+  },
+  {
+    "id": "top_bottom_basic_shirt_trousers",
+    "combination_type": "상의+하의 기본 조합",
+    "description": "셔츠와 슬랙스의 정돈된 조합. 다양한 상황에서 활용 가능",
+    "compatible_tops": ["드레스 셔츠", "옥스포드 셔츠", "차이니즈 셔츠", "린넨 셔츠"],
+    "compatible_bottoms": ["드레스 슬랙스", "면 슬랙스", "치노 팬츠", "와이드 팬츠"],
+    "avoid_combinations": ["체크 셔츠 + 체크 바지 (눈피로)", "줄무늬 셔츠 + 줄무늬 바지"],
+    "styling_tip": "셔츠를 바지 안에 넣으면 깔끔한 인상, 밖으로 내면 캐주얼한 느낌"
+  },
+  {
+    "id": "top_bottom_basic_knit_pants",
+    "combination_type": "상의+하의 기본 조합",
+    "description": "니트와 면바지/슬랙스의 조화로운 조합. 가을겨울 시즌에 적합",
+    "compatible_tops": ["브이넥 니트", "카디건", "풀오버 니트", "터틀넥 니트"],
+    "compatible_bottoms": ["면바지", "슬랙스", "모직 팬츠", "레깅스"],
+    "avoid_combinations": ["두꺼운 니트 + 두꺼운 바지 (무거워짐)", "길다란 니트 + 짧은 바지 (비율 무너짐)"],
+    "styling_tip": "니트 색상과 바지 색상을 대비 있게 맞추면 패션 포인트 생김"
+  },
+  {
+    "id": "top_bottom_basic_hoodie_joggers",
+    "combination_type": "상의+하의 기본 조합",
+    "description": "후드티와 조거팬츠의 스포티 조합. 편안하면서도 스타일리시",
+    "compatible_tops": ["후드티", "맨투맨", "후드 집업", "스웻셔츠"],
+    "compatible_bottoms": ["조거팬츠", "트랙팬츠", "테이퍼드 팬츠", "운동용 반바지"],
+    "avoid_combinations": ["후드티 + 주름이 많은 팬츠 (정리됨)", "두꺼운 후드티 + 두꺼운 바지"],
+    "styling_tip": "신발은 스니커즈나 런닝화류로 통일감 주기, 소품으로 모자나 키링 추가"
+  },
+  {
+    "id": "top_bottom_basic_blouse_skirt",
+    "combination_type": "상의+하의 기본 조합",
+    "description": "블라우스와 스커트의 여성스러운 조합. 데일리부터 오피스까지 활용",
+    "compatible_tops": ["실크 블라우스", "오버사이즈 블라우스", "셔링 블라우스", "프릴 블라우스"],
+    "compatible_bottoms": ["미니스커트", "미디 스커트", "플레어 스커트", "Pencil 스커트"],
+    "avoid_combinations": ["프릴이 많은 블라우스 + 플레어 스커트 (과분함)", "세미 시스 블라우스 + 미니스커트"],
+    "styling_tip": "블라우스를 스커트에 넣으면 와이드한 상의 실루엣 강조, 밖으로 내면 자연스러운 인상"
+  },
+  {
+    "id": "layering_outer_coat_inner",
+    "combination_type": "레이어링 조합",
+    "description": "코트 안에 니트나 셔츠를 레이어링하는 기본 패딩 전략",
+    "compatible_tops": ["니트", "셔츠", "긴팔 티셔츠", "블라우스"],
+    "compatible_outers": ["트렌치코트", "울코트", "더플코트", "퍼 코트", "무스탕"],
+    "avoid_combinations": ["두꺼운 코트 + 두꺼운 니트 (활동성 제한)", "방울이 많은 코트 + 볼륨 있는 내의"],
+    "styling_tip": "코트 색상과 니트 색상을 대비 주면 레이어링에서도 포인트 생김"
+  },
+  {
+    "id": "layering_outer_jacket_inner",
+    "combination_type": "레이어링 조합",
+    "description": "재킷 안에 셔츠나 티셔츠를 레이어링하는 스타일리시 조합",
+    "compatible_tops": ["셔츠", "긴팔 티셔츠", "얇은 니트", "블라우스"],
+    "compatible_outers": ["데님 재킷", "레더 재킷", "블레이저", "MA-1", "코치 재킷"],
+    "avoid_combinations": ["무거운 레더 재킷 + 니트 (무겁게)", "두꺼운 데님 + 두꺼운 셔츠"],
+    "styling_tip": "재킷을 닫지 않고 열어 안의 셔츠를 살짝 보여주면 입체감 있는 룩 완성"
+  },
+  {
+    "id": "layering_outer_cardigan_inner",
+    "combination_type": "레이어링 조합",
+    "description": "가디건으로 레이어링하여 다양한 스타일을 연출하는 조합",
+    "compatible_tops": ["반팔 티셔츠", "탱크탑", "얇은 셔츠", "원피스"],
+    "compatible_outers": ["긴 가디건", "짧은 가디건", "니트 가디건", "포근 가디건"],
+    "avoid_combinations": ["볼륨 있는 가디건 + 볼륨 있는 상의 (공간 없음)", "긴 가디건 + 짧은 하의 (다리 짧아 보임)"],
+    "styling_tip": "가디건 단추는 1~2개만 잠그고 흐트러진 느낌으로 연출하면 자연스러운 캐주얼"
+  },
+  {
+    "id": "color_harmony_neutral_accent",
+    "combination_type": "컬러 하모니 조합",
+    "description": "중립색 아이템에 포인트 컬러를 더해 시선 집중시키는 조합",
+    "compatible_neutrals": ["베이지", "그레이", "화이트", "블랙", "네이비"],
+    "compatible_accents": ["레드", "오렌지", "핑크", "옐로우", "그린"],
+    "avoid_combinations": ["중립색 3개 이상 조합 (지루함)", "포인트 컬러 2개 이상 (시선 분산)"],
+    "styling_tip": "가방, 신발, 액세서리 중 하나만 포인트 컬러로 사용하면 과하지 않은 포인트 생김"
+  },
+  {
+    "id": "color_harmony_mono_tone",
+    "combination_type": "컬러 하모니 조합",
+    "description": "같은 색상계 안에서 명도 변화를 주어 차분하고 세련된 이미지 연출",
+    "compatible_tops": ["라이트 그레이", "미디엄 그레이", "딥 차콜"],
+    "compatible_bottoms": ["딥 차콜", "미디엄 그레이", "블랙"],
+    "avoid_combinations": ["완전히 같은 색상의 상의+하의 (단조로움)", "명도 차이가 너무 작은 조합"],
+    "styling_tip": "모노톤 조합에서 신발이나 벨트를 대비되는 색상으로 하면 전체적으로 안정감 있는 룩"
+  },
+  {
+    "id": "color_harmony_complementary",
+    "combination_type": "컬러 하모니 조합",
+    "description": "보색 조합을 활용하여 강렬하고 활동적인 인상 연출",
+    "compatible_pairs": [["블루", "오렌지"], ["레드", "그린"], ["옐로우", "퍼플"], ["핑크", "그린"]],
+    "avoid_combinations": ["강렬한 보색 2개 모두 큰 면적 사용 (눈 피로)", "부적절한 보색 (대비 부족)"],
+    "styling_tip": "보색 중 하나는 작은 면적(가방, 신발, 액세서리)으로, 다른 하나는 큰 면적(상의 또는 하의)으로 배분"
+  },
+  {
+    "id": "occasion_work_blazer",
+    "combination_type": "오카전 기반 조합",
+    "description": "블레이저를 활용한 프로페셔널한 오피스 룩",
+    "compatible_tops": ["드레스 셔츠", "블라우스", "얇은 니트", "탭"],
+    "compatible_bottoms": ["드레스 슬랙스", "Pencil 스커트", "넓은 스커트"],
+    "avoid_combinations": ["데님 재킷 + 청바지 (캐주얼 과함)", "후드티 + 슬랙스 (상황에 안 어울림)"],
+    "styling_tip": "블레이저 안에 브이넥(V-neck) 형태의 상의를 입으면 목선이 길어 보여 날씬한 인상"
+  },
+  {
+    "id": "occasion_casual_denim",
+    "combination_type": "오카전 기반 조합",
+    "description": "데님 자켓과 청바지를 활용한 캐주얼 데일리 룩",
+    "compatible_tops": ["반팔 티셔츠", "체크 셔츠", "그래픽티", "나시"],
+    "compatible_bottoms": ["스키니 진", "레귤러 진", "와이드 진", "루스 진"],
+    "avoid_combinations": ["데님 온 데님 (같은 색상 데님)", "데님 재킷 + 데님 쇼츠 (과도)"],
+    "styling_tip": "데님 자켓은 워싱 색상과 바지 워싱 색상을 다르게 하면 색감의 층이 살아나 자연스러운 멋 완성"
+  },
+  {
+    "id": "occasion_date_elegant",
+    "combination_type": "오카전 기반 조합",
+    "description": "데이트나 특별한 자리에 어울리는 우아하고 세련된 조합",
+    "compatible_tops": ["실크 블라우스", "니트", "엘레강스 셔츠", "오프숄더"],
+    "compatible_bottoms": ["미디 스커트", "와이드 팬츠", "플레어 스커트", "실크 팬츠"],
+    "avoid_combinations": ["과도한 노출 (상황에 안 어울림)", "너무 캐주얼한 아이템 (운동화, 후드티)"],
+    "styling_tip": "어두운 색상의 하의에 밝은 상의를, 또는 반대로 하면 균형 잡힌 우아한 룩"
+  }
+]

@@ -1,0 +1,164 @@
+{
+  "name": "Weather Rules Build Pipeline",
+  "active": true,
+  "nodes": [
+    {
+      "id": "webhook-trigger",
+      "type": "n8n-nodes-base.webhook",
+      "position": [250, 300],
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "rule/weather-build",
+        "responseMode": "lastNode",
+        "options": {}
+      },
+      "name": "Webhook Trigger",
+      "typeVersion": 2
+    },
+    {
+      "id": "exec-build",
+      "type": "n8n-nodes-base.executeCommand",
+      "position": [500, 300],
+      "parameters": {
+        "command": "python3 /repo/data/pipeline/04_build_weather_rules.py --apply --backup",
+        "timeOut": 120
+      },
+      "name": "Run Weather Rules Build",
+      "typeVersion": 1,
+      "continueOnFail": true
+    },
+    {
+      "id": "parse-result",
+      "type": "n8n-nodes-base.code",
+      "position": [750, 300],
+      "parameters": {
+        "jsCode": "// Parse build_weather_rules.py output and surface key signals\nconst item = $input.first().json;\nconst raw = typeof item === 'string' ? item : (item.stdout ?? '');\nlet report = {};\ntry { report = JSON.parse(raw); } catch (e) { report = {}; }\n\nconst stats = report.stats || {};\nconst buildReport = report.report || {};\nconst exitFailed = Number(item.exitCode || 0) !== 0 || Boolean(item.error);\nconst errors = (stats.errors || 0) + (exitFailed && !stats.errors ? 1 : 0);\n\nreturn {\n  json: {\n    stats: stats,\n    total: stats.total || 0,\n    original: stats.original || 0,\n    added: stats.added || 0,\n    errors,\n    has_failures: errors > 0,\n    backup_path: buildReport.backup_path || null,\n    output_path: buildReport.output_path || null,\n    written: Boolean(buildReport.written),\n    temp_ranges_added: buildReport.temp_ranges_added || [],\n    pty_meaning_filled: buildReport.pty_meaning_filled || [],\n    kma_fields_added: buildReport.kma_fields_added || [],\n    required_filled: buildReport.required_filled || []\n  }\n};"
+      },
+      "name": "Parse Build Result",
+      "typeVersion": 2
+    },
+    {
+      "id": "if-build-success",
+      "type": "n8n-nodes-base.if",
+      "position": [1000, 300],
+      "parameters": {
+        "conditions": {
+          "conditions": [
+            {
+              "id": "has-failures",
+              "leftValue": "{{ $json.has_failures }}",
+              "rightValue": false,
+              "operator": {"type": "boolean", "operation": "equals"}
+            }
+          ]
+        }
+      },
+      "name": "If Build Success",
+      "typeVersion": 2
+    },
+    {
+      "id": "if-slack-enabled",
+      "type": "n8n-nodes-base.if",
+      "position": [1000, 500],
+      "parameters": {
+        "conditions": {
+          "conditions": [
+            {
+              "id": "slack-webhook-url-exists",
+              "leftValue": "{{ $env.SLACK_WEBHOOK_URL }}",
+              "rightValue": "",
+              "operator": {"type": "string", "operation": "notEmpty", "singleValue": true}
+            }
+          ]
+        }
+      },
+      "name": "If Slack Webhook Configured",
+      "typeVersion": 2
+    },
+    {
+      "id": "log-success",
+      "type": "n8n-nodes-base.code",
+      "position": [1250, 200],
+      "parameters": {
+        "jsCode": "// Console-only success log - Slack HTTP Request 노드 분기 외부에서도 동작\nconst data = $input.first().json;\nconsole.log('[weather-rules-build] OK', JSON.stringify({\n  total: data.total,\n  original: data.original,\n  added: data.added,\n  temp_ranges_added: data.temp_ranges_added,\n  pty_meaning_filled: data.pty_meaning_filled,\n  required_filled: data.required_filled\n}));\nreturn { json: { logged: true, summary: 'success', ...data } };"
+      },
+      "name": "Log Success",
+      "typeVersion": 2
+    },
+    {
+      "id": "slack-build-fail",
+      "type": "n8n-nodes-base.httpRequest",
+      "position": [1500, 400],
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.SLACK_WEBHOOK_URL }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {"name": "Content-Type", "value": "application/json"}
+          ]
+        },
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "text",
+              "value": "=:rotating_light: Weather Rules Build failed: {{ $json.errors }} errors. Backup: {{ $json.backup_path || 'n/a' }}"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 10000,
+          "retry": {"maxTries": 2}
+        }
+      },
+      "name": "Slack: Build Failed",
+      "typeVersion": 4.2,
+      "continueOnFail": true
+    },
+    {
+      "id": "console-build-fail",
+      "type": "n8n-nodes-base.code",
+      "position": [1500, 600],
+      "parameters": {
+        "jsCode": "// SLACK_WEBHOOK_URL 미설정 시 console.log 로 대체\nconst data = $input.first().json;\nconsole.log('[weather-rules-build] FAIL (no Slack webhook configured)', JSON.stringify({\n  errors: data.errors,\n  total: data.total,\n  output_path: data.output_path,\n  backup_path: data.backup_path\n}));\nreturn { json: { logged: true, channel: 'console', ...data } };"
+      },
+      "name": "Console: Build Failed",
+      "typeVersion": 2
+    }
+  ],
+  "connections": {
+    "Webhook Trigger": {
+      "main": [[{"node": "Run Weather Rules Build", "type": "main", "index": 0}]]
+    },
+    "Run Weather Rules Build": {
+      "main": [[{"node": "Parse Build Result", "type": "main", "index": 0}]]
+    },
+    "Parse Build Result": {
+      "main": [[{"node": "If Build Success", "type": "main", "index": 0}]]
+    },
+    "If Build Success": {
+      "main": [
+        [{"node": "Log Success", "type": "main", "index": 0}],
+        [{"node": "If Slack Webhook Configured", "type": "main", "index": 0}]
+      ]
+    },
+    "If Slack Webhook Configured": {
+      "main": [
+        [{"node": "Slack: Build Failed", "type": "main", "index": 0}],
+        [{"node": "Console: Build Failed", "type": "main", "index": 0}]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "saveManualExecutions": true,
+    "timezone": "Asia/Seoul"
+  },
+  "staticData": null,
+  "tags": ["weather", "rules", "validation", "pipeline", "5.1"],
+  "triggerCount": 0,
+  "updatedAt": "2026-07-13T00:00:00.000Z",
+  "versionId": "1",
+  "id": "WORKFLOW_ID_WEATHER_RULES"
+}
