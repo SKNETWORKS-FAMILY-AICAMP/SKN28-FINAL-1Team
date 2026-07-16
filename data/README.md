@@ -1,57 +1,90 @@
-# SKN28-FINAL-1Team — 데이터 담당자 노트
+# SKN28-FINAL-1Team 데이터
 
-## 프로젝트
+LLM 기반 대화형 패션 추천 시스템에서 사용하는 데이터 분석 자료, 추천 규칙, 샘플 데이터와 데이터 처리 파이프라인을 모아 둔 폴더입니다.
 
-**LLM 활용 대화형 패션 상품 추천 시스템**
-사용자의 옷장 데이터, 날씨, 추구미(스타일 레퍼런스)를 분석해 AI 캐릭터와의 대화를 통해 개인화된 패션 상품을 추천하는 대화형 추천 시스템.
+## 폴더 구조
 
-- 기획안: https://jjeoe0317.atlassian.net/wiki/x/AwAN
+```text
+data/
+├── data_analysis/  # 데이터셋별 분석 README와 시각화 이미지
+├── samples_data/   # 데이터셋별 최소 샘플 원본
+├── docs/           # 설계서, 체크리스트, 데이터 목록 및 작성 지침
+├── pipeline/       # 스캔·정제·임베딩·추천 룰 생성 파이프라인
+├── color/          # 색상 조합 규칙
+├── combination/    # 패션 아이템 조합 규칙
+├── weather/        # 날씨별 코디 규칙
+├── tpo/            # 상황(TPO)별 코디 규칙
+├── style/          # 패션 스타일 정의
+└── rag/            # RAG 구성 설정
+```
 
-## 내 역할: 데이터 담당자
+## 데이터셋 분석 자료
 
-데이터 수집·정제 및 추천 룰(RAG용 데이터 자산) 설계를 담당한다.
+`data_analysis/`에는 데이터셋별 분석 문서와 시각화 결과가 있습니다. 파일명 앞의 번호는 원본 데이터셋 번호입니다.
 
-### 작업 체크리스트
+| 번호 | 데이터셋                  | 분석 문서        | 시각화                 |
+| ---- | ------------------------- | ---------------- | ---------------------- |
+| 03   | 패션상품 및 착용영상      | `03_README.md` | `03_artifact.jpg`    |
+| 04   | H&M 추천 데이터           | `04_README.md` | `04_artifact.jpg`    |
+| 05   | Polyvore Outfits          | `05_README.md` | `05_artifact.jpg`    |
+| 10   | 한국인 3D 스캐닝          | `10_README.md` | `10_artifact.jpg`    |
+| 11   | PoC 패션 코디             | `11_README.md` | `11_artifact.jpg`    |
+| 12   | FASCODE                   | `12_README.md` | `12_artifact.jpg`    |
+| 20   | 전신 형상 및 치수         | `20_README.md` | `20_artifact.jpg`    |
+| 22   | 사이즈코리아              | `22_README.md` | `22_artifact.jpg`    |
+| 23   | 공공데이터 의류·생활체육 | `23_README.md` | `23_artifact.jpg`    |
+| 26   | K-Fashion                 | `26_README.md` | `26_artifact_A4.jpg` |
 
-- [ ] **날씨별 추천 룰 작성** — 기온, 강수, 계절별 추천 규칙
-  - 현황: `data/weather/weather_outfit_rules.json` 초안 존재 (기온 구간 7개 + 비/눈/강풍 조건). 검증·보완 필요.
-- [ ] **색상/아이템 조합 룰 작성** — 기본 컬러 매칭, 아이템 조합 규칙 정리
-  - 현황: 미착수. `data/style/style_definitions.json`에 스타일별 `color_palette`는 있지만, 범용 컬러 매칭·아이템 조합 규칙은 별도로 없음.
+01 의류통합데이터는 현재 `samples_data/`에 샘플만 있으며, `data_analysis/`에는 별도 분석 문서나 아티팩트가 없습니다.
 
-### `data/` 폴더 현황
+## 샘플 데이터
 
-| 경로 | 내용 | 상태 |
-| --- | --- | --- |
-| `weather/weather_outfit_rules.json` | 기온·날씨(비/눈/강풍)별 코디 룰 | 초안 |
-| `tpo/tpo_outfit_rules.json` | TPO(출근/면접/데이트/결혼식/주말/여행/운동/파티)별 코디 룰 | 초안 |
-| `style/style_definitions.json` | 스타일(미니멀/스트릿/캐주얼/시크/페미닌/빈티지/스포티/프레피) 정의 및 컬러 팔레트 | 초안 |
-| `upload_to_drive.py` | 위 룰 JSON들을 팀 공유 구글 드라이브(RAG용)로 업로드 | 완료 |
+`samples_data/`에는 전체 원본을 저장하지 않고, 구조와 필드를 확인할 수 있는 최소 샘플만 보관합니다.
 
-## 에이전트
+- 포함 데이터셋: 01, 03, 04, 05, 10, 11, 12, 20, 22, 23, 26
+- 파일 형식: JPG, JSON, CSV, XLSX, OBJ, MTL 등
+- 샘플 확인 안내: `samples_data/how_to_read_samples.md`
+- 대용량 전체 데이터는 이 저장소가 아닌 원본 저장소 또는 S3에서 관리합니다.
 
-데이터 정제/룰 작성 작업은 `final` 서브에이전트(`.claude/agents/final.md`)에게 위임할 수 있다.
+## 추천 규칙과 RAG 설정
 
-## S3(`skn28-cozy`) 데이터셋 분석 진행 상황
+| 경로                                         | 용도                                   |
+| -------------------------------------------- | -------------------------------------- |
+| `color/color_matching_rules.json`          | 색상 간 조합 및 매칭 규칙              |
+|  `combination/item_combination_rules.json` | 상·하의, 아우터 등 아이템 조합 규칙   |
+| `weather/weather_outfit_rules.json`        | 기온, 비, 눈, 강풍에 따른 코디 규칙    |
+| `tpo/tpo_outfit_rules.json`                | 출근, 면접, 데이트 등 상황별 코디 규칙 |
+| `style/style_definitions.json`             | 스타일별 특징과 컬러 팔레트 정의       |
+| `rag/rag_config.json`                      | RAG 데이터 구성 및 검색 설정           |
 
-각 폴더 분석 결과는 `data/<폴더명>/README.md`(또는 `readme.md`)에 저장 (요약 → S3 구조 상세+실측 근거 → 라벨링·메타데이터 기반 추천 시스템 활용 방안 → 출처/Confluence 링크 순서).
+## 데이터 파이프라인
 
-| S3 경로 | 로컬 폴더 | readme | 핵심 데이터 | 상태 |
-| --- | --- | --- | --- | --- |
-| `03_패션 상품 및 착용 영상/` | `data/03_패션상품_착용영상/` | `README.md` (재분석·보완) | winfo 기반 코디 JSON, Item/Model 이미지 + Pose·Parse 라벨 | 재분석(보완) 완료 + 아티팩트 HTML |
-| `05_huggingface_polyvore_outfits/` | `data/05_polyvore_outfits/` | `README.md` | 68k 코디 + 261k 아이템 메타, parquet 이미지, compatibility/FITB 라벨 | 완료 + 아티팩트 HTML |
-| `10.한국_신체_3D_스캐닝_데이터/` | `data/10_한국인_3D스캐닝/` | `README.md` | 477명 3D mesh + 32 keypoint 3D·2D + 실측치 (`actor` 필드) | 완료 + 아티팩트 HTML |
-| `11. 한국전자통신研究院_자율성장 인공지능 기술검증(PoC)을 위한 패션 코디 데이터셋/` | `data/11_PoC_패션코디/` | `README.md` | 대화 7,236건 + 아이템 2,603개(F/M/C/E 속성) + 이미지 3,351장 | 완료 + 아티팩트 HTML |
-| `12.한국전자통신연구원_FASCODE/` | `data/12_FASCODE/` | `README.md` | Fashion-How 2024: subtask1·2(속성 분류), subtask3·4(대화형 코디 로그) | 완료 + 아티팩트 HTML |
-| `20.한국인_전신_형상_및_치수_측정_데이터/` | `data/20_전신형상치수/` | `README.md` | 992명 3D mesh + 39개 실측치 CSV + 2D 다각도 폴리곤 라벨 | 완료 + 아티팩트 HTML |
-| `22.사이즈코리아/` | `data/22_사이즈코리아/` | `data/22_사이즈코리아/README.md` | 한국인 인체 치수 측정 데이터 (S3 실측 기반 분석) | README 완료 + 아티팩트 HTML |
-| `23.공공데이터_의류생활체육_추천데이터/` | `data/23_공공데이터_의류생활체육/` | `README.md` | 남성 모델 전신 사진 + 스타일 라벨 (hippie/bold/hiphop), 코호트별 폴더 분리 | 완료 + 아티팩트 HTML |
-| `26_K_Fashion/` | `data/26_K_Fashion/` | `README.md` | 한국콘텐츠진흥원 K-Fashion 데이터셋: 263,302 JPG + 393,802 JSON, bbox+polygon+스타일+9종 속성 라벨 | 완료 + 아티팩트 HTML |
-| `4_HM_Personalized_Fashion_Recommendations/` | `data/04_HM_추천데이터/` | `data/04_HM_추천데이터/README.md` | H&M 개인화 추천 데이터 (거래·고객·상품 메타, S3 실측 기반 분석) | README 완료 + 아티팩트 HTML |
-| `01_의류통합데이터/` | `data/01_의류통합데이터/` | `README.md` | 12카테고리 의류 이미지 ~887k 파일 + 66필드 어노테이션 JSON (의류 속성 + 모델 신체 사이즈) | 완료 + 아티팩트 HTML |
-| `fashion-data/` | `data/fashion-data/` | (없음) | 로컬에 미보관, S3: `fashion-data/` (용도 불명, 확인 필요) | 미수령 |
-| `sample/` | `data/sample/` | (없음) | 로컬에 미보관, S3: `sample/` (용도 불명, 확인 필요) | 미수령 |
+`pipeline/`은 다음 순서로 구성되어 있습니다.
 
-다음 호출 시: "S3 데이터 분석 이어서 해줘" → 이 표에서 "미수령" 또는 "확인 필요" 상태부터 3개씩 배치로 진행. 분석 진행 시점 기준 라인업:
+1. `01_s3_scan.py` — S3 데이터 인벤토리 스캔
+2. `02_clean_encoding.py`, `02_validate_json.py` — 데이터 정제 및 JSON 검증
+3. `03_embed_pipeline.py` — 임베딩 생성 파이프라인
+4. `04_build_weather_rules.py` — 날씨 추천 규칙 생성
+5. `05_build_combination_rules.py` — 아이템 조합 규칙 생성
 
-- **완료(상세 readme 보유)**: 03, 05, 10, 11, 12, 20, 22, 23, 26, 01, 04 — 11종. 추천 룰/RAG/SFT 데이터로 즉시 활용 가능.
-- **확인 필요**: `fashion-data/`, `sample/` — S3 경로는 존재하나 콘텐츠/용도가 모호.
+각 단계에는 설명 문서와 n8n 워크플로 JSON이 함께 있습니다. n8n 실행 환경은 `pipeline/n8n/`을 참고합니다.
+
+## 문서
+
+`docs/`에는 다음 자료가 있습니다.
+
+- `Data_List.xlsx` — 데이터 목록
+- `SKN28_1팀_데이터_조회_프로그램.docx` — 데이터 조회 프로그램 문서
+- `기능설계.md`, `기능설계.png` — 기능 설계
+- `_QA_CHECKLIST.md` — 품질 점검 항목
+- `_SECURITY_REVIEW.md` — 보안 검토 내용
+- `_README_RULES.md` — 데이터 분석 README 작성 규칙
+- `_artifact_prompt_template.md` — 분석 아티팩트 작성 템플릿
+- `_How_to_read_samples.md` — 샘플 데이터 확인 안내
+
+## 관리 원칙
+
+- 실제 자격증명, 액세스 키와 환경 변수 값은 저장하지 않습니다.
+- `.claude`, 캐시, 체크포인트와 임시 파일은 `data/`에 포함하지 않습니다.
+- 분석 자료는 `data_analysis/`, 원본 샘플은 `samples_data/`, 공통 문서는 `docs/`에 분리합니다.
+- JSON을 수정한 뒤에는 `pipeline/02_validate_json.py` 또는 `jq`로 구문을 검증합니다.
