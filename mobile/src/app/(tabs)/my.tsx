@@ -4,6 +4,7 @@ import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { BottomTabInset, Fonts } from '@/constants/theme';
+import { formatBudget, usePrefs } from '@/state/prefs';
 
 const INK = '#1c1917';
 const CHIP = '#f3f2ef';
@@ -24,6 +25,7 @@ const STATS = [
 
 // H1 마이 탭 — 프로필 요약 + 설정 메뉴
 export default function MyScreen() {
+  const prefs = usePrefs();
   const groups: { title: string; rows: Row[] }[] = [
     {
       title: '내 정보',
@@ -39,6 +41,23 @@ export default function MyScreen() {
           label: '추구미·선호도',
           hint: '미니멀 외 2',
           onPress: () => router.push('/style-onboarding'),
+        },
+      ],
+    },
+    {
+      title: '개인화',
+      rows: [
+        {
+          icon: 'paintpalette',
+          label: '퍼스널컬러',
+          hint: prefs.personalColor ?? '설정하기',
+          onPress: () => router.push('/personal-color'),
+        },
+        {
+          icon: 'wallet',
+          label: '예산',
+          hint: formatBudget(prefs.budget) ?? '설정하기',
+          onPress: () => router.push('/budget'),
         },
       ],
     },

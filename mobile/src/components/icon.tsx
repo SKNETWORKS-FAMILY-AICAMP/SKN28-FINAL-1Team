@@ -46,6 +46,8 @@ const MAP = {
   'ruler': 'resize-outline',
   'sun.max': 'sunny-outline',
   'tshirt': 'shirt-outline',
+  'paintpalette': 'color-palette-outline',
+  'wallet': 'wallet-outline',
 } satisfies Record<string, keyof typeof Ionicons.glyphMap>;
 
 export type IconName = keyof typeof MAP;

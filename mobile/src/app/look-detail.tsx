@@ -1,5 +1,6 @@
 import { Icon } from '@/components/icon';
 import { useToast } from '@/components/ui';
+import { formatBudget, parsePrice, usePrefs } from '@/state/prefs';
 import { router } from 'expo-router';
 import { useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
@@ -12,7 +13,7 @@ const WINE = '#5E2B2F';
 const BONE = '#ecebe7';
 const ink = (a: number) => `rgba(28,25,23,${a})`;
 
-type Related = { name: string; brand: string; price: string; tone: number; inBudget: boolean };
+type Related = { name: string; brand: string; price: string; tone: number };
 type Piece = {
   slot: string;
   name: string;
@@ -22,7 +23,7 @@ type Piece = {
   related: Related[];
 };
 
-// related = 이 슬롯의 대체/비슷한 상품. inBudget=개인 예산 내(예산 설정은 Wave C에서 연동, 지금은 표시만)
+// related = 이 슬롯의 대체/비슷한 상품. 예산 내 여부는 마이>예산 설정값과 price를 비교해 실시간 계산
 const PIECES: Piece[] = [
   {
     slot: '상의',
@@ -31,9 +32,9 @@ const PIECES: Piece[] = [
     tone: 0.06,
     mine: true,
     related: [
-      { name: '램스울 라운드 니트', brand: 'Uniqlo U', price: '59,900', tone: 0.05, inBudget: true },
-      { name: '캐시미어 블렌드 니트', brand: 'COS', price: '119,000', tone: 0.09, inBudget: true },
-      { name: '핸드메이드 울 니트', brand: 'Andersson Bell', price: '198,000', tone: 0.13, inBudget: false },
+      { name: '램스울 라운드 니트', brand: 'Uniqlo U', price: '59,900', tone: 0.05 },
+      { name: '캐시미어 블렌드 니트', brand: 'COS', price: '119,000', tone: 0.09 },
+      { name: '핸드메이드 울 니트', brand: 'Andersson Bell', price: '198,000', tone: 0.13 },
     ],
   },
   {
@@ -43,8 +44,8 @@ const PIECES: Piece[] = [
     tone: 0.18,
     mine: true,
     related: [
-      { name: '울 블렌드 와이드 슬랙스', brand: 'Uniqlo', price: '49,900', tone: 0.18, inBudget: true },
-      { name: '테이퍼드 크롭 슬랙스', brand: 'COS', price: '135,000', tone: 0.2, inBudget: false },
+      { name: '울 블렌드 와이드 슬랙스', brand: 'Uniqlo', price: '49,900', tone: 0.18 },
+      { name: '테이퍼드 크롭 슬랙스', brand: 'COS', price: '135,000', tone: 0.2 },
     ],
   },
   {
@@ -54,8 +55,8 @@ const PIECES: Piece[] = [
     tone: 0.1,
     mine: false,
     related: [
-      { name: '오버핏 트렌치 코트', brand: 'Musinsa Standard', price: '89,000', tone: 0.1, inBudget: true },
-      { name: '벨티드 트렌치 코트', brand: 'COS', price: '259,000', tone: 0.12, inBudget: false },
+      { name: '오버핏 트렌치 코트', brand: 'Musinsa Standard', price: '89,000', tone: 0.1 },
+      { name: '벨티드 트렌치 코트', brand: 'COS', price: '259,000', tone: 0.12 },
     ],
   },
   {
@@ -65,8 +66,8 @@ const PIECES: Piece[] = [
     tone: 0.24,
     mine: true,
     related: [
-      { name: '스웨이드 페니 로퍼', brand: 'SPUR', price: '69,000', tone: 0.24, inBudget: true },
-      { name: '태슬 레더 로퍼', brand: 'Dr.Martens', price: '229,000', tone: 0.27, inBudget: false },
+      { name: '스웨이드 페니 로퍼', brand: 'SPUR', price: '69,000', tone: 0.24 },
+      { name: '태슬 레더 로퍼', brand: 'Dr.Martens', price: '229,000', tone: 0.27 },
     ],
   },
 ];
@@ -83,6 +84,7 @@ export default function LookDetail() {
   const [vote, setVote] = useState<'up' | 'down' | null>(null);
   const [openSlot, setOpenSlot] = useState<string | null>(null);
   const toast = useToast();
+  const { budget } = usePrefs();
 
   return (
     <View style={styles.container}>
@@ -156,34 +158,56 @@ export default function LookDetail() {
 
                   {open ? (
                     <View style={styles.related}>
-                      <Text style={styles.relatedHead}>비슷한 상품 · 예산 내 우선</Text>
-                      {p.related.map((r) => (
+                      <Text style={styles.relatedHead}>
+                        {budget != null
+                          ? `비슷한 상품 · ${formatBudget(budget)} 예산 내 우선`
+                          : '비슷한 상품'}
+                      </Text>
+                      {(budget != null
+                        ? [...p.related].sort(
+                            (a, b) =>
+                              (parsePrice(a.price) <= budget ? 0 : 1) -
+                              (parsePrice(b.price) <= budget ? 0 : 1),
+                          )
+                        : p.related
+                      ).map((r) => {
+                        const inBudget = budget != null && parsePrice(r.price) <= budget;
+                        return (
+                          <Pressable
+                            key={r.name}
+                            style={styles.relatedItem}
+                            onPress={() => toast(`${r.brand} · ${r.name} 담았어요`)}>
+                            <View
+                              style={[
+                                styles.relatedThumb,
+                                { backgroundColor: `rgba(28,25,23,${r.tone})` },
+                              ]}
+                            />
+                            <View style={styles.relatedBody}>
+                              <Text style={styles.relatedName} numberOfLines={1}>
+                                {r.name}
+                              </Text>
+                              <Text style={styles.relatedBrand}>{r.brand}</Text>
+                            </View>
+                            <View style={styles.relatedRight}>
+                              <Text style={styles.relatedPrice}>{r.price}원</Text>
+                              {inBudget ? (
+                                <View style={styles.budgetTag}>
+                                  <Text style={styles.budgetTagText}>예산 내</Text>
+                                </View>
+                              ) : null}
+                            </View>
+                          </Pressable>
+                        );
+                      })}
+                      {budget == null ? (
                         <Pressable
-                          key={r.name}
-                          style={styles.relatedItem}
-                          onPress={() => toast(`${r.brand} · ${r.name} 담았어요`)}>
-                          <View
-                            style={[
-                              styles.relatedThumb,
-                              { backgroundColor: `rgba(28,25,23,${r.tone})` },
-                            ]}
-                          />
-                          <View style={styles.relatedBody}>
-                            <Text style={styles.relatedName} numberOfLines={1}>
-                              {r.name}
-                            </Text>
-                            <Text style={styles.relatedBrand}>{r.brand}</Text>
-                          </View>
-                          <View style={styles.relatedRight}>
-                            <Text style={styles.relatedPrice}>{r.price}원</Text>
-                            {r.inBudget ? (
-                              <View style={styles.budgetTag}>
-                                <Text style={styles.budgetTagText}>예산 내</Text>
-                              </View>
-                            ) : null}
-                          </View>
+                          style={styles.budgetPrompt}
+                          onPress={() => router.push('/budget')}>
+                          <Icon name="wallet" tintColor={ink(0.5)} size={14} />
+                          <Text style={styles.budgetPromptText}>예산을 설정하면 예산 내 상품을 먼저 보여드려요</Text>
                         </Pressable>
-                      ))}
+                      ) : null}
                     </View>
                   ) : null}
                 </View>
@@ -360,6 +384,17 @@ const styles = StyleSheet.create({
     borderRadius: 6,
   },
   budgetTagText: { fontSize: 9.5, color: '#3f6b3f', fontWeight: '700' },
+  budgetPrompt: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 7,
+    marginTop: 2,
+    paddingVertical: 8,
+    paddingHorizontal: 10,
+    borderRadius: 10,
+    backgroundColor: '#f3f2ef',
+  },
+  budgetPromptText: { flex: 1, fontSize: 11.5, color: ink(0.55) },
 
   reasonCard: {
     backgroundColor: '#f7f6f3',
