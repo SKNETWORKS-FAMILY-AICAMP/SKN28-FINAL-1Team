@@ -6,11 +6,12 @@ OAuth 제공사 호출은 mock 처리한다 (외부 네트워크 의존 금지).
 
 from unittest.mock import patch
 
+from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import TestCase
 from django.urls import reverse
 from rest_framework.test import APIClient
 
-from apps.users.models import SocialAccount, User
+from apps.users.models import BodyMeasurement, SocialAccount, User
 from apps.users.services.oauth import SocialProfile
 
 
@@ -308,3 +309,136 @@ class MeViewTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.user.refresh_from_db()
         self.assertEqual(self.user.nickname, "새닉네임")
+
+
+def make_image_file(name: str = "photo.jpg") -> "SimpleUploadedFile":
+    """ImageField 검증을 통과하는 최소 크기 JPEG 파일."""
+    from io import BytesIO
+
+    from PIL import Image
+
+    buffer = BytesIO()
+    Image.new("RGB", (10, 10), "white").save(buffer, format="JPEG")
+    return SimpleUploadedFile(name, buffer.getvalue(), content_type="image/jpeg")
+
+
+class BodyMeasurementTests(TestCase):
+    """설정 페이지 — 신체치수 입력 3종 + 조회."""
+
+    def setUp(self):
+        self.client = APIClient()
+        self.user = User.objects.create(username="kakao_1", nickname="테스터")
+        self.client.force_authenticate(self.user)
+
+    # ---- 인증 ----
+
+    def test_requires_auth(self):
+        client = APIClient()
+        for method, url_name in [
+            ("get", "users:body"),
+            ("put", "users:body-basic"),
+            ("patch", "users:body-detail"),
+            ("post", "users:body-photos"),
+        ]:
+            response = getattr(client, method)(reverse(url_name))
+            self.assertEqual(response.status_code, 401, url_name)
+
+    # ---- 조회 ----
+
+    def test_get_before_input_returns_nulls(self):
+        response = self.client.get(reverse("users:body"))
+        self.assertEqual(response.status_code, 200)
+        self.assertIsNone(response.data["height"])
+        self.assertIsNone(response.data["chest"])
+
+    # ---- 기본 수치 ----
+
+    def test_basic_put_saves_height_and_weight(self):
+        response = self.client.put(
+            reverse("users:body-basic"),
+            {"height": "175.5", "weight": "70.0"},
+            format="json",
+        )
+        self.assertEqual(response.status_code, 200)
+        measurement = BodyMeasurement.objects.get(user=self.user)
+        self.assertEqual(str(measurement.height), "175.5")
+        self.assertEqual(str(measurement.weight), "70.0")
+
+    def test_basic_put_requires_both_fields(self):
+        response = self.client.put(
+            reverse("users:body-basic"), {"height": "175.5"}, format="json"
+        )
+        self.assertEqual(response.status_code, 400)
+
+    def test_basic_put_keeps_detail_values(self):
+        BodyMeasurement.objects.create(user=self.user, chest=95)
+        self.client.put(
+            reverse("users:body-basic"),
+            {"height": "175.5", "weight": "70.0"},
+            format="json",
+        )
+        measurement = BodyMeasurement.objects.get(user=self.user)
+        self.assertEqual(str(measurement.chest), "95.0")
+
+    # ---- 상세 수치 ----
+
+    def test_detail_patch_updates_only_sent_fields(self):
+        BodyMeasurement.objects.create(user=self.user, chest=95, waist=80)
+        response = self.client.patch(
+            reverse("users:body-detail"), {"waist": "82.5"}, format="json"
+        )
+        self.assertEqual(response.status_code, 200)
+        measurement = BodyMeasurement.objects.get(user=self.user)
+        self.assertEqual(str(measurement.chest), "95.0")
+        self.assertEqual(str(measurement.waist), "82.5")
+
+    def test_detail_patch_null_clears_value(self):
+        BodyMeasurement.objects.create(user=self.user, chest=95)
+        response = self.client.patch(
+            reverse("users:body-detail"), {"chest": None}, format="json"
+        )
+        self.assertEqual(response.status_code, 200)
+        measurement = BodyMeasurement.objects.get(user=self.user)
+        self.assertIsNone(measurement.chest)
+
+    def test_detail_patch_accepts_empty_body(self):
+        """전부 선택 입력이므로 빈 바디도 허용된다."""
+        response = self.client.patch(reverse("users:body-detail"), {}, format="json")
+        self.assertEqual(response.status_code, 200)
+
+    def test_detail_patch_rejects_out_of_range(self):
+        response = self.client.patch(
+            reverse("users:body-detail"), {"chest": "0.5"}, format="json"
+        )
+        self.assertEqual(response.status_code, 400)
+
+    # ---- 사진 접수 ----
+
+    def test_photo_upload_returns_meta_without_saving(self):
+        response = self.client.post(
+            reverse("users:body-photos"),
+            {"front_image": make_image_file("front.jpg"), "side_image": make_image_file("side.jpg")},
+            format="multipart",
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data["received"]["front_image"]["name"], "front.jpg")
+        self.assertEqual(
+            response.data["received"]["side_image"]["content_type"], "image/jpeg"
+        )
+
+    def test_photo_upload_requires_both_images(self):
+        response = self.client.post(
+            reverse("users:body-photos"),
+            {"front_image": make_image_file("front.jpg")},
+            format="multipart",
+        )
+        self.assertEqual(response.status_code, 400)
+
+    def test_photo_upload_rejects_non_image(self):
+        fake = SimpleUploadedFile("front.txt", b"not-an-image", content_type="text/plain")
+        response = self.client.post(
+            reverse("users:body-photos"),
+            {"front_image": fake, "side_image": make_image_file("side.jpg")},
+            format="multipart",
+        )
+        self.assertEqual(response.status_code, 400)

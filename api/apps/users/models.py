@@ -7,7 +7,10 @@
 
 from __future__ import annotations
 
+from decimal import Decimal
+
 from django.contrib.auth.models import AbstractUser, Permission
+from django.core.validators import MinValueValidator
 from django.db import models
 from django.utils.translation import gettext_lazy as _
 
@@ -69,3 +72,51 @@ class SocialAccount(models.Model):
 
     def __str__(self) -> str:
         return f"{self.provider}:{self.provider_user_id}"
+
+
+def _measure_field(label: str) -> models.DecimalField:
+    """신체 수치 필드 (cm/kg). 소수점 1자리, 1~999.9 범위."""
+    return models.DecimalField(
+        label,
+        max_digits=4,
+        decimal_places=1,
+        null=True,
+        blank=True,
+        validators=[MinValueValidator(Decimal("1"))],
+        help_text=label,
+    )
+
+
+class BodyMeasurement(models.Model):
+    """사용자 신체치수 (설정 페이지 입력값). 사용자당 1행.
+
+    기본 수치(키/몸무게)와 상세 둘레 수치를 한 행으로 관리한다.
+    상세 수치는 전부 선택 입력이라 null을 허용하며, 추후 사진 기반 추론
+    기능이 같은 컬럼을 추론값으로 갱신하는 것을 전제로 한다.
+    """
+
+    user = models.OneToOneField(
+        User, on_delete=models.CASCADE, related_name="body_measurement"
+    )
+    # 기본 수치
+    height = _measure_field("키(cm)")
+    weight = _measure_field("몸무게(kg)")
+    # 상세 수치 (전부 선택)
+    chest = _measure_field("가슴둘레(cm)")
+    waist = _measure_field("허리둘레(cm)")
+    hip = _measure_field("엉덩이둘레(cm)")
+    thigh = _measure_field("허벅지둘레(cm)")
+    calf = _measure_field("종아리둘레(cm)")
+    arm = _measure_field("팔뚝둘레(cm)")
+    shoulder = _measure_field("어깨너비(cm)")
+
+    created_at = models.DateTimeField("생성 시각", auto_now_add=True)
+    updated_at = models.DateTimeField("수정 시각", auto_now=True)
+
+    class Meta:
+        db_table = "body_measurements"
+        verbose_name = "신체치수"
+        verbose_name_plural = "신체치수"
+
+    def __str__(self) -> str:
+        return f"{self.user_id}의 신체치수"

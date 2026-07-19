@@ -12,11 +12,19 @@ from drf_spectacular.utils import (
 )
 
 from apps.api_docs.serializers import (
+    BodyPhotoResponseSerializer,
     DetailResponseSerializer,
     HomeResponseSerializer,
     SocialLoginResponseSerializer,
 )
-from apps.users.serializers import SocialLoginSerializer, UserSerializer
+from apps.users.serializers import (
+    BodyBasicInputSerializer,
+    BodyDetailInputSerializer,
+    BodyMeasurementSerializer,
+    BodyPhotoUploadSerializer,
+    SocialLoginSerializer,
+    UserSerializer,
+)
 
 
 class JWTAuthenticationExtension(OpenApiAuthenticationExtension):
@@ -268,6 +276,119 @@ class HomeViewExtension(OpenApiViewExtension):
             pass
 
         return DocumentedHomeView
+
+
+BODY_DETAIL_DESCRIPTION = """상세 둘레 수치를 저장합니다. **모든 필드가 선택 입력**입니다.
+
+- 보낸 필드만 갱신됩니다 (partial update).
+- 필드에 `null`을 보내면 저장된 값을 지웁니다.
+- 단위는 cm, 소수점 1자리까지 허용합니다 (1 ~ 999.9).
+"""
+
+BODY_PHOTOS_DESCRIPTION = """정면/측면 전신 사진을 접수합니다 (multipart/form-data).
+
+- 사진은 **서버에 저장하지 않습니다.** 요청 처리 후 임시 파일은 즉시 정리됩니다.
+- 추후 접수된 사진으로 상세 신체치수를 추론하는 기능이 연결될 예정이며,
+  현재는 접수 확인 응답만 반환합니다.
+- 파일당 10MB 이하의 이미지 파일이어야 합니다.
+"""
+
+
+class BodyMeasurementViewExtension(OpenApiViewExtension):
+    target_class = "apps.users.views.BodyMeasurementView"
+
+    def view_replacement(self):
+        @extend_schema_view(
+            get=extend_schema(
+                operation_id="get_body_measurement",
+                tags=["Body"],
+                summary="신체치수 조회",
+                description="저장된 신체치수를 반환합니다. 아직 입력하지 않은 필드는 `null`입니다.",
+                responses={
+                    200: BodyMeasurementSerializer,
+                    401: DetailResponseSerializer,
+                },
+            )
+        )
+        class DocumentedBodyMeasurementView(self.target_class):
+            pass
+
+        return DocumentedBodyMeasurementView
+
+
+class BodyBasicViewExtension(OpenApiViewExtension):
+    target_class = "apps.users.views.BodyBasicView"
+
+    def view_replacement(self):
+        @extend_schema_view(
+            put=extend_schema(
+                operation_id="update_body_basic",
+                tags=["Body"],
+                summary="기본 신체치수 입력 (키·몸무게)",
+                description=(
+                    "키(cm)와 몸무게(kg)를 저장합니다. **두 값 모두 필수**이며 "
+                    "소수점 1자리까지 허용합니다 (1 ~ 999.9). 상세 수치는 건드리지 않습니다."
+                ),
+                request=BodyBasicInputSerializer,
+                responses={
+                    200: BodyMeasurementSerializer,
+                    400: DetailResponseSerializer,
+                    401: DetailResponseSerializer,
+                },
+            )
+        )
+        class DocumentedBodyBasicView(self.target_class):
+            pass
+
+        return DocumentedBodyBasicView
+
+
+class BodyDetailViewExtension(OpenApiViewExtension):
+    target_class = "apps.users.views.BodyDetailView"
+
+    def view_replacement(self):
+        @extend_schema_view(
+            patch=extend_schema(
+                operation_id="update_body_detail",
+                tags=["Body"],
+                summary="상세 신체치수 입력 (전부 선택)",
+                description=BODY_DETAIL_DESCRIPTION,
+                request=BodyDetailInputSerializer,
+                responses={
+                    200: BodyMeasurementSerializer,
+                    400: DetailResponseSerializer,
+                    401: DetailResponseSerializer,
+                },
+            )
+        )
+        class DocumentedBodyDetailView(self.target_class):
+            pass
+
+        return DocumentedBodyDetailView
+
+
+class BodyPhotoViewExtension(OpenApiViewExtension):
+    target_class = "apps.users.views.BodyPhotoView"
+
+    def view_replacement(self):
+        @extend_schema_view(
+            post=extend_schema(
+                operation_id="upload_body_photos",
+                tags=["Body"],
+                summary="신체 사진 접수 (수치 추론용, 저장 안 함)",
+                description=BODY_PHOTOS_DESCRIPTION,
+                request=BodyPhotoUploadSerializer,
+                responses={
+                    200: BodyPhotoResponseSerializer,
+                    400: DetailResponseSerializer,
+                    401: DetailResponseSerializer,
+                },
+            )
+        )
+        class DocumentedBodyPhotoView(self.target_class):
+            pass
+
+        return DocumentedBodyPhotoView
 
 
 class MeViewExtension(OpenApiViewExtension):

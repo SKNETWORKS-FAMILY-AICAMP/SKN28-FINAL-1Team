@@ -2,13 +2,21 @@ import logging
 
 from django.contrib.auth.models import update_last_login
 from rest_framework import status
+from rest_framework.parsers import FormParser, MultiPartParser
 from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
 from rest_framework.views import APIView
 from rest_framework_simplejwt.tokens import RefreshToken
 
-from apps.users.models import SocialAccount
-from apps.users.serializers import SocialLoginSerializer, UserSerializer
+from apps.users.models import BodyMeasurement, SocialAccount
+from apps.users.serializers import (
+    BodyBasicInputSerializer,
+    BodyDetailInputSerializer,
+    BodyMeasurementSerializer,
+    BodyPhotoUploadSerializer,
+    SocialLoginSerializer,
+    UserSerializer,
+)
 from apps.users.services import accounts, oauth
 
 logger = logging.getLogger(__name__)
@@ -101,3 +109,66 @@ class MeView(APIView):
         serializer.is_valid(raise_exception=True)
         serializer.save()
         return Response(serializer.data)
+
+
+def _save_body_measurement(request, serializer_class, *, partial: bool) -> Response:
+    """신체치수 upsert 공통 처리. 저장 후 전체 치수를 응답한다."""
+    measurement, _ = BodyMeasurement.objects.get_or_create(user=request.user)
+    serializer = serializer_class(measurement, data=request.data, partial=partial)
+    serializer.is_valid(raise_exception=True)
+    serializer.save()
+    return Response(BodyMeasurementSerializer(measurement).data)
+
+
+class BodyMeasurementView(APIView):
+    """GET /api/v1/users/me/body/ — 내 신체치수 조회 (미입력 필드는 null)."""
+
+    def get(self, request):
+        measurement = BodyMeasurement.objects.filter(user=request.user).first()
+        # 아직 입력 전이면 모든 필드가 null인 빈 치수를 반환한다 (404 대신).
+        return Response(BodyMeasurementSerializer(measurement or BodyMeasurement()).data)
+
+
+class BodyBasicView(APIView):
+    """PUT /api/v1/users/me/body/basic/ — 키·몸무게 입력 (둘 다 필수)."""
+
+    def put(self, request):
+        return _save_body_measurement(request, BodyBasicInputSerializer, partial=False)
+
+
+class BodyDetailView(APIView):
+    """PATCH /api/v1/users/me/body/detail/ — 상세 둘레 수치 입력 (전부 선택)."""
+
+    def patch(self, request):
+        return _save_body_measurement(request, BodyDetailInputSerializer, partial=True)
+
+
+class BodyPhotoView(APIView):
+    """POST /api/v1/users/me/body/photos/ — 정면/측면 사진 접수.
+
+    사진은 디스크·DB에 저장하지 않는다. 요청 처리 후 Django가 임시 업로드
+    파일을 정리하며, 추후 이 자리에서 상세 수치 추론 기능을 호출할 예정이다.
+    """
+
+    parser_classes = [MultiPartParser, FormParser]
+
+    def post(self, request):
+        serializer = BodyPhotoUploadSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        def file_meta(image):
+            return {
+                "name": image.name,
+                "size": image.size,
+                "content_type": image.content_type,
+            }
+
+        return Response(
+            {
+                "detail": "사진이 정상 접수되었습니다. 상세 수치 추론 기능은 준비 중입니다.",
+                "received": {
+                    "front_image": file_meta(serializer.validated_data["front_image"]),
+                    "side_image": file_meta(serializer.validated_data["side_image"]),
+                },
+            }
+        )
