@@ -38,6 +38,13 @@
       ],
       "expo-secure-store",
       [
+        "expo-image-picker",
+        {
+          "photosPermission": "옷장에 사진을 추가하기 위해 앨범 접근이 필요해요.",
+          "cameraPermission": "옷을 촬영해 추가하기 위해 카메라 접근이 필요해요."
+        }
+      ],
+      [
         "@react-native-kakao/core",
         {
           "nativeAppKey": "1366adcd2e8c643a4b5471fabd32b6ea",

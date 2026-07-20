@@ -124,7 +124,7 @@ export default function ImportScreen() {
     setShowResults(false);
     if (photo) {
       draftItem.setPhoto(photo);
-      router.back(); // 아이템 등록(D2) 화면으로 복귀 → 사진 자동 채워짐
+      router.replace('/item-add');
     }
   };
 

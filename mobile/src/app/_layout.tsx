@@ -27,10 +27,13 @@ export default function RootLayout() {
           <AnimatedSplashOverlay />
           {/* 헤더는 전 화면 숨김. 진입 흐름(스플래시/온보딩/인증)은 파일명 그대로 자동 등록됨 */}
           <Stack screenOptions={{ headerShown: false }}>
-            {/* 메인 앱 = 하단 5탭 */}
+            {/* 메인 앱 = 홈 · 옷장 · 질문(+) · 룩북 · 마이 */}
             <Stack.Screen name="(tabs)" />
             {/* 위에서 올라오는 모달 화면들 */}
+            <Stack.Screen name="look-add" options={{ presentation: 'modal' }} />
+            <Stack.Screen name="item-add-source" options={{ presentation: 'modal' }} />
             <Stack.Screen name="item-add" options={{ presentation: 'modal' }} />
+            <Stack.Screen name="item-add-library" options={{ presentation: 'modal' }} />
             <Stack.Screen name="import" options={{ presentation: 'modal' }} />
           </Stack>
           {/* 개발 전용: 어디서든 스플래시로 돌아가는 단축 버튼 (배포 빌드엔 안 뜸) */}

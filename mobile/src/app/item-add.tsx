@@ -69,8 +69,8 @@ export default function ItemAddScreen() {
   const [brand, setBrand] = useState('');
   const [memo, setMemo] = useState('');
 
-  // 사진 영역 = "가져오기" 버튼 → 무신사 WebView 모달 열기
-  const openMusinsa = () => router.push('/import');
+  // 사진 영역 — item-add-source 에서 가져온 사진 표시
+  const openSource = () => router.push('/item-add-source');
 
   const handleSave = () => {
     // TODO: 백엔드 전송 → 누끼(rembg) → 옷장 저장
@@ -99,13 +99,13 @@ export default function ItemAddScreen() {
         contentContainerStyle={styles.content}
         keyboardShouldPersistTaps="handled">
         {/* 사진 영역 = 가져오기 버튼 (탭하면 무신사 WebView 열림) */}
-        <Pressable style={styles.photo} onPress={openMusinsa}>
+        <Pressable style={styles.photo} onPress={openSource}>
           {photo ? (
             <Image source={{ uri: photo }} style={StyleSheet.absoluteFill} contentFit="cover" />
           ) : (
             <View style={styles.photoEmpty}>
               <Text style={styles.photoEmptyIcon}>＋</Text>
-              <Text style={styles.photoEmptyText}>무신사에서 가져오기</Text>
+              <Text style={styles.photoEmptyText}>사진 추가하기</Text>
             </View>
           )}
           {photo ? (
