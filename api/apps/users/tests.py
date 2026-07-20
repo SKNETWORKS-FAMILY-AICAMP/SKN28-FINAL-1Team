@@ -112,11 +112,11 @@ class KakaoTokenLoginTests(TestCase):
 
     @patch("apps.users.views.oauth.authenticate_with_token")
     def test_token_login_not_supported_provider_returns_401(self, mock_auth):
-        """google 등 token 방식 미지원 제공사는 서비스 계층에서 OAuthError."""
+        """apple 등 token 방식 미지원 제공사는 서비스 계층에서 OAuthError."""
         from apps.users.services.oauth import OAuthError  # noqa: PLC0415
 
         mock_auth.side_effect = OAuthError("미지원")
-        url = reverse("users:social-login", kwargs={"provider": "google"})
+        url = reverse("users:social-login", kwargs={"provider": "apple"})
         response = self.client.post(url, {"access_token": "t"}, format="json")
         self.assertEqual(response.status_code, 401)
 
@@ -168,10 +168,121 @@ class KakaoTokenVerifyTests(TestCase):
         mock_fetch.assert_called_once()
 
     def test_unsupported_provider_raises(self):
+        """apple은 token 방식을 지원하지 않는다."""
         from apps.users.services import oauth
 
         with self.assertRaises(oauth.OAuthError):
-            oauth.authenticate_with_token("google", "token")
+            oauth.authenticate_with_token("apple", "token")
+
+
+class NaverTokenLoginTests(TestCase):
+    """네이버 token 방식: 발급 앱 검증 없이 /v1/nid/me로 사용자 식별만 수행."""
+
+    NAVER_PROVIDERS = {
+        "naver": {
+            "client_id": "naver-client-id",
+            "client_secret": "naver-secret",
+            "token_url": "https://nid.naver.com/oauth2.0/token",
+            "profile_url": "https://openapi.naver.com/v1/nid/me",
+        }
+    }
+
+    @patch("apps.users.services.oauth._get_profile")
+    def test_valid_token_identifies_user(self, mock_get):
+        """유효 토큰이면 앱 검증 없이 프로필 조회로 사용자를 식별한다."""
+        from django.test import override_settings
+
+        from apps.users.services import oauth
+
+        mock_get.return_value = {
+            "resultcode": "00",
+            "message": "success",
+            "response": {"id": "naver-uid-1", "email": "u@naver.com", "nickname": "유저"},
+        }
+        with override_settings(OAUTH_PROVIDERS=self.NAVER_PROVIDERS):
+            profile = oauth.authenticate_with_token("naver", "sdk-token")
+
+        self.assertEqual(profile.provider, "naver")
+        self.assertEqual(profile.provider_user_id, "naver-uid-1")
+        # 검증 단계가 별도 호출을 만들지 않는다 (프로필 조회 1회뿐).
+        mock_get.assert_called_once()
+
+    @patch("apps.users.services.oauth._get_profile")
+    def test_invalid_token_raises(self, mock_get):
+        """무효 토큰은 /v1/nid/me 단계에서 OAuthError."""
+        from django.test import override_settings
+
+        from apps.users.services import oauth
+
+        mock_get.side_effect = oauth.OAuthError("제공사 응답 오류: status=401")
+        with override_settings(OAUTH_PROVIDERS=self.NAVER_PROVIDERS):
+            with self.assertRaises(oauth.OAuthError):
+                oauth.authenticate_with_token("naver", "bad-token")
+
+
+class GoogleTokenVerifyTests(TestCase):
+    """oauth.authenticate_with_token의 구글 aud 검증 로직."""
+
+    GOOGLE_PROVIDERS = {
+        "google": {
+            "client_id": "our-client-id.apps.googleusercontent.com",
+            "client_secret": "secret",
+            "token_info_url": "https://www.googleapis.com/oauth2/v3/tokeninfo",
+            "profile_url": "https://www.googleapis.com/oauth2/v3/userinfo",
+        }
+    }
+
+    def _mock_tokeninfo(self, mock_get, payload, status_code=200):
+        response = mock_get.return_value
+        response.status_code = status_code
+        response.json.return_value = payload
+
+    @patch("apps.users.services.oauth.fetch_profile")
+    @patch("apps.users.services.oauth.requests.get")
+    def test_aud_mismatch_raises(self, mock_get, mock_fetch):
+        from django.test import override_settings
+
+        from apps.users.services import oauth
+
+        self._mock_tokeninfo(
+            mock_get, {"aud": "other-app.apps.googleusercontent.com", "sub": "1"}
+        )
+        with override_settings(OAUTH_PROVIDERS=self.GOOGLE_PROVIDERS):
+            with self.assertRaises(oauth.OAuthError):
+                oauth.authenticate_with_token("google", "token")
+        mock_fetch.assert_not_called()
+
+    @patch("apps.users.services.oauth.fetch_profile")
+    @patch("apps.users.services.oauth.requests.get")
+    def test_aud_match_fetches_profile(self, mock_get, mock_fetch):
+        from django.test import override_settings
+
+        from apps.users.services import oauth
+
+        self._mock_tokeninfo(
+            mock_get,
+            {"aud": "our-client-id.apps.googleusercontent.com", "sub": "1"},
+        )
+        mock_fetch.return_value = make_profile(provider="google", uid="1")
+        with override_settings(OAUTH_PROVIDERS=self.GOOGLE_PROVIDERS):
+            profile = oauth.authenticate_with_token("google", "token")
+        self.assertEqual(profile.provider, "google")
+        mock_fetch.assert_called_once()
+
+    @patch("apps.users.services.oauth.fetch_profile")
+    @patch("apps.users.services.oauth.requests.get")
+    def test_invalid_token_raises(self, mock_get, mock_fetch):
+        """만료/무효 토큰은 tokeninfo가 400을 반환한다."""
+        from django.test import override_settings
+
+        from apps.users.services import oauth
+
+        self._mock_tokeninfo(mock_get, {"error": "invalid_token"}, status_code=400)
+        mock_get.return_value.text = '{"error": "invalid_token"}'
+        with override_settings(OAUTH_PROVIDERS=self.GOOGLE_PROVIDERS):
+            with self.assertRaises(oauth.OAuthError):
+                oauth.authenticate_with_token("google", "token")
+        mock_fetch.assert_not_called()
 
 
 class MeViewTests(TestCase):

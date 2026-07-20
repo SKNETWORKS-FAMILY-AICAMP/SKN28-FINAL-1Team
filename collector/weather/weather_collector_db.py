@@ -341,8 +341,11 @@ def load_grid_area_dataframe() -> pd.DataFrame:
     depth1_col = find_column(df, ["1단계", "시도", "시도명"])
     depth2_col = find_column(df, ["2단계", "시군구", "시군구명"])
     depth3_col = find_column(df, ["3단계", "읍면동", "읍면동명"], required=False)
-    lat_col = find_column(df, ["위도", "lat", "latitude"], required=False)
-    lon_col = find_column(df, ["경도", "lon", "lng", "longitude"], required=False)
+    # "위도"/"경도" 부분매칭만 쓰면 도(度) 정수만 있는 "위도(시)"/"경도(시)" 컬럼이
+    # "위도(초/100)"/"경도(초/100)"(소수점 좌표)보다 먼저 걸려서 좌표가 정수로 잘린다.
+    # 소수점 컬럼을 후보 1순위로 둬서 정확 매칭이 먼저 잡히게 한다.
+    lat_col = find_column(df, ["위도(초/100)", "위도", "lat", "latitude"], required=False)
+    lon_col = find_column(df, ["경도(초/100)", "경도", "lon", "lng", "longitude"], required=False)
 
     rows: List[Dict[str, Any]] = []
     for (nx, ny), group in df.groupby([x_col, y_col]):

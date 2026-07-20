@@ -305,12 +305,19 @@ def authenticate(
 
 
 # ------------------------------------------------------------
-# token 방식 로그인 (카카오 네이티브 앱 SDK 전용)
+# token 방식 로그인 (네이티브 앱 SDK 전용: kakao / google / naver)
 # ------------------------------------------------------------
-
-# token 방식을 허용하는 제공사. 카카오 Android/iOS SDK는 인가 코드를 앱에
-# 노출하지 않고 access_token을 직접 반환하므로 code 방식이 불가능하다.
-_TOKEN_LOGIN_PROVIDERS = {"kakao"}
+#
+# 네이티브 앱 SDK는 인가 코드를 앱에 노출하지 않고 access_token을 직접
+# 반환하므로 code 방식이 불가능하다. token 방식의 핵심 보안 요건은
+# "토큰이 우리 앱으로 발급되었는지" 검증하는 것이다:
+#   - kakao:  /v1/user/access_token_info의 app_id 대조
+#   - google: /oauth2/v3/tokeninfo의 aud(client_id) 대조
+#   - naver:  ⚠️ 발급 앱을 확인할 공식 API가 없다 (introspection·id_token 미제공).
+#             토큰 유효성 + /v1/nid/me 사용자 식별만 가능하며, 다른 네이버
+#             앱에서 발급된 토큰을 구분할 수 없다. 이 한계를 팀이 인지하고
+#             수용한 상태로 지원한다 (2026-07 결정). 네이버 id가 앱별로
+#             다른 값인지 실증되면 기존 계정 탈취 위험은 해소된다.
 
 
 def _verify_kakao_token(config: Dict[str, str], access_token: str) -> None:
@@ -332,15 +339,57 @@ def _verify_kakao_token(config: Dict[str, str], access_token: str) -> None:
         )
 
 
+def _verify_google_token(config: Dict[str, str], access_token: str) -> None:
+    """
+    access_token의 aud(발급 대상 client_id)가 우리 앱인지 검증한다.
+
+    tokeninfo는 Bearer 헤더가 아닌 access_token 쿼리 파라미터를 받는다.
+    유효하지 않은 토큰은 400을 반환하므로 _json_or_error에서 걸러진다.
+    """
+    try:
+        response = requests.get(
+            config["token_info_url"],
+            params={"access_token": access_token},
+            timeout=settings.OAUTH_REQUEST_TIMEOUT,
+        )
+    except requests.RequestException as exc:
+        raise OAuthError(f"구글 tokeninfo 요청 실패: {exc}") from exc
+
+    info = _json_or_error(response)
+    if info.get("aud") != config["client_id"]:
+        raise OAuthError(
+            f"access_token의 aud가 서비스 앱과 일치하지 않습니다: {info.get('aud')}"
+        )
+
+
+def _verify_naver_token(config: Dict[str, str], access_token: str) -> None:
+    """
+    네이버는 발급 앱 검증이 불가능하다 — 의도적으로 아무것도 하지 않는다.
+
+    네이버는 introspection API와 OIDC id_token을 제공하지 않아 토큰이
+    우리 앱으로 발급됐는지 확인할 수 없다. 토큰 유효성 검증은 이후
+    fetch_profile의 /v1/nid/me 호출이 겸한다(무효 토큰이면 401 → OAuthError).
+    다른 네이버 앱에서 발급된 토큰을 구분하지 못하는 한계를 수용한 결정임.
+    """
+
+
+_TOKEN_VERIFIERS = {
+    "kakao": _verify_kakao_token,
+    "google": _verify_google_token,
+    "naver": _verify_naver_token,
+}
+
+
 def authenticate_with_token(provider: str, access_token: str) -> SocialProfile:
     """
     프론트(네이티브 앱 SDK)가 전달한 제공사 access_token으로 인증한다.
 
-    앱 소유권 검증(app_id 대조) 후 프로필을 조회한다.
+    앱 소유권 검증(발급 대상 앱 대조) 후 프로필을 조회한다.
     """
-    if provider not in _TOKEN_LOGIN_PROVIDERS:
+    verifier = _TOKEN_VERIFIERS.get(provider)
+    if verifier is None:
         raise OAuthError(f"{provider}는 access_token 방식 로그인을 지원하지 않습니다.")
 
     config = _provider_config(provider)
-    _verify_kakao_token(config, access_token)
+    verifier(config, access_token)
     return fetch_profile(provider, access_token)

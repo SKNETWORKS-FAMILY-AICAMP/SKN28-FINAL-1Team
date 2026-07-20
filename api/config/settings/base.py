@@ -41,6 +41,7 @@ INSTALLED_APPS = [
     "apps.users",
     "apps.catalog",
     "apps.weather",
+    "apps.home",
 ]
 
 MIDDLEWARE = [
@@ -158,6 +159,8 @@ OAUTH_PROVIDERS = {
         "client_id": os.getenv("GOOGLE_OAUTH_CLIENT_ID", ""),
         "client_secret": os.getenv("GOOGLE_OAUTH_CLIENT_SECRET", ""),
         "token_url": "https://oauth2.googleapis.com/token",
+        # token 방식 로그인(네이티브 앱 SDK) 검증용. aud(발급 대상 client_id)를 대조한다.
+        "token_info_url": "https://www.googleapis.com/oauth2/v3/tokeninfo",
         "profile_url": "https://www.googleapis.com/oauth2/v3/userinfo",
     },
     # 애플은 client_secret을 정적 문자열이 아닌 ES256 JWT로 동적 생성한다.
