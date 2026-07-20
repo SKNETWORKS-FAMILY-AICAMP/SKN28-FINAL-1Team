@@ -3,11 +3,12 @@ import { router } from 'expo-router';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-import { BottomTabInset, Fonts } from '@/constants/theme';
+import { BottomTabInset, Editorial } from '@/constants/theme';
+import { useAuth } from '@/state/auth';
 import { formatBudget, usePrefs } from '@/state/prefs';
 
-const INK = '#1c1917';
-const CHIP = '#f3f2ef';
+const INK = Editorial.ink;
+const CHIP = Editorial.surface;
 const ink = (a: number) => `rgba(28,25,23,${a})`;
 
 type Row = {
@@ -17,15 +18,36 @@ type Row = {
   onPress: () => void;
 };
 
-const STATS = [
-  { num: '42', label: '옷장' },
-  { num: '8', label: '저장한 룩' },
-  { num: '156', label: '착용 기록' },
-];
+type Stat = {
+  num: string;
+  label: string;
+  onPress: () => void;
+};
+
+const AUTO_USERNAME = /^(naver|kakao|google)_/;
+
+function displayName(
+  nickname: string | null | undefined,
+  email: string | null | undefined,
+): string {
+  if (nickname && !AUTO_USERNAME.test(nickname)) return nickname;
+  if (email) return email.split('@')[0];
+  return '회원';
+}
 
 // H1 마이 탭 — 프로필 요약 + 설정 메뉴
 export default function MyScreen() {
   const prefs = usePrefs();
+  const { user } = useAuth();
+  const name = displayName(user?.nickname, user?.email) || '코지';
+  const email = user?.email ?? 'cozy@example.com';
+
+  const stats: Stat[] = [
+    { num: '42', label: '옷장', onPress: () => router.push('/closet') },
+    { num: '8', label: '저장 룩', onPress: () => router.push('/lookbook') },
+    { num: '156', label: '착용', onPress: () => router.push('/calendar') },
+  ];
+
   const groups: { title: string; rows: Row[] }[] = [
     {
       title: '내 정보',
@@ -34,13 +56,13 @@ export default function MyScreen() {
           icon: 'figure.stand',
           label: '체형 정보',
           hint: '측정하기',
-          onPress: () => router.push('/measure-input'),
+          onPress: () => router.push({ pathname: '/measure-input', params: { returnTo: 'my' } }),
         },
         {
           icon: 'sparkles',
           label: '추구미·선호도',
           hint: '미니멀 외 2',
-          onPress: () => router.push('/style-onboarding'),
+          onPress: () => router.push({ pathname: '/style-onboarding', params: { returnTo: 'my' } }),
         },
         {
           icon: 'paintpalette',
@@ -72,29 +94,29 @@ export default function MyScreen() {
         <ScrollView
           showsVerticalScrollIndicator={false}
           contentContainerStyle={styles.content}>
-          {/* 프로필 */}
-          <View style={styles.profile}>
-            <View style={styles.avatar}>
-              <Text style={styles.avatarMark}>C</Text>
-            </View>
-            <View style={styles.profileText}>
-              <Text style={styles.name}>코지</Text>
-              <Text style={styles.email}>cozy@example.com</Text>
-            </View>
-            <Pressable style={styles.editBtn}>
-              <Text style={styles.editText}>편집</Text>
-            </Pressable>
-          </View>
-
-          {/* 스탯 */}
-          <View style={styles.statsRow}>
-            {STATS.map((s, i) => (
-              <View key={s.label} style={styles.statTile}>
-                {i > 0 ? <View style={styles.statDivider} /> : null}
-                <Text style={styles.statNum}>{s.num}</Text>
-                <Text style={styles.statLabel}>{s.label}</Text>
+          {/* 프로필 + 활동 요약 */}
+          <View style={styles.heroCard}>
+            <View style={styles.profile}>
+              <View style={styles.avatar} />
+              <View style={styles.profileText}>
+                <Text style={styles.name}>{name}</Text>
+                <Text style={styles.email} numberOfLines={1}>{email}</Text>
               </View>
-            ))}
+              <Pressable style={styles.editBtn} hitSlop={8}>
+                <Icon name="pencil" tintColor={ink(0.55)} size={14} />
+                <Text style={styles.editText}>편집</Text>
+              </Pressable>
+            </View>
+
+            <View style={styles.statsRow}>
+              {stats.map((s, i) => (
+                <Pressable key={s.label} style={styles.statTile} onPress={s.onPress}>
+                  {i > 0 ? <View style={styles.statDivider} /> : null}
+                  <Text style={styles.statNum}>{s.num}</Text>
+                  <Text style={styles.statLabel}>{s.label}</Text>
+                </Pressable>
+              ))}
+            </View>
           </View>
 
           {/* 메뉴 그룹 */}
@@ -134,46 +156,66 @@ const styles = StyleSheet.create({
   safe: { flex: 1 },
   content: { paddingHorizontal: 20, paddingTop: 16, paddingBottom: BottomTabInset + 24 },
 
-  profile: { flexDirection: 'row', alignItems: 'center', gap: 14 },
-  avatar: {
-    width: 60,
-    height: 60,
-    borderRadius: 30,
-    backgroundColor: INK,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  avatarMark: { fontFamily: Fonts.serif, fontSize: 26, color: '#fff' },
-  profileText: { flex: 1 },
-  name: { fontFamily: Fonts.serif, fontSize: 22, fontWeight: '500', color: INK },
-  email: { fontSize: 12.5, color: ink(0.45), marginTop: 3 },
-  editBtn: {
-    paddingHorizontal: 16,
-    paddingVertical: 8,
-    borderRadius: 999,
+  heroCard: {
     borderWidth: 1,
-    borderColor: ink(0.14),
+    borderColor: ink(0.1),
+    borderRadius: 16,
+    overflow: 'hidden',
+    backgroundColor: Editorial.white,
   },
-  editText: { fontSize: 12.5, color: ink(0.6), fontWeight: '500' },
+  profile: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    paddingHorizontal: 18,
+    paddingTop: 18,
+    paddingBottom: 18,
+  },
+  avatar: {
+    width: 52,
+    height: 52,
+    borderRadius: 26,
+    backgroundColor: Editorial.accent,
+  },
+  profileText: { flex: 1, minWidth: 0 },
+  name: { fontSize: 18, fontWeight: '700', color: INK, letterSpacing: -0.3 },
+  email: { fontSize: 12, color: ink(0.45), marginTop: 2 },
+  editBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingHorizontal: 10,
+    paddingVertical: 7,
+    borderRadius: 999,
+    backgroundColor: Editorial.surfaceSoft,
+  },
+  editText: { fontSize: 12, color: ink(0.55), fontWeight: '600' },
 
   statsRow: {
     flexDirection: 'row',
-    marginTop: 24,
-    backgroundColor: '#f7f6f3',
-    borderRadius: 16,
-    paddingVertical: 18,
+    borderTopWidth: 1,
+    borderTopColor: ink(0.07),
+    paddingVertical: 15,
+    paddingHorizontal: 12,
   },
-  statTile: { flex: 1, alignItems: 'center', gap: 4 },
+  statTile: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 5,
+    paddingVertical: 4,
+    position: 'relative',
+  },
   statDivider: {
     position: 'absolute',
     left: 0,
-    top: 4,
-    bottom: 4,
+    top: 6,
+    bottom: 6,
     width: 1,
     backgroundColor: ink(0.08),
   },
-  statNum: { fontFamily: Fonts.serif, fontSize: 22, fontWeight: '600', color: INK },
-  statLabel: { fontSize: 11, color: ink(0.45) },
+  statNum: { fontSize: 18, fontWeight: '600', color: INK, letterSpacing: -0.2 },
+  statLabel: { fontSize: 12, color: ink(0.45), fontWeight: '500' },
 
   group: { marginTop: 28 },
   groupTitle: { fontSize: 12, fontWeight: '600', color: ink(0.4), marginBottom: 10, marginLeft: 4 },

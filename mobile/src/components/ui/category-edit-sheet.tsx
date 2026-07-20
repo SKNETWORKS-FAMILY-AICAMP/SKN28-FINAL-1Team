@@ -20,6 +20,7 @@ type CategoryEditSheetProps = {
   categories: string[];
   onClose: () => void;
   onSave: (categories: string[]) => void;
+  addPlaceholder?: string;
 };
 
 export function CategoryEditSheet({
@@ -28,6 +29,7 @@ export function CategoryEditSheet({
   categories,
   onClose,
   onSave,
+  addPlaceholder = '새 카테고리',
 }: CategoryEditSheetProps) {
   const [draft, setDraft] = useState<string[]>(categories);
   const [newName, setNewName] = useState('');
@@ -87,7 +89,7 @@ export function CategoryEditSheet({
             <TextInput
               value={newName}
               onChangeText={setNewName}
-              placeholder="새 카테고리"
+              placeholder={addPlaceholder}
               placeholderTextColor={ink(0.35)}
               style={styles.addInput}
               returnKeyType="done"

@@ -205,9 +205,8 @@ const styles = StyleSheet.create({
     flexShrink: 0,
   },
   dropBtnCompact: {
-    gap: 3,
-    paddingHorizontal: 9,
-    minWidth: 96,
+    gap: 4,
+    paddingHorizontal: 10,
   },
   dropValue: { fontSize: 14, fontWeight: '600', color: INK },
   dropValueCompact: { fontSize: 11.5, fontWeight: '600', letterSpacing: -0.3 },

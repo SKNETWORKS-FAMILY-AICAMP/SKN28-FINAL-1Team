@@ -105,9 +105,9 @@ export const MaxContentWidth = 800;
 /** 옷장·룩북 2열 그리드 카드 — 이미지 비율·모서리 통일 */
 export const GridCard = {
   pad: 20,
-  gap: 12,
+  gap: 10,
   maxWidth: 440,
-  imageRatio: 1.25,
+  imageRatio: 1,
   radius: 16,
 } as const;
 

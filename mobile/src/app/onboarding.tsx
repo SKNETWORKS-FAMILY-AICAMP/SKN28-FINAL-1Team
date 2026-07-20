@@ -12,30 +12,41 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import { SmartImage } from '@/components/ui';
 import { Fonts } from '@/constants/theme';
 
 const INK = '#1c1917';
-const BONE = '#ecebe7';
 const ink = (a: number) => `rgba(28,25,23,${a})`;
 
 // 웹 데스크톱에선 브라우저 전체 폭이 잡히므로 폰 프레임 폭으로 캡 (global.css와 동일: 440)
 const width = Math.min(Dimensions.get('window').width, 440);
+const VISUAL_H = 320;
+
+/** 온보딩 슬라이드 이미지 — URL만 바꿔서 교체 */
+const ONBOARDING_IMAGES = {
+  stylist: 'https://i.pinimg.com/736x/af/85/0d/af850da2d1737ba3b6f7475775a2fd54.jpg',
+  closet: 'https://i.pinimg.com/1200x/0b/b1/dc/0bb1dc83e68db247e44f0487f88034bb.jpg',
+  fitting: 'https://i.pinimg.com/1200x/45/5a/66/455a663d331be1b5d9624939a69fc485.jpg',
+} as const;
 
 const SLIDES = [
   {
     kicker: 'AI STYLIST',
-    title: '매일 아침,\n오늘의 룩을 골라드려요',
-    body: '날씨와 일정, 당신의 취향을 읽고\nAI 캐릭터가 코디를 제안해요.',
+    image: ONBOARDING_IMAGES.stylist,
+    title: '매일 아침, 오늘의 룩을 골라드려요',
+    body: '날씨·일정·취향을 반영해 AI가 코디를 제안해요.',
   },
   {
     kicker: 'YOUR CLOSET',
-    title: '내 옷장을\n그대로 옮겨보세요',
-    body: '사진 한 장이면 AI가 자동으로\n카테고리·색상·소재를 정리해요.',
+    image: ONBOARDING_IMAGES.closet,
+    title: '내 옷장을 그대로 옮겨보세요',
+    body: '사진 한 장이면 카테고리·색상·소재를 자동으로 정리해요.',
   },
   {
     kicker: 'FITTING',
-    title: '입어보기 전에\n먼저 확인하세요',
-    body: '체형 측정으로 사이즈를 매칭하고\n2D 가상 착장으로 미리 봐요.',
+    image: ONBOARDING_IMAGES.fitting,
+    title: '입어보기 전에 먼저 확인하세요',
+    body: '체형 측정으로 사이즈를 맞추고 가상 착장으로 미리 볼 수 있어요.',
   },
 ];
 
@@ -75,12 +86,14 @@ export default function Onboarding() {
           scrollEventThrottle={16}>
           {SLIDES.map((s) => (
             <View key={s.kicker} style={[styles.slide, { width }]}>
-              <View style={styles.visual}>
-                <Text style={styles.visualMark}>A</Text>
-              </View>
+              <SmartImage uri={s.image} height={VISUAL_H} radius={24} contentFit="cover" />
               <Text style={styles.kicker}>{s.kicker}</Text>
-              <Text style={styles.title}>{s.title}</Text>
-              <Text style={styles.body}>{s.body}</Text>
+              <Text style={styles.title} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.85}>
+                {s.title}
+              </Text>
+              <Text style={styles.body} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.85}>
+                {s.body}
+              </Text>
             </View>
           ))}
         </ScrollView>
@@ -119,18 +132,9 @@ const styles = StyleSheet.create({
   skip: { fontSize: 13, color: ink(0.4) },
 
   slide: { paddingHorizontal: 40, paddingTop: 24, alignItems: 'flex-start' },
-  visual: {
-    alignSelf: 'stretch',
-    height: 320,
-    borderRadius: 24,
-    backgroundColor: BONE,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  visualMark: { fontFamily: Fonts.serif, fontSize: 120, color: ink(0.12) },
   kicker: { fontSize: 11, letterSpacing: 2, color: ink(0.4), fontWeight: '600', marginTop: 34 },
-  title: { fontFamily: Fonts.serif, fontSize: 28, color: INK, lineHeight: 36, marginTop: 12 },
-  body: { fontSize: 14, color: ink(0.5), lineHeight: 22, marginTop: 14 },
+  title: { fontFamily: Fonts.serif, fontSize: 22, color: INK, lineHeight: 28, marginTop: 12 },
+  body: { fontSize: 13, color: ink(0.5), lineHeight: 18, marginTop: 10 },
 
   bottom: { paddingHorizontal: 30, paddingBottom: 8 },
   dots: { flexDirection: 'row', gap: 6, justifyContent: 'center', marginBottom: 22 },

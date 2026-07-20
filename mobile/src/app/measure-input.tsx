@@ -1,4 +1,4 @@
-import { router } from 'expo-router';
+import { router, useLocalSearchParams } from 'expo-router';
 import { useEffect, useState } from 'react';
 import {
   Pressable,
@@ -29,9 +29,10 @@ function Steps({ active }: { active: number }) {
 
 // G1 체형 정보 입력 — 키/몸무게 + BMI 자동계산
 export default function MeasureInput() {
+  const { returnTo } = useLocalSearchParams<{ returnTo?: string }>();
   const [height, setHeight] = useState('');
   const [weight, setWeight] = useState('');
-  const [sex, setSex] = useState<'female' | 'male' | 'none'>('none');
+  const [sex, setSex] = useState<'female' | 'male' | null>(null);
 
   // 새 측정 플로우 진입 → 이전 데이터 초기화
   useEffect(() => {
@@ -52,6 +53,13 @@ export default function MeasureInput() {
     : '';
   const canNext = h > 0 && w > 0;
 
+  const goCapture = () => {
+    router.push({
+      pathname: '/measure-capture',
+      params: returnTo ? { returnTo } : undefined,
+    });
+  };
+
   return (
     <View style={styles.container}>
       <SafeAreaView edges={['top', 'bottom']} style={styles.safe}>
@@ -66,7 +74,7 @@ export default function MeasureInput() {
           keyboardShouldPersistTaps="handled">
           <Steps active={0} />
           <Text style={styles.eyebrow}>STEP 1 / 3</Text>
-          <Text style={styles.title}>체형 정보를{'\n'}알려주세요</Text>
+          <Text style={styles.title}>체형 정보를 알려주세요</Text>
           <Text style={styles.lead}>키와 몸무게로 치수를 더 정확히 추정해요.</Text>
 
           {/* 키 */}
@@ -104,9 +112,9 @@ export default function MeasureInput() {
           </View>
 
           {/* BMI */}
-          <View style={styles.bmiCard}>
-            <Text style={styles.bmiLabel}>BMI (자동 계산)</Text>
-            <View style={styles.bmiRow}>
+          <View style={styles.field}>
+            <Text style={styles.label}>BMI (자동 계산)</Text>
+            <View style={styles.inputRow}>
               <Text style={styles.bmiValue}>{bmi ? bmi.toFixed(1) : '—'}</Text>
               {bmiLabel ? (
                 <View style={styles.bmiTag}>
@@ -114,16 +122,16 @@ export default function MeasureInput() {
                 </View>
               ) : null}
             </View>
+            <View style={styles.underline} />
           </View>
 
           {/* 성별 */}
           <View style={styles.field}>
-            <Text style={styles.label}>성별 (선택)</Text>
+            <Text style={styles.label}>성별</Text>
             <View style={styles.sexRow}>
               {([
                 ['female', '여성'],
                 ['male', '남성'],
-                ['none', '선택 안 함'],
               ] as const).map(([key, lbl]) => {
                 const on = sex === key;
                 return (
@@ -137,6 +145,10 @@ export default function MeasureInput() {
               })}
             </View>
           </View>
+
+          <Pressable style={styles.skipWrap} hitSlop={8} onPress={goCapture}>
+            <Text style={styles.skipText}>입력 없이 건너뛰기</Text>
+          </Pressable>
         </ScrollView>
 
         <View style={styles.bottomBar}>
@@ -144,8 +156,8 @@ export default function MeasureInput() {
             style={[styles.cta, !canNext && styles.ctaDisabled]}
             disabled={!canNext}
             onPress={() => {
-              measureStore.setInput({ height: h, weight: w, sex });
-              router.push('/measure-capture');
+              measureStore.setInput({ height: h, weight: w, sex: sex ?? 'none' });
+              goCapture();
             }}>
             <Text style={styles.ctaText}>다음</Text>
           </Pressable>
@@ -167,28 +179,25 @@ const styles = StyleSheet.create({
   stepOn: { backgroundColor: INK },
 
   eyebrow: { fontSize: 11, letterSpacing: 1.5, color: ink(0.4), fontWeight: '600' },
-  title: { fontFamily: Fonts.serif, fontSize: 28, color: INK, marginTop: 10, lineHeight: 34 },
+  title: { fontFamily: Fonts.serif, fontSize: 24, color: INK, marginTop: 10, lineHeight: 30 },
   lead: { fontSize: 14, color: ink(0.5), marginTop: 12 },
 
   field: { marginTop: 28 },
-  label: { fontSize: 11, fontWeight: '500', color: ink(0.45), letterSpacing: 0.2 },
+  label: { fontSize: 13, fontWeight: '600', color: ink(0.55), letterSpacing: 0.2 },
   inputRow: { flexDirection: 'row', alignItems: 'flex-end', gap: 8, marginTop: 8 },
-  input: { flex: 1, fontFamily: Fonts.serif, fontSize: 32, color: ink(0.9), padding: 0 },
-  unit: { fontSize: 15, color: ink(0.4), marginBottom: 6 },
+  input: { flex: 1, fontFamily: Fonts.serif, fontSize: 26, color: ink(0.9), padding: 0 },
+  unit: { fontSize: 14, color: ink(0.4), marginBottom: 4 },
   underline: { marginTop: 8, height: 1, backgroundColor: ink(0.15) },
 
-  bmiCard: {
-    marginTop: 28,
-    backgroundColor: '#f7f6f3',
-    borderRadius: 16,
-    padding: 18,
-    gap: 8,
+  bmiValue: { flex: 1, fontFamily: Fonts.serif, fontSize: 26, color: ink(0.9) },
+  bmiTag: {
+    backgroundColor: '#f3e4de',
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 999,
+    marginBottom: 4,
   },
-  bmiLabel: { fontSize: 12, color: ink(0.45) },
-  bmiRow: { flexDirection: 'row', alignItems: 'center', gap: 12 },
-  bmiValue: { fontFamily: Fonts.serif, fontSize: 30, fontWeight: '600', color: INK },
-  bmiTag: { backgroundColor: '#f3e4de', paddingHorizontal: 11, paddingVertical: 5, borderRadius: 999 },
-  bmiTagText: { fontSize: 12, color: WINE, fontWeight: '600' },
+  bmiTagText: { fontSize: 11, color: WINE, fontWeight: '600' },
 
   sexRow: { flexDirection: 'row', gap: 8, marginTop: 12 },
   sexChip: {
@@ -206,10 +215,13 @@ const styles = StyleSheet.create({
 
   bottomBar: {
     paddingHorizontal: 24,
-    paddingTop: 12,
+    paddingTop: 8,
+    paddingBottom: 4,
     borderTopWidth: 1,
     borderTopColor: ink(0.08),
   },
+  skipWrap: { alignItems: 'center', marginTop: 40, paddingVertical: 4 },
+  skipText: { fontSize: 14, color: ink(0.5), fontWeight: '500', textDecorationLine: 'underline' },
   cta: {
     height: 52,
     borderRadius: 999,

@@ -1,4 +1,4 @@
-import { SearchFilterBar, SmartImage } from '@/components/ui';
+import { CategoryEditSheet, SearchFilterBar, SmartImage } from '@/components/ui';
 import { Icon } from '@/components/icon';
 import { useMultiSelectFilter } from '@/hooks/useMultiSelectFilter';
 import {
@@ -21,12 +21,12 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { BottomTabInset, GridCard, gridCardImageHeight, gridCardWidth } from '@/constants/theme';
 
 const INK = '#1c1917';
-const BONE = '#ecebe7';
 const ink = (a: number) => `rgba(28,25,23,${a})`;
 
 const CARD_W = gridCardWidth(Dimensions.get('window').width);
 const CARD_H = gridCardImageHeight(CARD_W);
 const PAD = GridCard.pad;
+const DEFAULT_TAGS = [...LOOKBOOK_FILTER_OPTIONS];
 
 function matchesQuery(look: LookPost, query: string): boolean {
   const q = query.trim().toLocaleLowerCase();
@@ -42,7 +42,9 @@ function matchesTags(look: LookPost, selected: string[]): boolean {
 export default function LookbookScreen() {
   const allLooks = useLookbook();
   const [query, setQuery] = useState('');
-  const { toggle, isActive, selected, label } = useMultiSelectFilter();
+  const [tags, setTags] = useState(DEFAULT_TAGS);
+  const [editOpen, setEditOpen] = useState(false);
+  const { toggle, isActive, selected, label, prune } = useMultiSelectFilter();
 
   const looks = useMemo(
     () => allLooks.filter((l) => matchesTags(l, selected) && matchesQuery(l, query)),
@@ -55,6 +57,11 @@ export default function LookbookScreen() {
     return '아직 올린 룩이 없어요';
   }, [query, label]);
 
+  const handleSaveTags = (next: string[]) => {
+    setTags(next);
+    prune(next.slice(1));
+  };
+
   return (
     <View style={styles.container}>
       <SafeAreaView edges={['top']} style={styles.safe}>
@@ -63,9 +70,10 @@ export default function LookbookScreen() {
             query={query}
             onQueryChange={setQuery}
             searchPlaceholder="해시태그 검색"
-            options={LOOKBOOK_FILTER_OPTIONS}
+            options={tags}
             onToggle={toggle}
             isActive={isActive}
+            onEditCategories={() => setEditOpen(true)}
           />
         </View>
 
@@ -87,7 +95,13 @@ export default function LookbookScreen() {
                 style={styles.card}
                 onPress={() => router.push('/saved-look')}>
                 <View style={styles.cardImage}>
-                  <SmartImage uri={lk.image} width="100%" height={CARD_H} radius={GridCard.radius} />
+                  <SmartImage
+                    uri={lk.image}
+                    width="100%"
+                    height={CARD_H}
+                    radius={GridCard.radius}
+                    contentFit="cover"
+                  />
                   {lk.price ? (
                     <View style={styles.priceBadge}>
                       <Text style={styles.priceText}>{lk.price}</Text>
@@ -98,6 +112,15 @@ export default function LookbookScreen() {
             ))
           )}
         </ScrollView>
+
+        <CategoryEditSheet
+          visible={editOpen}
+          title="태그 관리"
+          categories={tags}
+          addPlaceholder="새 태그"
+          onClose={() => setEditOpen(false)}
+          onSave={handleSaveTags}
+        />
 
         <Pressable
           style={styles.addFab}
@@ -129,7 +152,6 @@ const styles = StyleSheet.create({
     width: '100%',
     height: CARD_H,
     borderRadius: GridCard.radius,
-    backgroundColor: BONE,
     overflow: 'hidden',
     justifyContent: 'flex-end',
   },

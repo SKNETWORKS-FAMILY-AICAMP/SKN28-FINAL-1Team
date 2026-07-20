@@ -26,7 +26,6 @@ import { BottomTabInset, GridCard, gridCardImageHeight, gridCardWidth } from '@/
 import { Icon } from '@/components/icon';
 
 const INK = '#1c1917';
-const BONE = '#ecebe7';
 const ink = (a: number) => `rgba(28,25,23,${a})`;
 
 const CARD_W = gridCardWidth(Dimensions.get('window').width);
@@ -285,7 +284,13 @@ export default function ClosetScreen() {
                   style={styles.card}
                   onPress={() => router.push('/item-detail')}>
                   <View style={styles.cardImage}>
-                    <SmartImage uri={it.image} width="100%" height={CARD_H} radius={GridCard.radius} />
+                    <SmartImage
+                      uri={it.image}
+                      width="100%"
+                      height={CARD_H}
+                      radius={GridCard.radius}
+                      contentFit="cover"
+                    />
                     {it.owner ? (
                       <View style={styles.ownerBadge}>
                         <Text style={styles.ownerText}>{it.owner}님</Text>
@@ -350,12 +355,11 @@ const styles = StyleSheet.create({
     paddingHorizontal: PAD,
     paddingBottom: BottomTabInset + 24,
   },
-  card: { width: CARD_W, marginBottom: 20 },
+  card: { width: CARD_W, marginBottom: 16 },
   cardImage: {
     width: '100%',
     height: CARD_H,
     borderRadius: GridCard.radius,
-    backgroundColor: BONE,
     overflow: 'hidden',
   },
   ownerBadge: {
@@ -373,7 +377,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
     gap: 8,
-    marginTop: 10,
+    marginTop: 8,
   },
   cardName: { flex: 1, fontSize: 14, fontWeight: '500', color: ink(0.9) },
   cardCat: { fontSize: 12, color: ink(0.4), flexShrink: 0 },

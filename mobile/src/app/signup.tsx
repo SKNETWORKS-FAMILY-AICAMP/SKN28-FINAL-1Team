@@ -55,7 +55,9 @@ export default function Signup() {
           keyboardShouldPersistTaps="handled"
           showsVerticalScrollIndicator={false}>
           <Text style={styles.brand}>cozy</Text>
-          <Text style={styles.guide}>계정을 만들고{'\n'}오늘의 코디를 시작하세요</Text>
+          <Text style={styles.guide} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.85}>
+            계정을 만들고 오늘의 코디를 시작하세요
+          </Text>
 
           {/* 이메일 */}
           <View style={styles.field}>
@@ -180,7 +182,7 @@ const styles = StyleSheet.create({
   content: { paddingHorizontal: 30, paddingTop: 12, paddingBottom: 30 },
 
   brand: { fontFamily: Fonts.serif, fontSize: 26, color: INK, marginTop: 12 },
-  guide: { fontSize: 20, fontFamily: Fonts.serif, color: ink(0.9), marginTop: 30, lineHeight: 28 },
+  guide: { fontSize: 18, fontFamily: Fonts.serif, color: ink(0.9), marginTop: 30, lineHeight: 24 },
 
   field: { marginTop: 24 },
   label: { fontSize: 10, fontWeight: '500', color: ink(0.42), letterSpacing: 0.2 },

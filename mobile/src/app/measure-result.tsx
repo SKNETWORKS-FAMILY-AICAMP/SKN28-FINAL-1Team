@@ -1,5 +1,5 @@
 import { Icon } from '@/components/icon';
-import { router } from 'expo-router';
+import { router, useLocalSearchParams } from 'expo-router';
 import { useEffect, useState } from 'react';
 import {
   Pressable,
@@ -38,6 +38,7 @@ const MEASURE_ROWS = [
 
 // G3 치수 결과·사이즈 매칭 — measureStore 결과를 구독. 완료 시 측정 플로우 닫기
 export default function MeasureResult() {
+  const { returnTo } = useLocalSearchParams<{ returnTo?: string }>();
   const { status, result } = useMeasure();
 
   // 플로우를 거치지 않고 직접 진입했으면(status idle) 추정을 시작한다.
@@ -96,7 +97,11 @@ export default function MeasureResult() {
       waist: num('waist'),
       hip: num('hip'),
     });
-    router.canDismiss() ? router.dismissAll() : router.replace('/home');
+    if (returnTo === 'my') {
+      router.replace('/(tabs)/my');
+    } else {
+      router.replace('/(tabs)/home');
+    }
   };
 
   return (
@@ -164,10 +169,17 @@ export default function MeasureResult() {
           </View>
 
           <Text style={styles.note}>
-            * 추정값이라 실제와 오차가 있을 수 있어요. 결과는 2D 가상착장·사이즈 추천에 활용돼요.
+            * 실제와 오차가 있을 수 있어요. 결과는 2D 가상착장·사이즈 추천에 활용돼요.
           </Text>
 
-          <Pressable style={styles.remeasure} onPress={() => router.replace('/measure-input')}>
+          <Pressable
+            style={styles.remeasure}
+            onPress={() =>
+              router.replace({
+                pathname: '/measure-input',
+                params: returnTo ? { returnTo } : undefined,
+              })
+            }>
             <Icon name="arrow.clockwise" tintColor={ink(0.5)} size={14} />
             <Text style={styles.remeasureText}>다시 측정하기</Text>
           </Pressable>
@@ -207,7 +219,7 @@ const styles = StyleSheet.create({
   title: { fontFamily: Fonts.serif, fontSize: 26, color: INK },
   lead: { fontSize: 14, color: ink(0.5) },
 
-  sectionTitle: { fontSize: 13, fontWeight: '600', color: INK, marginTop: 30, marginBottom: 12 },
+  sectionTitle: { fontSize: 16, fontWeight: '600', color: INK, marginTop: 30, marginBottom: 12 },
   sectionHead: {
     flexDirection: 'row',
     alignItems: 'baseline',
@@ -215,8 +227,8 @@ const styles = StyleSheet.create({
     marginTop: 30,
     marginBottom: 12,
   },
-  sectionTitlePlain: { fontSize: 13, fontWeight: '600', color: INK },
-  editHint: { fontSize: 11.5, color: ink(0.4) },
+  sectionTitlePlain: { fontSize: 16, fontWeight: '600', color: INK },
+  editHint: { fontSize: 12, color: ink(0.4) },
   measureGrid: {
     flexDirection: 'row',
     flexWrap: 'wrap',
@@ -230,16 +242,16 @@ const styles = StyleSheet.create({
   measureValueRow: { flexDirection: 'row', alignItems: 'flex-end', gap: 4 },
   measureInput: {
     fontFamily: Fonts.serif,
-    fontSize: 26,
+    fontSize: 20,
     fontWeight: '600',
     color: INK,
     padding: 0,
-    minWidth: 56,
+    minWidth: 48,
     borderBottomWidth: 1,
     borderBottomColor: ink(0.18),
     paddingBottom: 2,
   },
-  measureUnit: { fontSize: 13, color: ink(0.4), marginBottom: 4 },
+  measureUnit: { fontSize: 12, color: ink(0.4), marginBottom: 3 },
 
   sizeCard: { borderWidth: 1, borderColor: ink(0.09), borderRadius: 16, paddingHorizontal: 16 },
   sizeRow: {

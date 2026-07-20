@@ -42,10 +42,10 @@ export default function PersonalColor() {
       </SafeAreaView>
 
       <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.content}>
-        <Text style={styles.title}>어떤 톤이{'\n'}가장 잘 어울려요?</Text>
+        <Text style={styles.title}>어떤 톤이 가장 잘 어울려요?</Text>
         <Text style={styles.lead}>얼굴이 화사해 보이는 톤을 골라주세요. 추천 색 조합에 반영해요.</Text>
 
-        <View style={styles.list}>
+        <View style={styles.grid}>
           {SEASONS.map((s) => {
             const on = sel === s.label;
             return (
@@ -53,16 +53,18 @@ export default function PersonalColor() {
                 key={s.label}
                 style={[styles.card, on && styles.cardOn]}
                 onPress={() => setSel(on ? null : s.label)}>
-                <View style={[styles.swatch, { backgroundColor: s.swatch }]} />
-                <View style={styles.cardBody}>
-                  <Text style={styles.cardLabel}>{s.label}</Text>
-                  <Text style={styles.cardDesc}>{s.desc}</Text>
+                <View style={styles.cardTop}>
+                  <View style={styles.cardHead}>
+                    <View style={[styles.swatch, { backgroundColor: s.swatch }]} />
+                    <Text style={styles.cardLabel}>{s.label}</Text>
+                  </View>
+                  {on ? (
+                    <Icon name="checkmark.circle.fill" tintColor={INK} size={24} />
+                  ) : null}
                 </View>
-                {on ? (
-                  <Icon name="checkmark.circle.fill" tintColor={INK} size={22} />
-                ) : (
-                  <View style={styles.radio} />
-                )}
+                <Text style={styles.cardDesc} numberOfLines={2}>
+                  {s.desc}
+                </Text>
               </Pressable>
             );
           })}
@@ -92,31 +94,40 @@ const styles = StyleSheet.create({
     paddingTop: 8,
     paddingBottom: 10,
   },
-  headerTitle: { fontSize: 15, fontWeight: '600', color: INK },
+  headerTitle: { fontSize: 17, fontWeight: '600', color: INK },
 
   content: { paddingHorizontal: 24, paddingTop: 12, paddingBottom: 24 },
-  title: { fontFamily: Fonts.serif, fontSize: 26, color: INK, lineHeight: 34 },
-  lead: { fontSize: 14, color: ink(0.5), lineHeight: 21, marginTop: 12 },
+  title: { fontFamily: Fonts.serif, fontSize: 24, color: INK, lineHeight: 30 },
+  lead: { fontSize: 15.5, color: ink(0.5), lineHeight: 23, marginTop: 12 },
 
-  list: { marginTop: 24, gap: 10 },
-  card: {
+  grid: {
+    marginTop: 24,
     flexDirection: 'row',
-    alignItems: 'center',
-    gap: 14,
+    flexWrap: 'wrap',
+    gap: 12,
+  },
+  card: {
+    width: '47%',
     borderWidth: 1,
     borderColor: ink(0.12),
     borderRadius: 16,
-    paddingHorizontal: 16,
-    paddingVertical: 15,
+    padding: 16,
+    gap: 10,
+    minHeight: 116,
   },
   cardOn: { borderColor: INK, backgroundColor: '#faf9f7' },
-  swatch: { width: 40, height: 40, borderRadius: 20 },
-  cardBody: { flex: 1, gap: 3 },
-  cardLabel: { fontSize: 15.5, fontWeight: '600', color: ink(0.9) },
-  cardDesc: { fontSize: 12.5, color: ink(0.45) },
-  radio: { width: 22, height: 22, borderRadius: 11, borderWidth: 1.5, borderColor: ink(0.2) },
+  cardTop: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 8,
+  },
+  cardHead: { flexDirection: 'row', alignItems: 'center', gap: 8, flex: 1 },
+  swatch: { width: 32, height: 32, borderRadius: 16, flexShrink: 0 },
+  cardLabel: { fontSize: 15, fontWeight: '600', color: ink(0.9), flexShrink: 1 },
+  cardDesc: { fontSize: 12.5, color: ink(0.48), lineHeight: 18 },
 
-  help: { fontSize: 12.5, color: ink(0.4), marginTop: 18, textAlign: 'center' },
+  help: { fontSize: 14, color: ink(0.4), marginTop: 20, textAlign: 'center' },
 
   bottomDivider: { height: 1, backgroundColor: ink(0.08) },
   bottomBar: { backgroundColor: '#fff', paddingHorizontal: 24, paddingTop: 12 },
@@ -127,5 +138,5 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  ctaText: { color: '#fff', fontSize: 15, fontWeight: '500' },
+  ctaText: { color: '#fff', fontSize: 16, fontWeight: '500' },
 });

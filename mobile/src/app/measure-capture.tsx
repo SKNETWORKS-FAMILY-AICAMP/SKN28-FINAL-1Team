@@ -1,5 +1,5 @@
 import { Icon, type IconName } from '@/components/icon';
-import { router } from 'expo-router';
+import { router, useLocalSearchParams } from 'expo-router';
 import { useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -30,6 +30,7 @@ const GUIDE: { icon: IconName; text: string }[] = [
 
 // G2 정면·측면 촬영 — 촬영 가이드 + 2컷 업로드
 export default function MeasureCapture() {
+  const { returnTo } = useLocalSearchParams<{ returnTo?: string }>();
   const [shots, setShots] = useState<{ front: boolean; side: boolean }>({
     front: false,
     side: false,
@@ -48,7 +49,7 @@ export default function MeasureCapture() {
         <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
           <Steps active={1} />
           <Text style={styles.eyebrow}>STEP 2 / 3</Text>
-          <Text style={styles.title}>정면·측면 사진을{'\n'}촬영해요</Text>
+          <Text style={styles.title}>정면·측면 사진을 촬영해요</Text>
           <Text style={styles.lead}>2장의 사진으로 어깨·가슴·허리 둘레를 추정해요.</Text>
 
           {/* 촬영 슬롯 2컷 */}
@@ -100,6 +101,19 @@ export default function MeasureCapture() {
               사진은 치수 추정에만 쓰이고 90일 후 자동 삭제돼요.
             </Text>
           </View>
+
+          <Pressable
+            style={styles.skipWrap}
+            hitSlop={8}
+            onPress={() => {
+              measureStore.estimate();
+              router.push({
+                pathname: '/measure-result',
+                params: returnTo ? { returnTo } : undefined,
+              });
+            }}>
+            <Text style={styles.skipText}>사진 없이 진행할게요</Text>
+          </Pressable>
         </ScrollView>
 
         <View style={styles.bottomBar}>
@@ -108,21 +122,14 @@ export default function MeasureCapture() {
             disabled={!both}
             onPress={() => {
               measureStore.estimate(); // 추정 시작(비동기) — STEP3 가 결과를 구독
-              router.push('/measure-result');
+              router.push({
+                pathname: '/measure-result',
+                params: returnTo ? { returnTo } : undefined,
+              });
             }}>
             <Text style={styles.ctaText}>
               {both ? '측정 시작하기' : '두 사진을 촬영해주세요'}
             </Text>
-          </Pressable>
-          {/* 사진 촬영이 번거로운 사용자를 위한 건너뛰기 — 키/몸무게만으로 추정 진행 */}
-          <Pressable
-            style={styles.skip}
-            hitSlop={8}
-            onPress={() => {
-              measureStore.estimate(); // 사진 없이(키·몸무게만) 추정
-              router.push('/measure-result');
-            }}>
-            <Text style={styles.skipText}>사진 없이 진행할게요</Text>
           </Pressable>
         </View>
       </SafeAreaView>
@@ -191,10 +198,12 @@ const styles = StyleSheet.create({
 
   bottomBar: {
     paddingHorizontal: 24,
-    paddingTop: 12,
+    paddingTop: 8,
+    paddingBottom: 4,
     borderTopWidth: 1,
     borderTopColor: ink(0.08),
   },
+  skipWrap: { alignItems: 'center', marginTop: 36, paddingVertical: 4 },
   cta: {
     height: 52,
     borderRadius: 999,
@@ -205,6 +214,5 @@ const styles = StyleSheet.create({
   ctaDisabled: { backgroundColor: ink(0.22) },
   ctaText: { color: '#fff', fontSize: 15, fontWeight: '500' },
 
-  skip: { alignSelf: 'center', paddingVertical: 12, marginTop: 2 },
-  skipText: { fontSize: 13, color: ink(0.5), textDecorationLine: 'underline' },
+  skipText: { fontSize: 14, color: ink(0.5), fontWeight: '500', textDecorationLine: 'underline' },
 });

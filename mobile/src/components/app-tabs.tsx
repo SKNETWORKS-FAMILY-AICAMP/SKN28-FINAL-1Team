@@ -58,7 +58,7 @@ function AskButton() {
   return (
     <View style={styles.askSlot}>
       <Pressable style={styles.askButton} onPress={() => router.push('/chat-mode')} accessibilityLabel="질문하기">
-        <Icon name="plus" tintColor={INK} size={23} />
+        <Icon name="plus" tintColor={INK} size={20} />
       </Pressable>
     </View>
   );
@@ -75,7 +75,13 @@ const styles = StyleSheet.create({
   label: { fontSize: 10.5, letterSpacing: 0.2 },
   askSlot: { flex: 1, alignItems: 'center', justifyContent: 'center' },
   askButton: {
-    width: 44, height: 44, borderRadius: 22, backgroundColor: '#f3f2ef', alignItems: 'center', justifyContent: 'center',
-    borderWidth: 1, borderColor: ink(0.08),
+    width: 36,
+    height: 36,
+    borderRadius: 8,
+    backgroundColor: '#f3f2ef',
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: ink(0.08),
   },
 });
