@@ -5,6 +5,7 @@ from apps.users.views import (
     BodyBasicView,
     BodyDetailView,
     BodyMeasurementView,
+    BodyPhotoTransactionView,
     BodyPhotoView,
     MeView,
     SocialLoginView,
@@ -22,4 +23,9 @@ urlpatterns = [
     path("users/me/body/basic/", BodyBasicView.as_view(), name="body-basic"),
     path("users/me/body/detail/", BodyDetailView.as_view(), name="body-detail"),
     path("users/me/body/photos/", BodyPhotoView.as_view(), name="body-photos"),
+    path(
+        "users/me/body/photos/<uuid:transaction_id>/",
+        BodyPhotoTransactionView.as_view(),
+        name="body-photo-transaction",
+    ),
 ]

@@ -28,9 +28,15 @@ class BodyPhotoReceivedSerializer(serializers.Serializer):
 
 
 class BodyPhotoResponseSerializer(serializers.Serializer):
-    """POST /api/v1/users/me/body/photos/ 200 응답 본문."""
+    """POST /api/v1/users/me/body/photos/ 202 응답 본문."""
 
     detail = serializers.CharField()
+    transaction_id = serializers.UUIDField(
+        help_text="측정 트랜잭션 ID. 상태 조회 API에 사용한다."
+    )
+    status = serializers.CharField(
+        help_text="트랜잭션 상태. 접수 직후에는 항상 in_progress."
+    )
     received = BodyPhotoReceivedSerializer()
 
 

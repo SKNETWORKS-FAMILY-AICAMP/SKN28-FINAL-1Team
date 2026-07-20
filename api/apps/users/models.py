@@ -7,6 +7,7 @@
 
 from __future__ import annotations
 
+import uuid
 from decimal import Decimal
 
 from django.contrib.auth.models import AbstractUser, Permission
@@ -120,3 +121,43 @@ class BodyMeasurement(models.Model):
 
     def __str__(self) -> str:
         return f"{self.user_id}의 신체치수"
+
+
+class BodyPhotoTransaction(models.Model):
+    """사진 기반 신체치수 측정 트랜잭션.
+
+    사진 등록 API가 접수 시 '진행중'으로 생성하고, 비동기 측정이 끝나면
+    성공/실패로 갱신한다. 사용자당 진행중 트랜잭션은 1건만 허용한다
+    (부분 유니크 제약 — 동시 요청 경합도 DB에서 차단).
+    """
+
+    class Status(models.TextChoices):
+        IN_PROGRESS = "in_progress", "진행중"
+        SUCCEEDED = "succeeded", "성공"
+        FAILED = "failed", "실패"
+
+    # 외부(프론트)에 노출되는 식별자라 순번 노출이 없는 UUID를 쓴다.
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    user = models.ForeignKey(
+        User, on_delete=models.CASCADE, related_name="body_photo_transactions"
+    )
+    status = models.CharField(
+        "상태", max_length=20, choices=Status.choices, default=Status.IN_PROGRESS
+    )
+    created_at = models.DateTimeField("생성 시각", auto_now_add=True)
+    updated_at = models.DateTimeField("수정 시각", auto_now=True)
+
+    class Meta:
+        db_table = "body_photo_transactions"
+        verbose_name = "사진 측정 트랜잭션"
+        verbose_name_plural = "사진 측정 트랜잭션"
+        constraints = [
+            models.UniqueConstraint(
+                fields=["user"],
+                condition=models.Q(status="in_progress"),
+                name="uq_body_photo_tx_in_progress",
+            )
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.id} ({self.status})"

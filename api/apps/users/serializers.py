@@ -1,6 +1,11 @@
 from rest_framework import serializers
 
-from apps.users.models import BodyMeasurement, SocialAccount, User
+from apps.users.models import (
+    BodyMeasurement,
+    BodyPhotoTransaction,
+    SocialAccount,
+    User,
+)
 
 
 class SocialLoginSerializer(serializers.Serializer):
@@ -119,3 +124,14 @@ class BodyPhotoUploadSerializer(serializers.Serializer):
 
     def validate_side_image(self, image):
         return self._validate_size(image)
+
+
+class BodyPhotoTransactionSerializer(serializers.ModelSerializer):
+    """사진 측정 트랜잭션 상태 응답 (GET /users/me/body/photos/{transaction_id})."""
+
+    transaction_id = serializers.UUIDField(source="id", read_only=True)
+
+    class Meta:
+        model = BodyPhotoTransaction
+        fields = ["transaction_id", "status", "created_at", "updated_at"]
+        read_only_fields = fields
