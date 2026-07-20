@@ -14,6 +14,32 @@ class SocialLoginResponseSerializer(serializers.Serializer):
     is_new_user = serializers.BooleanField()
 
 
+class BodyPhotoMetaSerializer(serializers.Serializer):
+    """접수된 사진 파일 메타데이터."""
+
+    name = serializers.CharField(help_text="업로드된 파일명.")
+    size = serializers.IntegerField(help_text="파일 크기(byte).")
+    content_type = serializers.CharField(help_text="파일 MIME 타입.")
+
+
+class BodyPhotoReceivedSerializer(serializers.Serializer):
+    front_image = BodyPhotoMetaSerializer()
+    side_image = BodyPhotoMetaSerializer()
+
+
+class BodyPhotoResponseSerializer(serializers.Serializer):
+    """POST /api/v1/users/me/body/photos/ 202 응답 본문."""
+
+    detail = serializers.CharField()
+    transaction_id = serializers.UUIDField(
+        help_text="측정 트랜잭션 ID. 상태 조회 API에 사용한다."
+    )
+    status = serializers.CharField(
+        help_text="트랜잭션 상태. 접수 직후에는 항상 in_progress."
+    )
+    received = BodyPhotoReceivedSerializer()
+
+
 class HomeWeatherSerializer(serializers.Serializer):
     """홈 화면 현재 날씨 블록. 데이터가 없으면 각 필드는 null이다."""
 

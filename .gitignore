@@ -174,3 +174,5 @@ logs/
 *.rej
 
 output
+# Local docs/artifacts
+docs/

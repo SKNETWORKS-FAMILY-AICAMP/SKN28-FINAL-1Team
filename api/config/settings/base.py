@@ -34,6 +34,7 @@ INSTALLED_APPS = [
     "django.contrib.staticfiles",
     "django.contrib.postgres",  # ArrayField/GinIndex 시스템 체크 지원
     # 3rd party
+    "corsheaders",
     "rest_framework",
     "rest_framework_simplejwt",
     "rest_framework_simplejwt.token_blacklist",
@@ -46,6 +47,9 @@ INSTALLED_APPS = [
 
 MIDDLEWARE = [
     "django.middleware.security.SecurityMiddleware",
+    # CORS: 응답을 생성할 수 있는 미들웨어(CommonMiddleware 등)보다 위에 있어야
+    # preflight(OPTIONS)와 에러 응답에도 CORS 헤더가 붙는다.
+    "corsheaders.middleware.CorsMiddleware",
     "django.contrib.sessions.middleware.SessionMiddleware",
     "django.middleware.common.CommonMiddleware",
     "django.middleware.csrf.CsrfViewMiddleware",
@@ -175,3 +179,12 @@ OAUTH_PROVIDERS = {
 }
 
 OAUTH_REQUEST_TIMEOUT = int(os.getenv("OAUTH_REQUEST_TIMEOUT", "10"))
+
+# ------------------------------------------------------------
+# CORS (브라우저 교차 출처 요청 허용)
+# 콤마 구분, 스킴 포함 origin만 (경로 없음). 예:
+#   CORS_ALLOWED_ORIGINS=https://skn-1st-mobile.expo.app,http://localhost:19006
+# ------------------------------------------------------------
+CORS_ALLOWED_ORIGINS = [
+    o.strip() for o in os.getenv("CORS_ALLOWED_ORIGINS", "").split(",") if o.strip()
+]

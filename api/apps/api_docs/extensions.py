@@ -12,11 +12,20 @@ from drf_spectacular.utils import (
 )
 
 from apps.api_docs.serializers import (
+    BodyPhotoResponseSerializer,
     DetailResponseSerializer,
     HomeResponseSerializer,
     SocialLoginResponseSerializer,
 )
-from apps.users.serializers import SocialLoginSerializer, UserSerializer
+from apps.users.serializers import (
+    BodyBasicInputSerializer,
+    BodyDetailInputSerializer,
+    BodyMeasurementSerializer,
+    BodyPhotoTransactionSerializer,
+    BodyPhotoUploadSerializer,
+    SocialLoginSerializer,
+    UserSerializer,
+)
 
 
 class JWTAuthenticationExtension(OpenApiAuthenticationExtension):
@@ -268,6 +277,160 @@ class HomeViewExtension(OpenApiViewExtension):
             pass
 
         return DocumentedHomeView
+
+
+BODY_DETAIL_DESCRIPTION = """상세 둘레 수치를 저장합니다. **모든 필드가 선택 입력**입니다.
+
+- 보낸 필드만 갱신됩니다 (partial update).
+- 필드에 `null`을 보내면 저장된 값을 지웁니다.
+- 단위는 cm, 소수점 1자리까지 허용합니다 (1 ~ 999.9).
+"""
+
+BODY_PHOTOS_DESCRIPTION = """정면/측면 전신 사진을 접수하고 **신체 측정을 비동기로 시작**합니다 (multipart/form-data).
+
+- 사진은 **서버에 저장하지 않습니다.** 요청 처리 후 임시 파일은 즉시 정리됩니다.
+- 접수 시 측정 트랜잭션이 `in_progress`로 생성되고, 202와 함께 `transaction_id`가 반환됩니다.
+- 측정이 끝나면 상태가 `succeeded`/`failed`로 바뀝니다. 상태 조회 API
+  (`GET /users/me/body/photos/{transaction_id}/`)로 폴링해 확인하세요.
+- 성공 시 **상세 둘레 수치만** 갱신되며, 키·몸무게는 변경되지 않습니다.
+- 이미 진행 중인 측정이 있으면 **400**이 반환됩니다.
+- 파일당 10MB 이하의 이미지 파일이어야 합니다.
+- ⚠️ 현재는 실제 추론 대신 mock 처리입니다: 접수 10초 뒤 성공으로 바뀌고
+  상세 수치가 고정값으로 저장됩니다.
+"""
+
+BODY_PHOTO_TX_DESCRIPTION = """사진 접수 시 발급된 `transaction_id`로 측정 트랜잭션 상태를 조회합니다.
+
+- `status`: `in_progress`(진행중) | `succeeded`(성공) | `failed`(실패)
+- `succeeded`가 되면 신체치수 조회 API(`GET /users/me/body/`)에서 갱신된 상세 수치를 확인할 수 있습니다.
+- 다른 사용자의 트랜잭션이거나 없는 ID면 404입니다.
+"""
+
+
+class BodyMeasurementViewExtension(OpenApiViewExtension):
+    target_class = "apps.users.views.BodyMeasurementView"
+
+    def view_replacement(self):
+        @extend_schema_view(
+            get=extend_schema(
+                operation_id="get_body_measurement",
+                tags=["Body"],
+                summary="신체치수 조회",
+                description="저장된 신체치수를 반환합니다. 아직 입력하지 않은 필드는 `null`입니다.",
+                responses={
+                    200: BodyMeasurementSerializer,
+                    401: DetailResponseSerializer,
+                },
+            )
+        )
+        class DocumentedBodyMeasurementView(self.target_class):
+            pass
+
+        return DocumentedBodyMeasurementView
+
+
+class BodyBasicViewExtension(OpenApiViewExtension):
+    target_class = "apps.users.views.BodyBasicView"
+
+    def view_replacement(self):
+        @extend_schema_view(
+            put=extend_schema(
+                operation_id="update_body_basic",
+                tags=["Body"],
+                summary="기본 신체치수 입력 (키·몸무게)",
+                description=(
+                    "키(cm)와 몸무게(kg)를 저장합니다. **두 값 모두 필수**이며 "
+                    "소수점 1자리까지 허용합니다 (1 ~ 999.9). 상세 수치는 건드리지 않습니다."
+                ),
+                request=BodyBasicInputSerializer,
+                responses={
+                    200: BodyMeasurementSerializer,
+                    400: DetailResponseSerializer,
+                    401: DetailResponseSerializer,
+                },
+            )
+        )
+        class DocumentedBodyBasicView(self.target_class):
+            pass
+
+        return DocumentedBodyBasicView
+
+
+class BodyDetailViewExtension(OpenApiViewExtension):
+    target_class = "apps.users.views.BodyDetailView"
+
+    def view_replacement(self):
+        @extend_schema_view(
+            patch=extend_schema(
+                operation_id="update_body_detail",
+                tags=["Body"],
+                summary="상세 신체치수 입력 (전부 선택)",
+                description=BODY_DETAIL_DESCRIPTION,
+                request=BodyDetailInputSerializer,
+                responses={
+                    200: BodyMeasurementSerializer,
+                    400: DetailResponseSerializer,
+                    401: DetailResponseSerializer,
+                },
+            )
+        )
+        class DocumentedBodyDetailView(self.target_class):
+            pass
+
+        return DocumentedBodyDetailView
+
+
+class BodyPhotoViewExtension(OpenApiViewExtension):
+    target_class = "apps.users.views.BodyPhotoView"
+
+    def view_replacement(self):
+        @extend_schema_view(
+            post=extend_schema(
+                operation_id="upload_body_photos",
+                tags=["Body"],
+                summary="신체 사진 접수 → 측정 트랜잭션 시작 (비동기)",
+                description=BODY_PHOTOS_DESCRIPTION,
+                request=BodyPhotoUploadSerializer,
+                responses={
+                    202: BodyPhotoResponseSerializer,
+                    400: OpenApiResponse(
+                        response=DetailResponseSerializer,
+                        description="요청값 오류 또는 이미 진행 중인 측정 존재",
+                    ),
+                    401: DetailResponseSerializer,
+                },
+            )
+        )
+        class DocumentedBodyPhotoView(self.target_class):
+            pass
+
+        return DocumentedBodyPhotoView
+
+
+class BodyPhotoTransactionViewExtension(OpenApiViewExtension):
+    target_class = "apps.users.views.BodyPhotoTransactionView"
+
+    def view_replacement(self):
+        @extend_schema_view(
+            get=extend_schema(
+                operation_id="get_body_photo_transaction",
+                tags=["Body"],
+                summary="신체 측정 트랜잭션 상태 조회",
+                description=BODY_PHOTO_TX_DESCRIPTION,
+                responses={
+                    200: BodyPhotoTransactionSerializer,
+                    401: DetailResponseSerializer,
+                    404: OpenApiResponse(
+                        response=DetailResponseSerializer,
+                        description="트랜잭션 없음 (또는 다른 사용자의 트랜잭션)",
+                    ),
+                },
+            )
+        )
+        class DocumentedBodyPhotoTransactionView(self.target_class):
+            pass
+
+        return DocumentedBodyPhotoTransactionView
 
 
 class MeViewExtension(OpenApiViewExtension):

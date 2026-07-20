@@ -6,11 +6,18 @@ OAuth 제공사 호출은 mock 처리한다 (외부 네트워크 의존 금지).
 
 from unittest.mock import patch
 
+from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import TestCase
 from django.urls import reverse
 from rest_framework.test import APIClient
 
-from apps.users.models import SocialAccount, User
+from apps.users.models import (
+    BodyMeasurement,
+    BodyPhotoTransaction,
+    SocialAccount,
+    User,
+)
+from apps.users.services import body_inference
 from apps.users.services.oauth import SocialProfile
 
 
@@ -308,3 +315,270 @@ class MeViewTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.user.refresh_from_db()
         self.assertEqual(self.user.nickname, "새닉네임")
+
+
+def make_image_file(name: str = "photo.jpg") -> "SimpleUploadedFile":
+    """ImageField 검증을 통과하는 최소 크기 JPEG 파일."""
+    from io import BytesIO
+
+    from PIL import Image
+
+    buffer = BytesIO()
+    Image.new("RGB", (10, 10), "white").save(buffer, format="JPEG")
+    return SimpleUploadedFile(name, buffer.getvalue(), content_type="image/jpeg")
+
+
+class BodyMeasurementTests(TestCase):
+    """설정 페이지 — 신체치수 입력 3종 + 조회."""
+
+    def setUp(self):
+        self.client = APIClient()
+        self.user = User.objects.create(username="kakao_1", nickname="테스터")
+        self.client.force_authenticate(self.user)
+
+    # ---- 인증 ----
+
+    def test_requires_auth(self):
+        client = APIClient()
+        for method, url_name in [
+            ("get", "users:body"),
+            ("put", "users:body-basic"),
+            ("patch", "users:body-detail"),
+            ("post", "users:body-photos"),
+        ]:
+            response = getattr(client, method)(reverse(url_name))
+            self.assertEqual(response.status_code, 401, url_name)
+
+    # ---- 조회 ----
+
+    def test_get_before_input_returns_nulls(self):
+        response = self.client.get(reverse("users:body"))
+        self.assertEqual(response.status_code, 200)
+        self.assertIsNone(response.data["height"])
+        self.assertIsNone(response.data["chest"])
+
+    # ---- 기본 수치 ----
+
+    def test_basic_put_saves_height_and_weight(self):
+        response = self.client.put(
+            reverse("users:body-basic"),
+            {"height": "175.5", "weight": "70.0"},
+            format="json",
+        )
+        self.assertEqual(response.status_code, 200)
+        measurement = BodyMeasurement.objects.get(user=self.user)
+        self.assertEqual(str(measurement.height), "175.5")
+        self.assertEqual(str(measurement.weight), "70.0")
+
+    def test_basic_put_requires_both_fields(self):
+        response = self.client.put(
+            reverse("users:body-basic"), {"height": "175.5"}, format="json"
+        )
+        self.assertEqual(response.status_code, 400)
+
+    def test_basic_put_keeps_detail_values(self):
+        BodyMeasurement.objects.create(user=self.user, chest=95)
+        self.client.put(
+            reverse("users:body-basic"),
+            {"height": "175.5", "weight": "70.0"},
+            format="json",
+        )
+        measurement = BodyMeasurement.objects.get(user=self.user)
+        self.assertEqual(str(measurement.chest), "95.0")
+
+    # ---- 상세 수치 ----
+
+    def test_detail_patch_updates_only_sent_fields(self):
+        BodyMeasurement.objects.create(user=self.user, chest=95, waist=80)
+        response = self.client.patch(
+            reverse("users:body-detail"), {"waist": "82.5"}, format="json"
+        )
+        self.assertEqual(response.status_code, 200)
+        measurement = BodyMeasurement.objects.get(user=self.user)
+        self.assertEqual(str(measurement.chest), "95.0")
+        self.assertEqual(str(measurement.waist), "82.5")
+
+    def test_detail_patch_null_clears_value(self):
+        BodyMeasurement.objects.create(user=self.user, chest=95)
+        response = self.client.patch(
+            reverse("users:body-detail"), {"chest": None}, format="json"
+        )
+        self.assertEqual(response.status_code, 200)
+        measurement = BodyMeasurement.objects.get(user=self.user)
+        self.assertIsNone(measurement.chest)
+
+    def test_detail_patch_accepts_empty_body(self):
+        """전부 선택 입력이므로 빈 바디도 허용된다."""
+        response = self.client.patch(reverse("users:body-detail"), {}, format="json")
+        self.assertEqual(response.status_code, 200)
+
+    def test_detail_patch_rejects_out_of_range(self):
+        response = self.client.patch(
+            reverse("users:body-detail"), {"chest": "0.5"}, format="json"
+        )
+        self.assertEqual(response.status_code, 400)
+
+    # ---- 사진 접수 ----
+
+    def _upload_photos(self):
+        return self.client.post(
+            reverse("users:body-photos"),
+            {"front_image": make_image_file("front.jpg"), "side_image": make_image_file("side.jpg")},
+            format="multipart",
+        )
+
+    @patch("apps.users.views.body_inference.start_measurement")
+    def test_photo_upload_starts_transaction(self, mock_start):
+        response = self._upload_photos()
+
+        self.assertEqual(response.status_code, 202)
+        self.assertEqual(response.data["received"]["front_image"]["name"], "front.jpg")
+        self.assertEqual(
+            response.data["received"]["side_image"]["content_type"], "image/jpeg"
+        )
+        # 트랜잭션이 '진행중'으로 생성되고 응답에 id가 포함된다.
+        tx = BodyPhotoTransaction.objects.get(user=self.user)
+        self.assertEqual(tx.status, BodyPhotoTransaction.Status.IN_PROGRESS)
+        self.assertEqual(response.data["transaction_id"], str(tx.pk))
+        self.assertEqual(response.data["status"], "in_progress")
+        mock_start.assert_called_once_with(tx.pk)
+
+    @patch("apps.users.views.body_inference.start_measurement")
+    def test_photo_upload_rejected_while_in_progress(self, mock_start):
+        BodyPhotoTransaction.objects.create(user=self.user)
+
+        response = self._upload_photos()
+
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(BodyPhotoTransaction.objects.count(), 1)
+        mock_start.assert_not_called()
+
+    @patch("apps.users.views.body_inference.start_measurement")
+    def test_photo_upload_allowed_after_finished_transaction(self, mock_start):
+        BodyPhotoTransaction.objects.create(
+            user=self.user, status=BodyPhotoTransaction.Status.SUCCEEDED
+        )
+
+        response = self._upload_photos()
+
+        self.assertEqual(response.status_code, 202)
+        self.assertEqual(BodyPhotoTransaction.objects.count(), 2)
+
+    def test_photo_upload_requires_both_images(self):
+        response = self.client.post(
+            reverse("users:body-photos"),
+            {"front_image": make_image_file("front.jpg")},
+            format="multipart",
+        )
+        self.assertEqual(response.status_code, 400)
+        # 검증 실패 시 트랜잭션이 생성되지 않는다.
+        self.assertEqual(BodyPhotoTransaction.objects.count(), 0)
+
+    def test_photo_upload_rejects_non_image(self):
+        fake = SimpleUploadedFile("front.txt", b"not-an-image", content_type="text/plain")
+        response = self.client.post(
+            reverse("users:body-photos"),
+            {"front_image": fake, "side_image": make_image_file("side.jpg")},
+            format="multipart",
+        )
+        self.assertEqual(response.status_code, 400)
+
+
+class BodyPhotoTransactionTests(TestCase):
+    """사진 측정 트랜잭션 — 상태 조회 API + mock 완료 처리."""
+
+    def setUp(self):
+        self.client = APIClient()
+        self.user = User.objects.create(username="kakao_1", nickname="테스터")
+        self.client.force_authenticate(self.user)
+
+    def _tx_url(self, tx_id) -> str:
+        return reverse("users:body-photo-transaction", kwargs={"transaction_id": tx_id})
+
+    # ---- 상태 조회 ----
+
+    def test_status_requires_auth(self):
+        tx = BodyPhotoTransaction.objects.create(user=self.user)
+        response = APIClient().get(self._tx_url(tx.pk))
+        self.assertEqual(response.status_code, 401)
+
+    def test_status_returns_transaction(self):
+        tx = BodyPhotoTransaction.objects.create(user=self.user)
+        response = self.client.get(self._tx_url(tx.pk))
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data["transaction_id"], str(tx.pk))
+        self.assertEqual(response.data["status"], "in_progress")
+
+    def test_status_unknown_id_returns_404(self):
+        import uuid  # noqa: PLC0415
+
+        response = self.client.get(self._tx_url(uuid.uuid4()))
+        self.assertEqual(response.status_code, 404)
+
+    def test_status_other_users_transaction_returns_404(self):
+        other = User.objects.create(username="kakao_2")
+        tx = BodyPhotoTransaction.objects.create(user=other)
+        response = self.client.get(self._tx_url(tx.pk))
+        self.assertEqual(response.status_code, 404)
+
+    # ---- mock 완료 처리 (10초 지연 없이 완료 로직만 직접 검증) ----
+
+    def test_complete_updates_details_but_not_height_weight(self):
+        BodyMeasurement.objects.create(
+            user=self.user, height="175.5", weight="70.0", chest="90.0"
+        )
+        tx = BodyPhotoTransaction.objects.create(user=self.user)
+
+        body_inference.complete_measurement(tx.pk)
+
+        tx.refresh_from_db()
+        self.assertEqual(tx.status, BodyPhotoTransaction.Status.SUCCEEDED)
+        measurement = BodyMeasurement.objects.get(user=self.user)
+        # 키·몸무게는 절대 변경되지 않는다.
+        self.assertEqual(str(measurement.height), "175.5")
+        self.assertEqual(str(measurement.weight), "70.0")
+        # 상세 수치는 하드코딩 mock 값으로 갱신된다.
+        for field, value in body_inference.FAKE_DETAIL_MEASUREMENTS.items():
+            self.assertEqual(getattr(measurement, field), value, field)
+
+    def test_complete_creates_measurement_if_missing(self):
+        """치수 입력 전 사용자도 mock 완료 시 상세 수치가 생성된다 (키·몸무게는 null 유지)."""
+        tx = BodyPhotoTransaction.objects.create(user=self.user)
+
+        body_inference.complete_measurement(tx.pk)
+
+        measurement = BodyMeasurement.objects.get(user=self.user)
+        self.assertIsNone(measurement.height)
+        self.assertIsNone(measurement.weight)
+        self.assertEqual(
+            measurement.chest, body_inference.FAKE_DETAIL_MEASUREMENTS["chest"]
+        )
+
+    def test_complete_skips_already_finished_transaction(self):
+        tx = BodyPhotoTransaction.objects.create(
+            user=self.user, status=BodyPhotoTransaction.Status.FAILED
+        )
+
+        body_inference.complete_measurement(tx.pk)
+
+        tx.refresh_from_db()
+        self.assertEqual(tx.status, BodyPhotoTransaction.Status.FAILED)
+        self.assertFalse(BodyMeasurement.objects.filter(user=self.user).exists())
+
+    # 커넥션 정리 함수 2종은 테스트 트랜잭션의 커넥션을 닫아버리므로 mock 처리한다.
+    @patch("apps.users.services.body_inference.connections")
+    @patch("apps.users.services.body_inference.close_old_connections")
+    @patch("apps.users.services.body_inference.time.sleep")
+    @patch("apps.users.services.body_inference.complete_measurement")
+    def test_run_marks_failed_on_error(
+        self, mock_complete, mock_sleep, _mock_close_old, _mock_conns
+    ):
+        """완료 처리 중 예외가 나면 트랜잭션이 '실패'로 바뀐다."""
+        mock_complete.side_effect = RuntimeError("boom")
+        tx = BodyPhotoTransaction.objects.create(user=self.user)
+
+        body_inference._run_fake_measurement(tx.pk)
+
+        mock_sleep.assert_called_once_with(body_inference.FAKE_DELAY_SECONDS)
+        tx.refresh_from_db()
+        self.assertEqual(tx.status, BodyPhotoTransaction.Status.FAILED)
