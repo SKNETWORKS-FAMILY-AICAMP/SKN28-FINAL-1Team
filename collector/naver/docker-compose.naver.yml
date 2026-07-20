@@ -22,8 +22,11 @@ services:
 
   naver-collector:
     build:
-      context: .
-      dockerfile: Dockerfile.naver
+      # 공용 util 패키지 포함을 위해 컨텍스트는 상위(collector/)
+      context: ..
+      dockerfile: naver/Dockerfile.naver
+      args:
+        INSTALL_CLAUDE_CLI: ${INSTALL_CLAUDE_CLI:-false}
     container_name: naver-collector
     restart: unless-stopped
     depends_on:
@@ -37,7 +40,7 @@ services:
       POSTGRES_PORT: 5432
     # 스키마는 Django migration(api/apps/catalog)이 관리한다.
     # 이 단독 스택의 naver-db에는 api/에서 해당 DB를 가리키게 한 뒤 migrate를 먼저 적용해야 한다.
-    command: python /app/naver_collector_db.py --scheduler
+    command: python /app/naver/naver_collector_db.py --scheduler
 
 volumes:
   naver_db_data:

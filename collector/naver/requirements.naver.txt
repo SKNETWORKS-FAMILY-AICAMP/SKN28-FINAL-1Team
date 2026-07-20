@@ -2,3 +2,5 @@ requests>=2.31
 python-dotenv>=1.0
 psycopg2-binary>=2.9
 openai>=1.40
+# Claude provider(NAVER_TAGGING_PROVIDER=claude) 사용 시 필요. Claude Code CLI 필요.
+claude-agent-sdk>=0.1

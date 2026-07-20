@@ -16,12 +16,29 @@
   → naver_product upsert
 ```
 
+## 태깅 provider (`NAVER_TAGGING_PROVIDER`)
+
+태깅 엔진(프롬프트/스키마/병합)은 **공용 패키지 `collector/util/tagging`** 에 있다.
+
+| provider | 인증 | 모드 | 이미지 | 비고 |
+| --- | --- | --- | --- | --- |
+| `openai` (기본) | `OPENAI_API_KEY` | sync / batch | 지원 | Batch API 50% 할인 |
+| `claude` | `CLAUDE_CODE_OAUTH_TOKEN` (구독제 계정, `claude setup-token` 발급) | sync 전용 | 미지원 | API 과금 대신 구독 사용량 소진. `claude-agent-sdk` + Claude Code CLI 필요 |
+
+claude provider로 batch 모드를 설정하면 sync로 자동 전환된다(경고 로그).
+Docker에서 claude provider를 쓰려면 `.env`에 `INSTALL_CLAUDE_CLI=true` 설정 후
+`docker compose build naver-collector`로 재빌드한다 (Claude Code CLI 포함).
+
+**openai(batch) → claude 전환 절차**: 진행 중 배치가 있으면 먼저 소진해야 한다.
+`--job batch-poll`을 완료될 때까지 실행(전환 후에도 poll은 동작) → queued 상품이 0이 된 것을
+확인한 뒤 `NAVER_TAGGING_PROVIDER=claude`로 운영한다.
+
 ## 태깅 모드 (`NAVER_TAGGING_MODE`)
 
 | 모드 | 동작 | 비용 | 지연 |
 | --- | --- | --- | --- |
 | `batch` (기본) | pending으로 저장 → OpenAI **Batch API** 제출 → 폴링 후 반영 (batch_tagger.py) | **50% 할인** | 보통 수십 분, 최대 24h |
-| `sync` | 수집 중 상품별 실시간 태깅 (llm_tagger.py, 이미지 auto 재시도 포함) | 정가 | 즉시 |
+| `sync` | 수집 중 상품별 실시간 태깅 (util/tagging, openai는 이미지 auto 재시도 포함) | 정가 | 즉시 |
 
 batch 모드 상태 흐름: `pending → queued(제출됨) → tagged / failed`.
 배치 이력은 `naver_tagging_batch` 테이블(Django migration `catalog/0002` 소유)에 기록되고,

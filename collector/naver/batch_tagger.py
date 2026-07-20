@@ -1,5 +1,8 @@
 """
-OpenAI Batch API 태깅 (동기 대비 토큰 단가 50% 할인).
+OpenAI Batch API 태깅 오케스트레이션 (동기 대비 토큰 단가 50% 할인).
+
+순수 태깅 로직(요청 구성/응답 파싱/병합)은 util.tagging에 있고,
+이 모듈은 naver DB 상태 전환과 배치 이력 관리만 담당한다.
 
 흐름:
   1. submit_pending(): tagging_status='pending' 상품을 JSONL로 만들어 배치 제출
@@ -11,11 +14,12 @@ OpenAI Batch API 태깅 (동기 대비 토큰 단가 50% 할인).
 
 배치 추적 테이블(naver_tagging_batch)의 스키마는 Django migration
 (api/apps/catalog/0002)이 소유한다.
+
+주의: Batch API는 OpenAI 전용이다. NAVER_TAGGING_PROVIDER=claude에서는 사용할 수 없다.
 """
 
 from __future__ import annotations
 
-import json
 from typing import Any, Dict, List
 
 import db
@@ -24,12 +28,13 @@ from config import (
     BATCH_COMPLETION_WINDOW,
     BATCH_INCLUDE_IMAGE,
     BATCH_MAX_REQUESTS,
-    LLM_TEMPERATURE,
     OPENAI_API_KEY,
     OPENAI_MODEL,
+    TAGGING_PROVIDER,
     logger,
 )
-from llm_tagger import build_messages, merge_tags, response_format
+from util.tagging import merge_tags
+from util.tagging.openai_batch import build_request_line, parse_output_line
 
 try:
     from openai import OpenAI
@@ -41,7 +46,17 @@ _OPEN_STATUSES = {"validating", "in_progress", "finalizing"}
 _FAIL_STATUSES = {"failed", "expired", "cancelled", "cancelling"}
 
 
-def _client() -> "OpenAI":
+def _client(require_openai_provider: bool = True) -> "OpenAI":
+    """
+    require_openai_provider=True  : 신규 배치 제출 경로 (openai provider에서만 허용)
+    require_openai_provider=False : 폴링/소진 경로 — provider를 claude로 전환한 뒤에도
+                                    진행 중이던 기존 배치를 회수할 수 있어야 한다.
+    """
+    if require_openai_provider and TAGGING_PROVIDER != "openai":
+        raise RuntimeError(
+            f"Batch 제출은 OpenAI 전용입니다 (현재 NAVER_TAGGING_PROVIDER={TAGGING_PROVIDER}). "
+            "claude provider는 sync 모드로 동작합니다. 기존 배치 회수는 --job batch-poll로 가능합니다."
+        )
     if OpenAI is None:
         raise RuntimeError("openai 패키지가 없습니다. requirements.naver.txt를 설치하세요.")
     if not OPENAI_API_KEY:
@@ -54,29 +69,18 @@ def _client() -> "OpenAI":
 # ------------------------------------------------------------
 
 
-def _build_request_line(product: Dict[str, Any]) -> str:
-    """상품 1건 → Batch JSONL 요청 라인. custom_id = naver_product.id"""
+def _request_line(product: Dict[str, Any]) -> str:
     rule_attrs = extract_attributes(product["title"])
-    messages = build_messages(
+    return build_request_line(
+        custom_id=str(product["id"]),
         title=product["title"],
         category_large=product["category_large"],
         category_small=product["category_small"],
         naver_categories=[product.get(f"naver_category{i}") or "" for i in range(1, 5)],
         rule_attrs=rule_attrs,
+        model=OPENAI_MODEL,
         image_url=product.get("image_url") if BATCH_INCLUDE_IMAGE else None,
     )
-    request = {
-        "custom_id": str(product["id"]),
-        "method": "POST",
-        "url": "/v1/chat/completions",
-        "body": {
-            "model": OPENAI_MODEL,
-            "temperature": LLM_TEMPERATURE,
-            "messages": messages,
-            "response_format": response_format(),
-        },
-    }
-    return json.dumps(request, ensure_ascii=False)
 
 
 def submit_pending(conn) -> int:
@@ -89,7 +93,7 @@ def submit_pending(conn) -> int:
         if not products:
             break
 
-        jsonl = "\n".join(_build_request_line(p) for p in products)
+        jsonl = "\n".join(_request_line(p) for p in products)
         product_ids = [p["id"] for p in products]
 
         input_file = client.files.create(
@@ -125,7 +129,8 @@ def poll_batches(conn) -> int:
     if not open_batches:
         return 0
 
-    client = _client()
+    # provider 전환 후에도 기존 배치는 회수해야 하므로 provider 가드를 걸지 않는다.
+    client = _client(require_openai_provider=False)
     tagged_total = 0
 
     for record in open_batches:
@@ -171,31 +176,24 @@ def _apply_completed_batch(conn, client, batch) -> int:
     if batch.output_file_id:
         lines.extend(client.files.content(batch.output_file_id).text.splitlines())
 
-    # 결과 파싱: custom_id → llm_tags | 실패
     results: Dict[int, Dict[str, Any]] = {}
     failed_ids: List[int] = []
     for line in lines:
-        line = line.strip()
-        if not line:
+        custom_id, tags, is_error = parse_output_line(line)
+        if custom_id is None:
             continue
-        try:
-            obj = json.loads(line)
-            product_id = int(obj["custom_id"])
-            response = obj.get("response") or {}
-            if obj.get("error") or response.get("status_code") != 200:
-                failed_ids.append(product_id)
-                continue
-            content = response["body"]["choices"][0]["message"]["content"]
-            results[product_id] = json.loads(content)
-        except (KeyError, ValueError, TypeError):
-            logger.warning("배치 출력 라인 파싱 실패: %s", line[:200])
-            continue
+        if is_error or tags is None:
+            failed_ids.append(custom_id)
+        else:
+            results[custom_id] = tags
 
     # 에러 파일에 있는 요청도 실패 처리
     if batch.error_file_id:
+        import json as _json
+
         for line in client.files.content(batch.error_file_id).text.splitlines():
             try:
-                failed_ids.append(int(json.loads(line)["custom_id"]))
+                failed_ids.append(int(_json.loads(line)["custom_id"]))
             except (KeyError, ValueError, TypeError):
                 continue
 
