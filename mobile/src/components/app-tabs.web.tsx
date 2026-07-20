@@ -1,4 +1,5 @@
 import { Tabs, TabList, TabTrigger, TabSlot, TabTriggerSlotProps } from 'expo-router/ui';
+import { router } from 'expo-router';
 import { Pressable, View, Text, StyleSheet } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
@@ -7,10 +8,9 @@ import { Icon, type IconName } from './icon';
 const INK = '#1c1917';
 const ink = (a: number) => `rgba(28,25,23,${a})`;
 
-// 하단 5탭 — 네이티브(NativeTabs)와 동일한 구성/위치로 맞춤
+// 채팅은 탭이 아니라 가운데 + 버튼에서 시작한다.
 const TABS = [
   { name: 'home', href: '/home', icon: 'house', label: '홈' },
-  { name: 'chat', href: '/chat', icon: 'bubble.left', label: '채팅' },
   { name: 'closet', href: '/closet', icon: 'tshirt', label: '옷장' },
   { name: 'lookbook', href: '/lookbook', icon: 'book', label: '룩북' },
   { name: 'my', href: '/my', icon: 'person', label: '마이' },
@@ -24,7 +24,13 @@ export default function AppTabs() {
       {/* 하단 탭바 */}
       <TabList asChild>
         <BottomBar>
-          {TABS.map((t) => (
+          {TABS.slice(0, 2).map((t) => (
+            <TabTrigger key={t.name} name={t.name} href={t.href} asChild>
+              <TabItem icon={t.icon} label={t.label} />
+            </TabTrigger>
+          ))}
+          <AskButton />
+          {TABS.slice(2).map((t) => (
             <TabTrigger key={t.name} name={t.name} href={t.href} asChild>
               <TabItem icon={t.icon} label={t.label} />
             </TabTrigger>
@@ -64,6 +70,16 @@ function TabItem({
   );
 }
 
+function AskButton() {
+  return (
+    <View style={styles.askSlot}>
+      <Pressable style={styles.askButton} onPress={() => router.push('/chat-mode')} accessibilityLabel="질문하기">
+        <Icon name="plus" tintColor={INK} size={23} />
+      </Pressable>
+    </View>
+  );
+}
+
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: '#ffffff' },
   slot: { flex: 1 },
@@ -82,4 +98,9 @@ const styles = StyleSheet.create({
   },
   item: { flex: 1, alignItems: 'center', gap: 3, paddingVertical: 2 },
   label: { fontSize: 10.5, letterSpacing: 0.2 },
+  askSlot: { flex: 1, alignItems: 'center', justifyContent: 'center' },
+  askButton: {
+    width: 44, height: 44, borderRadius: 22, backgroundColor: '#f3f2ef', alignItems: 'center', justifyContent: 'center',
+    borderWidth: 1, borderColor: ink(0.08),
+  },
 });

@@ -59,12 +59,11 @@ export default function HomeScreen() {
         <ScrollView
           showsVerticalScrollIndicator={false}
           contentContainerStyle={styles.content}>
-          {/* 헤더: 인사말 + 캘린더/프로필 */}
+          {/* 헤더: 인사말 + 캘린더/프로필 (한 줄) */}
           <View style={styles.header}>
-            <View>
-              <Text style={styles.greeting}>안녕하세요 {nickname}님</Text>
-              <Text style={styles.date}>{todayLabel()}</Text>
-            </View>
+            <Text style={styles.greeting} numberOfLines={1}>
+              안녕하세요 {nickname}님
+            </Text>
             <View style={styles.headerRight}>
               <Pressable hitSlop={10} onPress={() => router.push('/calendar')}>
                 <Icon name="calendar" tintColor={INK} size={24} />
@@ -93,7 +92,10 @@ function HomeBody({ data }: { data: HomeData }) {
       {/* 오늘의 룩 */}
       <View style={styles.block}>
         <View style={styles.rowBetween}>
-          <Text style={styles.sectionTitle}>오늘의 룩</Text>
+          <View style={styles.sectionHead}>
+            <Text style={styles.sectionTitle}>오늘의 룩</Text>
+            <Text style={styles.date}>{todayLabel()}</Text>
+          </View>
           <Text style={styles.weather}>{weatherLabel(data.weather)}</Text>
         </View>
         <View style={styles.lookCard}>
@@ -168,10 +170,11 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
+    gap: 12,
   },
-  greeting: { fontFamily: Fonts.serif, fontSize: 24, fontWeight: '500', color: INK },
-  date: { fontSize: 12, color: ink(0.45), marginTop: 3 },
-  headerRight: { flexDirection: 'row', alignItems: 'center', gap: 14 },
+  greeting: { flex: 1, fontFamily: Fonts.serif, fontSize: 24, fontWeight: '500', color: INK },
+  date: { fontSize: 12, color: ink(0.45), marginTop: 2 },
+  headerRight: { flexDirection: 'row', alignItems: 'center', gap: 14, flexShrink: 0 },
   avatar: { width: 40, height: 40, borderRadius: 20, backgroundColor: CHIP },
 
   block: { gap: 12 },
@@ -181,6 +184,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   sectionTitle: { fontSize: 13, fontWeight: '500', color: INK },
+  sectionHead: { gap: 2 },
   weather: { fontSize: 12, color: ink(0.45) },
 
   // 오늘의 룩 카드

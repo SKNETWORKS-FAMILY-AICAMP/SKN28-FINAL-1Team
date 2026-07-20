@@ -3,5 +3,7 @@
 export { EmptyState } from './empty-state';
 export { LoadingState, ErrorState, Skeleton } from './state-views';
 export { SmartImage } from './smart-image';
+export { SearchFilterBar, InlineDropdown } from './search-filter-bar';
+export { CategoryEditSheet } from './category-edit-sheet';
 export { ToastProvider, useToast } from './toast';
 export { ConfirmProvider, useConfirm } from './confirm-dialog';

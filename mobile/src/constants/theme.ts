@@ -30,8 +30,8 @@ export const Fonts = Platform.select({
   ios: {
     /** iOS `UIFontDescriptorSystemDesignDefault` */
     sans: 'system-ui',
-    /** iOS `UIFontDescriptorSystemDesignSerif` */
-    serif: 'ui-serif',
+    /** 한국어 제목이 궁서체처럼 보이지 않도록 시스템 산세리프로 통일한다. */
+    serif: 'system-ui',
     /** iOS `UIFontDescriptorSystemDesignRounded` */
     rounded: 'ui-rounded',
     /** iOS `UIFontDescriptorSystemDesignMonospaced` */
@@ -39,13 +39,13 @@ export const Fonts = Platform.select({
   },
   default: {
     sans: 'normal',
-    serif: 'serif',
+    serif: 'normal',
     rounded: 'normal',
     mono: 'monospace',
   },
   web: {
     sans: 'var(--font-display)',
-    serif: 'var(--font-serif)',
+    serif: 'var(--font-display)',
     rounded: 'var(--font-rounded)',
     mono: 'var(--font-mono)',
   },
@@ -101,3 +101,21 @@ export const numeric = { fontVariant: ['tabular-nums'] as const };
 // web은 유리(글래스) 탭바가 콘텐츠 위에 떠 있으므로 그만큼 하단 여백 확보
 export const BottomTabInset = Platform.select({ ios: 50, android: 80, web: 76 }) ?? 0;
 export const MaxContentWidth = 800;
+
+/** 옷장·룩북 2열 그리드 카드 — 이미지 비율·모서리 통일 */
+export const GridCard = {
+  pad: 20,
+  gap: 12,
+  maxWidth: 440,
+  imageRatio: 1.25,
+  radius: 16,
+} as const;
+
+export function gridCardWidth(windowWidth: number): number {
+  const w = Math.min(windowWidth, GridCard.maxWidth);
+  return (w - GridCard.pad * 2 - GridCard.gap) / 2;
+}
+
+export function gridCardImageHeight(cardWidth: number): number {
+  return cardWidth * GridCard.imageRatio;
+}

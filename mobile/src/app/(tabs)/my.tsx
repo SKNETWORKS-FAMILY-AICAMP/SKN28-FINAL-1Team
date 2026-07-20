@@ -42,11 +42,6 @@ export default function MyScreen() {
           hint: '미니멀 외 2',
           onPress: () => router.push('/style-onboarding'),
         },
-      ],
-    },
-    {
-      title: '개인화',
-      rows: [
         {
           icon: 'paintpalette',
           label: '퍼스널컬러',
