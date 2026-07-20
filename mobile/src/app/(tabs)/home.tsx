@@ -17,7 +17,7 @@ const WEEKDAYS = ['일', '월', '화', '수', '목', '금', '토'];
 
 /** 홈 오늘의 룩 placeholder — URL만 바꿔서 미리보기 */
 const HOME_LOOK_PLACEHOLDER_IMAGE =
-  'https://i.pinimg.com/736x/b9/62/91/b96291f2c44e7604b5fe1fb152ba7b83.jpg';
+  'https://i.pinimg.com/1200x/c3/10/7d/c3107d4c7835310a0de12f95b20a6419.jpg';
 
 function lookImageHeight(windowWidth: number): number {
   const cardWidth = windowWidth - 40;
@@ -63,7 +63,9 @@ export default function HomeScreen() {
   return (
     <View style={styles.container}>
       <SafeAreaView edges={['top']} style={styles.safe}>
-        <View style={styles.content}>
+        <ScrollView
+          showsVerticalScrollIndicator={false}
+          contentContainerStyle={styles.content}>
           {/* 헤더: 인사말 + 캘린더/프로필 (한 줄) */}
           <View style={styles.header}>
             <Text style={styles.greeting} numberOfLines={1}>
@@ -84,7 +86,7 @@ export default function HomeScreen() {
           ) : (
             <HomeBody data={data} />
           )}
-        </View>
+        </ScrollView>
       </SafeAreaView>
     </View>
   );
@@ -96,9 +98,8 @@ function HomeBody({ data }: { data: HomeData }) {
   const lookImageUri = data.today_look.image ?? HOME_LOOK_PLACEHOLDER_IMAGE;
 
   return (
-    <View style={styles.body}>
-      <View style={styles.lookSection}>
-        <View style={styles.lookCard}>
+    <View style={styles.lookSection}>
+      <View style={styles.lookCard}>
           <View style={styles.lookMetaRow}>
             <Text style={styles.sectionTitle} numberOfLines={1}>
               오늘의 룩
@@ -143,7 +144,6 @@ function HomeBody({ data }: { data: HomeData }) {
           </View>
         </View>
       </View>
-    </View>
   );
 }
 
@@ -151,14 +151,12 @@ const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#ffffff' },
   safe: { flex: 1 },
   content: {
-    flex: 1,
     paddingHorizontal: 20,
     paddingTop: 16,
-    paddingBottom: BottomTabInset + 16,
+    paddingBottom: BottomTabInset + 24,
     gap: 24,
   },
-  body: { flex: 1, gap: 20, minHeight: 0 },
-  lookSection: { flex: 1, minHeight: 0 },
+  lookSection: { gap: 14 },
 
   // 헤더
   header: {
@@ -197,11 +195,6 @@ const styles = StyleSheet.create({
     borderColor: ink(0.1),
     borderRadius: 28,
     overflow: 'hidden',
-  },
-  lookImage: {
-    width: '100%',
-    aspectRatio: 1.05,
-    maxHeight: 420,
   },
   lookBody: { flexShrink: 0, padding: 24, gap: 16 },
   lookText: { fontSize: 17, fontWeight: '500', color: ink(0.9) },
