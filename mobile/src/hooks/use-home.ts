@@ -19,6 +19,7 @@ export type HomeWeather = {
 export type HomeTodayLook = {
   comment: string;
   tags: string[];
+  image?: string | null;
 };
 
 export type HomeData = {
