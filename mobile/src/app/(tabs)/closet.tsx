@@ -21,7 +21,7 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-import { BottomTabInset, GridCard, gridCardImageHeight, gridCardWidth } from '@/constants/theme';
+import { BottomTabInset, GridCard, gridCardImageHeight, gridCardWidth , ContentMax} from '@/constants/theme';
 import { useBreakpoint } from '@/hooks/use-breakpoint';
 import { Icon } from '@/components/icon';
 
@@ -146,7 +146,7 @@ function matchesQuery(item: Item, query: string): boolean {
 }
 
 export default function ClosetScreen() {
-  const { frameWidth } = useBreakpoint();
+  const { frameWidth, contentStyle } = useBreakpoint();
   const cardW = gridCardWidth(frameWidth);
   const cardH = gridCardImageHeight(cardW);
 
@@ -259,7 +259,7 @@ export default function ClosetScreen() {
           <ScrollView
             style={styles.gridScroll}
             showsVerticalScrollIndicator={false}
-            contentContainerStyle={styles.grid}>
+            contentContainerStyle={[styles.grid, contentStyle(ContentMax.wide)]}>
             {items.length === 0 ? (
               <EmptyState
                 icon={tab === 'shared' ? 'person' : 'tshirt'}

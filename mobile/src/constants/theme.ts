@@ -109,6 +109,19 @@ export const MaxContentWidth = 800;
 export const PhoneFrameWidth = 440;
 
 /**
+ * 데스크톱에서 본문이 과하게 늘어나지 않도록 잡는 최대 폭.
+ * 한 줄이 너무 길면 읽기 어렵고, 목록은 라벨과 값이 양 끝으로 벌어져 시선이 끊긴다.
+ */
+export const ContentMax = {
+  /** 폼·설정 목록 — 한 줄이 길어지면 안 되는 화면 */
+  narrow: 720,
+  /** 일반 본문 */
+  default: 880,
+  /** 그리드처럼 넓게 쓰는 화면 */
+  wide: 1280,
+} as const;
+
+/**
  * 반응형 기준 폭. 창 폭이 이 값 **이상**이면 해당 레이아웃으로 본다.
  * 기기 종류(User-Agent)가 아니라 창 폭으로 판단해야 데스크톱에서 창을 줄였을 때도 맞게 동작한다.
  * 값을 바꾸면 useBreakpoint() 를 쓰는 모든 화면이 함께 따라온다.

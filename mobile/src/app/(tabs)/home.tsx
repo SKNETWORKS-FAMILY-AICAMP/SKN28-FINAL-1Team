@@ -4,7 +4,7 @@ import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { ErrorState, LoadingState, SmartImage } from '@/components/ui';
-import { BottomTabInset, Fonts } from '@/constants/theme';
+import { BottomTabInset, Fonts , ContentMax} from '@/constants/theme';
 import { useBreakpoint } from '@/hooks/use-breakpoint';
 import { useHome, type HomeData, type HomeWeather } from '@/hooks/use-home';
 import { useAuth } from '@/state/auth';
@@ -56,6 +56,7 @@ function displayName(
 
 // 홈 탭 (Figma B1) — GET /api/v1/home/ 연동
 export default function HomeScreen() {
+  const { contentStyle } = useBreakpoint();
   const { user } = useAuth();
   const { data, error, loading, reload } = useHome();
 
@@ -66,7 +67,7 @@ export default function HomeScreen() {
       <SafeAreaView edges={['top']} style={styles.safe}>
         <ScrollView
           showsVerticalScrollIndicator={false}
-          contentContainerStyle={styles.content}>
+          contentContainerStyle={[styles.content, contentStyle(ContentMax.default)]}>
           {/* 헤더: 인사말 + 캘린더/프로필 (한 줄) */}
           <View style={styles.header}>
             <Text style={styles.greeting} numberOfLines={1}>

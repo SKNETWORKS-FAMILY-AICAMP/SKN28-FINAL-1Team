@@ -1,6 +1,6 @@
-import { useWindowDimensions } from 'react-native';
+import { useWindowDimensions, type ViewStyle } from 'react-native';
 
-import { Breakpoints, PhoneFrameWidth } from '@/constants/theme';
+import { Breakpoints, ContentMax, PhoneFrameWidth } from '@/constants/theme';
 
 export type Layout = 'mobile' | 'tablet' | 'desktop';
 
@@ -32,5 +32,13 @@ export function useBreakpoint() {
     isDesktop,
     /** 폰 프레임 상한을 적용한 콘텐츠 폭 — 기존 화면들이 쓰던 Math.min(width, 440) 과 동일 */
     frameWidth: Math.min(width, PhoneFrameWidth),
+
+    /**
+     * 데스크톱에서만 본문 최대 폭을 잡고 가운데 정렬하는 스타일. 모바일에선 null 이라 아무 영향이 없다.
+     * ScrollView 의 contentContainerStyle 이나 본문 View 에 배열로 덧붙여 쓴다.
+     *   contentContainerStyle={[styles.content, contentStyle(ContentMax.narrow)]}
+     */
+    contentStyle: (max: number = ContentMax.default): ViewStyle | null =>
+      isDesktop ? { width: '100%', maxWidth: max, marginHorizontal: 'auto' } : null,
   };
 }

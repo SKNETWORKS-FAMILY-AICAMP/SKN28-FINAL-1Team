@@ -3,7 +3,8 @@ import { router } from 'expo-router';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-import { BottomTabInset, Editorial } from '@/constants/theme';
+import { BottomTabInset, ContentMax, Editorial } from '@/constants/theme';
+import { useBreakpoint } from '@/hooks/use-breakpoint';
 import { useAuth } from '@/state/auth';
 import { formatBudget, usePrefs } from '@/state/prefs';
 
@@ -37,6 +38,7 @@ function displayName(
 
 // H1 마이 탭 — 프로필 요약 + 설정 메뉴
 export default function MyScreen() {
+  const { contentStyle } = useBreakpoint();
   const prefs = usePrefs();
   const { user } = useAuth();
   const name = displayName(user?.nickname, user?.email) || '코지';
@@ -93,7 +95,7 @@ export default function MyScreen() {
       <SafeAreaView edges={['top']} style={styles.safe}>
         <ScrollView
           showsVerticalScrollIndicator={false}
-          contentContainerStyle={styles.content}>
+          contentContainerStyle={[styles.content, contentStyle(ContentMax.narrow)]}>
           {/* 프로필 + 활동 요약 */}
           <View style={styles.heroCard}>
             <View style={styles.profile}>

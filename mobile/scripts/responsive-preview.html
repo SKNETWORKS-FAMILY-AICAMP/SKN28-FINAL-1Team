@@ -1,0 +1,77 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="utf-8" />
+    <title>cozy 반응형 미리보기</title>
+    <!--
+      한 화면을 여러 폭에서 동시에 확인하는 도구.
+
+      왜 iframe 인가:
+        헤드리스 크롬은 macOS 에서 창 폭을 500px 아래로 줄이지 못한다(스크린샷만 잘릴 뿐
+        앱은 500px 로 인식). iframe 안에서는 앱이 iframe 폭을 자기 창 폭으로 읽으므로
+        390px 같은 실제 폰 폭을 정확히 검증할 수 있다.
+
+      사용법:
+        1) npx expo export -p web  (또는 npx expo start --web)
+        2) dist 를 SPA 폴백으로 서빙하거나 개발 서버를 띄운다
+        3) 이 파일을 브라우저로 열고 상단에서 경로를 바꾼다
+    -->
+    <style>
+      :root { color-scheme: light; }
+      body {
+        margin: 0;
+        background: #e9e9e7;
+        font: 13px -apple-system, system-ui, sans-serif;
+        color: #1c1917;
+      }
+      header {
+        position: sticky; top: 0; z-index: 10;
+        display: flex; gap: 10px; align-items: center; flex-wrap: wrap;
+        padding: 10px 14px; background: #fff; border-bottom: 1px solid #0000001a;
+      }
+      input { font: inherit; padding: 6px 10px; border: 1px solid #0003; border-radius: 6px; }
+      input[name='base'] { width: 230px; }
+      input[name='path'] { width: 150px; }
+      button { font: inherit; padding: 6px 14px; border-radius: 6px; border: 1px solid #0003; background: #1c1917; color: #fff; cursor: pointer; }
+      .row { display: flex; gap: 14px; padding: 14px; align-items: flex-start; overflow-x: auto; }
+      figure { margin: 0; flex: none; }
+      figcaption { padding: 0 0 6px; font-weight: 600; }
+      iframe { border: 1px solid #0003; background: #fff; display: block; }
+    </style>
+  </head>
+  <body>
+    <header>
+      <label>서버 <input name="base" value="http://localhost:4900" /></label>
+      <label>경로 <input name="path" value="/closet" /></label>
+      <label>높이 <input name="h" type="number" value="800" style="width: 70px" /></label>
+      <button onclick="render()">불러오기</button>
+      <span id="note"></span>
+    </header>
+    <div class="row" id="row"></div>
+
+    <script>
+      // theme.ts 의 Breakpoints(768 / 1024) 경계를 사이에 두도록 고른 폭들
+      const WIDTHS = [
+        [390, '폰'],
+        [768, '태블릿'],
+        [1024, '데스크톱 최소'],
+        [1440, '데스크톱'],
+      ];
+
+      function render() {
+        const base = document.querySelector('[name=base]').value.replace(/\/$/, '');
+        const path = document.querySelector('[name=path]').value;
+        const h = document.querySelector('[name=h]').value || 800;
+        document.getElementById('row').innerHTML = WIDTHS.map(
+          ([w, label]) => `
+            <figure>
+              <figcaption>${w}px · ${label}</figcaption>
+              <iframe src="${base}${path}" width="${w}" height="${h}" loading="eager"></iframe>
+            </figure>`,
+        ).join('');
+        document.getElementById('note').textContent = `${path} · ${WIDTHS.length}개 폭`;
+      }
+      render();
+    </script>
+  </body>
+</html>

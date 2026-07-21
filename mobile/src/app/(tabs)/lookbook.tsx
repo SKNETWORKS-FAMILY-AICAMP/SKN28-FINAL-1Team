@@ -17,7 +17,7 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-import { BottomTabInset, GridCard, gridCardImageHeight, gridCardWidth } from '@/constants/theme';
+import { BottomTabInset, GridCard, gridCardImageHeight, gridCardWidth , ContentMax} from '@/constants/theme';
 import { useBreakpoint } from '@/hooks/use-breakpoint';
 
 const INK = '#1c1917';
@@ -39,7 +39,7 @@ function matchesTags(look: LookPost, selected: string[]): boolean {
 }
 
 export default function LookbookScreen() {
-  const { frameWidth } = useBreakpoint();
+  const { frameWidth, contentStyle } = useBreakpoint();
   const cardW = gridCardWidth(frameWidth);
   const cardH = gridCardImageHeight(cardW);
 
@@ -83,7 +83,7 @@ export default function LookbookScreen() {
         <ScrollView
           style={styles.gridScroll}
           showsVerticalScrollIndicator={false}
-          contentContainerStyle={styles.grid}>
+          contentContainerStyle={[styles.grid, contentStyle(ContentMax.wide)]}>
           {looks.length === 0 ? (
             <View style={styles.empty}>
               <Text style={styles.emptyText}>{emptyText}</Text>

@@ -8,8 +8,9 @@
   --font-serif: Georgia, 'Times New Roman', serif;
 }
 
-/* 웹(데스크톱)에서 앱을 가운데 '모바일 폭' 프레임으로만 표시.
-   폰(≤440px)에선 그대로 꽉 차게 나옴. 440은 closet/lookbook/onboarding의 캡 값과 일치시킬 것. */
+/* 태블릿 구간(440~1023px)에서만 앱을 가운데 '모바일 폭' 프레임으로 표시한다.
+   폰(≤440px)은 그대로 꽉 차고, 데스크톱(≥1024px)은 아래에서 프레임을 풀어 전체 폭을 쓴다.
+   440 / 1024 는 constants/theme.ts 의 PhoneFrameWidth·Breakpoints 와 반드시 같아야 한다. */
 @media screen and (min-width: 440px) {
   html,
   body {
@@ -25,6 +26,21 @@
     border-left: 1px solid rgba(0, 0, 0, 0.09);
     border-right: 1px solid rgba(0, 0, 0, 0.09);
     box-shadow: 0 0 60px rgba(0, 0, 0, 0.08);
+  }
+}
+
+/* 데스크톱: 폰 프레임 해제 → 사이드바 + 넓은 본문 레이아웃을 앱이 직접 그린다.
+   (Breakpoints.desktop 과 동일한 1024) */
+@media screen and (min-width: 1024px) {
+  html,
+  body {
+    background-color: #ffffff;
+  }
+  #root {
+    max-width: none;
+    border-left: none;
+    border-right: none;
+    box-shadow: none;
   }
 }
 
