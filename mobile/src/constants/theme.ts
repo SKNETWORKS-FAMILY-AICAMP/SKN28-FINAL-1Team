@@ -102,11 +102,29 @@ export const numeric = { fontVariant: ['tabular-nums'] as const };
 export const BottomTabInset = Platform.select({ ios: 50, android: 80, web: 76 }) ?? 0;
 export const MaxContentWidth = 800;
 
+/**
+ * 폰 프레임 폭 — 모바일 레이아웃에서 콘텐츠가 넓어지지 않게 잡는 상한.
+ * global.css 의 #root max-width 와 반드시 같아야 한다. 여기가 단일 출처다.
+ */
+export const PhoneFrameWidth = 440;
+
+/**
+ * 반응형 기준 폭. 창 폭이 이 값 **이상**이면 해당 레이아웃으로 본다.
+ * 기기 종류(User-Agent)가 아니라 창 폭으로 판단해야 데스크톱에서 창을 줄였을 때도 맞게 동작한다.
+ * 값을 바꾸면 useBreakpoint() 를 쓰는 모든 화면이 함께 따라온다.
+ */
+export const Breakpoints = {
+  /** 2열 그리드가 좁아지기 시작하는 지점 */
+  tablet: 768,
+  /** 하단 탭바 → 좌측 사이드바로 바뀌는 지점 */
+  desktop: 1024,
+} as const;
+
 /** 옷장·룩북 2열 그리드 카드 — 이미지 비율·모서리 통일 */
 export const GridCard = {
   pad: 20,
   gap: 10,
-  maxWidth: 440,
+  maxWidth: PhoneFrameWidth,
   imageRatio: 1,
   radius: 16,
 } as const;

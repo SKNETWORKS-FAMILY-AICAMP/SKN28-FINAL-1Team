@@ -13,7 +13,6 @@ import { useMultiSelectFilter } from '@/hooks/useMultiSelectFilter';
 import { router } from 'expo-router';
 import { useMemo, useState } from 'react';
 import {
-  Dimensions,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -23,13 +22,14 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { BottomTabInset, GridCard, gridCardImageHeight, gridCardWidth } from '@/constants/theme';
+import { useBreakpoint } from '@/hooks/use-breakpoint';
 import { Icon } from '@/components/icon';
 
 const INK = '#1c1917';
 const ink = (a: number) => `rgba(28,25,23,${a})`;
 
-const CARD_W = gridCardWidth(Dimensions.get('window').width);
-const CARD_H = gridCardImageHeight(CARD_W);
+/* 카드 크기는 창 폭에서 파생되므로 모듈 최상단이 아니라 컴포넌트 안에서 useBreakpoint() 로 구한다.
+   (모듈 최상단에서 읽으면 리사이즈에 반응하지 않는다) */
 const PAD = GridCard.pad;
 
 const DEFAULT_CATEGORIES = ['전체', '상의', '하의', '아우터', '신발', '가방', '액세서리'];
@@ -146,6 +146,10 @@ function matchesQuery(item: Item, query: string): boolean {
 }
 
 export default function ClosetScreen() {
+  const { frameWidth } = useBreakpoint();
+  const cardW = gridCardWidth(frameWidth);
+  const cardH = gridCardImageHeight(cardW);
+
   const toast = useToast();
   const [tab, setTab] = useState<'mine' | 'shared'>('mine');
   const [query, setQuery] = useState('');
@@ -281,13 +285,13 @@ export default function ClosetScreen() {
               items.map((it) => (
                 <Pressable
                   key={it.id}
-                  style={styles.card}
+                  style={[styles.card, { width: cardW }]}
                   onPress={() => router.push('/item-detail')}>
-                  <View style={styles.cardImage}>
+                  <View style={[styles.cardImage, { height: cardH }]}>
                     <SmartImage
                       uri={it.image}
                       width="100%"
-                      height={CARD_H}
+                      height={cardH}
                       radius={GridCard.radius}
                       contentFit="cover"
                     />
@@ -355,10 +359,10 @@ const styles = StyleSheet.create({
     paddingHorizontal: PAD,
     paddingBottom: BottomTabInset + 24,
   },
-  card: { width: CARD_W, marginBottom: 16 },
+  // width/height 는 창 폭에서 파생되므로 컴포넌트에서 인라인으로 덧붙인다.
+  card: { marginBottom: 16 },
   cardImage: {
     width: '100%',
-    height: CARD_H,
     borderRadius: GridCard.radius,
     overflow: 'hidden',
   },

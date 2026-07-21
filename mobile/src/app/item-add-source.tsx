@@ -1,12 +1,12 @@
 import { Icon, type IconName } from '@/components/icon';
 import { useToast } from '@/components/ui';
+import { useBreakpoint } from '@/hooks/use-breakpoint';
 import { pickFromAlbum, pickFromCamera } from '@/lib/pickItemPhoto';
 import { draftItem } from '@/state/draft-item';
 import { router } from 'expo-router';
 import { useState } from 'react';
 import {
   ActivityIndicator,
-  Dimensions,
   Pressable,
   StyleSheet,
   Text,
@@ -18,9 +18,8 @@ const INK = '#1c1917';
 const ink = (a: number) => `rgba(28,25,23,${a})`;
 const PAD = 20;
 
-const width = Math.min(Dimensions.get('window').width, 440);
+/* 타일 폭은 창 폭에서 파생 → 컴포넌트 안에서 useBreakpoint() 로 구한다. */
 const GAP = 10;
-const TILE_W = (width - PAD * 2 - GAP) / 2;
 
 type SourceKey = 'album' | 'camera' | 'web' | 'library';
 
@@ -32,6 +31,9 @@ const SOURCES: { key: SourceKey; label: string; icon: IconName; hint: string }[]
 ];
 
 export default function ItemAddSourceScreen() {
+  const { frameWidth } = useBreakpoint();
+  const tileW = (frameWidth - PAD * 2 - GAP) / 2;
+
   const toast = useToast();
   const [active, setActive] = useState<SourceKey | null>(null);
   const [loading, setLoading] = useState(false);
@@ -93,7 +95,7 @@ export default function ItemAddSourceScreen() {
             return (
               <Pressable
                 key={src.key}
-                style={[styles.tile, on && styles.tileOn]}
+                style={[styles.tile, { width: tileW, height: tileW * 0.88 }, on && styles.tileOn]}
                 onPress={() => handlePick(src.key)}
                 disabled={loading}>
                 <Icon
@@ -154,9 +156,8 @@ const styles = StyleSheet.create({
     flexWrap: 'wrap',
     gap: GAP,
   },
+  // width/height 는 창 폭에서 파생되므로 컴포넌트에서 인라인으로 덧붙인다.
   tile: {
-    width: TILE_W,
-    height: TILE_W * 0.88,
     borderRadius: 14,
     borderWidth: 1,
     borderColor: ink(0.12),

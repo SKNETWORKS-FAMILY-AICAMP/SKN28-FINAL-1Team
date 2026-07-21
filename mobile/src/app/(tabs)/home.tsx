@@ -1,10 +1,11 @@
 import { Icon } from '@/components/icon';
 import { router } from 'expo-router';
-import { Dimensions, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { ErrorState, LoadingState, SmartImage } from '@/components/ui';
 import { BottomTabInset, Fonts } from '@/constants/theme';
+import { useBreakpoint } from '@/hooks/use-breakpoint';
 import { useHome, type HomeData, type HomeWeather } from '@/hooks/use-home';
 import { useAuth } from '@/state/auth';
 
@@ -94,7 +95,8 @@ export default function HomeScreen() {
 
 /** 홈 본문 — 오늘의 룩 (데이터 로드 성공 시) */
 function HomeBody({ data }: { data: HomeData }) {
-  const lookImageH = lookImageHeight(Dimensions.get('window').width);
+  const { frameWidth } = useBreakpoint();
+  const lookImageH = lookImageHeight(frameWidth);
   const lookImageUri = data.today_look.image ?? HOME_LOOK_PLACEHOLDER_IMAGE;
 
   return (

@@ -1,6 +1,7 @@
 import { Icon } from '@/components/icon';
 import { SmartImage, useToast } from '@/components/ui';
 import { GridCard, gridCardImageHeight, gridCardWidth } from '@/constants/theme';
+import { useBreakpoint } from '@/hooks/use-breakpoint';
 import { pickFromAlbum, pickFromCamera } from '@/lib/pickItemPhoto';
 import {
   ALLOWED_HASHTAGS,
@@ -11,7 +12,6 @@ import { router } from 'expo-router';
 import { useState } from 'react';
 import {
   ActivityIndicator,
-  Dimensions,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -24,10 +24,12 @@ const INK = '#1c1917';
 const ink = (a: number) => `rgba(28,25,23,${a})`;
 const PAD = 20;
 
-const CARD_W = gridCardWidth(Dimensions.get('window').width);
-const PREVIEW_H = gridCardImageHeight(CARD_W);
+/* 미리보기 높이는 창 폭에서 파생 → 컴포넌트 안에서 useBreakpoint() 로 구한다. */
 
 export default function LookAddScreen() {
+  const { frameWidth } = useBreakpoint();
+  const previewH = gridCardImageHeight(gridCardWidth(frameWidth));
+
   const toast = useToast();
   const [image, setImage] = useState<string | null>(null);
   const [tags, setTags] = useState<AllowedHashtag[]>([]);
@@ -72,9 +74,9 @@ export default function LookAddScreen() {
         <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
           <View style={styles.previewWrap}>
             {image ? (
-              <SmartImage uri={image} width="100%" height={PREVIEW_H} radius={GridCard.radius} />
+              <SmartImage uri={image} width="100%" height={previewH} radius={GridCard.radius} />
             ) : (
-              <View style={[styles.previewEmpty, { height: PREVIEW_H }]}>
+              <View style={[styles.previewEmpty, { height: previewH }]}>
                 <Icon name="photo" tintColor={ink(0.28)} size={36} />
                 <Text style={styles.previewHint}>룩 사진을 추가해 주세요</Text>
               </View>
