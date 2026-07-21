@@ -12,9 +12,22 @@
   → 노이즈 필터 (category1 ∉ {패션의류, 패션잡화} 제외) + productId 중복 제거
   → 네이버 category1~4 → 문서 분류 매핑 (category_mapping.py, 실패 시 키워드 분류)
   → title 규칙 추출: color/fit/sleeve/pattern/material/length (attribute_extractor.py)
-  → LLM 태깅: season/style/usage/layer_* + 누락 속성 (llm_tagger.py, OpenAI)
-  → naver_product upsert  ※ 태깅은 insert 전에 수행
+  → LLM 태깅: season/style/usage/layer_* + 누락 속성
+  → naver_product upsert
 ```
+
+## 태깅 모드 (`NAVER_TAGGING_MODE`)
+
+| 모드 | 동작 | 비용 | 지연 |
+| --- | --- | --- | --- |
+| `batch` (기본) | pending으로 저장 → OpenAI **Batch API** 제출 → 폴링 후 반영 (batch_tagger.py) | **50% 할인** | 보통 수십 분, 최대 24h |
+| `sync` | 수집 중 상품별 실시간 태깅 (llm_tagger.py, 이미지 auto 재시도 포함) | 정가 | 즉시 |
+
+batch 모드 상태 흐름: `pending → queued(제출됨) → tagged / failed`.
+배치 이력은 `naver_tagging_batch` 테이블(Django migration `catalog/0002` 소유)에 기록되고,
+스케줄러가 `NAVER_BATCH_POLL_SECONDS`(기본 10분)마다 자동 폴링한다.
+배치 실패/누락으로 남은 `queued` 상품은 진행 중 배치가 없을 때 자동으로 `pending` 복구된다.
+배치는 조건부 이미지 재시도가 불가능하므로 `NAVER_BATCH_INCLUDE_IMAGE`로 이미지 포함을 고정한다(기본 텍스트만).
 
 ## 테이블
 
@@ -37,12 +50,14 @@ pip install -r requirements.naver.txt
 cp ../../.env.example ../../.env   # 값 채우기 (NAVER_*, OPENAI_API_KEY, POSTGRES_*)
 
 # 스키마는 Django migration이 관리: api/에서 `python manage.py migrate` 선행 필수
-python naver_collector_db.py --job collect            # 전체 키워드 수집+태깅
+python naver_collector_db.py --job collect            # 수집 (+batch 모드면 배치 제출까지)
 python naver_collector_db.py --job collect --category-large 상의
 python naver_collector_db.py --job collect --keyword "린넨 셔츠" --limit 30 --dry-run
-python naver_collector_db.py --job collect --skip-llm # 태깅 없이 수집 (pending 저장)
-python naver_collector_db.py --job retag              # pending/failed 재태깅
-python naver_collector_db.py --scheduler              # 매일 03:00 KST 자동 수집
+python naver_collector_db.py --job collect --skip-llm # 태깅 없이 수집만 (pending 저장)
+python naver_collector_db.py --job batch-submit       # pending 상품 배치 제출
+python naver_collector_db.py --job batch-poll         # 배치 상태 확인·완료분 반영
+python naver_collector_db.py --job retag              # pending/failed 동기 재태깅
+python naver_collector_db.py --scheduler              # 매일 03:00 자동 수집 + 배치 폴링
 ```
 
 Docker (환경변수는 **프로젝트 루트의 `.env`** 하나로 관리, compose가 `env_file: ../../.env`로 참조):

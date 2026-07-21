@@ -12,12 +12,18 @@
 
 스키마는 Django migration(api/apps/catalog)이 관리한다. 실행 전 migrate 필요.
 
+태깅 모드 (NAVER_TAGGING_MODE):
+  batch(기본) - 수집은 pending 저장 → OpenAI Batch API 제출(50% 할인) → 폴링 후 반영
+  sync        - 수집 중 상품별 실시간 태깅 (빠른 확인용, 비용 2배)
+
 사용 예:
-  python naver_collector_db.py --job collect                       # 전체 키워드 수집
+  python naver_collector_db.py --job collect                       # 수집 (+batch 모드면 배치 제출까지)
   python naver_collector_db.py --job collect --category-large 상의
   python naver_collector_db.py --job collect --keyword "린넨 셔츠" --limit 50 --skip-llm
-  python naver_collector_db.py --job retag                         # 태깅 실패분 재태깅
-  python naver_collector_db.py --scheduler                         # 매일 정해진 시각 자동 수집
+  python naver_collector_db.py --job batch-submit                  # pending 상품 배치 제출
+  python naver_collector_db.py --job batch-poll                    # 배치 상태 확인·완료분 반영
+  python naver_collector_db.py --job retag                         # 태깅 실패분 동기 재태깅
+  python naver_collector_db.py --scheduler                         # 매일 자동 수집 + 배치 폴링
 """
 
 from __future__ import annotations
@@ -33,6 +39,7 @@ import db
 from attribute_extractor import clean_title, extract_attributes
 from category_mapping import is_fashion_item, map_naver_category
 from config import (
+    BATCH_POLL_SECONDS,
     KST,
     MAX_ITEMS_PER_KEYWORD,
     MAX_RETRIES,
@@ -49,6 +56,7 @@ from config import (
     SCHEDULE_HOUR,
     SCHEDULE_MINUTE,
     SCHEDULER_POLL_SECONDS,
+    TAGGING_MODE,
     logger,
 )
 from keywords import KeywordEntry, iter_keywords
@@ -267,6 +275,25 @@ def collect(
     return total_saved
 
 
+def run_collect_job(
+    conn,
+    entries,
+    limit_per_keyword: int,
+    skip_llm: bool,
+    dry_run: bool = False,
+) -> None:
+    """TAGGING_MODE에 따라 동기 태깅 수집 또는 수집 후 배치 제출."""
+    if TAGGING_MODE == "batch" and not skip_llm:
+        # 배치 모드: 태깅 없이 pending으로 저장한 뒤 Batch API에 제출
+        collect(conn, entries, limit_per_keyword, skip_llm=True, dry_run=dry_run)
+        if not dry_run:
+            import batch_tagger
+
+            batch_tagger.submit_pending(conn)
+    else:
+        collect(conn, entries, limit_per_keyword, skip_llm, dry_run)
+
+
 def retag(conn, limit: int = 500) -> int:
     """tagging_status가 pending/failed인 상품 재태깅."""
     from llm_tagger import LLMTagger
@@ -302,9 +329,13 @@ def retag(conn, limit: int = 500) -> int:
 
 
 def run_scheduler(limit_per_keyword: int, skip_llm: bool) -> None:
-    """장기 실행 시 커넥션 끊김/aborted 트랜잭션에 대비해 수집 회차마다 새 커넥션을 연다."""
-    logger.info("scheduler 시작: 매일 %02d:%02d KST 전체 수집", SCHEDULE_HOUR, SCHEDULE_MINUTE)
+    """장기 실행 시 커넥션 끊김/aborted 트랜잭션에 대비해 작업마다 새 커넥션을 연다."""
+    logger.info(
+        "scheduler 시작: 매일 %02d:%02d KST 전체 수집 (tagging_mode=%s)",
+        SCHEDULE_HOUR, SCHEDULE_MINUTE, TAGGING_MODE,
+    )
     last_run_date = None
+    last_batch_poll = 0.0
     while True:
         current = now_kst()
         due = (
@@ -317,11 +348,30 @@ def run_scheduler(limit_per_keyword: int, skip_llm: bool) -> None:
             try:
                 conn = db.get_connection()
                 try:
-                    collect(conn, iter_keywords(), limit_per_keyword, skip_llm)
+                    run_collect_job(conn, iter_keywords(), limit_per_keyword, skip_llm)
                 finally:
                     conn.close()
             except Exception:  # noqa: BLE001
                 logger.exception("스케줄 수집 실패. 다음 날 같은 시각에 재시도합니다.")
+
+        # 배치 모드: 주기적으로 배치 상태 확인 및 완료분 반영
+        if (
+            TAGGING_MODE == "batch"
+            and not skip_llm
+            and time.monotonic() - last_batch_poll >= BATCH_POLL_SECONDS
+        ):
+            last_batch_poll = time.monotonic()
+            try:
+                conn = db.get_connection()
+                try:
+                    import batch_tagger
+
+                    batch_tagger.poll_batches(conn)
+                finally:
+                    conn.close()
+            except Exception:  # noqa: BLE001
+                logger.exception("배치 폴링 실패. 다음 주기에 재시도합니다.")
+
         time.sleep(SCHEDULER_POLL_SECONDS)
 
 
@@ -332,7 +382,11 @@ def run_scheduler(limit_per_keyword: int, skip_llm: bool) -> None:
 
 def parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="네이버 쇼핑 의류 상품 collector")
-    parser.add_argument("--job", choices=["collect", "retag"], help="1회 실행할 작업")
+    parser.add_argument(
+        "--job",
+        choices=["collect", "retag", "batch-submit", "batch-poll"],
+        help="1회 실행할 작업",
+    )
     parser.add_argument("--scheduler", action="store_true", help="매일 자동 수집")
     parser.add_argument("--category-large", help="특정 대분류만 수집 (예: 상의)")
     parser.add_argument("--category-small", help="특정 소분류만 수집 (예: 티셔츠)")
@@ -356,9 +410,17 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
                 category_small=args.category_small,
                 only_keyword=args.keyword,
             )
-            collect(conn, entries, args.limit, args.skip_llm, args.dry_run)
+            run_collect_job(conn, entries, args.limit, args.skip_llm, args.dry_run)
         elif args.job == "retag":
             retag(conn, args.limit)
+        elif args.job == "batch-submit":
+            import batch_tagger
+
+            batch_tagger.submit_pending(conn)
+        elif args.job == "batch-poll":
+            import batch_tagger
+
+            batch_tagger.poll_batches(conn)
         if args.scheduler:
             run_scheduler(args.limit, args.skip_llm)
         if not any([args.job, args.scheduler]):

@@ -79,6 +79,36 @@ class NaverProduct(models.Model):
         return f"[{self.category_large}>{self.category_small}] {self.title}"
 
 
+class NaverTaggingBatch(models.Model):
+    """OpenAI Batch API 태깅 작업 추적.
+
+    collector/naver의 batch_tagger가 raw SQL로 기록/갱신한다.
+    tagging_status 흐름: pending → queued(배치 제출됨) → tagged | failed
+    """
+
+    batch_id = models.CharField(max_length=100, unique=True)  # OpenAI batch id
+    # submitted | validating | in_progress | finalizing | completed | failed | expired | cancelled
+    status = models.CharField(max_length=30, default="submitted", db_default="submitted")
+    model = models.CharField(max_length=60, null=True, blank=True)
+    request_count = models.IntegerField(default=0, db_default=0)
+    include_image = models.BooleanField(default=False, db_default=False)
+    input_file_id = models.CharField(max_length=100, null=True, blank=True)
+    output_file_id = models.CharField(max_length=100, null=True, blank=True)
+    error_file_id = models.CharField(max_length=100, null=True, blank=True)
+    error = models.TextField(null=True, blank=True)
+    completed_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(db_default=Now())
+    updated_at = models.DateTimeField(db_default=Now())
+
+    class Meta:
+        db_table = "naver_tagging_batch"
+        verbose_name = "태깅 배치"
+        verbose_name_plural = "태깅 배치"
+
+    def __str__(self) -> str:
+        return f"{self.batch_id} ({self.status})"
+
+
 class NaverProductSize(models.Model):
     """상품 사이즈별 치수/측정값 (하위 종속 테이블).
 

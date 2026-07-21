@@ -1,0 +1,10 @@
+services:
+  db:
+    ports: !reset []
+
+  api:
+    build:
+      context: ./api
+      dockerfile: Dockerfile.swagger
+    environment:
+      DJANGO_SETTINGS_MODULE: config.settings.swagger
