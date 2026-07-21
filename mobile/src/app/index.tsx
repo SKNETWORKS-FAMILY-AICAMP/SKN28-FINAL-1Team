@@ -2,17 +2,25 @@ import { router } from 'expo-router';
 import { useEffect } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 
+import { DesktopLanding } from '@/components/desktop-landing';
 import { Fonts } from '@/constants/theme';
+import { useIsDesktop } from '@/hooks/use-is-desktop';
 
 const INK = '#1c1917';
 const ink = (a: number) => `rgba(28,25,23,${a})`;
 
-// A1 스플래시 — 앱 첫 화면("/"). 1.6초 뒤 온보딩으로 (탭하면 바로 넘어감)
+// A1 스플래시 — 앱 첫 화면("/"). 1.6초 뒤 온보딩으로 (탭하면 바로 넘어감).
+// 데스크톱 웹(≥1024px)에서는 스플래시 대신 '진짜 웹' 랜딩 페이지를 보여준다.
 export default function Splash() {
+  const isDesktop = useIsDesktop();
+
   useEffect(() => {
+    if (isDesktop) return; // 데스크톱 랜딩은 자동 이동하지 않는다
     const t = setTimeout(() => router.replace('/onboarding'), 1600);
     return () => clearTimeout(t);
-  }, []);
+  }, [isDesktop]);
+
+  if (isDesktop) return <DesktopLanding />;
 
   return (
     <Pressable style={styles.container} onPress={() => router.replace('/onboarding')}>

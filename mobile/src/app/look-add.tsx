@@ -143,7 +143,7 @@ const styles = StyleSheet.create({
   previewWrap: { marginBottom: 14 },
   previewEmpty: {
     borderRadius: GridCard.radius,
-    backgroundColor: '#ecebe7',
+    backgroundColor: '#eae0d3',
     alignItems: 'center',
     justifyContent: 'center',
     gap: 8,
@@ -160,7 +160,7 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     borderWidth: 1,
     borderColor: ink(0.12),
-    backgroundColor: '#f3f2ef',
+    backgroundColor: '#f3ece2',
   },
   pickLabel: { fontSize: 14, fontWeight: '600', color: INK },
   loadingRow: { alignItems: 'center', marginBottom: 16 },

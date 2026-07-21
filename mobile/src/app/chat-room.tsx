@@ -19,7 +19,7 @@ import { Fonts } from '@/constants/theme';
 
 const INK = '#1c1917';
 const WINE = '#5E2B2F';
-const BONE = '#ecebe7';
+const BONE = '#eae0d3';
 const ink = (a: number) => `rgba(28,25,23,${a})`;
 
 const QUICK = ['더 캐주얼하게', '다른 색으로', '아우터 추천', '신발만 바꿔줘'];
@@ -297,7 +297,7 @@ const styles = StyleSheet.create({
   aiBubble: {
     flexShrink: 1,
     alignSelf: 'flex-start',
-    backgroundColor: '#f3f2ef',
+    backgroundColor: '#f3ece2',
     borderRadius: 18,
     borderTopLeftRadius: 6,
     paddingHorizontal: 14,
@@ -347,7 +347,7 @@ const styles = StyleSheet.create({
   recTitle: { fontSize: 14, fontWeight: '600', color: INK },
   recTags: { flexDirection: 'row', gap: 6 },
   recTag: {
-    backgroundColor: '#f3f2ef',
+    backgroundColor: '#f3ece2',
     borderRadius: 999,
     paddingHorizontal: 10,
     paddingVertical: 4,
@@ -390,7 +390,7 @@ const styles = StyleSheet.create({
     flex: 1,
     minHeight: 42,
     maxHeight: 120,
-    backgroundColor: '#f3f2ef',
+    backgroundColor: '#f3ece2',
     borderRadius: 21,
     paddingHorizontal: 16,
     paddingTop: 11,

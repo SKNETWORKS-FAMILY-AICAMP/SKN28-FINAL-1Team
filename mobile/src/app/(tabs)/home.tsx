@@ -10,7 +10,7 @@ import { useAuth } from '@/state/auth';
 
 // ── 에디토리얼 본 팔레트 (라이트 고정) ──
 const INK = '#1c1917';
-const CHIP = '#f3f2ef';
+const CHIP = '#f3ece2';
 const ink = (a: number) => `rgba(28,25,23,${a})`;
 
 const WEEKDAYS = ['일', '월', '화', '수', '목', '금', '토'];

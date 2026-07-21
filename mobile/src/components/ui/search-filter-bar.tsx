@@ -182,7 +182,7 @@ const styles = StyleSheet.create({
     height: 44,
     paddingHorizontal: 14,
     borderRadius: 12,
-    backgroundColor: '#f3f2ef',
+    backgroundColor: '#f3ece2',
   },
   searchBarSpacer: { flex: 1 },
   searchInput: {
@@ -258,6 +258,6 @@ const styles = StyleSheet.create({
     borderColor: ink(0.12),
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: '#f3f2ef',
+    backgroundColor: '#f3ece2',
   },
 });

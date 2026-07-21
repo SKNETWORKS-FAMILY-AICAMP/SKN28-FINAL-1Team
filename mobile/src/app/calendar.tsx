@@ -7,7 +7,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { Fonts } from '@/constants/theme';
 
 const INK = '#1c1917';
-const BONE = '#ecebe7';
+const BONE = '#eae0d3';
 const ink = (a: number) => `rgba(28,25,23,${a})`;
 
 const WEEKDAYS = ['일', '월', '화', '수', '목', '금', '토'];

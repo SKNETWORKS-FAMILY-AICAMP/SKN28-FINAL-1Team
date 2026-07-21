@@ -13,15 +13,31 @@
 @media screen and (min-width: 440px) {
   html,
   body {
-    background-color: #dcd9d3;
+    /* 칙칙한 웜그레이 대신 최대한 밝은 오프화이트 */
+    background-color: #f6f6f5;
   }
   #root {
     max-width: 440px;
     margin-left: auto;
     margin-right: auto;
     background-color: #ffffff;
-    box-shadow: 0 0 50px rgba(0, 0, 0, 0.13);
+    /* 밝은 배경에서도 앱과 바깥 경계가 또렷하도록: 얇은 보더 + 부드러운 그림자 */
+    border-left: 1px solid rgba(0, 0, 0, 0.09);
+    border-right: 1px solid rgba(0, 0, 0, 0.09);
+    box-shadow: 0 0 60px rgba(0, 0, 0, 0.08);
   }
+}
+
+/* 데스크톱 랜딩('진짜 웹') 표시 중엔 폰 프레임을 풀와이드로 해제.
+   DesktopLanding 컴포넌트가 마운트/언마운트 시 body 클래스를 토글한다.
+   → 랜딩은 풀와이드, '앱 둘러보기'로 진입하면 다시 폰 프레임으로 복귀. */
+body.cozy-landing-fullwidth {
+  background-color: #ffffff;
+}
+body.cozy-landing-fullwidth #root {
+  max-width: none;
+  box-shadow: none;
+  background-color: #ffffff;
 }
 
 /* 하단 탭바 글래스(프로스티드 유리) 효과 — 스크롤 콘텐츠가 반투명 바 뒤로 비쳐 흐려짐.

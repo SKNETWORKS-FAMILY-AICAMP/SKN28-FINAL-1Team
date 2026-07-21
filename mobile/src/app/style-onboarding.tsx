@@ -293,7 +293,7 @@ const styles = StyleSheet.create({
 
   group: {
     marginTop: 16,
-    backgroundColor: '#f7f6f3',
+    backgroundColor: '#fcffff',
     borderRadius: 18,
     padding: 18,
     borderWidth: 1,

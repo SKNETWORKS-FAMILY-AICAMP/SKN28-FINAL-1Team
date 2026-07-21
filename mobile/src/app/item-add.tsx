@@ -18,7 +18,7 @@ import { draftItem, useDraftPhoto } from '@/state/draft-item';
 // ── 에디토리얼 본(Editorial Bone) 팔레트 ─────────────────
 // 디자인은 라이트 모드 고정. 잉크 + 크림 톤.
 const INK = '#1c1917';
-const BONE = '#ecebe7';
+const BONE = '#eae0d3';
 const ink = (a: number) => `rgba(28,25,23,${a})`;
 
 /** 라벨 + (선택)AI 뱃지 + 밑줄 입력 필드 */

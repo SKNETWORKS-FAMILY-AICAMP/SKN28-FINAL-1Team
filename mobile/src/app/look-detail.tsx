@@ -10,7 +10,7 @@ import { Fonts } from '@/constants/theme';
 
 const INK = '#1c1917';
 const WINE = '#5E2B2F';
-const BONE = '#ecebe7';
+const BONE = '#eae0d3';
 const ink = (a: number) => `rgba(28,25,23,${a})`;
 
 type Related = { name: string; brand: string; price: string; tone: number };
@@ -352,7 +352,7 @@ const styles = StyleSheet.create({
   pieceBody: { flex: 1, gap: 3 },
   pieceTop: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   pieceSlot: { fontSize: 11, color: ink(0.4), fontWeight: '500' },
-  ownTag: { backgroundColor: '#f0efe9', paddingHorizontal: 7, paddingVertical: 2, borderRadius: 999 },
+  ownTag: { backgroundColor: '#efe7db', paddingHorizontal: 7, paddingVertical: 2, borderRadius: 999 },
   ownTagText: { fontSize: 9.5, color: ink(0.55), fontWeight: '600' },
   newTag: { backgroundColor: '#f3e4de' },
   newTagText: { color: WINE },
@@ -392,12 +392,12 @@ const styles = StyleSheet.create({
     paddingVertical: 8,
     paddingHorizontal: 10,
     borderRadius: 10,
-    backgroundColor: '#f3f2ef',
+    backgroundColor: '#f3ece2',
   },
   budgetPromptText: { flex: 1, fontSize: 11.5, color: ink(0.55) },
 
   reasonCard: {
-    backgroundColor: '#f7f6f3',
+    backgroundColor: '#fcffff',
     borderRadius: 16,
     padding: 16,
     gap: 14,

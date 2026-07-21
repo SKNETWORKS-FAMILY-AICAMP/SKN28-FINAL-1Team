@@ -8,7 +8,7 @@ import { Fonts } from '@/constants/theme';
 import { measureStore } from '@/state/measure';
 
 const INK = '#1c1917';
-const BONE = '#ecebe7';
+const BONE = '#eae0d3';
 const ink = (a: number) => `rgba(28,25,23,${a})`;
 
 function Steps({ active }: { active: number }) {
@@ -175,7 +175,7 @@ const styles = StyleSheet.create({
   slotStateDone: { color: INK, fontWeight: '500' },
 
   sectionTitle: { fontSize: 13, fontWeight: '600', color: INK, marginTop: 30, marginBottom: 12 },
-  guideCard: { backgroundColor: '#f7f6f3', borderRadius: 16, padding: 8 },
+  guideCard: { backgroundColor: '#fcffff', borderRadius: 16, padding: 8 },
   guideRow: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingHorizontal: 8, paddingVertical: 10 },
   guideIcon: {
     width: 32,

@@ -8,7 +8,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { Fonts } from '@/constants/theme';
 
 const INK = '#1c1917';
-const BONE = '#ecebe7';
+const BONE = '#eae0d3';
 const ink = (a: number) => `rgba(28,25,23,${a})`;
 
 const PIECES = [
@@ -168,7 +168,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 10,
     marginTop: 18,
-    backgroundColor: '#f7f6f3',
+    backgroundColor: '#fcffff',
     borderRadius: 14,
     paddingHorizontal: 16,
     paddingVertical: 14,

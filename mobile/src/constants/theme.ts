@@ -68,11 +68,11 @@ export const Spacing = {
  */
 export const Editorial = {
   ink: '#1c1917', // 웜 블랙 — 본문/버튼/활성 상태
-  bone: '#ecebe7', // 이미지 placeholder 배경
+  bone: '#eae0d3', // 이미지 placeholder 배경
   white: '#ffffff',
-  surface: '#f3f2ef', // 검색바·태그 배경
-  surfaceSoft: '#f7f6f3', // 패널·타일 배경
-  surfaceTag: '#f0efe9', // '내 옷' 태그 등
+  surface: '#f3ece2', // 검색바·태그 배경
+  surfaceSoft: '#fcffff', // 패널·타일 배경
+  surfaceTag: '#efe7db', // '내 옷' 태그 등
   accent: '#f3e4de', // 웜 피치 — 'new'/경고 배경 강조
   wine: '#5E2B2F', // 경고 텍스트/아이콘
   danger: '#E23B2E', // 폼 에러

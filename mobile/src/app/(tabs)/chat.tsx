@@ -132,7 +132,7 @@ const styles = StyleSheet.create({
     height: 42,
     paddingHorizontal: 14,
     borderRadius: 12,
-    backgroundColor: '#f3f2ef',
+    backgroundColor: '#f3ece2',
   },
   searchPlaceholder: { fontSize: 13.5, color: ink(0.35) },
 
@@ -149,7 +149,7 @@ const styles = StyleSheet.create({
     height: 18,
     lineHeight: 18,
     textAlign: 'center',
-    backgroundColor: '#f0efe9',
+    backgroundColor: '#efe7db',
     borderRadius: 9,
     overflow: 'hidden',
   },

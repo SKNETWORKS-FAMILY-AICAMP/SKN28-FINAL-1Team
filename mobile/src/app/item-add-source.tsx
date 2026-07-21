@@ -141,7 +141,7 @@ const styles = StyleSheet.create({
     height: 44,
     paddingHorizontal: 14,
     borderRadius: 12,
-    backgroundColor: '#f3f2ef',
+    backgroundColor: '#f3ece2',
   },
   searchPlaceholder: { flex: 1, fontSize: 14, color: ink(0.35) },
   helpBtn: { width: 28, alignItems: 'flex-end' },

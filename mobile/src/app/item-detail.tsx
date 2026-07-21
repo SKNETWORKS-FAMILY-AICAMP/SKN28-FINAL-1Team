@@ -7,7 +7,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { Fonts } from '@/constants/theme';
 
 const INK = '#1c1917';
-const BONE = '#ecebe7';
+const BONE = '#eae0d3';
 const WINE = '#5E2B2F';
 const ink = (a: number) => `rgba(28,25,23,${a})`;
 
@@ -185,7 +185,7 @@ const styles = StyleSheet.create({
   wearRow: { flexDirection: 'row', gap: 10 },
   wearTile: {
     flex: 1,
-    backgroundColor: '#f7f6f3',
+    backgroundColor: '#fcffff',
     borderRadius: 14,
     paddingHorizontal: 16,
     paddingVertical: 16,
@@ -208,7 +208,7 @@ const styles = StyleSheet.create({
 
   tags: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
   tag: {
-    backgroundColor: '#f3f2ef',
+    backgroundColor: '#f3ece2',
     borderRadius: 999,
     paddingHorizontal: 13,
     paddingVertical: 7,
