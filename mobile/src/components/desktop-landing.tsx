@@ -112,7 +112,8 @@ export function DesktopLanding() {
           <View style={[styles.featureGrid, isStacked && styles.featureGridStacked]}>
             {FEATURES.map((f) => (
               <View key={f.kicker} style={styles.featureCard}>
-                <SmartImage asset={f.image} height={220} radius={20} contentFit="cover" />
+                {/* 카드 폭이 화면에 따라 달라지므로 고정 높이 대신 비율로 정사각형을 유지한다. */}
+                <SmartImage asset={f.image} aspectRatio={1} radius={20} contentFit="cover" />
                 <Text style={styles.featureKicker}>{f.kicker}</Text>
                 <Text style={styles.featureTitle}>{f.title}</Text>
                 <Text style={styles.featureBody}>{f.body}</Text>
