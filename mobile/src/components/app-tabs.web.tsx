@@ -1,4 +1,4 @@
-import { router } from 'expo-router';
+import { router, usePathname } from 'expo-router';
 import { Tabs, TabList, TabTrigger, TabSlot, TabTriggerSlotProps } from 'expo-router/ui';
 import { Pressable, View, Text, StyleSheet } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -67,20 +67,52 @@ export default function AppTabs() {
 /* ── 데스크톱: 좌측 사이드바 ─────────────────────────────── */
 
 function Sidebar({ children, ...props }: React.ComponentProps<typeof View>) {
+  const pathname = usePathname();
+
   return (
     <View {...props} style={styles.sidebar}>
       <Text style={styles.sidebarBrand}>cozy</Text>
 
-      <Pressable
-        style={styles.askWide}
-        onPress={() => router.push('/chat-mode')}
-        accessibilityLabel="질문하기">
-        <Icon name="plus" tintColor={Editorial.white} size={16} />
-        <Text style={styles.askWideText}>새 질문</Text>
-      </Pressable>
-
-      <View style={styles.sidebarNav}>{children}</View>
+      <View style={styles.sidebarNav}>
+        {/* 탭이 아닌 스택 화면이라 TabTrigger 가 아니라 직접 이동시킨다. */}
+        <SidebarLink
+          icon="plus"
+          label="새 채팅"
+          onPress={() => router.push('/chat-mode')}
+          active={pathname === '/chat-mode' || pathname === '/chat-room'}
+        />
+        {children}
+        <SidebarLink
+          icon="calendar"
+          label="캘린더"
+          onPress={() => router.push('/calendar')}
+          active={pathname === '/calendar'}
+        />
+      </View>
     </View>
+  );
+}
+
+/** 탭이 아닌 화면으로 가는 사이드바 항목. 생김새는 SidebarItem 과 동일하게 맞춘다. */
+function SidebarLink({
+  icon,
+  label,
+  onPress,
+  active,
+}: {
+  icon: IconName;
+  label: string;
+  onPress: () => void;
+  active: boolean;
+}) {
+  const color = active ? INK : ink(0.5);
+  return (
+    <Pressable style={[styles.sidebarItem, active && styles.sidebarItemOn]} onPress={onPress}>
+      <Icon name={icon} tintColor={color} size={20} />
+      <Text style={[styles.sidebarLabel, { color, fontWeight: active ? '600' : '500' }]}>
+        {label}
+      </Text>
+    </Pressable>
   );
 }
 
@@ -165,17 +197,6 @@ const styles = StyleSheet.create({
     paddingHorizontal: 10,
     marginBottom: 20,
   },
-  askWide: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 8,
-    height: 42,
-    borderRadius: 10,
-    backgroundColor: INK,
-    marginBottom: 12,
-  },
-  askWideText: { color: Editorial.white, fontSize: 14, fontWeight: '600' },
   sidebarNav: { gap: 2 },
   sidebarItem: {
     flexDirection: 'row',
