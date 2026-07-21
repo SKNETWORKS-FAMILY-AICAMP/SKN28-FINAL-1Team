@@ -19,6 +19,8 @@ export function useBreakpoint() {
   const { width, height } = useWindowDimensions();
 
   const isDesktop = width >= Breakpoints.desktop;
+  /** 우측 채팅 패널을 함께 띄울 만큼 넓은가 */
+  const isWide = width >= Breakpoints.wide;
   const isTablet = !isDesktop && width >= Breakpoints.tablet;
 
   const layout: Layout = isDesktop ? 'desktop' : isTablet ? 'tablet' : 'mobile';
@@ -30,6 +32,7 @@ export function useBreakpoint() {
     isMobile: layout === 'mobile',
     isTablet,
     isDesktop,
+    isWide,
     /** 폰 프레임 상한을 적용한 콘텐츠 폭 — 기존 화면들이 쓰던 Math.min(width, 440) 과 동일 */
     frameWidth: Math.min(width, PhoneFrameWidth),
 

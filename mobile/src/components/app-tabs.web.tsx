@@ -6,12 +6,16 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Editorial, Fonts, ink } from '@/constants/theme';
 import { useBreakpoint } from '@/hooks/use-breakpoint';
 
+import { ChatConversation } from './chat/chat-conversation';
 import { Icon, type IconName } from './icon';
 
 const INK = Editorial.ink;
 
 /** 데스크톱 사이드바 폭 */
 const SIDEBAR_W = 232;
+
+/** 우측 채팅 패널 폭 — 대화는 폭이 넓을수록 읽기 어려워 고정한다. */
+const CHAT_PANEL_W = 400;
 
 // 채팅은 탭이 아니라 + 버튼에서 시작한다.
 const TABS = [
@@ -30,7 +34,10 @@ const TABS = [
  * 모바일에선 하단 바가 position:absolute 라 순서와 무관하게 아래에 뜬다.
  */
 export default function AppTabs() {
-  const { isDesktop } = useBreakpoint();
+  const { isDesktop, isWide } = useBreakpoint();
+  const pathname = usePathname();
+  /* 채팅 화면 자체를 보고 있을 땐 패널을 띄우지 않는다 — 같은 대화가 두 벌로 보이게 된다. */
+  const showChatPanel = isWide && pathname !== '/chat-room' && pathname !== '/chat-mode';
 
   return (
     <Tabs style={[styles.root, isDesktop && styles.rootDesktop]}>
@@ -60,7 +67,30 @@ export default function AppTabs() {
         )}
       </TabList>
       <TabSlot style={styles.slot} />
+      {showChatPanel ? <ChatPanel /> : null}
     </Tabs>
+  );
+}
+
+/**
+ * 넓은 화면(≥1280)에서 본문 오른쪽에 상주하는 채팅 패널.
+ * 옷장·룩북을 보면서 바로 물어볼 수 있게 한다. 폭은 고정 — 대화는 한 줄이 길면 읽기 어렵다.
+ */
+function ChatPanel() {
+  return (
+    <View style={styles.chatPanel}>
+      <View style={styles.chatPanelHeader}>
+        <Text style={styles.chatPanelTitle}>코지에게 물어보기</Text>
+        <Pressable
+          hitSlop={8}
+          onPress={() => router.push('/chat-room')}
+          accessibilityLabel="대화 전체 보기">
+          <Icon name="arrow.right" tintColor={ink(0.45)} size={16} />
+        </Pressable>
+      </View>
+      <View style={styles.chatPanelDivider} />
+      <ChatConversation variant="panel" />
+    </View>
   );
 }
 
@@ -179,6 +209,23 @@ const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: Editorial.white },
   rootDesktop: { flexDirection: 'row' },
   slot: { flex: 1, minWidth: 0 },
+
+  // 우측 채팅 패널 (≥1280)
+  chatPanel: {
+    width: CHAT_PANEL_W,
+    borderLeftWidth: 1,
+    borderLeftColor: ink(0.08),
+    backgroundColor: Editorial.white,
+  },
+  chatPanelHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    height: 52,
+    paddingHorizontal: 16,
+  },
+  chatPanelTitle: { fontSize: 14, fontWeight: '600', color: INK },
+  chatPanelDivider: { height: 1, backgroundColor: ink(0.08) },
 
   // 데스크톱 사이드바
   sidebar: {
