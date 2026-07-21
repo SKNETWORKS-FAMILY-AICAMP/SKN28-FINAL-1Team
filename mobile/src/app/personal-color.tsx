@@ -1,6 +1,7 @@
 import { Icon } from '@/components/icon';
 import { useToast } from '@/components/ui';
-import { Fonts } from '@/constants/theme';
+import { Fonts , ContentMax} from '@/constants/theme';
+import { useBreakpoint } from '@/hooks/use-breakpoint';
 import { prefsStore, usePrefs } from '@/state/prefs';
 import { router } from 'expo-router';
 import { useState } from 'react';
@@ -19,6 +20,7 @@ const SEASONS = [
 
 // 퍼스널컬러 설정 — 4계절 톤 중 선택 (추천 색 조합의 기준)
 export default function PersonalColor() {
+  const { contentStyle } = useBreakpoint();
   const prefs = usePrefs();
   const [sel, setSel] = useState<string | null>(prefs.personalColor);
   const toast = useToast();
@@ -32,7 +34,7 @@ export default function PersonalColor() {
   return (
     <View style={styles.container}>
       <SafeAreaView edges={['top']} style={styles.headerSafe}>
-        <View style={styles.header}>
+        <View style={[styles.header, contentStyle(ContentMax.narrow)]}>
           <Pressable hitSlop={12} onPress={() => router.back()}>
             <Icon name="chevron.left" tintColor={INK} size={20} />
           </Pressable>
@@ -41,7 +43,7 @@ export default function PersonalColor() {
         </View>
       </SafeAreaView>
 
-      <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.content}>
+      <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={[styles.content, contentStyle(ContentMax.narrow)]}>
         <Text style={styles.title}>어떤 톤이 가장 잘 어울려요?</Text>
         <Text style={styles.lead}>얼굴이 화사해 보이는 톤을 골라주세요. 추천 색 조합에 반영해요.</Text>
 
@@ -74,7 +76,7 @@ export default function PersonalColor() {
       </ScrollView>
 
       <View style={styles.bottomDivider} />
-      <SafeAreaView edges={['bottom']} style={styles.bottomBar}>
+      <SafeAreaView edges={['bottom']} style={[styles.bottomBar, contentStyle(ContentMax.narrow)]}>
         <Pressable style={styles.cta} onPress={save}>
           <Text style={styles.ctaText}>저장</Text>
         </Pressable>

@@ -5,7 +5,8 @@ import { useEffect, useRef, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-import { Fonts } from '@/constants/theme';
+import { Fonts , ContentMax} from '@/constants/theme';
+import { useBreakpoint } from '@/hooks/use-breakpoint';
 
 const INK = '#1c1917';
 const BONE = '#eae0d3';
@@ -20,6 +21,7 @@ const PIECES = [
 
 // C5 가상 피팅 — 내 체형에 룩을 입혀 생성 (프로토타입: 타이머로 생성 과정 시뮬레이션)
 export default function Fitting() {
+  const { contentStyle } = useBreakpoint();
   const [phase, setPhase] = useState<'loading' | 'done'>('loading');
   const toast = useToast();
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -44,7 +46,7 @@ export default function Fitting() {
   return (
     <View style={styles.container}>
       <SafeAreaView edges={['top']} style={styles.headerSafe}>
-        <View style={styles.header}>
+        <View style={[styles.header, contentStyle(ContentMax.default)]}>
           <Pressable hitSlop={12} onPress={() => router.back()}>
             <Icon name="chevron.left" tintColor={INK} size={20} />
           </Pressable>
@@ -53,7 +55,7 @@ export default function Fitting() {
         </View>
       </SafeAreaView>
 
-      <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.content}>
+      <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={[styles.content, contentStyle(ContentMax.default)]}>
         {/* 생성 캔버스 */}
         <View style={styles.canvas}>
           {phase === 'loading' ? (
@@ -97,7 +99,7 @@ export default function Fitting() {
 
       {/* 하단 바 */}
       <View style={styles.bottomDivider} />
-      <SafeAreaView edges={['bottom']} style={styles.bottomBar}>
+      <SafeAreaView edges={['bottom']} style={[styles.bottomBar, contentStyle(ContentMax.default)]}>
         <Pressable
           style={[styles.altBtn, phase === 'loading' && styles.btnDisabled]}
           disabled={phase === 'loading'}

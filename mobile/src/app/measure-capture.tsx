@@ -4,7 +4,8 @@ import { useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-import { Fonts } from '@/constants/theme';
+import { Fonts , ContentMax} from '@/constants/theme';
+import { useBreakpoint } from '@/hooks/use-breakpoint';
 import { measureStore } from '@/state/measure';
 
 const INK = '#1c1917';
@@ -30,6 +31,7 @@ const GUIDE: { icon: IconName; text: string }[] = [
 
 // G2 정면·측면 촬영 — 촬영 가이드 + 2컷 업로드
 export default function MeasureCapture() {
+  const { contentStyle } = useBreakpoint();
   const { returnTo } = useLocalSearchParams<{ returnTo?: string }>();
   const [shots, setShots] = useState<{ front: boolean; side: boolean }>({
     front: false,
@@ -46,7 +48,7 @@ export default function MeasureCapture() {
           </Pressable>
         </View>
 
-        <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
+        <ScrollView contentContainerStyle={[styles.content, contentStyle(ContentMax.narrow)]} showsVerticalScrollIndicator={false}>
           <Steps active={1} />
           <Text style={styles.eyebrow}>STEP 2 / 3</Text>
           <Text style={styles.title}>정면·측면 사진을 촬영해요</Text>
@@ -116,7 +118,7 @@ export default function MeasureCapture() {
           </Pressable>
         </ScrollView>
 
-        <View style={styles.bottomBar}>
+        <View style={[styles.bottomBar, contentStyle(ContentMax.narrow)]}>
           <Pressable
             style={[styles.cta, !both && styles.ctaDisabled]}
             disabled={!both}

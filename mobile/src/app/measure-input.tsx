@@ -10,7 +10,8 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-import { Fonts } from '@/constants/theme';
+import { Fonts , ContentMax} from '@/constants/theme';
+import { useBreakpoint } from '@/hooks/use-breakpoint';
 import { measureStore } from '@/state/measure';
 
 const INK = '#1c1917';
@@ -29,6 +30,7 @@ function Steps({ active }: { active: number }) {
 
 // G1 체형 정보 입력 — 키/몸무게 + BMI 자동계산
 export default function MeasureInput() {
+  const { contentStyle } = useBreakpoint();
   const { returnTo } = useLocalSearchParams<{ returnTo?: string }>();
   const [height, setHeight] = useState('');
   const [weight, setWeight] = useState('');
@@ -70,7 +72,7 @@ export default function MeasureInput() {
         </View>
 
         <ScrollView
-          contentContainerStyle={styles.content}
+          contentContainerStyle={[styles.content, contentStyle(ContentMax.narrow)]}
           keyboardShouldPersistTaps="handled">
           <Steps active={0} />
           <Text style={styles.eyebrow}>STEP 1 / 3</Text>
@@ -151,7 +153,7 @@ export default function MeasureInput() {
           </Pressable>
         </ScrollView>
 
-        <View style={styles.bottomBar}>
+        <View style={[styles.bottomBar, contentStyle(ContentMax.narrow)]}>
           <Pressable
             style={[styles.cta, !canNext && styles.ctaDisabled]}
             disabled={!canNext}

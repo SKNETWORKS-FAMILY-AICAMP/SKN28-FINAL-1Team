@@ -10,13 +10,15 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-import { Fonts } from '@/constants/theme';
+import { Fonts , ContentMax} from '@/constants/theme';
+import { useBreakpoint } from '@/hooks/use-breakpoint';
 
 const INK = '#1c1917';
 const ink = (a: number) => `rgba(28,25,23,${a})`;
 
 // A5 비밀번호 재설정 — 이메일 입력 → 발송 완료 상태
 export default function Reset() {
+  const { contentStyle } = useBreakpoint();
   const [email, setEmail] = useState('');
   const [sent, setSent] = useState(false);
 
@@ -31,7 +33,7 @@ export default function Reset() {
         </View>
 
         <ScrollView
-          contentContainerStyle={styles.content}
+          contentContainerStyle={[styles.content, contentStyle(ContentMax.narrow)]}
           keyboardShouldPersistTaps="handled">
           {sent ? (
             <>

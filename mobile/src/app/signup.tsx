@@ -10,7 +10,8 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-import { Fonts } from '@/constants/theme';
+import { Fonts , ContentMax} from '@/constants/theme';
+import { useBreakpoint } from '@/hooks/use-breakpoint';
 
 const INK = '#1c1917';
 const KAKAO = '#FEE500';
@@ -26,6 +27,7 @@ const TERMS: { key: TermKey; label: string; required: boolean }[] = [
 
 // A4 회원가입 — 이메일/비밀번호 + 약관 동의 → 권한 동의(A6)로 진입
 export default function Signup() {
+  const { contentStyle } = useBreakpoint();
   const [email, setEmail] = useState('');
   const [pw, setPw] = useState('');
   const [pw2, setPw2] = useState('');
@@ -51,7 +53,7 @@ export default function Signup() {
     <View style={styles.container}>
       <SafeAreaView edges={['top', 'bottom']} style={styles.safe}>
         <ScrollView
-          contentContainerStyle={styles.content}
+          contentContainerStyle={[styles.content, contentStyle(ContentMax.narrow)]}
           keyboardShouldPersistTaps="handled"
           showsVerticalScrollIndicator={false}>
           <Text style={styles.brand}>cozy</Text>

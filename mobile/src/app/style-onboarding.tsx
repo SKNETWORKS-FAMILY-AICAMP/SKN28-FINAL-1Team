@@ -13,7 +13,8 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { Icon } from '@/components/icon';
-import { Fonts } from '@/constants/theme';
+import { Fonts , ContentMax} from '@/constants/theme';
+import { useBreakpoint } from '@/hooks/use-breakpoint';
 
 if (
   Platform.OS === 'android' &&
@@ -136,6 +137,7 @@ function PreferenceGroup({
 
 // A7 스타일 온보딩 — 무드 + 색상/핏 그룹 → 홈 진입
 export default function StyleOnboarding() {
+  const { contentStyle } = useBreakpoint();
   const { returnTo } = useLocalSearchParams<{ returnTo?: string }>();
   const [liked, setLiked] = useState<Set<string>>(new Set());
   const [preferredColors, setPreferredColors] = useState<Set<string>>(new Set());
@@ -173,7 +175,7 @@ export default function StyleOnboarding() {
     <View style={styles.container}>
       <SafeAreaView edges={['top', 'bottom']} style={styles.safe}>
         <ScrollView
-          contentContainerStyle={styles.content}
+          contentContainerStyle={[styles.content, contentStyle(ContentMax.narrow)]}
           showsVerticalScrollIndicator={false}>
           <Text style={styles.eyebrow}>STEP 2 · 스타일</Text>
           <Text style={styles.title}>어떤 무드를 추구하세요?</Text>
@@ -259,7 +261,7 @@ export default function StyleOnboarding() {
           </PreferenceGroup>
         </ScrollView>
 
-        <View style={styles.bottomBar}>
+        <View style={[styles.bottomBar, contentStyle(ContentMax.narrow)]}>
           <Pressable style={styles.skip} onPress={finish}>
             <Text style={styles.skipText}>나중에</Text>
           </Pressable>

@@ -1,6 +1,7 @@
 import { Icon } from '@/components/icon';
 import { useToast } from '@/components/ui';
-import { Fonts } from '@/constants/theme';
+import { Fonts , ContentMax} from '@/constants/theme';
+import { useBreakpoint } from '@/hooks/use-breakpoint';
 import { formatBudget, prefsStore, usePrefs } from '@/state/prefs';
 import { router } from 'expo-router';
 import { useEffect, useState } from 'react';
@@ -28,6 +29,7 @@ function parseBudgetInput(raw: string): number | null {
 
 // 예산 설정 — 상품 추천 시 이 예산 내 아이템을 우선 노출
 export default function Budget() {
+  const { contentStyle } = useBreakpoint();
   const prefs = usePrefs();
   const [sel, setSel] = useState<number | null>(prefs.budget);
   const [custom, setCustom] = useState('');
@@ -65,7 +67,7 @@ export default function Budget() {
   return (
     <View style={styles.container}>
       <SafeAreaView edges={['top']} style={styles.headerSafe}>
-        <View style={styles.header}>
+        <View style={[styles.header, contentStyle(ContentMax.narrow)]}>
           <Pressable hitSlop={12} onPress={() => router.back()}>
             <Icon name="chevron.left" tintColor={INK} size={20} />
           </Pressable>
@@ -74,7 +76,7 @@ export default function Budget() {
         </View>
       </SafeAreaView>
 
-      <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.content}>
+      <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={[styles.content, contentStyle(ContentMax.narrow)]}>
         <Text style={styles.title}>한 달 옷 구매 예산은 얼마예요?</Text>
         <Text style={styles.lead}>설정한 금액 안에서 맞는 아이템을 우선 추천해드려요.</Text>
 
@@ -122,7 +124,7 @@ export default function Budget() {
       </ScrollView>
 
       <View style={styles.bottomDivider} />
-      <SafeAreaView edges={['bottom']} style={styles.bottomBar}>
+      <SafeAreaView edges={['bottom']} style={[styles.bottomBar, contentStyle(ContentMax.narrow)]}>
         <Pressable style={styles.cta} onPress={save}>
           <Text style={styles.ctaText}>저장</Text>
         </Pressable>

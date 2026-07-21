@@ -4,7 +4,8 @@ import { useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-import { Fonts } from '@/constants/theme';
+import { Fonts , ContentMax} from '@/constants/theme';
+import { useBreakpoint } from '@/hooks/use-breakpoint';
 
 const INK = '#1c1917';
 const BONE = '#eae0d3';
@@ -27,6 +28,7 @@ const RECORDS: Record<number, { title: string; tags: string[]; tone: number }> =
 
 // B2 착장 캘린더 — 월 그리드 + 선택일 상세
 export default function Calendar() {
+  const { contentStyle } = useBreakpoint();
   const [selected, setSelected] = useState(7);
   const cells: (number | null)[] = [
     ...Array(FIRST_WEEKDAY).fill(null),
@@ -37,7 +39,7 @@ export default function Calendar() {
   return (
     <View style={styles.container}>
       <SafeAreaView edges={['top']} style={styles.headerSafe}>
-        <View style={styles.header}>
+        <View style={[styles.header, contentStyle(ContentMax.default)]}>
           <Pressable hitSlop={12} onPress={() => router.back()}>
             <Icon name="chevron.left" tintColor={INK} size={20} />
           </Pressable>
@@ -46,7 +48,7 @@ export default function Calendar() {
         </View>
       </SafeAreaView>
 
-      <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.content}>
+      <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={[styles.content, contentStyle(ContentMax.default)]}>
         {/* 월 네비 */}
         <View style={styles.monthRow}>
           <Pressable hitSlop={10}>

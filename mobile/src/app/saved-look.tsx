@@ -3,7 +3,8 @@ import { router } from 'expo-router';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-import { Fonts } from '@/constants/theme';
+import { Fonts , ContentMax} from '@/constants/theme';
+import { useBreakpoint } from '@/hooks/use-breakpoint';
 
 const INK = '#1c1917';
 const BONE = '#eae0d3';
@@ -20,10 +21,11 @@ const HASHTAGS = ['#가을', '#출근', '#미니멀', '#포근함'];
 
 // E2 저장 룩 상세 — 구성·추천이유 재확인·메모/해시태그
 export default function SavedLook() {
+  const { contentStyle } = useBreakpoint();
   return (
     <View style={styles.container}>
       <SafeAreaView edges={['top']} style={styles.headerSafe}>
-        <View style={styles.header}>
+        <View style={[styles.header, contentStyle(ContentMax.default)]}>
           <Pressable hitSlop={12} onPress={() => router.back()}>
             <Icon name="chevron.left" tintColor={INK} size={20} />
           </Pressable>
@@ -40,7 +42,7 @@ export default function SavedLook() {
 
       <ScrollView
         showsVerticalScrollIndicator={false}
-        contentContainerStyle={styles.content}>
+        contentContainerStyle={[styles.content, contentStyle(ContentMax.default)]}>
         {/* 룩 이미지 */}
         <View style={styles.image}>
           <View style={styles.savedBadge}>
@@ -95,7 +97,7 @@ export default function SavedLook() {
       </ScrollView>
 
       <View style={styles.bottomDivider} />
-      <SafeAreaView edges={['bottom']} style={styles.bottomBar}>
+      <SafeAreaView edges={['bottom']} style={[styles.bottomBar, contentStyle(ContentMax.default)]}>
         <Pressable style={styles.cta} onPress={() => router.push('/chat-room')}>
           <Icon name="sparkles" tintColor="#fff" size={15} />
           <Text style={styles.ctaText}>비슷하게 추천받기</Text>

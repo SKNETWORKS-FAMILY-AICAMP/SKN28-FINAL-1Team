@@ -6,7 +6,8 @@ import { useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-import { Fonts } from '@/constants/theme';
+import { Fonts , ContentMax} from '@/constants/theme';
+import { useBreakpoint } from '@/hooks/use-breakpoint';
 
 const INK = '#1c1917';
 const WINE = '#5E2B2F';
@@ -80,6 +81,7 @@ const REASONS = [
 
 // C4 추천 룩 상세 — 2D 가상착장 + 구성 + 추천 이유 + 피드백
 export default function LookDetail() {
+  const { contentStyle } = useBreakpoint();
   const [saved, setSaved] = useState(false);
   const [vote, setVote] = useState<'up' | 'down' | null>(null);
   const [openSlot, setOpenSlot] = useState<string | null>(null);
@@ -90,7 +92,7 @@ export default function LookDetail() {
     <View style={styles.container}>
       {/* 헤더 */}
       <SafeAreaView edges={['top']} style={styles.headerSafe}>
-        <View style={styles.header}>
+        <View style={[styles.header, contentStyle(ContentMax.default)]}>
           <Pressable hitSlop={12} onPress={() => router.back()}>
             <Icon name="chevron.left" tintColor={INK} size={20} />
           </Pressable>
@@ -107,7 +109,7 @@ export default function LookDetail() {
 
       <ScrollView
         showsVerticalScrollIndicator={false}
-        contentContainerStyle={styles.content}>
+        contentContainerStyle={[styles.content, contentStyle(ContentMax.default)]}>
         {/* 2D 가상착장 — 탭하면 가상 피팅 화면으로 */}
         <Pressable style={styles.fitting} onPress={() => router.push('/fitting')}>
           <Text style={styles.fittingMark}>2D</Text>
@@ -259,7 +261,7 @@ export default function LookDetail() {
 
       {/* 하단 바 */}
       <View style={styles.bottomDivider} />
-      <SafeAreaView edges={['bottom']} style={styles.bottomBar}>
+      <SafeAreaView edges={['bottom']} style={[styles.bottomBar, contentStyle(ContentMax.default)]}>
         <Pressable style={styles.altBtn} onPress={() => router.back()}>
           <Text style={styles.altText}>다른 룩</Text>
         </Pressable>

@@ -15,7 +15,8 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-import { Fonts } from '@/constants/theme';
+import { Fonts , ContentMax} from '@/constants/theme';
+import { useBreakpoint } from '@/hooks/use-breakpoint';
 import { useSocialLogin } from '@/hooks/use-social-login';
 import type { SocialLoginResult } from '@/lib/socialLogin';
 
@@ -26,6 +27,7 @@ const ink = (a: number) => `rgba(28,25,23,${a})`;
 
 // A3 로그인 — "로그인"/소셜 누르면 앱(홈 탭)으로 진입
 export default function Login() {
+  const { contentStyle } = useBreakpoint();
   const [email, setEmail] = useState('');
   const [pw, setPw] = useState('');
   const [show, setShow] = useState(false);
@@ -44,7 +46,7 @@ export default function Login() {
     <View style={styles.container}>
       <SafeAreaView edges={['top', 'bottom']} style={styles.safe}>
         <ScrollView
-          contentContainerStyle={styles.content}
+          contentContainerStyle={[styles.content, contentStyle(ContentMax.narrow)]}
           keyboardShouldPersistTaps="handled">
           <Text style={styles.brand}>cozy</Text>
           <Text style={styles.guide}>로그인하고 오늘의 코디를 받아보세요</Text>

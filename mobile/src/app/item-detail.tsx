@@ -4,7 +4,8 @@ import { router } from 'expo-router';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-import { Fonts } from '@/constants/theme';
+import { Fonts , ContentMax} from '@/constants/theme';
+import { useBreakpoint } from '@/hooks/use-breakpoint';
 
 const INK = '#1c1917';
 const BONE = '#eae0d3';
@@ -22,6 +23,7 @@ const TAGS = ['#미니멀', '#데일리', '#오피스', '#포근함'];
 
 // D3 아이템 상세 — 정보·착용 기록·저활용 경고
 export default function ItemDetail() {
+  const { contentStyle } = useBreakpoint();
   const wearCount = 3;
   const underused = wearCount < 5;
   const toast = useToast();
@@ -43,7 +45,7 @@ export default function ItemDetail() {
   return (
     <View style={styles.container}>
       <SafeAreaView edges={['top']} style={styles.headerSafe}>
-        <View style={styles.header}>
+        <View style={[styles.header, contentStyle(ContentMax.default)]}>
           <Pressable hitSlop={12} onPress={() => router.back()}>
             <Icon name="chevron.left" tintColor={INK} size={20} />
           </Pressable>
@@ -60,7 +62,7 @@ export default function ItemDetail() {
 
       <ScrollView
         showsVerticalScrollIndicator={false}
-        contentContainerStyle={styles.content}>
+        contentContainerStyle={[styles.content, contentStyle(ContentMax.default)]}>
         {/* 이미지 */}
         <View style={styles.image}>
           <View style={styles.catBadge}>
@@ -117,7 +119,7 @@ export default function ItemDetail() {
       </ScrollView>
 
       <View style={styles.bottomDivider} />
-      <SafeAreaView edges={['bottom']} style={styles.bottomBar}>
+      <SafeAreaView edges={['bottom']} style={[styles.bottomBar, contentStyle(ContentMax.default)]}>
         <Pressable style={styles.cta} onPress={() => router.push('/chat-room')}>
           <Icon name="sparkles" tintColor="#fff" size={15} />
           <Text style={styles.ctaText}>이 옷으로 코디 추천받기</Text>

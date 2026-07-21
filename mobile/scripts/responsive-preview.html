@@ -15,6 +15,9 @@
         1) npx expo export -p web  (또는 npx expo start --web)
         2) dist 를 SPA 폴백으로 서빙하거나 개발 서버를 띄운다
         3) 이 파일을 브라우저로 열고 상단에서 경로를 바꾼다
+
+      헤드리스로 캡처할 때는 4개 프레임을 순차 로드하므로 넉넉한 시간이 필요하다.
+      (--virtual-time-budget=45000 정도. 부족하면 마지막 프레임이 빈 화면으로 찍힌다)
     -->
     <style>
       :root { color-scheme: light; }
@@ -58,18 +61,33 @@
         [1440, '데스크톱'],
       ];
 
-      function render() {
+      /**
+       * iframe 을 하나씩 순차 로드한다.
+       * 4개를 동시에 띄우면 SPA 번들을 병렬로 받다가 일부가 렌더 전에 캡처되어 빈 화면으로 찍힌다.
+       */
+      async function render() {
         const base = document.querySelector('[name=base]').value.replace(/\/$/, '');
         const path = document.querySelector('[name=path]').value;
         const h = document.querySelector('[name=h]').value || 800;
+        const note = document.getElementById('note');
+
         document.getElementById('row').innerHTML = WIDTHS.map(
           ([w, label]) => `
             <figure>
               <figcaption>${w}px · ${label}</figcaption>
-              <iframe src="${base}${path}" width="${w}" height="${h}" loading="eager"></iframe>
+              <iframe data-src="${base}${path}" width="${w}" height="${h}"></iframe>
             </figure>`,
         ).join('');
-        document.getElementById('note').textContent = `${path} · ${WIDTHS.length}개 폭`;
+
+        const frames = [...document.querySelectorAll('iframe')];
+        for (const [i, f] of frames.entries()) {
+          note.textContent = `불러오는 중… ${i + 1}/${frames.length}`;
+          await new Promise((resolve) => {
+            f.addEventListener('load', () => setTimeout(resolve, 1200), { once: true });
+            f.src = f.dataset.src;
+          });
+        }
+        note.textContent = `${path} · ${frames.length}개 폭 · 완료`;
       }
       render();
     </script>

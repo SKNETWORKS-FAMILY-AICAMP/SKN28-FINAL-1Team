@@ -12,7 +12,8 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { ErrorState, LoadingState } from '@/components/ui';
-import { Fonts } from '@/constants/theme';
+import { Fonts , ContentMax} from '@/constants/theme';
+import { useBreakpoint } from '@/hooks/use-breakpoint';
 import { measureStore, useMeasure } from '@/state/measure';
 
 const INK = '#1c1917';
@@ -38,6 +39,7 @@ const MEASURE_ROWS = [
 
 // G3 치수 결과·사이즈 매칭 — measureStore 결과를 구독. 완료 시 측정 플로우 닫기
 export default function MeasureResult() {
+  const { contentStyle } = useBreakpoint();
   const { returnTo } = useLocalSearchParams<{ returnTo?: string }>();
   const { status, result } = useMeasure();
 
@@ -107,7 +109,7 @@ export default function MeasureResult() {
   return (
     <View style={styles.container}>
       <SafeAreaView edges={['top', 'bottom']} style={styles.safe}>
-        <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
+        <ScrollView contentContainerStyle={[styles.content, contentStyle(ContentMax.narrow)]} showsVerticalScrollIndicator={false}>
           <Steps active={2} />
 
           <View style={styles.hero}>
@@ -185,7 +187,7 @@ export default function MeasureResult() {
           </Pressable>
         </ScrollView>
 
-        <View style={styles.bottomBar}>
+        <View style={[styles.bottomBar, contentStyle(ContentMax.narrow)]}>
           <Pressable style={styles.cta} onPress={onDone}>
             <Text style={styles.ctaText}>완료</Text>
           </Pressable>
