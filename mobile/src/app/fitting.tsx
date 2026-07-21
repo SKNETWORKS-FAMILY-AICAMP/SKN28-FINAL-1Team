@@ -46,7 +46,7 @@ export default function Fitting() {
   return (
     <View style={styles.container}>
       <SafeAreaView edges={['top']} style={styles.headerSafe}>
-        <View style={[styles.header, contentStyle(ContentMax.default)]}>
+        <View style={[styles.header, contentStyle(ContentMax.card)]}>
           <Pressable hitSlop={12} onPress={() => router.back()}>
             <Icon name="chevron.left" tintColor={INK} size={20} />
           </Pressable>
@@ -55,7 +55,7 @@ export default function Fitting() {
         </View>
       </SafeAreaView>
 
-      <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={[styles.content, contentStyle(ContentMax.default)]}>
+      <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={[styles.content, contentStyle(ContentMax.card)]}>
         {/* 생성 캔버스 */}
         <View style={styles.canvas}>
           {phase === 'loading' ? (
@@ -99,7 +99,7 @@ export default function Fitting() {
 
       {/* 하단 바 */}
       <View style={styles.bottomDivider} />
-      <SafeAreaView edges={['bottom']} style={[styles.bottomBar, contentStyle(ContentMax.default)]}>
+      <SafeAreaView edges={['bottom']} style={[styles.bottomBar, contentStyle(ContentMax.card)]}>
         <Pressable
           style={[styles.altBtn, phase === 'loading' && styles.btnDisabled]}
           disabled={phase === 'loading'}
@@ -137,7 +137,9 @@ const styles = StyleSheet.create({
 
   content: { paddingBottom: 24 },
   canvas: {
-    height: 420,
+    /* 고정 높이로 두면 폭이 넓어지는 데스크톱에서 가로로 납작해져 세로 사진이 잘린다.
+       폰 폭(400) 기준 비율을 유지한다. */
+    aspectRatio: 0.952,
     marginHorizontal: 20,
     borderRadius: 20,
     backgroundColor: BONE,

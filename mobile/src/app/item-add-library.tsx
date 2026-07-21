@@ -58,7 +58,7 @@ export default function ItemAddLibraryScreen() {
         </View>
         <Text style={styles.hint}>카탈로그에서 옷을 골라 옷장에 추가해요</Text>
 
-        <ScrollView contentContainerStyle={styles.list}>
+        <ScrollView contentContainerStyle={[styles.list, contentStyle(ContentMax.default)]}>
           {LIBRARY_ITEMS.map((item) => (
             <Pressable key={item.id} style={styles.row} onPress={() => pick(item.image)}>
               <SmartImage uri={item.image} width={64} height={80} radius={10} />

@@ -25,7 +25,7 @@ export default function SavedLook() {
   return (
     <View style={styles.container}>
       <SafeAreaView edges={['top']} style={styles.headerSafe}>
-        <View style={[styles.header, contentStyle(ContentMax.default)]}>
+        <View style={[styles.header, contentStyle(ContentMax.card)]}>
           <Pressable hitSlop={12} onPress={() => router.back()}>
             <Icon name="chevron.left" tintColor={INK} size={20} />
           </Pressable>
@@ -42,7 +42,7 @@ export default function SavedLook() {
 
       <ScrollView
         showsVerticalScrollIndicator={false}
-        contentContainerStyle={[styles.content, contentStyle(ContentMax.default)]}>
+        contentContainerStyle={[styles.content, contentStyle(ContentMax.card)]}>
         {/* 룩 이미지 */}
         <View style={styles.image}>
           <View style={styles.savedBadge}>
@@ -97,7 +97,7 @@ export default function SavedLook() {
       </ScrollView>
 
       <View style={styles.bottomDivider} />
-      <SafeAreaView edges={['bottom']} style={[styles.bottomBar, contentStyle(ContentMax.default)]}>
+      <SafeAreaView edges={['bottom']} style={[styles.bottomBar, contentStyle(ContentMax.card)]}>
         <Pressable style={styles.cta} onPress={() => router.push('/chat-room')}>
           <Icon name="sparkles" tintColor="#fff" size={15} />
           <Text style={styles.ctaText}>비슷하게 추천받기</Text>
@@ -122,7 +122,9 @@ const styles = StyleSheet.create({
 
   content: { paddingBottom: 24 },
   image: {
-    height: 340,
+    /* 고정 높이로 두면 폭이 넓어지는 데스크톱에서 가로로 납작해져 세로 사진이 잘린다.
+       폰 폭(400) 기준 비율을 유지한다. */
+    aspectRatio: 1.176,
     backgroundColor: BONE,
     marginHorizontal: 20,
     borderRadius: 20,

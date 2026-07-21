@@ -92,7 +92,7 @@ export default function LookDetail() {
     <View style={styles.container}>
       {/* 헤더 */}
       <SafeAreaView edges={['top']} style={styles.headerSafe}>
-        <View style={[styles.header, contentStyle(ContentMax.default)]}>
+        <View style={[styles.header, contentStyle(ContentMax.card)]}>
           <Pressable hitSlop={12} onPress={() => router.back()}>
             <Icon name="chevron.left" tintColor={INK} size={20} />
           </Pressable>
@@ -109,7 +109,7 @@ export default function LookDetail() {
 
       <ScrollView
         showsVerticalScrollIndicator={false}
-        contentContainerStyle={[styles.content, contentStyle(ContentMax.default)]}>
+        contentContainerStyle={[styles.content, contentStyle(ContentMax.card)]}>
         {/* 2D 가상착장 — 탭하면 가상 피팅 화면으로 */}
         <Pressable style={styles.fitting} onPress={() => router.push('/fitting')}>
           <Text style={styles.fittingMark}>2D</Text>
@@ -261,7 +261,7 @@ export default function LookDetail() {
 
       {/* 하단 바 */}
       <View style={styles.bottomDivider} />
-      <SafeAreaView edges={['bottom']} style={[styles.bottomBar, contentStyle(ContentMax.default)]}>
+      <SafeAreaView edges={['bottom']} style={[styles.bottomBar, contentStyle(ContentMax.card)]}>
         <Pressable style={styles.altBtn} onPress={() => router.back()}>
           <Text style={styles.altText}>다른 룩</Text>
         </Pressable>
@@ -295,7 +295,9 @@ const styles = StyleSheet.create({
   content: { paddingBottom: 24 },
 
   fitting: {
-    height: 360,
+    /* 고정 높이로 두면 폭이 넓어지는 데스크톱에서 가로로 납작해져 세로 사진이 잘린다.
+       폰 폭(400) 기준 비율을 유지한다. */
+    aspectRatio: 1.111,
     backgroundColor: BONE,
     alignItems: 'center',
     justifyContent: 'center',
