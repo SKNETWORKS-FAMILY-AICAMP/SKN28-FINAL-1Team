@@ -194,6 +194,9 @@ const styles = StyleSheet.create({
     left: 0,
     right: 0,
     bottom: 0,
+    /* TabList 가 TabSlot 보다 먼저 오므로(데스크톱에서 왼쪽 열이 되기 위해) 그냥 두면
+       뒤에 오는 콘텐츠가 위에 덮여 탭바가 보이지 않는다. */
+    zIndex: 10,
     flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: 'rgba(255, 255, 255, 0.6)',

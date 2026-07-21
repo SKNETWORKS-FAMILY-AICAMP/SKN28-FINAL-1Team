@@ -20,10 +20,9 @@ const WEEKDAYS = ['일', '월', '화', '수', '목', '금', '토'];
 const HOME_LOOK_PLACEHOLDER_IMAGE =
   'https://i.pinimg.com/1200x/c3/10/7d/c3107d4c7835310a0de12f95b20a6419.jpg';
 
-function lookImageHeight(windowWidth: number): number {
-  const cardWidth = windowWidth - 40;
-  return Math.min(Math.round(cardWidth / 1.05), 420);
-}
+/* 오늘의 룩 사진 비율(가로:세로). 고정 높이로 두면 카드가 넓어지는 데스크톱에서
+   가로로 납작한 틀이 되어 세로 사진이 가운데만 잘린다. */
+const LOOK_IMAGE_RATIO = 1 / 1.05;
 
 /** "7월 15일 화요일" — 오늘 날짜 (기기 로컬 기준) */
 function todayLabel(): string {
@@ -67,7 +66,7 @@ export default function HomeScreen() {
       <SafeAreaView edges={['top']} style={styles.safe}>
         <ScrollView
           showsVerticalScrollIndicator={false}
-          contentContainerStyle={[styles.content, contentStyle(ContentMax.default)]}>
+          contentContainerStyle={[styles.content, contentStyle(ContentMax.card)]}>
           {/* 헤더: 인사말 + 캘린더/프로필 (한 줄) */}
           <View style={styles.header}>
             <Text style={styles.greeting} numberOfLines={1}>
@@ -96,8 +95,6 @@ export default function HomeScreen() {
 
 /** 홈 본문 — 오늘의 룩 (데이터 로드 성공 시) */
 function HomeBody({ data }: { data: HomeData }) {
-  const { frameWidth } = useBreakpoint();
-  const lookImageH = lookImageHeight(frameWidth);
   const lookImageUri = data.today_look.image ?? HOME_LOOK_PLACEHOLDER_IMAGE;
 
   return (
@@ -115,7 +112,7 @@ function HomeBody({ data }: { data: HomeData }) {
             <SmartImage
               uri={lookImageUri}
               width="100%"
-              height={lookImageH}
+              aspectRatio={LOOK_IMAGE_RATIO}
               radius={0}
               contentFit="cover"
             />
