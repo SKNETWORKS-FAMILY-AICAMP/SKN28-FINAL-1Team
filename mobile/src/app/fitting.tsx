@@ -1,5 +1,5 @@
 import { Icon } from '@/components/icon';
-import { LoadingState, useToast } from '@/components/ui';
+import { LoadingState, SmartImage, useToast } from '@/components/ui';
 import { router } from 'expo-router';
 import { useEffect, useRef, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
@@ -12,11 +12,14 @@ const INK = '#1c1917';
 const BONE = '#eae0d3';
 const ink = (a: number) => `rgba(28,25,23,${a})`;
 
+/** 가상 착장 결과 사진 — 외부 프록시를 타지 않도록 번들 에셋으로 넣는다. */
+const RESULT_IMAGE = require('../../assets/images/mock/fitting-result.jpg');
+
 const PIECES = [
-  { slot: '상의', tone: 0.06 },
-  { slot: '하의', tone: 0.18 },
-  { slot: '아우터', tone: 0.1 },
-  { slot: '신발', tone: 0.24 },
+  { slot: '상의', image: require('../../assets/images/mock/piece-knit.jpg') },
+  { slot: '하의', image: require('../../assets/images/mock/piece-slacks.jpg') },
+  { slot: '아우터', image: require('../../assets/images/mock/piece-trench.jpg') },
+  { slot: '신발', image: require('../../assets/images/mock/piece-loafer.jpg') },
 ];
 
 // C5 가상 피팅 — 내 체형에 룩을 입혀 생성 (프로토타입: 타이머로 생성 과정 시뮬레이션)
@@ -62,8 +65,15 @@ export default function Fitting() {
             <LoadingState message={'내 체형에 맞춰\n가상 피팅을 만들고 있어요…'} />
           ) : (
             <>
-              <Icon name="figure.stand" tintColor={ink(0.28)} size={96} />
-              <Text style={styles.canvasLabel}>가상 착장 완성</Text>
+              {/* 캔버스가 이미 비율·모서리·overflow 를 잡고 있으므로 사진은 그 안을 채우기만 한다. */}
+              <SmartImage
+                asset={RESULT_IMAGE}
+                width="100%"
+                aspectRatio={0.952}
+                radius={0}
+                contentFit="cover"
+                style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0 }}
+              />
               <View style={styles.canvasBadge}>
                 <Icon name="figure.stand" tintColor="#fff" size={12} />
                 <Text style={styles.canvasBadgeText}>내 체형 반영</Text>
@@ -89,7 +99,7 @@ export default function Fitting() {
           <View style={styles.thumbRow}>
             {PIECES.map((p) => (
               <View key={p.slot} style={styles.thumbCol}>
-                <View style={[styles.thumb, { backgroundColor: `rgba(28,25,23,${p.tone})` }]} />
+                <SmartImage asset={p.image} width="100%" aspectRatio={1} radius={12} contentFit="cover" />
                 <Text style={styles.thumbLabel}>{p.slot}</Text>
               </View>
             ))}

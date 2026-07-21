@@ -244,6 +244,8 @@ export function ChatConversation({ variant = 'screen' }: { variant?: 'screen' | 
           <Pressable style={styles.photoBtn} onPress={attachPhoto} hitSlop={8}>
             <Icon name="photo" tintColor={ink(0.55)} size={22} />
           </Pressable>
+          {/* 웹에서 multiline 은 textarea 로 렌더되어 기본 2줄 높이를 갖는다.
+              numberOfLines={1} 로 한 줄에서 시작하게 하고, 길어지면 maxHeight 까지 늘어난다. */}
           <TextInput
             style={styles.input}
             value={text}
@@ -251,6 +253,7 @@ export function ChatConversation({ variant = 'screen' }: { variant?: 'screen' | 
             placeholder="메시지를 입력하세요"
             placeholderTextColor={ink(0.35)}
             multiline
+            numberOfLines={1}
           />
           <Pressable
             style={[styles.sendBtn, text.trim().length > 0 && styles.sendBtnOn]}
