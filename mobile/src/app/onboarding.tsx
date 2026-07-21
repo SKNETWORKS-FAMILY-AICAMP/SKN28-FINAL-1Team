@@ -1,5 +1,5 @@
 import { router } from 'expo-router';
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import {
   Dimensions,
   NativeScrollEvent,
@@ -19,14 +19,15 @@ const INK = '#1c1917';
 const ink = (a: number) => `rgba(28,25,23,${a})`;
 
 // 웹 데스크톱에선 브라우저 전체 폭이 잡히므로 폰 프레임 폭으로 캡 (global.css와 동일: 440)
-const width = Math.min(Dimensions.get('window').width, 440);
+const FRAME_W = 440;
 const VISUAL_H = 320;
 
-/** 온보딩 슬라이드 이미지 — URL만 바꿔서 교체 */
+/** 온보딩 슬라이드 이미지 — 랜딩(/landing)과 같은 3장을 공유한다.
+ *  교체하려면 assets/images/mock/ 의 파일을 바꾸면 된다. */
 const ONBOARDING_IMAGES = {
-  stylist: 'https://i.pinimg.com/736x/af/85/0d/af850da2d1737ba3b6f7475775a2fd54.jpg',
-  closet: 'https://i.pinimg.com/1200x/0b/b1/dc/0bb1dc83e68db247e44f0487f88034bb.jpg',
-  fitting: 'https://i.pinimg.com/1200x/45/5a/66/455a663d331be1b5d9624939a69fc485.jpg',
+  stylist: require('../../assets/images/mock/stylist.jpg'),
+  closet: require('../../assets/images/mock/closet.jpg'),
+  fitting: require('../../assets/images/mock/fitting.jpg'),
 } as const;
 
 const SLIDES = [
@@ -52,6 +53,19 @@ const SLIDES = [
 
 // A2 온보딩 — 3장 소개 슬라이드
 export default function Onboarding() {
+  /* 정적 웹 빌드는 window 없이 HTML 을 미리 만든다. React 하이드레이션은 텍스트 불일치만 고치고
+     style 불일치는 그대로 두므로, 프리렌더된 폭이 화면에 굳어버린다.
+     → 초기값을 프리렌더와 동일하게(0) 두고 마운트 직후 실제 폭을 넣어, state 가 반드시 바뀌면서
+       리렌더가 일어나게 한다. 초기값을 미리 실제 폭으로 계산하면 값이 안 바뀌어 리렌더가 없다. */
+  const [windowWidth, setWindowWidth] = useState(0);
+  useEffect(() => {
+    setWindowWidth(Dimensions.get('window').width);
+    const sub = Dimensions.addEventListener('change', ({ window }) => setWindowWidth(window.width));
+    return () => sub.remove();
+  }, []);
+  // 측정 전(프리렌더·첫 렌더)에는 폰 프레임 폭을 기본값으로 — 0 으로 그리면 슬라이드가 사라진다.
+  const width = windowWidth > 0 ? Math.min(windowWidth, FRAME_W) : FRAME_W;
+
   const [page, setPage] = useState(0);
   const scrollRef = useRef<ScrollView>(null);
 
@@ -86,7 +100,7 @@ export default function Onboarding() {
           scrollEventThrottle={16}>
           {SLIDES.map((s) => (
             <View key={s.kicker} style={[styles.slide, { width }]}>
-              <SmartImage uri={s.image} height={VISUAL_H} radius={24} contentFit="cover" />
+              <SmartImage asset={s.image} height={VISUAL_H} radius={24} contentFit="cover" />
               <Text style={styles.kicker}>{s.kicker}</Text>
               <Text style={styles.title} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.85}>
                 {s.title}

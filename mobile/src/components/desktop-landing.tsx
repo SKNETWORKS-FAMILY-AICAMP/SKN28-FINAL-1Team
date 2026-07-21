@@ -17,25 +17,25 @@ const STACKED = 760;
 const HEADING_WEIGHT = '600' as const;
 
 /* 발표 중 외부 프록시(images.weserv.nl) 장애로 히어로가 비는 걸 막기 위해 번들 에셋 사용. */
-const HERO_IMAGE = require('../../assets/images/landing/closet.jpg');
+const HERO_IMAGE = require('../../assets/images/mock/closet.jpg');
 
 /** 온보딩과 동일한 3가지 가치 제안 — 카피/이미지 재사용으로 톤 일관성 유지. */
 const FEATURES = [
   {
     kicker: 'AI STYLIST',
-    image: require('../../assets/images/landing/stylist.jpg'),
+    image: require('../../assets/images/mock/stylist.jpg'),
     title: '매일 아침, 오늘의 룩',
     body: '날씨·일정·취향을 반영한 오늘의 코디.',
   },
   {
     kicker: 'YOUR CLOSET',
-    image: require('../../assets/images/landing/closet.jpg'),
+    image: require('../../assets/images/mock/closet.jpg'),
     title: '내 옷장을 그대로',
     body: '사진 한 장으로 끝내는 옷장 정리.',
   },
   {
     kicker: 'FITTING',
-    image: require('../../assets/images/landing/fitting.jpg'),
+    image: require('../../assets/images/mock/fitting.jpg'),
     title: '입기 전에 먼저 확인',
     body: '체형 측정과 가상 착장으로 미리 맞추는 핏.',
   },
