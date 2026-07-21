@@ -3,6 +3,9 @@ import { router } from 'expo-router';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import { ContentMax } from '@/constants/theme';
+import { useBreakpoint } from '@/hooks/use-breakpoint';
+
 import { Fonts } from '@/constants/theme';
 
 const INK = '#1c1917';
@@ -38,22 +41,23 @@ const MODES: Mode[] = [
 
 // C3 모드 선택 — 새 대화의 추천 방식 고르기
 export default function ChatMode() {
+  const { contentStyle } = useBreakpoint();
   return (
     <View style={styles.container}>
       <SafeAreaView edges={['top', 'bottom']} style={styles.safe}>
-        <View style={styles.top}>
+        <View style={[styles.top, contentStyle(ContentMax.narrow)]}>
           <Pressable hitSlop={12} onPress={() => router.back()}>
             <Text style={styles.close}>✕</Text>
           </Pressable>
         </View>
 
-        <View style={styles.head}>
+        <View style={[styles.head, contentStyle(ContentMax.narrow)]}>
           <Text style={styles.eyebrow}>NEW CHAT</Text>
           <Text style={styles.title}>어떻게 추천받을까요?</Text>
           <Text style={styles.lead}>대화를 시작할 방식을 골라주세요.</Text>
         </View>
 
-        <View style={styles.cards}>
+        <View style={[styles.cards, contentStyle(ContentMax.narrow)]}>
           {MODES.map((m) => (
             <Pressable
               key={m.key}

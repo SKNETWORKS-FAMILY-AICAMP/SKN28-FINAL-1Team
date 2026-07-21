@@ -4,7 +4,8 @@ import { useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-import { BottomTabInset, Fonts } from '@/constants/theme';
+import { BottomTabInset, Fonts , ContentMax} from '@/constants/theme';
+import { useBreakpoint } from '@/hooks/use-breakpoint';
 
 const INK = '#1c1917';
 const ink = (a: number) => `rgba(28,25,23,${a})`;
@@ -31,6 +32,7 @@ const GROUPS: { mode: string; tint: string; sessions: Session[] }[] = [
 
 // C1 채팅 탭 — 모드별 세션 목록 (그룹 접기 지원)
 export default function ChatScreen() {
+  const { contentStyle } = useBreakpoint();
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
   const toggle = (mode: string) => setCollapsed((c) => ({ ...c, [mode]: !c[mode] }));
 
@@ -38,7 +40,7 @@ export default function ChatScreen() {
     <View style={styles.container}>
       <SafeAreaView edges={['top']} style={styles.safe}>
         {/* 헤더 */}
-        <View style={styles.header}>
+        <View style={[styles.header, contentStyle(ContentMax.narrow)]}>
           <Text style={styles.title}>채팅</Text>
           <Pressable
             style={styles.newBtn}
@@ -56,7 +58,7 @@ export default function ChatScreen() {
 
         <ScrollView
           showsVerticalScrollIndicator={false}
-          contentContainerStyle={styles.content}>
+          contentContainerStyle={[styles.content, contentStyle(ContentMax.narrow)]}>
           {GROUPS.map((g) => {
             const isCollapsed = collapsed[g.mode];
             return (

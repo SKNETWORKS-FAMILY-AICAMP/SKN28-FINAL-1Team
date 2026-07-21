@@ -1,3 +1,5 @@
+import { ContentMax } from '@/constants/theme';
+import { useBreakpoint } from '@/hooks/use-breakpoint';
 import { Icon } from '@/components/icon';
 import { SmartImage } from '@/components/ui';
 import { draftItem } from '@/state/draft-item';
@@ -38,6 +40,7 @@ const LIBRARY_ITEMS = [
 ];
 
 export default function ItemAddLibraryScreen() {
+  const { contentStyle } = useBreakpoint();
   const pick = (uri: string) => {
     draftItem.setPhoto(uri);
     router.replace('/item-add');
@@ -46,7 +49,7 @@ export default function ItemAddLibraryScreen() {
   return (
     <View style={styles.container}>
       <SafeAreaView edges={['top', 'bottom']} style={styles.safe}>
-        <View style={styles.header}>
+        <View style={[styles.header, contentStyle(ContentMax.default)]}>
           <Pressable hitSlop={12} onPress={() => router.back()}>
             <Icon name="chevron.left" tintColor={INK} size={22} />
           </Pressable>

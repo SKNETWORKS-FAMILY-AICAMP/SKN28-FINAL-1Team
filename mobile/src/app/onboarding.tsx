@@ -53,6 +53,9 @@ const SLIDES = [
 export default function Onboarding() {
   // 슬라이드 폭 = 창 폭(폰 프레임 상한 적용). 웹이 SPA 라 브라우저에서 항상 정확히 측정된다.
   const { frameWidth: width } = useBreakpoint();
+  /* 가로 스와이프 캐러셀이라 데스크톱에서도 폰 폭으로 묶어야 한 장씩 넘어간다.
+     넓게 두면 슬라이드 3장이 한 화면에 늘어서고 페이징도 어긋난다. */
+  const frame = { width: '100%' as const, maxWidth: width, alignSelf: 'center' as const };
 
   const [page, setPage] = useState(0);
   const scrollRef = useRef<ScrollView>(null);
@@ -72,7 +75,7 @@ export default function Onboarding() {
     <View style={styles.container}>
       <SafeAreaView edges={['top', 'bottom']} style={styles.safe}>
         {/* 상단: 워드마크 + 건너뛰기 */}
-        <View style={styles.top}>
+        <View style={[styles.top, frame]}>
           <Text style={styles.brand}>cozy</Text>
           <Pressable hitSlop={10} onPress={() => router.push('/login')}>
             <Text style={styles.skip}>건너뛰기</Text>
@@ -80,6 +83,7 @@ export default function Onboarding() {
         </View>
 
         <ScrollView
+          style={frame}
           ref={scrollRef}
           horizontal
           pagingEnabled
@@ -101,7 +105,7 @@ export default function Onboarding() {
         </ScrollView>
 
         {/* 하단: 도트 + CTA */}
-        <View style={styles.bottom}>
+        <View style={[styles.bottom, frame]}>
           <View style={styles.dots}>
             {SLIDES.map((s, i) => (
               <View key={s.kicker} style={[styles.dot, i === page && styles.dotOn]} />

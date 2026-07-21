@@ -1,7 +1,7 @@
 import { Image } from 'expo-image';
 import { router } from 'expo-router';
 import { useRef, useState } from 'react';
-import { Modal, Pressable, ScrollView, StyleSheet, View } from 'react-native';
+import { Modal, Platform, Pressable, ScrollView, StyleSheet, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import {
   WebView,
@@ -10,6 +10,7 @@ import {
 } from 'react-native-webview';
 
 import { ThemedText } from '@/components/themed-text';
+import { EmptyState } from '@/components/ui';
 import { Spacing } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
 import { draftItem } from '@/state/draft-item';
@@ -67,6 +68,31 @@ const IMAGE_SCAN_JS = `
 })();
 true;
 `;
+
+/**
+ * 웹 안내 화면.
+ * react-native-webview 는 웹을 지원하지 않아(“does not support this platform”) 이 화면이
+ * 브라우저에서는 빈 화면 + 빨간 에러로 뜬다. 진입 자체를 막는 대신, 기능이 존재한다는 것과
+ * 어디서 쓸 수 있는지를 알려준다.
+ */
+function ImportUnsupportedOnWeb() {
+  return (
+    <View style={styles.webNotice}>
+      <SafeAreaView edges={['top']} style={styles.webNoticeSafe}>
+        <EmptyState
+          icon="globe"
+          title="가져오기는 앱에서 쓸 수 있어요"
+          description={
+            '쇼핑몰 페이지를 열어 사진을 자동으로 찾아오는 기능이라\n' +
+            'iOS·Android 앱에서만 동작해요. 웹에서는 앨범·카메라·라이브러리로 추가해 주세요.'
+          }
+          actionLabel="다른 방법으로 추가하기"
+          onAction={() => router.replace('/item-add-source')}
+        />
+      </SafeAreaView>
+    </View>
+  );
+}
 
 export default function ImportScreen() {
   const theme = useTheme();
@@ -127,6 +153,9 @@ export default function ImportScreen() {
       router.replace('/item-add');
     }
   };
+
+  // WebView 가 웹을 지원하지 않으므로 브라우저에서는 안내 화면으로 대체한다.
+  if (Platform.OS === 'web') return <ImportUnsupportedOnWeb />;
 
   return (
     <View style={styles.container}>
@@ -230,6 +259,8 @@ export default function ImportScreen() {
 const THUMB_SIZE = '31%';
 
 const styles = StyleSheet.create({
+  webNotice: { flex: 1, backgroundColor: '#ffffff' },
+  webNoticeSafe: { flex: 1, justifyContent: 'center' },
   container: { flex: 1 },
   urlBar: {
     flexDirection: 'row',

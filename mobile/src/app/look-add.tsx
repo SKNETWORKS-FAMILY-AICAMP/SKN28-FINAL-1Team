@@ -1,6 +1,6 @@
 import { Icon } from '@/components/icon';
 import { SmartImage, useToast } from '@/components/ui';
-import { GridCard, gridCardImageHeight, gridCardWidth } from '@/constants/theme';
+import { GridCard, gridCardImageHeight, gridCardWidth , ContentMax} from '@/constants/theme';
 import { useBreakpoint } from '@/hooks/use-breakpoint';
 import { pickFromAlbum, pickFromCamera } from '@/lib/pickItemPhoto';
 import {
@@ -27,6 +27,7 @@ const PAD = 20;
 /* 미리보기 높이는 창 폭에서 파생 → 컴포넌트 안에서 useBreakpoint() 로 구한다. */
 
 export default function LookAddScreen() {
+  const { contentStyle } = useBreakpoint();
   const { frameWidth } = useBreakpoint();
   const previewH = gridCardImageHeight(gridCardWidth(frameWidth));
 
@@ -63,7 +64,7 @@ export default function LookAddScreen() {
   return (
     <View style={styles.container}>
       <SafeAreaView edges={['top', 'bottom']} style={styles.safe}>
-        <View style={styles.header}>
+        <View style={[styles.header, contentStyle(ContentMax.narrow)]}>
           <Pressable hitSlop={12} onPress={() => router.back()}>
             <Icon name="chevron.left" tintColor={INK} size={22} />
           </Pressable>
@@ -71,7 +72,7 @@ export default function LookAddScreen() {
           <View style={styles.headerSpacer} />
         </View>
 
-        <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
+        <ScrollView contentContainerStyle={[styles.content, contentStyle(ContentMax.narrow)]} keyboardShouldPersistTaps="handled">
           <View style={styles.previewWrap}>
             {image ? (
               <SmartImage uri={image} width="100%" height={previewH} radius={GridCard.radius} />

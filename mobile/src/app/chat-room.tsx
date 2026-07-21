@@ -15,6 +15,9 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import { ContentMax } from '@/constants/theme';
+import { useBreakpoint } from '@/hooks/use-breakpoint';
+
 import { Fonts } from '@/constants/theme';
 
 const INK = '#1c1917';
@@ -71,6 +74,7 @@ function TypingDots() {
 
 // C2 채팅 대화 — 말풍선 + 인라인 추천 카드 + 사진 첨부 + AI 타이핑
 export default function ChatRoom() {
+  const { contentStyle } = useBreakpoint();
   const [text, setText] = useState('');
   const [messages, setMessages] = useState<Msg[]>(SEED);
   const toast = useToast();
@@ -133,7 +137,7 @@ export default function ChatRoom() {
     <View style={styles.container}>
       {/* 헤더 */}
       <SafeAreaView edges={['top']} style={styles.headerSafe}>
-        <View style={styles.header}>
+        <View style={[styles.header, contentStyle(ContentMax.narrow)]}>
           <Pressable hitSlop={12} onPress={() => router.back()}>
             <Icon name="chevron.left" tintColor={INK} size={20} />
           </Pressable>
@@ -158,7 +162,7 @@ export default function ChatRoom() {
         <ScrollView
           ref={scrollRef}
           style={styles.flex}
-          contentContainerStyle={styles.messages}
+          contentContainerStyle={[styles.messages, contentStyle(ContentMax.narrow)]}
           keyboardShouldPersistTaps="handled">
           {messages.map((m) => {
             if (m.role === 'user') {
@@ -223,7 +227,7 @@ export default function ChatRoom() {
           horizontal
           showsHorizontalScrollIndicator={false}
           style={styles.quickScroll}
-          contentContainerStyle={styles.quickRow}
+          contentContainerStyle={[styles.quickRow, contentStyle(ContentMax.narrow)]}
           keyboardShouldPersistTaps="handled">
           {QUICK.map((q) => (
             <Pressable key={q} style={styles.quickChip} onPress={() => setText(q)}>
@@ -234,7 +238,7 @@ export default function ChatRoom() {
 
         {/* 입력 바 */}
         <SafeAreaView edges={['bottom']} style={styles.inputSafe}>
-          <View style={styles.inputBar}>
+          <View style={[styles.inputBar, contentStyle(ContentMax.narrow)]}>
             <Pressable style={styles.photoBtn} onPress={attachPhoto} hitSlop={8}>
               <Icon name="photo" tintColor={ink(0.55)} size={22} />
             </Pressable>

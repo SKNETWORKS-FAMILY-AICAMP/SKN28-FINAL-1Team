@@ -1,5 +1,6 @@
 import { Icon, type IconName } from '@/components/icon';
 import { useToast } from '@/components/ui';
+import { ContentMax } from '@/constants/theme';
 import { useBreakpoint } from '@/hooks/use-breakpoint';
 import { pickFromAlbum, pickFromCamera } from '@/lib/pickItemPhoto';
 import { draftItem } from '@/state/draft-item';
@@ -31,7 +32,7 @@ const SOURCES: { key: SourceKey; label: string; icon: IconName; hint: string }[]
 ];
 
 export default function ItemAddSourceScreen() {
-  const { frameWidth } = useBreakpoint();
+  const { frameWidth, contentStyle } = useBreakpoint();
   const tileW = (frameWidth - PAD * 2 - GAP) / 2;
 
   const toast = useToast();
@@ -72,7 +73,7 @@ export default function ItemAddSourceScreen() {
   return (
     <View style={styles.container}>
       <SafeAreaView edges={['top']} style={styles.safe}>
-        <View style={styles.header}>
+        <View style={[styles.header, contentStyle(ContentMax.narrow)]}>
           <Pressable hitSlop={12} onPress={() => router.back()} style={styles.backBtn}>
             <Icon name="chevron.left" tintColor={INK} size={22} />
           </Pressable>
@@ -89,7 +90,7 @@ export default function ItemAddSourceScreen() {
         <Text style={styles.sectionTitle}>직접 추가</Text>
         <Text style={styles.sectionHint}>사진을 올리면 AI가 누끼 처리·분류해요</Text>
 
-        <View style={styles.grid}>
+        <View style={[styles.grid, contentStyle(ContentMax.narrow)]}>
           {SOURCES.map((src) => {
             const on = active === src.key;
             return (

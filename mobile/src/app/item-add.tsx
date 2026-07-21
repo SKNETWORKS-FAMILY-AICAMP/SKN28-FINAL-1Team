@@ -12,7 +12,8 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-import { Fonts } from '@/constants/theme';
+import { Fonts , ContentMax} from '@/constants/theme';
+import { useBreakpoint } from '@/hooks/use-breakpoint';
 import { draftItem, useDraftPhoto } from '@/state/draft-item';
 
 // ── 에디토리얼 본(Editorial Bone) 팔레트 ─────────────────
@@ -58,6 +59,7 @@ function Field({
 }
 
 export default function ItemAddScreen() {
+  const { contentStyle } = useBreakpoint();
   // 무신사 WebView(모달)에서 가져온 사진 URL. 없으면 빈 상태.
   const photo = useDraftPhoto();
 
@@ -82,7 +84,7 @@ export default function ItemAddScreen() {
     <View style={styles.container}>
       {/* 헤더 */}
       <SafeAreaView edges={['top']} style={styles.headerSafe}>
-        <View style={styles.header}>
+        <View style={[styles.header, contentStyle(ContentMax.narrow)]}>
           <View style={styles.headerText}>
             <Text style={styles.title}>아이템 등록</Text>
             <Text style={styles.subtitle}>사진을 올리면 AI가 자동으로 분류해요</Text>
@@ -96,7 +98,7 @@ export default function ItemAddScreen() {
 
       {/* 본문 */}
       <ScrollView
-        contentContainerStyle={styles.content}
+        contentContainerStyle={[styles.content, contentStyle(ContentMax.narrow)]}
         keyboardShouldPersistTaps="handled">
         {/* 사진 영역 = 가져오기 버튼 (탭하면 무신사 WebView 열림) */}
         <Pressable style={styles.photo} onPress={openSource}>
@@ -152,7 +154,7 @@ export default function ItemAddScreen() {
 
       {/* 하단 저장 바 */}
       <View style={styles.bottomDivider} />
-      <SafeAreaView edges={['bottom']} style={styles.bottomBar}>
+      <SafeAreaView edges={['bottom']} style={[styles.bottomBar, contentStyle(ContentMax.narrow)]}>
         <Pressable style={styles.saveButton} onPress={handleSave}>
           <Text style={styles.saveText}>옷장에 저장</Text>
         </Pressable>
