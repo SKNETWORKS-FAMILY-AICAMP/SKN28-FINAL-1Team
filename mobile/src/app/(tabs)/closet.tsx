@@ -381,12 +381,15 @@ const styles = StyleSheet.create({
   ownerText: { fontSize: 11, fontWeight: '600', color: '#fff' },
   cardMeta: {
     flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    gap: 8,
+    alignItems: 'baseline',
+    /* 분류는 이름에 이어 붙인다. space-between 으로 두면 카드 오른쪽 끝으로 밀려
+       이름과 멀어져 한 덩어리로 읽히지 않는다. */
+    justifyContent: 'flex-start',
+    gap: 6,
     marginTop: 8,
   },
-  cardName: { flex: 1, fontSize: 14, fontWeight: '500', color: ink(0.9) },
+  // flex:1 이면 이름이 남는 폭을 다 차지해 분류를 끝으로 밀어낸다 → 글자 길이만큼만.
+  cardName: { flexShrink: 1, fontSize: 14, fontWeight: '500', color: ink(0.9) },
   cardCat: { fontSize: 12, color: ink(0.4), flexShrink: 0 },
 
   empty: { width: '100%', paddingTop: 40 },
