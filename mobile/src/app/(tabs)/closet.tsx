@@ -355,7 +355,10 @@ const styles = StyleSheet.create({
   grid: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    justifyContent: 'space-between',
+    /* space-between 으로 두면 마지막 줄의 카드가 양 끝으로 밀려 가운데가 빈다.
+       왼쪽부터 차례로 채우고 간격은 columnGap 으로 준다. */
+    justifyContent: 'flex-start',
+    columnGap: GridCard.gap,
     paddingHorizontal: PAD,
     paddingBottom: BottomTabInset + 24,
   },
