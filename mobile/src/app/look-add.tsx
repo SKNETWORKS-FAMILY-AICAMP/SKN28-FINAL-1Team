@@ -8,7 +8,7 @@ import {
   type AllowedHashtag,
   lookbookStore,
 } from '@/state/lookbook';
-import { router } from 'expo-router';
+import { goBack } from '@/lib/goBack';
 import { useState } from 'react';
 import {
   ActivityIndicator,
@@ -56,7 +56,7 @@ export default function LookAddScreen() {
     if (!image || tags.length === 0) return;
     lookbookStore.addLook({ image, tags });
     toast('룩을 올렸어요', { variant: 'success' });
-    router.back();
+    goBack('/(tabs)/lookbook');
   };
 
   const canSave = Boolean(image && tags.length > 0);
@@ -65,7 +65,7 @@ export default function LookAddScreen() {
     <View style={styles.container}>
       <SafeAreaView edges={['top', 'bottom']} style={styles.safe}>
         <View style={[styles.header, contentStyle(ContentMax.narrow)]}>
-          <Pressable hitSlop={12} onPress={() => router.back()}>
+          <Pressable hitSlop={12} onPress={() => goBack('/(tabs)/lookbook')}>
             <Icon name="chevron.left" tintColor={INK} size={22} />
           </Pressable>
           <Text style={styles.title}>룩 올리기</Text>
@@ -163,7 +163,7 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     borderWidth: 1,
     borderColor: ink(0.12),
-    backgroundColor: '#f3ece2',
+    backgroundColor: '#faf6f0',
   },
   pickLabel: { fontSize: 14, fontWeight: '600', color: INK },
   loadingRow: { alignItems: 'center', marginBottom: 16 },

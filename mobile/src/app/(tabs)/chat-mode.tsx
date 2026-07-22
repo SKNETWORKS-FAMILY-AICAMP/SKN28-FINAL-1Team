@@ -1,5 +1,6 @@
 import { Icon, type IconName } from '@/components/icon';
 import { router } from 'expo-router';
+import { goBack } from '@/lib/goBack';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
@@ -46,7 +47,7 @@ export default function ChatMode() {
     <View style={styles.container}>
       <SafeAreaView edges={['top', 'bottom']} style={styles.safe}>
         <View style={[styles.top, contentStyle(ContentMax.narrow)]}>
-          <Pressable hitSlop={12} onPress={() => router.back()}>
+          <Pressable hitSlop={12} onPress={() => goBack('/(tabs)/chat')}>
             <Text style={styles.close}>✕</Text>
           </Pressable>
         </View>

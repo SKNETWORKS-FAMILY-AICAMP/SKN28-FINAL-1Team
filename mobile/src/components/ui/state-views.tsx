@@ -33,17 +33,22 @@ export function LoadingState({
 }
 
 /**
- * 에러 상태 — 네트워크/서버 오류. onRetry가 있으면 '다시 시도' 버튼을 보여준다.
+ * 에러 상태 — 네트워크/서버 오류. onRetry가 있으면 버튼을 보여준다.
+ * 재시도가 의미 없는 경우(입력이 없어 실패 등)에는 retryLabel/retryIcon 으로 문구를 바꿔 쓴다.
  */
 export function ErrorState({
   title = '문제가 생겼어요',
   description = '네트워크 상태를 확인하고 다시 시도해 주세요.',
   onRetry,
+  retryLabel = '다시 시도',
+  retryIcon = 'arrow.clockwise',
   style,
 }: {
   title?: string;
   description?: string;
   onRetry?: () => void;
+  retryLabel?: string;
+  retryIcon?: IconName;
   style?: ViewStyle;
 }) {
   return (
@@ -55,8 +60,8 @@ export function ErrorState({
       <Text style={styles.errDesc}>{description}</Text>
       {onRetry ? (
         <Pressable style={styles.retry} onPress={onRetry} hitSlop={8}>
-          <Icon name="arrow.clockwise" tintColor={Editorial.ink} size={15} />
-          <Text style={styles.retryText}>다시 시도</Text>
+          <Icon name={retryIcon} tintColor={Editorial.ink} size={15} />
+          <Text style={styles.retryText}>{retryLabel}</Text>
         </Pressable>
       ) : null}
     </View>

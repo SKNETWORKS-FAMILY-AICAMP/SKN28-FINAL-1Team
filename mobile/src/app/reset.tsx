@@ -1,4 +1,4 @@
-import { router } from 'expo-router';
+import { goBack } from '@/lib/goBack';
 import { useState } from 'react';
 import {
   Pressable,
@@ -27,7 +27,7 @@ export default function Reset() {
       <SafeAreaView edges={['top', 'bottom']} style={styles.safe}>
         {/* 뒤로 */}
         <View style={styles.top}>
-          <Pressable hitSlop={12} onPress={() => router.back()}>
+          <Pressable hitSlop={12} onPress={() => goBack('/login')}>
             <Text style={styles.back}>‹ 뒤로</Text>
           </Pressable>
         </View>
@@ -45,7 +45,7 @@ export default function Reset() {
                 <Text style={styles.emailStrong}>{email || '입력한 주소'}</Text>로{'\n'}
                 재설정 링크를 보냈어요. 메일함을 확인해 주세요.
               </Text>
-              <Pressable style={styles.cta} onPress={() => router.back()}>
+              <Pressable style={styles.cta} onPress={() => goBack('/login')}>
                 <Text style={styles.ctaText}>로그인으로 돌아가기</Text>
               </Pressable>
               <Pressable style={styles.resend} onPress={() => setSent(false)}>

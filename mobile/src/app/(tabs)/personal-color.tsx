@@ -3,7 +3,7 @@ import { useToast } from '@/components/ui';
 import { Fonts , ContentMax} from '@/constants/theme';
 import { useBreakpoint } from '@/hooks/use-breakpoint';
 import { prefsStore, usePrefs } from '@/state/prefs';
-import { router } from 'expo-router';
+import { goBack } from '@/lib/goBack';
 import { useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -28,14 +28,14 @@ export default function PersonalColor() {
   const save = () => {
     prefsStore.setPersonalColor(sel);
     toast('퍼스널컬러를 저장했어요', { variant: 'success' });
-    router.back();
+    goBack('/(tabs)/my');
   };
 
   return (
     <View style={styles.container}>
       <SafeAreaView edges={['top']} style={styles.headerSafe}>
         <View style={[styles.header, contentStyle(ContentMax.narrow)]}>
-          <Pressable hitSlop={12} onPress={() => router.back()}>
+          <Pressable hitSlop={12} onPress={() => goBack('/(tabs)/my')}>
             <Icon name="chevron.left" tintColor={INK} size={20} />
           </Pressable>
           <Text style={styles.headerTitle}>퍼스널컬러</Text>

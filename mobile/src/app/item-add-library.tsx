@@ -4,6 +4,7 @@ import { Icon } from '@/components/icon';
 import { SmartImage } from '@/components/ui';
 import { draftItem } from '@/state/draft-item';
 import { router } from 'expo-router';
+import { goBack } from '@/lib/goBack';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
@@ -50,7 +51,7 @@ export default function ItemAddLibraryScreen() {
     <View style={styles.container}>
       <SafeAreaView edges={['top', 'bottom']} style={styles.safe}>
         <View style={[styles.header, contentStyle(ContentMax.default)]}>
-          <Pressable hitSlop={12} onPress={() => router.back()}>
+          <Pressable hitSlop={12} onPress={() => goBack('/(tabs)/closet')}>
             <Icon name="chevron.left" tintColor={INK} size={22} />
           </Pressable>
           <Text style={styles.title}>라이브러리</Text>

@@ -115,6 +115,18 @@ export const measureStore = {
    * 화면이 언마운트돼도 이 스토어에 결과가 남으므로, 나갔다 돌아와도 결과가 유지된다.
    */
   async estimate(): Promise<void> {
+    /* 키·몸무게도 없고 사진도 없으면 추정할 근거가 하나도 없다.
+       기본값(170/63)으로 대신 계산하면 사용자가 준 적 없는 수치를 결과로 보여주게 된다. */
+    const hasPhotos = Boolean(state.photos.front || state.photos.side);
+    if (!state.input && !hasPhotos) {
+      setState({
+        status: 'error',
+        result: null,
+        error: '키·몸무게를 입력하거나 사진을 등록해야 치수를 추정할 수 있어요.',
+      });
+      return;
+    }
+
     const input = state.input ?? DEFAULT_INPUT;
     setState({ status: 'loading', error: null, result: null });
     try {

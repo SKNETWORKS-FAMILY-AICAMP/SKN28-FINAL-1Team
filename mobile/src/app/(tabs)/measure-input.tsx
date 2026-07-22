@@ -1,4 +1,5 @@
 import { router, useLocalSearchParams } from 'expo-router';
+import { goBack } from '@/lib/goBack';
 import { useEffect, useState } from 'react';
 import {
   Pressable,
@@ -66,7 +67,7 @@ export default function MeasureInput() {
     <View style={styles.container}>
       <SafeAreaView edges={['top', 'bottom']} style={styles.safe}>
         <View style={styles.top}>
-          <Pressable hitSlop={12} onPress={() => router.back()}>
+          <Pressable hitSlop={12} onPress={() => goBack('/(tabs)/my')}>
             <Text style={styles.close}>✕</Text>
           </Pressable>
         </View>

@@ -3,7 +3,7 @@ import { useToast } from '@/components/ui';
 import { Fonts , ContentMax} from '@/constants/theme';
 import { useBreakpoint } from '@/hooks/use-breakpoint';
 import { formatBudget, prefsStore, usePrefs } from '@/state/prefs';
-import { router } from 'expo-router';
+import { goBack } from '@/lib/goBack';
 import { useEffect, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -59,7 +59,7 @@ export default function Budget() {
   const save = () => {
     prefsStore.setBudget(sel);
     toast('예산을 저장했어요', { variant: 'success' });
-    router.back();
+    goBack('/(tabs)/my');
   };
 
   const presetActive = (value: number) => sel === value && !custom;
@@ -68,7 +68,7 @@ export default function Budget() {
     <View style={styles.container}>
       <SafeAreaView edges={['top']} style={styles.headerSafe}>
         <View style={[styles.header, contentStyle(ContentMax.narrow)]}>
-          <Pressable hitSlop={12} onPress={() => router.back()}>
+          <Pressable hitSlop={12} onPress={() => goBack('/(tabs)/my')}>
             <Icon name="chevron.left" tintColor={INK} size={20} />
           </Pressable>
           <Text style={styles.headerTitle}>예산 설정</Text>

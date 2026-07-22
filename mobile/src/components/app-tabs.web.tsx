@@ -25,6 +25,29 @@ const TABS = [
   { name: 'my', href: '/my', icon: 'person', label: '마이' },
 ] as const satisfies readonly { name: string; href: string; icon: IconName; label: string }[];
 
+/* 하단 탭바에는 넣지 않지만 라우트로는 등록해야 하는 화면들.
+   TabTrigger 가 트리에 없으면 expo-router 가 라우트를 인식하지 못해 다른 탭이 열린다.
+   그래서 모바일 바에서도 숨긴 채로 등록해 둔다. */
+const NEW_CHAT_TAB = { name: 'chat-mode', href: '/chat-mode', icon: 'bubble.left', label: '새 채팅' } as const;
+const CALENDAR_TAB = { name: 'calendar', href: '/calendar', icon: 'calendar', label: '캘린더' } as const;
+/* 사이드바 항목으로는 안 보이지만 (tabs) 안에 있어야 좌측 사이드바가 유지되는 상세·설정 화면들.
+   TabTrigger 가 트리에 없으면 expo-router 가 라우트를 인식 못 해 엉뚱한 탭이 열리므로 등록만 해 둔다.
+   (탭 그룹 밖 화면은 사이드바 없이 전체폭으로 떠 사이드바가 사라진다. icon 은 hidden 이라 표시 안 됨.) */
+const HIDDEN_ROUTES = [
+  { name: 'chat-room', href: '/chat-room', icon: 'bubble.left', label: '대화' },
+  { name: 'look-detail', href: '/look-detail', icon: 'book', label: '추천 룩' },
+  { name: 'fitting', href: '/fitting', icon: 'sparkles', label: '가상 피팅' },
+  { name: 'item-detail', href: '/item-detail', icon: 'tshirt', label: '아이템' },
+  { name: 'saved-look', href: '/saved-look', icon: 'book', label: '저장 룩' },
+  { name: 'budget', href: '/budget', icon: 'person', label: '예산' },
+  { name: 'personal-color', href: '/personal-color', icon: 'person', label: '퍼스널컬러' },
+  { name: 'style-onboarding', href: '/style-onboarding', icon: 'person', label: '추구미' },
+  { name: 'permissions', href: '/permissions', icon: 'person', label: '권한' },
+  { name: 'measure-input', href: '/measure-input', icon: 'ruler', label: '체형측정' },
+  { name: 'measure-capture', href: '/measure-capture', icon: 'ruler', label: '체형촬영' },
+  { name: 'measure-result', href: '/measure-result', icon: 'ruler', label: '체형결과' },
+] as const satisfies readonly { name: string; href: string; icon: IconName; label: string }[];
+
 /**
  * 탭 내비게이션 (웹).
  * 창 폭에 따라 하단 탭바(모바일) ↔ 좌측 사이드바(데스크톱)로 바뀐다.
@@ -36,17 +59,32 @@ const TABS = [
 export default function AppTabs() {
   const { isDesktop, isWide } = useBreakpoint();
   const pathname = usePathname();
-  /* 채팅 화면 자체를 보고 있을 땐 패널을 띄우지 않는다 — 같은 대화가 두 벌로 보이게 된다. */
-  const showChatPanel = isWide && pathname !== '/chat-room' && pathname !== '/chat-mode';
+  /* 채팅 패널을 띄우지 않는 화면:
+     - 채팅 화면 자체(chat-room/chat-mode): 같은 대화가 두 벌로 보이게 된다.
+     - 상세 화면(추천룩/가상피팅/아이템상세): 이 화면들은 그 자리를 아이템 2단 배치에 쓴다. */
+  const showChatPanel =
+    isWide && !['/chat-room', '/chat-mode', '/look-detail', '/fitting', '/item-detail'].includes(pathname);
 
   return (
     <Tabs style={[styles.root, isDesktop && styles.rootDesktop]}>
       <TabList asChild>
         {isDesktop ? (
           <Sidebar>
+            <TabTrigger name={NEW_CHAT_TAB.name} href={NEW_CHAT_TAB.href} asChild>
+              <SidebarItem icon={NEW_CHAT_TAB.icon} label={NEW_CHAT_TAB.label} />
+            </TabTrigger>
             {TABS.map((t) => (
               <TabTrigger key={t.name} name={t.name} href={t.href} asChild>
                 <SidebarItem icon={t.icon} label={t.label} />
+              </TabTrigger>
+            ))}
+            <TabTrigger name={CALENDAR_TAB.name} href={CALENDAR_TAB.href} asChild>
+              <SidebarItem icon={CALENDAR_TAB.icon} label={CALENDAR_TAB.label} />
+            </TabTrigger>
+            {/* 라우트 등록용 — 사이드바 항목으로는 보이지 않는다. */}
+            {HIDDEN_ROUTES.map((t) => (
+              <TabTrigger key={t.name} name={t.name} href={t.href} asChild>
+                <SidebarItem icon={t.icon} label={t.label} hidden />
               </TabTrigger>
             ))}
           </Sidebar>
@@ -61,6 +99,12 @@ export default function AppTabs() {
             {TABS.slice(2).map((t) => (
               <TabTrigger key={t.name} name={t.name} href={t.href} asChild>
                 <TabItem icon={t.icon} label={t.label} />
+              </TabTrigger>
+            ))}
+            {/* 라우트 등록용 — 하단 바에는 자리를 차지하지 않게 숨긴다. */}
+            {[CALENDAR_TAB, NEW_CHAT_TAB, ...HIDDEN_ROUTES].map((t) => (
+              <TabTrigger key={t.name} name={t.name} href={t.href} asChild>
+                <TabItem icon={t.icon} label={t.label} hidden />
               </TabTrigger>
             ))}
           </BottomBar>
@@ -103,46 +147,8 @@ function Sidebar({ children, ...props }: React.ComponentProps<typeof View>) {
     <View {...props} style={styles.sidebar}>
       <Text style={styles.sidebarBrand}>cozy</Text>
 
-      <View style={styles.sidebarNav}>
-        {/* 탭이 아닌 스택 화면이라 TabTrigger 가 아니라 직접 이동시킨다. */}
-        <SidebarLink
-          icon="plus"
-          label="새 채팅"
-          onPress={() => router.push('/chat-mode')}
-          active={pathname === '/chat-mode' || pathname === '/chat-room'}
-        />
-        {children}
-        <SidebarLink
-          icon="calendar"
-          label="캘린더"
-          onPress={() => router.push('/calendar')}
-          active={pathname === '/calendar'}
-        />
-      </View>
+      <View style={styles.sidebarNav}>{children}</View>
     </View>
-  );
-}
-
-/** 탭이 아닌 화면으로 가는 사이드바 항목. 생김새는 SidebarItem 과 동일하게 맞춘다. */
-function SidebarLink({
-  icon,
-  label,
-  onPress,
-  active,
-}: {
-  icon: IconName;
-  label: string;
-  onPress: () => void;
-  active: boolean;
-}) {
-  const color = active ? INK : ink(0.5);
-  return (
-    <Pressable style={[styles.sidebarItem, active && styles.sidebarItemOn]} onPress={onPress}>
-      <Icon name={icon} tintColor={color} size={20} />
-      <Text style={[styles.sidebarLabel, { color, fontWeight: active ? '600' : '500' }]}>
-        {label}
-      </Text>
-    </Pressable>
   );
 }
 
@@ -150,11 +156,14 @@ function SidebarItem({
   icon,
   label,
   isFocused,
+  hidden,
   ...props
-}: TabTriggerSlotProps & { icon: IconName; label: string }) {
+}: TabTriggerSlotProps & { icon: IconName; label: string; hidden?: boolean }) {
   const color = isFocused ? INK : ink(0.5);
   return (
-    <Pressable {...props} style={[styles.sidebarItem, isFocused && styles.sidebarItemOn]}>
+    <Pressable
+      {...props}
+      style={[styles.sidebarItem, isFocused && styles.sidebarItemOn, hidden && styles.hiddenTrigger]}>
       <Icon name={icon} tintColor={color} size={20} />
       <Text style={[styles.sidebarLabel, { color, fontWeight: isFocused ? '600' : '500' }]}>
         {label}
@@ -181,11 +190,12 @@ function TabItem({
   icon,
   label,
   isFocused,
+  hidden,
   ...props
-}: TabTriggerSlotProps & { icon: IconName; label: string }) {
+}: TabTriggerSlotProps & { icon: IconName; label: string; hidden?: boolean }) {
   const color = isFocused ? INK : ink(0.4);
   return (
-    <Pressable {...props} style={styles.item}>
+    <Pressable {...props} style={[styles.item, hidden && styles.hiddenTrigger]}>
       <Icon name={icon} tintColor={color} size={22} />
       <Text style={[styles.label, { color, fontWeight: isFocused ? '600' : '500' }]}>{label}</Text>
     </Pressable>
@@ -209,6 +219,7 @@ const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: Editorial.white },
   rootDesktop: { flexDirection: 'row' },
   slot: { flex: 1, minWidth: 0 },
+  hiddenTrigger: { display: 'none' },
 
   // 우측 채팅 패널 (≥1280)
   chatPanel: {

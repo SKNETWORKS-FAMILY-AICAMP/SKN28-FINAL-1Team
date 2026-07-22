@@ -1,5 +1,6 @@
 import { Image } from 'expo-image';
 import { router } from 'expo-router';
+import { goBack } from '@/lib/goBack';
 import { useRef, useState } from 'react';
 import { Modal, Platform, Pressable, ScrollView, StyleSheet, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -163,7 +164,7 @@ export default function ImportScreen() {
       <SafeAreaView
         edges={['top']}
         style={[styles.urlBar, { backgroundColor: theme.backgroundElement }]}>
-        <Pressable hitSlop={8} onPress={() => router.back()}>
+        <Pressable hitSlop={8} onPress={() => goBack('/(tabs)/closet')}>
           <ThemedText type="smallBold">취소</ThemedText>
         </Pressable>
         <ThemedText

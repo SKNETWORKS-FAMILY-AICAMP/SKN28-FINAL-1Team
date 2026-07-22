@@ -1,4 +1,5 @@
 import { router } from 'expo-router';
+import { goBack } from '@/lib/goBack';
 import { useState } from 'react';
 import {
   Pressable,
@@ -167,7 +168,7 @@ export default function Signup() {
           </Pressable>
 
           {/* 로그인 이동 */}
-          <Pressable style={styles.login} onPress={() => router.back()}>
+          <Pressable style={styles.login} onPress={() => goBack('/login')}>
             <Text style={styles.loginText}>
               이미 계정이 있나요? <Text style={styles.loginBold}>로그인</Text>
             </Text>

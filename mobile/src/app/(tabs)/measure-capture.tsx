@@ -1,5 +1,6 @@
 import { Icon, type IconName } from '@/components/icon';
 import { router, useLocalSearchParams } from 'expo-router';
+import { goBack } from '@/lib/goBack';
 import { useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -43,7 +44,7 @@ export default function MeasureCapture() {
     <View style={styles.container}>
       <SafeAreaView edges={['top', 'bottom']} style={styles.safe}>
         <View style={styles.top}>
-          <Pressable hitSlop={12} onPress={() => router.back()}>
+          <Pressable hitSlop={12} onPress={() => goBack('/(tabs)/my')}>
             <Icon name="chevron.left" tintColor={INK} size={20} />
           </Pressable>
         </View>

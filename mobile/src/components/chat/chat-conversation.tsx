@@ -330,7 +330,8 @@ const styles = StyleSheet.create({
   },
   recImage: {
     height: 150,
-    backgroundColor: BONE,
+    // 말풍선·태그와 같은 연한 톤으로 통일 (bone 은 상대적으로 진하다)
+    backgroundColor: Editorial.surface,
     alignItems: 'center',
     justifyContent: 'center',
   },

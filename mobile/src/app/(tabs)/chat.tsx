@@ -134,7 +134,7 @@ const styles = StyleSheet.create({
     height: 42,
     paddingHorizontal: 14,
     borderRadius: 12,
-    backgroundColor: '#f3ece2',
+    backgroundColor: '#faf6f0',
   },
   searchPlaceholder: { fontSize: 13.5, color: ink(0.35) },
 

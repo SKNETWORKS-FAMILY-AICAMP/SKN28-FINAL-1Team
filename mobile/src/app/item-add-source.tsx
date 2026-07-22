@@ -5,6 +5,7 @@ import { useBreakpoint } from '@/hooks/use-breakpoint';
 import { pickFromAlbum, pickFromCamera } from '@/lib/pickItemPhoto';
 import { draftItem } from '@/state/draft-item';
 import { router } from 'expo-router';
+import { goBack } from '@/lib/goBack';
 import { useState } from 'react';
 import {
   ActivityIndicator,
@@ -74,7 +75,7 @@ export default function ItemAddSourceScreen() {
     <View style={styles.container}>
       <SafeAreaView edges={['top']} style={styles.safe}>
         <View style={[styles.header, contentStyle(ContentMax.narrow)]}>
-          <Pressable hitSlop={12} onPress={() => router.back()} style={styles.backBtn}>
+          <Pressable hitSlop={12} onPress={() => goBack('/(tabs)/closet')} style={styles.backBtn}>
             <Icon name="chevron.left" tintColor={INK} size={22} />
           </Pressable>
           <View style={styles.searchMock}>
@@ -144,7 +145,7 @@ const styles = StyleSheet.create({
     height: 44,
     paddingHorizontal: 14,
     borderRadius: 12,
-    backgroundColor: '#f3ece2',
+    backgroundColor: '#faf6f0',
   },
   searchPlaceholder: { flex: 1, fontSize: 14, color: ink(0.35) },
   helpBtn: { width: 28, alignItems: 'flex-end' },

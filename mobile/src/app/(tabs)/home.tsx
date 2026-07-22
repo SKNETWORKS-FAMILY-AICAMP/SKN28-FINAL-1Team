@@ -5,21 +5,19 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { ErrorState, LoadingState, SmartImage } from '@/components/ui';
 import { BottomTabInset, Fonts , ContentMax} from '@/constants/theme';
+import { TODAY_LOOK_IMAGE } from '@/constants/look-images';
 import { useBreakpoint } from '@/hooks/use-breakpoint';
 import { useHome, type HomeData, type HomeWeather } from '@/hooks/use-home';
 import { useAuth } from '@/state/auth';
 
 // ── 에디토리얼 본 팔레트 (라이트 고정) ──
 const INK = '#1c1917';
-const CHIP = '#f3ece2';
+const CHIP = '#faf6f0';
 const ink = (a: number) => `rgba(28,25,23,${a})`;
 
 const WEEKDAYS = ['일', '월', '화', '수', '목', '금', '토'];
 
 /** 홈 오늘의 룩 placeholder — URL만 바꿔서 미리보기 */
-const HOME_LOOK_PLACEHOLDER_IMAGE =
-  'https://i.pinimg.com/1200x/c3/10/7d/c3107d4c7835310a0de12f95b20a6419.jpg';
-
 /* 오늘의 룩 사진 비율(가로:세로). 고정 높이로 두면 카드가 넓어지는 데스크톱에서
    가로로 납작한 틀이 되어 세로 사진이 가운데만 잘린다. */
 const LOOK_IMAGE_RATIO = 1 / 1.05;
@@ -59,7 +57,8 @@ export default function HomeScreen() {
   const { user } = useAuth();
   const { data, error, loading, reload } = useHome();
 
-  const nickname = displayName(data?.nickname, user?.nickname, user?.email);
+  /* 서비스 페르소나 이름으로 부른다. 백엔드 nickname 은 개발용 계정명이라 그대로 쓰지 않는다. */
+  const nickname = '코지';
 
   return (
     <View style={styles.container}>
@@ -95,7 +94,8 @@ export default function HomeScreen() {
 
 /** 홈 본문 — 오늘의 룩 (데이터 로드 성공 시) */
 function HomeBody({ data }: { data: HomeData }) {
-  const lookImageUri = data.today_look.image ?? HOME_LOOK_PLACEHOLDER_IMAGE;
+  // 백엔드가 사진을 주면 그걸, 없으면 번들 목업을 쓴다(룩상세와 같은 사진).
+  const lookImageUri = data.today_look.image ?? null;
 
   return (
     <View style={styles.lookSection}>
@@ -111,6 +111,7 @@ function HomeBody({ data }: { data: HomeData }) {
           <Pressable onPress={() => router.push('/look-detail')}>
             <SmartImage
               uri={lookImageUri}
+              asset={lookImageUri ? undefined : TODAY_LOOK_IMAGE}
               width="100%"
               aspectRatio={LOOK_IMAGE_RATIO}
               radius={0}

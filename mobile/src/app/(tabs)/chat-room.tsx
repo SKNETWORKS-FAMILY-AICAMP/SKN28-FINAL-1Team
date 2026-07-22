@@ -1,4 +1,4 @@
-import { router } from 'expo-router';
+import { goBack } from '@/lib/goBack';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
@@ -21,7 +21,7 @@ export default function ChatRoom() {
     <View style={styles.container}>
       <SafeAreaView edges={['top']} style={styles.headerSafe}>
         <View style={[styles.header, contentStyle(ContentMax.narrow)]}>
-          <Pressable hitSlop={12} onPress={() => router.back()}>
+          <Pressable hitSlop={12} onPress={() => goBack('/(tabs)/chat')}>
             <Icon name="chevron.left" tintColor={INK} size={20} />
           </Pressable>
           <View style={styles.headerCenter}>

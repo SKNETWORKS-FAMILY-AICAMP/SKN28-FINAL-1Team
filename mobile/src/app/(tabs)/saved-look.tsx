@@ -1,5 +1,6 @@
 import { Icon } from '@/components/icon';
 import { router } from 'expo-router';
+import { goBack } from '@/lib/goBack';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
@@ -26,7 +27,7 @@ export default function SavedLook() {
     <View style={styles.container}>
       <SafeAreaView edges={['top']} style={styles.headerSafe}>
         <View style={[styles.header, contentStyle(ContentMax.card)]}>
-          <Pressable hitSlop={12} onPress={() => router.back()}>
+          <Pressable hitSlop={12} onPress={() => goBack('/(tabs)/lookbook')}>
             <Icon name="chevron.left" tintColor={INK} size={20} />
           </Pressable>
           <View style={styles.headerActions}>
@@ -179,7 +180,7 @@ const styles = StyleSheet.create({
   memoEdit: { position: 'absolute', top: 12, right: 12 },
 
   tags: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 18 },
-  tag: { backgroundColor: '#f3ece2', borderRadius: 999, paddingHorizontal: 13, paddingVertical: 7 },
+  tag: { backgroundColor: '#faf6f0', borderRadius: 999, paddingHorizontal: 13, paddingVertical: 7 },
   tagText: { fontSize: 12.5, color: ink(0.6), fontWeight: '500' },
 
   bottomDivider: { height: 1, backgroundColor: ink(0.08) },
