@@ -18,4 +18,10 @@ config.resolver.nodeModulesPaths = [
   path.resolve(monorepoRoot, 'node_modules'),
 ];
 
+// 3) .svg 를 이미지가 아니라 React 컴포넌트로 변환 (react-native-svg-transformer)
+//    추구미 선호도 화면의 항목 아이콘(넥라인·소매·핏 등)이 이 방식으로 로드된다.
+config.transformer.babelTransformerPath = require.resolve('react-native-svg-transformer');
+config.resolver.assetExts = config.resolver.assetExts.filter((ext) => ext !== 'svg');
+config.resolver.sourceExts = [...config.resolver.sourceExts, 'svg'];
+
 module.exports = config;
