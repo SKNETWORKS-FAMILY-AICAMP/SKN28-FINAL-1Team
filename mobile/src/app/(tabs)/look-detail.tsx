@@ -1,82 +1,31 @@
 import { Icon } from '@/components/icon';
-import { useToast } from '@/components/ui';
+import { SmartImage, useToast } from '@/components/ui';
 import { formatBudget, parsePrice, usePrefs } from '@/state/prefs';
 import { router } from 'expo-router';
+import { goBack } from '@/lib/goBack';
 import { useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { Fonts , ContentMax} from '@/constants/theme';
+import { TODAY_LOOK_IMAGE } from '@/constants/look-images';
+import { TODAY_LOOK } from '@/constants/today-look';
 import { useBreakpoint } from '@/hooks/use-breakpoint';
+import { useHome } from '@/hooks/use-home';
+import { DetailTwoPane } from '@/components/detail-two-pane';
 
 const INK = '#1c1917';
 const WINE = '#5E2B2F';
 const BONE = '#eae0d3';
 const ink = (a: number) => `rgba(28,25,23,${a})`;
 
-type Related = { name: string; brand: string; price: string; tone: number };
-type Piece = {
-  slot: string;
-  name: string;
-  brand: string;
-  tone: number;
-  mine: boolean;
-  related: Related[];
-};
-
-// related = 이 슬롯의 대체/비슷한 상품. 예산 내 여부는 마이>예산 설정값과 price를 비교해 실시간 계산
-const PIECES: Piece[] = [
-  {
-    slot: '상의',
-    name: '크림 울 니트',
-    brand: 'COS',
-    tone: 0.06,
-    mine: true,
-    related: [
-      { name: '램스울 라운드 니트', brand: 'Uniqlo U', price: '59,900', tone: 0.05 },
-      { name: '캐시미어 블렌드 니트', brand: 'COS', price: '119,000', tone: 0.09 },
-      { name: '핸드메이드 울 니트', brand: 'Andersson Bell', price: '198,000', tone: 0.13 },
-    ],
-  },
-  {
-    slot: '하의',
-    name: '차콜 와이드 슬랙스',
-    brand: 'Uniqlo',
-    tone: 0.18,
-    mine: true,
-    related: [
-      { name: '울 블렌드 와이드 슬랙스', brand: 'Uniqlo', price: '49,900', tone: 0.18 },
-      { name: '테이퍼드 크롭 슬랙스', brand: 'COS', price: '135,000', tone: 0.2 },
-    ],
-  },
-  {
-    slot: '아우터',
-    name: '오버핏 트렌치 코트',
-    brand: 'Musinsa Standard',
-    tone: 0.1,
-    mine: false,
-    related: [
-      { name: '오버핏 트렌치 코트', brand: 'Musinsa Standard', price: '89,000', tone: 0.1 },
-      { name: '벨티드 트렌치 코트', brand: 'COS', price: '259,000', tone: 0.12 },
-    ],
-  },
-  {
-    slot: '신발',
-    name: '브라운 스웨이드 로퍼',
-    brand: 'Dr.Martens',
-    tone: 0.24,
-    mine: true,
-    related: [
-      { name: '스웨이드 페니 로퍼', brand: 'SPUR', price: '69,000', tone: 0.24 },
-      { name: '태슬 레더 로퍼', brand: 'Dr.Martens', price: '229,000', tone: 0.27 },
-    ],
-  },
-];
+// 구성 아이템 = 오늘의 룩 단일 출처. 가상피팅 화면과 같은 목록을 공유한다.
+const PIECES = TODAY_LOOK.pieces;
 
 const REASONS = [
-  '8도의 쌀쌀한 날씨에 맞춰 니트+코트로 보온성을 확보했어요.',
-  '추구하시는 미니멀 무드에 맞게 톤을 3가지로 절제했어요.',
-  '옷장의 크림 니트를 중심으로 가진 아이템을 최대한 활용했어요.',
+  '연분홍 상의에 검정 하의를 더해 화사함과 차분함의 균형을 잡았어요.',
+  '추구하시는 미니멀 무드에 맞게 색을 둘로 절제하고 장식을 덜어냈어요.',
+  '벨트로 허리선을 정리해 가벼운 반팔 룩에도 단정한 인상을 더했어요.',
 ];
 
 // C4 추천 룩 상세 — 2D 가상착장 + 구성 + 추천 이유 + 피드백
@@ -88,12 +37,19 @@ export default function LookDetail() {
   const toast = useToast();
   const { budget } = usePrefs();
 
+  /* 서브텍스트의 날씨는 홈과 같은 출처(useHome)에서 실시간 값을 가져와 통일한다.
+     아직 안 불러왔거나 API 실패 시엔 날씨를 생략하고 무드·상황만 보여준다. */
+  const { data: home } = useHome();
+  const w = home?.weather;
+  const weatherPart = w && w.temperature != null ? `${w.region ?? '서울'} ${w.temperature}°` : null;
+  const subtitle = [weatherPart, TODAY_LOOK.subtitle].filter(Boolean).join(' · ');
+
   return (
     <View style={styles.container}>
       {/* 헤더 */}
       <SafeAreaView edges={['top']} style={styles.headerSafe}>
-        <View style={[styles.header, contentStyle(ContentMax.card)]}>
-          <Pressable hitSlop={12} onPress={() => router.back()}>
+        <View style={[styles.header, contentStyle(ContentMax.default)]}>
+          <Pressable hitSlop={12} onPress={() => goBack('/(tabs)/lookbook')}>
             <Icon name="chevron.left" tintColor={INK} size={20} />
           </Pressable>
           <Text style={styles.headerTitle}>추천 룩</Text>
@@ -109,11 +65,19 @@ export default function LookDetail() {
 
       <ScrollView
         showsVerticalScrollIndicator={false}
-        contentContainerStyle={[styles.content, contentStyle(ContentMax.card)]}>
-        {/* 2D 가상착장 — 탭하면 가상 피팅 화면으로 */}
-        <Pressable style={styles.fitting} onPress={() => router.push('/fitting')}>
-          <Text style={styles.fittingMark}>2D</Text>
-          <Text style={styles.fittingLabel}>가상 착장 미리보기</Text>
+        contentContainerStyle={[styles.content, contentStyle(ContentMax.default)]}>
+        {/* 데스크톱: [사진 | 상세·아이템] 2단 / 태블릿·모바일: 세로 */}
+        <DetailTwoPane
+          image={
+            /* 2D 가상착장 — 탭하면 가상 피팅 화면으로 */
+            <Pressable style={styles.fitting} onPress={() => router.push('/fitting')}>
+          <SmartImage
+            asset={TODAY_LOOK_IMAGE}
+            width="100%"
+            radius={0}
+            contentFit="cover"
+            style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0 }}
+          />
           <View style={styles.fittingBadge}>
             <Icon name="figure.stand" tintColor="#fff" size={12} />
             <Text style={styles.fittingBadgeText}>내 체형 반영</Text>
@@ -122,11 +86,12 @@ export default function LookDetail() {
             <Icon name="sparkles" tintColor={INK} size={13} />
             <Text style={styles.fittingCtaText}>가상으로 입어보기</Text>
           </View>
-        </Pressable>
-
-        <View style={styles.body}>
-          <Text style={styles.title}>포근한 니트 오피스룩</Text>
-          <Text style={styles.subtitle}>서울 8° · 미니멀 · 출근</Text>
+            </Pressable>
+          }
+          details={
+            <View style={styles.body}>
+          <Text style={styles.title}>{TODAY_LOOK.title}</Text>
+          <Text style={styles.subtitle}>{subtitle}</Text>
 
           {/* 구성 아이템 — 탭하면 비슷한/대체 상품 아코디언 */}
           <Text style={styles.sectionTitle}>구성 아이템</Text>
@@ -136,9 +101,9 @@ export default function LookDetail() {
               return (
                 <View key={p.slot} style={[styles.pieceWrap, open && styles.pieceWrapOpen]}>
                   <Pressable style={styles.piece} onPress={() => setOpenSlot(open ? null : p.slot)}>
-                    <View
-                      style={[styles.pieceThumb, { backgroundColor: `rgba(28,25,23,${p.tone})` }]}
-                    />
+                    <View style={styles.pieceThumb}>
+                      <SmartImage uri={p.image} width="100%" aspectRatio={1} radius={12} contentFit="cover" />
+                    </View>
                     <View style={styles.pieceBody}>
                       <View style={styles.pieceTop}>
                         <Text style={styles.pieceSlot}>{p.slot}</Text>
@@ -256,20 +221,22 @@ export default function LookDetail() {
               </Pressable>
             </View>
           </View>
-        </View>
+            </View>
+          }
+        />
       </ScrollView>
 
       {/* 하단 바 */}
       <View style={styles.bottomDivider} />
-      <SafeAreaView edges={['bottom']} style={[styles.bottomBar, contentStyle(ContentMax.card)]}>
-        <Pressable style={styles.altBtn} onPress={() => router.back()}>
+      <SafeAreaView edges={['bottom']} style={[styles.bottomBar, contentStyle(ContentMax.default)]}>
+        <Pressable style={styles.altBtn} onPress={() => goBack('/(tabs)/lookbook')}>
           <Text style={styles.altText}>다른 룩</Text>
         </Pressable>
         <Pressable
           style={styles.saveBtn}
           onPress={() => {
             setSaved(true);
-            router.back();
+            goBack('/(tabs)/lookbook');
           }}>
           <Icon name="bookmark.fill" tintColor="#fff" size={15} />
           <Text style={styles.saveText}>룩북에 저장</Text>
@@ -302,6 +269,8 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     gap: 6,
+    /* 절대배치된 미리보기 사진이 밖으로 넘쳐 헤더·하단 버튼을 덮지 않도록 잘라낸다. */
+    overflow: 'hidden',
   },
   fittingMark: { fontFamily: Fonts.serif, fontSize: 54, color: ink(0.2) },
   fittingLabel: { fontSize: 13, color: ink(0.4), letterSpacing: 0.5 },
@@ -352,7 +321,7 @@ const styles = StyleSheet.create({
     padding: 10,
     alignItems: 'center',
   },
-  pieceThumb: { width: 56, height: 56, borderRadius: 12, backgroundColor: BONE },
+  pieceThumb: { width: 56, height: 56, borderRadius: 12, backgroundColor: BONE, overflow: 'hidden' },
   pieceBody: { flex: 1, gap: 3 },
   pieceTop: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   pieceSlot: { fontSize: 11, color: ink(0.4), fontWeight: '500' },
@@ -396,7 +365,7 @@ const styles = StyleSheet.create({
     paddingVertical: 8,
     paddingHorizontal: 10,
     borderRadius: 10,
-    backgroundColor: '#f3ece2',
+    backgroundColor: '#faf6f0',
   },
   budgetPromptText: { flex: 1, fontSize: 11.5, color: ink(0.55) },
 

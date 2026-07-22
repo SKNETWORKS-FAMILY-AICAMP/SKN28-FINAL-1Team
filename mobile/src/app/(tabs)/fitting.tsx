@@ -1,26 +1,24 @@
 import { Icon } from '@/components/icon';
 import { LoadingState, SmartImage, useToast } from '@/components/ui';
-import { router } from 'expo-router';
+import { goBack } from '@/lib/goBack';
 import { useEffect, useRef, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { Fonts , ContentMax} from '@/constants/theme';
+import { FITTING_RESULT_IMAGE } from '@/constants/look-images';
+import { TODAY_LOOK } from '@/constants/today-look';
 import { useBreakpoint } from '@/hooks/use-breakpoint';
+import { DetailTwoPane } from '@/components/detail-two-pane';
 
 const INK = '#1c1917';
 const BONE = '#eae0d3';
+/** 생성 캔버스 배경 — 기존 BONE(진한 베이지)이 무거워, 훨씬 연한 크림으로 둔다. */
+const CANVAS = '#f5f1ea';
 const ink = (a: number) => `rgba(28,25,23,${a})`;
 
-/** 가상 착장 결과 사진 — 외부 프록시를 타지 않도록 번들 에셋으로 넣는다. */
-const RESULT_IMAGE = require('../../assets/images/mock/fitting-result.jpg');
-
-const PIECES = [
-  { slot: '상의', image: require('../../assets/images/mock/piece-knit.jpg') },
-  { slot: '하의', image: require('../../assets/images/mock/piece-slacks.jpg') },
-  { slot: '아우터', image: require('../../assets/images/mock/piece-trench.jpg') },
-  { slot: '신발', image: require('../../assets/images/mock/piece-loafer.jpg') },
-];
+// 구성 아이템 = 오늘의 룩 단일 출처(룩상세와 공유).
+const PIECES = TODAY_LOOK.pieces;
 
 // C5 가상 피팅 — 내 체형에 룩을 입혀 생성 (프로토타입: 타이머로 생성 과정 시뮬레이션)
 export default function Fitting() {
@@ -49,8 +47,8 @@ export default function Fitting() {
   return (
     <View style={styles.container}>
       <SafeAreaView edges={['top']} style={styles.headerSafe}>
-        <View style={[styles.header, contentStyle(ContentMax.card)]}>
-          <Pressable hitSlop={12} onPress={() => router.back()}>
+        <View style={[styles.header, contentStyle(ContentMax.default)]}>
+          <Pressable hitSlop={12} onPress={() => goBack('/(tabs)/lookbook')}>
             <Icon name="chevron.left" tintColor={INK} size={20} />
           </Pressable>
           <Text style={styles.headerTitle}>가상 피팅</Text>
@@ -58,18 +56,20 @@ export default function Fitting() {
         </View>
       </SafeAreaView>
 
-      <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={[styles.content, contentStyle(ContentMax.card)]}>
-        {/* 생성 캔버스 */}
-        <View style={styles.canvas}>
+      <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={[styles.content, contentStyle(ContentMax.default)]}>
+        {/* 데스크톱: [사진 | 상세·아이템] 2단 / 태블릿·모바일: 세로 */}
+        <DetailTwoPane
+          image={
+            /* 생성 캔버스 */
+            <View style={styles.canvas}>
           {phase === 'loading' ? (
             <LoadingState message={'내 체형에 맞춰\n가상 피팅을 만들고 있어요…'} />
           ) : (
             <>
               {/* 캔버스가 이미 비율·모서리·overflow 를 잡고 있으므로 사진은 그 안을 채우기만 한다. */}
               <SmartImage
-                asset={RESULT_IMAGE}
+                asset={FITTING_RESULT_IMAGE}
                 width="100%"
-                aspectRatio={0.952}
                 radius={0}
                 contentFit="cover"
                 style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0 }}
@@ -80,11 +80,12 @@ export default function Fitting() {
               </View>
             </>
           )}
-        </View>
-
-        <View style={styles.body}>
-          <Text style={styles.title}>포근한 니트 오피스룩</Text>
-          <Text style={styles.subtitle}>서울 8° · 미니멀 · 출근</Text>
+            </View>
+          }
+          details={
+            <View style={styles.body}>
+          <Text style={styles.title}>{TODAY_LOOK.title}</Text>
+          <Text style={styles.subtitle}>{TODAY_LOOK.subtitle}</Text>
 
           {/* 추천 사이즈 */}
           <View style={styles.sizeCard}>
@@ -99,17 +100,19 @@ export default function Fitting() {
           <View style={styles.thumbRow}>
             {PIECES.map((p) => (
               <View key={p.slot} style={styles.thumbCol}>
-                <SmartImage asset={p.image} width="100%" aspectRatio={1} radius={12} contentFit="cover" />
+                <SmartImage uri={p.image} width="100%" aspectRatio={1} radius={12} contentFit="cover" />
                 <Text style={styles.thumbLabel}>{p.slot}</Text>
               </View>
             ))}
           </View>
-        </View>
+            </View>
+          }
+        />
       </ScrollView>
 
       {/* 하단 바 */}
       <View style={styles.bottomDivider} />
-      <SafeAreaView edges={['bottom']} style={[styles.bottomBar, contentStyle(ContentMax.card)]}>
+      <SafeAreaView edges={['bottom']} style={[styles.bottomBar, contentStyle(ContentMax.default)]}>
         <Pressable
           style={[styles.altBtn, phase === 'loading' && styles.btnDisabled]}
           disabled={phase === 'loading'}
@@ -122,7 +125,7 @@ export default function Fitting() {
           disabled={phase === 'loading'}
           onPress={() => {
             toast('룩북에 저장했어요', { variant: 'success' });
-            router.back();
+            goBack('/(tabs)/lookbook');
           }}>
           <Icon name="bookmark.fill" tintColor="#fff" size={15} />
           <Text style={styles.saveText}>룩북에 저장</Text>
@@ -152,7 +155,7 @@ const styles = StyleSheet.create({
     aspectRatio: 0.952,
     marginHorizontal: 20,
     borderRadius: 20,
-    backgroundColor: BONE,
+    backgroundColor: CANVAS,
     alignItems: 'center',
     justifyContent: 'center',
     gap: 8,

@@ -1,11 +1,13 @@
 import { Icon } from '@/components/icon';
 import { useConfirm, useToast } from '@/components/ui';
 import { router } from 'expo-router';
+import { goBack } from '@/lib/goBack';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { Fonts , ContentMax} from '@/constants/theme';
 import { useBreakpoint } from '@/hooks/use-breakpoint';
+import { DetailTwoPane } from '@/components/detail-two-pane';
 
 const INK = '#1c1917';
 const BONE = '#eae0d3';
@@ -39,14 +41,14 @@ export default function ItemDetail() {
     if (!ok) return;
     // TODO: 실제 삭제 연동 (지금은 프로토타입 — 목록에서 빠진 척 뒤로 이동)
     toast('삭제됐어요', { variant: 'success' });
-    router.back();
+    goBack('/(tabs)/closet');
   };
 
   return (
     <View style={styles.container}>
       <SafeAreaView edges={['top']} style={styles.headerSafe}>
-        <View style={[styles.header, contentStyle(ContentMax.card)]}>
-          <Pressable hitSlop={12} onPress={() => router.back()}>
+        <View style={[styles.header, contentStyle(ContentMax.default)]}>
+          <Pressable hitSlop={12} onPress={() => goBack('/(tabs)/closet')}>
             <Icon name="chevron.left" tintColor={INK} size={20} />
           </Pressable>
           <View style={styles.headerActions}>
@@ -62,15 +64,19 @@ export default function ItemDetail() {
 
       <ScrollView
         showsVerticalScrollIndicator={false}
-        contentContainerStyle={[styles.content, contentStyle(ContentMax.card)]}>
-        {/* 이미지 */}
-        <View style={styles.image}>
-          <View style={styles.catBadge}>
-            <Text style={styles.catBadgeText}>상의 · 니트</Text>
-          </View>
-        </View>
-
-        <View style={styles.body}>
+        contentContainerStyle={[styles.content, contentStyle(ContentMax.default)]}>
+        {/* 데스크톱: [사진 | 상세·아이템] 2단 / 태블릿·모바일: 세로 */}
+        <DetailTwoPane
+          image={
+            /* 이미지 */
+            <View style={styles.image}>
+              <View style={styles.catBadge}>
+                <Text style={styles.catBadgeText}>상의 · 니트</Text>
+              </View>
+            </View>
+          }
+          details={
+            <View style={styles.body}>
           <Text style={styles.name}>크림 울 니트</Text>
           <Text style={styles.brand}>COS</Text>
 
@@ -115,11 +121,13 @@ export default function ItemDetail() {
               </View>
             ))}
           </View>
-        </View>
+            </View>
+          }
+        />
       </ScrollView>
 
       <View style={styles.bottomDivider} />
-      <SafeAreaView edges={['bottom']} style={[styles.bottomBar, contentStyle(ContentMax.card)]}>
+      <SafeAreaView edges={['bottom']} style={[styles.bottomBar, contentStyle(ContentMax.default)]}>
         <Pressable style={styles.cta} onPress={() => router.push('/chat-room')}>
           <Icon name="sparkles" tintColor="#fff" size={15} />
           <Text style={styles.ctaText}>이 옷으로 코디 추천받기</Text>
@@ -212,7 +220,7 @@ const styles = StyleSheet.create({
 
   tags: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
   tag: {
-    backgroundColor: '#f3ece2',
+    backgroundColor: '#faf6f0',
     borderRadius: 999,
     paddingHorizontal: 13,
     paddingVertical: 7,

@@ -46,24 +46,24 @@ type Item = {
 const MY_ITEMS: Item[] = [
   {
     id: '1',
-    name: '니트 나시',
+    name: '연두 나시',
     category: '상의',
     tone: 0.05,
     image: 'https://i.pinimg.com/1200x/3e/04/ea/3e04eaa53146fd9bf93736707fffcb4f.jpg',
   },
   {
     id: '2',
-    name: '아이보리 양털 후리스',
+    name: '연노랑 반팔 가디건',
     category: '아우터',
     tone: 0.22,
-    image: 'https://i.pinimg.com/736x/e1/d4/65/e1d465ce5c23d7bbe327e49748a00dfd.jpg',
+    image: 'https://i.pinimg.com/736x/a5/22/df/a522dfff1a759163fae0616ec0cab583.jpg',
   },
   {
     id: '3',
-    name: '청바지',
+    name: '버뮤다 팬츠',
     category: '하의',
     tone: 0.16,
-    image: 'https://i.pinimg.com/1200x/94/f7/9c/94f79c0800d407561efe52cdcd9e9e7b.jpg',
+    image: 'https://i.pinimg.com/1200x/14/64/d4/1464d4e315aa8e7df53bb6c74fc31e59.jpg',
   },
   {
     id: '4',
@@ -74,17 +74,17 @@ const MY_ITEMS: Item[] = [
   },
   {
     id: '5',
-    name: '치마',
+    name: '빈폴 모자',
     category: '하의',
     tone: 0.08,
-    image: 'https://i.pinimg.com/736x/47/90/f8/4790f8a800508904136accba58a71984.jpg',
+    image: 'https://i.pinimg.com/736x/ef/fa/96/effa960f41d4e20b7a0e31253732d75e.jpg',
   },
   {
     id: '6',
-    name: '블루 샤넬',
+    name: '체크 가방',
     category: '가방',
     tone: 0.3,
-    image: 'https://i.pinimg.com/736x/7b/4c/a1/7b4ca14352231767be6da3369c8f406e.jpg',
+    image: 'https://i.pinimg.com/1200x/39/32/c4/3932c44dead7e38ad916ef2e8cc2902f.jpg',
   },
 ];
 
