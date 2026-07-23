@@ -7,7 +7,7 @@ import { useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-import { Fonts , ContentMax} from '@/constants/theme';
+import { Fonts } from '@/constants/theme';
 import { TODAY_LOOK_IMAGE } from '@/constants/look-images';
 import { TODAY_LOOK } from '@/constants/today-look';
 import { useBreakpoint } from '@/hooks/use-breakpoint';
@@ -30,7 +30,9 @@ const REASONS = [
 
 // C4 추천 룩 상세 — 2D 가상착장 + 구성 + 추천 이유 + 피드백
 export default function LookDetail() {
-  const { contentStyle } = useBreakpoint();
+  const { contentStyle, width } = useBreakpoint();
+  // 2단(≥1280)일 땐 본문을 넓게, 세로로 쌓일 땐 좁게 잡아 사진·카드가 과하게 커지지 않게 한다.
+  const maxW = width >= 1280 ? 960 : 720;
   const [saved, setSaved] = useState(false);
   const [vote, setVote] = useState<'up' | 'down' | null>(null);
   const [openSlot, setOpenSlot] = useState<string | null>(null);
@@ -48,12 +50,13 @@ export default function LookDetail() {
     <View style={styles.container}>
       {/* 헤더 */}
       <SafeAreaView edges={['top']} style={styles.headerSafe}>
-        <View style={[styles.header, contentStyle(ContentMax.default)]}>
-          <Pressable hitSlop={12} onPress={() => goBack('/(tabs)/lookbook')}>
+        <View style={[styles.header, contentStyle(maxW)]}>
+          {/* 뒤로가기는 홈으로 고정. (탭 네비게이터에서 router.back()·히스토리가 엉뚱한 탭으로 가서 목적지를 못 박음) */}
+          <Pressable hitSlop={12} onPress={() => router.replace('/(tabs)/home')}>
             <Icon name="chevron.left" tintColor={INK} size={20} />
           </Pressable>
           <Text style={styles.headerTitle}>추천 룩</Text>
-          <Pressable hitSlop={12} onPress={() => setSaved((s) => !s)}>
+          <Pressable style={styles.headerRight} hitSlop={12} onPress={() => setSaved((s) => !s)}>
             <Icon
               name={saved ? 'heart.fill' : 'heart'}
               tintColor={saved ? WINE : ink(0.5)}
@@ -65,7 +68,7 @@ export default function LookDetail() {
 
       <ScrollView
         showsVerticalScrollIndicator={false}
-        contentContainerStyle={[styles.content, contentStyle(ContentMax.default)]}>
+        contentContainerStyle={[styles.content, contentStyle(maxW)]}>
         {/* 데스크톱: [사진 | 상세·아이템] 2단 / 태블릿·모바일: 세로 */}
         <DetailTwoPane
           image={
@@ -228,7 +231,7 @@ export default function LookDetail() {
 
       {/* 하단 바 */}
       <View style={styles.bottomDivider} />
-      <SafeAreaView edges={['bottom']} style={[styles.bottomBar, contentStyle(ContentMax.default)]}>
+      <SafeAreaView edges={['bottom']} style={[styles.bottomBar, contentStyle(maxW)]}>
         <Pressable style={styles.altBtn} onPress={() => goBack('/(tabs)/lookbook')}>
           <Text style={styles.altText}>다른 룩</Text>
         </Pressable>
@@ -252,11 +255,13 @@ const styles = StyleSheet.create({
   header: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-between',
+    gap: 10,
     paddingHorizontal: 16,
     paddingTop: 8,
     paddingBottom: 10,
   },
+  // 제목을 뒤로가기 버튼 바로 옆에 붙이고, 우측 아이콘은 끝으로 민다.
+  headerRight: { marginLeft: 'auto' },
   headerTitle: { fontSize: 15, fontWeight: '600', color: INK },
 
   content: { paddingBottom: 24 },

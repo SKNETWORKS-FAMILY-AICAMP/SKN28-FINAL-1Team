@@ -12,16 +12,18 @@ import { useBreakpoint } from '@/hooks/use-breakpoint';
 export function DetailTwoPane({
   image,
   details,
-  // 사진은 크게·고정. 오른쪽(상세·아이템)이 남는 폭을 flex 로 채우며 반응형으로 줄어든다.
-  imageWidth = 520,
+  // 사진은 크게·고정. 오른쪽(상세·아이템)이 남는 폭을 flex 로 채운다.
+  imageWidth = 560,
 }: {
   image: React.ReactNode;
   details: React.ReactNode;
   imageWidth?: number;
 }) {
-  const { isDesktop } = useBreakpoint();
+  // 2단은 폭이 넉넉할 때(≥1280)만. 그보다 좁으면 억지로 2단 하지 않고 사진 아래로 세로 배치한다
+  // (좁은 2단은 오른쪽 글자가 한 글자씩 세로로 깨져 보기 안 좋다).
+  const { isWide } = useBreakpoint();
 
-  if (!isDesktop) {
+  if (!isWide) {
     return (
       <>
         {image}

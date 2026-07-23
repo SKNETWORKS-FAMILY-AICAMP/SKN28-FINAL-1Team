@@ -5,7 +5,7 @@ import { goBack } from '@/lib/goBack';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-import { Fonts , ContentMax} from '@/constants/theme';
+import { Fonts } from '@/constants/theme';
 import { useBreakpoint } from '@/hooks/use-breakpoint';
 import { DetailTwoPane } from '@/components/detail-two-pane';
 
@@ -25,7 +25,8 @@ const TAGS = ['#미니멀', '#데일리', '#오피스', '#포근함'];
 
 // D3 아이템 상세 — 정보·착용 기록·저활용 경고
 export default function ItemDetail() {
-  const { contentStyle } = useBreakpoint();
+  const { contentStyle, width } = useBreakpoint();
+  const maxW = width >= 1280 ? 960 : 720;
   const wearCount = 3;
   const underused = wearCount < 5;
   const toast = useToast();
@@ -47,7 +48,7 @@ export default function ItemDetail() {
   return (
     <View style={styles.container}>
       <SafeAreaView edges={['top']} style={styles.headerSafe}>
-        <View style={[styles.header, contentStyle(ContentMax.default)]}>
+        <View style={[styles.header, contentStyle(maxW)]}>
           <Pressable hitSlop={12} onPress={() => goBack('/(tabs)/closet')}>
             <Icon name="chevron.left" tintColor={INK} size={20} />
           </Pressable>
@@ -64,7 +65,7 @@ export default function ItemDetail() {
 
       <ScrollView
         showsVerticalScrollIndicator={false}
-        contentContainerStyle={[styles.content, contentStyle(ContentMax.default)]}>
+        contentContainerStyle={[styles.content, contentStyle(maxW)]}>
         {/* 데스크톱: [사진 | 상세·아이템] 2단 / 태블릿·모바일: 세로 */}
         <DetailTwoPane
           image={
@@ -127,7 +128,7 @@ export default function ItemDetail() {
       </ScrollView>
 
       <View style={styles.bottomDivider} />
-      <SafeAreaView edges={['bottom']} style={[styles.bottomBar, contentStyle(ContentMax.default)]}>
+      <SafeAreaView edges={['bottom']} style={[styles.bottomBar, contentStyle(maxW)]}>
         <Pressable style={styles.cta} onPress={() => router.push('/chat-room')}>
           <Icon name="sparkles" tintColor="#fff" size={15} />
           <Text style={styles.ctaText}>이 옷으로 코디 추천받기</Text>

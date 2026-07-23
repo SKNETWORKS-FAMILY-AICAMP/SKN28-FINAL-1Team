@@ -74,7 +74,7 @@ const MY_ITEMS: Item[] = [
   },
   {
     id: '5',
-    name: '빈폴 모자',
+    name: '모자',
     category: '하의',
     tone: 0.08,
     image: 'https://i.pinimg.com/736x/ef/fa/96/effa960f41d4e20b7a0e31253732d75e.jpg',

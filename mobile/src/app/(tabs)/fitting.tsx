@@ -1,3 +1,5 @@
+import { router } from 'expo-router';
+
 import { Icon } from '@/components/icon';
 import { LoadingState, SmartImage, useToast } from '@/components/ui';
 import { goBack } from '@/lib/goBack';
@@ -5,7 +7,7 @@ import { useEffect, useRef, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-import { Fonts , ContentMax} from '@/constants/theme';
+import { Fonts } from '@/constants/theme';
 import { FITTING_RESULT_IMAGE } from '@/constants/look-images';
 import { TODAY_LOOK } from '@/constants/today-look';
 import { useBreakpoint } from '@/hooks/use-breakpoint';
@@ -22,7 +24,8 @@ const PIECES = TODAY_LOOK.pieces;
 
 // C5 가상 피팅 — 내 체형에 룩을 입혀 생성 (프로토타입: 타이머로 생성 과정 시뮬레이션)
 export default function Fitting() {
-  const { contentStyle } = useBreakpoint();
+  const { contentStyle, width } = useBreakpoint();
+  const maxW = width >= 1280 ? 960 : 720;
   const [phase, setPhase] = useState<'loading' | 'done'>('loading');
   const toast = useToast();
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -47,16 +50,16 @@ export default function Fitting() {
   return (
     <View style={styles.container}>
       <SafeAreaView edges={['top']} style={styles.headerSafe}>
-        <View style={[styles.header, contentStyle(ContentMax.default)]}>
-          <Pressable hitSlop={12} onPress={() => goBack('/(tabs)/lookbook')}>
+        <View style={[styles.header, contentStyle(maxW)]}>
+          {/* 뒤로가기는 룩상세로 고정(여기로 들어온 출처). */}
+          <Pressable hitSlop={12} onPress={() => router.replace('/look-detail')}>
             <Icon name="chevron.left" tintColor={INK} size={20} />
           </Pressable>
           <Text style={styles.headerTitle}>가상 피팅</Text>
-          <View style={{ width: 20 }} />
         </View>
       </SafeAreaView>
 
-      <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={[styles.content, contentStyle(ContentMax.default)]}>
+      <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={[styles.content, contentStyle(maxW)]}>
         {/* 데스크톱: [사진 | 상세·아이템] 2단 / 태블릿·모바일: 세로 */}
         <DetailTwoPane
           image={
@@ -112,7 +115,7 @@ export default function Fitting() {
 
       {/* 하단 바 */}
       <View style={styles.bottomDivider} />
-      <SafeAreaView edges={['bottom']} style={[styles.bottomBar, contentStyle(ContentMax.default)]}>
+      <SafeAreaView edges={['bottom']} style={[styles.bottomBar, contentStyle(maxW)]}>
         <Pressable
           style={[styles.altBtn, phase === 'loading' && styles.btnDisabled]}
           disabled={phase === 'loading'}
@@ -141,7 +144,7 @@ const styles = StyleSheet.create({
   header: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-between',
+    gap: 10,
     paddingHorizontal: 16,
     paddingTop: 8,
     paddingBottom: 10,
