@@ -1,15 +1,21 @@
 import { useSyncExternalStore } from 'react';
 
+import { BodyEndpoints } from '@/constants/config';
+import { api } from '@/lib/apiClient';
+
 /**
  * 체형측정 플로우(STEP1 입력 → STEP2 촬영 → STEP3 결과) 전역 상태.
  *
  * expo-router 는 세 화면이 서로 다른 라우트라 화면 간 공유 부모가 없다.
  * authStore 와 동일한 경량 모듈 스토어(useSyncExternalStore) 로 스텝 간 데이터를 잇는다.
  *
- * ⚠️ 현재 `estimate()` 는 입력 기반 mock 이다.
- * TODO(backend): 체형측정 API 확정 시 mock 만 실제 호출로 교체.
- *   - 동기:   POST /api/v1/measure  → { measures, sizes }
- *   - 비동기: POST → { job_id } → GET /api/v1/measure/{job_id} 폴링 (#4 백그라운드)
+ * 백엔드 연동(팀레포 main, users/body):
+ *   - STEP1  "다음"  → PUT   /users/me/body/basic/  { height, weight }  (saveBasic)
+ *   - 결과 진입      → GET   /users/me/body/  로 저장된 상세치수를 불러오고,
+ *                      없으면 키·몸무게 기반 제안값(mock)을 초기값으로 보여준다 (estimate)
+ *   - STEP3  "완료"  → PATCH /users/me/body/detail/  로 수정한 둘레를 저장 (saveDetail)
+ * 서버 저장은 best-effort — 실패해도 로컬 상태로 플로우는 계속되고, 화면이 토스트로 알린다.
+ * 사진 업로드(POST /body/photos/ → 폴링)는 다음 단계에서 붙인다(현재 촬영 슬롯은 mock).
  */
 
 export type Sex = 'female' | 'male' | 'none';
@@ -88,6 +94,57 @@ function mockSizes(chest: number): SizeMatch[] {
   ];
 }
 
+// ── 백엔드 신체치수(GET /body/) ────────────────────────────────
+// DRF DecimalField 는 문자열("170.0")로 내려올 수 있어 숫자로 정규화한다. 미입력은 null.
+type BodyDto = {
+  height: string | number | null;
+  weight: string | number | null;
+  chest: string | number | null;
+  waist: string | number | null;
+  hip: string | number | null;
+  shoulder: string | number | null;
+  thigh: string | number | null;
+  calf: string | number | null;
+  arm: string | number | null;
+  updated_at: string | null;
+};
+
+function toNum(v: unknown): number | null {
+  if (v === null || v === undefined || v === '') return null;
+  const n = Number(v);
+  return Number.isFinite(n) ? n : null;
+}
+
+/** GET /body/ 조회. 미로그인/오프라인/미입력이면 null (플로우는 mock 로 진행). */
+async function fetchBody(): Promise<BodyDto | null> {
+  try {
+    return await api.get<BodyDto>(BodyEndpoints.me);
+  } catch {
+    return null;
+  }
+}
+
+/** 저장된 상세치수를 mock 제안값 위에 덮어쓴다 (저장값 우선, 빈 칸은 mock 유지). */
+function mergeMeasures(dto: BodyDto | null, base: Measurement): Measurement {
+  if (!dto) return base;
+  return {
+    shoulder: toNum(dto.shoulder) ?? base.shoulder,
+    chest: toNum(dto.chest) ?? base.chest,
+    waist: toNum(dto.waist) ?? base.waist,
+    hip: toNum(dto.hip) ?? base.hip,
+  };
+}
+
+/** STEP1 프리필용 — 저장된 키·몸무게 (없으면 null). */
+export async function fetchBodyBasic(): Promise<{
+  height: number | null;
+  weight: number | null;
+} | null> {
+  const dto = await fetchBody();
+  if (!dto) return null;
+  return { height: toNum(dto.height), weight: toNum(dto.weight) };
+}
+
 export const measureStore = {
   subscribe(listener: () => void): () => void {
     listeners.add(listener);
@@ -104,6 +161,19 @@ export const measureStore = {
 
   setInput(input: MeasureInput): void {
     setState({ input });
+  },
+
+  /**
+   * STEP1 "다음" — 키·몸무게를 서버에 저장(PUT basic)하고 로컬 입력도 반영한다.
+   * 로컬 반영을 먼저 하므로 저장이 실패해도(오프라인 등) 플로우는 이어지고,
+   * 실패는 throw 하여 화면이 토스트로 알리게 한다.
+   */
+  async saveBasic(input: MeasureInput): Promise<void> {
+    setState({ input });
+    await api.put(BodyEndpoints.basic, {
+      height: input.height,
+      weight: input.weight,
+    });
   },
 
   setPhoto(key: keyof MeasurePhotos, uri: string): void {
@@ -130,9 +200,10 @@ export const measureStore = {
     const input = state.input ?? DEFAULT_INPUT;
     setState({ status: 'loading', error: null, result: null });
     try {
-      // TODO(backend): 아래 mock 을 실제 API 호출로 교체 (동기/비동기 job)
-      await new Promise((resolve) => setTimeout(resolve, 1200));
-      const measures = mockEstimate(input);
+      // 사진 추론은 다음 단계. 서버에 저장된 상세치수가 있으면 그걸 초기값으로,
+      // 없으면 키·몸무게 기반 제안값(mock)을 보여준다. 사용자가 STEP3에서 수정하면
+      // saveDetail 로 PATCH 된다. GET 실패(오프라인 등)해도 mock 로 진행한다.
+      const measures = mergeMeasures(await fetchBody(), mockEstimate(input));
       const usedPhotos = Boolean(state.photos.front && state.photos.side);
       setState({
         status: 'success',
@@ -146,10 +217,25 @@ export const measureStore = {
     }
   },
 
-  /** STEP3 에서 사용자가 직접 수정한 치수를 반영 */
+  /** STEP3 에서 사용자가 직접 수정한 치수를 반영 (로컬만) */
   updateMeasures(measures: Measurement): void {
     if (!state.result) return;
     setState({ result: { ...state.result, measures } });
+  },
+
+  /**
+   * STEP3 "완료" — 수정한 둘레를 서버에 저장(PATCH detail)한다.
+   * UI에 있는 4개(shoulder/chest/waist/hip)만 보내고 thigh/calf/arm 은 건드리지 않는다.
+   * 로컬 반영을 먼저 하므로 저장 실패해도 결과는 유지되고, 실패는 throw 로 알린다.
+   */
+  async saveDetail(measures: Measurement): Promise<void> {
+    if (state.result) setState({ result: { ...state.result, measures } });
+    await api.patch(BodyEndpoints.detail, {
+      shoulder: measures.shoulder,
+      chest: measures.chest,
+      waist: measures.waist,
+      hip: measures.hip,
+    });
   },
 };
 

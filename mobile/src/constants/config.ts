@@ -78,3 +78,16 @@ export const AuthEndpoints = {
  *   - JWT 필요.
  */
 export const HomeEndpoint = '/api/v1/home/';
+
+/**
+ * 신체치수 (api/apps/users/urls.py 기준). 전부 JWT 필요.
+ *   GET   /api/v1/users/me/body/         → 전체 치수 (미입력 필드는 null)
+ *   PUT   /api/v1/users/me/body/basic/   { height, weight }  (둘 다 필수)
+ *   PATCH /api/v1/users/me/body/detail/  { chest,waist,hip,thigh,calf,arm,shoulder }  (전부 선택)
+ *   ※ 수치는 Decimal 소수 1자리(1~999.9). 사진 업로드(photos)는 다음 단계에서 연동.
+ */
+export const BodyEndpoints = {
+  me: '/api/v1/users/me/body/',
+  basic: '/api/v1/users/me/body/basic/',
+  detail: '/api/v1/users/me/body/detail/',
+} as const;

@@ -11,9 +11,10 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-import { ErrorState, LoadingState } from '@/components/ui';
+import { ErrorState, LoadingState, useToast } from '@/components/ui';
 import { Editorial, ink, Fonts , ContentMax} from '@/constants/theme';
 import { useBreakpoint } from '@/hooks/use-breakpoint';
+import { ApiError } from '@/lib/apiClient';
 import { measureStore, useMeasure } from '@/state/measure';
 
 const INK = Editorial.ink;
@@ -41,6 +42,8 @@ export default function MeasureResult() {
   const { contentStyle } = useBreakpoint();
   const { returnTo } = useLocalSearchParams<{ returnTo?: string }>();
   const { status, result, input, photos, error } = useMeasure();
+  const toast = useToast();
+  const [savingDone, setSavingDone] = useState(false);
 
   /* 키·몸무게도 사진도 없으면 추정 자체가 불가능하다 — 재시도해도 결과가 달라지지 않으므로
      STEP1 로 돌아가 입력하도록 안내한다. */
@@ -102,22 +105,34 @@ export default function MeasureResult() {
     );
   }
 
-  // 완료 — 수정한 값을 스토어에 반영하고 플로우 닫기
-  const onDone = () => {
+  // 완료 — 수정한 값을 서버에 저장(PATCH detail)하고 플로우 닫기
+  const onDone = async () => {
     const num = (k: keyof typeof result.measures) => {
       const v = parseFloat(values[k]);
       return Number.isFinite(v) ? v : result.measures[k];
     };
-    measureStore.updateMeasures({
+    const measures = {
       shoulder: num('shoulder'),
       chest: num('chest'),
       waist: num('waist'),
       hip: num('hip'),
-    });
-    if (returnTo === 'my') {
-      router.replace('/(tabs)/my');
-    } else {
-      router.replace('/(tabs)/home');
+    };
+    setSavingDone(true);
+    try {
+      await measureStore.saveDetail(measures);
+    } catch (e) {
+      // 저장 실패해도 로컬 결과엔 반영됨 — 알리고 화면은 닫는다.
+      toast(
+        e instanceof ApiError ? e.message : '치수 저장에 실패했어요. 임시로 진행할게요.',
+        { variant: 'error' },
+      );
+    } finally {
+      setSavingDone(false);
+      if (returnTo === 'my') {
+        router.replace('/(tabs)/my');
+      } else {
+        router.replace('/(tabs)/home');
+      }
     }
   };
 
@@ -203,8 +218,8 @@ export default function MeasureResult() {
         </ScrollView>
 
         <View style={[styles.bottomBar, contentStyle(ContentMax.narrow)]}>
-          <Pressable style={styles.cta} onPress={onDone}>
-            <Text style={styles.ctaText}>완료</Text>
+          <Pressable style={styles.cta} onPress={onDone} disabled={savingDone}>
+            <Text style={styles.ctaText}>{savingDone ? '저장 중…' : '완료'}</Text>
           </Pressable>
         </View>
       </SafeAreaView>
