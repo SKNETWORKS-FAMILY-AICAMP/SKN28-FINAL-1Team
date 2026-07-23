@@ -1,15 +1,28 @@
+# 빌드 컨텍스트는 collector/ 이다 (공용 util 패키지 포함 필요).
+#   docker build -f naver/Dockerfile.naver collector/
 FROM python:3.11-slim
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     TZ=Asia/Seoul
 
-WORKDIR /app
+WORKDIR /app/naver
 
-COPY requirements.naver.txt /app/requirements.txt
-RUN pip install --no-cache-dir -r /app/requirements.txt
+COPY naver/requirements.naver.txt /app/naver/requirements.txt
+RUN pip install --no-cache-dir -r /app/naver/requirements.txt
 
-COPY config.py category_mapping.py keywords.py attribute_extractor.py \
-     llm_tagger.py batch_tagger.py db.py naver_collector_db.py /app/
+# Claude provider(NAVER_TAGGING_PROVIDER=claude) 사용 시에만 필요:
+# claude-agent-sdk는 Claude Code CLI(Node)를 사용한다.
+#   docker compose build --build-arg INSTALL_CLAUDE_CLI=true naver-collector
+ARG INSTALL_CLAUDE_CLI=false
+RUN if [ "$INSTALL_CLAUDE_CLI" = "true" ]; then \
+        apt-get update && apt-get install -y --no-install-recommends nodejs npm \
+        && npm install -g @anthropic-ai/claude-code \
+        && apt-get clean && rm -rf /var/lib/apt/lists/*; \
+    fi
 
-CMD ["python", "/app/naver_collector_db.py", "--scheduler"]
+COPY util /app/util
+COPY naver/config.py naver/category_mapping.py naver/keywords.py naver/attribute_extractor.py \
+     naver/llm_tagger.py naver/batch_tagger.py naver/db.py naver/naver_collector_db.py /app/naver/
+
+CMD ["python", "/app/naver/naver_collector_db.py", "--scheduler"]

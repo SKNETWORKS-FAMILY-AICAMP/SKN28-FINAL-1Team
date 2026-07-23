@@ -117,8 +117,12 @@ services:
 
   naver-collector:
     build:
-      context: ./collector/naver
-      dockerfile: Dockerfile.naver
+      # 공용 util 패키지 포함을 위해 컨텍스트는 collector/ 전체
+      context: ./collector
+      dockerfile: naver/Dockerfile.naver
+      args:
+        # Claude provider 사용 시 true (Claude Code CLI 설치)
+        INSTALL_CLAUDE_CLI: ${INSTALL_CLAUDE_CLI:-false}
     container_name: naver-collector
     restart: unless-stopped
     profiles: ["naver", "all"]
@@ -134,7 +138,7 @@ services:
       POSTGRES_HOST: db
       POSTGRES_PORT: 5432
     # 스키마는 migrate 서비스(Django migration)가 생성한다.
-    command: python /app/naver_collector_db.py --scheduler
+    command: python /app/naver/naver_collector_db.py --scheduler
 
 volumes:
   postgres_data:
