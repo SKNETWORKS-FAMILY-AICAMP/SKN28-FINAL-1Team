@@ -1,7 +1,7 @@
 import { Editorial, ink, ContentMax } from '@/constants/theme';
 import { useBreakpoint } from '@/hooks/use-breakpoint';
 import { Icon } from '@/components/icon';
-import { SmartImage } from '@/components/ui';
+import { SmartImage, ModalShell } from '@/components/ui';
 import { draftItem } from '@/state/draft-item';
 import { router } from 'expo-router';
 import { goBack } from '@/lib/goBack';
@@ -47,7 +47,8 @@ export default function ItemAddLibraryScreen() {
   };
 
   return (
-    <View style={styles.container}>
+    <ModalShell maxWidth={ContentMax.default}>
+      <View style={styles.container}>
       <SafeAreaView edges={['top', 'bottom']} style={styles.safe}>
         <View style={[styles.header, contentStyle(ContentMax.default)]}>
           <Pressable hitSlop={12} onPress={() => goBack('/(tabs)/closet')}>
@@ -71,7 +72,8 @@ export default function ItemAddLibraryScreen() {
           ))}
         </ScrollView>
       </SafeAreaView>
-    </View>
+      </View>
+    </ModalShell>
   );
 }
 

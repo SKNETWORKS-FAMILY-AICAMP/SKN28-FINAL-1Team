@@ -1,5 +1,5 @@
 import { Icon, type IconName } from '@/components/icon';
-import { useToast } from '@/components/ui';
+import { useToast, ModalShell } from '@/components/ui';
 import { Editorial, ink, ContentMax } from '@/constants/theme';
 import { useBreakpoint } from '@/hooks/use-breakpoint';
 import { pickFromAlbum, pickFromCamera } from '@/lib/pickItemPhoto';
@@ -32,8 +32,10 @@ const SOURCES: { key: SourceKey; label: string; icon: IconName; hint: string }[]
 ];
 
 export default function ItemAddSourceScreen() {
-  const { frameWidth, contentStyle } = useBreakpoint();
-  const tileW = (frameWidth - PAD * 2 - GAP) / 2;
+  const { frameWidth, isDesktop, contentStyle } = useBreakpoint();
+  // 데스크톱 다이얼로그에선 타일이 카드 폭(card)을 2열로 채우도록, 모바일은 프레임 폭 기준.
+  const gridW = isDesktop ? ContentMax.card : frameWidth;
+  const tileW = (gridW - PAD * 2 - GAP) / 2;
 
   const toast = useToast();
   const [active, setActive] = useState<SourceKey | null>(null);
@@ -71,7 +73,8 @@ export default function ItemAddSourceScreen() {
   };
 
   return (
-    <View style={styles.container}>
+    <ModalShell maxWidth={ContentMax.card}>
+      <View style={styles.container}>
       <SafeAreaView edges={['top']} style={styles.safe}>
         <View style={[styles.header, contentStyle(ContentMax.narrow)]}>
           <Pressable hitSlop={12} onPress={() => goBack('/(tabs)/closet')} style={styles.backBtn}>
@@ -120,7 +123,8 @@ export default function ItemAddSourceScreen() {
           </View>
         ) : null}
       </SafeAreaView>
-    </View>
+      </View>
+    </ModalShell>
   );
 }
 

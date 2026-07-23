@@ -13,6 +13,7 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { Editorial, ink, Fonts , ContentMax} from '@/constants/theme';
+import { ModalShell } from '@/components/ui';
 import { useBreakpoint } from '@/hooks/use-breakpoint';
 import { draftItem, useDraftPhoto } from '@/state/draft-item';
 
@@ -80,7 +81,8 @@ export default function ItemAddScreen() {
   };
 
   return (
-    <View style={styles.container}>
+    <ModalShell maxWidth={ContentMax.narrow}>
+      <View style={styles.container}>
       {/* 헤더 */}
       <SafeAreaView edges={['top']} style={styles.headerSafe}>
         <View style={[styles.header, contentStyle(ContentMax.narrow)]}>
@@ -158,7 +160,8 @@ export default function ItemAddScreen() {
           <Text style={styles.saveText}>옷장에 저장</Text>
         </Pressable>
       </SafeAreaView>
-    </View>
+      </View>
+    </ModalShell>
   );
 }
 

@@ -11,8 +11,8 @@ import {
 } from 'react-native-webview';
 
 import { ThemedText } from '@/components/themed-text';
-import { EmptyState } from '@/components/ui';
-import { Spacing } from '@/constants/theme';
+import { EmptyState, ModalShell } from '@/components/ui';
+import { ContentMax, Spacing } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
 import { draftItem } from '@/state/draft-item';
 
@@ -78,7 +78,8 @@ true;
  */
 function ImportUnsupportedOnWeb() {
   return (
-    <View style={styles.webNotice}>
+    <ModalShell maxWidth={ContentMax.card}>
+      <View style={styles.webNotice}>
       <SafeAreaView edges={['top']} style={styles.webNoticeSafe}>
         <EmptyState
           icon="globe"
@@ -91,7 +92,8 @@ function ImportUnsupportedOnWeb() {
           onAction={() => router.replace('/item-add-source')}
         />
       </SafeAreaView>
-    </View>
+      </View>
+    </ModalShell>
   );
 }
 

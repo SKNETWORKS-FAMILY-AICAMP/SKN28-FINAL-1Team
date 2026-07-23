@@ -1,5 +1,5 @@
 import { Icon } from '@/components/icon';
-import { SmartImage, useToast } from '@/components/ui';
+import { SmartImage, useToast, ModalShell } from '@/components/ui';
 import { Editorial, ink, GridCard, gridCardImageHeight, gridCardWidth , ContentMax} from '@/constants/theme';
 import { useBreakpoint } from '@/hooks/use-breakpoint';
 import { pickFromAlbum, pickFromCamera } from '@/lib/pickItemPhoto';
@@ -61,7 +61,8 @@ export default function LookAddScreen() {
   const canSave = Boolean(image && tags.length > 0);
 
   return (
-    <View style={styles.container}>
+    <ModalShell maxWidth={ContentMax.narrow}>
+      <View style={styles.container}>
       <SafeAreaView edges={['top', 'bottom']} style={styles.safe}>
         <View style={[styles.header, contentStyle(ContentMax.narrow)]}>
           <Pressable hitSlop={12} onPress={() => goBack('/(tabs)/lookbook')}>
@@ -126,7 +127,8 @@ export default function LookAddScreen() {
           </Pressable>
         </View>
       </SafeAreaView>
-    </View>
+      </View>
+    </ModalShell>
   );
 }
 
