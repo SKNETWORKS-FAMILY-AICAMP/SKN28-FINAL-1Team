@@ -5,12 +5,11 @@ import { useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-import { Fonts , ContentMax} from '@/constants/theme';
+import { ink, Fonts , ContentMax} from '@/constants/theme';
 import { useBreakpoint } from '@/hooks/use-breakpoint';
 
 const INK = '#1c1917';
 const BONE = '#eae0d3';
-const ink = (a: number) => `rgba(28,25,23,${a})`;
 
 const WEEKDAYS = ['일', '월', '화', '수', '목', '금', '토'];
 const FIRST_WEEKDAY = 3; // 2026년 7월 1일 = 수요일

@@ -3,14 +3,13 @@ import { router } from 'expo-router';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-import { BottomTabInset, ContentMax, Editorial } from '@/constants/theme';
+import { ink, BottomTabInset, ContentMax, Editorial } from '@/constants/theme';
 import { useBreakpoint } from '@/hooks/use-breakpoint';
 import { useAuth } from '@/state/auth';
 import { formatBudget, usePrefs } from '@/state/prefs';
 
 const INK = Editorial.ink;
 const CHIP = Editorial.surface;
-const ink = (a: number) => `rgba(28,25,23,${a})`;
 
 type Row = {
   icon: IconName;

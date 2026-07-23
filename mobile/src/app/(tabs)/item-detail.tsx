@@ -5,14 +5,13 @@ import { goBack } from '@/lib/goBack';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-import { Fonts } from '@/constants/theme';
+import { ink, Fonts } from '@/constants/theme';
 import { useBreakpoint } from '@/hooks/use-breakpoint';
 import { DetailTwoPane } from '@/components/detail-two-pane';
 
 const INK = '#1c1917';
 const BONE = '#eae0d3';
 const WINE = '#5E2B2F';
-const ink = (a: number) => `rgba(28,25,23,${a})`;
 
 const SPECS = [
   { label: '색상', value: '아이보리' },

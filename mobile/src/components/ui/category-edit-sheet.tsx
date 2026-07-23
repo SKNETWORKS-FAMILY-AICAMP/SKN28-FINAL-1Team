@@ -1,3 +1,4 @@
+import { ink } from '@/constants/theme';
 import { Icon } from '@/components/icon';
 import { useEffect, useState } from 'react';
 import {
@@ -11,7 +12,6 @@ import {
 } from 'react-native';
 
 const INK = '#1c1917';
-const ink = (a: number) => `rgba(28,25,23,${a})`;
 
 type CategoryEditSheetProps = {
   visible: boolean;

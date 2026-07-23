@@ -7,7 +7,7 @@ import { useEffect, useRef, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-import { Fonts } from '@/constants/theme';
+import { ink, Fonts } from '@/constants/theme';
 import { FITTING_RESULT_IMAGE } from '@/constants/look-images';
 import { TODAY_LOOK } from '@/constants/today-look';
 import { useBreakpoint } from '@/hooks/use-breakpoint';
@@ -17,7 +17,6 @@ const INK = '#1c1917';
 const BONE = '#eae0d3';
 /** 생성 캔버스 배경 — 기존 BONE(진한 베이지)이 무거워, 훨씬 연한 크림으로 둔다. */
 const CANVAS = '#f5f1ea';
-const ink = (a: number) => `rgba(28,25,23,${a})`;
 
 // 구성 아이템 = 오늘의 룩 단일 출처(룩상세와 공유).
 const PIECES = TODAY_LOOK.pieces;

@@ -15,7 +15,7 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-import { Fonts , ContentMax} from '@/constants/theme';
+import { ink, Fonts , ContentMax} from '@/constants/theme';
 import { useBreakpoint } from '@/hooks/use-breakpoint';
 import { useSocialLogin } from '@/hooks/use-social-login';
 import type { SocialLoginResult } from '@/lib/socialLogin';
@@ -23,7 +23,6 @@ import type { SocialLoginResult } from '@/lib/socialLogin';
 const INK = '#1c1917';
 const KAKAO = '#FEE500';
 const NAVER = '#03C75A';
-const ink = (a: number) => `rgba(28,25,23,${a})`;
 
 // A3 로그인 — "로그인"/소셜 누르면 앱(홈 탭)으로 진입
 export default function Login() {

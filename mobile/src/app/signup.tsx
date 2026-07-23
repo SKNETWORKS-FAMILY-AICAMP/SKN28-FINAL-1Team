@@ -11,12 +11,11 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-import { Fonts , ContentMax} from '@/constants/theme';
+import { ink, Fonts , ContentMax} from '@/constants/theme';
 import { useBreakpoint } from '@/hooks/use-breakpoint';
 
 const INK = '#1c1917';
 const KAKAO = '#FEE500';
-const ink = (a: number) => `rgba(28,25,23,${a})`;
 
 type TermKey = 'age' | 'service' | 'privacy' | 'marketing';
 const TERMS: { key: TermKey; label: string; required: boolean }[] = [

@@ -11,13 +11,12 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-import { Fonts , ContentMax} from '@/constants/theme';
+import { ink, Fonts , ContentMax} from '@/constants/theme';
 import { useBreakpoint } from '@/hooks/use-breakpoint';
 import { measureStore } from '@/state/measure';
 
 const INK = '#1c1917';
 const WINE = '#5E2B2F';
-const ink = (a: number) => `rgba(28,25,23,${a})`;
 
 function Steps({ active }: { active: number }) {
   return (

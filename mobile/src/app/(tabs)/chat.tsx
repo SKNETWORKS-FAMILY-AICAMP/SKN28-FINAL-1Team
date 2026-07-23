@@ -4,11 +4,10 @@ import { useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-import { BottomTabInset, Fonts , ContentMax} from '@/constants/theme';
+import { ink, BottomTabInset, Fonts , ContentMax} from '@/constants/theme';
 import { useBreakpoint } from '@/hooks/use-breakpoint';
 
 const INK = '#1c1917';
-const ink = (a: number) => `rgba(28,25,23,${a})`;
 
 type Session = { id: string; title: string; last: string; time: string };
 const GROUPS: { mode: string; tint: string; sessions: Session[] }[] = [

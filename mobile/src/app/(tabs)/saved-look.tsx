@@ -4,12 +4,11 @@ import { goBack } from '@/lib/goBack';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-import { Fonts , ContentMax} from '@/constants/theme';
+import { ink, Fonts , ContentMax} from '@/constants/theme';
 import { useBreakpoint } from '@/hooks/use-breakpoint';
 
 const INK = '#1c1917';
 const BONE = '#eae0d3';
-const ink = (a: number) => `rgba(28,25,23,${a})`;
 
 const PIECES = [
   { slot: '상의', name: '크림 울 니트', tone: 0.06 },

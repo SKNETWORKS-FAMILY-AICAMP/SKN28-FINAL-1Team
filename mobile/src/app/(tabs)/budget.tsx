@@ -1,6 +1,6 @@
 import { Icon } from '@/components/icon';
 import { useToast } from '@/components/ui';
-import { Fonts , ContentMax} from '@/constants/theme';
+import { ink, Fonts , ContentMax} from '@/constants/theme';
 import { useBreakpoint } from '@/hooks/use-breakpoint';
 import { formatBudget, prefsStore, usePrefs } from '@/state/prefs';
 import { goBack } from '@/lib/goBack';
@@ -9,7 +9,6 @@ import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 const INK = '#1c1917';
-const ink = (a: number) => `rgba(28,25,23,${a})`;
 
 const PRESETS = [
   { label: '5만원', value: 50000 },

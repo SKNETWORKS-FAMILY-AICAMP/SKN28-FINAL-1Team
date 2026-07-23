@@ -1,6 +1,6 @@
 import { Icon, type IconName } from '@/components/icon';
 import { useToast } from '@/components/ui';
-import { ContentMax } from '@/constants/theme';
+import { ink, ContentMax } from '@/constants/theme';
 import { useBreakpoint } from '@/hooks/use-breakpoint';
 import { pickFromAlbum, pickFromCamera } from '@/lib/pickItemPhoto';
 import { draftItem } from '@/state/draft-item';
@@ -17,7 +17,6 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 const INK = '#1c1917';
-const ink = (a: number) => `rgba(28,25,23,${a})`;
 const PAD = 20;
 
 /* 타일 폭은 창 폭에서 파생 → 컴포넌트 안에서 useBreakpoint() 로 구한다. */

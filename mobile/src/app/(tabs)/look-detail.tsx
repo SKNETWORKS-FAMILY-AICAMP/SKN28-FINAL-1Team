@@ -7,7 +7,7 @@ import { useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-import { Fonts } from '@/constants/theme';
+import { ink, Fonts } from '@/constants/theme';
 import { TODAY_LOOK_IMAGE } from '@/constants/look-images';
 import { TODAY_LOOK } from '@/constants/today-look';
 import { useBreakpoint } from '@/hooks/use-breakpoint';
@@ -17,7 +17,6 @@ import { DetailTwoPane } from '@/components/detail-two-pane';
 const INK = '#1c1917';
 const WINE = '#5E2B2F';
 const BONE = '#eae0d3';
-const ink = (a: number) => `rgba(28,25,23,${a})`;
 
 // 구성 아이템 = 오늘의 룩 단일 출처. 가상피팅 화면과 같은 목록을 공유한다.
 const PIECES = TODAY_LOOK.pieces;

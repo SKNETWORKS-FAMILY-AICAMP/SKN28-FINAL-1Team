@@ -1,4 +1,4 @@
-import { ContentMax } from '@/constants/theme';
+import { ink, ContentMax } from '@/constants/theme';
 import { useBreakpoint } from '@/hooks/use-breakpoint';
 import { Icon } from '@/components/icon';
 import { SmartImage } from '@/components/ui';
@@ -9,7 +9,6 @@ import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 const INK = '#1c1917';
-const ink = (a: number) => `rgba(28,25,23,${a})`;
 const PAD = 20;
 
 /** 팀 카탈로그 연동 전 목업 — 탭하면 등록 화면으로 */

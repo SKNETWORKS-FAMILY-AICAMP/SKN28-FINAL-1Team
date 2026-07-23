@@ -1,6 +1,6 @@
 import { Icon } from '@/components/icon';
 import { SmartImage, useToast } from '@/components/ui';
-import { GridCard, gridCardImageHeight, gridCardWidth , ContentMax} from '@/constants/theme';
+import { ink, GridCard, gridCardImageHeight, gridCardWidth , ContentMax} from '@/constants/theme';
 import { useBreakpoint } from '@/hooks/use-breakpoint';
 import { pickFromAlbum, pickFromCamera } from '@/lib/pickItemPhoto';
 import {
@@ -21,7 +21,6 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 const INK = '#1c1917';
-const ink = (a: number) => `rgba(28,25,23,${a})`;
 const PAD = 20;
 
 /* 미리보기 높이는 창 폭에서 파생 → 컴포넌트 안에서 useBreakpoint() 로 구한다. */
