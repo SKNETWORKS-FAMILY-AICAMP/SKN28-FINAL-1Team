@@ -95,12 +95,8 @@ export const Type = {
   lead: 18, // 소제목
 } as const;
 
-/** 숫자가 본문과 어울리도록 — 폭 고정(tabular)해 들쭉날쭉함 제거. 숫자 표시 Text에 style로 spread. */
-export const numeric = { fontVariant: ['tabular-nums'] as const };
-
 // web은 유리(글래스) 탭바가 콘텐츠 위에 떠 있으므로 그만큼 하단 여백 확보
 export const BottomTabInset = Platform.select({ ios: 50, android: 80, web: 76 }) ?? 0;
-export const MaxContentWidth = 800;
 
 /**
  * 폰 프레임 폭 — 모바일 레이아웃에서 콘텐츠가 넓어지지 않게 잡는 상한.
