@@ -43,6 +43,7 @@ const HIDDEN_ROUTES = [
   { name: 'personal-color', href: '/personal-color', icon: 'person', label: '퍼스널컬러' },
   { name: 'style-onboarding', href: '/style-onboarding', icon: 'person', label: '추구미' },
   { name: 'permissions', href: '/permissions', icon: 'person', label: '권한' },
+  { name: 'notifications', href: '/notifications', icon: 'bell', label: '알림' },
   { name: 'measure-input', href: '/measure-input', icon: 'ruler', label: '체형측정' },
   { name: 'measure-capture', href: '/measure-capture', icon: 'ruler', label: '체형촬영' },
   { name: 'measure-result', href: '/measure-result', icon: 'ruler', label: '체형결과' },

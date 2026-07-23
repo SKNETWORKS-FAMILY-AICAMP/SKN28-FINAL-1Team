@@ -82,7 +82,7 @@ export default function MyScreen() {
     {
       title: '설정',
       rows: [
-        { icon: 'bell', label: '알림 설정', onPress: () => {} },
+        { icon: 'bell', label: '알림 설정', onPress: () => router.push('/notifications') },
         { icon: 'lock', label: '데이터·권한 관리', onPress: () => router.push('/permissions') },
         { icon: 'questionmark.circle', label: '도움말·문의', onPress: () => {} },
       ],
