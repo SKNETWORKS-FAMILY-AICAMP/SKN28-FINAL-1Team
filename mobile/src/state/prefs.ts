@@ -6,16 +6,21 @@ import { useSyncExternalStore } from 'react';
  * (프로토타입: 메모리 보관. 앱 재시작 시 초기화 — 추후 secureStore 연동 여지)
  */
 export type Prefs = {
+  nickname: string | null; // 프로필 편집에서 정한 표시 이름 (미설정이면 계정 별명으로 폴백)
   budget: number | null; // 원 단위 (예: 100000)
   personalColor: string | null; // 예: '가을 웜'
 };
 
-let state: Prefs = { budget: null, personalColor: null };
+let state: Prefs = { nickname: null, budget: null, personalColor: null };
 const listeners = new Set<() => void>();
 const emit = () => listeners.forEach((l) => l());
 
 export const prefsStore = {
   get: () => state,
+  setNickname(name: string | null) {
+    state = { ...state, nickname: name && name.trim() ? name.trim() : null };
+    emit();
+  },
   setBudget(n: number | null) {
     state = { ...state, budget: n };
     emit();

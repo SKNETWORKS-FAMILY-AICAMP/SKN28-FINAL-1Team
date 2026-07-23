@@ -40,7 +40,7 @@ export default function MyScreen() {
   const { contentStyle } = useBreakpoint();
   const prefs = usePrefs();
   const { user } = useAuth();
-  const name = displayName(user?.nickname, user?.email) || '코지';
+  const name = prefs.nickname || displayName(user?.nickname, user?.email) || '코지';
   const email = user?.email ?? 'cozy@example.com';
 
   const stats: Stat[] = [
@@ -103,7 +103,10 @@ export default function MyScreen() {
                 <Text style={styles.name}>{name}</Text>
                 <Text style={styles.email} numberOfLines={1}>{email}</Text>
               </View>
-              <Pressable style={styles.editBtn} hitSlop={8}>
+              <Pressable
+                style={styles.editBtn}
+                hitSlop={8}
+                onPress={() => router.push('/edit-profile')}>
                 <Icon name="pencil" tintColor={ink(0.55)} size={14} />
                 <Text style={styles.editText}>편집</Text>
               </Pressable>
