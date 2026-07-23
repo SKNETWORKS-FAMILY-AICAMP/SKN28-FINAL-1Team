@@ -7,8 +7,13 @@
 
 from __future__ import annotations
 
-from django.contrib.auth.models import AbstractUser
+import uuid
+from decimal import Decimal
+
+from django.contrib.auth.models import AbstractUser, Permission
+from django.core.validators import MinValueValidator
 from django.db import models
+from django.utils.translation import gettext_lazy as _
 
 
 class User(AbstractUser):
@@ -16,8 +21,20 @@ class User(AbstractUser):
     nickname = models.CharField("닉네임", max_length=100, blank=True)
     profile_image = models.URLField("프로필 이미지", blank=True)
 
+    # PermissionsMixin의 필드를 재정의해 자동 M2M 테이블명(users_user_permissions)을
+    # users_permissions로 단순화한다. db_table 외 옵션은 원본과 동일하게 유지한다.
+    user_permissions = models.ManyToManyField(
+        Permission,
+        verbose_name=_("user permissions"),
+        blank=True,
+        help_text=_("Specific permissions for this user."),
+        related_name="user_set",
+        related_query_name="user",
+        db_table="users_permissions",
+    )
+
     class Meta:
-        db_table = "users_user"
+        db_table = "users"
         verbose_name = "사용자"
         verbose_name_plural = "사용자"
 
@@ -30,6 +47,7 @@ class SocialAccount(models.Model):
         NAVER = "naver", "네이버"
         KAKAO = "kakao", "카카오"
         GOOGLE = "google", "구글"
+        APPLE = "apple", "애플"
 
     user = models.ForeignKey(
         User, on_delete=models.CASCADE, related_name="social_accounts"
@@ -43,7 +61,7 @@ class SocialAccount(models.Model):
     last_login_at = models.DateTimeField("마지막 로그인", auto_now=True)
 
     class Meta:
-        db_table = "users_social_account"
+        db_table = "social_accounts"
         verbose_name = "소셜 계정"
         verbose_name_plural = "소셜 계정"
         constraints = [
@@ -55,3 +73,91 @@ class SocialAccount(models.Model):
 
     def __str__(self) -> str:
         return f"{self.provider}:{self.provider_user_id}"
+
+
+def _measure_field(label: str) -> models.DecimalField:
+    """신체 수치 필드 (cm/kg). 소수점 1자리, 1~999.9 범위."""
+    return models.DecimalField(
+        label,
+        max_digits=4,
+        decimal_places=1,
+        null=True,
+        blank=True,
+        validators=[MinValueValidator(Decimal("1"))],
+        help_text=label,
+    )
+
+
+class BodyMeasurement(models.Model):
+    """사용자 신체치수 (설정 페이지 입력값). 사용자당 1행.
+
+    기본 수치(키/몸무게)와 상세 둘레 수치를 한 행으로 관리한다.
+    상세 수치는 전부 선택 입력이라 null을 허용하며, 추후 사진 기반 추론
+    기능이 같은 컬럼을 추론값으로 갱신하는 것을 전제로 한다.
+    """
+
+    user = models.OneToOneField(
+        User, on_delete=models.CASCADE, related_name="body_measurement"
+    )
+    # 기본 수치
+    height = _measure_field("키(cm)")
+    weight = _measure_field("몸무게(kg)")
+    # 상세 수치 (전부 선택)
+    chest = _measure_field("가슴둘레(cm)")
+    waist = _measure_field("허리둘레(cm)")
+    hip = _measure_field("엉덩이둘레(cm)")
+    thigh = _measure_field("허벅지둘레(cm)")
+    calf = _measure_field("종아리둘레(cm)")
+    arm = _measure_field("팔뚝둘레(cm)")
+    shoulder = _measure_field("어깨너비(cm)")
+
+    created_at = models.DateTimeField("생성 시각", auto_now_add=True)
+    updated_at = models.DateTimeField("수정 시각", auto_now=True)
+
+    class Meta:
+        db_table = "body_measurements"
+        verbose_name = "신체치수"
+        verbose_name_plural = "신체치수"
+
+    def __str__(self) -> str:
+        return f"{self.user_id}의 신체치수"
+
+
+class BodyPhotoTransaction(models.Model):
+    """사진 기반 신체치수 측정 트랜잭션.
+
+    사진 등록 API가 접수 시 '진행중'으로 생성하고, 비동기 측정이 끝나면
+    성공/실패로 갱신한다. 사용자당 진행중 트랜잭션은 1건만 허용한다
+    (부분 유니크 제약 — 동시 요청 경합도 DB에서 차단).
+    """
+
+    class Status(models.TextChoices):
+        IN_PROGRESS = "in_progress", "진행중"
+        SUCCEEDED = "succeeded", "성공"
+        FAILED = "failed", "실패"
+
+    # 외부(프론트)에 노출되는 식별자라 순번 노출이 없는 UUID를 쓴다.
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    user = models.ForeignKey(
+        User, on_delete=models.CASCADE, related_name="body_photo_transactions"
+    )
+    status = models.CharField(
+        "상태", max_length=20, choices=Status.choices, default=Status.IN_PROGRESS
+    )
+    created_at = models.DateTimeField("생성 시각", auto_now_add=True)
+    updated_at = models.DateTimeField("수정 시각", auto_now=True)
+
+    class Meta:
+        db_table = "body_photo_transactions"
+        verbose_name = "사진 측정 트랜잭션"
+        verbose_name_plural = "사진 측정 트랜잭션"
+        constraints = [
+            models.UniqueConstraint(
+                fields=["user"],
+                condition=models.Q(status="in_progress"),
+                name="uq_body_photo_tx_in_progress",
+            )
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.id} ({self.status})"

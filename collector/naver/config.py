@@ -60,6 +60,17 @@ OPENAI_MODEL = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
 #   never  - 텍스트만 사용
 LLM_IMAGE_MODE = os.getenv("NAVER_LLM_IMAGE_MODE", "auto").lower()
 LLM_MAX_RETRIES = int(os.getenv("NAVER_LLM_MAX_RETRIES", "2"))
+
+# 태깅 모드:
+#   sync  - 수집 중 상품별 실시간 태깅 (기존 방식)
+#   batch - 수집은 pending으로 저장 후 OpenAI Batch API로 태깅 (비용 50% 절감, 최대 24h 지연)
+TAGGING_MODE = os.getenv("NAVER_TAGGING_MODE", "batch").lower()
+BATCH_MAX_REQUESTS = int(os.getenv("NAVER_BATCH_MAX_REQUESTS", "10000"))  # 배치당 요청 수 (API 한도 50,000)
+BATCH_COMPLETION_WINDOW = os.getenv("NAVER_BATCH_COMPLETION_WINDOW", "24h")
+BATCH_POLL_SECONDS = int(os.getenv("NAVER_BATCH_POLL_SECONDS", "600"))  # 스케줄러의 배치 상태 확인 주기
+# Batch는 조건부 이미지 재시도가 불가능하므로 이미지 포함 여부를 고정한다.
+# gpt-4o-mini는 이미지 토큰 과금이 커서 기본 false (텍스트만).
+BATCH_INCLUDE_IMAGE = os.getenv("NAVER_BATCH_INCLUDE_IMAGE", "false").lower() in {"1", "true", "yes"}
 LLM_TEMPERATURE = float(os.getenv("NAVER_LLM_TEMPERATURE", "0.1"))
 
 # ------------------------------------------------------------

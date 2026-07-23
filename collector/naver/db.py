@@ -124,6 +124,120 @@ def upsert_products(conn, rows: Sequence[Tuple[Any, ...]]) -> int:
     return len(rows)
 
 
+# ------------------------------------------------------------
+# Batch API 태깅 지원
+# tagging_status 흐름: pending → queued(배치 제출됨) → tagged | failed
+# ------------------------------------------------------------
+
+
+def fetch_pending_products(conn, limit: int) -> list[dict]:
+    """배치 태깅 대상(pending) 상품 조회."""
+    sql = """
+    SELECT id, title, image_url,
+           naver_category1, naver_category2, naver_category3, naver_category4,
+           category_large, category_small
+    FROM naver_product
+    WHERE tagging_status = 'pending'
+    ORDER BY id
+    LIMIT %s
+    """
+    with conn.cursor() as cur:
+        cur.execute(sql, (limit,))
+        col_names = [desc[0] for desc in cur.description]
+        return [dict(zip(col_names, row)) for row in cur.fetchall()]
+
+
+def set_products_tagging_status(conn, product_ids: list[int], status: str) -> None:
+    if not product_ids:
+        return
+    with conn.cursor() as cur:
+        cur.execute(
+            "UPDATE naver_product SET tagging_status = %s, updated_at = NOW() WHERE id = ANY(%s)",
+            (status, product_ids),
+        )
+    conn.commit()
+
+
+def reset_orphan_queued_products(conn) -> int:
+    """진행 중 배치가 하나도 없을 때, queued로 남은 상품을 pending으로 되돌린다."""
+    with conn.cursor() as cur:
+        cur.execute(
+            """
+            UPDATE naver_product SET tagging_status = 'pending', updated_at = NOW()
+            WHERE tagging_status = 'queued'
+              AND NOT EXISTS (
+                  SELECT 1 FROM naver_tagging_batch
+                  WHERE status IN ('submitted', 'validating', 'in_progress', 'finalizing')
+              )
+            """
+        )
+        count = cur.rowcount
+    conn.commit()
+    return count
+
+
+def insert_tagging_batch(
+    conn, batch_id: str, model: str, request_count: int, include_image: bool, input_file_id: str
+) -> None:
+    with conn.cursor() as cur:
+        cur.execute(
+            """
+            INSERT INTO naver_tagging_batch
+                (batch_id, status, model, request_count, include_image, input_file_id)
+            VALUES (%s, 'submitted', %s, %s, %s, %s)
+            """,
+            (batch_id, model, request_count, include_image, input_file_id),
+        )
+    conn.commit()
+
+
+def fetch_open_tagging_batches(conn) -> list[dict]:
+    sql = """
+    SELECT id, batch_id, model, request_count, include_image
+    FROM naver_tagging_batch
+    WHERE status IN ('submitted', 'validating', 'in_progress', 'finalizing')
+    ORDER BY id
+    """
+    with conn.cursor() as cur:
+        cur.execute(sql)
+        col_names = [desc[0] for desc in cur.description]
+        return [dict(zip(col_names, row)) for row in cur.fetchall()]
+
+
+def update_tagging_batch(
+    conn,
+    batch_id: str,
+    status: str,
+    output_file_id: str | None = None,
+    error_file_id: str | None = None,
+    error: str | None = None,
+    completed: bool = False,
+) -> None:
+    sql = """
+    UPDATE naver_tagging_batch SET
+        status = %s,
+        output_file_id = COALESCE(%s, output_file_id),
+        error_file_id = COALESCE(%s, error_file_id),
+        error = COALESCE(%s, error),
+        completed_at = CASE WHEN %s THEN NOW() ELSE completed_at END,
+        updated_at = NOW()
+    WHERE batch_id = %s
+    """
+    with conn.cursor() as cur:
+        cur.execute(sql, (status, output_file_id, error_file_id, error, completed, batch_id))
+    conn.commit()
+
+
+def fetch_products_by_ids(conn, product_ids: list[int]) -> dict[int, dict]:
+    """배치 결과 반영 시 규칙 추출 재계산용."""
+    if not product_ids:
+        return {}
+    sql = "SELECT id, title FROM naver_product WHERE id = ANY(%s)"
+    with conn.cursor() as cur:
+        cur.execute(sql, (product_ids,))
+        return {row[0]: {"id": row[0], "title": row[1]} for row in cur.fetchall()}
+
+
 def fetch_products_for_retag(conn, limit: int = 500) -> list[dict]:
     """태깅 실패/미완료 상품 조회 (--job retag 용)."""
     sql = """
