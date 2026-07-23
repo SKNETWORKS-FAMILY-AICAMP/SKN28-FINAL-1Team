@@ -86,8 +86,7 @@ export type CategoryKey =
   | 'necklines'
   | 'sleeves'
   | 'top_fits'
-  | 'top_lengths'
-  | 'occasions';
+  | 'top_lengths';
 
 export const CATEGORY_TITLES: Record<CategoryKey, string> = {
   seasons: '계절',
@@ -101,7 +100,6 @@ export const CATEGORY_TITLES: Record<CategoryKey, string> = {
   sleeves: '소매',
   top_fits: '상의 핏',
   top_lengths: '상의 기장',
-  occasions: '상황',
 };
 
 /**
@@ -236,23 +234,6 @@ export const CATEGORY_OPTIONS: Record<CategoryKey, PreferenceOption[]> = {
     { code: 'regular', label: '레귤러', icon: RegularLengthIcon },
     { code: 'long', label: '롱', icon: LongLengthIcon },
   ],
-  occasions: [
-    { code: 'daily', label: '데일리' },
-    { code: 'homewear', label: '홈웨어' },
-    { code: 'party', label: '파티' },
-    { code: 'clubwear', label: '클럽룩' },
-    { code: 'guest', label: '하객룩' },
-    { code: 'work', label: '출근룩' },
-    { code: 'travel', label: '여행' },
-    { code: 'outdoor', label: '아웃도어' },
-    { code: 'sports', label: '운동' },
-    { code: 'wedding', label: '웨딩' },
-    { code: 'water_festival', label: '워터 페스티벌' },
-    { code: 'resort', label: '휴양지' },
-    { code: 'interview', label: '면접' },
-    { code: 'christmas', label: '크리스마스' },
-    { code: 'body_profile', label: '바디프로필' },
-  ],
 };
 
 export const CATEGORY_ORDER: CategoryKey[] = [
@@ -267,5 +248,4 @@ export const CATEGORY_ORDER: CategoryKey[] = [
   'pants_lengths',
   'skirt_lengths',
   'skirt_types',
-  'occasions',
 ];
