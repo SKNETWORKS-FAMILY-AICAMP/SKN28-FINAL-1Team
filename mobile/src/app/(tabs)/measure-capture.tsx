@@ -79,7 +79,7 @@ export default function MeasureCapture() {
                   </View>
                   <Text style={styles.slotLabel}>{k === 'front' ? '정면' : '측면'}</Text>
                   <Text style={[styles.slotState, done && styles.slotStateDone]}>
-                    {done ? '촬영 완료' : '탭하여 촬영'}
+                    {done ? '첨부 완료' : '탭하여 첨부'}
                   </Text>
                 </Pressable>
               );
