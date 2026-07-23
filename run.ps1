@@ -5,4 +5,8 @@ infisical export --env=dev --output-file=./.env
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
 # 2단계: Docker Compose 실행 (.env를 읽어 컨테이너에 주입)
-docker compose -f docker-compose.yml -f docker-compose.swagger.yml --profile all up -d --build
+# Swagger/noauth 모드는 별도 compose 파일 없이 .env의 DJANGO_SETTINGS_MODULE로 제어한다
+# (config.settings.swagger / config.settings.swagger_noauth).
+# -f를 생략하면 compose가 docker-compose.yml과 (있을 경우) 개인 로컬 설정용
+# docker-compose.override.yml(gitignored)을 자동 병합한다.
+docker compose --profile all up -d --build

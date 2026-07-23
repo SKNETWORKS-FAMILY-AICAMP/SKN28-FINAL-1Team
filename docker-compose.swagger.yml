@@ -1,10 +1,11 @@
-services:
-  db:
-    ports: !reset []
-
-  api:
-    build:
-      context: ./api
-      dockerfile: Dockerfile.swagger
-    environment:
-      DJANGO_SETTINGS_MODULE: config.settings.swagger
+# ============================================================
+# DEPRECATED — docker-compose.yml에 병합됨 (2026-07-23).
+#
+# Swagger/noauth 모드는 이제 .env의 DJANGO_SETTINGS_MODULE로 제어한다:
+#   config.settings.swagger / config.settings.swagger_noauth
+#
+# 이 파일과 api/Dockerfile.swagger는 삭제 예정이다:
+#   git rm docker-compose.swagger.yml api/Dockerfile.swagger
+# 구 명령(-f docker-compose.swagger.yml)이 남아 있어도 아무것도 덮어쓰지 않는다.
+# ============================================================
+services: {}
