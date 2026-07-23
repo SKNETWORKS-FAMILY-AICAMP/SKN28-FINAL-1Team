@@ -161,3 +161,95 @@ class BodyPhotoTransaction(models.Model):
 
     def __str__(self) -> str:
         return f"{self.id} ({self.status})"
+    
+
+class PreferenceOption(models.Model):
+    """옵션 마스터. 11개 카테고리 X N개 옵션. 
+    
+    카테고리별로 (category, code) 조합이 유일. 
+    label은 화면에 보일 한글 이름. 
+    meta에는 색상 hex, 아이콘 이름 등 부가 정보를 JSON으로 저장.
+    """
+
+    # 화면 카테고리 순서 (프론트 정의 순서와 일치)
+    CATEGORY_CHOICES = [
+        ("seasons", "계절"),
+        ("styles", "스타일"),
+        ("colors", "색상"),
+        ("necklines", "넥라인"),
+        ("top_fits", "상의핏"),
+        ("top_lengths", "상의기장"),
+        ("sleeves", "소매길이"),
+        ("pants_fits", "팬츠핏"),
+        ("pants_lengths", "팬츠기장"),
+        ("skirt_lengths", "스커트기장"),
+        ("skirt_types", "스커트타입"),
+    ]
+
+    category = models.CharField("카테고리", max_length=50, choices=CATEGORY_CHOICES)
+    code = models.CharField("옵션 코드", max_length=50)
+    label = models.CharField("라벨", max_length=50)
+    order = models.PositiveIntegerField("정렬 순서", default=0)
+    meta = models.JSONField("메타데이터", default=dict, blank=True)
+    # meta(색상) 예: {"color_hex": "#000000"} for colors, {} for others
+
+    created_at = models.DateTimeField("생성 시각", auto_now_add=True)
+    updated_at = models.DateTimeField("수정 시각", auto_now=True)
+
+    class Meta:
+        db_table = "preference_options"
+        verbose_name = "선호도 옵션"
+        verbose_name_plural = "선호도 옵션"
+        constraints = [
+            models.UniqueConstraint(
+                fields=["category", "code"],
+                name="uq_preference_option_category_code",
+            )
+        ]
+        ordering = ["category", "order", "id"]
+
+    def __str__(self) -> str:
+        return f"[{self.category}] {self.label} ({self.code})"
+
+
+class Pursuit(models.Model):
+    """사용자 스타일 선호/기피. 1행 = 1 user.
+
+    payload 구조 (JSONField 한 컬럼에 통째로):
+        {
+            "preferred": {
+                "seasons": ["spring"],
+                "styles": ["minimal", "casual"],
+                "colors": ["black", "navy"],
+                ...
+            },
+            "avoided": {
+                "seasons": [],
+                "styles": [],
+                ...
+            }
+        }
+
+    각 카테고리 키는 PreferenceOption.CATEGORY_CHOICES 와 일치해야 함.
+    """
+
+    user = models.OneToOneField(
+        User,
+        on_delete=models.CASCADE,
+        related_name="pursuit",
+    )
+
+    payload = models.JSONField("선호/기피 데이터", default=dict, blank=True)
+    # 빈 payload는 {"preferred": {}, "avoided": {}} 형태로 normalize.
+
+    created_at = models.DateTimeField("생성 시각", auto_now_add=True)
+    updated_at = models.DateTimeField("수정 시각", auto_now=True)
+
+    class Meta:
+        db_table = "pursuits"
+        verbose_name = "추구미"
+        verbose_name_plural = "추구미"
+
+    def __str__(self) -> str:
+        return f"{self.user_id}의 추구미"
+    

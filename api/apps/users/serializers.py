@@ -1,8 +1,11 @@
 from rest_framework import serializers
 
+from apps.users.constants import PREFERENCE_CATEGORIES, category_keys
 from apps.users.models import (
     BodyMeasurement,
     BodyPhotoTransaction,
+    PreferenceOption,
+    Pursuit,
     SocialAccount,
     User,
 )
@@ -135,3 +138,106 @@ class BodyPhotoTransactionSerializer(serializers.ModelSerializer):
         model = BodyPhotoTransaction
         fields = ["transaction_id", "status", "created_at", "updated_at"]
         read_only_fields = fields
+
+
+
+# 추구미 (Pursuit) — 옵션 마스터 / 사용자 선택
+
+class PreferenceOptionItemSerializer(serializers.Serializer):
+    """개별 옵션 1개. DB 모델과 1:1 매핑되지 않는 가벼운 serializer."""
+
+    code = serializers.CharField()
+    label = serializers.CharField()
+    meta = serializers.JSONField(required=False, default=dict)
+
+
+class PreferenceCategorySerializer(serializers.Serializer):
+    """카테고리 1개 — key/label/options 묶음.
+
+    GET /api/v1/preference-options/ 응답에 들어가는 한 카테고리 단위.
+    """
+
+    key = serializers.CharField()
+    label = serializers.CharField()
+    options = PreferenceOptionItemSerializer(many=True)
+
+
+def _build_pursuit_payload_field(*, required: bool) -> serializers.DictField:
+    """preferred/avoided 페이로드 필드 빌더.
+
+    PREFERENCE_CATEGORIES 11개 키에 대해 각 키가 ListField(str, allow_empty=True).
+    required 인자에 따라 입력 검증(required) 또는 응답(read_only) 형태로 사용.
+    """
+    child = serializers.ListField(
+        child=serializers.CharField(allow_blank=False),
+        allow_empty=True,
+    )
+    fields = {key: child for key, _ in PREFERENCE_CATEGORIES}
+    # DRF는 `required=True` + `default=...` 동시 지정 불가.
+    # → required 케이스에서 default 키워드 자체를 넘기지 말아야 함.
+    if required:
+        return serializers.DictField(child=child, required=True)
+    return serializers.DictField(child=child, required=False, default=dict)
+
+
+class PursuitPayloadInputSerializer(serializers.Serializer):
+    """PUT /api/v1/users/me/pursuit/ 요청 바디.
+
+    preferred/avoided 두 그룹.
+    각 그룹은 PREFERENCE_CATEGORIES 11개 키 모두 가져야 함.
+    각 값은 선택된 옵션 code 배열 (빈 배열 허용).
+    """
+
+    preferred = _build_pursuit_payload_field(required=True)
+    avoided = _build_pursuit_payload_field(required=True)
+
+    def validate_preferred(self, value):
+        # 11개 카테고리 키 모두 있어야 함
+        return self._validate_payload_group(value, "preferred")
+
+    def validate_avoided(self, value):
+        return self._validate_payload_group(value, "avoided")
+
+    @staticmethod
+    def _validate_payload_group(value: dict, group_name: str) -> dict:
+        expected = set(category_keys())
+        given = set(value.keys() if isinstance(value, dict) else [])
+        missing = expected - given
+        extra = given - expected
+        if missing:
+            raise serializers.ValidationError(
+                f"{group_name}에 누락된 카테고리: {sorted(missing)}"
+            )
+        if extra:
+            # 알 수 없는 카테고리는 무시보다 명시적 에러가 안전
+            raise serializers.ValidationError(
+                f"{group_name}에 알 수 없는 카테고리: {sorted(extra)}"
+            )
+        # 각 카테고리는 배열 + 문자열만
+        cleaned: dict = {}
+        for key in category_keys():
+            arr = value.get(key, [])
+            if not isinstance(arr, list):
+                raise serializers.ValidationError(
+                    f"{group_name}.{key} 은(는) 배열이어야 합니다."
+                )
+            for v in arr:
+                if not isinstance(v, str):
+                    raise serializers.ValidationError(
+                        f"{group_name}.{key} 의 원소는 문자열이어야 합니다: {v!r}"
+                    )
+            # 중복 제거 + 입력 순서 유지
+            cleaned[key] = list(dict.fromkeys(arr))
+        return cleaned
+
+
+class PursuitPayloadResponseSerializer(serializers.Serializer):
+    """GET /api/v1/users/me/style-preferences/ 응답.
+
+    preferred/avoided 두 그룹. 
+    각 그룹은 PREFERENCE_CATEGORIES 11개 키 모두 포함
+    (없는 카테고리는 빈 배열로 채워짐 — 응답 일관성).
+    """
+
+    preferred = _build_pursuit_payload_field(required=False)
+    avoided = _build_pursuit_payload_field(required=False)
