@@ -7,6 +7,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { Editorial, ink, Fonts , ContentMax} from '@/constants/theme';
 import { useBreakpoint } from '@/hooks/use-breakpoint';
+import { pickBodyPhoto } from '@/lib/pickItemPhoto';
 import { measureStore } from '@/state/measure';
 
 const INK = Editorial.ink;
@@ -62,10 +63,12 @@ export default function MeasureCapture() {
                 <Pressable
                   key={k}
                   style={styles.slot}
-                  onPress={() => {
+                  onPress={async () => {
+                    // 앨범에서 전신 사진 1장 선택 (웹은 파일 선택 창). 취소하면 무시.
+                    const uri = await pickBodyPhoto();
+                    if (!uri) return;
                     setShots((s) => ({ ...s, [k]: true }));
-                    // 실제 카메라 연동 전까지 mock URI 를 스토어에 기록
-                    measureStore.setPhoto(k, `mock://photo/${k}`);
+                    measureStore.setPhoto(k, uri);
                   }}>
                   <View style={styles.silhouette}>
                     <Icon
@@ -123,7 +126,7 @@ export default function MeasureCapture() {
             style={[styles.cta, !both && styles.ctaDisabled]}
             disabled={!both}
             onPress={() => {
-              measureStore.estimate(); // 추정 시작(비동기) — STEP3 가 결과를 구독
+              measureStore.startPhotoMeasurement(); // 사진 업로드→폴링 시작 — STEP3 가 결과를 구독
               router.push({
                 pathname: '/measure-result',
                 params: returnTo ? { returnTo } : undefined,

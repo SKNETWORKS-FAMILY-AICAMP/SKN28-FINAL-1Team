@@ -86,15 +86,19 @@ export async function apiFetch<T = unknown>(
 
   const token = auth ? await getAccessToken() : null;
 
+  // FormData(멀티파트 파일 업로드)면 JSON 직렬화하지 않고 Content-Type 도 직접 지정하지 않는다.
+  // (fetch 가 boundary 를 포함한 multipart/form-data 헤더를 자동으로 붙이게 둔다.)
+  const isFormData = typeof FormData !== 'undefined' && body instanceof FormData;
+
   const res = await fetch(`${API_BASE_URL}${path}`, {
     ...rest,
     headers: {
       Accept: 'application/json',
-      ...(body !== undefined ? { 'Content-Type': 'application/json' } : {}),
+      ...(body !== undefined && !isFormData ? { 'Content-Type': 'application/json' } : {}),
       ...(token ? { Authorization: `Bearer ${token}` } : {}),
       ...headers,
     },
-    body: body !== undefined ? JSON.stringify(body) : undefined,
+    body: body === undefined ? undefined : isFormData ? (body as FormData) : JSON.stringify(body),
   });
 
   // 401 → refresh 1회 시도 후 원요청 재시도

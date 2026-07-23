@@ -95,7 +95,11 @@ export default function MeasureResult() {
               />
             ) : (
               <LoadingState
-                message="입력 정보로 치수를 추정하고 있어요…"
+                message={
+                  photos.front && photos.side
+                    ? '사진으로 치수를 측정하고 있어요… (최대 1분)'
+                    : '입력 정보로 치수를 추정하고 있어요…'
+                }
                 style={styles.stateFill}
               />
             )}

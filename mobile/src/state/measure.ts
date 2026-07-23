@@ -1,7 +1,8 @@
 import { useSyncExternalStore } from 'react';
+import { Platform } from 'react-native';
 
 import { BodyEndpoints } from '@/constants/config';
-import { api } from '@/lib/apiClient';
+import { ApiError, api } from '@/lib/apiClient';
 
 /**
  * 체형측정 플로우(STEP1 입력 → STEP2 촬영 → STEP3 결과) 전역 상태.
@@ -13,9 +14,10 @@ import { api } from '@/lib/apiClient';
  *   - STEP1  "다음"  → PUT   /users/me/body/basic/  { height, weight }  (saveBasic)
  *   - 결과 진입      → GET   /users/me/body/  로 저장된 상세치수를 불러오고,
  *                      없으면 키·몸무게 기반 제안값(mock)을 초기값으로 보여준다 (estimate)
+ *   - STEP2  "측정 시작하기" → POST /body/photos/(multipart) → 트랜잭션 폴링 →
+ *              성공 시 GET /body/ 로 추론된 치수 로드 (startPhotoMeasurement)
  *   - STEP3  "완료"  → PATCH /users/me/body/detail/  로 수정한 둘레를 저장 (saveDetail)
- * 서버 저장은 best-effort — 실패해도 로컬 상태로 플로우는 계속되고, 화면이 토스트로 알린다.
- * 사진 업로드(POST /body/photos/ → 폴링)는 다음 단계에서 붙인다(현재 촬영 슬롯은 mock).
+ * basic/detail 저장은 best-effort — 실패해도 로컬 상태로 플로우는 계속되고, 화면이 토스트로 알린다.
  */
 
 export type Sex = 'female' | 'male' | 'none';
@@ -145,6 +147,46 @@ export async function fetchBodyBasic(): Promise<{
   return { height: toNum(dto.height), weight: toNum(dto.weight) };
 }
 
+// ── 사진 기반 측정 (POST photos → 폴링) ─────────────────────────
+type PhotoTxResponse = { transaction_id: string; status: string };
+
+const delay = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+/** FormData 파일 파트 추가 — 웹은 Blob, 네이티브는 {uri,name,type}. */
+async function appendImage(
+  form: FormData,
+  field: string,
+  uri: string,
+  name: string,
+): Promise<void> {
+  if (Platform.OS === 'web') {
+    const blob = await (await fetch(uri)).blob();
+    form.append(field, blob, name);
+  } else {
+    // RN 네이티브 FormData 파일 파트 형식
+    form.append(field, { uri, name, type: 'image/jpeg' } as unknown as Blob);
+  }
+}
+
+/** 정면·측면 사진을 multipart 로 업로드 → 측정 트랜잭션 생성(202). */
+async function uploadBodyPhotos(frontUri: string, sideUri: string): Promise<PhotoTxResponse> {
+  const form = new FormData();
+  await appendImage(form, 'front_image', frontUri, 'front.jpg');
+  await appendImage(form, 'side_image', sideUri, 'side.jpg');
+  return api.post<PhotoTxResponse>(BodyEndpoints.photos, form);
+}
+
+/** 측정 트랜잭션을 성공/실패까지 2초 간격 폴링 (최대 ~60초). 타임아웃은 실패로 본다. */
+async function pollTransaction(transactionId: string): Promise<'succeeded' | 'failed'> {
+  for (let i = 0; i < 30; i++) {
+    const tx = await api.get<PhotoTxResponse>(BodyEndpoints.photo(transactionId));
+    if (tx.status === 'succeeded') return 'succeeded';
+    if (tx.status === 'failed') return 'failed';
+    await delay(2000);
+  }
+  return 'failed';
+}
+
 export const measureStore = {
   subscribe(listener: () => void): () => void {
     listeners.add(listener);
@@ -213,6 +255,39 @@ export const measureStore = {
       setState({
         status: 'error',
         error: e instanceof Error ? e.message : '치수 추정에 실패했어요.',
+      });
+    }
+  },
+
+  /**
+   * STEP2 "측정 시작하기" — 정면·측면 사진 업로드 → 측정 트랜잭션 폴링 →
+   * 성공 시 백엔드가 채운 상세치수를 GET /body/ 로 불러온다.
+   * (백엔드 추론은 현재 10초 mock 이지만, 업로드·폴링 흐름은 실제로 동작한다.)
+   */
+  async startPhotoMeasurement(): Promise<void> {
+    const { front, side } = state.photos;
+    if (!front || !side) {
+      setState({ status: 'error', result: null, error: '정면·측면 사진이 모두 필요해요.' });
+      return;
+    }
+    setState({ status: 'loading', error: null, result: null });
+    try {
+      const tx = await uploadBodyPhotos(front, side);
+      const outcome = await pollTransaction(tx.transaction_id);
+      if (outcome !== 'succeeded') {
+        setState({ status: 'error', error: '사진 측정에 실패했어요. 다시 시도해주세요.' });
+        return;
+      }
+      // 추론된 상세치수를 불러온다. 비어 있는 값은 키·몸무게 기반 제안값으로 보완.
+      const measures = mergeMeasures(await fetchBody(), mockEstimate(state.input ?? DEFAULT_INPUT));
+      setState({
+        status: 'success',
+        result: { measures, sizes: mockSizes(measures.chest), usedPhotos: true },
+      });
+    } catch (e) {
+      setState({
+        status: 'error',
+        error: e instanceof ApiError ? e.message : '사진 측정에 실패했어요. 다시 시도해주세요.',
       });
     }
   },
