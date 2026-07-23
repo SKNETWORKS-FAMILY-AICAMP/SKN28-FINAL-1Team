@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import { router, usePathname } from 'expo-router';
 import { Tabs, TabList, TabTrigger, TabSlot, TabTriggerSlotProps } from 'expo-router/ui';
 import { Pressable, View, Text, StyleSheet } from 'react-native';
@@ -49,6 +50,18 @@ const HIDDEN_ROUTES = [
   { name: 'measure-result', href: '/measure-result', icon: 'ruler', label: '체형결과' },
 ] as const satisfies readonly { name: string; href: string; icon: IconName; label: string }[];
 
+/* 자체 하단 CTA(다음/저장 등)를 가진 전체화면 화면들. position:absolute 로 떠 있는
+   하단 탭바가 이 CTA를 가리므로, 본문(TabSlot) 아래에 탭바 높이만큼 여백을 줘서
+   CTA가 바 '위'로 올라오게 한다(탭바는 그대로 보인다). */
+const CTA_ROUTES = [
+  '/measure-input',
+  '/measure-capture',
+  '/measure-result',
+  '/style-onboarding',
+  '/personal-color',
+  '/budget',
+];
+
 /**
  * 탭 내비게이션 (웹).
  * 창 폭에 따라 하단 탭바(모바일) ↔ 좌측 사이드바(데스크톱)로 바뀐다.
@@ -60,6 +73,9 @@ const HIDDEN_ROUTES = [
 export default function AppTabs() {
   const { isDesktop, isWide } = useBreakpoint();
   const pathname = usePathname();
+  // 하단 CTA가 있는 화면에선 본문 아래에 탭바 높이만큼 여백을 줘 CTA를 바 위로 올린다.
+  const [barHeight, setBarHeight] = useState(0);
+  const liftCta = !isDesktop && CTA_ROUTES.includes(pathname);
   /* 채팅 패널을 띄우지 않는 화면:
      - 채팅 화면 자체(chat-room/chat-mode): 같은 대화가 두 벌로 보이게 된다.
      - 상세 화면(추천룩/가상피팅/아이템상세): 이 화면들은 그 자리를 아이템 2단 배치에 쓴다. */
@@ -90,7 +106,7 @@ export default function AppTabs() {
             ))}
           </Sidebar>
         ) : (
-          <BottomBar>
+          <BottomBar onLayout={(e) => setBarHeight(e.nativeEvent.layout.height)}>
             {TABS.slice(0, 2).map((t) => (
               <TabTrigger key={t.name} name={t.name} href={t.href} asChild>
                 <TabItem icon={t.icon} label={t.label} />
@@ -111,7 +127,9 @@ export default function AppTabs() {
           </BottomBar>
         )}
       </TabList>
-      <TabSlot style={styles.slot} />
+      <TabSlot
+        style={[styles.slot, liftCta && barHeight > 0 ? { paddingBottom: barHeight } : null]}
+      />
       {showChatPanel ? <ChatPanel /> : null}
     </Tabs>
   );
