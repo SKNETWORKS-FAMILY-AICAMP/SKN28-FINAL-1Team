@@ -1,5 +1,6 @@
 import { Icon } from '@/components/icon';
 import { router } from 'expo-router';
+import { useMemo, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
@@ -92,19 +93,55 @@ export default function HomeScreen() {
   );
 }
 
+type DisplayLook = { image?: string | null; asset?: number; comment: string; tags: string[] };
+
+/** '다른 룩' 순환용 대안 추천 — 오늘의 룩(API) 다음으로 돌아가며 보여준다(룩북 피드와 같은 사진 재사용). */
+const ALT_LOOKS: DisplayLook[] = [
+  {
+    image: 'https://i.pinimg.com/736x/55/26/0d/55260de328aec1e50740655fd4b5fdc5.jpg',
+    comment: '데이트에 어울리게 색을 절제한 부드러운 캐주얼로 골라봤어요.',
+    tags: ['#데이트', '#캐주얼'],
+  },
+  {
+    image: 'https://i.pinimg.com/736x/b4/cd/22/b4cd22015add333e10cd2ba06067406b.jpg',
+    comment: '나들이용으로 편하면서도 산뜻한 조합이에요.',
+    tags: ['#나들이', '#미니멀'],
+  },
+  {
+    image: 'https://i.pinimg.com/736x/ec/96/f3/ec96f39eb800d19290736c17f0253ed9.jpg',
+    comment: '일교차가 큰 날 가볍게 걸치기 좋은 레이어드 룩이에요.',
+    tags: ['#여행', '#캐주얼'],
+  },
+];
+
 /** 홈 본문 — 오늘의 룩 (데이터 로드 성공 시) */
 function HomeBody({ data }: { data: HomeData }) {
   const toast = useToast();
-  // 백엔드가 사진을 주면 그걸, 없으면 번들 목업을 쓴다(룩상세와 같은 사진).
-  const lookImageUri = data.today_look.image ?? null;
+  const [idx, setIdx] = useState(0);
 
-  // 오늘의 룩을 '저장됨'에 담고 룩북 저장됨 탭으로 이동한다.
-  const saveTodayLook = () => {
+  // 오늘의 룩(API)을 맨 앞에 두고 대안 룩을 이어 붙여 '다른 룩'으로 순환한다.
+  // 백엔드가 사진을 주면 그걸, 없으면 번들 목업(룩상세와 같은 사진)을 쓴다.
+  const looks = useMemo<DisplayLook[]>(
+    () => [
+      {
+        image: data.today_look.image ?? null,
+        asset: data.today_look.image ? undefined : TODAY_LOOK_IMAGE,
+        comment: data.today_look.comment,
+        tags: data.today_look.tags,
+      },
+      ...ALT_LOOKS,
+    ],
+    [data],
+  );
+  const look = looks[idx % looks.length];
+
+  // 지금 보고 있는 룩을 '저장됨'에 담고 룩북 저장됨 탭으로 이동한다.
+  const saveCurrentLook = () => {
     savedLookStore.addLook({
-      image: lookImageUri ?? undefined,
-      asset: lookImageUri ? undefined : TODAY_LOOK_IMAGE,
-      comment: data.today_look.comment,
-      tags: data.today_look.tags,
+      image: look.image ?? undefined,
+      asset: look.image ? undefined : look.asset,
+      comment: look.comment,
+      tags: look.tags,
     });
     toast('저장됨에 담았어요');
     router.push('/(tabs)/lookbook?tab=saved');
@@ -123,8 +160,8 @@ function HomeBody({ data }: { data: HomeData }) {
           </View>
           <Pressable onPress={() => router.push('/look-detail')}>
             <SmartImage
-              uri={lookImageUri}
-              asset={lookImageUri ? undefined : TODAY_LOOK_IMAGE}
+              uri={look.image}
+              asset={look.image ? undefined : look.asset}
               width="100%"
               aspectRatio={LOOK_IMAGE_RATIO}
               radius={0}
@@ -133,23 +170,23 @@ function HomeBody({ data }: { data: HomeData }) {
           </Pressable>
           <View style={styles.lookBody}>
             <Text style={styles.lookText} numberOfLines={2}>
-              {data.today_look.comment}
+              {look.comment}
             </Text>
             <ScrollView
               horizontal
               showsHorizontalScrollIndicator={false}
               contentContainerStyle={styles.tagRow}>
-              {data.today_look.tags.map((t) => (
+              {look.tags.map((t) => (
                 <View key={t} style={styles.tag}>
                   <Text style={styles.tagText}>{t}</Text>
                 </View>
               ))}
             </ScrollView>
             <View style={styles.lookButtons}>
-              <Pressable style={styles.saveBtn} onPress={saveTodayLook}>
+              <Pressable style={styles.saveBtn} onPress={saveCurrentLook}>
                 <Text style={styles.saveBtnText}>저장</Text>
               </Pressable>
-              <Pressable style={styles.altBtn}>
+              <Pressable style={styles.altBtn} onPress={() => setIdx((i) => i + 1)}>
                 <Text style={styles.altBtnText}>다른 룩</Text>
               </Pressable>
             </View>
