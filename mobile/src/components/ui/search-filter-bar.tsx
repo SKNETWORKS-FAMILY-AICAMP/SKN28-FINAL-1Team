@@ -24,8 +24,12 @@ type SearchFilterBarProps = {
   isActive: (option: string) => boolean;
   /** 검색행 오른쪽에 붙는 컨트롤 (예: 내 옷/공유 드롭다운) */
   trailing?: ReactNode;
+  /** 검색행과 카테고리 칩 사이에 끼우는 영역 (예: 둘러보기/저장됨 세그먼트) */
+  middle?: ReactNode;
   /** false면 검색·칩을 숨기고 trailing만 표시 */
   showFilters?: boolean;
+  /** 카테고리 칩 줄만 숨긴다(검색·middle은 유지) */
+  showChips?: boolean;
   /** 카테고리 편집 시트 열기 */
   onEditCategories?: () => void;
 };
@@ -38,7 +42,9 @@ export function SearchFilterBar({
   onToggle,
   isActive,
   trailing,
+  middle,
   showFilters = true,
+  showChips = true,
   onEditCategories,
 }: SearchFilterBarProps) {
   return (
@@ -63,7 +69,9 @@ export function SearchFilterBar({
         {trailing}
       </View>
 
-      {showFilters ? (
+      {middle}
+
+      {showFilters && showChips ? (
         <ScrollView
           horizontal
           showsHorizontalScrollIndicator={false}

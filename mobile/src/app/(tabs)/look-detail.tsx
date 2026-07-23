@@ -10,6 +10,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { Editorial, ink, Fonts } from '@/constants/theme';
 import { TODAY_LOOK_IMAGE } from '@/constants/look-images';
 import { TODAY_LOOK } from '@/constants/today-look';
+import { savedLookStore } from '@/state/saved';
 import { useBreakpoint } from '@/hooks/use-breakpoint';
 import { useHome } from '@/hooks/use-home';
 import { DetailTwoPane } from '@/components/detail-two-pane';
@@ -20,6 +21,9 @@ const BONE = Editorial.bone;
 
 // 구성 아이템 = 오늘의 룩 단일 출처. 가상피팅 화면과 같은 목록을 공유한다.
 const PIECES = TODAY_LOOK.pieces;
+
+/** 저장 시 태그 — 무드·상황 서브텍스트에서 뽑는다('미니멀 · 데일리' → ['미니멀','데일리']) */
+const LOOK_TAGS = TODAY_LOOK.subtitle.split('·').map((s) => s.trim()).filter(Boolean);
 
 const REASONS = [
   '연분홍 상의에 검정 하의를 더해 화사함과 차분함의 균형을 잡았어요.',
@@ -32,11 +36,31 @@ export default function LookDetail() {
   const { contentStyle, width } = useBreakpoint();
   // 2단(≥1280)일 땐 본문을 넓게, 세로로 쌓일 땐 좁게 잡아 사진·카드가 과하게 커지지 않게 한다.
   const maxW = width >= 1280 ? 960 : 720;
-  const [saved, setSaved] = useState(false);
+  const [saved, setSaved] = useState(() => savedLookStore.isSaved({ asset: TODAY_LOOK_IMAGE }));
   const [vote, setVote] = useState<'up' | 'down' | null>(null);
   const [openSlot, setOpenSlot] = useState<string | null>(null);
   const toast = useToast();
   const { budget } = usePrefs();
+
+  // 하트 = 저장 토글. 켜면 '저장됨'에 담고, 끄면 뺀다.
+  const toggleSave = () => {
+    if (saved) {
+      const found = savedLookStore.getLooks().find((l) => l.asset === TODAY_LOOK_IMAGE);
+      if (found) savedLookStore.removeLook(found.id);
+      setSaved(false);
+    } else {
+      savedLookStore.addLook({ asset: TODAY_LOOK_IMAGE, comment: TODAY_LOOK.title, tags: LOOK_TAGS });
+      setSaved(true);
+      toast('저장됨에 담았어요');
+    }
+  };
+
+  // 하단 '룩북에 저장' = 담고 룩북 저장됨 탭으로 이동.
+  const saveAndGoLookbook = () => {
+    savedLookStore.addLook({ asset: TODAY_LOOK_IMAGE, comment: TODAY_LOOK.title, tags: LOOK_TAGS });
+    setSaved(true);
+    router.push('/(tabs)/lookbook?tab=saved');
+  };
 
   /* 서브텍스트의 날씨는 홈과 같은 출처(useHome)에서 실시간 값을 가져와 통일한다.
      아직 안 불러왔거나 API 실패 시엔 날씨를 생략하고 무드·상황만 보여준다. */
@@ -55,7 +79,7 @@ export default function LookDetail() {
             <Icon name="chevron.left" tintColor={INK} size={20} />
           </Pressable>
           <Text style={styles.headerTitle}>추천 룩</Text>
-          <Pressable style={styles.headerRight} hitSlop={12} onPress={() => setSaved((s) => !s)}>
+          <Pressable style={styles.headerRight} hitSlop={12} onPress={toggleSave}>
             <Icon
               name={saved ? 'heart.fill' : 'heart'}
               tintColor={saved ? WINE : ink(0.5)}
@@ -234,12 +258,7 @@ export default function LookDetail() {
         <Pressable style={styles.altBtn} onPress={() => goBack('/(tabs)/lookbook')}>
           <Text style={styles.altText}>다른 룩</Text>
         </Pressable>
-        <Pressable
-          style={styles.saveBtn}
-          onPress={() => {
-            setSaved(true);
-            goBack('/(tabs)/lookbook');
-          }}>
+        <Pressable style={styles.saveBtn} onPress={saveAndGoLookbook}>
           <Icon name="bookmark.fill" tintColor="#fff" size={15} />
           <Text style={styles.saveText}>룩북에 저장</Text>
         </Pressable>

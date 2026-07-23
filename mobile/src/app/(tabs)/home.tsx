@@ -3,12 +3,13 @@ import { router } from 'expo-router';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-import { ErrorState, LoadingState, SmartImage } from '@/components/ui';
+import { ErrorState, LoadingState, SmartImage, useToast } from '@/components/ui';
 import { Editorial, ink, BottomTabInset, Fonts , ContentMax} from '@/constants/theme';
 import { TODAY_LOOK_IMAGE } from '@/constants/look-images';
 import { useBreakpoint } from '@/hooks/use-breakpoint';
 import { useHome, type HomeData, type HomeWeather } from '@/hooks/use-home';
 import { useAuth } from '@/state/auth';
+import { savedLookStore } from '@/state/saved';
 
 // ── 에디토리얼 본 팔레트 (라이트 고정) ──
 const INK = Editorial.ink;
@@ -93,8 +94,21 @@ export default function HomeScreen() {
 
 /** 홈 본문 — 오늘의 룩 (데이터 로드 성공 시) */
 function HomeBody({ data }: { data: HomeData }) {
+  const toast = useToast();
   // 백엔드가 사진을 주면 그걸, 없으면 번들 목업을 쓴다(룩상세와 같은 사진).
   const lookImageUri = data.today_look.image ?? null;
+
+  // 오늘의 룩을 '저장됨'에 담고 룩북 저장됨 탭으로 이동한다.
+  const saveTodayLook = () => {
+    savedLookStore.addLook({
+      image: lookImageUri ?? undefined,
+      asset: lookImageUri ? undefined : TODAY_LOOK_IMAGE,
+      comment: data.today_look.comment,
+      tags: data.today_look.tags,
+    });
+    toast('저장됨에 담았어요');
+    router.push('/(tabs)/lookbook?tab=saved');
+  };
 
   return (
     <View style={styles.lookSection}>
@@ -132,9 +146,7 @@ function HomeBody({ data }: { data: HomeData }) {
               ))}
             </ScrollView>
             <View style={styles.lookButtons}>
-              <Pressable
-                style={styles.saveBtn}
-                onPress={() => router.push('/look-detail')}>
+              <Pressable style={styles.saveBtn} onPress={saveTodayLook}>
                 <Text style={styles.saveBtnText}>저장</Text>
               </Pressable>
               <Pressable style={styles.altBtn}>

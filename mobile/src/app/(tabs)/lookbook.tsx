@@ -3,10 +3,10 @@ import { Icon } from '@/components/icon';
 import { useMultiSelectFilter } from '@/hooks/useMultiSelectFilter';
 import {
   LOOKBOOK_FILTER_OPTIONS,
-  type LookPost,
   useLookbook,
 } from '@/state/lookbook';
-import { router } from 'expo-router';
+import { useSavedLooks } from '@/state/saved';
+import { router, useLocalSearchParams } from 'expo-router';
 import { useMemo, useState } from 'react';
 import {
   Pressable,
@@ -26,15 +26,43 @@ const INK = Editorial.ink;
 const PAD = GridCard.pad;
 const DEFAULT_TAGS = [...LOOKBOOK_FILTER_OPTIONS];
 
-function matchesQuery(look: LookPost, query: string): boolean {
+/** 상단 세그먼트: 둘러보기(남들이 올린 피드) / 저장됨(내가 저장한 룩) */
+type Mode = 'browse' | 'saved';
+const TABS: { key: Mode; label: string }[] = [
+  { key: 'browse', label: '둘러보기' },
+  { key: 'saved', label: '저장됨' },
+];
+
+/** 그리드 카드 공통 형태 — 피드 룩(price 有)·저장 룩(asset 有) 모두 이 형태로 정규화 */
+type CardData = { id: string; uri?: string; asset?: number; price?: string };
+
+function matchesQuery(look: { tags: string[] }, query: string): boolean {
   const q = query.trim().toLocaleLowerCase();
   if (!q) return true;
   return look.tags.some((tag) => tag.toLocaleLowerCase().includes(q));
 }
 
-function matchesTags(look: LookPost, selected: string[]): boolean {
+function matchesTags(look: { tags: string[] }, selected: string[]): boolean {
   if (selected.length === 0) return true;
   return look.tags.some((tag) => selected.includes(tag));
+}
+
+function LookbookTabs({ mode, onChange }: { mode: Mode; onChange: (m: Mode) => void }) {
+  return (
+    <View style={styles.tabs}>
+      {TABS.map((t) => {
+        const on = mode === t.key;
+        return (
+          <Pressable
+            key={t.key}
+            style={[styles.tab, on && styles.tabOn]}
+            onPress={() => onChange(t.key)}>
+            <Text style={[styles.tabText, on && styles.tabTextOn]}>{t.label}</Text>
+          </Pressable>
+        );
+      })}
+    </View>
+  );
 }
 
 export default function LookbookScreen() {
@@ -43,21 +71,40 @@ export default function LookbookScreen() {
   const cardH = gridCardImageHeight(cardW);
 
   const allLooks = useLookbook();
+  const savedLooks = useSavedLooks();
+
+  // 홈 '저장' 등에서 ?tab=saved 로 진입하면 저장됨 탭이 열린다.
+  // 모드는 URL 파라미터에서 파생하고, 세그먼트 전환은 setParams 로 파라미터를 바꾼다
+  // (useState+useEffect 동기화는 불필요한 리렌더를 만들어 지양).
+  const { tab } = useLocalSearchParams<{ tab?: string }>();
+  const mode: Mode = tab === 'saved' ? 'saved' : 'browse';
+  const setMode = (m: Mode) => router.setParams({ tab: m });
+
   const [query, setQuery] = useState('');
   const [tags, setTags] = useState(DEFAULT_TAGS);
   const [editOpen, setEditOpen] = useState(false);
   const { toggle, isActive, selected, label, prune } = useMultiSelectFilter();
 
-  const looks = useMemo(
+  const feedLooks = useMemo(
     () => allLooks.filter((l) => matchesTags(l, selected) && matchesQuery(l, query)),
     [allLooks, selected, query],
   );
+  const savedFiltered = useMemo(
+    () => savedLooks.filter((l) => matchesQuery(l, query)),
+    [savedLooks, query],
+  );
+
+  const cards: CardData[] =
+    mode === 'browse'
+      ? feedLooks.map((l) => ({ id: l.id, uri: l.image, price: l.price }))
+      : savedFiltered.map((l) => ({ id: l.id, uri: l.image, asset: l.asset }));
 
   const emptyText = useMemo(() => {
     if (query.trim()) return `'${query.trim()}' 검색 결과가 없어요`;
+    if (mode === 'saved') return '아직 저장한 룩이 없어요';
     if (label !== '전체') return `'${label}' 태그 룩이 없어요`;
     return '아직 올린 룩이 없어요';
-  }, [query, label]);
+  }, [mode, query, label]);
 
   const handleSaveTags = (next: string[]) => {
     setTags(next);
@@ -75,7 +122,9 @@ export default function LookbookScreen() {
             options={tags}
             onToggle={toggle}
             isActive={isActive}
-            onEditCategories={() => setEditOpen(true)}
+            showChips={mode === 'browse'}
+            onEditCategories={mode === 'browse' ? () => setEditOpen(true) : undefined}
+            middle={<LookbookTabs mode={mode} onChange={setMode} />}
           />
         </View>
 
@@ -83,30 +132,37 @@ export default function LookbookScreen() {
           style={styles.gridScroll}
           showsVerticalScrollIndicator={false}
           contentContainerStyle={[styles.grid, contentStyle(ContentMax.wide)]}>
-          {looks.length === 0 ? (
+          {cards.length === 0 ? (
             <View style={styles.empty}>
               <Text style={styles.emptyText}>{emptyText}</Text>
-              <Pressable style={styles.emptyBtn} onPress={() => router.push('/look-add')}>
-                <Text style={styles.emptyBtnText}>첫 룩 올리기</Text>
-              </Pressable>
+              {mode === 'browse' ? (
+                <Pressable style={styles.emptyBtn} onPress={() => router.push('/look-add')}>
+                  <Text style={styles.emptyBtnText}>첫 룩 올리기</Text>
+                </Pressable>
+              ) : (
+                <Pressable style={styles.emptyBtn} onPress={() => router.push('/(tabs)/home')}>
+                  <Text style={styles.emptyBtnText}>오늘의 룩 저장하러 가기</Text>
+                </Pressable>
+              )}
             </View>
           ) : (
-            looks.map((lk) => (
+            cards.map((c) => (
               <Pressable
-                key={lk.id}
+                key={c.id}
                 style={[styles.card, { width: cardW }]}
                 onPress={() => router.push('/saved-look')}>
                 <View style={[styles.cardImage, { height: cardH }]}>
                   <SmartImage
-                    uri={lk.image}
+                    uri={c.uri}
+                    asset={c.uri ? undefined : c.asset}
                     width="100%"
                     height={cardH}
                     radius={GridCard.radius}
                     contentFit="cover"
                   />
-                  {lk.price ? (
+                  {c.price ? (
                     <View style={styles.priceBadge}>
-                      <Text style={styles.priceText}>{lk.price}</Text>
+                      <Text style={styles.priceText}>{c.price}</Text>
                     </View>
                   ) : null}
                 </View>
@@ -124,12 +180,14 @@ export default function LookbookScreen() {
           onSave={handleSaveTags}
         />
 
-        <Pressable
-          style={styles.addFab}
-          onPress={() => router.push('/look-add')}
-          accessibilityLabel="룩 올리기">
-          <Icon name="plus" tintColor={INK} size={22} />
-        </Pressable>
+        {mode === 'browse' ? (
+          <Pressable
+            style={styles.addFab}
+            onPress={() => router.push('/look-add')}
+            accessibilityLabel="룩 올리기">
+            <Icon name="plus" tintColor={INK} size={22} />
+          </Pressable>
+        ) : null}
       </SafeAreaView>
     </View>
   );
@@ -140,6 +198,19 @@ const styles = StyleSheet.create({
   safe: { flex: 1 },
 
   filterArea: { marginTop: 30 },
+
+  tabs: { flexDirection: 'row', gap: 8, paddingHorizontal: PAD, marginBottom: 16 },
+  tab: {
+    flex: 1,
+    height: 40,
+    borderRadius: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: Editorial.surface,
+  },
+  tabOn: { backgroundColor: INK },
+  tabText: { fontSize: 14, fontWeight: '600', color: ink(0.5) },
+  tabTextOn: { color: '#fff' },
 
   gridScroll: { flex: 1, marginTop: 8 },
   grid: {
