@@ -91,3 +91,12 @@ export const BodyEndpoints = {
   basic: '/api/v1/users/me/body/basic/',
   detail: '/api/v1/users/me/body/detail/',
 } as const;
+
+/**
+ * 추구미·선호도 (api/apps/users/urls.py 기준). JWT 필요.
+ *   GET /api/v1/users/me/pursuit/  → { preferred:{카테고리키:[code]}, avoided:{카테고리키:[code]} }
+ *   PUT /api/v1/users/me/pursuit/  같은 형식으로 통째로 저장(upsert, 전체 교체)
+ *   ⚠️ PUT 은 카테고리 키가 백엔드 PREFERENCE_CATEGORIES(11개)와 정확히 일치해야 통과한다.
+ *   ※ 옵션 목록(GET /api/v1/preference-options/)은 로컬 pursuit-options.ts 를 그대로 쓴다(프론트 기준).
+ */
+export const PursuitEndpoint = '/api/v1/users/me/pursuit/';
