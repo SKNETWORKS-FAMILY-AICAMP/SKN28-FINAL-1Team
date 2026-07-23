@@ -2,9 +2,9 @@ import { router } from 'expo-router';
 import { useEffect } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 
-import { ink, Fonts } from '@/constants/theme';
+import { Editorial, ink, Fonts } from '@/constants/theme';
 
-const INK = '#1c1917';
+const INK = Editorial.ink;
 
 // A1 스플래시 — 앱 첫 화면("/"). 1.6초 뒤 온보딩으로 (탭하면 바로 넘어감).
 // 데스크톱 웹 랜딩은 앱과 분리된 별도 라우트("/landing")다. 여기선 폭에 관계없이 앱을 띄운다.

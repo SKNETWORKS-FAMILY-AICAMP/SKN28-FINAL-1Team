@@ -4,11 +4,11 @@ import { goBack } from '@/lib/goBack';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-import { ink, ContentMax, Fonts } from '@/constants/theme';
+import { Editorial, ink, ContentMax, Fonts } from '@/constants/theme';
 import { useBreakpoint } from '@/hooks/use-breakpoint';
 
-const INK = '#1c1917';
-const WINE = '#5E2B2F';
+const INK = Editorial.ink;
+const WINE = Editorial.wine;
 
 type Mode = {
   key: string;

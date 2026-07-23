@@ -5,12 +5,12 @@ import { useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-import { ink, Fonts , ContentMax} from '@/constants/theme';
+import { Editorial, ink, Fonts , ContentMax} from '@/constants/theme';
 import { useBreakpoint } from '@/hooks/use-breakpoint';
 import { measureStore } from '@/state/measure';
 
-const INK = '#1c1917';
-const BONE = '#eae0d3';
+const INK = Editorial.ink;
+const BONE = Editorial.bone;
 
 function Steps({ active }: { active: number }) {
   return (
@@ -177,7 +177,7 @@ const styles = StyleSheet.create({
   slotStateDone: { color: INK, fontWeight: '500' },
 
   sectionTitle: { fontSize: 13, fontWeight: '600', color: INK, marginTop: 30, marginBottom: 12 },
-  guideCard: { backgroundColor: '#fcffff', borderRadius: 16, padding: 8 },
+  guideCard: { backgroundColor: Editorial.surfaceSoft, borderRadius: 16, padding: 8 },
   guideRow: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingHorizontal: 8, paddingVertical: 10 },
   guideIcon: {
     width: 32,

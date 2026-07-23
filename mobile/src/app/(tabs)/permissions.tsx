@@ -4,10 +4,10 @@ import { useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Switch, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-import { ink, Fonts , ContentMax} from '@/constants/theme';
+import { Editorial, ink, Fonts , ContentMax} from '@/constants/theme';
 import { useBreakpoint } from '@/hooks/use-breakpoint';
 
-const INK = '#1c1917';
+const INK = Editorial.ink;
 
 type Key = 'location' | 'photo' | 'notification';
 const PERMS: {
@@ -142,13 +142,13 @@ const styles = StyleSheet.create({
     width: 40,
     height: 40,
     borderRadius: 12,
-    backgroundColor: '#faf6f0',
+    backgroundColor: Editorial.surface,
     alignItems: 'center',
     justifyContent: 'center',
   },
   cardTitleWrap: { flex: 1 },
   cardTitle: { fontSize: 15, fontWeight: '600', color: INK },
-  req: { fontSize: 11, fontWeight: '500', color: '#5E2B2F' },
+  req: { fontSize: 11, fontWeight: '500', color: Editorial.wine },
   opt: { fontSize: 11, fontWeight: '500', color: ink(0.35) },
   purpose: { fontSize: 13, color: ink(0.55), lineHeight: 19 },
   keepRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },

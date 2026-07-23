@@ -1,4 +1,4 @@
-import { ink } from '@/constants/theme';
+import { Editorial, ink } from '@/constants/theme';
 import { Icon } from '@/components/icon';
 import { useRef, useState, type ReactNode } from 'react';
 import {
@@ -11,7 +11,7 @@ import {
   View,
 } from 'react-native';
 
-const INK = '#1c1917';
+const INK = Editorial.ink;
 const PAD = 20;
 const DROP_W = 140;
 
@@ -182,7 +182,7 @@ const styles = StyleSheet.create({
     height: 44,
     paddingHorizontal: 14,
     borderRadius: 12,
-    backgroundColor: '#faf6f0',
+    backgroundColor: Editorial.surface,
   },
   searchBarSpacer: { flex: 1 },
   searchInput: {
@@ -258,6 +258,6 @@ const styles = StyleSheet.create({
     borderColor: ink(0.12),
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: '#faf6f0',
+    backgroundColor: Editorial.surface,
   },
 });

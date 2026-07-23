@@ -1,10 +1,10 @@
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-import { ink, Fonts } from '@/constants/theme';
+import { Editorial, ink, Fonts } from '@/constants/theme';
 
 // 에디토리얼 본 팔레트 (라이트 고정)
-const INK = '#1c1917';
+const INK = Editorial.ink;
 
 export type StubAction = {
   label: string;

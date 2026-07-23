@@ -12,10 +12,10 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { SmartImage } from '@/components/ui';
-import { ink, Fonts } from '@/constants/theme';
+import { Editorial, ink, Fonts } from '@/constants/theme';
 import { useBreakpoint } from '@/hooks/use-breakpoint';
 
-const INK = '#1c1917';
+const INK = Editorial.ink;
 
 const VISUAL_H = 320;
 

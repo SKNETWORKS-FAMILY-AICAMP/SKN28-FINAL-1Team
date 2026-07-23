@@ -12,11 +12,11 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { ErrorState, LoadingState } from '@/components/ui';
-import { ink, Fonts , ContentMax} from '@/constants/theme';
+import { Editorial, ink, Fonts , ContentMax} from '@/constants/theme';
 import { useBreakpoint } from '@/hooks/use-breakpoint';
 import { measureStore, useMeasure } from '@/state/measure';
 
-const INK = '#1c1917';
+const INK = Editorial.ink;
 
 function Steps({ active }: { active: number }) {
   return (

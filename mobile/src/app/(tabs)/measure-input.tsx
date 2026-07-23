@@ -11,12 +11,12 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-import { ink, Fonts , ContentMax} from '@/constants/theme';
+import { Editorial, ink, Fonts , ContentMax} from '@/constants/theme';
 import { useBreakpoint } from '@/hooks/use-breakpoint';
 import { measureStore } from '@/state/measure';
 
-const INK = '#1c1917';
-const WINE = '#5E2B2F';
+const INK = Editorial.ink;
+const WINE = Editorial.wine;
 
 function Steps({ active }: { active: number }) {
   return (
@@ -193,7 +193,7 @@ const styles = StyleSheet.create({
 
   bmiValue: { flex: 1, fontFamily: Fonts.serif, fontSize: 26, color: ink(0.9) },
   bmiTag: {
-    backgroundColor: '#f3e4de',
+    backgroundColor: Editorial.accent,
     paddingHorizontal: 10,
     paddingVertical: 4,
     borderRadius: 999,

@@ -7,14 +7,14 @@ import { useEffect, useRef, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-import { ink, Fonts } from '@/constants/theme';
+import { Editorial, ink, Fonts } from '@/constants/theme';
 import { FITTING_RESULT_IMAGE } from '@/constants/look-images';
 import { TODAY_LOOK } from '@/constants/today-look';
 import { useBreakpoint } from '@/hooks/use-breakpoint';
 import { DetailTwoPane } from '@/components/detail-two-pane';
 
-const INK = '#1c1917';
-const BONE = '#eae0d3';
+const INK = Editorial.ink;
+const BONE = Editorial.bone;
 /** 생성 캔버스 배경 — 기존 BONE(진한 베이지)이 무거워, 훨씬 연한 크림으로 둔다. */
 const CANVAS = '#f5f1ea';
 
@@ -187,7 +187,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 10,
     marginTop: 18,
-    backgroundColor: '#fcffff',
+    backgroundColor: Editorial.surfaceSoft,
     borderRadius: 14,
     paddingHorizontal: 16,
     paddingVertical: 14,

@@ -5,13 +5,13 @@ import { goBack } from '@/lib/goBack';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-import { ink, Fonts } from '@/constants/theme';
+import { Editorial, ink, Fonts } from '@/constants/theme';
 import { useBreakpoint } from '@/hooks/use-breakpoint';
 import { DetailTwoPane } from '@/components/detail-two-pane';
 
-const INK = '#1c1917';
-const BONE = '#eae0d3';
-const WINE = '#5E2B2F';
+const INK = Editorial.ink;
+const BONE = Editorial.bone;
+const WINE = Editorial.wine;
 
 const SPECS = [
   { label: '색상', value: '아이보리' },
@@ -197,7 +197,7 @@ const styles = StyleSheet.create({
   wearRow: { flexDirection: 'row', gap: 10 },
   wearTile: {
     flex: 1,
-    backgroundColor: '#fcffff',
+    backgroundColor: Editorial.surfaceSoft,
     borderRadius: 14,
     paddingHorizontal: 16,
     paddingVertical: 16,
@@ -211,7 +211,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 9,
     marginTop: 12,
-    backgroundColor: '#f3e4de',
+    backgroundColor: Editorial.accent,
     borderRadius: 14,
     paddingHorizontal: 14,
     paddingVertical: 13,
@@ -220,7 +220,7 @@ const styles = StyleSheet.create({
 
   tags: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
   tag: {
-    backgroundColor: '#faf6f0',
+    backgroundColor: Editorial.surface,
     borderRadius: 999,
     paddingHorizontal: 13,
     paddingVertical: 7,

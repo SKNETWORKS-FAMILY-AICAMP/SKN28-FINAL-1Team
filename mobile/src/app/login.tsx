@@ -15,13 +15,13 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-import { ink, Fonts , ContentMax} from '@/constants/theme';
+import { Editorial, ink, Fonts , ContentMax} from '@/constants/theme';
 import { useBreakpoint } from '@/hooks/use-breakpoint';
 import { useSocialLogin } from '@/hooks/use-social-login';
 import type { SocialLoginResult } from '@/lib/socialLogin';
 
-const INK = '#1c1917';
-const KAKAO = '#FEE500';
+const INK = Editorial.ink;
+const KAKAO = Editorial.kakao;
 const NAVER = '#03C75A';
 
 // A3 로그인 — "로그인"/소셜 누르면 앱(홈 탭)으로 진입

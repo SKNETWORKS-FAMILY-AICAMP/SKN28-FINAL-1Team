@@ -4,11 +4,11 @@ import { goBack } from '@/lib/goBack';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-import { ink, Fonts , ContentMax} from '@/constants/theme';
+import { Editorial, ink, Fonts , ContentMax} from '@/constants/theme';
 import { useBreakpoint } from '@/hooks/use-breakpoint';
 
-const INK = '#1c1917';
-const BONE = '#eae0d3';
+const INK = Editorial.ink;
+const BONE = Editorial.bone;
 
 const PIECES = [
   { slot: '상의', name: '크림 울 니트', tone: 0.06 },
@@ -165,7 +165,7 @@ const styles = StyleSheet.create({
   pieceSlot: { fontSize: 10, color: ink(0.4), position: 'absolute', left: 56, top: 8 },
   pieceName: { flex: 1, fontSize: 12.5, fontWeight: '500', color: ink(0.85), marginTop: 12 },
 
-  reasonCard: { backgroundColor: '#fcffff', borderRadius: 16, padding: 16 },
+  reasonCard: { backgroundColor: Editorial.surfaceSoft, borderRadius: 16, padding: 16 },
   reasonText: { fontSize: 13.5, color: ink(0.7), lineHeight: 21 },
 
   memoCard: {
@@ -179,7 +179,7 @@ const styles = StyleSheet.create({
   memoEdit: { position: 'absolute', top: 12, right: 12 },
 
   tags: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 18 },
-  tag: { backgroundColor: '#faf6f0', borderRadius: 999, paddingHorizontal: 13, paddingVertical: 7 },
+  tag: { backgroundColor: Editorial.surface, borderRadius: 999, paddingHorizontal: 13, paddingVertical: 7 },
   tagText: { fontSize: 12.5, color: ink(0.6), fontWeight: '500' },
 
   bottomDivider: { height: 1, backgroundColor: ink(0.08) },

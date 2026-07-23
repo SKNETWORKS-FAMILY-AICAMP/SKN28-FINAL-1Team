@@ -12,14 +12,14 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-import { ink, Fonts , ContentMax} from '@/constants/theme';
+import { Editorial, ink, Fonts , ContentMax} from '@/constants/theme';
 import { useBreakpoint } from '@/hooks/use-breakpoint';
 import { draftItem, useDraftPhoto } from '@/state/draft-item';
 
 // ── 에디토리얼 본(Editorial Bone) 팔레트 ─────────────────
 // 디자인은 라이트 모드 고정. 잉크 + 크림 톤.
-const INK = '#1c1917';
-const BONE = '#eae0d3';
+const INK = Editorial.ink;
+const BONE = Editorial.bone;
 
 /** 라벨 + (선택)AI 뱃지 + 밑줄 입력 필드 */
 function Field({

@@ -4,16 +4,16 @@ import { useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-import { ink, BottomTabInset, Fonts , ContentMax} from '@/constants/theme';
+import { Editorial, ink, BottomTabInset, Fonts , ContentMax} from '@/constants/theme';
 import { useBreakpoint } from '@/hooks/use-breakpoint';
 
-const INK = '#1c1917';
+const INK = Editorial.ink;
 
 type Session = { id: string; title: string; last: string; time: string };
 const GROUPS: { mode: string; tint: string; sessions: Session[] }[] = [
   {
     mode: '추구미 반영',
-    tint: '#5E2B2F',
+    tint: Editorial.wine,
     sessions: [
       { id: '1', title: '가을 데일리 미니멀', last: '이 니트에 슬랙스 매치 어때요?', time: '방금' },
       { id: '2', title: '면접룩 추천', last: '차분한 네이비 코디로 정리했어요', time: '어제' },
@@ -21,7 +21,7 @@ const GROUPS: { mode: string; tint: string; sessions: Session[] }[] = [
   },
   {
     mode: '옷장 기반',
-    tint: '#1c1917',
+    tint: Editorial.ink,
     sessions: [
       { id: '3', title: '내 트렌치로 코디', last: '보유하신 트렌치 3가지로 제안해요', time: '2일 전' },
       { id: '4', title: '주말 브런치룩', last: '데님에 로퍼로 캐주얼하게', time: '3일 전' },
@@ -133,7 +133,7 @@ const styles = StyleSheet.create({
     height: 42,
     paddingHorizontal: 14,
     borderRadius: 12,
-    backgroundColor: '#faf6f0',
+    backgroundColor: Editorial.surface,
   },
   searchPlaceholder: { fontSize: 13.5, color: ink(0.35) },
 
@@ -150,7 +150,7 @@ const styles = StyleSheet.create({
     height: 18,
     lineHeight: 18,
     textAlign: 'center',
-    backgroundColor: '#efe7db',
+    backgroundColor: Editorial.surfaceTag,
     borderRadius: 9,
     overflow: 'hidden',
   },

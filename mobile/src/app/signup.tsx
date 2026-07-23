@@ -11,11 +11,11 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-import { ink, Fonts , ContentMax} from '@/constants/theme';
+import { Editorial, ink, Fonts , ContentMax} from '@/constants/theme';
 import { useBreakpoint } from '@/hooks/use-breakpoint';
 
-const INK = '#1c1917';
-const KAKAO = '#FEE500';
+const INK = Editorial.ink;
+const KAKAO = Editorial.kakao;
 
 type TermKey = 'age' | 'service' | 'privacy' | 'marketing';
 const TERMS: { key: TermKey; label: string; required: boolean }[] = [
@@ -193,8 +193,8 @@ const styles = StyleSheet.create({
   pwInput: { flex: 1 },
   showText: { fontSize: 12, color: ink(0.5) },
   underline: { marginTop: 10, height: 1, backgroundColor: ink(0.15) },
-  underlineError: { backgroundColor: '#E23B2E' },
-  errText: { marginTop: 6, fontSize: 11, color: '#E23B2E' },
+  underlineError: { backgroundColor: Editorial.danger },
+  errText: { marginTop: 6, fontSize: 11, color: Editorial.danger },
 
   // 약관
   terms: { marginTop: 30, gap: 12 },

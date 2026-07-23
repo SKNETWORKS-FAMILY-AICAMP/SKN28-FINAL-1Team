@@ -1,6 +1,6 @@
 import { Icon } from '@/components/icon';
 import { SmartImage, useToast } from '@/components/ui';
-import { ink, GridCard, gridCardImageHeight, gridCardWidth , ContentMax} from '@/constants/theme';
+import { Editorial, ink, GridCard, gridCardImageHeight, gridCardWidth , ContentMax} from '@/constants/theme';
 import { useBreakpoint } from '@/hooks/use-breakpoint';
 import { pickFromAlbum, pickFromCamera } from '@/lib/pickItemPhoto';
 import {
@@ -20,7 +20,7 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-const INK = '#1c1917';
+const INK = Editorial.ink;
 const PAD = 20;
 
 /* 미리보기 높이는 창 폭에서 파생 → 컴포넌트 안에서 useBreakpoint() 로 구한다. */
@@ -145,7 +145,7 @@ const styles = StyleSheet.create({
   previewWrap: { marginBottom: 14 },
   previewEmpty: {
     borderRadius: GridCard.radius,
-    backgroundColor: '#eae0d3',
+    backgroundColor: Editorial.bone,
     alignItems: 'center',
     justifyContent: 'center',
     gap: 8,
@@ -162,7 +162,7 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     borderWidth: 1,
     borderColor: ink(0.12),
-    backgroundColor: '#faf6f0',
+    backgroundColor: Editorial.surface,
   },
   pickLabel: { fontSize: 14, fontWeight: '600', color: INK },
   loadingRow: { alignItems: 'center', marginBottom: 16 },

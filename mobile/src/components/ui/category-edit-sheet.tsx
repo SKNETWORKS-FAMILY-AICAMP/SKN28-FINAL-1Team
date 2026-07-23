@@ -1,4 +1,4 @@
-import { ink } from '@/constants/theme';
+import { Editorial, ink } from '@/constants/theme';
 import { Icon } from '@/components/icon';
 import { useEffect, useState } from 'react';
 import {
@@ -11,7 +11,7 @@ import {
   View,
 } from 'react-native';
 
-const INK = '#1c1917';
+const INK = Editorial.ink;
 
 type CategoryEditSheetProps = {
   visible: boolean;
@@ -156,7 +156,7 @@ const styles = StyleSheet.create({
     fontSize: 11,
     fontWeight: '600',
     color: ink(0.4),
-    backgroundColor: '#faf6f0',
+    backgroundColor: Editorial.surface,
     paddingHorizontal: 8,
     paddingVertical: 3,
     borderRadius: 6,
@@ -177,7 +177,7 @@ const styles = StyleSheet.create({
     height: 44,
     paddingHorizontal: 14,
     borderRadius: 12,
-    backgroundColor: '#faf6f0',
+    backgroundColor: Editorial.surface,
     fontSize: 14,
     color: INK,
   },

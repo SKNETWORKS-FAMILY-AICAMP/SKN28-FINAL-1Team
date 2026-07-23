@@ -1,6 +1,6 @@
 import { Icon, type IconName } from '@/components/icon';
 import { useToast } from '@/components/ui';
-import { ink, ContentMax } from '@/constants/theme';
+import { Editorial, ink, ContentMax } from '@/constants/theme';
 import { useBreakpoint } from '@/hooks/use-breakpoint';
 import { pickFromAlbum, pickFromCamera } from '@/lib/pickItemPhoto';
 import { draftItem } from '@/state/draft-item';
@@ -16,7 +16,7 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-const INK = '#1c1917';
+const INK = Editorial.ink;
 const PAD = 20;
 
 /* 타일 폭은 창 폭에서 파생 → 컴포넌트 안에서 useBreakpoint() 로 구한다. */
@@ -144,7 +144,7 @@ const styles = StyleSheet.create({
     height: 44,
     paddingHorizontal: 14,
     borderRadius: 12,
-    backgroundColor: '#faf6f0',
+    backgroundColor: Editorial.surface,
   },
   searchPlaceholder: { flex: 1, fontSize: 14, color: ink(0.35) },
   helpBtn: { width: 28, alignItems: 'flex-end' },

@@ -1,4 +1,4 @@
-import { ink } from '@/constants/theme';
+import { Editorial, ink } from '@/constants/theme';
 import { Tabs, TabList, TabSlot, TabTrigger, TabTriggerSlotProps } from 'expo-router/ui';
 import { router } from 'expo-router';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
@@ -6,7 +6,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { Icon, type IconName } from './icon';
 
-const INK = '#1c1917';
+const INK = Editorial.ink;
 
 // 채팅은 탭이 아니라 가운데 + 버튼에서 시작한다.
 const TABS = [
@@ -78,7 +78,7 @@ const styles = StyleSheet.create({
     width: 36,
     height: 36,
     borderRadius: 8,
-    backgroundColor: '#faf6f0',
+    backgroundColor: Editorial.surface,
     alignItems: 'center',
     justifyContent: 'center',
     borderWidth: 1,

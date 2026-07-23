@@ -4,15 +4,15 @@ import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { ErrorState, LoadingState, SmartImage } from '@/components/ui';
-import { ink, BottomTabInset, Fonts , ContentMax} from '@/constants/theme';
+import { Editorial, ink, BottomTabInset, Fonts , ContentMax} from '@/constants/theme';
 import { TODAY_LOOK_IMAGE } from '@/constants/look-images';
 import { useBreakpoint } from '@/hooks/use-breakpoint';
 import { useHome, type HomeData, type HomeWeather } from '@/hooks/use-home';
 import { useAuth } from '@/state/auth';
 
 // ── 에디토리얼 본 팔레트 (라이트 고정) ──
-const INK = '#1c1917';
-const CHIP = '#faf6f0';
+const INK = Editorial.ink;
+const CHIP = Editorial.surface;
 
 const WEEKDAYS = ['일', '월', '화', '수', '목', '금', '토'];
 

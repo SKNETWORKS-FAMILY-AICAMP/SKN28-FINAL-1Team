@@ -7,16 +7,16 @@ import { useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-import { ink, Fonts } from '@/constants/theme';
+import { Editorial, ink, Fonts } from '@/constants/theme';
 import { TODAY_LOOK_IMAGE } from '@/constants/look-images';
 import { TODAY_LOOK } from '@/constants/today-look';
 import { useBreakpoint } from '@/hooks/use-breakpoint';
 import { useHome } from '@/hooks/use-home';
 import { DetailTwoPane } from '@/components/detail-two-pane';
 
-const INK = '#1c1917';
-const WINE = '#5E2B2F';
-const BONE = '#eae0d3';
+const INK = Editorial.ink;
+const WINE = Editorial.wine;
+const BONE = Editorial.bone;
 
 // 구성 아이템 = 오늘의 룩 단일 출처. 가상피팅 화면과 같은 목록을 공유한다.
 const PIECES = TODAY_LOOK.pieces;
@@ -329,9 +329,9 @@ const styles = StyleSheet.create({
   pieceBody: { flex: 1, gap: 3 },
   pieceTop: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   pieceSlot: { fontSize: 11, color: ink(0.4), fontWeight: '500' },
-  ownTag: { backgroundColor: '#efe7db', paddingHorizontal: 7, paddingVertical: 2, borderRadius: 999 },
+  ownTag: { backgroundColor: Editorial.surfaceTag, paddingHorizontal: 7, paddingVertical: 2, borderRadius: 999 },
   ownTagText: { fontSize: 9.5, color: ink(0.55), fontWeight: '600' },
-  newTag: { backgroundColor: '#f3e4de' },
+  newTag: { backgroundColor: Editorial.accent },
   newTagText: { color: WINE },
   pieceName: { fontSize: 14, fontWeight: '500', color: ink(0.9) },
   pieceBrand: { fontSize: 12, color: ink(0.4) },
@@ -369,12 +369,12 @@ const styles = StyleSheet.create({
     paddingVertical: 8,
     paddingHorizontal: 10,
     borderRadius: 10,
-    backgroundColor: '#faf6f0',
+    backgroundColor: Editorial.surface,
   },
   budgetPromptText: { flex: 1, fontSize: 11.5, color: ink(0.55) },
 
   reasonCard: {
-    backgroundColor: '#fcffff',
+    backgroundColor: Editorial.surfaceSoft,
     borderRadius: 16,
     padding: 16,
     gap: 14,

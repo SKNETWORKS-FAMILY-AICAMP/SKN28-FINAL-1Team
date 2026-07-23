@@ -1,6 +1,6 @@
 import { Icon } from '@/components/icon';
 import { useToast } from '@/components/ui';
-import { ink, Fonts , ContentMax} from '@/constants/theme';
+import { Editorial, ink, Fonts , ContentMax} from '@/constants/theme';
 import { useBreakpoint } from '@/hooks/use-breakpoint';
 import { prefsStore, usePrefs } from '@/state/prefs';
 import { goBack } from '@/lib/goBack';
@@ -8,7 +8,7 @@ import { useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-const INK = '#1c1917';
+const INK = Editorial.ink;
 
 const SEASONS = [
   { label: '봄 웜', desc: '화사하고 맑은 웜톤', swatch: '#F5A26B' },
