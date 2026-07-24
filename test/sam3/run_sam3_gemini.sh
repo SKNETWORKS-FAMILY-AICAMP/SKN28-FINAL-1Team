@@ -25,10 +25,10 @@ if [[ ! -f "$WEIGHTS" ]]; then
     exit 1
 fi
 
-# GEMINI_API_KEY가 현재 환경에 없으면 test/.env에서 읽기
-if [[ -z "${GEMINI_API_KEY:-}" && -f ../.env ]]; then
+# GEMINI_API_KEY가 현재 환경에 없으면 루트의 .env에서 읽기
+if [[ -z "${GEMINI_API_KEY:-}" && -f ../../.env ]]; then
     set -a
-    source ../.env
+    source ../../.env
     set +a
 fi
 
