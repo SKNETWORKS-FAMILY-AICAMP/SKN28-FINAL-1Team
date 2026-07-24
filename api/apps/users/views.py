@@ -16,10 +16,13 @@ from apps.users.serializers import (
     BodyMeasurementSerializer,
     BodyPhotoTransactionSerializer,
     BodyPhotoUploadSerializer,
+    PreferenceCategorySerializer,
+    PursuitPayloadInputSerializer,
+    PursuitPayloadResponseSerializer,
     SocialLoginSerializer,
     UserSerializer,
 )
-from apps.users.services import accounts, body_inference, oauth
+from apps.users.services import accounts, body_inference, oauth, pursuit
 
 logger = logging.getLogger(__name__)
 
@@ -217,3 +220,48 @@ class BodyPhotoTransactionView(APIView):
                 status=status.HTTP_404_NOT_FOUND,
             )
         return Response(BodyPhotoTransactionSerializer(tx).data)
+
+
+# =============================================================================
+# 추구미 (Pursuit) — 옵션 마스터 + 사용자 선택
+# =============================================================================
+
+
+class PreferenceOptionsView(APIView):
+    """GET /api/v1/preference-options/ — 11개 카테고리 + 옵션 마스터.
+
+    인증 필요. 프론트가 화면 진입 시 옵션 목록을 받아 칩을 렌더링하는 용도.
+    """
+
+    def get(self, request):
+        grouped = pursuit.get_options_grouped_by_category()
+        # OrderedDict을 list[dict]로 변환 (Serializer와 호환)
+        categories = [grouped[k] for k in grouped]
+        return Response(
+            {"categories": PreferenceCategorySerializer(categories, many=True).data}
+        )
+
+
+class PursuitView(APIView):
+    """GET /api/v1/users/me/pursuit/ — 내 추구미 조회 (저장 없으면 빈 payload).
+    PUT /api/v1/users/me/pursuit/ — 내 추구미 저장 (upsert, 전체 교체).
+    """
+
+    def get(self, request):
+        payload = pursuit.get_pursuit(request.user)
+        return Response(PursuitPayloadResponseSerializer(payload).data)
+
+    def put(self, request):
+        serializer = PursuitPayloadInputSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        obj = pursuit.upsert_pursuit(
+            request.user,
+            preferred=serializer.validated_data["preferred"],
+            avoided=serializer.validated_data["avoided"],
+        )
+        # 저장된 결과 응답 (재조회와 동일 형식)
+        return Response(
+            PursuitPayloadResponseSerializer(obj.payload).data,
+            status=status.HTTP_200_OK,
+        )

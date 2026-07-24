@@ -170,9 +170,14 @@ desktop.ini
 logs/
 *.tmp
 *.bak
+feature/front
+
+mobile/package-lock.json
+
 *.orig
 *.rej
 
 output
 # Local docs/artifacts
 docs/
+main

@@ -8,6 +8,8 @@ from apps.users.views import (
     BodyPhotoTransactionView,
     BodyPhotoView,
     MeView,
+    PreferenceOptionsView,
+    PursuitView,
     SocialLoginView,
 )
 
@@ -28,4 +30,7 @@ urlpatterns = [
         BodyPhotoTransactionView.as_view(),
         name="body-photo-transaction",
     ),
+    # 추구미: 옵션 마스터 (11개 카테고리, 계절/스타일/색상/...) | 사용자 선택(preferred/avoided 2단 nested payloa)
+    path("preference-options/", PreferenceOptionsView.as_view(), name="preference-options"),
+    path("users/me/pursuit/", PursuitView.as_view(), name="pursuit"),
 ]

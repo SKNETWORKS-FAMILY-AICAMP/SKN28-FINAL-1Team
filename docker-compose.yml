@@ -11,6 +11,13 @@
 # .env에 COMPOSE_PROFILES=api,naver 처럼 지정하면 --profile 없이 up만으로 동작.
 # 환경변수는 프로젝트 루트 .env 하나로 관리한다 (이 파일이 루트에 있으므로
 # ${} 보간과 env_file 모두 루트 .env를 읽는다).
+#
+# API 실행 모드는 DJANGO_SETTINGS_MODULE 환경변수로 제어한다
+# (별도 compose 파일 없음 — 구 docker-compose.swagger.yml은 여기로 병합됨):
+#   config.settings.prod           운영 (기본값)
+#   config.settings.dev            로컬 개발
+#   config.settings.swagger        + Swagger UI (/api/docs/)
+#   config.settings.swagger_noauth + Swagger UI + 인증 우회 (로컬 전용, 프로덕션 금지)
 # ============================================================
 services:
   db:
@@ -23,7 +30,9 @@ services:
     environment:
       TZ: Asia/Seoul
     ports:
-      - "5432:5432"
+      # 호스트에 로컬 PostgreSQL이 떠 있으면 .env에서 POSTGRES_HOST_PORT를 바꿔
+      # 충돌을 피한다 (구 swagger compose의 ports !reset 대체).
+      - "${POSTGRES_HOST_PORT:-5432}:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
