@@ -1,4 +1,4 @@
-"""11번가 ProductSearch 상품 수집, 카테고리 동기화, OpenAI 태깅."""
+"""11번가 ProductSearch 상품 수집, 카테고리 동기화, LLM 태깅."""
 
 from __future__ import annotations
 
@@ -30,6 +30,7 @@ from config import (
     SCHEDULE_MINUTE,
     SCHEDULER_POLL_SECONDS,
     SEARCH_SORT,
+    TAGGING_PROVIDER,
     logger,
 )
 from keywords import KeywordEntry, iter_keywords
@@ -346,9 +347,10 @@ def collect(
 ) -> int:
     tagger = None
     if not skip_llm:
-        from util.tagging.openai_tagger import OpenAITagger
+        from util.tagging import get_sync_tagger
 
-        tagger = OpenAITagger()
+        tagger = get_sync_tagger(TAGGING_PROVIDER)
+        logger.info("11번가 태깅 provider: %s", TAGGING_PROVIDER)
 
     category_paths = db.load_category_paths(conn)
     seen_ids: set[str] = set()
@@ -432,9 +434,10 @@ def collect(
 
 
 def retag(conn, limit: int) -> int:
-    from util.tagging.openai_tagger import OpenAITagger
+    from util.tagging import get_sync_tagger
 
-    tagger = OpenAITagger()
+    tagger = get_sync_tagger(TAGGING_PROVIDER)
+    logger.info("11번가 재태깅 provider: %s", TAGGING_PROVIDER)
     products = db.fetch_products_for_retag(conn, limit)
     done = 0
     for product in products:
@@ -510,7 +513,7 @@ def parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
     parser.add_argument(
         "--skip-llm",
         action="store_true",
-        help="OpenAI 태깅을 생략하고 pending으로 저장",
+        help="LLM 태깅을 생략하고 pending으로 저장",
     )
     parser.add_argument(
         "--dry-run",

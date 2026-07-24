@@ -58,16 +58,19 @@ SCHEDULE_HOUR = int(os.getenv("ELEVEN_SCHEDULE_HOUR", "4"))
 SCHEDULE_MINUTE = int(os.getenv("ELEVEN_SCHEDULE_MINUTE", "0"))
 SCHEDULER_POLL_SECONDS = int(os.getenv("SCHEDULER_POLL_SECONDS", "30"))
 
-# 공용 OpenAI 태거는 기존 NAVER_LLM_* 키를 읽는다. 11번가 전용 값이 있으면
-# 이 프로세스 안에서만 해당 키의 fallback으로 연결한다.
+# 공용 태거 내부 설정은 기존 NAVER_LLM_*/NAVER_CLAUDE_MODEL 키를 읽는다.
+# 11번가 전용 값이 있으면 이 프로세스 안에서 해당 키보다 우선 적용한다.
 for eleven_key, common_key in (
     ("ELEVEN_LLM_IMAGE_MODE", "NAVER_LLM_IMAGE_MODE"),
     ("ELEVEN_LLM_TEMPERATURE", "NAVER_LLM_TEMPERATURE"),
     ("ELEVEN_LLM_MAX_RETRIES", "NAVER_LLM_MAX_RETRIES"),
+    ("ELEVEN_CLAUDE_MODEL", "NAVER_CLAUDE_MODEL"),
 ):
     value = os.getenv(eleven_key)
-    if value and common_key not in os.environ:
+    if value:
         os.environ[common_key] = value
+
+TAGGING_PROVIDER = os.getenv("ELEVEN_TAGGING_PROVIDER", "openai").strip().lower()
 
 DATABASE_URL = os.getenv("DATABASE_URL", "").strip()
 DB_NAME = os.getenv("POSTGRES_DB", os.getenv("DB_NAME", "fashion_db"))

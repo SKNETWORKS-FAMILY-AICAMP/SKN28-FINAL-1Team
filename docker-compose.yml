@@ -144,6 +144,9 @@ services:
     build:
       context: ./collector
       dockerfile: eleven/Dockerfile.eleven
+      args:
+        # Claude provider 사용 시 true (Claude Code CLI 설치)
+        INSTALL_CLAUDE_CLI: ${INSTALL_CLAUDE_CLI:-false}
     container_name: eleven-collector
     restart: unless-stopped
     profiles: ["eleven", "all"]
