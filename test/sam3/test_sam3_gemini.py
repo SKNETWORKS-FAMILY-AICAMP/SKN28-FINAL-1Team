@@ -154,8 +154,23 @@ def segment(image_path: str, device: str) -> tuple[list[SegmentedItem], dict]:
     boxes = res.boxes.xyxy.cpu()
     scores = res.boxes.conf.cpu()
     masks = res.masks.data.cpu()
-    names = getattr(res, "names", None) or {}
-    labels = [str(names.get(int(c), int(c))) for c in res.boxes.cls.cpu().tolist()]
+    names = getattr(res, "names", None) or []
+    class_ids = res.boxes.cls.detach().cpu().tolist()
+
+    if isinstance(names, dict):
+        labels = [
+            str(names.get(int(class_id), int(class_id)))
+            for class_id in class_ids
+        ]
+    elif isinstance(names, (list, tuple)):
+        labels = [
+            str(names[int(class_id)])
+            if 0 <= int(class_id) < len(names)
+            else str(int(class_id))
+            for class_id in class_ids
+        ]
+    else:
+        labels = [str(int(class_id)) for class_id in class_ids]
 
     # 같은 옷이 "shirt"/"t-shirt" 등 여러 프롬프트로 중복 검출될 수 있어
     # 라벨 무관 NMS로 정리 (기존 grounded_sam2 테스트와 동일 정책)
