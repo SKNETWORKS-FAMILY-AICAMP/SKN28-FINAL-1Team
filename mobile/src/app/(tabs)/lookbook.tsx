@@ -124,7 +124,7 @@ export default function LookbookScreen() {
             isActive={isActive}
             showChips={mode === 'browse'}
             onEditCategories={mode === 'browse' ? () => setEditOpen(true) : undefined}
-            middle={<LookbookTabs mode={mode} onChange={setMode} />}
+            trailing={<LookbookTabs mode={mode} onChange={setMode} />}
           />
         </View>
 
@@ -199,17 +199,25 @@ const styles = StyleSheet.create({
 
   filterArea: { marginTop: 30 },
 
-  tabs: { flexDirection: 'row', gap: 8, paddingHorizontal: PAD, marginBottom: 16 },
-  tab: {
-    flex: 1,
-    height: 40,
+  // 검색바 오른쪽에 붙는 컴팩트 세그먼티드 컨트롤(둘러보기/저장됨). 높이 44로 검색바와 맞춘다.
+  tabs: {
+    flexDirection: 'row',
+    height: 44,
     borderRadius: 12,
+    padding: 4,
+    alignItems: 'center',
+    backgroundColor: Editorial.surface,
+    flexShrink: 0,
+  },
+  tab: {
+    paddingHorizontal: 13,
+    height: 36,
+    borderRadius: 9,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: Editorial.surface,
   },
   tabOn: { backgroundColor: INK },
-  tabText: { fontSize: 14, fontWeight: '600', color: ink(0.5) },
+  tabText: { fontSize: 13, fontWeight: '600', color: ink(0.5) },
   tabTextOn: { color: '#fff' },
 
   gridScroll: { flex: 1, marginTop: 8 },
