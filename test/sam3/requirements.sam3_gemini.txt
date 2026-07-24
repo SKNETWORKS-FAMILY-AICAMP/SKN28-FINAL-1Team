@@ -5,3 +5,4 @@ google-genai>=1.0.0
 opencv-python-headless>=4.9
 pillow>=10.0
 numpy>=1.26
+git+https://github.com/ultralytics/CLIP.git
