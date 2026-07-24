@@ -35,6 +35,9 @@ class WardrobeUploadJob(models.Model):
     finished_at = models.DateTimeField(null=True, blank=True)
 
     class Meta:
+        # 프로젝트 규칙: db_table 명시 (기본값이면 wardrobe_wardrobeuploadjob처럼
+        # 앱 라벨과 모델명 접두사가 중복된다)
+        db_table = "wardrobe_upload_job"
         ordering = ["-created_at"]
         indexes = [models.Index(fields=["user", "status"])]
 
@@ -84,6 +87,7 @@ class WardrobeItem(models.Model):
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
+        db_table = "wardrobe_item"
         ordering = ["-created_at"]
         indexes = [
             models.Index(fields=["user", "category_large"]),

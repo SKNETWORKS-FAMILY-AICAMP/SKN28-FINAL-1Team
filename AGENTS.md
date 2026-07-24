@@ -93,6 +93,7 @@ python manage.py runserver
 - **명명**: 변수·함수 `snake_case`, 클래스 `PascalCase`, 상수 `UPPER_SNAKE_CASE`.
 - **타입 힌트**: 함수 시그니처에 타입 힌트를 작성한다.
 - **Django 관례**: fat model / thin view 지향, 비즈니스 로직은 서비스 계층 또는 모델 메서드로.
+- **DB 테이블 명명**: 새 Django 모델에는 반드시 `Meta.db_table`을 명시한다 (기존 예: `users`, `naver_product`, `weather_area`, `wardrobe_item`). 기본 규칙(`<앱라벨>_<모델명소문자>`)에 맡기면 모델명에 도메인 접두사가 있는 경우 `wardrobe_wardrobeitem`처럼 문구가 중복된다. migrate 전에 `python manage.py sqlmigrate <앱> <번호>`로 실제 생성될 테이블 이름을 확인한다.
 - **설정 분리**: `settings/base.py`를 공통으로 두고 `dev`/`prod`로 분리. 시크릿은 설정 파일에 직접 쓰지 않는다.
 - **주석/문서화**: 왜(why) 그렇게 했는지 위주로 작성. 자명한 코드에 불필요한 주석 금지.
 
