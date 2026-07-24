@@ -10,3 +10,4 @@ python-dotenv>=1.0
 requests>=2.31
 PyJWT>=2.8
 cryptography>=42.0
+qdrant-client>=1.12

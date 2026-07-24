@@ -43,6 +43,7 @@ INSTALLED_APPS = [
     "apps.catalog",
     "apps.weather",
     "apps.home",
+    "apps.recommend",
 ]
 
 MIDDLEWARE = [
@@ -188,3 +189,13 @@ OAUTH_REQUEST_TIMEOUT = int(os.getenv("OAUTH_REQUEST_TIMEOUT", "10"))
 CORS_ALLOWED_ORIGINS = [
     o.strip() for o in os.getenv("CORS_ALLOWED_ORIGINS", "").split(",") if o.strip()
 ]
+# Qdrant 벡터 DB (apps.recommend)
+# 컬렉션 스키마는 apps/recommend/services/qdrant.py가 소유하고
+# `manage.py init_qdrant`로 생성한다.
+# ------------------------------------------------------------
+QDRANT_URL = os.getenv("QDRANT_URL", "http://localhost:6333")
+QDRANT_API_KEY = os.getenv("QDRANT_API_KEY", "")
+QDRANT_TIMEOUT = int(os.getenv("QDRANT_TIMEOUT", "10"))
+# 임베딩 모델 차원 (FashionSigLIP=768, BGE-M3=1024). 모델 교체 시에만 변경.
+QDRANT_IMAGE_VECTOR_DIM = int(os.getenv("QDRANT_IMAGE_VECTOR_DIM", "768"))
+QDRANT_TEXT_VECTOR_DIM = int(os.getenv("QDRANT_TEXT_VECTOR_DIM", "1024"))

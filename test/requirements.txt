@@ -1,0 +1,11 @@
+# 세그멘테이션 모델 비교 테스트 의존성 (test/ 전용)
+# GPU(RTX 3090) 기준. torch는 CUDA 버전에 맞춰 별도 설치 권장:
+#   pip install torch torchvision --index-url https://download.pytorch.org/whl/cu121
+torch>=2.2
+torchvision>=0.17
+transformers>=4.44        # SegFormer, Grounding DINO
+ultralytics>=8.3          # YOLOv8-seg, SAM2
+open_clip_torch>=2.24     # Marqo-FashionSigLIP
+opencv-python>=4.9
+pillow>=10.0
+numpy>=1.26
