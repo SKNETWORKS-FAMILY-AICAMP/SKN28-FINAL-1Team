@@ -53,7 +53,7 @@ SKN28-FINAL-1Team/
 ├── collector/             # 독립 실행 데이터 수집기 (스키마는 Django migration이 소유)
 │   ├── weather/           # 기상청 APIHub 수집
 │   ├── naver/             # 네이버 쇼핑 상품 수집 + LLM 태깅
-│   └── eleven/            # 11번가 ProductSearch 수집 + OpenAI 태깅
+│   └── eleven/            # 11번가 ProductSearch 수집 + OpenAI Batch/동기·Claude 동기 태깅
 ├── ml/                    # 모델 학습·추론 코드 (예정)
 ├── scripts/               # 배포·데이터 처리 스크립트
 └── docs/                  # 설계·아키텍처 문서

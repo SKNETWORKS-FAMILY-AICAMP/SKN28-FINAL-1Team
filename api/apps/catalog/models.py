@@ -222,6 +222,33 @@ class ElevenCategory(models.Model):
         return f"{self.disp_no} {self.disp_nm}"
 
 
+class ElevenTaggingBatch(models.Model):
+    """11번가 상품의 OpenAI Batch API 태깅 작업 추적."""
+
+    batch_id = models.CharField(max_length=100, unique=True)
+    status = models.CharField(
+        max_length=30, default="submitted", db_default="submitted"
+    )
+    model = models.CharField(max_length=60, null=True, blank=True)
+    request_count = models.IntegerField(default=0, db_default=0)
+    include_image = models.BooleanField(default=False, db_default=False)
+    input_file_id = models.CharField(max_length=100, null=True, blank=True)
+    output_file_id = models.CharField(max_length=100, null=True, blank=True)
+    error_file_id = models.CharField(max_length=100, null=True, blank=True)
+    error = models.TextField(null=True, blank=True)
+    completed_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(db_default=Now())
+    updated_at = models.DateTimeField(db_default=Now())
+
+    class Meta:
+        db_table = "eleven_tagging_batch"
+        verbose_name = "11번가 태깅 배치"
+        verbose_name_plural = "11번가 태깅 배치"
+
+    def __str__(self) -> str:
+        return f"{self.batch_id} ({self.status})"
+
+
 class ElevenProduct(models.Model):
     """11번가 ProductSearch 상품과 추천용 공통 태그."""
 

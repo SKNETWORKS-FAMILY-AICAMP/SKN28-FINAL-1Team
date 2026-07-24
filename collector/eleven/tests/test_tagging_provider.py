@@ -1,3 +1,4 @@
+import importlib
 import os
 import sys
 import unittest
@@ -28,6 +29,19 @@ class TaggingProviderTests(unittest.TestCase):
         ):
             with self.assertRaisesRegex(ValueError, "ELEVEN_TAGGING_PROVIDER"):
                 get_provider("ELEVEN_TAGGING_PROVIDER")
+
+    def test_claude_batch_mode_falls_back_to_sync(self):
+        with patch.dict(
+            os.environ,
+            {
+                "ELEVEN_TAGGING_PROVIDER": "claude",
+                "ELEVEN_TAGGING_MODE": "batch",
+            },
+            clear=False,
+        ):
+            reloaded = importlib.reload(config)
+            self.assertEqual(reloaded.TAGGING_MODE, "sync")
+        importlib.reload(config)
 
     def test_factory_rejects_unknown_provider(self):
         with self.assertRaisesRegex(ValueError, "tagging provider"):

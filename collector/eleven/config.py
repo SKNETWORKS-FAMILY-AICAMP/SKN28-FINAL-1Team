@@ -71,6 +71,32 @@ for eleven_key, common_key in (
         os.environ[common_key] = value
 
 TAGGING_PROVIDER = os.getenv("ELEVEN_TAGGING_PROVIDER", "openai").strip().lower()
+TAGGING_MODE = os.getenv("ELEVEN_TAGGING_MODE", "batch").strip().lower()
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "").strip()
+OPENAI_MODEL = os.getenv("OPENAI_MODEL", "gpt-4o-mini").strip()
+BATCH_MAX_REQUESTS = max(
+    1, min(int(os.getenv("ELEVEN_BATCH_MAX_REQUESTS", "10000")), 50000)
+)
+BATCH_COMPLETION_WINDOW = os.getenv(
+    "ELEVEN_BATCH_COMPLETION_WINDOW", "24h"
+).strip()
+BATCH_POLL_SECONDS = max(
+    1, int(os.getenv("ELEVEN_BATCH_POLL_SECONDS", "600"))
+)
+BATCH_INCLUDE_IMAGE = os.getenv(
+    "ELEVEN_BATCH_INCLUDE_IMAGE", "false"
+).strip().lower() in {"1", "true", "yes"}
+
+if TAGGING_PROVIDER not in {"openai", "claude"}:
+    raise ValueError(
+        "ELEVEN_TAGGING_PROVIDER 값이 올바르지 않습니다: "
+        f"{TAGGING_PROVIDER} (openai | claude)"
+    )
+if TAGGING_MODE not in {"sync", "batch"}:
+    raise ValueError(
+        f"ELEVEN_TAGGING_MODE 값이 올바르지 않습니다: {TAGGING_MODE} "
+        "(sync | batch)"
+    )
 
 DATABASE_URL = os.getenv("DATABASE_URL", "").strip()
 DB_NAME = os.getenv("POSTGRES_DB", os.getenv("DB_NAME", "fashion_db"))
@@ -84,3 +110,10 @@ logging.basicConfig(
     level=LOG_LEVEL, format="%(asctime)s [%(levelname)s] %(message)s"
 )
 logger = logging.getLogger("eleven_collector")
+
+if TAGGING_PROVIDER == "claude" and TAGGING_MODE == "batch":
+    logger.warning(
+        "ELEVEN_TAGGING_PROVIDER=claude는 batch 모드를 지원하지 않아 "
+        "sync로 전환합니다."
+    )
+    TAGGING_MODE = "sync"

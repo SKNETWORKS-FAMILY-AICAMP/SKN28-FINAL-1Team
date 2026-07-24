@@ -15,6 +15,7 @@ import db
 from attribute_extractor import clean_title, extract_attributes
 from category_mapping import map_eleven_category
 from config import (
+    BATCH_POLL_SECONDS,
     CATEGORY_API_URL,
     CATEGORY_INACTIVE_MISS_THRESHOLD,
     ELEVEN_API_KEY,
@@ -30,6 +31,7 @@ from config import (
     SCHEDULE_MINUTE,
     SCHEDULER_POLL_SECONDS,
     SEARCH_SORT,
+    TAGGING_MODE,
     TAGGING_PROVIDER,
     logger,
 )
@@ -433,6 +435,36 @@ def collect(
     return total_saved
 
 
+def run_collect_job(
+    conn,
+    entries: Iterable[KeywordEntry],
+    limit_per_keyword: int,
+    skip_llm: bool,
+    dry_run: bool = False,
+) -> None:
+    """설정된 태깅 모드에 따라 동기 태깅 또는 Batch 제출을 수행한다."""
+    if TAGGING_MODE == "batch" and not skip_llm:
+        collect(
+            conn,
+            entries,
+            limit_per_keyword,
+            skip_llm=True,
+            dry_run=dry_run,
+        )
+        if not dry_run:
+            import batch_tagger
+
+            batch_tagger.submit_pending(conn)
+    else:
+        collect(
+            conn,
+            entries,
+            limit_per_keyword,
+            skip_llm=skip_llm,
+            dry_run=dry_run,
+        )
+
+
 def retag(conn, limit: int) -> int:
     from util.tagging import get_sync_tagger
 
@@ -462,11 +494,14 @@ def retag(conn, limit: int) -> int:
 
 def run_scheduler(limit_per_keyword: int, skip_llm: bool) -> None:
     logger.info(
-        "scheduler 시작: 매일 %02d:%02d KST 카테고리 동기화 + 상품 수집",
+        "scheduler 시작: 매일 %02d:%02d KST 카테고리 동기화 + "
+        "상품 수집 (tagging_mode=%s)",
         SCHEDULE_HOUR,
         SCHEDULE_MINUTE,
+        TAGGING_MODE,
     )
     last_run_date = None
+    last_batch_poll = 0.0
     while True:
         current = now_kst()
         due = (
@@ -484,9 +519,33 @@ def run_scheduler(limit_per_keyword: int, skip_llm: bool) -> None:
                     sync_categories(conn)
                 except Exception:
                     logger.exception("카테고리 동기화 실패. 키워드 fallback으로 수집합니다.")
-                collect(conn, iter_keywords(), limit_per_keyword, skip_llm)
+                run_collect_job(
+                    conn,
+                    iter_keywords(),
+                    limit_per_keyword,
+                    skip_llm,
+                )
             except Exception:
                 logger.exception("11번가 스케줄 수집 실패")
+            finally:
+                if conn is not None:
+                    conn.close()
+
+        if (
+            TAGGING_MODE == "batch"
+            and not skip_llm
+            and time.monotonic() - last_batch_poll >= BATCH_POLL_SECONDS
+        ):
+            last_batch_poll = time.monotonic()
+            conn = None
+            try:
+                conn = db.get_connection()
+                db.ensure_schema(conn)
+                import batch_tagger
+
+                batch_tagger.poll_batches(conn)
+            except Exception:
+                logger.exception("11번가 Batch 폴링 실패. 다음 주기에 재시도합니다.")
             finally:
                 if conn is not None:
                     conn.close()
@@ -497,7 +556,13 @@ def parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="11번가 ProductSearch collector")
     parser.add_argument(
         "--job",
-        choices=["collect", "sync-categories", "retag"],
+        choices=[
+            "collect",
+            "sync-categories",
+            "retag",
+            "batch-submit",
+            "batch-poll",
+        ],
         help="1회 실행할 작업",
     )
     parser.add_argument("--scheduler", action="store_true", help="매일 자동 수집")
@@ -546,7 +611,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
                 category_small=args.category_small,
                 only_keyword=args.keyword,
             )
-            collect(
+            run_collect_job(
                 conn,
                 entries,
                 args.limit,
@@ -555,6 +620,14 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
             )
         elif args.job == "retag":
             retag(conn, args.limit)
+        elif args.job == "batch-submit":
+            import batch_tagger
+
+            batch_tagger.submit_pending(conn)
+        elif args.job == "batch-poll":
+            import batch_tagger
+
+            batch_tagger.poll_batches(conn)
         return 0
     finally:
         conn.close()

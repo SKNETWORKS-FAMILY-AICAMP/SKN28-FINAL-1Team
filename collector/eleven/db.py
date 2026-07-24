@@ -46,6 +46,7 @@ def ensure_schema(conn) -> None:
         "eleven_api_response",
         "eleven_category",
         "eleven_product",
+        "eleven_tagging_batch",
     )
     with conn.cursor() as cur:
         cur.execute(
@@ -60,7 +61,7 @@ def ensure_schema(conn) -> None:
             f"11번가 테이블이 없습니다: {sorted(missing)}. "
             "api에서 python manage.py migrate를 먼저 실행하세요."
         )
-    logger.info("스키마 확인 완료 (11번가 테이블 3종 존재)")
+    logger.info("스키마 확인 완료 (11번가 테이블 4종 존재)")
 
 
 def insert_api_response(
@@ -293,6 +294,157 @@ def upsert_products(conn, rows: Sequence[tuple[Any, ...]]) -> int:
         execute_values(cur, sql, rows)
     conn.commit()
     return len(rows)
+
+
+def fetch_pending_products(conn, limit: int) -> list[dict[str, Any]]:
+    """OpenAI Batch 제출 대상인 pending 상품을 조회한다."""
+    with conn.cursor() as cur:
+        cur.execute(
+            """
+            SELECT id, title, image_url,
+                   eleven_category1, eleven_category2,
+                   eleven_category3, eleven_category4,
+                   category_large, category_small
+            FROM eleven_product
+            WHERE tagging_status = 'pending'
+            ORDER BY id
+            LIMIT %s
+            """,
+            (limit,),
+        )
+        names = [description[0] for description in cur.description]
+        return [dict(zip(names, row)) for row in cur.fetchall()]
+
+
+def set_products_tagging_status(
+    conn, product_ids: list[int], status: str
+) -> None:
+    if not product_ids:
+        return
+    with conn.cursor() as cur:
+        cur.execute(
+            """
+            UPDATE eleven_product
+            SET tagging_status = %s, updated_at = NOW()
+            WHERE id = ANY(%s)
+            """,
+            (status, product_ids),
+        )
+    conn.commit()
+
+
+def reset_orphan_queued_products(conn) -> int:
+    """진행 중 Batch가 없을 때 고아 queued 상품을 pending으로 복구한다."""
+    with conn.cursor() as cur:
+        cur.execute(
+            """
+            UPDATE eleven_product
+            SET tagging_status = 'pending', updated_at = NOW()
+            WHERE tagging_status = 'queued'
+              AND NOT EXISTS (
+                  SELECT 1 FROM eleven_tagging_batch
+                  WHERE status IN (
+                      'submitted', 'validating', 'in_progress', 'finalizing'
+                  )
+              )
+            """
+        )
+        count = cur.rowcount
+    conn.commit()
+    return count
+
+
+def insert_tagging_batch(
+    conn,
+    batch_id: str,
+    model: str,
+    request_count: int,
+    include_image: bool,
+    input_file_id: str,
+) -> None:
+    with conn.cursor() as cur:
+        cur.execute(
+            """
+            INSERT INTO eleven_tagging_batch (
+                batch_id, status, model, request_count,
+                include_image, input_file_id
+            )
+            VALUES (%s, 'submitted', %s, %s, %s, %s)
+            """,
+            (
+                batch_id,
+                model,
+                request_count,
+                include_image,
+                input_file_id,
+            ),
+        )
+    conn.commit()
+
+
+def fetch_open_tagging_batches(conn) -> list[dict[str, Any]]:
+    with conn.cursor() as cur:
+        cur.execute(
+            """
+            SELECT id, batch_id, model, request_count, include_image
+            FROM eleven_tagging_batch
+            WHERE status IN (
+                'submitted', 'validating', 'in_progress', 'finalizing'
+            )
+            ORDER BY id
+            """
+        )
+        names = [description[0] for description in cur.description]
+        return [dict(zip(names, row)) for row in cur.fetchall()]
+
+
+def update_tagging_batch(
+    conn,
+    batch_id: str,
+    status: str,
+    output_file_id: str | None = None,
+    error_file_id: str | None = None,
+    error: str | None = None,
+    completed: bool = False,
+) -> None:
+    with conn.cursor() as cur:
+        cur.execute(
+            """
+            UPDATE eleven_tagging_batch SET
+                status = %s,
+                output_file_id = COALESCE(%s, output_file_id),
+                error_file_id = COALESCE(%s, error_file_id),
+                error = COALESCE(%s, error),
+                completed_at = CASE WHEN %s THEN NOW() ELSE completed_at END,
+                updated_at = NOW()
+            WHERE batch_id = %s
+            """,
+            (
+                status,
+                output_file_id,
+                error_file_id,
+                error,
+                completed,
+                batch_id,
+            ),
+        )
+    conn.commit()
+
+
+def fetch_products_by_ids(
+    conn, product_ids: list[int]
+) -> dict[int, dict[str, Any]]:
+    if not product_ids:
+        return {}
+    with conn.cursor() as cur:
+        cur.execute(
+            "SELECT id, title FROM eleven_product WHERE id = ANY(%s)",
+            (product_ids,),
+        )
+        return {
+            row[0]: {"id": row[0], "title": row[1]}
+            for row in cur.fetchall()
+        }
 
 
 def fetch_products_for_retag(conn, limit: int) -> list[dict[str, Any]]:
