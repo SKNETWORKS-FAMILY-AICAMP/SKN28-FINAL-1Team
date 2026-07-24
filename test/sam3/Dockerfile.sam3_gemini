@@ -3,6 +3,12 @@
 # 실행:  ./run_sam3_gemini.sh <이미지경로>
 FROM pytorch/pytorch:2.5.1-cuda12.4-cudnn9-runtime
 
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    libxcb1 \
+    libgl1 \
+    libglib2.0-0 \
+    && rm -rf /var/lib/apt/lists/*
+
 WORKDIR /app
 
 # 의존성 레이어를 소스와 분리해 코드 수정 시 재설치 방지
