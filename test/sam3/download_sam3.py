@@ -17,7 +17,8 @@ from pathlib import Path
 
 REPO_ID = "facebook/sam3"
 FILENAME = "sam3.pt"
-DEST_DIR = Path(__file__).resolve().parent / "sam3"
+# 이 파일이 test/sam3/ 안에 있으므로 같은 폴더에 저장한다.
+DEST_DIR = Path(__file__).resolve().parent
 
 
 def download(repo_id: str, filename: str, dest_dir: Path) -> Path:

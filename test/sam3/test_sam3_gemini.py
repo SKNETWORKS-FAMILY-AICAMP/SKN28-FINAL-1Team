@@ -6,11 +6,13 @@
   제로샷 분류(SigLIP)로는 불가능했던 item_name·usage 등 맥락 필드까지 한 번에 해결.
 - 임베딩(FashionSigLIP)은 검색용이므로 이 테스트에서는 의도적으로 생략.
 
-실행: python test_sam3_gemini.py <이미지경로> [--out output]
+실행: python test_sam3_gemini.py [이미지경로 ...] [--out <출력폴더>]
+  - 이미지 경로를 생략하면 test/input/ 의 모든 jpg를 일괄 처리한다.
+  - 결과는 기본적으로 test/output/sam3_gemini/<이미지명>/ 에 저장된다.
 환경변수:
   GEMINI_API_KEY  (필수) Gemini API 키
   GEMINI_MODEL    (기본 gemini-3.5-flash)
-  SAM3_WEIGHTS    (기본 sam3.pt)
+  SAM3_WEIGHTS    (기본 test/sam3/sam3.pt)
   DEVICE          (기본: cuda 가능 시 cuda)
 """
 from __future__ import annotations
@@ -19,6 +21,7 @@ import argparse
 import io
 import json
 import os
+import sys
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -28,8 +31,12 @@ import numpy as np
 import torch
 from PIL import Image
 
+TEST_ROOT = Path(__file__).resolve().parent.parent  # test/
+
 MODEL_NAME = "sam3_gemini"
-SAM3_WEIGHTS = os.getenv("SAM3_WEIGHTS", "sam3.pt")
+SAM3_WEIGHTS = os.getenv(
+    "SAM3_WEIGHTS", str(Path(__file__).resolve().parent / "sam3.pt")
+)
 GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-3.5-flash")
 NMS_IOU = 0.6
 MIN_AREA_RATIO = 0.005  # 전체 이미지 대비 최소 마스크 면적(오검출 컷)
@@ -129,20 +136,31 @@ class SegmentedItem:
 
 
 # ── ① SAM 3: 텍스트 프롬프트 → 검출 + 마스크 ─────────────
+_PREDICTOR_CACHE: dict[str, object] = {}
+
+
+def _load_predictor(device: str):
+    """SAM3 프레딕터를 디바이스별로 1회만 로드 (일괄 처리 시 재로드 방지)."""
+    if device not in _PREDICTOR_CACHE:
+        from ultralytics.models.sam import SAM3SemanticPredictor
+
+        _PREDICTOR_CACHE[device] = SAM3SemanticPredictor(
+            overrides=dict(model=SAM3_WEIGHTS, task="segment", mode="predict",
+                           conf=0.3, device=device, save=False, verbose=False)
+        )
+    return _PREDICTOR_CACHE[device]
+
+
 def segment(image_path: str, device: str) -> tuple[list[SegmentedItem], dict]:
     from torchvision.ops import nms
-    from ultralytics.models.sam import SAM3SemanticPredictor
 
     timings: dict[str, float] = {}
     image = Image.open(image_path).convert("RGB")
 
     t0 = time.perf_counter()
-    predictor = SAM3SemanticPredictor(
-        overrides=dict(model=SAM3_WEIGHTS, task="segment", mode="predict",
-                       conf=0.3, device=device, save=False, verbose=False)
-    )
+    predictor = _load_predictor(device)
     predictor.set_image(image_path)
-    timings["sam3_model_load"] = round(time.perf_counter() - t0, 3)
+    timings["sam3_model_load"] = round(time.perf_counter() - t0, 3)  # warm이면 ~0
 
     t0 = time.perf_counter()
     res = predictor(text=SAM3_PROMPTS)[0]
@@ -264,7 +282,23 @@ class GeminiTagger:
 
 
 # ── 실행 파이프라인 ───────────────────────────────────────
-def run(image_path: str, out_root: str) -> Path:
+def collect_input_images(input_dir: Path) -> list[str]:
+    """test/input/ 폴더의 jpg 이미지 목록을 정렬해 반환. 없으면 즉시 종료.
+
+    (common 패키지와 동일 정책이지만, 이 테스트는 common 미의존을 유지한다.)
+    """
+    images = sorted(
+        str(p) for p in input_dir.iterdir()
+        if p.is_file() and p.suffix.lower() in {".jpg", ".jpeg"}
+    ) if input_dir.is_dir() else []
+    if not images:
+        raise SystemExit(
+            f"입력 이미지가 없습니다: {input_dir} (jpg 파일을 넣어주세요)"
+        )
+    return images
+
+
+def run(image_path: str, out_root: str, tagger: GeminiTagger | None = None) -> Path:
     device = os.getenv("DEVICE", "cuda" if torch.cuda.is_available() else "cpu")
     items, timings = segment(image_path, device)
 
@@ -279,7 +313,7 @@ def run(image_path: str, out_root: str) -> Path:
         if it.mask.sum() / total_px >= MIN_AREA_RATIO:
             kept.append(it)
 
-    tagger = GeminiTagger()
+    tagger = tagger or GeminiTagger()
     results = []
     t0 = time.perf_counter()
     for i, it in enumerate(kept):
@@ -321,10 +355,34 @@ def run(image_path: str, out_root: str) -> Path:
 
 def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__)
-    ap.add_argument("image")
-    ap.add_argument("--out", default="output")
+    ap.add_argument("images", nargs="*",
+                    help="이미지 경로 목록. 생략 시 test/input/의 모든 jpg")
+    ap.add_argument("--out", default=str(TEST_ROOT / "output"))
     args = ap.parse_args()
-    run(args.image, args.out)
+
+    images = args.images or collect_input_images(TEST_ROOT / "input")
+
+    if not Path(SAM3_WEIGHTS).is_file():
+        raise SystemExit(
+            f"SAM3 가중치가 없습니다: {SAM3_WEIGHTS}\n"
+            "python sam3/download_sam3.py 로 받거나 SAM3_WEIGHTS로 경로를 지정하세요."
+        )
+
+    # Gemini 클라이언트·API 키 확인은 배치 시작 전에 1회만 수행
+    tagger = GeminiTagger()
+
+    failures = 0
+    for i, image_path in enumerate(images, 1):
+        print(f"\n[{MODEL_NAME}] ({i}/{len(images)}) {image_path}")
+        try:
+            run(image_path, args.out, tagger)
+        except Exception as e:  # 이미지 1장 실패가 전체 배치를 막지 않도록
+            failures += 1
+            print(f"[{MODEL_NAME}] 실패: {image_path} -> {e}", file=sys.stderr)
+
+    print(f"\n[{MODEL_NAME}] 완료: 성공 {len(images) - failures} / 실패 {failures}")
+    if failures:
+        sys.exit(1)
 
 
 if __name__ == "__main__":

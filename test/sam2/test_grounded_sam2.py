@@ -7,19 +7,30 @@ open-vocabulary 검출(텍스트 프롬프트) + 프롬프터블 세그멘테이
 - SAM2: ultralytics 배포 체크포인트(sam2.1_l.pt, 첫 실행 시 자동 다운로드)
   * 공식 facebookresearch/sam2 패키지도 가능하나 설치가 단순한 쪽을 기본으로 한다.
 
-실행: python test_grounded_sam2.py <이미지경로> [--out output]
+실행: python test_grounded_sam2.py [이미지경로 ...] [--out <출력폴더>]
+  - 이미지 경로를 생략하면 test/input/ 의 모든 jpg를 일괄 처리한다.
+  - 결과는 기본적으로 test/output/grounded_sam2_ultralytics/<이미지명>/ 에 저장된다.
+  - 현재 실행 대상은 test_grounded_sam2_common_package.py(공식 Meta SAM2)이며
+    이 파일은 ultralytics 기반 비교용으로 보관한다.
 """
 from __future__ import annotations
 
 import argparse
 import os
+import sys
 import time
+from pathlib import Path
 
 import numpy as np
 import torch
 from PIL import Image
 
-from common import SegmentedItem, run
+# test/ 하위 폴더에서 실행해도 test/common 패키지를 찾도록 보정
+TEST_ROOT = Path(__file__).resolve().parent.parent
+if str(TEST_ROOT) not in sys.path:
+    sys.path.insert(0, str(TEST_ROOT))
+
+from common import SegmentedItem, run, collect_input_images
 
 DINO_ID = "IDEA-Research/grounding-dino-base"
 SAM2_WEIGHTS = os.getenv("SAM2_WEIGHTS", "sam2.1_l.pt")
@@ -131,13 +142,28 @@ def segment(image_path: str, device: str) -> tuple[list[SegmentedItem], dict]:
 
 def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__)
-    ap.add_argument("image")
-    ap.add_argument("--out", default="output")
+    ap.add_argument("images", nargs="*",
+                    help="이미지 경로 목록. 생략 시 test/input/의 모든 jpg")
+    ap.add_argument("--out", default=str(TEST_ROOT / "output"))
     args = ap.parse_args()
 
+    images = args.images or collect_input_images(TEST_ROOT / "input")
     device = os.getenv("DEVICE", "cuda" if torch.cuda.is_available() else "cpu")
-    items, timings = segment(args.image, device)
-    run(args.image, args.out, "grounded_sam2", items, timings)
+
+    failures = 0
+    for i, image_path in enumerate(images, 1):
+        print(f"\n[grounded_sam2_ultralytics] ({i}/{len(images)}) {image_path}")
+        try:
+            items, timings = segment(image_path, device)
+            # common_package 버전(grounded_sam2)과 출력 폴더가 겹치지 않도록 구분
+            run(image_path, args.out, "grounded_sam2_ultralytics", items, timings)
+        except Exception as e:  # 이미지 1장 실패가 전체 배치를 막지 않도록
+            failures += 1
+            print(f"[grounded_sam2_ultralytics] 실패: {image_path} -> {e}", file=sys.stderr)
+
+    print(f"\n[grounded_sam2_ultralytics] 완료: 성공 {len(images) - failures} / 실패 {failures}")
+    if failures:
+        sys.exit(1)
 
 
 if __name__ == "__main__":

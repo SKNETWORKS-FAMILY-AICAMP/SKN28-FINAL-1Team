@@ -20,6 +20,22 @@ from PIL import Image
 MIN_AREA_RATIO = 0.005  # 전체 이미지 대비 최소 마스크 면적(오검출 컷)
 CROP_PAD = 0.05         # bbox 크롭 여백 비율
 
+IMAGE_EXTS = {".jpg", ".jpeg"}
+
+
+def collect_input_images(input_dir: str | Path) -> list[str]:
+    """test/input/ 폴더의 jpg 이미지 목록을 정렬해 반환. 없으면 즉시 종료."""
+    input_dir = Path(input_dir)
+    images = sorted(
+        str(p) for p in input_dir.iterdir()
+        if p.is_file() and p.suffix.lower() in IMAGE_EXTS
+    ) if input_dir.is_dir() else []
+    if not images:
+        raise SystemExit(
+            f"입력 이미지가 없습니다: {input_dir} (jpg 파일을 넣어주세요)"
+        )
+    return images
+
 
 @dataclass
 class SegmentedItem:
@@ -67,10 +83,22 @@ def save_overlay(image: np.ndarray, items: list[SegmentedItem], path: Path) -> N
     cv2.imwrite(str(path), cv2.cvtColor(overlay, cv2.COLOR_RGB2BGR))
 
 
+_EXTRACTOR = None
+
+
+def _get_extractor():
+    """FashionSigLIP 특징 추출기를 프로세스당 1회만 로드 (일괄 처리 시 재로드 방지)."""
+    global _EXTRACTOR
+    if _EXTRACTOR is None:
+        from .feature_extractor import FashionFeatureExtractor  # 지연 import (모델 로드 비용)
+
+        _EXTRACTOR = FashionFeatureExtractor()
+    return _EXTRACTOR
+
+
 def run(image_path: str, out_root: str, model_name: str,
         items: list[SegmentedItem], timings: dict[str, float]) -> Path:
     """세그멘테이션 결과 → 크롭 저장 + 특징 추출 + json 리포트."""
-    from .feature_extractor import FashionFeatureExtractor  # 지연 import (모델 로드 비용)
 
     image = np.array(Image.open(image_path).convert("RGB"))
     total_px = image.shape[0] * image.shape[1]
@@ -85,8 +113,8 @@ def run(image_path: str, out_root: str, model_name: str,
             kept.append(it)
 
     t0 = time.perf_counter()
-    extractor = FashionFeatureExtractor()
-    timings["feature_model_load"] = round(time.perf_counter() - t0, 3)
+    extractor = _get_extractor()
+    timings["feature_model_load"] = round(time.perf_counter() - t0, 3)  # warm이면 ~0
 
     results = []
     t0 = time.perf_counter()

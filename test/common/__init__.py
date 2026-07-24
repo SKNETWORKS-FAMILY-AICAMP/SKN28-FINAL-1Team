@@ -1,3 +1,3 @@
-from .pipeline import SegmentedItem, run
+from .pipeline import SegmentedItem, collect_input_images, run
 
-__all__ = ["SegmentedItem", "run"]
+__all__ = ["SegmentedItem", "collect_input_images", "run"]

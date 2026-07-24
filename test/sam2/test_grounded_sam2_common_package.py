@@ -12,12 +12,9 @@ project/
 │  └─ test_grounded_sam2.py
 └─ ...
 
-실행:
-    프로젝트 루트에서
-    python -m test.test_grounded_sam2 image.jpg --out output
-
-또는 test 폴더가 패키지가 아니라면:
-    python test/test_grounded_sam2.py image.jpg --out output
+실행: python test_grounded_sam2_common_package.py [이미지경로 ...] [--out <출력폴더>]
+  - 이미지 경로를 생략하면 test/input/ 의 모든 jpg를 일괄 처리한다.
+  - 결과는 기본적으로 test/output/grounded_sam2/<이미지명>/ 에 저장된다.
 """
 from __future__ import annotations
 
@@ -34,16 +31,14 @@ import torch
 from PIL import Image
 
 
-# test/test_grounded_sam2.py처럼 하위 폴더에서 직접 실행해도
-# 프로젝트 루트의 common 패키지를 찾을 수 있도록 보정.
-CURRENT_FILE = Path(__file__).resolve()
-PROJECT_ROOT = CURRENT_FILE.parent.parent if CURRENT_FILE.parent.name == "test" else CURRENT_FILE.parent
+# test/sam2/ 하위 폴더에서 직접 실행해도 test/common 패키지를 찾도록 보정.
+TEST_ROOT = Path(__file__).resolve().parent.parent
 
-if str(PROJECT_ROOT) not in sys.path:
-    sys.path.insert(0, str(PROJECT_ROOT))
+if str(TEST_ROOT) not in sys.path:
+    sys.path.insert(0, str(TEST_ROOT))
 
 
-from common.pipeline import SegmentedItem, run
+from common.pipeline import SegmentedItem, collect_input_images, run
 from common import taxonomy as T
 
 
@@ -511,8 +506,12 @@ def segment(
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("image")
-    parser.add_argument("--out", default="output")
+    parser.add_argument(
+        "images",
+        nargs="*",
+        help="이미지 경로 목록. 생략 시 test/input/의 모든 jpg",
+    )
+    parser.add_argument("--out", default=str(TEST_ROOT / "output"))
     parser.add_argument(
         "--device",
         choices=["cuda", "cpu"],
@@ -523,25 +522,26 @@ def main() -> None:
     )
     args = parser.parse_args()
 
-    image_path = Path(args.image)
+    images = args.images or collect_input_images(TEST_ROOT / "input")
 
-    if not image_path.exists():
-        raise FileNotFoundError(
-            f"이미지를 찾을 수 없습니다: {image_path}"
-        )
+    # 모델(DINO + SAM2)은 1회만 로드하고 이미지들만 순회한다.
+    segmenter = GroundedSAM2Segmenter(device=args.device)
 
-    items, timings = segment(
-        str(image_path),
-        args.device,
-    )
+    failures = 0
+    for i, image_path in enumerate(images, 1):
+        print(f"\n[grounded_sam2] ({i}/{len(images)}) {image_path}")
+        try:
+            if not Path(image_path).exists():
+                raise FileNotFoundError(f"이미지를 찾을 수 없습니다: {image_path}")
+            items, timings = segmenter.segment(str(image_path))
+            run(str(image_path), args.out, "grounded_sam2", items, timings)
+        except Exception as e:  # 이미지 1장 실패가 전체 배치를 막지 않도록
+            failures += 1
+            print(f"[grounded_sam2] 실패: {image_path} -> {e}", file=sys.stderr)
 
-    run(
-        str(image_path),
-        args.out,
-        "grounded_sam2",
-        items,
-        timings,
-    )
+    print(f"\n[grounded_sam2] 완료: 성공 {len(images) - failures} / 실패 {failures}")
+    if failures:
+        sys.exit(1)
 
 
 if __name__ == "__main__":
