@@ -5,4 +5,17 @@ google-genai>=1.0.0
 opencv-python-headless>=4.9
 pillow>=10.0
 numpy>=1.26
-git+https://github.com/ultralytics/CLIP.git
+
+# ── CLIP (SAM 3 텍스트 프롬프트 토크나이저) ─────────────────────────
+# SAM 3의 컨셉(텍스트) 프롬프트는 CLIP 토크나이저를 쓰는데, 반드시
+# ultralytics 포크(패키지명 clip, v1.0)여야 한다. PyPI의 clip은 전혀 다른
+# 패키지라 그게 설치되면 "TypeError: 'SimpleTokenizer' object is not
+# callable"로 추론이 실패한다 (ultralytics SAM-3 공식 문서 명시).
+#
+# git+https://... 형태 대신 소스 아카이브 URL을 쓰는 이유:
+#  1) git+ 설치는 빌드 컨테이너에 git 바이너리가 필요한데, 베이스 이미지
+#     (pytorch/pytorch runtime)에는 git이 없어 docker build가 깨진다.
+#  2) 커밋 SHA로 고정해 빌드 재현성을 확보한다 (main 추적 시 어느 날
+#     갑자기 다른 코드로 빌드될 수 있음).
+# 부수 의존성(ftfy, regex, tqdm)은 clip 패키지 메타데이터가 자동으로 끌어온다.
+clip @ https://github.com/ultralytics/CLIP/archive/c4b6ea0932a2c0f39a0fa528af5ec4982ff15cab.zip
