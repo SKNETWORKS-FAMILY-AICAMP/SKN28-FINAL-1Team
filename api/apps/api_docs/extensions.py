@@ -9,6 +9,7 @@ from drf_spectacular.utils import (
     OpenApiResponse,
     extend_schema,
     extend_schema_view,
+    inline_serializer,
 )
 
 from apps.api_docs.serializers import (
@@ -28,6 +29,13 @@ from apps.users.serializers import (
     PursuitPayloadResponseSerializer,
     SocialLoginSerializer,
     UserSerializer,
+)
+from apps.wardrobe.serializers import (
+    CallbackSerializer,
+    WardrobeItemSerializer,
+    WardrobeItemUpdateSerializer,
+    WardrobeJobSerializer,
+    WardrobeUploadSerializer,
 )
 
 
@@ -534,3 +542,206 @@ class PursuitViewExtension(OpenApiViewExtension):
             pass
 
         return DocumentedPursuitView
+
+
+# =============================================================================
+# 옷장 (Wardrobe) — 아이템 등록 · 조회 · 확정
+# =============================================================================
+
+from rest_framework import serializers as drf_serializers  # noqa: E402
+
+from apps.wardrobe import taxonomy as wardrobe_taxonomy  # noqa: E402
+
+WARDROBE_UPLOAD_DESCRIPTION = """사진 1장을 접수해 옷장 아이템 등록을 **비동기로** 시작합니다.
+
+1. 원본이 S3에 저장되고 처리 job이 생성됩니다 (`202 + job_id`).
+2. GPU 이미지 프로세서가 아이템 분리(SAM 3)·캡셔닝(Gemini)을 수행합니다.
+3. 프론트는 `GET /api/v1/wardrobe/uploads/{job_id}/`를 폴링해 완료를 확인합니다.
+4. 완료 후 사용자가 태깅을 확인·수정하고 `PATCH /api/v1/wardrobe/items/{id}/`로
+   확정(`confirmed=true`)해야 추천 검색 대상이 됩니다.
+
+제한: jpeg/png/webp/heic, 15MB 이하."""
+
+INTERNAL_TOKEN_PARAMETER = OpenApiParameter(
+    name="X-Internal-Token",
+    type=OpenApiTypes.STR,
+    location=OpenApiParameter.HEADER,
+    required=True,
+    description="이미지 프로세서 ↔ 메인 API 공유 시크릿 (WARDROBE_INTERNAL_TOKEN)",
+)
+
+
+class WardrobeUploadViewExtension(OpenApiViewExtension):
+    target_class = "apps.wardrobe.views.WardrobeUploadView"
+
+    def view_replacement(self):
+        @extend_schema_view(
+            post=extend_schema(
+                operation_id="wardrobe_upload",
+                tags=["Wardrobe"],
+                summary="옷장 사진 업로드 (비동기 등록 시작)",
+                description=WARDROBE_UPLOAD_DESCRIPTION,
+                request=WardrobeUploadSerializer,
+                responses={
+                    202: inline_serializer(
+                        name="WardrobeUploadResponse",
+                        fields={
+                            "job_id": drf_serializers.UUIDField(),
+                            "status": drf_serializers.CharField(),
+                        },
+                    ),
+                    400: DetailResponseSerializer,
+                    401: DetailResponseSerializer,
+                    503: OpenApiResponse(
+                        response=DetailResponseSerializer,
+                        description="S3 업로드 또는 처리 큐 적재 실패",
+                    ),
+                },
+            )
+        )
+        class DocumentedWardrobeUploadView(self.target_class):
+            pass
+
+        return DocumentedWardrobeUploadView
+
+
+class WardrobeUploadJobViewExtension(OpenApiViewExtension):
+    target_class = "apps.wardrobe.views.WardrobeUploadJobView"
+
+    def view_replacement(self):
+        @extend_schema_view(
+            get=extend_schema(
+                operation_id="wardrobe_upload_job",
+                tags=["Wardrobe"],
+                summary="업로드 job 상태·결과 조회 (폴링)",
+                description=(
+                    "처리 상태(PENDING/PROCESSING/DONE/FAILED)를 반환합니다.\n\n"
+                    "DONE이면 분리된 아이템 목록(presigned 이미지 URL 포함)이 "
+                    "`items`에 담깁니다."
+                ),
+                responses={
+                    200: WardrobeJobSerializer,
+                    401: DetailResponseSerializer,
+                    404: DetailResponseSerializer,
+                },
+            )
+        )
+        class DocumentedWardrobeUploadJobView(self.target_class):
+            pass
+
+        return DocumentedWardrobeUploadJobView
+
+
+class WardrobeCallbackViewExtension(OpenApiViewExtension):
+    target_class = "apps.wardrobe.views.WardrobeCallbackView"
+
+    def view_replacement(self):
+        @extend_schema_view(
+            post=extend_schema(
+                operation_id="wardrobe_internal_callback",
+                tags=["Wardrobe"],
+                summary="[내부] 이미지 프로세서 처리 결과 콜백",
+                description=(
+                    "이미지 프로세서 전용 내부 엔드포인트입니다 (프론트 사용 금지).\n\n"
+                    "- 인증: `X-Internal-Token` 헤더 (JWT 아님)\n"
+                    "- 멱등: 이미 DONE/FAILED인 job은 재처리 없이 200을 반환합니다.\n"
+                    "- 벡터(`image_vector`/`text_vector`)는 DB가 아닌 Qdrant로 적재됩니다."
+                ),
+                parameters=[INTERNAL_TOKEN_PARAMETER],
+                auth=[],
+                request=CallbackSerializer,
+                responses={
+                    200: OpenApiResponse(description="멱등 응답 (이미 처리된 job)"),
+                    201: inline_serializer(
+                        name="WardrobeCallbackResponse",
+                        fields={
+                            "job_id": drf_serializers.UUIDField(),
+                            "status": drf_serializers.CharField(),
+                            "num_items": drf_serializers.IntegerField(),
+                        },
+                    ),
+                    403: DetailResponseSerializer,
+                    404: DetailResponseSerializer,
+                },
+            )
+        )
+        class DocumentedWardrobeCallbackView(self.target_class):
+            pass
+
+        return DocumentedWardrobeCallbackView
+
+
+class WardrobeItemListViewExtension(OpenApiViewExtension):
+    target_class = "apps.wardrobe.views.WardrobeItemListView"
+
+    def view_replacement(self):
+        @extend_schema_view(
+            get=extend_schema(
+                operation_id="wardrobe_items",
+                tags=["Wardrobe"],
+                summary="내 옷장 아이템 목록",
+                parameters=[
+                    OpenApiParameter(
+                        name="category_large",
+                        type=OpenApiTypes.STR,
+                        location=OpenApiParameter.QUERY,
+                        required=False,
+                        enum=wardrobe_taxonomy.CATEGORY_LARGE,
+                        description="대분류 필터",
+                    ),
+                    OpenApiParameter(
+                        name="confirmed",
+                        type=OpenApiTypes.BOOL,
+                        location=OpenApiParameter.QUERY,
+                        required=False,
+                        description="확정 여부 필터 (true|false)",
+                    ),
+                ],
+                responses={
+                    200: WardrobeItemSerializer(many=True),
+                    401: DetailResponseSerializer,
+                },
+            )
+        )
+        class DocumentedWardrobeItemListView(self.target_class):
+            pass
+
+        return DocumentedWardrobeItemListView
+
+
+class WardrobeItemDetailViewExtension(OpenApiViewExtension):
+    target_class = "apps.wardrobe.views.WardrobeItemDetailView"
+
+    def view_replacement(self):
+        @extend_schema_view(
+            patch=extend_schema(
+                operation_id="wardrobe_item_update",
+                tags=["Wardrobe"],
+                summary="아이템 태깅 수정 + 확정",
+                description=(
+                    "자동 태깅 결과를 수정하고 `confirmed=true`로 확정합니다.\n"
+                    "대분류-소분류 짝이 맞지 않으면 400을 반환합니다."
+                ),
+                request=WardrobeItemUpdateSerializer,
+                responses={
+                    200: WardrobeItemSerializer,
+                    400: DetailResponseSerializer,
+                    401: DetailResponseSerializer,
+                    404: DetailResponseSerializer,
+                },
+            ),
+            delete=extend_schema(
+                operation_id="wardrobe_item_delete",
+                tags=["Wardrobe"],
+                summary="아이템 삭제",
+                responses={
+                    204: OpenApiResponse(description="삭제 완료 (벡터도 함께 제거)"),
+                    401: DetailResponseSerializer,
+                    404: DetailResponseSerializer,
+                },
+            ),
+        )
+        class DocumentedWardrobeItemDetailView(self.target_class):
+            pass
+
+        return DocumentedWardrobeItemDetailView
