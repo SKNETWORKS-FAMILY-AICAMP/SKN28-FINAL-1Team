@@ -43,6 +43,7 @@ INSTALLED_APPS = [
     "apps.catalog",
     "apps.weather",
     "apps.home",
+    "apps.wardrobe",
 ]
 
 MIDDLEWARE = [
@@ -188,3 +189,10 @@ OAUTH_REQUEST_TIMEOUT = int(os.getenv("OAUTH_REQUEST_TIMEOUT", "10"))
 CORS_ALLOWED_ORIGINS = [
     o.strip() for o in os.getenv("CORS_ALLOWED_ORIGINS", "").split(",") if o.strip()
 ]
+
+# ------------------------------------------------------------
+# 옷장 (wardrobe) — S3 / 처리 큐 / Qdrant
+# 상세 값은 apps/wardrobe/services/* 에서 환경변수로 직접 읽는다.
+# 필수: WARDROBE_S3_BUCKET, REDIS_URL, WARDROBE_INTERNAL_TOKEN,
+#       WARDROBE_CALLBACK_URL, QDRANT_URL
+# ------------------------------------------------------------
