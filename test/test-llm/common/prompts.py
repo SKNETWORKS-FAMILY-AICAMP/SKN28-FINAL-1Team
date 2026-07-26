@@ -28,13 +28,15 @@ def build_edit_prompt(item: dict) -> str:
     occluded = item.get("occluded_by") or []
     view = item.get("view_angle", "front")
 
+    # 주의: "remove the person", "body parts" 같은 표현은 이미지 API 안전
+    # 필터(moderation) 오탐을 유발한다. 사람 언급 없이 "상품만 보여달라"로 쓴다.
     occlusion_note = (
-        "Parts of the item are hidden by: "
+        "In the source photo, some areas of the item are covered by: "
         + ", ".join(occluded)
-        + ". Reconstruct those hidden areas conservatively, continuing the "
+        + ". Reconstruct those covered areas conservatively, continuing the "
         "visible color, pattern, material and construction. "
         if occluded
-        else "If any part is hidden by hair, arms, bags or other garments, "
+        else "If any area of the item is covered in the source photo, "
         "reconstruct it conservatively from the visible evidence. "
     )
 
@@ -53,10 +55,11 @@ def build_edit_prompt(item: dict) -> str:
         "with generous margin on all sides. Never crop any edge of the item.\n"
         f"- Front-facing standard retail presentation. {_VIEW_NOTE.get(view, _VIEW_NOTE['front'])}\n"
         f"- {occlusion_note}\n"
-        "- Completely remove the person, body parts, other garments, "
-        "accessories that are not the target item, and the background.\n"
-        "- Do not preserve worn distortion: no crossed arms, bent joints, "
-        "bulges or body tension. Natural unworn product shape "
+        "- The output must contain only the product itself on the white "
+        "background: no other garments, no accessories that are not the "
+        "target item, and nothing else from the source photo.\n"
+        "- Do not preserve the on-body drape or posing distortion of the "
+        "source photo. Natural unworn retail product shape "
         "(ghost-mannequin style volume is acceptable for clothing).\n"
         "- Preserve the true colors, fabric texture, seams, closures, pockets, "
         "and any real logos or printed graphics exactly as they appear. "
