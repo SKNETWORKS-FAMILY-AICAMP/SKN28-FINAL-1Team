@@ -32,7 +32,8 @@ class SeedreamProvider(ImageEditProvider):
         ).rstrip("/")
         self.size = os.getenv("SEEDREAM_SIZE", "2K")
 
-    def edit(self, image_bytes: bytes, mime: str, prompt: str) -> bytes:
+    def edit(self, image_bytes: bytes, mime: str, prompt: str,
+             item: dict | None = None) -> bytes:
         b64 = base64.b64encode(image_bytes).decode()
         resp = requests.post(
             f"{self.base_url}/images/generations",

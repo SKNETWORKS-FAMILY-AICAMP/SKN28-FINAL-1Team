@@ -123,7 +123,7 @@ def main() -> None:
                        "ok": False, "latency_sec": 0.0, "error": None}
                 t0 = time.perf_counter()
                 try:
-                    edited = provider.edit(image_bytes, mime, prompt)
+                    edited = provider.edit(image_bytes, mime, prompt, item=it)
                     (out_dir / fname).write_bytes(edited)
                     rec["ok"] = True
                 except Exception as e:  # 아이템 1개 실패가 배치를 막지 않도록

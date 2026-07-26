@@ -13,8 +13,13 @@ class ImageEditProvider(ABC):
     required_env: str = ""
 
     @abstractmethod
-    def edit(self, image_bytes: bytes, mime: str, prompt: str) -> bytes:
-        """편집 이미지를 bytes로 반환. 실패 시 예외를 던진다."""
+    def edit(self, image_bytes: bytes, mime: str, prompt: str,
+             item: dict | None = None) -> bytes:
+        """편집 이미지를 bytes로 반환. 실패 시 예외를 던진다.
+
+        item: enumerator가 만든 아이템 dict (bbox 등).
+              프로바이더별 폴백 전략에 선택적으로 사용한다.
+        """
 
     @classmethod
     def available(cls) -> bool:

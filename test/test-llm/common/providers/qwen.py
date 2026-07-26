@@ -33,7 +33,8 @@ class QwenImageEditProvider(ImageEditProvider):
         self.api_key = os.environ["DASHSCOPE_API_KEY"]
         self.model = os.getenv("QWEN_IMAGE_MODEL", "qwen-image-edit-plus")
 
-    def edit(self, image_bytes: bytes, mime: str, prompt: str) -> bytes:
+    def edit(self, image_bytes: bytes, mime: str, prompt: str,
+             item: dict | None = None) -> bytes:
         from dashscope import MultiModalConversation
 
         b64 = base64.b64encode(image_bytes).decode()

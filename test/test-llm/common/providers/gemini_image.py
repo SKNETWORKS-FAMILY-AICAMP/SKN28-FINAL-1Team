@@ -25,7 +25,8 @@ class _GeminiImageBase(ImageEditProvider):
 
         self.client = genai.Client(api_key=os.environ["GEMINI_API_KEY"])
 
-    def edit(self, image_bytes: bytes, mime: str, prompt: str) -> bytes:
+    def edit(self, image_bytes: bytes, mime: str, prompt: str,
+             item: dict | None = None) -> bytes:
         from google.genai import types
 
         resp = self.client.models.generate_content(

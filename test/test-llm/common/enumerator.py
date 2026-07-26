@@ -48,6 +48,12 @@ ENUM_SCHEMA = {
                         "type": "STRING",
                         "enum": ["front", "side", "back", "three-quarter"],
                     },
+                    "bbox": {
+                        "type": "ARRAY",
+                        "items": {"type": "INTEGER"},
+                        "description": ("이 아이템의 bounding box "
+                                        "[ymin, xmin, ymax, xmax], 0~1000 정규화 좌표"),
+                    },
                 },
                 "required": ["descriptor_en", "label_ko",
                              "category_large", "view_angle"],
