@@ -93,6 +93,11 @@ export default function Login() {
             <Text style={styles.loginText}>로그인</Text>
           </Pressable>
 
+          {/* 가입 전에 핵심 경험을 먼저 제공한다. 저장 시점에 다시 로그인을 안내한다. */}
+          <Pressable style={styles.guest} onPress={() => router.replace('/home')}>
+            <Text style={styles.guestText}>로그인 없이 둘러보기</Text>
+          </Pressable>
+
           {/* 또는 */}
           <View style={styles.divider}>
             <View style={styles.line} />
@@ -136,11 +141,6 @@ export default function Login() {
               onPress={() => onSocial(apple)}
             />
           )}
-
-          {/* 가입 전에 핵심 경험을 먼저 제공한다. 저장 시점에 다시 로그인을 안내한다. */}
-          <Pressable style={styles.guest} onPress={() => router.replace('/home')}>
-            <Text style={styles.guestText}>로그인 없이 둘러보기 →</Text>
-          </Pressable>
 
           {/* 회원가입 */}
           <Pressable style={styles.signup} onPress={() => router.push('/signup')}>
@@ -227,8 +227,17 @@ const styles = StyleSheet.create({
   socialText: { fontSize: 14, fontWeight: '500', color: ink(0.9) },
   socialTextLight: { color: '#ffffff' },
 
-  guest: { alignSelf: 'center', marginTop: 24, paddingVertical: 4 },
-  guestText: { fontSize: 13, color: ink(0.55), textDecorationLine: 'underline' },
+  guest: {
+    height: 48,
+    borderRadius: 999,
+    backgroundColor: '#ffffff',
+    borderWidth: 1,
+    borderColor: ink(0.14),
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginTop: 12,
+  },
+  guestText: { fontSize: 15, fontWeight: '500', color: ink(0.75) },
   signup: { alignSelf: 'center', marginTop: 26 },
   signupText: { fontSize: 13, color: ink(0.5) },
   signupBold: { color: ink(0.9), fontWeight: '500' },
