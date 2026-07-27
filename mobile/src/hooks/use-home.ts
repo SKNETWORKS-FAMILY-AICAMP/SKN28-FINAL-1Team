@@ -45,12 +45,16 @@ type HomeResult = {
  * - coords 를 주면 위치 기반 날씨, 없으면 백엔드가 서울 기본값으로 응답한다.
  * - 로딩/에러 상태와 재시도(reload) 를 제공한다. (JWT 는 apiClient 가 자동 부착)
  */
-export function useHome(coords?: Coords): HomeResult {
+export function useHome(coords?: Coords, enabled = true): HomeResult {
   const [data, setData] = useState<HomeData | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
 
   const load = useCallback(async () => {
+    if (!enabled) {
+      setLoading(false);
+      return;
+    }
     setLoading(true);
     setError(null);
     try {
@@ -64,7 +68,7 @@ export function useHome(coords?: Coords): HomeResult {
       setLoading(false);
     }
     // 객체 참조가 아니라 좌표값이 바뀔 때만 재요청
-  }, [coords?.lat, coords?.lon]);
+  }, [coords?.lat, coords?.lon, enabled]);
 
   useEffect(() => {
     load();

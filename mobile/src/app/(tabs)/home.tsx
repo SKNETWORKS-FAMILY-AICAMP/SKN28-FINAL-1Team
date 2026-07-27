@@ -36,27 +36,12 @@ function weatherLabel(w: HomeWeather): string {
   return w.sky_state ? `${region} ${temp} · ${w.sky_state}` : `${region} ${temp}`;
 }
 
-// 백엔드가 별명 없을 때 자동 생성하는 username(예: naver_XXXX)은 인사말로 부적절 → 폴백.
-const AUTO_USERNAME = /^(naver|kakao|google)_/;
-
-/** 인사말용 표시 이름: 실제 별명 → 이메일 앞부분 → '회원' 순 폴백 */
-function displayName(
-  homeNickname: string | undefined,
-  userNickname: string | null | undefined,
-  email: string | null | undefined,
-): string {
-  for (const n of [homeNickname, userNickname]) {
-    if (n && !AUTO_USERNAME.test(n)) return n;
-  }
-  if (email) return email.split('@')[0];
-  return '회원';
-}
-
 // 홈 탭 (Figma B1) — GET /api/v1/home/ 연동
 export default function HomeScreen() {
   const { contentStyle } = useBreakpoint();
-  const { user } = useAuth();
-  const { data, error, loading, reload } = useHome();
+  const { status } = useAuth();
+  // 홈 API는 JWT가 필요하다. 비회원은 요청하지 않고 온보딩 전용 홈을 즉시 보여준다.
+  const { data, error, loading, reload } = useHome(undefined, status === 'authed');
 
   /* 서비스 페르소나 이름으로 부른다. 백엔드 nickname 은 개발용 계정명이라 그대로 쓰지 않는다. */
   const nickname = '코지';
@@ -80,15 +65,43 @@ export default function HomeScreen() {
             </View>
           </View>
 
-          {loading ? (
+          {status === 'loading' ? (
+            <LoadingState message="홈을 준비하는 중…" />
+          ) : status === 'guest' ? (
+            <EmptyClosetStart />
+          ) : loading ? (
             <LoadingState message="오늘의 추천을 불러오는 중…" />
           ) : error || !data ? (
             <ErrorState onRetry={reload} />
+          ) : data.closet_count === 0 ? (
+            <EmptyClosetStart />
           ) : (
             <HomeBody data={data} />
           )}
         </ScrollView>
       </SafeAreaView>
+    </View>
+  );
+}
+
+/** 옷장 데이터가 없는 첫 방문자를 위한 홈. 분석 경험부터 제공해 추천의 근거를 만든다. */
+function EmptyClosetStart() {
+  return (
+    <View style={styles.emptyStart}>
+      <View style={styles.emptyEyebrow}>
+        <Text style={styles.emptyEyebrowText}>MY FIRST LOOK</Text>
+      </View>
+      <Text style={styles.emptyTitle}>옷장이 비어 있어도 괜찮아요</Text>
+      <Text style={styles.emptyBody}>
+        사진 한 장으로 내 스타일을 시작해 볼까요?{`\n`}코지가 잘 어울리는 포인트를 찾아드릴게요
+      </Text>
+      <Pressable style={styles.emptyPrimary} onPress={() => router.push('/outfit-review')}>
+        <Text style={styles.emptyPrimaryText}>내 착장 분석하기</Text>
+      </Pressable>
+      <Pressable style={styles.emptySecondary} onPress={() => router.push('/(tabs)/lookbook')}>
+        <Text style={styles.emptySecondaryText}>스타일 둘러보기</Text>
+      </Pressable>
+      <Text style={styles.emptyHint}>분석 결과는 로그인 없이도 확인할 수 있어요</Text>
     </View>
   );
 }
@@ -217,6 +230,41 @@ const styles = StyleSheet.create({
   greeting: { flex: 1, fontFamily: Fonts.serif, fontSize: 18, fontWeight: '500', color: INK },
   headerRight: { flexDirection: 'row', alignItems: 'center', gap: 14, flexShrink: 0 },
   avatar: { width: 40, height: 40, borderRadius: 20, backgroundColor: CHIP },
+
+  emptyStart: {
+    borderRadius: 28,
+    backgroundColor: Editorial.panel,
+    paddingHorizontal: 28,
+    paddingVertical: 34,
+    alignItems: 'flex-start',
+  },
+  emptyEyebrow: { paddingBottom: 16 },
+  emptyEyebrowText: { fontSize: 10, letterSpacing: 1.7, fontWeight: '600', color: ink(0.45) },
+  emptyTitle: { fontFamily: Fonts.serif, fontSize: 28, lineHeight: 36, color: INK },
+  emptyBody: { marginTop: 14, fontSize: 16, lineHeight: 24, color: ink(0.6) },
+  emptyPrimary: {
+    marginTop: 28,
+    alignSelf: 'stretch',
+    height: 50,
+    borderRadius: 999,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: Editorial.wine,
+  },
+  emptyPrimaryText: { color: '#ffffff', fontSize: 14, fontWeight: '600' },
+  emptySecondary: {
+    marginTop: 12,
+    alignSelf: 'stretch',
+    height: 50,
+    borderRadius: 999,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#ffffff',
+    borderWidth: 1,
+    borderColor: ink(0.14),
+  },
+  emptySecondaryText: { fontSize: 14, fontWeight: '600', color: ink(0.7) },
+  emptyHint: { alignSelf: 'center', marginTop: 18, fontSize: 13, color: ink(0.4) },
 
   lookMetaRow: {
     flexDirection: 'row',
