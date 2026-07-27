@@ -72,7 +72,6 @@ export const Editorial = {
   white: '#ffffff',
   surface: '#faf6f0', // 검색바·태그 배경 (기존 #faf6f0 는 너무 진해 연하게 조정)
   surfaceSoft: '#fcffff', // 패널·타일 배경
-  panel: '#FFFAF8', // 온보딩 카드·사진 선택 박스 등 큰 패널 배경 (웜톤)
   surfaceTag: '#efe7db', // '내 옷' 태그 등
   accent: '#f3e4de', // 웜 피치 — 'new'/경고 배경 강조
   wine: '#5E2B2F', // 경고 텍스트/아이콘

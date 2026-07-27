@@ -233,7 +233,7 @@ const styles = StyleSheet.create({
 
   emptyStart: {
     borderRadius: 28,
-    backgroundColor: Editorial.panel,
+    backgroundColor: CHIP,
     paddingHorizontal: 28,
     paddingVertical: 34,
     alignItems: 'flex-start',
@@ -249,7 +249,7 @@ const styles = StyleSheet.create({
     borderRadius: 999,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: Editorial.wine,
+    backgroundColor: INK,
   },
   emptyPrimaryText: { color: '#ffffff', fontSize: 14, fontWeight: '600' },
   emptySecondary: {
