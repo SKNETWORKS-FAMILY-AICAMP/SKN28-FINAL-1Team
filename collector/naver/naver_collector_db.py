@@ -12,9 +12,13 @@
 
 스키마는 Django migration(api/apps/catalog)이 관리한다. 실행 전 migrate 필요.
 
+태깅 provider (NAVER_TAGGING_PROVIDER):
+  openai(기본) - OpenAI API. sync/batch 모두 지원
+  claude       - Claude Agent SDK (구독제 OAuth 토큰). sync 전용, 이미지 미지원
+
 태깅 모드 (NAVER_TAGGING_MODE):
   batch(기본) - 수집은 pending 저장 → OpenAI Batch API 제출(50% 할인) → 폴링 후 반영
-  sync        - 수집 중 상품별 실시간 태깅 (빠른 확인용, 비용 2배)
+  sync        - 수집 중 상품별 실시간 태깅 (claude provider는 항상 sync)
 
 사용 예:
   python naver_collector_db.py --job collect                       # 수집 (+batch 모드면 배치 제출까지)
@@ -214,8 +218,11 @@ def collect(
     """키워드 목록 순회 수집 → 태깅 → upsert."""
     tagger = None
     if not skip_llm:
-        from llm_tagger import LLMTagger  # OPENAI_API_KEY 없이 --skip-llm 실행 가능하도록 지연 임포트
-        tagger = LLMTagger()
+        # API 키 없이 --skip-llm 실행 가능하도록 지연 임포트.
+        # provider(openai|claude)는 NAVER_TAGGING_PROVIDER로 선택된다.
+        from util.tagging import get_sync_tagger
+
+        tagger = get_sync_tagger()
 
     seen_ids: set[str] = set()
     total_saved = 0
@@ -295,10 +302,10 @@ def run_collect_job(
 
 
 def retag(conn, limit: int = 500) -> int:
-    """tagging_status가 pending/failed인 상품 재태깅."""
-    from llm_tagger import LLMTagger
+    """tagging_status가 pending/failed인 상품 재태깅 (동기, provider 선택 적용)."""
+    from util.tagging import get_sync_tagger
 
-    tagger = LLMTagger()
+    tagger = get_sync_tagger()
     products = db.fetch_products_for_retag(conn, limit)
     logger.info("재태깅 대상: %s건", len(products))
 

@@ -1,6 +1,6 @@
 from rest_framework import serializers
 
-from apps.users.serializers import UserSerializer
+from apps.users.serializers import PreferenceCategorySerializer, UserSerializer
 
 
 class DetailResponseSerializer(serializers.Serializer):
@@ -68,6 +68,12 @@ class HomeTodayLookSerializer(serializers.Serializer):
     tags = serializers.ListField(
         child=serializers.CharField(), help_text="추천 아이템 태그 목록."
     )
+
+
+class PreferenceOptionsResponseSerializer(serializers.Serializer):
+    """GET /api/v1/preference-options/ 200 응답 본문."""
+
+    categories = PreferenceCategorySerializer(many=True)
 
 
 class HomeResponseSerializer(serializers.Serializer):

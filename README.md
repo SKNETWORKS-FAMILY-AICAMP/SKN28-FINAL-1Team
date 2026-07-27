@@ -53,6 +53,12 @@ docker compose --profile all up -d --build      # 전부
 
 - 실행 순서는 자동 보장: `db(healthy) → migrate(Django migration) → api/collector`
 - `.env`에 `COMPOSE_PROFILES=api,naver`를 지정하면 `docker compose up -d`만으로 동작
+- **API 실행 모드는 `DJANGO_SETTINGS_MODULE`로 제어** (구 `docker-compose.swagger.yml`은 병합·폐기됨):
+  `config.settings.prod`(기본) / `dev` / `swagger`(+Swagger UI `/api/docs/`) / `swagger_noauth`(+인증 우회, 로컬 전용).
+  `.env`는 Infisical로 관리되므로 모드 변경은 Infisical의 dev 환경 값 수정 또는
+  일회성 실행 시 셸 환경변수 오버라이드(`DJANGO_SETTINGS_MODULE=config.settings.swagger docker compose up -d`)로 한다.
+  ⚠️ `swagger_noauth`는 인증이 꺼지므로 운영 환경에 절대 설정 금지.
+- 호스트 5432 포트가 사용 중이면 `POSTGRES_HOST_PORT`로 db 공개 포트를 변경
 - 어떤 프로필이든 migrate가 api 이미지로 실행되므로 `DJANGO_SECRET_KEY`, `DJANGO_ALLOWED_HOSTS` 필요
 - 컨테이너는 루트 `.env` 파일에서 값을 읽으므로(compose `env_file`), `infisical run -- docker compose up`만으로는 시크릿이 컨테이너에 전달되지 않는다. 반드시 위처럼 `infisical export`로 `.env`를 먼저 생성한다. 원리는 [docs/guide/INFISICAL_GUIDE.md](docs/guide/INFISICAL_GUIDE.md)를 따른다.
 - `.env`는 `infisical export`로만 생성/갱신하고 손으로 편집하지 않는다. Infisical 값 변경 후에는 export를 다시 실행하고 `docker compose up -d --force-recreate`로 반영한다. 커밋 금지.

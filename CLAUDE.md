@@ -22,7 +22,7 @@
 | 언어 | Python 3.11+ |
 | 백엔드 | Django / Django REST Framework |
 | AI/ML | PyTorch (모델 학습·추론), 추천 모델 |
-| 데이터 | PostgreSQL (권장), Redis (캐시) |
+| 데이터 | PostgreSQL (권장), Redis (캐시), Qdrant (벡터 검색) |
 | GPU (임시) | RunPod |
 | 배포 | AWS (EC2 / ECS / S3 / RDS 등) |
 | 형상관리 | Git |
@@ -53,6 +53,7 @@ SKN28-FINAL-1Team/
 ├── collector/             # 독립 실행 데이터 수집기 (스키마는 Django migration이 소유)
 │   ├── weather/           # 기상청 APIHub 수집
 │   └── naver/             # 네이버 쇼핑 상품 수집 + LLM 태깅
+├── indexer/               # S3 패션아이템 → Marqo FashionSigLIP 임베딩 → Qdrant 적재 (GPU 배치)
 ├── ml/                    # 모델 학습·추론 코드 (예정)
 ├── scripts/               # 배포·데이터 처리 스크립트
 └── docs/                  # 설계·아키텍처 문서

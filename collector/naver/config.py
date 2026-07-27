@@ -8,9 +8,17 @@ from __future__ import annotations
 
 import logging
 import os
+import sys
+from pathlib import Path
 from zoneinfo import ZoneInfo
 
 from dotenv import load_dotenv
+
+# collector/ 를 sys.path에 추가해 공용 util 패키지를 임포트할 수 있게 한다.
+# (naver/ 모듈들은 어디서 실행하든 config를 먼저 임포트하므로 여기서 처리)
+_COLLECTOR_ROOT = str(Path(__file__).resolve().parent.parent)
+if _COLLECTOR_ROOT not in sys.path:
+    sys.path.insert(0, _COLLECTOR_ROOT)
 
 load_dotenv()
 
@@ -54,12 +62,13 @@ KEYWORD_GENDER_PREFIXES = [
 # ------------------------------------------------------------
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "").strip()
 OPENAI_MODEL = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
-# 이미지 활용 모드:
-#   auto   - 텍스트 태깅 결과가 부실하면(스타일/색상 판단 불가) 이미지 포함 재시도
-#   always - 항상 이미지 포함 (비용 증가)
-#   never  - 텍스트만 사용
-LLM_IMAGE_MODE = os.getenv("NAVER_LLM_IMAGE_MODE", "auto").lower()
-LLM_MAX_RETRIES = int(os.getenv("NAVER_LLM_MAX_RETRIES", "2"))
+# NAVER_LLM_IMAGE_MODE / NAVER_LLM_MAX_RETRIES / NAVER_LLM_TEMPERATURE 는
+# util/tagging 패키지가 같은 env 키를 직접 읽는다 (여기서 중복 정의하지 않음).
+
+# 태깅 provider:
+#   openai - OpenAI API (sync/batch 모두 지원)
+#   claude - Claude Agent SDK, 구독제 계정 OAuth 토큰 사용 (sync만 지원, 이미지 미지원)
+TAGGING_PROVIDER = os.getenv("NAVER_TAGGING_PROVIDER", "openai").strip().lower()
 
 # 태깅 모드:
 #   sync  - 수집 중 상품별 실시간 태깅 (기존 방식)
@@ -71,7 +80,6 @@ BATCH_POLL_SECONDS = int(os.getenv("NAVER_BATCH_POLL_SECONDS", "600"))  # 스케
 # Batch는 조건부 이미지 재시도가 불가능하므로 이미지 포함 여부를 고정한다.
 # gpt-4o-mini는 이미지 토큰 과금이 커서 기본 false (텍스트만).
 BATCH_INCLUDE_IMAGE = os.getenv("NAVER_BATCH_INCLUDE_IMAGE", "false").lower() in {"1", "true", "yes"}
-LLM_TEMPERATURE = float(os.getenv("NAVER_LLM_TEMPERATURE", "0.1"))
 
 # ------------------------------------------------------------
 # DB (weather collector와 동일한 키 사용)
@@ -94,3 +102,10 @@ SCHEDULER_POLL_SECONDS = int(os.getenv("SCHEDULER_POLL_SECONDS", "30"))
 LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO").upper()
 logging.basicConfig(level=LOG_LEVEL, format="%(asctime)s [%(levelname)s] %(message)s")
 logger = logging.getLogger("naver_collector")
+
+# Batch API는 OpenAI 전용이므로 claude provider에서는 sync로 강제 전환한다.
+if TAGGING_PROVIDER == "claude" and TAGGING_MODE == "batch":
+    logger.warning(
+        "NAVER_TAGGING_PROVIDER=claude는 batch 모드를 지원하지 않아 sync로 전환합니다."
+    )
+    TAGGING_MODE = "sync"

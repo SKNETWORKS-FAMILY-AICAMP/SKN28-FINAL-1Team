@@ -15,6 +15,7 @@ from apps.api_docs.serializers import (
     BodyPhotoResponseSerializer,
     DetailResponseSerializer,
     HomeResponseSerializer,
+    PreferenceOptionsResponseSerializer,
     SocialLoginResponseSerializer,
 )
 from apps.users.serializers import (
@@ -23,6 +24,8 @@ from apps.users.serializers import (
     BodyMeasurementSerializer,
     BodyPhotoTransactionSerializer,
     BodyPhotoUploadSerializer,
+    PursuitPayloadInputSerializer,
+    PursuitPayloadResponseSerializer,
     SocialLoginSerializer,
     UserSerializer,
 )
@@ -463,3 +466,71 @@ class MeViewExtension(OpenApiViewExtension):
             pass
 
         return DocumentedMeView
+
+
+class PreferenceOptionsViewExtension(OpenApiViewExtension):
+    target_class = "apps.users.views.PreferenceOptionsView"
+
+    def view_replacement(self):
+        @extend_schema_view(
+            get=extend_schema(
+                operation_id="get_preference_options",
+                tags=["Pursuit"],
+                summary="추구미 옵션 마스터 조회",
+                description=(
+                    "11개 카테고리(계절/스타일/색상/...)의 선택 가능한 옵션 목록을 반환합니다. "
+                    "화면 진입 시 옵션 칩을 렌더링하는 용도입니다."
+                ),
+                responses={
+                    200: PreferenceOptionsResponseSerializer,
+                    401: DetailResponseSerializer,
+                },
+            )
+        )
+        class DocumentedPreferenceOptionsView(self.target_class):
+            pass
+
+        return DocumentedPreferenceOptionsView
+
+
+PURSUIT_DESCRIPTION = """내 추구미(선호/기피 스타일) 정보를 조회·저장합니다.
+
+- `preferred`/`avoided` 두 그룹으로 구성되며, 각 그룹은 11개 카테고리 키를 **모두** 포함해야 합니다.
+- 각 카테고리 값은 선택된 옵션 `code` 배열입니다 (빈 배열 허용).
+- 저장된 적 없으면 GET은 모든 카테고리가 빈 배열인 payload를 반환합니다 (404 아님).
+- PUT은 전체 교체(upsert)입니다 — 부분 갱신을 지원하지 않습니다.
+"""
+
+
+class PursuitViewExtension(OpenApiViewExtension):
+    target_class = "apps.users.views.PursuitView"
+
+    def view_replacement(self):
+        @extend_schema_view(
+            get=extend_schema(
+                operation_id="get_pursuit",
+                tags=["Pursuit"],
+                summary="내 추구미 조회",
+                description=PURSUIT_DESCRIPTION,
+                responses={
+                    200: PursuitPayloadResponseSerializer,
+                    401: DetailResponseSerializer,
+                },
+            ),
+            put=extend_schema(
+                operation_id="update_pursuit",
+                tags=["Pursuit"],
+                summary="내 추구미 저장 (전체 교체)",
+                description=PURSUIT_DESCRIPTION,
+                request=PursuitPayloadInputSerializer,
+                responses={
+                    200: PursuitPayloadResponseSerializer,
+                    400: DetailResponseSerializer,
+                    401: DetailResponseSerializer,
+                },
+            ),
+        )
+        class DocumentedPursuitView(self.target_class):
+            pass
+
+        return DocumentedPursuitView

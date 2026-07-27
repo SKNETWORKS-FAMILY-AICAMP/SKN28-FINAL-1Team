@@ -21,11 +21,18 @@ DJANGO_SETTINGS_MODULE=config.settings.swagger python manage.py runserver
 
 ## Docker 실행
 
-프로젝트 루트에서 Swagger 오버레이를 함께 지정한다.
+별도 compose 파일 없이 `DJANGO_SETTINGS_MODULE`로 모드를 지정한다
+(구 `docker-compose.swagger.yml`은 `docker-compose.yml`에 병합·폐기됨).
 
 ```bash
-docker compose -f docker-compose.yml -f docker-compose.swagger.yml --profile api up -d --build
+# 일회성 실행 (셸 환경변수가 .env 값보다 우선)
+DJANGO_SETTINGS_MODULE=config.settings.swagger docker compose --profile api up -d --build
+
+# 인증 우회까지 (로컬 전용)
+DJANGO_SETTINGS_MODULE=config.settings.swagger_noauth docker compose --profile api up -d --build
 ```
+
+상시 사용하려면 Infisical(dev)의 `DJANGO_SETTINGS_MODULE` 값을 바꾼 뒤 `.env`를 다시 export한다.
 
 ## 문서 URL
 
