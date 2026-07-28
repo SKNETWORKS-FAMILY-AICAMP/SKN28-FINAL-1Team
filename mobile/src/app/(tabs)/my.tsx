@@ -40,7 +40,7 @@ function displayName(
 export default function MyScreen() {
   const { contentStyle } = useBreakpoint();
   const prefs = usePrefs();
-  const { user, isLoggedIn } = useAuth();
+  const { user, isLoggedIn, signOut } = useAuth();
   const name = prefs.nickname || displayName(user?.nickname, user?.email) || '코지';
   const email = user?.email ?? 'cozy@example.com';
 
@@ -156,7 +156,13 @@ export default function MyScreen() {
             </View>
           ))}
 
-          <Pressable style={styles.logout} onPress={() => router.replace('/login')}>
+          {/* 이동만 하면 세션이 남는다 — 토큰·데모 표식을 먼저 폐기하고 로그인으로 보낸다. */}
+          <Pressable
+            style={styles.logout}
+            onPress={async () => {
+              await signOut();
+              router.replace('/login');
+            }}>
             <Text style={styles.logoutText}>로그아웃</Text>
           </Pressable>
           <Text style={styles.version}>cozy · v0.1.0</Text>
