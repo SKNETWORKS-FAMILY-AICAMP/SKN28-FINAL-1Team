@@ -104,20 +104,28 @@ export default function ImportScreen() {
   const scanTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   /**
-   * WebView 가 로드할 주소. injectJavaScript(location.href=...) 로 옮기지 않고 source 를 바꾸는 이유:
-   * 로드 실패 화면(ATS 차단 등)에는 JS 실행 맥락이 없어서 주입 방식이 통하지 않는다.
+   * WebView 가 로드할 주소.
+   *
+   * injectJavaScript(location.href=...) 로 옮기지 않는 이유: 로드 실패 화면(ATS 차단 등)에는
+   * JS 실행 맥락이 없어 주입이 통하지 않는다. 그래서 source 를 바꿔서 이동한다.
+   *
+   * 이동 주소를 **어느 사이트에서 정한 것인지와 함께** 들고 있다가, site 가 달라지면 버린다.
+   * `/import?site=` 파라미터만 바뀔 때 이 화면은 재마운트되지 않아서, 그냥 uri 만 저장하면
+   * 헤더는 새 사이트인데 화면은 이전 사이트가 뜬다.
    */
-  const [source, setSource] = useState({ uri: site.orderUrl });
-  const sourceUri = useRef(site.orderUrl);
+  const [nav, setNav] = useState<{ siteKey: string; uri: string } | null>(null);
+  const uri = nav?.siteKey === site.key ? nav.uri : site.orderUrl;
 
-  const navigate = useCallback((uri: string) => {
-    if (sourceUri.current === uri) {
-      webRef.current?.reload(); // 같은 주소면 source 가 안 바뀌어 재로드가 일어나지 않는다
-      return;
-    }
-    sourceUri.current = uri;
-    setSource({ uri });
-  }, []);
+  const navigate = useCallback(
+    (next: string) => {
+      if (next === uri) {
+        webRef.current?.reload(); // 같은 주소면 source 가 안 바뀌어 재로드가 일어나지 않는다
+        return;
+      }
+      setNav({ siteKey: site.key, uri: next });
+    },
+    [uri, site.key],
+  );
 
   const goToOrders = useCallback(() => navigate(site.orderUrl), [navigate, site.orderUrl]);
 
@@ -341,7 +349,7 @@ export default function ImportScreen() {
       {/* 인앱 브라우저 */}
       <WebView
         ref={webRef}
-        source={source}
+        source={{ uri }}
         style={styles.webview}
         // 로그인 세션(쿠키) 유지 — 이게 없으면 로그인해도 구매목록이 비로그인 HTML 로 온다
         sharedCookiesEnabled
