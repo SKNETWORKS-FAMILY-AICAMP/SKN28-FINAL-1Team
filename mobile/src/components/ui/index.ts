@@ -8,3 +8,4 @@ export { CategoryEditSheet } from './category-edit-sheet';
 export { ToastProvider, useToast } from './toast';
 export { ConfirmProvider, useConfirm } from './confirm-dialog';
 export { ModalShell } from './modal-shell';
+export { LoginGate } from './login-gate';

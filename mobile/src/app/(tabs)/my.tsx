@@ -3,6 +3,7 @@ import { router } from 'expo-router';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import { LoginGate } from '@/components/ui';
 import { ink, BottomTabInset, ContentMax, Editorial } from '@/constants/theme';
 import { useBreakpoint } from '@/hooks/use-breakpoint';
 import { useAuth } from '@/state/auth';
@@ -39,7 +40,7 @@ function displayName(
 export default function MyScreen() {
   const { contentStyle } = useBreakpoint();
   const prefs = usePrefs();
-  const { user } = useAuth();
+  const { user, isLoggedIn } = useAuth();
   const name = prefs.nickname || displayName(user?.nickname, user?.email) || '코지';
   const email = user?.email ?? 'cozy@example.com';
 
@@ -88,6 +89,16 @@ export default function MyScreen() {
       ],
     },
   ];
+
+  // 마이는 계정 화면이라 비회원에게 보여줄 것이 없다. (훅 순서 유지를 위해 전부 호출한 뒤 분기)
+  if (!isLoggedIn) {
+    return (
+      <LoginGate
+        title="내 정보는 로그인하고 볼 수 있어요"
+        body="체형·추구미 같은 설정은 계정에 저장돼요. 로그인하면 다음 추천부터 반영돼요."
+      />
+    );
+  }
 
   return (
     <View style={styles.container}>

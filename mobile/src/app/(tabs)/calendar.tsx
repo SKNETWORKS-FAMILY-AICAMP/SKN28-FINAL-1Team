@@ -5,8 +5,10 @@ import { useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import { LoginGate } from '@/components/ui';
 import { Editorial, ink, Fonts , ContentMax} from '@/constants/theme';
 import { useBreakpoint } from '@/hooks/use-breakpoint';
+import { useAuth } from '@/state/auth';
 
 const INK = Editorial.ink;
 const BONE = Editorial.bone;
@@ -28,6 +30,7 @@ const RECORDS: Record<number, { title: string; tags: string[]; tone: number }> =
 
 // B2 착장 캘린더 — 월 그리드 + 선택일 상세
 export default function Calendar() {
+  const { isLoggedIn } = useAuth();
   const { contentStyle } = useBreakpoint();
   const [selected, setSelected] = useState(7);
   const cells: (number | null)[] = [
@@ -35,6 +38,16 @@ export default function Calendar() {
     ...Array.from({ length: DAYS_IN_MONTH }, (_, i) => i + 1),
   ];
   const rec = RECORDS[selected];
+
+  // 착장 기록은 내 데이터라 비회원에게 보여줄 것이 없다. (훅 순서 유지를 위해 전부 호출한 뒤 분기)
+  if (!isLoggedIn) {
+    return (
+      <LoginGate
+        title="착장 기록은 로그인하고 볼 수 있어요"
+        body="입은 옷을 날짜별로 남겨두면 다시 꺼내 보기 쉬워요. 로그인하면 기록이 계정에 저장돼요."
+      />
+    );
+  }
 
   return (
     <View style={styles.container}>

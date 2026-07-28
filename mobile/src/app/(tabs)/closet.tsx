@@ -8,7 +8,7 @@ import {
   SharedSpaceOnboarding,
   type SharedSpace,
 } from '@/components/closet/shared-space-flow';
-import { CategoryEditSheet, EmptyState, InlineDropdown, SearchFilterBar, SmartImage, useToast } from '@/components/ui';
+import { CategoryEditSheet, EmptyState, InlineDropdown, LoginGate, SearchFilterBar, SmartImage, useToast } from '@/components/ui';
 import { useMultiSelectFilter } from '@/hooks/useMultiSelectFilter';
 import { router } from 'expo-router';
 import { useMemo, useState } from 'react';
@@ -24,6 +24,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { Editorial, ink, BottomTabInset, GridCard, gridCardImageHeight, gridCardWidth , ContentMax} from '@/constants/theme';
 import { useBreakpoint } from '@/hooks/use-breakpoint';
 import { Icon } from '@/components/icon';
+import { useAuth } from '@/state/auth';
 
 const INK = Editorial.ink;
 
@@ -145,6 +146,7 @@ function matchesQuery(item: Item, query: string): boolean {
 }
 
 export default function ClosetScreen() {
+  const { isLoggedIn } = useAuth();
   const { frameWidth, contentStyle } = useBreakpoint();
   const cardW = gridCardWidth(frameWidth);
   const cardH = gridCardImageHeight(cardW);
@@ -220,6 +222,16 @@ export default function ClosetScreen() {
   );
 
   const showAddFab = tab === 'mine';
+
+  // 옷장은 내 데이터라 비회원에게 보여줄 것이 없다. (훅 순서 유지를 위해 전부 호출한 뒤 분기)
+  if (!isLoggedIn) {
+    return (
+      <LoginGate
+        title="옷장은 로그인하고 쓸 수 있어요"
+        body="내 옷을 등록해 두면 가진 옷 안에서 추천을 만들어요. 로그인하면 옷장이 계정에 저장돼요."
+      />
+    );
+  }
 
   return (
     <View style={styles.container}>
