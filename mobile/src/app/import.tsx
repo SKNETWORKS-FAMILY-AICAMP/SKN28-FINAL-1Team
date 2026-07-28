@@ -1,7 +1,7 @@
 import { Image } from 'expo-image';
 import { router, useLocalSearchParams } from 'expo-router';
 import { goBack } from '@/lib/goBack';
-import { useCallback, useRef, useState } from 'react';
+import { useCallback, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Modal,
@@ -33,6 +33,7 @@ import {
   type OrderItem,
   type ProbeHit,
 } from '@/lib/import-inject';
+import { classifyProduct } from '@/lib/classifyProduct';
 import { draftItem } from '@/state/draft-item';
 
 /**
@@ -241,7 +242,15 @@ export default function ImportScreen() {
           return;
         }
         setOrders(items);
-        setSelected(new Set());
+        // 패션으로 알아본 것만 기본 선택. 못 알아본 건 목록에 남기되 선택은 해제한다.
+        setSelected(
+          new Set(
+            items.reduce<string[]>((acc, it, i) => {
+              if (classifyProduct(it.name)) acc.push(String(i));
+              return acc;
+            }, []),
+          ),
+        );
         setResultMode('orders');
         return;
       }
@@ -314,6 +323,10 @@ export default function ImportScreen() {
     draftItem.setPhoto(photos[0]);
     router.replace('/item-add');
   };
+
+  // 상품명에서 추정한 옷장 분류. null = "모르겠다"(옷이 아니라는 뜻이 아니다)
+  const guesses = useMemo(() => orders.map((it) => classifyProduct(it.name)), [orders]);
+  const fashionCount = guesses.filter(Boolean).length;
 
   // WebView 가 웹을 지원하지 않으므로 브라우저에서는 안내 화면으로 대체한다.
   if (Platform.OS === 'web') return <ImportUnsupportedOnWeb />;
@@ -430,7 +443,7 @@ export default function ImportScreen() {
         <SafeAreaView style={[styles.modal, { backgroundColor: theme.background }]}>
           <View style={styles.modalHeader}>
             <ThemedText type="smallBold">
-              구매목록 {orders.length}건 · 선택 {selected.size}
+              구매목록 {orders.length}건 · 패션 {fashionCount}건 · 선택 {selected.size}
             </ThemedText>
             <Pressable onPress={() => setResultMode(null)}>
               <ThemedText type="small" themeColor="textSecondary">
@@ -444,11 +457,13 @@ export default function ImportScreen() {
               // 같은 썸네일을 쓰는 주문이 실제로 있어 URL 은 고유 키가 못 된다 → 행 인덱스를 쓴다
               const key = String(i);
               const isSel = selected.has(key);
+              const guess = guesses[i];
               return (
                 <Pressable
                   key={key}
                   onPress={() => toggleSelect(key)}
-                  style={[styles.row, isSel && { borderColor: theme.text }]}>
+                  // 옷으로 못 알아본 행은 흐리게 — 지우지는 않는다. 사용자가 직접 고를 수 있어야 한다.
+                  style={[styles.row, isSel && { borderColor: theme.text }, !guess && styles.rowMuted]}>
                   <Image
                     // 쇼핑몰 이미지는 Referer 없으면 403 인 경우가 있어 원 페이지를 실어 보낸다
                     source={{ uri: item.image, headers: { Referer: site.orderUrl } }}
@@ -462,6 +477,17 @@ export default function ImportScreen() {
                     <ThemedText type="small" themeColor="textSecondary" numberOfLines={1}>
                       {[item.price, item.date].filter(Boolean).join(' · ') || ' '}
                     </ThemedText>
+                    {guess ? (
+                      <View style={[styles.badge, { backgroundColor: Editorial.surfaceTag }]}>
+                        <ThemedText type="small">
+                          {guess.large} · {guess.small}
+                        </ThemedText>
+                      </View>
+                    ) : (
+                      <ThemedText type="small" themeColor="textSecondary">
+                        옷으로 보이지 않아요
+                      </ThemedText>
+                    )}
                   </View>
                   <View
                     style={[
@@ -644,8 +670,14 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: 'transparent',
   },
+  rowMuted: { opacity: 0.45 },
   rowThumb: { width: 56, height: 72, borderRadius: Spacing.one, backgroundColor: Editorial.bone },
-  rowBody: { flex: 1, gap: Spacing.half },
+  rowBody: { flex: 1, gap: Spacing.half, alignItems: 'flex-start' },
+  badge: {
+    paddingHorizontal: Spacing.two,
+    paddingVertical: Spacing.half,
+    borderRadius: Spacing.one,
+  },
   check: { width: 20, height: 20, borderRadius: 10, borderWidth: 2 },
 
   grid: {
