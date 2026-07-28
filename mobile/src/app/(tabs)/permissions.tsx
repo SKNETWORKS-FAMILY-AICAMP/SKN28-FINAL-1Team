@@ -121,13 +121,13 @@ export default function Permissions() {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#ffffff' },
+  container: { flex: 1, backgroundColor: Editorial.page },
   safe: { flex: 1 },
   content: { paddingHorizontal: 24, paddingTop: 20, paddingBottom: 24 },
 
-  eyebrow: { fontSize: 11, letterSpacing: 1.5, color: ink(0.4), fontWeight: '600' },
+  eyebrow: { fontSize: 11, letterSpacing: 1.5, color: Editorial.textCaption, fontWeight: '600' },
   title: { fontFamily: Fonts.serif, fontSize: 28, color: INK, marginTop: 10 },
-  lead: { fontSize: 14, color: ink(0.5), lineHeight: 21, marginTop: 12 },
+  lead: { fontSize: 14, color: Editorial.textCaption, lineHeight: 21, marginTop: 12 },
 
   list: { marginTop: 26, gap: 12 },
   card: {
@@ -149,13 +149,13 @@ const styles = StyleSheet.create({
   cardTitleWrap: { flex: 1 },
   cardTitle: { fontSize: 15, fontWeight: '600', color: INK },
   req: { fontSize: 11, fontWeight: '500', color: Editorial.wine },
-  opt: { fontSize: 11, fontWeight: '500', color: ink(0.35) },
-  purpose: { fontSize: 13, color: ink(0.55), lineHeight: 19 },
+  opt: { fontSize: 11, fontWeight: '500', color: Editorial.textCaption },
+  purpose: { fontSize: 13, color: Editorial.textCaption, lineHeight: 19 },
   keepRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
   keepDot: { width: 4, height: 4, borderRadius: 2, backgroundColor: ink(0.3) },
-  keep: { fontSize: 11.5, color: ink(0.4) },
+  keep: { fontSize: 11.5, color: Editorial.textCaption },
 
-  foot: { fontSize: 12, color: ink(0.38), lineHeight: 18, marginTop: 20, textAlign: 'center' },
+  foot: { fontSize: 12, color: Editorial.textCaption, lineHeight: 18, marginTop: 20, textAlign: 'center' },
 
   bottomBar: {
     paddingHorizontal: 24,
@@ -166,7 +166,7 @@ const styles = StyleSheet.create({
   cta: {
     height: 52,
     borderRadius: 999,
-    backgroundColor: INK,
+    backgroundColor: Editorial.cta,
     alignItems: 'center',
     justifyContent: 'center',
   },

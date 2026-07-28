@@ -143,7 +143,7 @@ export default function Onboarding() {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#ffffff' },
+  container: { flex: 1, backgroundColor: Editorial.page },
   safe: { flex: 1 },
 
   top: {
@@ -156,33 +156,33 @@ const styles = StyleSheet.create({
   /** 데스크톱에서 상단·하단을 본문(3장)과 같은 폭으로 가운데 정렬 */
   wide: { width: '100%', maxWidth: 1080, alignSelf: 'center', paddingHorizontal: 40, paddingTop: 12 },
   brand: { fontFamily: Fonts.serif, fontSize: 22, color: INK },
-  skip: { fontSize: 13, color: ink(0.4) },
+  skip: { fontSize: 13, color: Editorial.textCaption },
 
   slide: { paddingHorizontal: 40, paddingTop: 24, alignItems: 'flex-start' },
-  kicker: { fontSize: 11, letterSpacing: 2, color: ink(0.4), fontWeight: '600', marginTop: 26 },
+  kicker: { fontSize: 11, letterSpacing: 2, color: Editorial.textCaption, fontWeight: '600', marginTop: 26 },
   title: { fontFamily: Fonts.serif, fontSize: 22, color: INK, lineHeight: 28, marginTop: 12 },
-  body: { fontSize: 13, color: ink(0.5), lineHeight: 18, marginTop: 10 },
+  body: { fontSize: 13, color: Editorial.textCaption, lineHeight: 18, marginTop: 10 },
 
   // 데스크톱 3열
   deskMain: { flex: 1, justifyContent: 'center', alignItems: 'center', paddingHorizontal: 40 },
   deskRow: { flexDirection: 'row', gap: 28, width: '100%', maxWidth: 1080, justifyContent: 'center' },
   deskCard: { flex: 1, maxWidth: 330, alignItems: 'flex-start' },
   deskTitle: { fontFamily: Fonts.serif, fontSize: 20, color: INK, lineHeight: 27, marginTop: 12 },
-  deskBody: { fontSize: 14, color: ink(0.5), lineHeight: 20, marginTop: 10 },
+  deskBody: { fontSize: 14, color: Editorial.textCaption, lineHeight: 20, marginTop: 10 },
 
   bottom: { paddingHorizontal: 30, paddingBottom: 8 },
   bottomWide: { width: '100%', maxWidth: 420, alignSelf: 'center', paddingBottom: 16, marginTop: 36 },
   dots: { flexDirection: 'row', gap: 6, justifyContent: 'center', marginBottom: 22 },
   dot: { width: 6, height: 6, borderRadius: 3, backgroundColor: ink(0.15) },
-  dotOn: { width: 20, backgroundColor: INK },
+  dotOn: { width: 20, backgroundColor: Editorial.selected },
   cta: {
     height: 52,
     borderRadius: 999,
-    backgroundColor: INK,
+    backgroundColor: Editorial.cta,
     alignItems: 'center',
     justifyContent: 'center',
   },
   ctaText: { color: '#ffffff', fontSize: 15, fontWeight: '500' },
   secondary: { alignSelf: 'center', marginTop: 16, paddingVertical: 4 },
-  secondaryText: { fontSize: 13, color: ink(0.45) },
+  secondaryText: { fontSize: 13, color: Editorial.textCaption },
 });

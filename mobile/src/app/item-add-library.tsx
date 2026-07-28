@@ -78,7 +78,7 @@ export default function ItemAddLibraryScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#ffffff' },
+  container: { flex: 1, backgroundColor: Editorial.page },
   safe: { flex: 1 },
   header: {
     flexDirection: 'row',
@@ -90,7 +90,7 @@ const styles = StyleSheet.create({
   headerSpacer: { width: 22 },
   hint: {
     fontSize: 12,
-    color: ink(0.45),
+    color: Editorial.textCaption,
     paddingHorizontal: PAD,
     marginBottom: 12,
   },
@@ -106,5 +106,5 @@ const styles = StyleSheet.create({
   },
   rowText: { flex: 1, gap: 3 },
   rowName: { fontSize: 14, fontWeight: '600', color: INK },
-  rowBrand: { fontSize: 12, color: ink(0.45) },
+  rowBrand: { fontSize: 12, color: Editorial.textCaption },
 });

@@ -179,19 +179,19 @@ export default function Signup() {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#ffffff' },
+  container: { flex: 1, backgroundColor: Editorial.page },
   safe: { flex: 1 },
   content: { paddingHorizontal: 30, paddingTop: 12, paddingBottom: 30 },
 
   brand: { fontFamily: Fonts.serif, fontSize: 26, color: INK, marginTop: 12 },
-  guide: { fontSize: 18, fontFamily: Fonts.serif, color: ink(0.9), marginTop: 30, lineHeight: 24 },
+  guide: { fontSize: 18, fontFamily: Fonts.serif, color: Editorial.ink, marginTop: 30, lineHeight: 24 },
 
   field: { marginTop: 24 },
-  label: { fontSize: 10, fontWeight: '500', color: ink(0.42), letterSpacing: 0.2 },
-  input: { marginTop: 10, fontSize: 14, color: ink(0.9), padding: 0 },
+  label: { fontSize: 10, fontWeight: '500', color: Editorial.textCaption, letterSpacing: 0.2 },
+  input: { marginTop: 10, fontSize: 14, color: Editorial.ink, padding: 0 },
   pwRow: { flexDirection: 'row', alignItems: 'center' },
   pwInput: { flex: 1 },
-  showText: { fontSize: 12, color: ink(0.5) },
+  showText: { fontSize: 12, color: Editorial.textCaption },
   underline: { marginTop: 10, height: 1, backgroundColor: ink(0.15) },
   underlineError: { backgroundColor: Editorial.danger },
   errText: { marginTop: 6, fontSize: 11, color: Editorial.danger },
@@ -202,9 +202,9 @@ const styles = StyleSheet.create({
   termAllText: { fontSize: 14, fontWeight: '600', color: INK },
   termLine: { height: 1, backgroundColor: ink(0.1) },
   termRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },
-  termText: { fontSize: 13, color: ink(0.6) },
-  termReq: { color: ink(0.85), fontWeight: '500' },
-  termOpt: { color: ink(0.4) },
+  termText: { fontSize: 13, color: Editorial.textCaption },
+  termReq: { color: Editorial.ink, fontWeight: '500' },
+  termOpt: { color: Editorial.textCaption },
   check: {
     width: 24,
     height: 24,
@@ -223,14 +223,14 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  checkOn: { backgroundColor: INK, borderColor: INK },
+  checkOn: { backgroundColor: Editorial.selected, borderColor: Editorial.selected },
   checkMark: { color: '#fff', fontSize: 13, fontWeight: '700' },
   checkMarkSm: { color: '#fff', fontSize: 11, fontWeight: '700' },
 
   cta: {
     height: 48,
     borderRadius: 999,
-    backgroundColor: INK,
+    backgroundColor: Editorial.cta,
     alignItems: 'center',
     justifyContent: 'center',
     marginTop: 28,
@@ -240,7 +240,7 @@ const styles = StyleSheet.create({
 
   divider: { flexDirection: 'row', alignItems: 'center', gap: 10, marginTop: 24 },
   line: { flex: 1, height: 1, backgroundColor: ink(0.12) },
-  orText: { fontSize: 11, color: ink(0.4) },
+  orText: { fontSize: 11, color: Editorial.textCaption },
 
   social: {
     height: 46,
@@ -249,10 +249,10 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     marginTop: 12,
   },
-  socialText: { fontSize: 14, fontWeight: '500', color: ink(0.9) },
+  socialText: { fontSize: 14, fontWeight: '500', color: Editorial.ink },
   socialTextLight: { color: '#ffffff' },
 
   login: { alignSelf: 'center', marginTop: 24 },
-  loginText: { fontSize: 13, color: ink(0.5) },
-  loginBold: { color: ink(0.9), fontWeight: '500' },
+  loginText: { fontSize: 13, color: Editorial.textCaption },
+  loginBold: { color: Editorial.ink, fontWeight: '500' },
 });

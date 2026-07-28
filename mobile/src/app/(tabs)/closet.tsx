@@ -228,7 +228,7 @@ export default function ClosetScreen() {
     return (
       <LoginGate
         title="옷장은 로그인하고 쓸 수 있어요"
-        body="내 옷을 등록해 두면 가진 옷 안에서 추천을 만들어요. 로그인하면 옷장이 계정에 저장돼요."
+        body="내 옷을 등록해 두면 가진 옷 안에서 추천을 만들어요."
       />
     );
   }
@@ -356,7 +356,7 @@ export default function ClosetScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#ffffff' },
+  container: { flex: 1, backgroundColor: Editorial.page },
   safe: { flex: 1 },
 
   filterArea: { marginTop: 30 },
@@ -400,8 +400,8 @@ const styles = StyleSheet.create({
     marginTop: 8,
   },
   // flex:1 이면 이름이 남는 폭을 다 차지해 분류를 끝으로 밀어낸다 → 글자 길이만큼만.
-  cardName: { flexShrink: 1, fontSize: 14, fontWeight: '500', color: ink(0.9) },
-  cardCat: { fontSize: 12, color: ink(0.4), flexShrink: 0 },
+  cardName: { flexShrink: 1, fontSize: 14, fontWeight: '500', color: Editorial.ink },
+  cardCat: { fontSize: 12, color: Editorial.textCaption, flexShrink: 0 },
 
   empty: { width: '100%', paddingTop: 40 },
 
@@ -412,7 +412,7 @@ const styles = StyleSheet.create({
     width: 52,
     height: 52,
     borderRadius: 26,
-    backgroundColor: '#ffffff',
+    backgroundColor: Editorial.surface,
     borderWidth: 1.5,
     borderColor: ink(0.16),
     alignItems: 'center',

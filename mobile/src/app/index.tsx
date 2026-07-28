@@ -26,12 +26,12 @@ export default function Splash() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#ffffff',
+    backgroundColor: Editorial.page,
     alignItems: 'center',
     justifyContent: 'center',
     gap: 14,
   },
   brand: { fontFamily: Fonts.serif, fontSize: 54, color: INK },
   rule: { width: 26, height: 1, backgroundColor: ink(0.5) },
-  tag: { fontSize: 13, color: ink(0.5), letterSpacing: 1 },
+  tag: { fontSize: 13, color: Editorial.textCaption, letterSpacing: 1 },
 });

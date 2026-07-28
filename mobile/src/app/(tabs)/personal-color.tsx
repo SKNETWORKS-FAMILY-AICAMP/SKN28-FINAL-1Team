@@ -85,8 +85,8 @@ export default function PersonalColor() {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#ffffff' },
-  headerSafe: { backgroundColor: '#ffffff' },
+  container: { flex: 1, backgroundColor: Editorial.page },
+  headerSafe: { backgroundColor: Editorial.page },
   header: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -99,7 +99,7 @@ const styles = StyleSheet.create({
 
   content: { paddingHorizontal: 24, paddingTop: 12, paddingBottom: 24 },
   title: { fontFamily: Fonts.serif, fontSize: 24, color: INK, lineHeight: 30 },
-  lead: { fontSize: 15.5, color: ink(0.5), lineHeight: 23, marginTop: 12 },
+  lead: { fontSize: 15.5, color: Editorial.textCaption, lineHeight: 23, marginTop: 12 },
 
   grid: {
     marginTop: 24,
@@ -116,7 +116,7 @@ const styles = StyleSheet.create({
     gap: 10,
     minHeight: 116,
   },
-  cardOn: { borderColor: INK, backgroundColor: '#faf9f7' },
+  cardOn: { borderColor: Editorial.selected, backgroundColor: Editorial.surface },
   cardTop: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -125,17 +125,17 @@ const styles = StyleSheet.create({
   },
   cardHead: { flexDirection: 'row', alignItems: 'center', gap: 8, flex: 1 },
   swatch: { width: 32, height: 32, borderRadius: 16, flexShrink: 0 },
-  cardLabel: { fontSize: 15, fontWeight: '600', color: ink(0.9), flexShrink: 1 },
-  cardDesc: { fontSize: 12.5, color: ink(0.48), lineHeight: 18 },
+  cardLabel: { fontSize: 15, fontWeight: '600', color: Editorial.ink, flexShrink: 1 },
+  cardDesc: { fontSize: 12.5, color: Editorial.textCaption, lineHeight: 18 },
 
-  help: { fontSize: 14, color: ink(0.4), marginTop: 20, textAlign: 'center' },
+  help: { fontSize: 14, color: Editorial.textCaption, marginTop: 20, textAlign: 'center' },
 
   bottomDivider: { height: 1, backgroundColor: ink(0.08) },
-  bottomBar: { backgroundColor: '#fff', paddingHorizontal: 24, paddingTop: 12 },
+  bottomBar: { backgroundColor: Editorial.page, paddingHorizontal: 24, paddingTop: 12 },
   cta: {
     height: 52,
     borderRadius: 999,
-    backgroundColor: INK,
+    backgroundColor: Editorial.cta,
     alignItems: 'center',
     justifyContent: 'center',
   },

@@ -78,7 +78,7 @@ export default function NotificationsScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#ffffff' },
+  container: { flex: 1, backgroundColor: Editorial.page },
   safe: { flex: 1 },
 
   header: {
@@ -95,7 +95,7 @@ const styles = StyleSheet.create({
   content: { paddingHorizontal: 20, paddingTop: 8, paddingBottom: 32 },
 
   section: { marginTop: 22 },
-  sectionTitle: { fontSize: Type.caption, fontWeight: '600', color: ink(0.45), marginBottom: 10, marginLeft: 4 },
+  sectionTitle: { fontSize: Type.caption, fontWeight: '600', color: Editorial.textCaption, marginBottom: 10, marginLeft: 4 },
   card: {
     borderWidth: 1,
     borderColor: ink(0.1),
@@ -111,7 +111,7 @@ const styles = StyleSheet.create({
   rowDivider: { borderTopWidth: 1, borderTopColor: ink(0.07) },
   rowText: { flex: 1, gap: 3 },
   rowLabel: { fontSize: Type.body, fontWeight: '600', color: INK },
-  rowDesc: { fontSize: Type.caption, color: ink(0.45), lineHeight: 18 },
+  rowDesc: { fontSize: Type.caption, color: Editorial.textCaption, lineHeight: 18 },
 
-  foot: { fontSize: Type.micro, color: ink(0.38), lineHeight: 18, marginTop: 22, textAlign: 'center' },
+  foot: { fontSize: Type.micro, color: Editorial.textCaption, lineHeight: 18, marginTop: 22, textAlign: 'center' },
 });

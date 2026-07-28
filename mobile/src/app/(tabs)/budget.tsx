@@ -133,8 +133,8 @@ export default function Budget() {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#ffffff' },
-  headerSafe: { backgroundColor: '#ffffff' },
+  container: { flex: 1, backgroundColor: Editorial.page },
+  headerSafe: { backgroundColor: Editorial.page },
   header: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -147,7 +147,7 @@ const styles = StyleSheet.create({
 
   content: { paddingHorizontal: 24, paddingTop: 12, paddingBottom: 24 },
   title: { fontFamily: Fonts.serif, fontSize: 24, color: INK, lineHeight: 30 },
-  lead: { fontSize: 14, color: ink(0.5), lineHeight: 21, marginTop: 12 },
+  lead: { fontSize: 14, color: Editorial.textCaption, lineHeight: 21, marginTop: 12 },
 
   section: { marginTop: 28, gap: 14 },
   sectionLabel: { fontSize: 16, fontWeight: '600', color: INK, letterSpacing: -0.2 },
@@ -162,8 +162,8 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  chipOn: { backgroundColor: INK, borderColor: INK },
-  chipText: { fontSize: 14, color: ink(0.65), fontWeight: '600' },
+  chipOn: { backgroundColor: Editorial.selected, borderColor: Editorial.selected },
+  chipText: { fontSize: 14, color: Editorial.textSoft, fontWeight: '600' },
   chipTextOn: { color: '#fff' },
 
   customRow: {
@@ -177,10 +177,10 @@ const styles = StyleSheet.create({
     height: 52,
     backgroundColor: '#fafaf9',
   },
-  customRowActive: { borderColor: INK, backgroundColor: '#ffffff' },
+  customRowActive: { borderColor: Editorial.selected, backgroundColor: Editorial.surface },
   customInput: { flex: 1, fontSize: 17, fontWeight: '500', color: INK, padding: 0 },
-  customUnit: { fontSize: 15, color: ink(0.5), fontWeight: '600' },
-  customHint: { fontSize: 12.5, color: ink(0.4), marginTop: -6 },
+  customUnit: { fontSize: 15, color: Editorial.textCaption, fontWeight: '600' },
+  customHint: { fontSize: 12.5, color: Editorial.textCaption, marginTop: -6 },
 
   finalRow: {
     flexDirection: 'row',
@@ -191,16 +191,16 @@ const styles = StyleSheet.create({
     borderTopWidth: 1,
     borderTopColor: ink(0.08),
   },
-  finalLabel: { fontSize: 14, fontWeight: '500', color: ink(0.5) },
+  finalLabel: { fontSize: 14, fontWeight: '500', color: Editorial.textCaption },
   finalValue: { fontSize: 17, fontWeight: '600', color: INK },
-  finalEmpty: { fontSize: 14, color: ink(0.35) },
+  finalEmpty: { fontSize: 14, color: Editorial.textCaption },
 
   bottomDivider: { height: 1, backgroundColor: ink(0.08) },
-  bottomBar: { backgroundColor: '#fff', paddingHorizontal: 24, paddingTop: 12 },
+  bottomBar: { backgroundColor: Editorial.page, paddingHorizontal: 24, paddingTop: 12 },
   cta: {
     height: 52,
     borderRadius: 999,
-    backgroundColor: INK,
+    backgroundColor: Editorial.cta,
     alignItems: 'center',
     justifyContent: 'center',
   },

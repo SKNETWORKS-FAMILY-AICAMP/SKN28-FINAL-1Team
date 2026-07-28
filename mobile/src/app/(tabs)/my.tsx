@@ -95,7 +95,7 @@ export default function MyScreen() {
     return (
       <LoginGate
         title="내 정보는 로그인하고 볼 수 있어요"
-        body="체형·추구미 같은 설정은 계정에 저장돼요. 로그인하면 다음 추천부터 반영돼요."
+        body="체형·추구미 같은 설정은 계정에 저장돼요."
       />
     );
   }
@@ -173,7 +173,7 @@ export default function MyScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#ffffff' },
+  container: { flex: 1, backgroundColor: Editorial.page },
   safe: { flex: 1 },
   content: { paddingHorizontal: 20, paddingTop: 16, paddingBottom: BottomTabInset + 24 },
 
@@ -182,7 +182,7 @@ const styles = StyleSheet.create({
     borderColor: ink(0.1),
     borderRadius: 16,
     overflow: 'hidden',
-    backgroundColor: Editorial.white,
+    backgroundColor: Editorial.surface,
   },
   profile: {
     flexDirection: 'row',
@@ -200,7 +200,7 @@ const styles = StyleSheet.create({
   },
   profileText: { flex: 1, minWidth: 0 },
   name: { fontSize: 18, fontWeight: '700', color: INK, letterSpacing: -0.3 },
-  email: { fontSize: 12, color: ink(0.45), marginTop: 2 },
+  email: { fontSize: 12, color: Editorial.textCaption, marginTop: 2 },
   editBtn: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -209,8 +209,9 @@ const styles = StyleSheet.create({
     paddingVertical: 7,
     borderRadius: 999,
     backgroundColor: Editorial.surfaceSoft,
+    borderWidth: 1, borderColor: Editorial.line,
   },
-  editText: { fontSize: 12, color: ink(0.55), fontWeight: '600' },
+  editText: { fontSize: 12, color: Editorial.textCaption, fontWeight: '600' },
 
   statsRow: {
     flexDirection: 'row',
@@ -236,10 +237,10 @@ const styles = StyleSheet.create({
     backgroundColor: ink(0.08),
   },
   statNum: { fontSize: 18, fontWeight: '600', color: INK, letterSpacing: -0.2 },
-  statLabel: { fontSize: 12, color: ink(0.45), fontWeight: '500' },
+  statLabel: { fontSize: 12, color: Editorial.textCaption, fontWeight: '500' },
 
   group: { marginTop: 28 },
-  groupTitle: { fontSize: 12, fontWeight: '600', color: ink(0.4), marginBottom: 10, marginLeft: 4 },
+  groupTitle: { fontSize: 12, fontWeight: '600', color: Editorial.textCaption, marginBottom: 10, marginLeft: 4 },
   card: {
     borderWidth: 1,
     borderColor: ink(0.1),
@@ -257,15 +258,15 @@ const styles = StyleSheet.create({
     width: 34,
     height: 34,
     borderRadius: 10,
-    backgroundColor: CHIP,
+    backgroundColor: Editorial.control,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  rowLabel: { flex: 1, fontSize: 14.5, color: ink(0.9), fontWeight: '500' },
-  rowHint: { fontSize: 12.5, color: ink(0.4) },
+  rowLabel: { flex: 1, fontSize: 14.5, color: Editorial.ink, fontWeight: '500' },
+  rowHint: { fontSize: 12.5, color: Editorial.textCaption },
   rowLine: { height: 1, backgroundColor: ink(0.07), marginLeft: 60 },
 
   logout: { alignSelf: 'center', marginTop: 30, paddingVertical: 8 },
-  logoutText: { fontSize: 13.5, color: ink(0.45) },
-  version: { alignSelf: 'center', fontSize: 11, color: ink(0.3), marginTop: 8 },
+  logoutText: { fontSize: 13.5, color: Editorial.textCaption },
+  version: { alignSelf: 'center', fontSize: 11, color: Editorial.textMuted, marginTop: 8 },
 });

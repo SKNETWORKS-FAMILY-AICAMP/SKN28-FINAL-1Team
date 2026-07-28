@@ -178,11 +178,12 @@ function SidebarItem({
   hidden,
   ...props
 }: TabTriggerSlotProps & { icon: IconName; label: string; hidden?: boolean }) {
-  const color = isFocused ? INK : ink(0.5);
+  /* 선택 표시는 글자·아이콘의 색과 굵기가 전부 맡는다. 면도 테두리도 쓰지 않는다. */
+  const color = isFocused ? INK : Editorial.textCaption;
   return (
     <Pressable
       {...props}
-      style={[styles.sidebarItem, isFocused && styles.sidebarItemOn, hidden && styles.hiddenTrigger]}>
+      style={[styles.sidebarItem, hidden && styles.hiddenTrigger]}>
       <Icon name={icon} tintColor={color} size={20} />
       <Text style={[styles.sidebarLabel, { color, fontWeight: isFocused ? '600' : '500' }]}>
         {label}
@@ -235,7 +236,7 @@ function AskButton() {
 }
 
 const styles = StyleSheet.create({
-  root: { flex: 1, backgroundColor: Editorial.white },
+  root: { flex: 1, backgroundColor: Editorial.page },
   rootDesktop: { flexDirection: 'row' },
   slot: { flex: 1, minWidth: 0 },
   hiddenTrigger: { display: 'none' },
@@ -245,7 +246,7 @@ const styles = StyleSheet.create({
     width: CHAT_PANEL_W,
     borderLeftWidth: 1,
     borderLeftColor: ink(0.08),
-    backgroundColor: Editorial.white,
+    backgroundColor: Editorial.page,
   },
   chatPanelHeader: {
     flexDirection: 'row',
@@ -262,7 +263,7 @@ const styles = StyleSheet.create({
     width: SIDEBAR_W,
     borderRightWidth: 1,
     borderRightColor: ink(0.08),
-    backgroundColor: Editorial.white,
+    backgroundColor: Editorial.page,
     paddingHorizontal: 16,
     paddingTop: 28,
     gap: 8,
@@ -283,7 +284,6 @@ const styles = StyleSheet.create({
     paddingHorizontal: 10,
     borderRadius: 10,
   },
-  sidebarItemOn: { backgroundColor: Editorial.surfaceSoft },
   sidebarLabel: { fontSize: 14, letterSpacing: -0.1 },
 
   // 모바일 하단 탭바 — 콘텐츠 위에 떠 있는 글래스 바 (backdrop-filter 는 global.css #cozy-tabbar)

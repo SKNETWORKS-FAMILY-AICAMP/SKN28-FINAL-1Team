@@ -88,25 +88,25 @@ export default function Reset() {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#ffffff' },
+  container: { flex: 1, backgroundColor: Editorial.page },
   safe: { flex: 1 },
   top: { paddingHorizontal: 24, paddingTop: 6 },
-  back: { fontSize: 15, color: ink(0.55) },
+  back: { fontSize: 15, color: Editorial.textCaption },
   content: { paddingHorizontal: 30, paddingTop: 40, paddingBottom: 30 },
 
   title: { fontFamily: Fonts.serif, fontSize: 28, color: INK },
-  guide: { fontSize: 15, color: ink(0.5), lineHeight: 23, marginTop: 14 },
-  emailStrong: { color: ink(0.85), fontWeight: '600' },
+  guide: { fontSize: 15, color: Editorial.textCaption, lineHeight: 23, marginTop: 14 },
+  emailStrong: { color: Editorial.ink, fontWeight: '600' },
 
   field: { marginTop: 40 },
-  label: { fontSize: 10, fontWeight: '500', color: ink(0.42), letterSpacing: 0.2 },
-  input: { marginTop: 10, fontSize: 15, color: ink(0.9), padding: 0 },
+  label: { fontSize: 10, fontWeight: '500', color: Editorial.textCaption, letterSpacing: 0.2 },
+  input: { marginTop: 10, fontSize: 15, color: Editorial.ink, padding: 0 },
   underline: { marginTop: 10, height: 1, backgroundColor: ink(0.15) },
 
   cta: {
     height: 52,
     borderRadius: 999,
-    backgroundColor: INK,
+    backgroundColor: Editorial.cta,
     alignItems: 'center',
     justifyContent: 'center',
     marginTop: 40,
@@ -125,5 +125,5 @@ const styles = StyleSheet.create({
   },
   markIcon: { color: '#fff', fontSize: 26, fontWeight: '700' },
   resend: { alignSelf: 'center', marginTop: 20, paddingVertical: 4 },
-  resendText: { fontSize: 13, color: ink(0.45) },
+  resendText: { fontSize: 13, color: Editorial.textCaption },
 });

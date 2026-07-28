@@ -268,8 +268,8 @@ export default function LookDetail() {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#ffffff' },
-  headerSafe: { backgroundColor: '#ffffff' },
+  container: { flex: 1, backgroundColor: Editorial.page },
+  headerSafe: { backgroundColor: Editorial.page },
   header: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -295,8 +295,8 @@ const styles = StyleSheet.create({
     /* 절대배치된 미리보기 사진이 밖으로 넘쳐 헤더·하단 버튼을 덮지 않도록 잘라낸다. */
     overflow: 'hidden',
   },
-  fittingMark: { fontFamily: Fonts.serif, fontSize: 54, color: ink(0.2) },
-  fittingLabel: { fontSize: 13, color: ink(0.4), letterSpacing: 0.5 },
+  fittingMark: { fontFamily: Fonts.serif, fontSize: 54, color: Editorial.textMuted },
+  fittingLabel: { fontSize: 13, color: Editorial.textCaption, letterSpacing: 0.5 },
   fittingBadge: {
     position: 'absolute',
     bottom: 16,
@@ -326,7 +326,7 @@ const styles = StyleSheet.create({
 
   body: { paddingHorizontal: 20, paddingTop: 22 },
   title: { fontFamily: Fonts.serif, fontSize: 24, color: INK },
-  subtitle: { fontSize: 13, color: ink(0.45), marginTop: 6 },
+  subtitle: { fontSize: 13, color: Editorial.textCaption, marginTop: 6 },
 
   sectionTitle: { fontSize: 13, fontWeight: '600', color: INK, marginTop: 28, marginBottom: 12 },
 
@@ -347,13 +347,13 @@ const styles = StyleSheet.create({
   pieceThumb: { width: 56, height: 56, borderRadius: 12, backgroundColor: BONE, overflow: 'hidden' },
   pieceBody: { flex: 1, gap: 3 },
   pieceTop: { flexDirection: 'row', alignItems: 'center', gap: 8 },
-  pieceSlot: { fontSize: 11, color: ink(0.4), fontWeight: '500' },
+  pieceSlot: { fontSize: 11, color: Editorial.textCaption, fontWeight: '500' },
   ownTag: { backgroundColor: Editorial.surfaceTag, paddingHorizontal: 7, paddingVertical: 2, borderRadius: 999 },
-  ownTagText: { fontSize: 9.5, color: ink(0.55), fontWeight: '600' },
+  ownTagText: { fontSize: 9.5, color: Editorial.textCaption, fontWeight: '600' },
   newTag: { backgroundColor: Editorial.accent },
   newTagText: { color: WINE },
-  pieceName: { fontSize: 14, fontWeight: '500', color: ink(0.9) },
-  pieceBrand: { fontSize: 12, color: ink(0.4) },
+  pieceName: { fontSize: 14, fontWeight: '500', color: Editorial.ink },
+  pieceBrand: { fontSize: 12, color: Editorial.textCaption },
 
   // 관련/대체 상품 아코디언
   related: {
@@ -365,12 +365,12 @@ const styles = StyleSheet.create({
     paddingBottom: 8,
     gap: 10,
   },
-  relatedHead: { fontSize: 11, color: ink(0.4), fontWeight: '600' },
+  relatedHead: { fontSize: 11, color: Editorial.textCaption, fontWeight: '600' },
   relatedItem: { flexDirection: 'row', alignItems: 'center', gap: 10 },
   relatedThumb: { width: 44, height: 44, borderRadius: 10, backgroundColor: BONE },
   relatedBody: { flex: 1, gap: 2 },
-  relatedName: { fontSize: 13, fontWeight: '500', color: ink(0.9) },
-  relatedBrand: { fontSize: 11.5, color: ink(0.4) },
+  relatedName: { fontSize: 13, fontWeight: '500', color: Editorial.ink },
+  relatedBrand: { fontSize: 11.5, color: Editorial.textCaption },
   relatedRight: { alignItems: 'flex-end', gap: 4 },
   relatedPrice: { fontSize: 13, fontWeight: '600', color: INK },
   budgetTag: {
@@ -389,11 +389,13 @@ const styles = StyleSheet.create({
     paddingHorizontal: 10,
     borderRadius: 10,
     backgroundColor: Editorial.surface,
+    borderWidth: 1, borderColor: Editorial.line,
   },
-  budgetPromptText: { flex: 1, fontSize: 11.5, color: ink(0.55) },
+  budgetPromptText: { flex: 1, fontSize: 11.5, color: Editorial.textCaption },
 
   reasonCard: {
     backgroundColor: Editorial.surfaceSoft,
+    borderWidth: 1, borderColor: Editorial.line,
     borderRadius: 16,
     padding: 16,
     gap: 14,
@@ -409,10 +411,10 @@ const styles = StyleSheet.create({
     marginTop: 1,
   },
   pinNum: { fontSize: 11, color: '#fff', fontWeight: '700' },
-  reasonText: { flex: 1, fontSize: 13.5, color: ink(0.7), lineHeight: 20 },
+  reasonText: { flex: 1, fontSize: 13.5, color: Editorial.textSoft, lineHeight: 20 },
 
   feedback: { marginTop: 28, alignItems: 'center', gap: 12 },
-  feedbackLabel: { fontSize: 13, color: ink(0.5) },
+  feedbackLabel: { fontSize: 13, color: Editorial.textCaption },
   voteRow: { flexDirection: 'row', gap: 10 },
   voteBtn: {
     flexDirection: 'row',
@@ -424,16 +426,16 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: ink(0.14),
   },
-  voteUpOn: { backgroundColor: INK, borderColor: INK },
+  voteUpOn: { backgroundColor: Editorial.selected, borderColor: Editorial.selected },
   voteDownOn: { backgroundColor: ink(0.55), borderColor: ink(0.55) },
-  voteText: { fontSize: 13.5, color: ink(0.6), fontWeight: '500' },
+  voteText: { fontSize: 13.5, color: Editorial.textCaption, fontWeight: '500' },
   voteTextOn: { color: '#fff' },
 
   bottomDivider: { height: 1, backgroundColor: ink(0.08) },
   bottomBar: {
     flexDirection: 'row',
     gap: 10,
-    backgroundColor: '#fff',
+    backgroundColor: Editorial.page,
     paddingHorizontal: 20,
     paddingTop: 12,
   },
@@ -446,14 +448,14 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  altText: { fontSize: 14, color: ink(0.6), fontWeight: '500' },
+  altText: { fontSize: 14, color: Editorial.textCaption, fontWeight: '500' },
   saveBtn: {
     flex: 1,
     flexDirection: 'row',
     gap: 8,
     height: 50,
     borderRadius: 999,
-    backgroundColor: INK,
+    backgroundColor: Editorial.cta,
     alignItems: 'center',
     justifyContent: 'center',
   },

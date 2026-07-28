@@ -138,8 +138,8 @@ export default function ItemDetail() {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#ffffff' },
-  headerSafe: { backgroundColor: '#ffffff' },
+  container: { flex: 1, backgroundColor: Editorial.page },
+  headerSafe: { backgroundColor: Editorial.page },
   header: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -169,11 +169,11 @@ const styles = StyleSheet.create({
     paddingVertical: 5,
     borderRadius: 999,
   },
-  catBadgeText: { fontSize: 11, fontWeight: '600', color: ink(0.7) },
+  catBadgeText: { fontSize: 11, fontWeight: '600', color: Editorial.textSoft },
 
   body: { paddingHorizontal: 20, paddingTop: 22 },
   name: { fontFamily: Fonts.serif, fontSize: 26, color: INK },
-  brand: { fontSize: 14, color: ink(0.45), marginTop: 5 },
+  brand: { fontSize: 14, color: Editorial.textCaption, marginTop: 5 },
 
   specGrid: {
     flexDirection: 'row',
@@ -190,21 +190,22 @@ const styles = StyleSheet.create({
     paddingVertical: 15,
     gap: 5,
   },
-  specLabel: { fontSize: 11, color: ink(0.4) },
-  specValue: { fontSize: 14.5, fontWeight: '500', color: ink(0.9) },
+  specLabel: { fontSize: 11, color: Editorial.textCaption },
+  specValue: { fontSize: 14.5, fontWeight: '500', color: Editorial.ink },
 
   sectionTitle: { fontSize: 13, fontWeight: '600', color: INK, marginTop: 28, marginBottom: 12 },
   wearRow: { flexDirection: 'row', gap: 10 },
   wearTile: {
     flex: 1,
     backgroundColor: Editorial.surfaceSoft,
+    borderWidth: 1, borderColor: Editorial.line,
     borderRadius: 14,
     paddingHorizontal: 16,
     paddingVertical: 16,
     gap: 4,
   },
   wearNum: { fontFamily: Fonts.serif, fontSize: 22, fontWeight: '600', color: INK },
-  wearLabel: { fontSize: 11.5, color: ink(0.45) },
+  wearLabel: { fontSize: 11.5, color: Editorial.textCaption },
 
   warn: {
     flexDirection: 'row',
@@ -212,6 +213,7 @@ const styles = StyleSheet.create({
     gap: 9,
     marginTop: 12,
     backgroundColor: Editorial.accent,
+    borderWidth: 1, borderColor: Editorial.line,
     borderRadius: 14,
     paddingHorizontal: 14,
     paddingVertical: 13,
@@ -220,21 +222,21 @@ const styles = StyleSheet.create({
 
   tags: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
   tag: {
-    backgroundColor: Editorial.surface,
+    backgroundColor: Editorial.control,
     borderRadius: 999,
     paddingHorizontal: 13,
     paddingVertical: 7,
   },
-  tagText: { fontSize: 12.5, color: ink(0.6), fontWeight: '500' },
+  tagText: { fontSize: 12.5, color: Editorial.textCaption, fontWeight: '500' },
 
   bottomDivider: { height: 1, backgroundColor: ink(0.08) },
-  bottomBar: { backgroundColor: '#fff', paddingHorizontal: 20, paddingTop: 12 },
+  bottomBar: { backgroundColor: Editorial.page, paddingHorizontal: 20, paddingTop: 12 },
   cta: {
     flexDirection: 'row',
     gap: 8,
     height: 52,
     borderRadius: 999,
-    backgroundColor: INK,
+    backgroundColor: Editorial.cta,
     alignItems: 'center',
     justifyContent: 'center',
   },

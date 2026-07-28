@@ -194,7 +194,7 @@ export default function LookbookScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#ffffff' },
+  container: { flex: 1, backgroundColor: Editorial.page },
   safe: { flex: 1 },
 
   filterArea: { marginTop: 30 },
@@ -206,7 +206,8 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     padding: 4,
     alignItems: 'center',
-    backgroundColor: Editorial.surface,
+    backgroundColor: Editorial.control,
+    borderWidth: 1, borderColor: Editorial.line,
     flexShrink: 0,
   },
   tab: {
@@ -216,8 +217,8 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  tabOn: { backgroundColor: INK },
-  tabText: { fontSize: 13, fontWeight: '600', color: ink(0.5) },
+  tabOn: { backgroundColor: Editorial.selected },
+  tabText: { fontSize: 13, fontWeight: '600', color: Editorial.textCaption },
   tabTextOn: { color: '#fff' },
 
   gridScroll: { flex: 1, marginTop: 8 },
@@ -251,12 +252,12 @@ const styles = StyleSheet.create({
   priceText: { fontSize: 12, fontWeight: '700', color: INK },
 
   empty: { width: '100%', alignItems: 'center', paddingTop: 60, gap: 16 },
-  emptyText: { fontSize: 13, color: ink(0.4) },
+  emptyText: { fontSize: 13, color: Editorial.textCaption },
   emptyBtn: {
     paddingHorizontal: 18,
     paddingVertical: 10,
     borderRadius: 999,
-    backgroundColor: INK,
+    backgroundColor: Editorial.cta,
   },
   emptyBtnText: { fontSize: 13, fontWeight: '600', color: '#fff' },
 
@@ -267,7 +268,7 @@ const styles = StyleSheet.create({
     width: 52,
     height: 52,
     borderRadius: 26,
-    backgroundColor: '#ffffff',
+    backgroundColor: Editorial.surface,
     borderWidth: 1.5,
     borderColor: ink(0.16),
     alignItems: 'center',

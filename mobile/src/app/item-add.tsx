@@ -166,10 +166,10 @@ export default function ItemAddScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#ffffff' },
+  container: { flex: 1, backgroundColor: Editorial.page },
 
   // 헤더
-  headerSafe: { backgroundColor: '#ffffff' },
+  headerSafe: { backgroundColor: Editorial.page },
   header: {
     flexDirection: 'row',
     alignItems: 'flex-start',
@@ -185,8 +185,8 @@ const styles = StyleSheet.create({
     color: INK,
     fontWeight: '500',
   },
-  subtitle: { fontSize: 11.5, color: ink(0.45) },
-  close: { fontSize: 18, color: ink(0.5) },
+  subtitle: { fontSize: 11.5, color: Editorial.textCaption },
+  close: { fontSize: 18, color: Editorial.textCaption },
   divider: { height: 1, backgroundColor: ink(0.1) },
 
   // 본문
@@ -210,8 +210,8 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     gap: 6,
   },
-  photoEmptyIcon: { fontSize: 30, color: ink(0.35), lineHeight: 34 },
-  photoEmptyText: { fontSize: 13, color: ink(0.45) },
+  photoEmptyIcon: { fontSize: 30, color: Editorial.textMuted, lineHeight: 34 },
+  photoEmptyText: { fontSize: 13, color: Editorial.textCaption },
   aiDoneBadge: {
     position: 'absolute',
     left: 14,
@@ -233,7 +233,7 @@ const styles = StyleSheet.create({
   fieldLabel: {
     fontSize: 10,
     fontWeight: '500',
-    color: ink(0.42),
+    color: Editorial.textCaption,
     letterSpacing: 0.2,
   },
   aiBadge: {
@@ -250,7 +250,7 @@ const styles = StyleSheet.create({
   },
   fieldValue: {
     fontSize: 14,
-    color: ink(0.9),
+    color: Editorial.ink,
     padding: 0,
     ...Platform.select({ android: { paddingVertical: 0 } }),
   },
@@ -258,11 +258,11 @@ const styles = StyleSheet.create({
 
   // 하단 바
   bottomDivider: { height: 1, backgroundColor: ink(0.1) },
-  bottomBar: { backgroundColor: '#ffffff', paddingHorizontal: 20, paddingTop: 16 },
+  bottomBar: { backgroundColor: Editorial.page, paddingHorizontal: 20, paddingTop: 16 },
   saveButton: {
     height: 48,
     borderRadius: 999,
-    backgroundColor: INK,
+    backgroundColor: Editorial.cta,
     alignItems: 'center',
     justifyContent: 'center',
   },

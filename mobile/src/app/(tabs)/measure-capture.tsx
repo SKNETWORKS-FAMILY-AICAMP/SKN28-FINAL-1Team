@@ -143,18 +143,18 @@ export default function MeasureCapture() {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#ffffff' },
+  container: { flex: 1, backgroundColor: Editorial.page },
   safe: { flex: 1 },
   top: { paddingHorizontal: 20, paddingTop: 8 },
   content: { paddingHorizontal: 24, paddingTop: 8, paddingBottom: 24 },
 
   steps: { flexDirection: 'row', gap: 6, marginBottom: 24 },
   step: { flex: 1, height: 3, borderRadius: 2, backgroundColor: ink(0.1) },
-  stepOn: { backgroundColor: INK },
+  stepOn: { backgroundColor: Editorial.selected },
 
-  eyebrow: { fontSize: 11, letterSpacing: 1.5, color: ink(0.4), fontWeight: '600' },
+  eyebrow: { fontSize: 11, letterSpacing: 1.5, color: Editorial.textCaption, fontWeight: '600' },
   title: { fontFamily: Fonts.serif, fontSize: 28, color: INK, marginTop: 10, lineHeight: 34 },
-  lead: { fontSize: 14, color: ink(0.5), marginTop: 12 },
+  lead: { fontSize: 14, color: Editorial.textCaption, marginTop: 12 },
 
   slots: { flexDirection: 'row', gap: 12, marginTop: 26 },
   slot: {
@@ -176,21 +176,21 @@ const styles = StyleSheet.create({
     marginBottom: 4,
   },
   slotLabel: { fontSize: 15, fontWeight: '600', color: INK },
-  slotState: { fontSize: 12, color: ink(0.4) },
+  slotState: { fontSize: 12, color: Editorial.textCaption },
   slotStateDone: { color: INK, fontWeight: '500' },
 
   sectionTitle: { fontSize: 13, fontWeight: '600', color: INK, marginTop: 30, marginBottom: 12 },
-  guideCard: { backgroundColor: Editorial.surfaceSoft, borderRadius: 16, padding: 8 },
+  guideCard: { backgroundColor: Editorial.surfaceSoft, borderWidth: 1, borderColor: Editorial.line, borderRadius: 16, padding: 8 },
   guideRow: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingHorizontal: 8, paddingVertical: 10 },
   guideIcon: {
     width: 32,
     height: 32,
     borderRadius: 10,
-    backgroundColor: '#fff',
+    backgroundColor: Editorial.surface,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  guideText: { flex: 1, fontSize: 13.5, color: ink(0.7) },
+  guideText: { flex: 1, fontSize: 13.5, color: Editorial.textSoft },
 
   privacy: {
     flexDirection: 'row',
@@ -199,7 +199,7 @@ const styles = StyleSheet.create({
     marginTop: 20,
     paddingHorizontal: 4,
   },
-  privacyText: { flex: 1, fontSize: 12, color: ink(0.45), lineHeight: 18 },
+  privacyText: { flex: 1, fontSize: 12, color: Editorial.textCaption, lineHeight: 18 },
 
   bottomBar: {
     paddingHorizontal: 24,
@@ -212,12 +212,12 @@ const styles = StyleSheet.create({
   cta: {
     height: 52,
     borderRadius: 999,
-    backgroundColor: INK,
+    backgroundColor: Editorial.cta,
     alignItems: 'center',
     justifyContent: 'center',
   },
   ctaDisabled: { backgroundColor: ink(0.22) },
   ctaText: { color: '#fff', fontSize: 15, fontWeight: '500' },
 
-  skipText: { fontSize: 14, color: ink(0.5), fontWeight: '500', textDecorationLine: 'underline' },
+  skipText: { fontSize: 14, color: Editorial.textCaption, fontWeight: '500', textDecorationLine: 'underline' },
 });

@@ -133,7 +133,7 @@ export default function LookAddScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#ffffff' },
+  container: { flex: 1, backgroundColor: Editorial.page },
   safe: { flex: 1 },
   header: {
     flexDirection: 'row',
@@ -152,7 +152,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     gap: 8,
   },
-  previewHint: { fontSize: 13, color: ink(0.45) },
+  previewHint: { fontSize: 13, color: Editorial.textCaption },
   pickRow: { flexDirection: 'row', gap: 10, marginBottom: 24 },
   pickBtn: {
     flex: 1,
@@ -169,7 +169,7 @@ const styles = StyleSheet.create({
   pickLabel: { fontSize: 14, fontWeight: '600', color: INK },
   loadingRow: { alignItems: 'center', marginBottom: 16 },
   sectionTitle: { fontSize: 15, fontWeight: '700', color: INK },
-  sectionHint: { fontSize: 12, color: ink(0.45), marginTop: 4, marginBottom: 14 },
+  sectionHint: { fontSize: 12, color: Editorial.textCaption, marginTop: 4, marginBottom: 14 },
   tagRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
   tag: {
     paddingHorizontal: 14,
@@ -178,14 +178,14 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: ink(0.12),
   },
-  tagOn: { backgroundColor: INK, borderColor: INK },
-  tagText: { fontSize: 13, fontWeight: '500', color: ink(0.55) },
+  tagOn: { backgroundColor: Editorial.selected, borderColor: Editorial.selected },
+  tagText: { fontSize: 13, fontWeight: '500', color: Editorial.textCaption },
   tagTextOn: { color: '#fff' },
   footer: { paddingHorizontal: PAD, paddingTop: 12, paddingBottom: 8 },
   saveBtn: {
     height: 48,
     borderRadius: 999,
-    backgroundColor: INK,
+    backgroundColor: Editorial.cta,
     alignItems: 'center',
     justifyContent: 'center',
   },

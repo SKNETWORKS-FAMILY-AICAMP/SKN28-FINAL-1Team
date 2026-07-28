@@ -91,7 +91,7 @@ export default function EditProfileScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: Editorial.white },
+  container: { flex: 1, backgroundColor: Editorial.surface },
   safe: { flex: 1 },
 
   header: {
@@ -118,7 +118,7 @@ const styles = StyleSheet.create({
   },
   avatarText: { fontSize: 32, fontWeight: '700', color: INK },
 
-  label: { fontSize: Type.caption, fontWeight: '600', color: ink(0.5), marginBottom: 8 },
+  label: { fontSize: Type.caption, fontWeight: '600', color: Editorial.textCaption, marginBottom: 8 },
   labelSpaced: { marginTop: 22 },
   input: {
     fontSize: Type.body,
@@ -128,14 +128,14 @@ const styles = StyleSheet.create({
     borderBottomColor: ink(0.15),
   },
   readonly: { paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: ink(0.08) },
-  readonlyText: { fontSize: Type.body, color: ink(0.4) },
-  hint: { fontSize: Type.micro, color: ink(0.35), marginTop: 8 },
+  readonlyText: { fontSize: Type.body, color: Editorial.textCaption },
+  hint: { fontSize: Type.micro, color: Editorial.textCaption, marginTop: 8 },
 
   bottomBar: { paddingHorizontal: 20, paddingTop: 12, paddingBottom: 8 },
   saveBtn: {
     height: 52,
     borderRadius: 14,
-    backgroundColor: INK,
+    backgroundColor: Editorial.cta,
     alignItems: 'center',
     justifyContent: 'center',
   },

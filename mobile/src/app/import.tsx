@@ -595,7 +595,7 @@ export default function ImportScreen() {
 const THUMB_SIZE = '31%';
 
 const styles = StyleSheet.create({
-  webNotice: { flex: 1, backgroundColor: Editorial.white },
+  webNotice: { flex: 1, backgroundColor: Editorial.surface },
   webNoticeSafe: { flex: 1, justifyContent: 'center' },
   container: { flex: 1 },
 

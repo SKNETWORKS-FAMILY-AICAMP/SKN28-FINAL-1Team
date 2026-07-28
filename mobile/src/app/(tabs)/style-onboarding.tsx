@@ -339,7 +339,7 @@ export default function StyleOnboarding() {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: Editorial.white },
+  container: { flex: 1, backgroundColor: Editorial.surface },
   safe: { flex: 1 },
   content: { paddingHorizontal: 24, paddingTop: 10, paddingBottom: 28 },
 
@@ -353,7 +353,7 @@ const styles = StyleSheet.create({
   },
   headerTitle: { fontSize: 15, fontWeight: '600', color: INK },
   title: { fontFamily: Fonts.serif, fontSize: 26, color: INK },
-  lead: { fontSize: 13, color: ink(0.5), lineHeight: 20, marginTop: 8 },
+  lead: { fontSize: 13, color: Editorial.textCaption, lineHeight: 20, marginTop: 8 },
 
   // 선호/기피 전환 — 각자 색으로 항상 채우고 글자는 검정. 비활성은 흐리게 해 활성을 구분.
   modeRow: { flexDirection: 'row', gap: 8, marginTop: 22 },
@@ -399,7 +399,7 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: ink(0.14),
   },
-  chipText: { fontSize: 13, color: ink(0.65), fontWeight: '500' },
+  chipText: { fontSize: 13, color: Editorial.textSoft, fontWeight: '500' },
   // 색상 칩의 색 견본 — 흰색 계열도 보이도록 얇은 테두리를 둔다.
   swatch: {
     width: 14,
@@ -415,14 +415,14 @@ const styles = StyleSheet.create({
     borderRadius: 6,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: Editorial.white,
+    backgroundColor: Editorial.surface,
   },
 
   bottomDivider: { height: 1, backgroundColor: ink(0.08) },
   bottomBar: {
     flexDirection: 'row',
     gap: 10,
-    backgroundColor: Editorial.white,
+    backgroundColor: Editorial.surface,
     paddingHorizontal: 24,
     paddingTop: 12,
   },
@@ -435,12 +435,12 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  skipText: { fontSize: 14, color: ink(0.55), fontWeight: '500' },
+  skipText: { fontSize: 14, color: Editorial.textCaption, fontWeight: '500' },
   cta: {
     flex: 1,
     height: 52,
     borderRadius: 999,
-    backgroundColor: INK,
+    backgroundColor: Editorial.cta,
     alignItems: 'center',
     justifyContent: 'center',
   },

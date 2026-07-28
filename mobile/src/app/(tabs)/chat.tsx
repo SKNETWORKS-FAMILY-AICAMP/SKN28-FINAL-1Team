@@ -101,7 +101,7 @@ export default function ChatScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#ffffff' },
+  container: { flex: 1, backgroundColor: Editorial.page },
   safe: { flex: 1 },
 
   header: {
@@ -117,7 +117,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 6,
-    backgroundColor: INK,
+    backgroundColor: Editorial.cta,
     paddingLeft: 12,
     paddingRight: 16,
     height: 38,
@@ -133,19 +133,20 @@ const styles = StyleSheet.create({
     height: 42,
     paddingHorizontal: 14,
     borderRadius: 12,
-    backgroundColor: Editorial.surface,
+    backgroundColor: Editorial.control,
+    borderWidth: 1, borderColor: Editorial.line,
   },
-  searchPlaceholder: { fontSize: 13.5, color: ink(0.35) },
+  searchPlaceholder: { fontSize: 13.5, color: Editorial.textCaption },
 
   content: { paddingHorizontal: 20, paddingTop: 8, paddingBottom: BottomTabInset + 24 },
   group: { marginTop: 20 },
   groupHead: { flexDirection: 'row', alignItems: 'center', gap: 7, marginBottom: 8, paddingVertical: 4 },
   modeDot: { width: 7, height: 7, borderRadius: 3.5 },
-  groupTitle: { fontSize: 13, fontWeight: '600', color: ink(0.5) },
+  groupTitle: { fontSize: 13, fontWeight: '600', color: Editorial.textCaption },
   groupCount: {
     fontSize: 11,
     fontWeight: '600',
-    color: ink(0.4),
+    color: Editorial.textCaption,
     minWidth: 18,
     height: 18,
     lineHeight: 18,
@@ -166,7 +167,7 @@ const styles = StyleSheet.create({
   },
   sessionBody: { flex: 1, gap: 3 },
   sessionTop: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
-  sessionTitle: { flex: 1, fontSize: 14.5, fontWeight: '500', color: ink(0.9) },
-  sessionTime: { fontSize: 11, color: ink(0.35), marginLeft: 8 },
-  sessionLast: { fontSize: 12.5, color: ink(0.45) },
+  sessionTitle: { flex: 1, fontSize: 14.5, fontWeight: '500', color: Editorial.ink },
+  sessionTime: { fontSize: 11, color: Editorial.textCaption, marginLeft: 8 },
+  sessionLast: { fontSize: 12.5, color: Editorial.textCaption },
 });

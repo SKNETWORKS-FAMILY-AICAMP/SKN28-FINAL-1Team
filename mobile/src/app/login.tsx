@@ -204,28 +204,28 @@ function SocialButton({
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#ffffff' },
+  container: { flex: 1, backgroundColor: Editorial.page },
   safe: { flex: 1 },
   content: { paddingHorizontal: 30, paddingTop: 16, paddingBottom: 30 },
 
   brand: { fontFamily: Fonts.serif, fontSize: 26, color: INK, marginTop: 12 },
-  guide: { fontSize: 15, color: ink(0.9), marginTop: 46 },
+  guide: { fontSize: 15, color: Editorial.ink, marginTop: 46 },
 
   field: { marginTop: 28 },
-  label: { fontSize: 10, fontWeight: '500', color: ink(0.42), letterSpacing: 0.2 },
-  input: { marginTop: 10, fontSize: 14, color: ink(0.9), padding: 0 },
+  label: { fontSize: 10, fontWeight: '500', color: Editorial.textCaption, letterSpacing: 0.2 },
+  input: { marginTop: 10, fontSize: 14, color: Editorial.ink, padding: 0 },
   pwRow: { flexDirection: 'row', alignItems: 'center' },
   pwInput: { flex: 1 },
-  showText: { fontSize: 12, color: ink(0.5) },
+  showText: { fontSize: 12, color: Editorial.textCaption },
   underline: { marginTop: 10, height: 1, backgroundColor: ink(0.15) },
 
   forgot: { alignSelf: 'flex-end', marginTop: 16 },
-  forgotText: { fontSize: 12, color: ink(0.5) },
+  forgotText: { fontSize: 12, color: Editorial.textCaption },
 
   loginBtn: {
     height: 48,
     borderRadius: 999,
-    backgroundColor: INK,
+    backgroundColor: Editorial.cta,
     alignItems: 'center',
     justifyContent: 'center',
     marginTop: 24,
@@ -234,7 +234,7 @@ const styles = StyleSheet.create({
 
   divider: { flexDirection: 'row', alignItems: 'center', gap: 10, marginTop: 26 },
   line: { flex: 1, height: 1, backgroundColor: ink(0.12) },
-  orText: { fontSize: 11, color: ink(0.4) },
+  orText: { fontSize: 11, color: Editorial.textCaption },
 
   social: {
     height: 46,
@@ -243,23 +243,23 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     marginTop: 12,
   },
-  socialOutline: { backgroundColor: '#ffffff', borderWidth: 1, borderColor: ink(0.14) },
-  socialText: { fontSize: 14, fontWeight: '500', color: ink(0.9) },
+  socialOutline: { backgroundColor: Editorial.surface, borderWidth: 1, borderColor: ink(0.14) },
+  socialText: { fontSize: 14, fontWeight: '500', color: Editorial.ink },
   socialTextLight: { color: '#ffffff' },
 
   guest: {
     height: 48,
     borderRadius: 999,
-    backgroundColor: '#ffffff',
+    backgroundColor: Editorial.surface,
     borderWidth: 1,
     borderColor: ink(0.14),
     alignItems: 'center',
     justifyContent: 'center',
     marginTop: 12,
   },
-  guestText: { fontSize: 15, fontWeight: '500', color: ink(0.75) },
-  guestHint: { alignSelf: 'center', marginTop: 10, fontSize: 12, color: ink(0.45) },
+  guestText: { fontSize: 15, fontWeight: '500', color: Editorial.textSoft },
+  guestHint: { alignSelf: 'center', marginTop: 10, fontSize: 12, color: Editorial.textCaption },
   signup: { alignSelf: 'center', marginTop: 26 },
-  signupText: { fontSize: 13, color: ink(0.5) },
-  signupBold: { color: ink(0.9), fontWeight: '500' },
+  signupText: { fontSize: 13, color: Editorial.textCaption },
+  signupBold: { color: Editorial.ink, fontWeight: '500' },
 });

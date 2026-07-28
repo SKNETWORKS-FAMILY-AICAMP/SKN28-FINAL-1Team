@@ -194,28 +194,28 @@ export default function MeasureInput() {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#ffffff' },
+  container: { flex: 1, backgroundColor: Editorial.page },
   safe: { flex: 1 },
   top: { paddingHorizontal: 24, paddingTop: 8, alignItems: 'flex-end' },
-  close: { fontSize: 20, color: ink(0.5) },
+  close: { fontSize: 20, color: Editorial.textCaption },
   content: { paddingHorizontal: 24, paddingTop: 8, paddingBottom: 24 },
 
   steps: { flexDirection: 'row', gap: 6, marginBottom: 24 },
   step: { flex: 1, height: 3, borderRadius: 2, backgroundColor: ink(0.1) },
-  stepOn: { backgroundColor: INK },
+  stepOn: { backgroundColor: Editorial.selected },
 
-  eyebrow: { fontSize: 11, letterSpacing: 1.5, color: ink(0.4), fontWeight: '600' },
+  eyebrow: { fontSize: 11, letterSpacing: 1.5, color: Editorial.textCaption, fontWeight: '600' },
   title: { fontFamily: Fonts.serif, fontSize: 24, color: INK, marginTop: 10, lineHeight: 30 },
-  lead: { fontSize: 14, color: ink(0.5), marginTop: 12 },
+  lead: { fontSize: 14, color: Editorial.textCaption, marginTop: 12 },
 
   field: { marginTop: 28 },
-  label: { fontSize: 13, fontWeight: '600', color: ink(0.55), letterSpacing: 0.2 },
+  label: { fontSize: 13, fontWeight: '600', color: Editorial.textCaption, letterSpacing: 0.2 },
   inputRow: { flexDirection: 'row', alignItems: 'flex-end', gap: 8, marginTop: 8 },
-  input: { flex: 1, fontFamily: Fonts.serif, fontSize: 26, color: ink(0.9), padding: 0 },
-  unit: { fontSize: 14, color: ink(0.4), marginBottom: 4 },
+  input: { flex: 1, fontFamily: Fonts.serif, fontSize: 26, color: Editorial.ink, padding: 0 },
+  unit: { fontSize: 14, color: Editorial.textCaption, marginBottom: 4 },
   underline: { marginTop: 8, height: 1, backgroundColor: ink(0.15) },
 
-  bmiValue: { flex: 1, fontFamily: Fonts.serif, fontSize: 26, color: ink(0.9) },
+  bmiValue: { flex: 1, fontFamily: Fonts.serif, fontSize: 26, color: Editorial.ink },
   bmiTag: {
     backgroundColor: Editorial.accent,
     paddingHorizontal: 10,
@@ -235,8 +235,8 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  sexChipOn: { backgroundColor: INK, borderColor: INK },
-  sexText: { fontSize: 13, color: ink(0.6), fontWeight: '500' },
+  sexChipOn: { backgroundColor: Editorial.selected, borderColor: Editorial.selected },
+  sexText: { fontSize: 13, color: Editorial.textCaption, fontWeight: '500' },
   sexTextOn: { color: '#fff' },
 
   bottomBar: {
@@ -247,11 +247,11 @@ const styles = StyleSheet.create({
     borderTopColor: ink(0.08),
   },
   skipWrap: { alignItems: 'center', marginTop: 40, paddingVertical: 4 },
-  skipText: { fontSize: 14, color: ink(0.5), fontWeight: '500', textDecorationLine: 'underline' },
+  skipText: { fontSize: 14, color: Editorial.textCaption, fontWeight: '500', textDecorationLine: 'underline' },
   cta: {
     height: 52,
     borderRadius: 999,
-    backgroundColor: INK,
+    backgroundColor: Editorial.cta,
     alignItems: 'center',
     justifyContent: 'center',
   },

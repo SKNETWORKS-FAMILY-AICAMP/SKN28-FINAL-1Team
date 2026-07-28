@@ -44,7 +44,7 @@ export default function Calendar() {
     return (
       <LoginGate
         title="착장 기록은 로그인하고 볼 수 있어요"
-        body="입은 옷을 날짜별로 남겨두면 다시 꺼내 보기 쉬워요. 로그인하면 기록이 계정에 저장돼요."
+        body="입은 옷을 날짜별로 남겨두면 다시 꺼내 보기 쉬워요."
       />
     );
   }
@@ -81,7 +81,7 @@ export default function Calendar() {
               style={[
                 styles.weekday,
                 i === 0 && { color: '#c0392b' },
-                i === 6 && { color: ink(0.55) },
+                i === 6 && { color: Editorial.textCaption },
               ]}>
               {d}
             </Text>
@@ -147,8 +147,8 @@ export default function Calendar() {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#ffffff' },
-  headerSafe: { backgroundColor: '#ffffff' },
+  container: { flex: 1, backgroundColor: Editorial.page },
+  headerSafe: { backgroundColor: Editorial.page },
   header: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -170,7 +170,7 @@ const styles = StyleSheet.create({
   monthText: { fontFamily: Fonts.serif, fontSize: 19, color: INK },
 
   weekHeader: { flexDirection: 'row', paddingBottom: 6 },
-  weekday: { flex: 1, textAlign: 'center', fontSize: 11.5, color: ink(0.4), fontWeight: '500' },
+  weekday: { flex: 1, textAlign: 'center', fontSize: 11.5, color: Editorial.textCaption, fontWeight: '500' },
 
   grid: { flexDirection: 'row', flexWrap: 'wrap' },
   cell: { width: `${100 / 7}%`, aspectRatio: 0.82, alignItems: 'center', justifyContent: 'center' },
@@ -182,10 +182,10 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     overflow: 'hidden',
   },
-  dayInnerOn: { borderWidth: 1.5, borderColor: INK },
+  dayInnerOn: { borderWidth: 1.5, borderColor: Editorial.selected },
   dayThumb: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, borderRadius: 11 },
-  dayNum: { fontSize: 13, color: ink(0.6) },
-  dayNumRec: { color: ink(0.9), fontWeight: '600' },
+  dayNum: { fontSize: 13, color: Editorial.textCaption },
+  dayNumRec: { color: Editorial.ink, fontWeight: '600' },
   dayNumOn: { fontWeight: '700', color: INK },
 
   detail: { marginTop: 22 },
@@ -201,9 +201,9 @@ const styles = StyleSheet.create({
   },
   recThumb: { width: 60, height: 72, borderRadius: 12, backgroundColor: BONE },
   recBody: { flex: 1, gap: 6 },
-  recTitle: { fontSize: 14.5, fontWeight: '500', color: ink(0.9) },
+  recTitle: { fontSize: 14.5, fontWeight: '500', color: Editorial.ink },
   recTags: { flexDirection: 'row', gap: 8 },
-  recTag: { fontSize: 11.5, color: ink(0.4) },
+  recTag: { fontSize: 11.5, color: Editorial.textCaption },
 
   empty: {
     alignItems: 'center',
@@ -214,12 +214,12 @@ const styles = StyleSheet.create({
     borderRadius: 16,
     paddingVertical: 30,
   },
-  emptyText: { fontSize: 13, color: ink(0.4) },
+  emptyText: { fontSize: 13, color: Editorial.textCaption },
   addBtn: {
     paddingHorizontal: 18,
     height: 40,
     borderRadius: 999,
-    backgroundColor: INK,
+    backgroundColor: Editorial.cta,
     alignItems: 'center',
     justifyContent: 'center',
   },

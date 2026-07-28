@@ -108,8 +108,8 @@ export default function SavedLook() {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#ffffff' },
-  headerSafe: { backgroundColor: '#ffffff' },
+  container: { flex: 1, backgroundColor: Editorial.page },
+  headerSafe: { backgroundColor: Editorial.page },
   header: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -146,7 +146,7 @@ const styles = StyleSheet.create({
 
   body: { paddingHorizontal: 20, paddingTop: 22 },
   title: { fontFamily: Fonts.serif, fontSize: 24, color: INK },
-  subtitle: { fontSize: 13, color: ink(0.45), marginTop: 6 },
+  subtitle: { fontSize: 13, color: Editorial.textCaption, marginTop: 6 },
 
   sectionTitle: { fontSize: 13, fontWeight: '600', color: INK, marginTop: 26, marginBottom: 12 },
 
@@ -162,11 +162,11 @@ const styles = StyleSheet.create({
     padding: 8,
   },
   pieceThumb: { width: 38, height: 38, borderRadius: 9, backgroundColor: BONE },
-  pieceSlot: { fontSize: 10, color: ink(0.4), position: 'absolute', left: 56, top: 8 },
-  pieceName: { flex: 1, fontSize: 12.5, fontWeight: '500', color: ink(0.85), marginTop: 12 },
+  pieceSlot: { fontSize: 10, color: Editorial.textCaption, position: 'absolute', left: 56, top: 8 },
+  pieceName: { flex: 1, fontSize: 12.5, fontWeight: '500', color: Editorial.ink, marginTop: 12 },
 
-  reasonCard: { backgroundColor: Editorial.surfaceSoft, borderRadius: 16, padding: 16 },
-  reasonText: { fontSize: 13.5, color: ink(0.7), lineHeight: 21 },
+  reasonCard: { backgroundColor: Editorial.surfaceSoft, borderWidth: 1, borderColor: Editorial.line, borderRadius: 16, padding: 16 },
+  reasonText: { fontSize: 13.5, color: Editorial.textSoft, lineHeight: 21 },
 
   memoCard: {
     borderWidth: 1,
@@ -175,21 +175,21 @@ const styles = StyleSheet.create({
     padding: 15,
     paddingRight: 40,
   },
-  memoText: { fontSize: 13.5, color: ink(0.75), lineHeight: 20 },
+  memoText: { fontSize: 13.5, color: Editorial.textSoft, lineHeight: 20 },
   memoEdit: { position: 'absolute', top: 12, right: 12 },
 
   tags: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 18 },
-  tag: { backgroundColor: Editorial.surface, borderRadius: 999, paddingHorizontal: 13, paddingVertical: 7 },
-  tagText: { fontSize: 12.5, color: ink(0.6), fontWeight: '500' },
+  tag: { backgroundColor: Editorial.control, borderRadius: 999, paddingHorizontal: 13, paddingVertical: 7 },
+  tagText: { fontSize: 12.5, color: Editorial.textCaption, fontWeight: '500' },
 
   bottomDivider: { height: 1, backgroundColor: ink(0.08) },
-  bottomBar: { backgroundColor: '#fff', paddingHorizontal: 20, paddingTop: 12 },
+  bottomBar: { backgroundColor: Editorial.page, paddingHorizontal: 20, paddingTop: 12 },
   cta: {
     flexDirection: 'row',
     gap: 8,
     height: 52,
     borderRadius: 999,
-    backgroundColor: INK,
+    backgroundColor: Editorial.cta,
     alignItems: 'center',
     justifyContent: 'center',
   },

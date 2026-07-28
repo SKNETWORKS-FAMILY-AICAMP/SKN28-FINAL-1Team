@@ -138,8 +138,8 @@ export default function Fitting() {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#ffffff' },
-  headerSafe: { backgroundColor: '#ffffff' },
+  container: { flex: 1, backgroundColor: Editorial.page },
+  headerSafe: { backgroundColor: Editorial.page },
   header: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -158,12 +158,13 @@ const styles = StyleSheet.create({
     marginHorizontal: 20,
     borderRadius: 20,
     backgroundColor: CANVAS,
+    borderWidth: 1, borderColor: Editorial.line,
     alignItems: 'center',
     justifyContent: 'center',
     gap: 8,
     overflow: 'hidden',
   },
-  canvasLabel: { fontSize: 13, color: ink(0.4), letterSpacing: 0.5, marginTop: 4 },
+  canvasLabel: { fontSize: 13, color: Editorial.textCaption, letterSpacing: 0.5, marginTop: 4 },
   canvasBadge: {
     position: 'absolute',
     bottom: 16,
@@ -180,7 +181,7 @@ const styles = StyleSheet.create({
 
   body: { paddingHorizontal: 20, paddingTop: 22 },
   title: { fontFamily: Fonts.serif, fontSize: 24, color: INK },
-  subtitle: { fontSize: 13, color: ink(0.45), marginTop: 6 },
+  subtitle: { fontSize: 13, color: Editorial.textCaption, marginTop: 6 },
 
   sizeCard: {
     flexDirection: 'row',
@@ -188,24 +189,25 @@ const styles = StyleSheet.create({
     gap: 10,
     marginTop: 18,
     backgroundColor: Editorial.surfaceSoft,
+    borderWidth: 1, borderColor: Editorial.line,
     borderRadius: 14,
     paddingHorizontal: 16,
     paddingVertical: 14,
   },
-  sizeText: { flex: 1, fontSize: 14, color: ink(0.7), lineHeight: 20 },
+  sizeText: { flex: 1, fontSize: 14, color: Editorial.textSoft, lineHeight: 20 },
   sizeStrong: { fontWeight: '700', color: INK },
 
   sectionTitle: { fontSize: 13, fontWeight: '600', color: INK, marginTop: 26, marginBottom: 12 },
   thumbRow: { flexDirection: 'row', gap: 10 },
   thumbCol: { flex: 1, alignItems: 'center', gap: 6 },
   thumb: { width: '100%', height: 72, borderRadius: 12, backgroundColor: BONE },
-  thumbLabel: { fontSize: 12, color: ink(0.5) },
+  thumbLabel: { fontSize: 12, color: Editorial.textCaption },
 
   bottomDivider: { height: 1, backgroundColor: ink(0.08) },
   bottomBar: {
     flexDirection: 'row',
     gap: 10,
-    backgroundColor: '#fff',
+    backgroundColor: Editorial.page,
     paddingHorizontal: 20,
     paddingTop: 12,
   },
@@ -221,14 +223,14 @@ const styles = StyleSheet.create({
     borderColor: ink(0.14),
     justifyContent: 'center',
   },
-  altText: { fontSize: 14, color: ink(0.6), fontWeight: '500' },
+  altText: { fontSize: 14, color: Editorial.textCaption, fontWeight: '500' },
   saveBtn: {
     flex: 1,
     flexDirection: 'row',
     gap: 8,
     height: 50,
     borderRadius: 999,
-    backgroundColor: INK,
+    backgroundColor: Editorial.cta,
     alignItems: 'center',
     justifyContent: 'center',
   },

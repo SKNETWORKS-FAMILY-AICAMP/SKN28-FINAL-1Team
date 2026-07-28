@@ -129,7 +129,7 @@ export default function ItemAddSourceScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#ffffff' },
+  container: { flex: 1, backgroundColor: Editorial.page },
   safe: { flex: 1, paddingHorizontal: PAD },
 
   header: {
@@ -148,13 +148,14 @@ const styles = StyleSheet.create({
     height: 44,
     paddingHorizontal: 14,
     borderRadius: 12,
-    backgroundColor: Editorial.surface,
+    backgroundColor: Editorial.control,
+    borderWidth: 1, borderColor: Editorial.line,
   },
-  searchPlaceholder: { flex: 1, fontSize: 14, color: ink(0.35) },
+  searchPlaceholder: { flex: 1, fontSize: 14, color: Editorial.textCaption },
   helpBtn: { width: 28, alignItems: 'flex-end' },
 
   sectionTitle: { fontSize: 16, fontWeight: '700', color: INK },
-  sectionHint: { fontSize: 12, color: ink(0.45), marginTop: 4, marginBottom: 16 },
+  sectionHint: { fontSize: 12, color: Editorial.textCaption, marginTop: 4, marginBottom: 16 },
 
   grid: {
     flexDirection: 'row',
@@ -166,19 +167,19 @@ const styles = StyleSheet.create({
     borderRadius: 14,
     borderWidth: 1,
     borderColor: ink(0.12),
-    backgroundColor: '#ffffff',
+    backgroundColor: Editorial.surface,
     alignItems: 'center',
     justifyContent: 'center',
     gap: 6,
     paddingHorizontal: 8,
   },
   tileOn: {
-    backgroundColor: INK,
-    borderColor: INK,
+    backgroundColor: Editorial.selected,
+    borderColor: Editorial.selected,
   },
   tileLabel: { fontSize: 15, fontWeight: '600', color: INK },
   tileLabelOn: { color: '#fff' },
-  tileHint: { fontSize: 11, color: ink(0.4) },
+  tileHint: { fontSize: 11, color: Editorial.textCaption },
   tileHintOn: { color: 'rgba(255,255,255,0.72)' },
 
   loadingRow: {
@@ -188,5 +189,5 @@ const styles = StyleSheet.create({
     gap: 10,
     marginTop: 24,
   },
-  loadingText: { fontSize: 13, color: ink(0.5) },
+  loadingText: { fontSize: 13, color: Editorial.textCaption },
 });

@@ -232,7 +232,7 @@ export default function MeasureResult() {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#ffffff' },
+  container: { flex: 1, backgroundColor: Editorial.page },
   safe: { flex: 1 },
   content: { paddingHorizontal: 24, paddingTop: 12, paddingBottom: 24 },
   stateWrap: { flex: 1, paddingHorizontal: 24, paddingTop: 12 },
@@ -240,7 +240,7 @@ const styles = StyleSheet.create({
 
   steps: { flexDirection: 'row', gap: 6, marginBottom: 28 },
   step: { flex: 1, height: 3, borderRadius: 2, backgroundColor: ink(0.1) },
-  stepOn: { backgroundColor: INK },
+  stepOn: { backgroundColor: Editorial.selected },
 
   hero: { alignItems: 'center', gap: 8 },
   mark: {
@@ -253,7 +253,7 @@ const styles = StyleSheet.create({
     marginBottom: 6,
   },
   title: { fontFamily: Fonts.serif, fontSize: 26, color: INK },
-  lead: { fontSize: 14, color: ink(0.5) },
+  lead: { fontSize: 14, color: Editorial.textCaption },
 
   sectionTitle: { fontSize: 16, fontWeight: '600', color: INK, marginTop: 30, marginBottom: 12 },
   sectionHead: {
@@ -264,7 +264,7 @@ const styles = StyleSheet.create({
     marginBottom: 12,
   },
   sectionTitlePlain: { fontSize: 16, fontWeight: '600', color: INK },
-  editHint: { fontSize: 12, color: ink(0.4) },
+  editHint: { fontSize: 12, color: Editorial.textCaption },
   measureGrid: {
     flexDirection: 'row',
     flexWrap: 'wrap',
@@ -274,7 +274,7 @@ const styles = StyleSheet.create({
     overflow: 'hidden',
   },
   measureTile: { width: '50%', paddingHorizontal: 18, paddingVertical: 16, gap: 6 },
-  measureLabel: { fontSize: 12, color: ink(0.45) },
+  measureLabel: { fontSize: 12, color: Editorial.textCaption },
   measureValueRow: { flexDirection: 'row', alignItems: 'flex-end', gap: 4 },
   measureInput: {
     fontFamily: Fonts.serif,
@@ -287,7 +287,7 @@ const styles = StyleSheet.create({
     borderBottomColor: ink(0.18),
     paddingBottom: 2,
   },
-  measureUnit: { fontSize: 12, color: ink(0.4), marginBottom: 3 },
+  measureUnit: { fontSize: 12, color: Editorial.textCaption, marginBottom: 3 },
 
   sizeCard: { borderWidth: 1, borderColor: ink(0.09), borderRadius: 16, paddingHorizontal: 16 },
   sizeRow: {
@@ -296,7 +296,7 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     paddingVertical: 16,
   },
-  sizeBrand: { fontSize: 14.5, color: ink(0.9), fontWeight: '500' },
+  sizeBrand: { fontSize: 14.5, color: Editorial.ink, fontWeight: '500' },
   sizeRight: { flexDirection: 'row', alignItems: 'center', gap: 10 },
   sizeBadge: {
     minWidth: 34,
@@ -308,10 +308,10 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   sizeBadgeText: { fontSize: 13, color: '#fff', fontWeight: '700' },
-  sizeFit: { fontSize: 12, color: ink(0.45), width: 58, textAlign: 'right' },
+  sizeFit: { fontSize: 12, color: Editorial.textCaption, width: 58, textAlign: 'right' },
   sizeLine: { height: 1, backgroundColor: ink(0.07) },
 
-  note: { fontSize: 11.5, color: ink(0.4), lineHeight: 18, marginTop: 16 },
+  note: { fontSize: 11.5, color: Editorial.textCaption, lineHeight: 18, marginTop: 16 },
   remeasure: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -320,7 +320,7 @@ const styles = StyleSheet.create({
     marginTop: 22,
     paddingVertical: 6,
   },
-  remeasureText: { fontSize: 13, color: ink(0.5) },
+  remeasureText: { fontSize: 13, color: Editorial.textCaption },
 
   bottomBar: {
     paddingHorizontal: 24,
@@ -331,7 +331,7 @@ const styles = StyleSheet.create({
   cta: {
     height: 52,
     borderRadius: 999,
-    backgroundColor: INK,
+    backgroundColor: Editorial.cta,
     alignItems: 'center',
     justifyContent: 'center',
   },

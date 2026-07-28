@@ -190,7 +190,8 @@ const styles = StyleSheet.create({
     height: 44,
     paddingHorizontal: 14,
     borderRadius: 12,
-    backgroundColor: Editorial.surface,
+    backgroundColor: Editorial.control,
+    borderWidth: 1, borderColor: Editorial.line,
   },
   searchBarSpacer: { flex: 1 },
   searchInput: {
@@ -209,7 +210,7 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     borderWidth: 1,
     borderColor: ink(0.14),
-    backgroundColor: '#ffffff',
+    backgroundColor: Editorial.control,
     flexShrink: 0,
   },
   dropBtnCompact: {
@@ -222,7 +223,7 @@ const styles = StyleSheet.create({
   dropBackdrop: { flex: 1, backgroundColor: 'rgba(28,25,23,0.08)' },
   dropList: {
     position: 'absolute',
-    backgroundColor: '#ffffff',
+    backgroundColor: Editorial.surface,
     borderRadius: 12,
     borderWidth: 1,
     borderColor: ink(0.1),
@@ -240,7 +241,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     paddingVertical: 12,
   },
-  dropItemText: { fontSize: 14, color: ink(0.6) },
+  dropItemText: { fontSize: 14, color: Editorial.textCaption },
   dropItemTextCompact: { fontSize: 13 },
   dropItemTextOn: { color: INK, fontWeight: '600' },
 
@@ -255,8 +256,8 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  chipOn: { backgroundColor: INK, borderColor: INK },
-  chipText: { fontSize: 13, lineHeight: 18, color: ink(0.55), fontWeight: '500' },
+  chipOn: { backgroundColor: Editorial.selected, borderColor: Editorial.selected },
+  chipText: { fontSize: 13, lineHeight: 18, color: Editorial.textCaption, fontWeight: '500' },
   chipTextOn: { color: '#fff' },
   editChip: {
     width: 36,
@@ -266,6 +267,6 @@ const styles = StyleSheet.create({
     borderColor: ink(0.12),
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: Editorial.surface,
+    backgroundColor: Editorial.control,
   },
 });

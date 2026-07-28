@@ -108,7 +108,7 @@ export function Skeleton({
 
 const styles = StyleSheet.create({
   center: { alignItems: 'center', justifyContent: 'center', paddingHorizontal: 32, paddingVertical: 48 },
-  loadingText: { marginTop: 14, fontSize: Type.footnote, color: ink(0.5) },
+  loadingText: { marginTop: 14, fontSize: Type.footnote, color: Editorial.textCaption },
 
   errIcon: {
     width: 60,
@@ -119,10 +119,10 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     marginBottom: 16,
   },
-  errTitle: { fontSize: Type.label, fontWeight: '600', color: ink(0.85) },
+  errTitle: { fontSize: Type.label, fontWeight: '600', color: Editorial.ink },
   errDesc: {
     fontSize: Type.footnote,
-    color: ink(0.45),
+    color: Editorial.textCaption,
     textAlign: 'center',
     marginTop: 7,
     lineHeight: 20,

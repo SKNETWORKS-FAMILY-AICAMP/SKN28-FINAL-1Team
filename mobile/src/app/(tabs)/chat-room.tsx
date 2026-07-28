@@ -44,9 +44,9 @@ export default function ChatRoom() {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#ffffff' },
+  container: { flex: 1, backgroundColor: Editorial.page },
 
-  headerSafe: { backgroundColor: '#ffffff' },
+  headerSafe: { backgroundColor: Editorial.page },
   header: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -58,6 +58,6 @@ const styles = StyleSheet.create({
   headerTitle: { fontSize: 15, fontWeight: '600', color: INK },
   modeBadge: { flexDirection: 'row', alignItems: 'center', gap: 5 },
   modeDot: { width: 5, height: 5, borderRadius: 2.5, backgroundColor: WINE },
-  modeText: { fontSize: 11, color: ink(0.45) },
+  modeText: { fontSize: 11, color: Editorial.textCaption },
   divider: { height: 1, backgroundColor: ink(0.08) },
 });

@@ -14,13 +14,14 @@
 @media screen and (min-width: 440px) {
   html,
   body {
-    /* 칙칙한 웜그레이 대신 최대한 밝은 오프화이트 */
-    background-color: #f6f6f5;
+    /* 프레임 '바깥'. 앱이 순백에 가까워졌으므로 여기만 한 톤 눌러야 폰 프레임이 읽힌다. */
+    background-color: #efebe4;
   }
   #root {
     max-width: 440px;
     margin-left: auto;
     margin-right: auto;
+    /* Editorial.page 와 반드시 같아야 한다 (constants/theme.ts) */
     background-color: #ffffff;
     /* 밝은 배경에서도 앱과 바깥 경계가 또렷하도록: 얇은 보더 + 부드러운 그림자 */
     border-left: 1px solid rgba(0, 0, 0, 0.09);
@@ -34,6 +35,7 @@
 @media screen and (min-width: 1024px) {
   html,
   body {
+    /* Editorial.page 와 반드시 같아야 한다 (constants/theme.ts) */
     background-color: #ffffff;
   }
   #root {

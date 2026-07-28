@@ -95,16 +95,19 @@ function EmptyClosetStart() {
         <Text style={styles.emptyEyebrowText}>MY FIRST LOOK</Text>
       </View>
       <Text style={styles.emptyTitle}>옷장이 비어 있어도 괜찮아요</Text>
-      <Text style={styles.emptyBody}>
-        사진 한 장으로 내 스타일을 시작해 볼까요?{`\n`}코지가 잘 어울리는 포인트를 찾아드릴게요
-      </Text>
-      <Pressable style={styles.emptyPrimary} onPress={() => router.push('/outfit-review')}>
-        <Text style={styles.emptyPrimaryText}>내 착장 분석하기</Text>
-      </Pressable>
-      <Pressable style={styles.emptySecondary} onPress={() => router.push('/(tabs)/lookbook')}>
-        <Text style={styles.emptySecondaryText}>스타일 둘러보기</Text>
-      </Pressable>
-      <Text style={styles.emptyHint}>분석 결과는 로그인 없이도 확인할 수 있어요</Text>
+      <Text style={styles.emptyBody}>사진 한 장으로 내 스타일을 시작해 볼까요?</Text>
+      <View style={styles.emptyActions}>
+        <Pressable style={styles.emptyPrimary} onPress={() => router.push('/outfit-review')}>
+          <Text style={styles.emptyPrimaryText} numberOfLines={1}>
+            내 착장 분석하기
+          </Text>
+        </Pressable>
+        <Pressable style={styles.emptySecondary} onPress={() => router.push('/(tabs)/lookbook')}>
+          <Text style={styles.emptySecondaryText} numberOfLines={1}>
+            스타일 둘러보기
+          </Text>
+        </Pressable>
+      </View>
     </View>
   );
 }
@@ -213,7 +216,7 @@ function HomeBody({ data }: { data: HomeData }) {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#ffffff' },
+  container: { flex: 1, backgroundColor: Editorial.page },
   safe: { flex: 1 },
   content: {
     paddingHorizontal: 20,
@@ -237,37 +240,37 @@ const styles = StyleSheet.create({
   emptyStart: {
     borderRadius: 28,
     backgroundColor: CHIP,
+    borderWidth: 1, borderColor: Editorial.line,
     paddingHorizontal: 28,
     paddingVertical: 34,
     alignItems: 'flex-start',
   },
   emptyEyebrow: { paddingBottom: 16 },
-  emptyEyebrowText: { fontSize: 10, letterSpacing: 1.7, fontWeight: '600', color: ink(0.45) },
+  emptyEyebrowText: { fontSize: 10, letterSpacing: 1.7, fontWeight: '600', color: Editorial.textCaption },
   emptyTitle: { fontFamily: Fonts.serif, fontSize: 28, lineHeight: 36, color: INK },
-  emptyBody: { marginTop: 14, fontSize: 16, lineHeight: 24, color: ink(0.6) },
+  emptyBody: { marginTop: 14, fontSize: 16, lineHeight: 24, color: Editorial.textCaption },
+  // 두 버튼을 한 줄에 나란히. flex:1 로 폭을 반씩 나눠 가진다.
+  emptyActions: { marginTop: 28, alignSelf: 'stretch', flexDirection: 'row', gap: 10 },
   emptyPrimary: {
-    marginTop: 28,
-    alignSelf: 'stretch',
+    flex: 1,
     height: 50,
     borderRadius: 999,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: INK,
+    backgroundColor: Editorial.cta,
   },
   emptyPrimaryText: { color: '#ffffff', fontSize: 14, fontWeight: '600' },
   emptySecondary: {
-    marginTop: 12,
-    alignSelf: 'stretch',
+    flex: 1,
     height: 50,
     borderRadius: 999,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: '#ffffff',
+    backgroundColor: Editorial.surface,
     borderWidth: 1,
     borderColor: ink(0.14),
   },
-  emptySecondaryText: { fontSize: 14, fontWeight: '600', color: ink(0.7) },
-  emptyHint: { alignSelf: 'center', marginTop: 18, fontSize: 13, color: ink(0.4) },
+  emptySecondaryText: { fontSize: 14, fontWeight: '600', color: Editorial.textSoft },
 
   lookMetaRow: {
     flexDirection: 'row',
@@ -282,7 +285,7 @@ const styles = StyleSheet.create({
   metaText: {
     flexShrink: 1,
     fontSize: 13,
-    color: ink(0.45),
+    color: Editorial.textCaption,
     textAlign: 'right',
   },
 
@@ -290,28 +293,28 @@ const styles = StyleSheet.create({
   lookCard: {
     flexShrink: 0,
     alignSelf: 'stretch',
-    backgroundColor: '#ffffff',
+    backgroundColor: Editorial.surface,
     borderWidth: 1,
     borderColor: ink(0.1),
     borderRadius: 28,
     overflow: 'hidden',
   },
   lookBody: { flexShrink: 0, padding: 24, gap: 16 },
-  lookText: { fontSize: 17, fontWeight: '500', color: ink(0.9) },
+  lookText: { fontSize: 17, fontWeight: '500', color: Editorial.ink },
   tagRow: { flexDirection: 'row', gap: 8, alignItems: 'center' },
   tag: {
-    backgroundColor: CHIP,
+    backgroundColor: Editorial.control,
     borderRadius: 999,
     paddingHorizontal: 12,
     paddingVertical: 6,
   },
-  tagText: { fontSize: 12, fontWeight: '500', color: ink(0.6) },
+  tagText: { fontSize: 12, fontWeight: '500', color: Editorial.textCaption },
   lookButtons: { flexDirection: 'row', gap: 10, marginTop: 4 },
   saveBtn: {
     flex: 1,
     height: 44,
     borderRadius: 999,
-    backgroundColor: INK,
+    backgroundColor: Editorial.cta,
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -320,11 +323,11 @@ const styles = StyleSheet.create({
     flex: 1,
     height: 44,
     borderRadius: 999,
-    backgroundColor: '#ffffff',
+    backgroundColor: Editorial.surface,
     borderWidth: 1,
     borderColor: ink(0.14),
     alignItems: 'center',
     justifyContent: 'center',
   },
-  altBtnText: { color: ink(0.7), fontSize: 14, fontWeight: '500' },
+  altBtnText: { color: Editorial.textSoft, fontSize: 14, fontWeight: '500' },
 });
