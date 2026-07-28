@@ -9,7 +9,7 @@
  *    (WebView.md 7.3-5). 그래서 이 파일의 형태를 그대로 JSON 으로 직렬화할 수 있게 유지한다.
  */
 
-export type ImportSiteKey = 'naver' | 'musinsa';
+export type ImportSiteKey = 'naver' | '29cm' | 'musinsa';
 
 /**
  * 각 항목은 **후보 배열**이다. 앞에서부터 시도해 첫 번째로 맞는 selector 를 쓴다.
@@ -105,8 +105,52 @@ const naver: ImportSite = {
 };
 
 /**
- * 무신사 — 기존 "자동스캔"(방식②)이 쓰던 사이트. 구매목록 selector 는 아직 미조사.
- * 네이버 end-to-end 가 끝난 뒤 selector 만 채워 넣으면 같은 화면이 그대로 동작한다.
+ * 29CM — 2차 지원 대상. 패션 전문몰이라 구매목록에 옷만 들어있다(네이버는 잡화가 섞인다).
+ *
+ * URL 은 미로그인 상태로 리다이렉트 체인을 따라가 확인했다(2026-07-28):
+ *   `/order/my-order/` → 308 `/order/my-order`
+ *                      → `auth.29cm.co.kr/login?redirect_uri=https%3A%2F%2F...%2Forder%2Fmy-order`
+ * 네이버와 같은 "로그인 후 복귀" 패턴이고, **redirect_uri 가 https** 라
+ * 네이버에서 터졌던 ATS(-1022) 문제는 여기선 안 난다.
+ * (경로는 마이페이지 SPA 번들의 라우트 정의 `path:"my-order"` 에서 역추적했다)
+ *
+ * ⚠️ selector 는 로그인해야 보이는 페이지라 미검증. 네이버도 첫 후보가 그대로 맞았으니
+ *    일단 같은 방식으로 깔아두고, 안 맞으면 휴리스틱 → `구조분석`(__DEV__) 순으로 확정한다.
+ */
+const cm29: ImportSite = {
+  key: '29cm',
+  label: '29CM',
+  orderUrl: 'https://www.29cm.co.kr/order/my-order',
+  orderUrlPattern: /29cm\.co\.kr\/order\/my-order/i,
+  loginUrlPattern: /auth\.29cm\.co\.kr/i,
+  hostPattern: /(^|\.)29cm\.co\.kr/i,
+  scrape: {
+    itemSelector: [
+      '[class*="orderItem" i]',
+      '[class*="order_item" i]',
+      '[class*="orderProduct" i]',
+      '[class*="productItem" i]',
+      'li[class*="order" i]',
+    ],
+    // 네이버에서 배운 것 — `strong` 은 주문 상태를 물고 오므로 넣지 않는다
+    nameSelector: [
+      '[class*="productName" i]',
+      '[class*="itemName" i]',
+      '[class*="goodsName" i]',
+      'a[href*="product" i]',
+      '[class*="title" i]',
+    ],
+    imageSelector: ['img[class*="thumb" i]', 'img[class*="image" i]', 'img'],
+    priceSelector: ['[class*="price" i]', '[class*="amount" i]'],
+    dateSelector: ['[class*="date" i]', 'time'],
+    linkSelector: ['a[href*="product" i]', 'a[href]'],
+  },
+};
+
+/**
+ * 무신사 — 기존 "자동스캔"(방식②)이 쓰던 사이트.
+ * ⚠️ orderUrl 은 **미확인**이다. `/mypage/order`·`/my/order` 둘 다 404 를 준다(2026-07-28 확인).
+ *    이 사이트를 붙일 때 29CM 처럼 리다이렉트 체인을 따라가 실제 경로부터 찾을 것.
  */
 const musinsa: ImportSite = {
   key: 'musinsa',
@@ -125,7 +169,11 @@ const musinsa: ImportSite = {
   },
 };
 
-export const IMPORT_SITES: Record<ImportSiteKey, ImportSite> = { naver, musinsa };
+export const IMPORT_SITES: Record<ImportSiteKey, ImportSite> = {
+  naver,
+  '29cm': cm29,
+  musinsa,
+};
 
 export const DEFAULT_IMPORT_SITE: ImportSiteKey = 'naver';
 
