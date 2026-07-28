@@ -5,6 +5,7 @@ import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { ErrorState, LoadingState, SmartImage, useToast } from '@/components/ui';
+import { DEMO_HOME } from '@/constants/demo';
 import { Editorial, ink, BottomTabInset, Fonts , ContentMax} from '@/constants/theme';
 import { TODAY_LOOK_IMAGE } from '@/constants/look-images';
 import { useBreakpoint } from '@/hooks/use-breakpoint';
@@ -39,9 +40,11 @@ function weatherLabel(w: HomeWeather): string {
 // 홈 탭 (Figma B1) — GET /api/v1/home/ 연동
 export default function HomeScreen() {
   const { contentStyle } = useBreakpoint();
-  const { status } = useAuth();
-  // 홈 API는 JWT가 필요하다. 비회원은 요청하지 않고 온보딩 전용 홈을 즉시 보여준다.
-  const { data, error, loading, reload } = useHome(undefined, status === 'authed');
+  const { status, isDemo } = useAuth();
+  /* 홈 API는 JWT가 필요하다. 비회원은 요청하지 않고 온보딩 전용 홈을 즉시 보여준다.
+     데모 세션도 토큰이 없어 호출하지 않고 고정 목업으로 '로그인한 홈'을 렌더한다. */
+  const { data: apiData, error, loading, reload } = useHome(undefined, status === 'authed' && !isDemo);
+  const data = isDemo ? DEMO_HOME : apiData;
 
   /* 서비스 페르소나 이름으로 부른다. 백엔드 nickname 은 개발용 계정명이라 그대로 쓰지 않는다. */
   const nickname = '코지';
@@ -69,7 +72,7 @@ export default function HomeScreen() {
             <LoadingState message="홈을 준비하는 중…" />
           ) : status === 'guest' ? (
             <EmptyClosetStart />
-          ) : loading ? (
+          ) : loading && !isDemo ? (
             <LoadingState message="오늘의 추천을 불러오는 중…" />
           ) : error || !data ? (
             <ErrorState onRetry={reload} />

@@ -12,6 +12,8 @@ import { Platform } from 'react-native';
  */
 const ACCESS_KEY = 'auth_access_token';
 const REFRESH_KEY = 'auth_refresh_token';
+/* 데모 세션 표식. 토큰이 없는 세션이라 이 값이 없으면 새로고침·앱 재시작에서 그냥 사라진다. */
+const DEMO_KEY = 'auth_demo_session';
 
 const isWeb = Platform.OS === 'web';
 
@@ -73,7 +75,24 @@ export function getRefreshToken(): Promise<string | null> {
   return getItem(REFRESH_KEY);
 }
 
-/** 로그아웃/세션만료 시: 전부 삭제 */
+/**
+ * 로그아웃/세션만료 시: 전부 삭제.
+ * 데모 표식은 건드리지 않는다 — 데모는 토큰이 없어 401 이 정상이라, 여기서 같이 지우면
+ * API 한 번 실패했다고 데모 세션이 풀린다. (해제는 signOut/continueAsGuest 가 명시적으로 한다)
+ */
 export async function clearTokens(): Promise<void> {
   await Promise.all([deleteItem(ACCESS_KEY), deleteItem(REFRESH_KEY)]);
+}
+
+/** 데모 세션 표식 — 토큰 없는 체험 로그인을 새로고침 후에도 복원하기 위한 최소 흔적 */
+export function saveDemoFlag(): Promise<void> {
+  return setItem(DEMO_KEY, '1');
+}
+
+export async function hasDemoFlag(): Promise<boolean> {
+  return (await getItem(DEMO_KEY)) === '1';
+}
+
+export function clearDemoFlag(): Promise<void> {
+  return deleteItem(DEMO_KEY);
 }

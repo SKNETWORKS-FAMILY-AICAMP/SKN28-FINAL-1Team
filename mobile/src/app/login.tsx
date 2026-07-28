@@ -15,10 +15,12 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import { useToast } from '@/components/ui';
 import { Editorial, ink, Fonts , ContentMax} from '@/constants/theme';
 import { useBreakpoint } from '@/hooks/use-breakpoint';
 import { useSocialLogin } from '@/hooks/use-social-login';
 import type { SocialLoginResult } from '@/lib/socialLogin';
+import { authStore } from '@/state/auth';
 
 const INK = Editorial.ink;
 const KAKAO = Editorial.kakao;
@@ -32,13 +34,30 @@ export default function Login() {
   const [show, setShow] = useState(false);
 
   const { kakao, naver, google, apple, pending } = useSocialLogin();
+  const toast = useToast();
 
-  const enter = () => router.replace('/home');
+  /* 백엔드에 이메일/비번 로그인 API 가 없어 데모 세션으로 진입한다.
+     둘러보기와 달리 '로그인한 사용자'(authed)로 들어가므로 홈·옷장·마이가 모두 열린다. */
+  const enter = () => {
+    if (!email.trim() || !pw) {
+      toast('이메일과 비밀번호를 입력해 주세요');
+      return;
+    }
+    authStore.signInDemo();
+    toast('데모 계정으로 로그인했어요');
+    router.replace('/home');
+  };
 
   // 소셜 로그인 성공 시 홈으로. (is_new_user 로 온보딩 분기는 Phase 3에서)
   const onSocial = async (login: () => Promise<SocialLoginResult>) => {
     const result = await login();
     if (result) router.replace('/home');
+  };
+
+  // 비회원 진입: 로그인하지 않은 상태를 확정하고 홈으로. (직전 데모 세션이 남아있어도 정리)
+  const browseAsGuest = () => {
+    authStore.continueAsGuest();
+    router.replace('/home');
   };
 
   return (
@@ -93,10 +112,11 @@ export default function Login() {
             <Text style={styles.loginText}>로그인</Text>
           </Pressable>
 
-          {/* 가입 전에 핵심 경험을 먼저 제공한다. 저장 시점에 다시 로그인을 안내한다. */}
-          <Pressable style={styles.guest} onPress={() => router.replace('/home')}>
+          {/* 가입 전에 핵심 경험을 먼저 제공한다. 옷장·마이는 로그인 후에 열린다. */}
+          <Pressable style={styles.guest} onPress={browseAsGuest}>
             <Text style={styles.guestText}>로그인 없이 둘러보기</Text>
           </Pressable>
+          <Text style={styles.guestHint}>홈·룩북·착장 분석을 먼저 볼 수 있어요</Text>
 
           {/* 또는 */}
           <View style={styles.divider}>
@@ -238,6 +258,7 @@ const styles = StyleSheet.create({
     marginTop: 12,
   },
   guestText: { fontSize: 15, fontWeight: '500', color: ink(0.75) },
+  guestHint: { alignSelf: 'center', marginTop: 10, fontSize: 12, color: ink(0.45) },
   signup: { alignSelf: 'center', marginTop: 26 },
   signupText: { fontSize: 13, color: ink(0.5) },
   signupBold: { color: ink(0.9), fontWeight: '500' },
