@@ -22,7 +22,7 @@
 | 언어 | Python 3.11+ |
 | 백엔드 | Django / Django REST Framework |
 | AI/ML | PyTorch (모델 학습·추론), 추천 모델 |
-| 데이터 | PostgreSQL (권장), Redis (캐시) |
+| 데이터 | PostgreSQL (권장), Redis (캐시), Qdrant (벡터 검색) |
 | GPU (임시) | RunPod |
 | 배포 | AWS (EC2 / ECS / S3 / RDS 등) |
 | 형상관리 | Git |
@@ -39,7 +39,7 @@ SKN28-FINAL-1Team/
 ├── README.md              # 프로젝트 소개·실행법
 ├── .env.example           # 환경변수 템플릿 (실제 .env는 커밋 금지, 루트 .env 하나로 통합 관리)
 ├── .gitignore
-├── docker-compose.yml     # 통합 compose: db + migrate + api + collector 2종 (profiles로 선택 실행)
+├── docker-compose.yml     # 통합 compose: db + migrate + api + collector + product-indexer
 ├── api/                   # Django REST API 서버
 │   ├── manage.py
 │   ├── requirements.txt
@@ -47,12 +47,14 @@ SKN28-FINAL-1Team/
 │   │   └── settings/      # base.py / dev.py / prod.py 분리
 │   └── apps/              # Django 앱 모음
 │       ├── users/         # 사용자·인증 (naver/kakao/google OAuth + JWT)
-│       ├── catalog/       # 상품 (naver_product 등, collector/naver가 사용)
+│       ├── catalog/       # 상품 (naver_product, eleven_product 등)
 │       ├── weather/       # 날씨 (weather_* 테이블, collector/weather가 사용)
 │       └── recommend/     # 추천 API·로직 (예정)
 ├── collector/             # 독립 실행 데이터 수집기 (스키마는 Django migration이 소유)
 │   ├── weather/           # 기상청 APIHub 수집
-│   └── naver/             # 네이버 쇼핑 상품 수집 + LLM 태깅
+│   ├── naver/             # 네이버 쇼핑 상품 수집 + LLM 태깅
+│   └── eleven/            # 11번가 ProductSearch 수집 + OpenAI Batch/동기·Claude 동기 태깅
+├── indexer/               # S3 이미지·상품 텍스트 임베딩 + Qdrant 적재 worker
 ├── ml/                    # 모델 학습·추론 코드 (예정)
 ├── scripts/               # 배포·데이터 처리 스크립트
 └── docs/                  # 설계·아키텍처 문서

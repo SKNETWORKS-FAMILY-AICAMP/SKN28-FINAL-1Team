@@ -11,10 +11,12 @@ open_clip_torch>=2.24
 # transformers v5는 torch 최소 버전 요구가 높아 베이스 이미지(torch 2.3.1)와
 # 호환되지 않으므로 4.x로 고정한다 (v5에서 is_torch_available()이 False가 됨).
 transformers>=4.40,<5
+sentence-transformers>=3.0,<4
 sentencepiece>=0.2
 protobuf>=4.25
 qdrant-client>=1.9
 boto3>=1.34
+psycopg2-binary>=2.9
 Pillow>=10.0
 python-dotenv>=1.0
 tqdm>=4.66

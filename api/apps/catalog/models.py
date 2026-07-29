@@ -118,6 +118,21 @@ class NaverProduct(models.Model):
     )
     tagged_at = models.DateTimeField(null=True, blank=True, db_comment="태깅 완료 시각")
 
+    # 상품 임베딩 메타. 기존 데이터는 명시적 백필 전까지 not_requested로 둔다.
+    image_s3_key = models.TextField(null=True, blank=True)
+    image_checksum = models.CharField(max_length=64, null=True, blank=True)
+    embedding_status = models.CharField(
+        max_length=20, default="not_requested", db_default="not_requested"
+    )
+    embedding_version = models.CharField(max_length=200, null=True, blank=True)
+    embedding_retry_count = models.PositiveSmallIntegerField(
+        default=0, db_default=0
+    )
+    embedding_error = models.TextField(null=True, blank=True)
+    image_embedded_at = models.DateTimeField(null=True, blank=True)
+    text_embedded_at = models.DateTimeField(null=True, blank=True)
+    embedded_at = models.DateTimeField(null=True, blank=True)
+
     # 수집 메타
     search_keyword = models.CharField(
         max_length=100, null=True, blank=True, db_comment="수집에 사용한 네이버 검색 키워드"
@@ -137,6 +152,9 @@ class NaverProduct(models.Model):
         indexes = [
             models.Index(fields=["category_large", "category_small"], name="ix_naver_product_category"),
             models.Index(fields=["tagging_status"], name="ix_naver_product_tag_status"),
+            models.Index(
+                fields=["embedding_status"], name="ix_naver_product_embed_status"
+            ),
             GinIndex(fields=["season"], name="ix_naver_product_season"),
             GinIndex(fields=["style"], name="ix_naver_product_style"),
         ]
@@ -193,6 +211,54 @@ class NaverTaggingBatch(models.Model):
 
     def __str__(self) -> str:
         return f"{self.batch_id} ({self.status})"
+
+
+class ProductEmbeddingJob(models.Model):
+    """신규 쇼핑 상품의 비동기 임베딩 작업.
+
+    collector가 상품 INSERT와 같은 트랜잭션에서 생성하고, RunPod/AWS의
+    product indexer가 PostgreSQL에서 claim해 처리한다. source와 외부 상품 ID
+    조합을 멱등 키로 사용하므로 같은 상품을 다시 수집해도 작업이 중복되지 않는다.
+    """
+
+    source = models.CharField(max_length=20)
+    external_product_id = models.CharField(max_length=100)
+    status = models.CharField(
+        max_length=20, default="pending", db_default="pending"
+    )
+    target_version = models.CharField(max_length=200)
+    generation = models.PositiveIntegerField(default=1, db_default=1)
+    attempt_count = models.PositiveSmallIntegerField(default=0, db_default=0)
+    last_error = models.TextField(null=True, blank=True)
+    available_at = models.DateTimeField(db_default=Now())
+    claimed_at = models.DateTimeField(null=True, blank=True)
+    completed_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(db_default=Now())
+    updated_at = models.DateTimeField(db_default=Now())
+
+    class Meta:
+        db_table = "product_embedding_job"
+        verbose_name = "상품 임베딩 작업"
+        verbose_name_plural = "상품 임베딩 작업"
+        constraints = [
+            models.UniqueConstraint(
+                fields=["source", "external_product_id"],
+                name="uq_product_embedding_job_source_id",
+            )
+        ]
+        indexes = [
+            models.Index(
+                fields=["status", "available_at"],
+                name="ix_product_embedding_job_ready",
+            ),
+            models.Index(
+                fields=["source", "status"],
+                name="ix_product_embed_job_source",
+            ),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.source}:{self.external_product_id} ({self.status})"
 
 
 class NaverProductSize(models.Model):
@@ -271,3 +337,215 @@ class NaverProductSize(models.Model):
 
     def __str__(self) -> str:
         return f"{self.product_id} / {self.size_label}"
+
+
+class ElevenApiResponse(models.Model):
+    """11번가 API 호출 단위의 원본 XML과 오류 기록."""
+
+    api_name = models.CharField(max_length=30)
+    endpoint = models.TextField()
+    http_method = models.CharField(max_length=10, default="GET", db_default="GET")
+    request_params = models.JSONField(default=dict, blank=True)
+    response_status = models.IntegerField(null=True, blank=True)
+    content_type = models.CharField(max_length=100, null=True, blank=True)
+    raw_body = models.TextField(default="", blank=True)
+    response_hash = models.CharField(max_length=64, null=True, blank=True)
+    error_message = models.TextField(null=True, blank=True)
+    fetched_at = models.DateTimeField()
+    created_at = models.DateTimeField(db_default=Now())
+
+    class Meta:
+        db_table = "eleven_api_response"
+        verbose_name = "11번가 API 응답"
+        verbose_name_plural = "11번가 API 응답"
+        indexes = [
+            models.Index(
+                fields=["api_name", "fetched_at"],
+                name="ix_eleven_response_api_time",
+            )
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.api_name} ({self.response_status})"
+
+
+class ElevenCategory(models.Model):
+    """11번가 카테고리조회 API의 전체 카테고리 트리."""
+
+    disp_no = models.CharField(max_length=30, unique=True)
+    disp_nm = models.CharField(max_length=200)
+    parent_disp_no = models.CharField(max_length=30, null=True, blank=True)
+    depth = models.SmallIntegerField()
+    leaf_yn = models.BooleanField(default=False, db_default=False)
+    gbl_dlv_yn = models.BooleanField(null=True, blank=True)
+    eng_disp_yn = models.BooleanField(null=True, blank=True)
+    is_active = models.BooleanField(default=True, db_default=True)
+    # 전체 동기화에서 연속으로 보이지 않은 횟수. 임계값 도달 시 비활성화한다.
+    missing_count = models.PositiveIntegerField(default=0, db_default=0)
+    raw_data = models.JSONField(default=dict, blank=True)
+    api_response = models.ForeignKey(
+        ElevenApiResponse,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="categories",
+    )
+    collected_at = models.DateTimeField()
+    created_at = models.DateTimeField(db_default=Now())
+    updated_at = models.DateTimeField(db_default=Now())
+
+    class Meta:
+        db_table = "eleven_category"
+        verbose_name = "11번가 카테고리"
+        verbose_name_plural = "11번가 카테고리"
+        indexes = [
+            models.Index(fields=["parent_disp_no"], name="ix_eleven_category_parent"),
+            models.Index(
+                fields=["depth", "leaf_yn"], name="ix_eleven_category_depth_leaf"
+            ),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.disp_no} {self.disp_nm}"
+
+
+class ElevenTaggingBatch(models.Model):
+    """11번가 상품의 OpenAI Batch API 태깅 작업 추적."""
+
+    batch_id = models.CharField(max_length=100, unique=True)
+    status = models.CharField(
+        max_length=30, default="submitted", db_default="submitted"
+    )
+    model = models.CharField(max_length=60, null=True, blank=True)
+    request_count = models.IntegerField(default=0, db_default=0)
+    include_image = models.BooleanField(default=False, db_default=False)
+    input_file_id = models.CharField(max_length=100, null=True, blank=True)
+    output_file_id = models.CharField(max_length=100, null=True, blank=True)
+    error_file_id = models.CharField(max_length=100, null=True, blank=True)
+    error = models.TextField(null=True, blank=True)
+    completed_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(db_default=Now())
+    updated_at = models.DateTimeField(db_default=Now())
+
+    class Meta:
+        db_table = "eleven_tagging_batch"
+        verbose_name = "11번가 태깅 배치"
+        verbose_name_plural = "11번가 태깅 배치"
+
+    def __str__(self) -> str:
+        return f"{self.batch_id} ({self.status})"
+
+
+class ElevenProduct(models.Model):
+    """11번가 ProductSearch 상품과 추천용 공통 태그."""
+
+    eleven_product_id = models.CharField(max_length=40, unique=True)
+    title = models.CharField(max_length=500)
+    title_raw = models.CharField(max_length=500)
+    link = models.TextField(null=True, blank=True)
+    image_url = models.TextField(null=True, blank=True)
+    product_price = models.IntegerField(null=True, blank=True)
+    sale_price = models.IntegerField(null=True, blank=True)
+    mall_name = models.CharField(max_length=200, null=True, blank=True)
+    rating = models.DecimalField(max_digits=6, decimal_places=2, null=True, blank=True)
+    review_count = models.IntegerField(null=True, blank=True)
+    buy_satisfy = models.DecimalField(
+        max_digits=6, decimal_places=2, null=True, blank=True
+    )
+    delivery = models.CharField(max_length=200, null=True, blank=True)
+    benefit = models.JSONField(default=dict, blank=True)
+
+    eleven_category1 = models.CharField(max_length=100, null=True, blank=True)
+    eleven_category2 = models.CharField(max_length=100, null=True, blank=True)
+    eleven_category3 = models.CharField(max_length=100, null=True, blank=True)
+    eleven_category4 = models.CharField(max_length=100, null=True, blank=True)
+    eleven_category_disp_no = models.CharField(max_length=30, null=True, blank=True)
+
+    category_large = models.CharField(max_length=30)
+    category_small = models.CharField(max_length=50)
+    category_source = models.CharField(
+        max_length=20, default="keyword", db_default="keyword"
+    )
+    category_mapping_version = models.CharField(max_length=30, null=True, blank=True)
+
+    season = ArrayField(models.TextField(), default=list, blank=True)
+    style = ArrayField(models.TextField(), default=list, blank=True)
+    color = ArrayField(models.TextField(), default=list, blank=True)
+    pattern = ArrayField(models.TextField(), default=list, blank=True)
+    fit = models.CharField(max_length=30, null=True, blank=True)
+    material = ArrayField(models.TextField(), default=list, blank=True)
+    sleeve = models.CharField(max_length=20, null=True, blank=True)
+    length = models.CharField(max_length=20, null=True, blank=True)
+    usage = ArrayField(models.TextField(), default=list, blank=True)
+    layer_role = models.CharField(max_length=30, null=True, blank=True)
+    layer_order = models.SmallIntegerField(null=True, blank=True)
+
+    tag_source = models.JSONField(default=dict, blank=True)
+    tagging_status = models.CharField(
+        max_length=20, default="pending", db_default="pending"
+    )
+    tagging_model = models.CharField(max_length=60, null=True, blank=True)
+    tagging_used_image = models.BooleanField(default=False, db_default=False)
+    tagged_at = models.DateTimeField(null=True, blank=True)
+
+    image_s3_key = models.TextField(null=True, blank=True)
+    image_checksum = models.CharField(max_length=64, null=True, blank=True)
+    embedding_status = models.CharField(
+        max_length=20, default="not_requested", db_default="not_requested"
+    )
+    embedding_version = models.CharField(max_length=200, null=True, blank=True)
+    embedding_retry_count = models.PositiveSmallIntegerField(
+        default=0, db_default=0
+    )
+    embedding_error = models.TextField(null=True, blank=True)
+    image_embedded_at = models.DateTimeField(null=True, blank=True)
+    text_embedded_at = models.DateTimeField(null=True, blank=True)
+    embedded_at = models.DateTimeField(null=True, blank=True)
+
+    search_keyword = models.CharField(max_length=100, null=True, blank=True)
+    search_sort = models.CharField(max_length=20, null=True, blank=True)
+    search_rank = models.IntegerField(null=True, blank=True)
+    page_num = models.IntegerField(null=True, blank=True)
+    raw_data = models.JSONField(default=dict, blank=True)
+    api_response = models.ForeignKey(
+        ElevenApiResponse,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="products",
+    )
+    collected_at = models.DateTimeField()
+    created_at = models.DateTimeField(db_default=Now())
+    updated_at = models.DateTimeField(db_default=Now())
+
+    class Meta:
+        db_table = "eleven_product"
+        verbose_name = "11번가 상품"
+        verbose_name_plural = "11번가 상품"
+        indexes = [
+            models.Index(
+                fields=["category_large", "category_small"],
+                name="ix_eleven_product_category",
+            ),
+            models.Index(
+                fields=["tagging_status"], name="ix_eleven_product_tag_status"
+            ),
+            models.Index(
+                fields=["embedding_status"], name="ix_eleven_product_embed_status"
+            ),
+            models.Index(fields=["collected_at"], name="ix_eleven_product_collected"),
+            models.Index(fields=["search_keyword"], name="ix_eleven_product_keyword"),
+            models.Index(
+                fields=["eleven_category_disp_no"],
+                name="ix_eleven_product_disp_no",
+            ),
+            GinIndex(fields=["season"], name="ix_eleven_product_season"),
+            GinIndex(fields=["style"], name="ix_eleven_product_style"),
+        ]
+
+    @property
+    def representative_price(self) -> int | None:
+        return self.sale_price or self.product_price
+
+    def __str__(self) -> str:
+        return f"[{self.category_large}>{self.category_small}] {self.title}"
