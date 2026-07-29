@@ -62,6 +62,7 @@ class ProductDbTests(unittest.TestCase):
         self.assertEqual(jobs, [job])
         claim_sql, claim_params = conn.cursor_instance.executed[0]
         self.assertIn("target_version = %s", claim_sql)
+        self.assertIn("product.tagging_status = 'tagged'", claim_sql)
         self.assertEqual(claim_params, ("test-v1", 5))
         product_sql, product_params = conn.cursor_instance.executed[1]
         self.assertIn("UPDATE naver_product", product_sql)
@@ -124,6 +125,41 @@ class ProductDbTests(unittest.TestCase):
 
         self.assertFalse(accepted)
         self.assertEqual(len(conn.cursor_instance.executed), 1)
+
+    def test_s3_image_checkpoint_is_saved_before_embedding_success(self) -> None:
+        conn = FakeConnection(one_results=[(10,)])
+        job = {
+            "id": 1,
+            "source": "eleven",
+            "external_product_id": "200",
+            "generation": 1,
+        }
+
+        accepted = product_db.mark_image_stored(
+            conn,
+            job,
+            image_s3_key="products/eleven/200/hash.jpg",
+            image_checksum="a" * 64,
+        )
+
+        self.assertTrue(accepted)
+        sql, params = conn.cursor_instance.executed[0]
+        self.assertIn("UPDATE eleven_product", sql)
+        self.assertIn("job.status = 'processing'", sql)
+        self.assertEqual(params[0], "products/eleven/200/hash.jpg")
+        self.assertEqual(params[1], "a" * 64)
+        self.assertEqual(conn.commits, 1)
+
+    def test_drain_preflight_checks_only_tagged_pending_jobs(self) -> None:
+        conn = FakeConnection(one_results=[(True,)])
+
+        has_jobs = product_db.has_pending_jobs(conn, "test-v1")
+
+        self.assertTrue(has_jobs)
+        sql, params = conn.cursor_instance.executed[0]
+        self.assertIn("job.status = 'pending'", sql)
+        self.assertIn("product.tagging_status = 'tagged'", sql)
+        self.assertEqual(params, ("test-v1",))
 
 
 if __name__ == "__main__":

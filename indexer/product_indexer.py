@@ -17,11 +17,14 @@ import product_config as config
 import product_db
 import requests
 from bge_embedder import BgeM3Embedder
+from botocore.exceptions import ClientError
 from embedder import FashionSigLIPEmbedder
 from product_assets import (
     InvalidProductImage,
     PreparedImage,
+    StoredProductImageUnavailable,
     download_and_store_image,
+    load_stored_image,
 )
 from product_qdrant import (
     build_point,
@@ -55,16 +58,31 @@ def _is_transient_http_error(error: requests.HTTPError) -> bool:
     return status_code in {408, 425, 429} or status_code >= 500
 
 
+def _is_missing_s3_object(error: ClientError) -> bool:
+    code = str(error.response.get("Error", {}).get("Code", ""))
+    status = error.response.get("ResponseMetadata", {}).get("HTTPStatusCode")
+    return code in {"404", "NoSuchKey", "NotFound"} or status == 404
+
+
 class ProductIndexer:
-    def __init__(self) -> None:
+    def __init__(
+        self,
+        *,
+        db_connection=None,
+        reset_stale: bool = True,
+    ) -> None:
         config.validate_runtime_config()
-        self.db = product_db.get_connection()
-        stale_count = product_db.reset_stale_jobs(
-            self.db,
-            config.STALE_JOB_MINUTES,
-        )
-        if stale_count:
-            logger.warning("stale 임베딩 작업 %d건을 pending으로 복구", stale_count)
+        self.db = db_connection or product_db.get_connection()
+        if reset_stale:
+            stale_count = product_db.reset_stale_jobs(
+                self.db,
+                config.STALE_JOB_MINUTES,
+            )
+            if stale_count:
+                logger.warning(
+                    "stale 임베딩 작업 %d건을 pending으로 복구",
+                    stale_count,
+                )
 
         self.image_embedder = FashionSigLIPEmbedder(
             model_id=config.IMAGE_MODEL_ID,
@@ -99,6 +117,10 @@ class ProductIndexer:
         transient: bool,
     ) -> None:
         message = str(error)
+        try:
+            self.db.rollback()
+        except Exception:
+            logger.exception("실패 기록 전 DB rollback 실패")
         next_status = product_db.mark_failure(
             self.db,
             job,
@@ -124,6 +146,74 @@ class ProductIndexer:
                 message,
             )
 
+    def _load_or_store_image(
+        self,
+        job: dict[str, Any],
+        product: dict[str, Any],
+    ) -> PreparedImage | None:
+        image_s3_key = product.get("image_s3_key")
+        image_checksum = product.get("image_checksum")
+        if image_s3_key and image_checksum:
+            try:
+                image = load_stored_image(
+                    s3_client=self.s3,
+                    bucket=config.IMAGE_S3_BUCKET,
+                    s3_key=image_s3_key,
+                    expected_checksum=image_checksum,
+                    max_bytes=config.MAX_IMAGE_BYTES,
+                )
+                logger.info(
+                    "S3 상품 이미지 재사용: %s:%s",
+                    job["source"],
+                    job["external_product_id"],
+                )
+                return image
+            except StoredProductImageUnavailable as exc:
+                logger.warning(
+                    "저장 이미지 검증 실패로 원본 URL 복구: %s:%s error=%s",
+                    job["source"],
+                    job["external_product_id"],
+                    exc,
+                )
+            except ClientError as exc:
+                if not _is_missing_s3_object(exc):
+                    raise
+                logger.warning(
+                    "S3 이미지가 없어 원본 URL 복구: %s:%s key=%s",
+                    job["source"],
+                    job["external_product_id"],
+                    image_s3_key,
+                )
+
+        image = download_and_store_image(
+            session=self.http,
+            s3_client=self.s3,
+            source=job["source"],
+            external_product_id=job["external_product_id"],
+            image_url=product.get("image_url") or "",
+            bucket=config.IMAGE_S3_BUCKET,
+            prefix=config.IMAGE_S3_PREFIX,
+            timeout=config.IMAGE_DOWNLOAD_TIMEOUT,
+            max_bytes=config.MAX_IMAGE_BYTES,
+        )
+        accepted = product_db.mark_image_stored(
+            self.db,
+            job,
+            image_s3_key=image.s3_key,
+            image_checksum=image.checksum,
+        )
+        if not accepted:
+            image.image.close()
+            logger.info(
+                "새 generation 작업으로 변경되어 이미지 체크포인트를 건너뜀: %s:%s",
+                job["source"],
+                job["external_product_id"],
+            )
+            return None
+        product["image_s3_key"] = image.s3_key
+        product["image_checksum"] = image.checksum
+        return image
+
     def _prepare(self, job: dict[str, Any]) -> PreparedProduct | None:
         if job["target_version"] != config.EMBEDDING_VERSION:
             self._fail(
@@ -147,17 +237,9 @@ class ProductIndexer:
             return None
 
         try:
-            image = download_and_store_image(
-                session=self.http,
-                s3_client=self.s3,
-                source=job["source"],
-                external_product_id=job["external_product_id"],
-                image_url=product.get("image_url") or "",
-                bucket=config.IMAGE_S3_BUCKET,
-                prefix=config.IMAGE_S3_PREFIX,
-                timeout=config.IMAGE_DOWNLOAD_TIMEOUT,
-                max_bytes=config.MAX_IMAGE_BYTES,
-            )
+            image = self._load_or_store_image(job, product)
+            if image is None:
+                return None
         except InvalidProductImage as exc:
             self._fail(job, exc, transient=False)
             return None
@@ -247,21 +329,73 @@ class ProductIndexer:
                 )
             else:
                 logger.info(
-                    "태깅 갱신으로 이전 generation 완료를 건너뜀: %s:%s",
+                    "새 generation으로 이전 작업 완료를 건너뜀: %s:%s",
                     item.job["source"],
                     item.job["external_product_id"],
                 )
         return len(jobs)
+
+    def drain(
+        self,
+        batch_size: int,
+        *,
+        max_wait_seconds: int,
+        max_runtime_minutes: int,
+    ) -> int:
+        """현재 준비된 작업과 짧은 재시도까지 모두 처리한 뒤 종료한다."""
+        started_at = time.monotonic()
+        deadline = started_at + (max_runtime_minutes * 60)
+        total_claimed = 0
+
+        while time.monotonic() < deadline:
+            claimed = self.process_once(batch_size)
+            total_claimed += claimed
+            if claimed:
+                continue
+
+            next_delay = product_db.seconds_until_next_job(
+                self.db,
+                config.EMBEDDING_VERSION,
+            )
+            if (
+                next_delay is None
+                or max_wait_seconds == 0
+                or next_delay > max_wait_seconds
+            ):
+                break
+
+            sleep_seconds = max(1.0, next_delay)
+            remaining_runtime = deadline - time.monotonic()
+            if sleep_seconds > remaining_runtime:
+                break
+            logger.info(
+                "임베딩 재시도 작업을 %.1f초 대기",
+                sleep_seconds,
+            )
+            time.sleep(sleep_seconds)
+
+        logger.info(
+            "임베딩 drain 종료: claimed=%d, elapsed=%.1f초",
+            total_claimed,
+            time.monotonic() - started_at,
+        )
+        return total_claimed
 
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="신규 쇼핑 상품 이미지+텍스트 임베딩 worker"
     )
-    parser.add_argument(
+    mode = parser.add_mutually_exclusive_group()
+    mode.add_argument(
         "--once",
         action="store_true",
         help="현재 pending 배치를 한 번만 처리하고 종료",
+    )
+    mode.add_argument(
+        "--drain",
+        action="store_true",
+        help="준비된 pending 작업과 짧은 재시도를 모두 처리하고 종료",
     )
     parser.add_argument(
         "--batch-size",
@@ -273,7 +407,62 @@ def parse_args() -> argparse.Namespace:
         type=int,
         default=config.POLL_SECONDS,
     )
+    parser.add_argument(
+        "--drain-max-wait-seconds",
+        type=int,
+        default=config.DRAIN_MAX_WAIT_SECONDS,
+    )
+    parser.add_argument(
+        "--max-runtime-minutes",
+        type=int,
+        default=config.DRAIN_MAX_RUNTIME_MINUTES,
+    )
     return parser.parse_args()
+
+
+def _create_indexer(args: argparse.Namespace) -> ProductIndexer | None:
+    if not args.drain:
+        return ProductIndexer()
+
+    conn = product_db.get_connection()
+    try:
+        if not product_db.try_acquire_drain_lock(conn):
+            logger.warning("다른 임베딩 drain worker가 실행 중이어서 종료합니다.")
+            conn.close()
+            return None
+
+        stale_count = product_db.reset_stale_jobs(
+            conn,
+            config.STALE_JOB_MINUTES,
+        )
+        if stale_count:
+            logger.warning("stale 임베딩 작업 %d건을 pending으로 복구", stale_count)
+
+        if not product_db.has_pending_jobs(conn, config.EMBEDDING_VERSION):
+            logger.info("처리 가능한 임베딩 작업이 없어 모델 로드 전 종료합니다.")
+            conn.close()
+            return None
+        next_delay = product_db.seconds_until_next_job(
+            conn,
+            config.EMBEDDING_VERSION,
+        )
+        if (
+            next_delay is None
+            or next_delay > args.drain_max_wait_seconds
+        ):
+            logger.info(
+                "설정된 drain 대기 시간 안에 실행할 작업이 없어 "
+                "모델 로드 전 종료합니다."
+            )
+            conn.close()
+            return None
+        return ProductIndexer(
+            db_connection=conn,
+            reset_stale=False,
+        )
+    except Exception:
+        conn.close()
+        raise
 
 
 def main() -> int:
@@ -282,13 +471,26 @@ def main() -> int:
         raise ValueError("--batch-size는 1 이상이어야 합니다.")
     if args.poll_seconds < 1:
         raise ValueError("--poll-seconds는 1 이상이어야 합니다.")
+    if args.drain_max_wait_seconds < 0:
+        raise ValueError("--drain-max-wait-seconds는 0 이상이어야 합니다.")
+    if args.max_runtime_minutes < 1:
+        raise ValueError("--max-runtime-minutes는 1 이상이어야 합니다.")
 
     logging.basicConfig(
         level=config.LOG_LEVEL,
         format="%(asctime)s [%(levelname)s] %(message)s",
     )
-    indexer = ProductIndexer()
+    indexer = _create_indexer(args)
+    if indexer is None:
+        return 0
     try:
+        if args.drain:
+            indexer.drain(
+                args.batch_size,
+                max_wait_seconds=args.drain_max_wait_seconds,
+                max_runtime_minutes=args.max_runtime_minutes,
+            )
+            return 0
         while True:
             claimed = indexer.process_once(args.batch_size)
             if args.once:

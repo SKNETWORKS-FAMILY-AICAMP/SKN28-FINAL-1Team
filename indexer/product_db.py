@@ -16,6 +16,7 @@ _SOURCE_CONFIG = {
             SELECT id, 'naver' AS source,
                    naver_product_id AS external_product_id,
                    title, link, image_url, lprice AS price, mall_name, brand,
+                   image_s3_key, image_checksum,
                    category_large, category_small,
                    season, style, color, pattern, fit, material, sleeve, length,
                    usage, layer_role, layer_order, tagging_status
@@ -32,6 +33,7 @@ _SOURCE_CONFIG = {
                    title, link, image_url,
                    COALESCE(sale_price, product_price) AS price,
                    mall_name, NULL::text AS brand,
+                   image_s3_key, image_checksum,
                    category_large, category_small,
                    season, style, color, pattern, fit, material, sleeve, length,
                    usage, layer_role, layer_order, tagging_status
@@ -40,6 +42,8 @@ _SOURCE_CONFIG = {
         """,
     },
 }
+
+_DRAIN_LOCK_NAME = "skn28-product-indexer-drain"
 
 
 def _source_config(source: str) -> dict[str, str]:
@@ -59,6 +63,87 @@ def get_connection():
         host=config.DB_HOST,
         port=config.DB_PORT,
     )
+
+
+def _tagged_product_condition(job_alias: str = "job") -> str:
+    return f"""
+        (
+            (
+                {job_alias}.source = 'naver'
+                AND EXISTS (
+                    SELECT 1
+                    FROM naver_product AS product
+                    WHERE product.naver_product_id =
+                          {job_alias}.external_product_id
+                      AND product.tagging_status = 'tagged'
+                )
+            )
+            OR
+            (
+                {job_alias}.source = 'eleven'
+                AND EXISTS (
+                    SELECT 1
+                    FROM eleven_product AS product
+                    WHERE product.eleven_product_id =
+                          {job_alias}.external_product_id
+                      AND product.tagging_status = 'tagged'
+                )
+            )
+        )
+    """
+
+
+def try_acquire_drain_lock(conn) -> bool:
+    """중복 일일 실행을 막는 PostgreSQL 세션 advisory lock을 획득한다."""
+    with conn.cursor() as cur:
+        cur.execute(
+            "SELECT pg_try_advisory_lock(hashtext(%s))",
+            (_DRAIN_LOCK_NAME,),
+        )
+        row = cur.fetchone()
+    return bool(row and row[0])
+
+
+def has_pending_jobs(conn, target_version: str) -> bool:
+    """태깅이 끝난 미완료 작업이 하나라도 있는지 모델 로드 전에 확인한다."""
+    condition = _tagged_product_condition()
+    with conn.cursor() as cur:
+        cur.execute(
+            f"""
+            SELECT EXISTS (
+                SELECT 1
+                FROM product_embedding_job AS job
+                WHERE job.status = 'pending'
+                  AND job.target_version = %s
+                  AND {condition}
+            )
+            """,
+            (target_version,),
+        )
+        row = cur.fetchone()
+    return bool(row and row[0])
+
+
+def seconds_until_next_job(conn, target_version: str) -> float | None:
+    """다음 처리 가능 작업까지 남은 초를 반환한다."""
+    condition = _tagged_product_condition()
+    with conn.cursor() as cur:
+        cur.execute(
+            f"""
+            SELECT EXTRACT(
+                EPOCH FROM (MIN(job.available_at) - NOW())
+            )
+            FROM product_embedding_job AS job
+            WHERE job.status = 'pending'
+              AND job.target_version = %s
+              AND {condition}
+            """,
+            (target_version,),
+        )
+        row = cur.fetchone()
+    if not row or row[0] is None:
+        return None
+    return max(0.0, float(row[0]))
 
 
 def reset_stale_jobs(conn, stale_minutes: int) -> int:
@@ -90,16 +175,18 @@ def claim_jobs(
     target_version: str,
 ) -> list[dict[str, Any]]:
     """처리 가능한 작업을 SKIP LOCKED로 선점하고 시도 횟수를 증가시킨다."""
+    condition = _tagged_product_condition()
     with conn.cursor(cursor_factory=RealDictCursor) as cur:
         cur.execute(
-            """
+            f"""
             WITH candidates AS (
-                SELECT id
-                FROM product_embedding_job
-                WHERE status = 'pending'
-                  AND available_at <= NOW()
-                  AND target_version = %s
-                ORDER BY id
+                SELECT job.id
+                FROM product_embedding_job AS job
+                WHERE job.status = 'pending'
+                  AND job.available_at <= NOW()
+                  AND job.target_version = %s
+                  AND {condition}
+                ORDER BY job.id
                 LIMIT %s
                 FOR UPDATE SKIP LOCKED
             )
@@ -149,6 +236,45 @@ def fetch_product(
     return dict(row) if row else None
 
 
+def mark_image_stored(
+    conn,
+    job: dict[str, Any],
+    *,
+    image_s3_key: str,
+    image_checksum: str,
+) -> bool:
+    """S3 저장 성공을 임베딩과 별개로 즉시 체크포인트한다."""
+    source_config = _source_config(job["source"])
+    with conn.cursor() as cur:
+        cur.execute(
+            f"""
+            UPDATE {source_config["table"]} AS product
+            SET image_s3_key = %s,
+                image_checksum = %s,
+                updated_at = NOW()
+            WHERE product.{source_config["external_id"]} = %s
+              AND EXISTS (
+                  SELECT 1
+                  FROM product_embedding_job AS job
+                  WHERE job.id = %s
+                    AND job.generation = %s
+                    AND job.status = 'processing'
+              )
+            RETURNING product.id
+            """,
+            (
+                image_s3_key,
+                image_checksum,
+                job["external_product_id"],
+                job["id"],
+                job["generation"],
+            ),
+        )
+        accepted = cur.fetchone() is not None
+    conn.commit()
+    return accepted
+
+
 def mark_success(
     conn,
     job: dict[str, Any],
@@ -157,11 +283,7 @@ def mark_success(
     image_s3_key: str,
     image_checksum: str,
 ) -> bool:
-    """현재 generation 작업만 완료 처리한다.
-
-    태깅 완료로 generation이 증가한 경우 이전 결과는 Qdrant에 잠시 들어갈 수
-    있지만 DB 완료 상태는 쓰지 않고 새 pending 작업이 곧 다시 색인한다.
-    """
+    """현재 generation 작업만 완료 처리한다."""
     source_config = _source_config(job["source"])
     retry_count = max(0, int(job["attempt_count"]) - 1)
     with conn.cursor() as cur:

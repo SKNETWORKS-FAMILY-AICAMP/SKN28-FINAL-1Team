@@ -163,14 +163,15 @@ services:
       POSTGRES_PORT: 5432
     command: python /app/eleven/eleven_collector_db.py --scheduler
 
-  # 신규 네이버·11번가 상품을 S3 → FashionSigLIP/BGE-M3 → Qdrant로 적재한다.
+  # 태깅 완료된 신규 상품을 S3 → FashionSigLIP/BGE-M3 → Qdrant로 적재한다.
   # 과거 DB 상품은 product_embedding_job이 없으므로 자동 백필하지 않는다.
+  # 외부 스케줄러에서 하루 1회 실행하며 준비된 작업을 모두 처리하고 종료한다.
   product-indexer:
     build:
       context: ./indexer
       dockerfile: Dockerfile.product-indexer
     container_name: product-indexer
-    restart: unless-stopped
+    restart: "no"
     profiles: ["embedding", "all"]
     depends_on:
       db:
@@ -191,6 +192,7 @@ services:
               count: all
               capabilities: [gpu]
     command:
+      - --drain
       - --batch-size
       - ${PRODUCT_INDEXER_BATCH_SIZE:-32}
 

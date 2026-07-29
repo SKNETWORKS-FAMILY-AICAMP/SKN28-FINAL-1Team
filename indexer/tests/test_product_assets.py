@@ -11,7 +11,12 @@ INDEXER_ROOT = Path(__file__).resolve().parents[1]
 if str(INDEXER_ROOT) not in sys.path:
     sys.path.insert(0, str(INDEXER_ROOT))
 
-from product_assets import InvalidProductImage, download_and_store_image
+from product_assets import (
+    InvalidProductImage,
+    StoredProductImageUnavailable,
+    download_and_store_image,
+    load_stored_image,
+)
 
 
 class FakeResponse:
@@ -37,9 +42,22 @@ class FakeSession:
 class FakeS3:
     def __init__(self):
         self.puts = []
+        self.objects = {}
 
     def put_object(self, **kwargs):
         self.puts.append(kwargs)
+        self.objects[(kwargs["Bucket"], kwargs["Key"])] = {
+            "body": kwargs["Body"],
+            "metadata": kwargs.get("Metadata", {}),
+        }
+
+    def get_object(self, *, Bucket, Key):
+        stored = self.objects[(Bucket, Key)]
+        return {
+            "Body": BytesIO(stored["body"]),
+            "ContentLength": len(stored["body"]),
+            "Metadata": stored["metadata"],
+        }
 
 
 def png_bytes() -> bytes:
@@ -70,6 +88,59 @@ class ProductAssetTests(unittest.TestCase):
         self.assertTrue(prepared.s3_key.endswith(".jpg"))
         self.assertEqual(s3.puts[0]["ContentType"], "image/jpeg")
         prepared.image.close()
+
+    def test_reuses_stored_image_when_checksum_matches(self) -> None:
+        s3 = FakeS3()
+        first = download_and_store_image(
+            session=FakeSession(png_bytes()),
+            s3_client=s3,
+            source="eleven",
+            external_product_id="100",
+            image_url="https://example.com/product.png",
+            bucket="product-bucket",
+            prefix="products",
+            timeout=10,
+            max_bytes=1024 * 1024,
+        )
+        first.image.close()
+
+        reused = load_stored_image(
+            s3_client=s3,
+            bucket="product-bucket",
+            s3_key=first.s3_key,
+            expected_checksum=first.checksum,
+            max_bytes=1024 * 1024,
+        )
+
+        self.assertEqual(reused.checksum, first.checksum)
+        self.assertEqual(reused.s3_key, first.s3_key)
+        self.assertEqual(reused.image.mode, "RGB")
+        self.assertEqual(len(s3.puts), 1)
+        reused.image.close()
+
+    def test_rejects_stored_image_when_checksum_differs(self) -> None:
+        s3 = FakeS3()
+        first = download_and_store_image(
+            session=FakeSession(png_bytes()),
+            s3_client=s3,
+            source="naver",
+            external_product_id="100",
+            image_url="https://example.com/product.png",
+            bucket="product-bucket",
+            prefix="products",
+            timeout=10,
+            max_bytes=1024 * 1024,
+        )
+        first.image.close()
+
+        with self.assertRaises(StoredProductImageUnavailable):
+            load_stored_image(
+                s3_client=s3,
+                bucket="product-bucket",
+                s3_key=first.s3_key,
+                expected_checksum="0" * 64,
+                max_bytes=1024 * 1024,
+            )
 
     def test_rejects_empty_image_url(self) -> None:
         with self.assertRaises(InvalidProductImage):

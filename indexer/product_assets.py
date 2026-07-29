@@ -15,6 +15,10 @@ class InvalidProductImage(ValueError):
     """재시도해도 해결되지 않는 이미지 입력 오류."""
 
 
+class StoredProductImageUnavailable(ValueError):
+    """저장된 S3 이미지를 신뢰할 수 없어 원본 URL 복구가 필요한 상태."""
+
+
 @dataclass(frozen=True)
 class PreparedImage:
     image: Image.Image
@@ -86,6 +90,17 @@ def _normalize_jpeg(raw: bytes) -> tuple[Image.Image, bytes]:
     return image, output.getvalue()
 
 
+def _open_stored_jpeg(raw: bytes) -> Image.Image:
+    try:
+        opened = Image.open(BytesIO(raw))
+        opened.load()
+    except (UnidentifiedImageError, OSError) as exc:
+        raise StoredProductImageUnavailable(
+            "S3에 저장된 파일이 유효한 이미지가 아닙니다."
+        ) from exc
+    return ImageOps.exif_transpose(opened).convert("RGB")
+
+
 def download_and_store_image(
     *,
     session: requests.Session,
@@ -121,3 +136,51 @@ def download_and_store_image(
         },
     )
     return PreparedImage(image=image, checksum=checksum, s3_key=s3_key)
+
+
+def load_stored_image(
+    *,
+    s3_client,
+    bucket: str,
+    s3_key: str,
+    expected_checksum: str,
+    max_bytes: int,
+) -> PreparedImage:
+    """DB에 체크포인트된 S3 이미지를 검증해 재사용한다."""
+    response = s3_client.get_object(Bucket=bucket, Key=s3_key)
+    content_length = response.get("ContentLength")
+    if content_length is not None and int(content_length) > max_bytes:
+        raise StoredProductImageUnavailable(
+            f"S3 이미지가 최대 허용 크기를 초과합니다: {content_length} bytes"
+        )
+
+    body = response["Body"]
+    try:
+        raw = body.read(max_bytes + 1)
+    finally:
+        close = getattr(body, "close", None)
+        if close is not None:
+            close()
+    if not raw:
+        raise StoredProductImageUnavailable("S3 이미지가 비어 있습니다.")
+    if len(raw) > max_bytes:
+        raise StoredProductImageUnavailable(
+            f"S3 이미지가 최대 허용 크기를 초과합니다: > {max_bytes} bytes"
+        )
+
+    actual_checksum = hashlib.sha256(raw).hexdigest()
+    metadata_checksum = (response.get("Metadata") or {}).get("sha256")
+    if actual_checksum != expected_checksum:
+        raise StoredProductImageUnavailable(
+            "S3 이미지와 DB image_checksum이 일치하지 않습니다."
+        )
+    if metadata_checksum and metadata_checksum != expected_checksum:
+        raise StoredProductImageUnavailable(
+            "S3 이미지 메타데이터 체크섬이 DB와 일치하지 않습니다."
+        )
+
+    return PreparedImage(
+        image=_open_stored_jpeg(raw),
+        checksum=actual_checksum,
+        s3_key=s3_key,
+    )
