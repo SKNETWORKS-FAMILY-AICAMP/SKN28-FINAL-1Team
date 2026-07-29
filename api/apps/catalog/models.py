@@ -57,6 +57,21 @@ class NaverProduct(models.Model):
     tagging_used_image = models.BooleanField(default=False, db_default=False)
     tagged_at = models.DateTimeField(null=True, blank=True)
 
+    # 상품 임베딩 메타. 기존 데이터는 명시적 백필 전까지 not_requested로 둔다.
+    image_s3_key = models.TextField(null=True, blank=True)
+    image_checksum = models.CharField(max_length=64, null=True, blank=True)
+    embedding_status = models.CharField(
+        max_length=20, default="not_requested", db_default="not_requested"
+    )
+    embedding_version = models.CharField(max_length=200, null=True, blank=True)
+    embedding_retry_count = models.PositiveSmallIntegerField(
+        default=0, db_default=0
+    )
+    embedding_error = models.TextField(null=True, blank=True)
+    image_embedded_at = models.DateTimeField(null=True, blank=True)
+    text_embedded_at = models.DateTimeField(null=True, blank=True)
+    embedded_at = models.DateTimeField(null=True, blank=True)
+
     # 수집 메타
     search_keyword = models.CharField(max_length=100, null=True, blank=True)
     raw_data = models.JSONField(default=dict, blank=True)
@@ -71,6 +86,9 @@ class NaverProduct(models.Model):
         indexes = [
             models.Index(fields=["category_large", "category_small"], name="ix_naver_product_category"),
             models.Index(fields=["tagging_status"], name="ix_naver_product_tag_status"),
+            models.Index(
+                fields=["embedding_status"], name="ix_naver_product_embed_status"
+            ),
             GinIndex(fields=["season"], name="ix_naver_product_season"),
             GinIndex(fields=["style"], name="ix_naver_product_style"),
         ]
@@ -107,6 +125,54 @@ class NaverTaggingBatch(models.Model):
 
     def __str__(self) -> str:
         return f"{self.batch_id} ({self.status})"
+
+
+class ProductEmbeddingJob(models.Model):
+    """신규 쇼핑 상품의 비동기 임베딩 작업.
+
+    collector가 상품 INSERT와 같은 트랜잭션에서 생성하고, RunPod/AWS의
+    product indexer가 PostgreSQL에서 claim해 처리한다. source와 외부 상품 ID
+    조합을 멱등 키로 사용하므로 같은 상품을 다시 수집해도 작업이 중복되지 않는다.
+    """
+
+    source = models.CharField(max_length=20)
+    external_product_id = models.CharField(max_length=100)
+    status = models.CharField(
+        max_length=20, default="pending", db_default="pending"
+    )
+    target_version = models.CharField(max_length=200)
+    generation = models.PositiveIntegerField(default=1, db_default=1)
+    attempt_count = models.PositiveSmallIntegerField(default=0, db_default=0)
+    last_error = models.TextField(null=True, blank=True)
+    available_at = models.DateTimeField(db_default=Now())
+    claimed_at = models.DateTimeField(null=True, blank=True)
+    completed_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(db_default=Now())
+    updated_at = models.DateTimeField(db_default=Now())
+
+    class Meta:
+        db_table = "product_embedding_job"
+        verbose_name = "상품 임베딩 작업"
+        verbose_name_plural = "상품 임베딩 작업"
+        constraints = [
+            models.UniqueConstraint(
+                fields=["source", "external_product_id"],
+                name="uq_product_embedding_job_source_id",
+            )
+        ]
+        indexes = [
+            models.Index(
+                fields=["status", "available_at"],
+                name="ix_product_embedding_job_ready",
+            ),
+            models.Index(
+                fields=["source", "status"],
+                name="ix_product_embed_job_source",
+            ),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.source}:{self.external_product_id} ({self.status})"
 
 
 class NaverProductSize(models.Model):
@@ -301,6 +367,20 @@ class ElevenProduct(models.Model):
     tagging_used_image = models.BooleanField(default=False, db_default=False)
     tagged_at = models.DateTimeField(null=True, blank=True)
 
+    image_s3_key = models.TextField(null=True, blank=True)
+    image_checksum = models.CharField(max_length=64, null=True, blank=True)
+    embedding_status = models.CharField(
+        max_length=20, default="not_requested", db_default="not_requested"
+    )
+    embedding_version = models.CharField(max_length=200, null=True, blank=True)
+    embedding_retry_count = models.PositiveSmallIntegerField(
+        default=0, db_default=0
+    )
+    embedding_error = models.TextField(null=True, blank=True)
+    image_embedded_at = models.DateTimeField(null=True, blank=True)
+    text_embedded_at = models.DateTimeField(null=True, blank=True)
+    embedded_at = models.DateTimeField(null=True, blank=True)
+
     search_keyword = models.CharField(max_length=100, null=True, blank=True)
     search_sort = models.CharField(max_length=20, null=True, blank=True)
     search_rank = models.IntegerField(null=True, blank=True)
@@ -328,6 +408,9 @@ class ElevenProduct(models.Model):
             ),
             models.Index(
                 fields=["tagging_status"], name="ix_eleven_product_tag_status"
+            ),
+            models.Index(
+                fields=["embedding_status"], name="ix_eleven_product_embed_status"
             ),
             models.Index(fields=["collected_at"], name="ix_eleven_product_collected"),
             models.Index(fields=["search_keyword"], name="ix_eleven_product_keyword"),

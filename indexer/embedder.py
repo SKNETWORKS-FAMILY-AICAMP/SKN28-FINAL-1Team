@@ -15,7 +15,6 @@ import logging
 
 import numpy as np
 import torch
-
 from config import DEVICE, EMBED_MODEL_ID
 
 logger = logging.getLogger(__name__)
@@ -28,6 +27,7 @@ class FashionSigLIPEmbedder:
         if device == "auto":
             device = "cuda" if torch.cuda.is_available() else "cpu"
         self.device = device
+        self.device_type = torch.device(device).type
         logger.info("임베딩 모델 로드: %s (device=%s)", model_id, device)
 
         self.model, _, self.preprocess = open_clip.create_model_and_transforms(model_id)
@@ -44,7 +44,10 @@ class FashionSigLIPEmbedder:
     def encode_images(self, images: list) -> np.ndarray:
         """PIL 이미지 목록 → L2 정규화된 (N, dim) float32 배열."""
         batch = torch.stack([self.preprocess(img) for img in images]).to(self.device)
-        with torch.autocast(self.device, enabled=self.device == "cuda"):
+        with torch.autocast(
+            self.device_type,
+            enabled=self.device_type == "cuda",
+        ):
             features = self.model.encode_image(batch)
         return self._normalize(features)
 
@@ -55,7 +58,10 @@ class FashionSigLIPEmbedder:
         토크나이저가 컨텍스트 길이(64 토큰) 초과분을 자동으로 잘라낸다.
         """
         tokens = self.tokenizer(texts).to(self.device)
-        with torch.autocast(self.device, enabled=self.device == "cuda"):
+        with torch.autocast(
+            self.device_type,
+            enabled=self.device_type == "cuda",
+        ):
             features = self.model.encode_text(tokens)
         return self._normalize(features)
 

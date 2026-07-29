@@ -3,8 +3,9 @@
 from __future__ import annotations
 
 import hashlib
+from collections.abc import Sequence
 from datetime import datetime
-from typing import Any, Sequence
+from typing import Any
 
 from config import (
     DATABASE_URL,
@@ -14,6 +15,11 @@ from config import (
     DB_PORT,
     DB_USER,
     logger,
+)
+from util.embedding_jobs import (
+    enqueue_new_products,
+    find_new_external_ids,
+    requeue_existing_products,
 )
 
 try:
@@ -47,6 +53,7 @@ def ensure_schema(conn) -> None:
         "eleven_category",
         "eleven_product",
         "eleven_tagging_batch",
+        "product_embedding_job",
     )
     with conn.cursor() as cur:
         cur.execute(
@@ -61,7 +68,7 @@ def ensure_schema(conn) -> None:
             f"11번가 테이블이 없습니다: {sorted(missing)}. "
             "api에서 python manage.py migrate를 먼저 실행하세요."
         )
-    logger.info("스키마 확인 완료 (11번가 테이블 4종 존재)")
+    logger.info("스키마 확인 완료 (11번가 테이블 및 임베딩 작업 테이블 존재)")
 
 
 def insert_api_response(
@@ -274,6 +281,8 @@ PRODUCT_COLUMNS = [
 def upsert_products(conn, rows: Sequence[tuple[Any, ...]]) -> int:
     if not rows:
         return 0
+    external_ids = [str(row[0]) for row in rows if row and row[0]]
+    new_external_ids = find_new_external_ids(conn, "eleven", external_ids)
     columns = ", ".join(PRODUCT_COLUMNS)
     update_columns = [
         column
@@ -292,6 +301,7 @@ def upsert_products(conn, rows: Sequence[tuple[Any, ...]]) -> int:
     """
     with conn.cursor() as cur:
         execute_values(cur, sql, rows)
+    enqueue_new_products(conn, "eleven", new_external_ids)
     conn.commit()
     return len(rows)
 
@@ -479,6 +489,7 @@ def update_product_tags(
                 tag_source = %s, tagging_status = %s, tagging_model = %s,
                 tagging_used_image = %s, tagged_at = NOW(), updated_at = NOW()
             WHERE id = %s
+            RETURNING eleven_product_id
             """,
             (
                 tags.get("season", []),
@@ -499,4 +510,7 @@ def update_product_tags(
                 product_id,
             ),
         )
+        row = cur.fetchone()
+    if row and meta.get("tagging_status", "tagged") == "tagged":
+        requeue_existing_products(conn, "eleven", [str(row[0])])
     conn.commit()

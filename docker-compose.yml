@@ -1,5 +1,5 @@
 # ============================================================
-# 통합 compose: db + api + weather-collector + naver-collector
+# 통합 compose: db + api + collector + 상품 임베딩 worker
 #
 # 모든 서비스는 profiles로 선택 실행한다. db는 어떤 스택을 켜도 함께 뜬다.
 #
@@ -24,7 +24,7 @@ services:
     image: postgres:16-alpine
     container_name: skn28-postgres
     restart: unless-stopped
-    profiles: ["db", "api", "weather", "naver", "eleven", "all"]
+    profiles: ["db", "api", "weather", "naver", "eleven", "embedding", "all"]
     env_file:
       - .env                  # POSTGRES_DB / POSTGRES_USER / POSTGRES_PASSWORD
     environment:
@@ -49,7 +49,7 @@ services:
       context: ./api
     container_name: skn28-migrate
     restart: "no"
-    profiles: ["api", "weather", "naver", "eleven", "all"]
+    profiles: ["api", "weather", "naver", "eleven", "embedding", "all"]
     depends_on:
       db:
         condition: service_healthy
@@ -162,6 +162,37 @@ services:
       POSTGRES_HOST: db
       POSTGRES_PORT: 5432
     command: python /app/eleven/eleven_collector_db.py --scheduler
+
+  # 신규 네이버·11번가 상품을 S3 → FashionSigLIP/BGE-M3 → Qdrant로 적재한다.
+  # 과거 DB 상품은 product_embedding_job이 없으므로 자동 백필하지 않는다.
+  product-indexer:
+    build:
+      context: ./indexer
+      dockerfile: Dockerfile.product-indexer
+    container_name: product-indexer
+    restart: unless-stopped
+    profiles: ["embedding", "all"]
+    depends_on:
+      db:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    env_file:
+      - .env
+    environment:
+      TZ: Asia/Seoul
+      POSTGRES_HOST: db
+      POSTGRES_PORT: 5432
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    command:
+      - --batch-size
+      - ${PRODUCT_INDEXER_BATCH_SIZE:-32}
 
 volumes:
   postgres_data:
