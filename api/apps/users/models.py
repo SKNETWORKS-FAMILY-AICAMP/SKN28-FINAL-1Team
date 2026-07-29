@@ -18,8 +18,12 @@ from django.utils.translation import gettext_lazy as _
 
 class User(AbstractUser):
     # 소셜 로그인 전용이므로 password는 사용하지 않는다 (set_unusable_password).
-    nickname = models.CharField("닉네임", max_length=100, blank=True)
-    profile_image = models.URLField("프로필 이미지", blank=True)
+    nickname = models.CharField(
+        "닉네임", max_length=100, blank=True, db_comment="서비스 표시 닉네임 (소셜 프로필에서 초기화)"
+    )
+    profile_image = models.URLField(
+        "프로필 이미지", blank=True, db_comment="프로필 이미지 URL (소셜 프로필에서 초기화)"
+    )
 
     # PermissionsMixin의 필드를 재정의해 자동 M2M 테이블명(users_user_permissions)을
     # users_permissions로 단순화한다. db_table 외 옵션은 원본과 동일하게 유지한다.
@@ -35,6 +39,7 @@ class User(AbstractUser):
 
     class Meta:
         db_table = "users"
+        db_table_comment = "서비스 사용자 (소셜 로그인 전용 — password는 사용하지 않음)"
         verbose_name = "사용자"
         verbose_name_plural = "사용자"
 
@@ -50,18 +55,33 @@ class SocialAccount(models.Model):
         APPLE = "apple", "애플"
 
     user = models.ForeignKey(
-        User, on_delete=models.CASCADE, related_name="social_accounts"
+        User,
+        on_delete=models.CASCADE,
+        related_name="social_accounts",
+        db_comment="연결된 서비스 사용자 FK (users.id)",
     )
-    provider = models.CharField("제공사", max_length=20, choices=Provider.choices)
-    provider_user_id = models.CharField("제공사 유저 ID", max_length=255)
-    email = models.EmailField("제공사 이메일", blank=True)
+    provider = models.CharField(
+        "제공사", max_length=20, choices=Provider.choices,
+        db_comment="소셜 제공사 (naver/kakao/google/apple)",
+    )
+    provider_user_id = models.CharField(
+        "제공사 유저 ID", max_length=255, db_comment="제공사가 발급한 사용자 고유 ID"
+    )
+    email = models.EmailField("제공사 이메일", blank=True, db_comment="제공사 프로필 이메일")
     # 제공사 원본 프로필 (디버깅/추가 필드 대비)
-    extra_data = models.JSONField("원본 프로필", default=dict, blank=True)
-    connected_at = models.DateTimeField("연결 시각", auto_now_add=True)
-    last_login_at = models.DateTimeField("마지막 로그인", auto_now=True)
+    extra_data = models.JSONField(
+        "원본 프로필", default=dict, blank=True, db_comment="제공사 원본 프로필 JSON (디버깅/추가 필드 대비)"
+    )
+    connected_at = models.DateTimeField(
+        "연결 시각", auto_now_add=True, db_comment="계정 최초 연결 시각"
+    )
+    last_login_at = models.DateTimeField(
+        "마지막 로그인", auto_now=True, db_comment="이 제공사로 마지막 로그인한 시각"
+    )
 
     class Meta:
         db_table = "social_accounts"
+        db_table_comment = "소셜 로그인 계정 연결 (사용자 1명이 여러 제공사 연결 가능)"
         verbose_name = "소셜 계정"
         verbose_name_plural = "소셜 계정"
         constraints = [
@@ -76,7 +96,7 @@ class SocialAccount(models.Model):
 
 
 def _measure_field(label: str) -> models.DecimalField:
-    """신체 수치 필드 (cm/kg). 소수점 1자리, 1~999.9 범위."""
+    """신체 수치 필드 (cm/kg). 소수점 1자리, 1~999.9 범위. label이 컬럼 comment가 된다."""
     return models.DecimalField(
         label,
         max_digits=4,
@@ -85,6 +105,7 @@ def _measure_field(label: str) -> models.DecimalField:
         blank=True,
         validators=[MinValueValidator(Decimal("1"))],
         help_text=label,
+        db_comment=label,
     )
 
 
@@ -101,12 +122,18 @@ class BodyMeasurement(models.Model):
         FEMALE = "female", "여성"
 
     user = models.OneToOneField(
-        User, on_delete=models.CASCADE, related_name="body_measurement"
+        User,
+        on_delete=models.CASCADE,
+        related_name="body_measurement",
+        db_comment="대상 사용자 FK (users.id, 사용자당 1행)",
     )
     # 기본 수치 — API(PUT body/basic)에서는 세 값 모두 필수.
     # gender는 기존 행 호환을 위해 DB에서만 빈 문자열을 허용한다 (신규 저장은
     # serializer가 필수로 강제). 미입력 상태 = "".
-    gender = models.CharField("성별", max_length=10, choices=Gender.choices, blank=True)
+    gender = models.CharField(
+        "성별", max_length=10, choices=Gender.choices, blank=True,
+        db_comment="성별 (male/female, 미입력 시 빈 문자열)",
+    )
     height = _measure_field("키(cm)")
     weight = _measure_field("몸무게(kg)")
     # 상세 수치 (전부 선택)
@@ -118,11 +145,14 @@ class BodyMeasurement(models.Model):
     arm = _measure_field("팔뚝둘레(cm)")
     shoulder = _measure_field("어깨너비(cm)")
 
-    created_at = models.DateTimeField("생성 시각", auto_now_add=True)
-    updated_at = models.DateTimeField("수정 시각", auto_now=True)
+    created_at = models.DateTimeField(
+        "생성 시각", auto_now_add=True, db_comment="행 생성 시각"
+    )
+    updated_at = models.DateTimeField("수정 시각", auto_now=True, db_comment="행 수정 시각")
 
     class Meta:
         db_table = "body_measurements"
+        db_table_comment = "사용자 신체치수 (성별·키·몸무게 + 상세 둘레, 사용자당 1행. 상세 수치는 추후 사진 추론이 갱신 가능)"
         verbose_name = "신체치수"
         verbose_name_plural = "신체치수"
 
@@ -144,18 +174,30 @@ class BodyPhotoTransaction(models.Model):
         FAILED = "failed", "실패"
 
     # 외부(프론트)에 노출되는 식별자라 순번 노출이 없는 UUID를 쓴다.
-    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    id = models.UUIDField(
+        primary_key=True, default=uuid.uuid4, editable=False,
+        db_comment="트랜잭션 UUID (외부 노출 식별자)",
+    )
     user = models.ForeignKey(
-        User, on_delete=models.CASCADE, related_name="body_photo_transactions"
+        User,
+        on_delete=models.CASCADE,
+        related_name="body_photo_transactions",
+        db_comment="요청 사용자 FK (users.id)",
     )
     status = models.CharField(
-        "상태", max_length=20, choices=Status.choices, default=Status.IN_PROGRESS
+        "상태", max_length=20, choices=Status.choices, default=Status.IN_PROGRESS,
+        db_comment="측정 상태 (in_progress/succeeded/failed, 사용자당 진행중 1건)",
     )
-    created_at = models.DateTimeField("생성 시각", auto_now_add=True)
-    updated_at = models.DateTimeField("수정 시각", auto_now=True)
+    created_at = models.DateTimeField(
+        "생성 시각", auto_now_add=True, db_comment="접수 시각"
+    )
+    updated_at = models.DateTimeField(
+        "수정 시각", auto_now=True, db_comment="상태 변경 시각"
+    )
 
     class Meta:
         db_table = "body_photo_transactions"
+        db_table_comment = "사진 기반 신체치수 측정 트랜잭션 (접수 시 진행중 생성 → 비동기 완료 시 성공/실패)"
         verbose_name = "사진 측정 트랜잭션"
         verbose_name_plural = "사진 측정 트랜잭션"
         constraints = [
@@ -193,18 +235,31 @@ class PreferenceOption(models.Model):
         ("skirt_types", "스커트타입"),
     ]
 
-    category = models.CharField("카테고리", max_length=50, choices=CATEGORY_CHOICES)
-    code = models.CharField("옵션 코드", max_length=50)
-    label = models.CharField("라벨", max_length=50)
-    order = models.PositiveIntegerField("정렬 순서", default=0)
-    meta = models.JSONField("메타데이터", default=dict, blank=True)
+    category = models.CharField(
+        "카테고리", max_length=50, choices=CATEGORY_CHOICES,
+        db_comment="옵션 카테고리 (seasons/styles/colors 등 11종)",
+    )
+    code = models.CharField(
+        "옵션 코드", max_length=50, db_comment="옵션 코드 (카테고리 내 유일, API 페이로드 값)"
+    )
+    label = models.CharField("라벨", max_length=50, db_comment="화면 표시용 한글 라벨")
+    order = models.PositiveIntegerField(
+        "정렬 순서", default=0, db_comment="카테고리 내 표시 순서"
+    )
+    meta = models.JSONField(
+        "메타데이터", default=dict, blank=True,
+        db_comment='부가 정보 JSON (예: 색상 {"color_hex": "#000000"})',
+    )
     # meta(색상) 예: {"color_hex": "#000000"} for colors, {} for others
 
-    created_at = models.DateTimeField("생성 시각", auto_now_add=True)
-    updated_at = models.DateTimeField("수정 시각", auto_now=True)
+    created_at = models.DateTimeField(
+        "생성 시각", auto_now_add=True, db_comment="행 생성 시각"
+    )
+    updated_at = models.DateTimeField("수정 시각", auto_now=True, db_comment="행 수정 시각")
 
     class Meta:
         db_table = "preference_options"
+        db_table_comment = "추구미 선호도 옵션 마스터 (11개 카테고리 × N개 옵션)"
         verbose_name = "선호도 옵션"
         verbose_name_plural = "선호도 옵션"
         constraints = [
@@ -244,16 +299,23 @@ class Pursuit(models.Model):
         User,
         on_delete=models.CASCADE,
         related_name="pursuit",
+        db_comment="대상 사용자 FK (users.id, 사용자당 1행)",
     )
 
-    payload = models.JSONField("선호/기피 데이터", default=dict, blank=True)
+    payload = models.JSONField(
+        "선호/기피 데이터", default=dict, blank=True,
+        db_comment="선호/기피 선택 JSON ({preferred: {카테고리: [코드...]}, avoided: {...}})",
+    )
     # 빈 payload는 {"preferred": {}, "avoided": {}} 형태로 normalize.
 
-    created_at = models.DateTimeField("생성 시각", auto_now_add=True)
-    updated_at = models.DateTimeField("수정 시각", auto_now=True)
+    created_at = models.DateTimeField(
+        "생성 시각", auto_now_add=True, db_comment="행 생성 시각"
+    )
+    updated_at = models.DateTimeField("수정 시각", auto_now=True, db_comment="행 수정 시각")
 
     class Meta:
         db_table = "pursuits"
+        db_table_comment = "사용자 추구미 (스타일 선호/기피 선택, 사용자당 1행)"
         verbose_name = "추구미"
         verbose_name_plural = "추구미"
 
