@@ -170,6 +170,13 @@ desktop.ini
 logs/
 *.tmp
 *.bak
+
+# Codex 작업 복구용 로컬 백업
+codex_backup_*/
+
+# PowerShell에서 따옴표 없는 pip 버전 조건이 만든 루트 임시 파일
+/=[0-9]*
+
 feature/front
 
 mobile/package-lock.json
@@ -181,3 +188,5 @@ output
 # Local docs/artifacts
 docs/
 main
+
+collector/eleven/tests/test_category_mapping.py
