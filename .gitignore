@@ -85,8 +85,14 @@ test-results/
 *.safetensors
 *.bin
 *.h5
+*.onnx
+*.gguf
+*.tflite
 *.pkl
 *.joblib
+# Hugging Face / PyTorch 등이 만드는 로컬 모델 다운로드 캐시
+.cache/
+.huggingface/
 # 학습 로그 / 실험 결과
 runs/
 outputs/

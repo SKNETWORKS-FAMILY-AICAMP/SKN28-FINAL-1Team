@@ -1,7 +1,9 @@
 # 쇼핑 상품 이미지+텍스트 임베딩 worker
 
-네이버·11번가 collector가 등록한 신규 상품 중 **태깅이 완료된 작업**만 별도
+네이버·11번가 collector가 등록한 신규 상품 중 **태깅이 완료된 작업**만 외부
 GPU worker가 선점해 다음 순서로 처리한다. 태깅 로직은 indexer에 포함하지 않는다.
+collector는 태깅 결과를 DB에 저장한 뒤 인증된 HTTP API로 drain 시작 신호만
+보내며 상품 데이터나 이미지를 HTTP 요청에 포함하지 않는다.
 
 ```text
 태깅 완료 + product_embedding_job(pending)
@@ -55,6 +57,17 @@ PRODUCT_TEXT_EMBED_MODEL=BAAI/bge-m3
 PRODUCT_TEXT_MODEL_REVISION=<huggingface-commit-hash>
 PRODUCT_EMBEDDING_VERSION=marqo-fashionSigLIP+bge-m3-v1
 PRODUCT_INDEXER_MAX_RETRIES=2
+
+# collector와 GPU API에 같은 token을 설정한다.
+PRODUCT_INDEXER_TRIGGER_TOKEN=<random-secret-token>
+# collector 서버에만 GPU API의 전체 trigger URL을 설정한다.
+PRODUCT_INDEXER_TRIGGER_URL=https://<gpu-host>/v1/product-indexer/drain
+PRODUCT_INDEXER_TRIGGER_TIMEOUT_SECONDS=10
+PRODUCT_INDEXER_TRIGGER_MAX_RETRIES=2
+
+# GPU API bind
+PRODUCT_INDEXER_API_HOST=0.0.0.0
+PRODUCT_INDEXER_API_PORT=8080
 ```
 
 RunPod에서는 S3·Qdrant·PostgreSQL에 필요한 자격증명을 환경변수/시크릿으로
@@ -69,7 +82,7 @@ cd api
 python manage.py migrate
 ```
 
-RunPod 등 GPU 환경에서 worker를 실행한다.
+RunPod 등 GPU 환경에서 worker를 직접 실행할 수도 있다.
 
 ```bash
 cd indexer
@@ -78,27 +91,47 @@ python product_indexer.py --once --batch-size 2
 python product_indexer.py --drain --batch-size 32
 ```
 
-Docker:
+GPU 서버용 Docker 이미지는 기본적으로 HTTP API를 실행한다.
 
 ```bash
 docker build -f indexer/Dockerfile.product-indexer -t skn28-product-indexer indexer/
-docker run --gpus all --env-file .env skn28-product-indexer --drain --batch-size 32
+docker run --gpus all --env-file .env -p 8080:8080 skn28-product-indexer
 ```
 
-통합 compose에서 GPU 런타임을 사용할 수 있으면 일회성으로 실행한다.
+상태 확인:
 
 ```bash
-docker compose --profile embedding run --rm product-indexer
+curl http://<gpu-host>:8080/health
+```
+
+수동 trigger:
+
+```bash
+curl -X POST https://<gpu-host>/v1/product-indexer/drain \
+  -H "Authorization: Bearer <token>" \
+  -H "Content-Type: application/json" \
+  -d '{"source":"manual","reason":"manual"}'
+```
+
+API는 `202 Accepted`를 즉시 반환하고 별도 subprocess가 `--drain`을 수행한다.
+이미 drain이 실행 중이면 `already_running`을 반환한다. 여러 API 인스턴스에서
+동시에 요청해도 PostgreSQL advisory lock을 획득한 worker 하나만 모델을 로드한다.
+
+API를 거치지 않고 Docker에서 일회성 drain을 실행하려면 entrypoint를 덮어쓴다.
+
+```bash
+docker run --gpus all --env-file .env --entrypoint python \
+  skn28-product-indexer /app/product_indexer.py --drain --batch-size 32
 ```
 
 `--drain`은 모델을 한 번만 로드하고 준비된 작업을 배치 단위로 모두 처리한 뒤
 종료한다. 재시도 대기 시간이 기본 120초 이내인 작업도 같은 실행에서 처리한다.
-전체 실행은 기본 120분으로 제한되며 남은 작업은 다음 실행에서 이어서 처리한다.
+전체 실행은 기본 120분으로 제한되며 남은 작업은 다음 trigger에서 이어서 처리한다.
 
-Docker Compose 자체에는 일일 스케줄 기능이 없다. 운영에서는 AWS EventBridge의
-ECS Scheduled Task, EC2 cron 또는 RunPod 작업 스케줄러가 위 명령을 하루 1회
-실행하도록 설정한다. 동일한 drain이 겹치면 PostgreSQL advisory lock을 획득한
-첫 번째 worker만 모델을 로드한다.
+운영에서는 GPU API를 HTTPS reverse proxy 또는 private network 뒤에 두고 collector
+서버에서만 접근하도록 제한한다. HTTP trigger 장애에 대비해 AWS EventBridge,
+EC2 cron 또는 RunPod 스케줄러에서 하루 1회 수동 drain 명령을 실행하는 fallback을
+둘 수 있다.
 
 ## 상태와 재시도
 

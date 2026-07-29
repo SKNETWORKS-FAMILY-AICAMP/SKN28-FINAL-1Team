@@ -15,8 +15,21 @@
   → LLM 태깅: season/style/usage/layer_* + 누락 속성
   → naver_product upsert
   → 신규 INSERT 상품만 product_embedding_job 등록
-  → 별도 product-indexer가 S3 → FashionSigLIP+BGE-M3 → Qdrant 처리
+  → 태깅 완료 후 외부 GPU product-indexer API에 drain 시작 신호
+  → GPU worker가 S3 → FashionSigLIP+BGE-M3 → Qdrant 처리
 ```
+
+원격 GPU trigger는 다음 환경변수로 설정한다.
+
+```dotenv
+PRODUCT_INDEXER_TRIGGER_URL=https://<gpu-host>/v1/product-indexer/drain
+PRODUCT_INDEXER_TRIGGER_TOKEN=<shared-secret>
+PRODUCT_INDEXER_TRIGGER_TIMEOUT_SECONDS=10
+PRODUCT_INDEXER_TRIGGER_MAX_RETRIES=2
+```
+
+URL이 없으면 trigger만 비활성화된다. sync 수집·재태깅 완료 후와 Batch 결과 반영
+후에 호출하며, GPU API 장애가 상품 저장을 롤백하지 않는다.
 
 ## 태깅 provider (`NAVER_TAGGING_PROVIDER`)
 

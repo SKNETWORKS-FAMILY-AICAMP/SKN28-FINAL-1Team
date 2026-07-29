@@ -104,6 +104,7 @@ class ElevenBatchTaggerTests(unittest.TestCase):
         with (
             patch.object(collector, "TAGGING_MODE", "batch"),
             patch.object(collector, "collect") as collect,
+            patch.object(collector, "trigger_product_indexer") as trigger,
             patch.dict(sys.modules, {"batch_tagger": fake_batch_module}),
         ):
             collector.run_collect_job(
@@ -123,6 +124,66 @@ class ElevenBatchTaggerTests(unittest.TestCase):
             max_total_items=1000,
         )
         fake_batch_module.submit_pending.assert_called_once_with(conn)
+        trigger.assert_not_called()
+
+    def test_sync_collect_triggers_remote_indexer_after_save(self):
+        conn = object()
+        entries = [object()]
+
+        with (
+            patch.object(collector, "TAGGING_MODE", "sync"),
+            patch.object(collector, "collect", return_value=2),
+            patch.object(collector, "trigger_product_indexer") as trigger,
+        ):
+            collector.run_collect_job(
+                conn,
+                entries,
+                limit_per_keyword=3,
+                skip_llm=False,
+            )
+
+        trigger.assert_called_once_with(
+            source="eleven",
+            reason="sync_completed",
+            tagged_count=2,
+        )
+
+    def test_completed_batch_triggers_remote_indexer(self):
+        batch = SimpleNamespace(
+            id="batch-1",
+            status="completed",
+            output_file_id="output-1",
+            error_file_id=None,
+        )
+        client = SimpleNamespace(
+            batches=SimpleNamespace(retrieve=Mock(return_value=batch))
+        )
+        conn = object()
+
+        with (
+            patch.object(
+                batch_tagger.db,
+                "fetch_open_tagging_batches",
+                return_value=[{"batch_id": "batch-1"}],
+            ),
+            patch.object(batch_tagger, "_client", return_value=client),
+            patch.object(batch_tagger, "_apply_completed_batch", return_value=4),
+            patch.object(batch_tagger.db, "update_tagging_batch"),
+            patch.object(
+                batch_tagger.db,
+                "reset_orphan_queued_products",
+                return_value=0,
+            ),
+            patch.object(batch_tagger, "trigger_product_indexer") as trigger,
+        ):
+            tagged = batch_tagger.poll_batches(conn)
+
+        self.assertEqual(tagged, 4)
+        trigger.assert_called_once_with(
+            source="eleven",
+            reason="batch_completed",
+            tagged_count=4,
+        )
 
     def test_cli_exposes_batch_jobs(self):
         self.assertEqual(
