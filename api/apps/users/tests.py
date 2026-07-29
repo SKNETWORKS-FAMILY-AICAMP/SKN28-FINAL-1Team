@@ -356,32 +356,69 @@ class BodyMeasurementTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertIsNone(response.data["height"])
         self.assertIsNone(response.data["chest"])
+        # gender도 미입력이면 빈 문자열이 아니라 null로 내려간다 (표현 통일).
+        self.assertIsNone(response.data["gender"])
 
-    # ---- 기본 수치 ----
+    def test_get_returns_saved_gender(self):
+        BodyMeasurement.objects.create(
+            user=self.user, gender=BodyMeasurement.Gender.FEMALE, height=160, weight=50
+        )
+        response = self.client.get(reverse("users:body"))
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data["gender"], "female")
 
-    def test_basic_put_saves_height_and_weight(self):
+    # ---- 기본 수치 (성별·키·몸무게 — 셋 다 필수) ----
+
+    BASIC_PAYLOAD = {"gender": "male", "height": "175.5", "weight": "70.0"}
+
+    def test_basic_put_saves_gender_height_weight(self):
         response = self.client.put(
-            reverse("users:body-basic"),
-            {"height": "175.5", "weight": "70.0"},
-            format="json",
+            reverse("users:body-basic"), self.BASIC_PAYLOAD, format="json"
         )
         self.assertEqual(response.status_code, 200)
         measurement = BodyMeasurement.objects.get(user=self.user)
+        self.assertEqual(measurement.gender, "male")
         self.assertEqual(str(measurement.height), "175.5")
         self.assertEqual(str(measurement.weight), "70.0")
+        # 저장 응답에도 gender가 포함된다.
+        self.assertEqual(response.data["gender"], "male")
 
-    def test_basic_put_requires_both_fields(self):
-        response = self.client.put(
-            reverse("users:body-basic"), {"height": "175.5"}, format="json"
+    def test_basic_put_requires_all_fields(self):
+        for missing in ("gender", "height", "weight"):
+            payload = {k: v for k, v in self.BASIC_PAYLOAD.items() if k != missing}
+            response = self.client.put(
+                reverse("users:body-basic"), payload, format="json"
+            )
+            self.assertEqual(response.status_code, 400, f"{missing} 누락")
+            self.assertIn(missing, response.data)
+
+    def test_basic_put_rejects_invalid_gender(self):
+        for bad in ("", "other", "남성", None):
+            response = self.client.put(
+                reverse("users:body-basic"),
+                {**self.BASIC_PAYLOAD, "gender": bad},
+                format="json",
+            )
+            self.assertEqual(response.status_code, 400, f"gender={bad!r}")
+
+    def test_basic_put_updates_gender(self):
+        BodyMeasurement.objects.create(
+            user=self.user, gender="male", height=175, weight=70
         )
-        self.assertEqual(response.status_code, 400)
+        response = self.client.put(
+            reverse("users:body-basic"),
+            {"gender": "female", "height": "160.0", "weight": "50.0"},
+            format="json",
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(
+            BodyMeasurement.objects.get(user=self.user).gender, "female"
+        )
 
     def test_basic_put_keeps_detail_values(self):
         BodyMeasurement.objects.create(user=self.user, chest=95)
         self.client.put(
-            reverse("users:body-basic"),
-            {"height": "175.5", "weight": "70.0"},
-            format="json",
+            reverse("users:body-basic"), self.BASIC_PAYLOAD, format="json"
         )
         measurement = BodyMeasurement.objects.get(user=self.user)
         self.assertEqual(str(measurement.chest), "95.0")

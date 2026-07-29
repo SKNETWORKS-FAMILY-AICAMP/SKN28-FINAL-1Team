@@ -135,7 +135,7 @@ class BodyMeasurementView(APIView):
 
 
 class BodyBasicView(APIView):
-    """PUT /api/v1/users/me/body/basic/ — 키·몸무게 입력 (둘 다 필수)."""
+    """PUT /api/v1/users/me/body/basic/ — 성별·키·몸무게 입력 (셋 다 필수)."""
 
     def put(self, request):
         return _save_body_measurement(request, BodyBasicInputSerializer, partial=False)

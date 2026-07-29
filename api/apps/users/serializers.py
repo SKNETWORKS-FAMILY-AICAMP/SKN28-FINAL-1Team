@@ -71,27 +71,42 @@ class UserSerializer(serializers.ModelSerializer):
         read_only_fields = ["id", "username", "email", "social_accounts"]
 
 
-BODY_BASIC_FIELDS = ["height", "weight"]
+BODY_BASIC_FIELDS = ["gender", "height", "weight"]
 BODY_DETAIL_FIELDS = ["chest", "waist", "hip", "thigh", "calf", "arm", "shoulder"]
 
 
 class BodyMeasurementSerializer(serializers.ModelSerializer):
-    """신체치수 조회/저장 결과 응답 (기본 + 상세 전체)."""
+    """신체치수 조회/저장 결과 응답 (기본 + 상세 전체).
+
+    gender는 미입력 상태(기존 행)면 빈 문자열 대신 null로 내려 다른 미입력
+    필드(height 등)와 표현을 통일한다.
+    """
+
+    gender = serializers.SerializerMethodField()
 
     class Meta:
         model = BodyMeasurement
         fields = [*BODY_BASIC_FIELDS, *BODY_DETAIL_FIELDS, "updated_at"]
         read_only_fields = ["updated_at"]
 
+    def get_gender(self, obj) -> str | None:
+        return obj.gender or None
+
 
 class BodyBasicInputSerializer(serializers.ModelSerializer):
-    """PUT /users/me/body/basic — 키·몸무게. 둘 다 필수."""
+    """PUT /users/me/body/basic — 성별·키·몸무게. 셋 다 필수.
+
+    gender는 male|female. 모델은 기존 행 호환으로 빈 값을 허용하지만
+    API 입력에서는 필수·비어있음 불가로 강제한다.
+    """
 
     class Meta:
         model = BodyMeasurement
         fields = BODY_BASIC_FIELDS
         extra_kwargs = {
-            field: {"required": True, "allow_null": False} for field in BODY_BASIC_FIELDS
+            "gender": {"required": True, "allow_blank": False},
+            "height": {"required": True, "allow_null": False},
+            "weight": {"required": True, "allow_null": False},
         }
 
 

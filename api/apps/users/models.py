@@ -91,15 +91,22 @@ def _measure_field(label: str) -> models.DecimalField:
 class BodyMeasurement(models.Model):
     """사용자 신체치수 (설정 페이지 입력값). 사용자당 1행.
 
-    기본 수치(키/몸무게)와 상세 둘레 수치를 한 행으로 관리한다.
+    기본 수치(성별/키/몸무게)와 상세 둘레 수치를 한 행으로 관리한다.
     상세 수치는 전부 선택 입력이라 null을 허용하며, 추후 사진 기반 추론
     기능이 같은 컬럼을 추론값으로 갱신하는 것을 전제로 한다.
     """
 
+    class Gender(models.TextChoices):
+        MALE = "male", "남성"
+        FEMALE = "female", "여성"
+
     user = models.OneToOneField(
         User, on_delete=models.CASCADE, related_name="body_measurement"
     )
-    # 기본 수치
+    # 기본 수치 — API(PUT body/basic)에서는 세 값 모두 필수.
+    # gender는 기존 행 호환을 위해 DB에서만 빈 문자열을 허용한다 (신규 저장은
+    # serializer가 필수로 강제). 미입력 상태 = "".
+    gender = models.CharField("성별", max_length=10, choices=Gender.choices, blank=True)
     height = _measure_field("키(cm)")
     weight = _measure_field("몸무게(kg)")
     # 상세 수치 (전부 선택)

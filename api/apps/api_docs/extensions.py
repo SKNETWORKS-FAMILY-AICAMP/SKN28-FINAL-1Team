@@ -327,7 +327,10 @@ class BodyMeasurementViewExtension(OpenApiViewExtension):
                 operation_id="get_body_measurement",
                 tags=["Body"],
                 summary="신체치수 조회",
-                description="저장된 신체치수를 반환합니다. 아직 입력하지 않은 필드는 `null`입니다.",
+                description=(
+                    "저장된 신체치수를 반환합니다. 아직 입력하지 않은 필드는 `null`입니다.\n\n"
+                    "- `gender`: `male` | `female` (기본 신체치수 입력 전이면 `null`)"
+                ),
                 responses={
                     200: BodyMeasurementSerializer,
                     401: DetailResponseSerializer,
@@ -348,10 +351,12 @@ class BodyBasicViewExtension(OpenApiViewExtension):
             put=extend_schema(
                 operation_id="update_body_basic",
                 tags=["Body"],
-                summary="기본 신체치수 입력 (키·몸무게)",
+                summary="기본 신체치수 입력 (성별·키·몸무게)",
                 description=(
-                    "키(cm)와 몸무게(kg)를 저장합니다. **두 값 모두 필수**이며 "
-                    "소수점 1자리까지 허용합니다 (1 ~ 999.9). 상세 수치는 건드리지 않습니다."
+                    "성별, 키(cm), 몸무게(kg)를 저장합니다. **세 값 모두 필수**입니다.\n\n"
+                    "- `gender`: `male` | `female`\n"
+                    "- `height`/`weight`: 소수점 1자리까지 허용 (1 ~ 999.9)\n"
+                    "- 상세 수치는 건드리지 않습니다."
                 ),
                 request=BodyBasicInputSerializer,
                 responses={
