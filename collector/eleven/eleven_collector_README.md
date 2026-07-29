@@ -84,8 +84,17 @@ LLM 호출 없이 수집만 확인:
 
     python eleven_collector_db.py --job collect --keyword "반팔 티셔츠" --limit 1 --skip-llm
 
-`--scheduler`는 매일 카테고리 동기화와 상품 수집을 실행하고, Batch mode에서는
-`ELEVEN_BATCH_POLL_SECONDS` 간격으로 진행 중 Batch 결과를 자동 확인한다.
+`--scheduler`는 매일 카테고리 동기화와 상품 수집을 실행한다. 한 번의 일일 수집은
+중복을 제외한 고유 상품 기준 `ELEVEN_DAILY_MAX_ITEMS`(기본 1,000건)에서 멈춘다.
+키워드당 조회는 최대 `ELEVEN_MAX_ITEMS_PER_KEYWORD`(기본 및 최대 50건)다.
+스케줄러는 대분류가 번갈아 나오도록 키워드를 배치하고, 날짜마다 예상 일일 처리
+키워드 수만큼 시작 위치를 이동한다. 따라서 매일 같은 티셔츠 키워드부터 시작하지
+않고 전체 키워드를 순환한다. 중복 상품 때문에 1,000건에 못 미치면 다음 순환
+키워드까지 계속 조회한다.
+
+수동 `--job collect`의 `--limit`도 키워드당 최대 50건 안에서 동작한다. Batch
+mode에서는 `ELEVEN_BATCH_POLL_SECONDS` 간격으로 진행 중 Batch 결과를 자동
+확인한다.
 
 `INSTALL_CLAUDE_CLI`는 이미지 빌드 옵션이므로 값을 변경한 뒤에는 이미지를 다시
 빌드해야 한다. API 키는 요청 원문이나 로그에 저장하지 않는다.

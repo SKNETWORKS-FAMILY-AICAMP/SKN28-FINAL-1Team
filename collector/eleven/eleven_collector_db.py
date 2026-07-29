@@ -3,21 +3,23 @@
 from __future__ import annotations
 
 import argparse
+import math
 import time
+from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
 from datetime import datetime
 from decimal import Decimal, InvalidOperation
-from typing import Any, Iterable, Optional, Sequence
-
-import requests
+from typing import Any
 
 import db
+import requests
 from attribute_extractor import clean_title, extract_attributes
 from category_mapping import map_eleven_category
 from config import (
     BATCH_POLL_SECONDS,
     CATEGORY_API_URL,
     CATEGORY_INACTIVE_MISS_THRESHOLD,
+    DAILY_MAX_ITEMS,
     ELEVEN_API_KEY,
     KST,
     MAX_ITEMS_PER_KEYWORD,
@@ -35,7 +37,7 @@ from config import (
     TAGGING_PROVIDER,
     logger,
 )
-from keywords import KeywordEntry, iter_keywords
+from keywords import KeywordEntry, iter_daily_keywords, iter_keywords
 from xml_parser import (
     decode_xml,
     extract_api_error,
@@ -346,6 +348,7 @@ def collect(
     limit_per_keyword: int,
     skip_llm: bool = False,
     dry_run: bool = False,
+    max_total_items: int | None = None,
 ) -> int:
     tagger = None
     if not skip_llm:
@@ -359,8 +362,20 @@ def collect(
     total_saved = 0
 
     for entry in entries:
+        if max_total_items is not None:
+            remaining = max_total_items - len(seen_ids)
+            if remaining <= 0:
+                break
+            keyword_limit = min(
+                limit_per_keyword,
+                MAX_ITEMS_PER_KEYWORD,
+                remaining,
+            )
+        else:
+            keyword_limit = min(limit_per_keyword, MAX_ITEMS_PER_KEYWORD)
+
         try:
-            items = fetch_keyword_products(conn, entry.keyword, limit_per_keyword)
+            items = fetch_keyword_products(conn, entry.keyword, keyword_limit)
         except Exception:
             logger.exception("키워드 수집 실패, 다음 키워드로 진행: %s", entry.keyword)
             continue
@@ -417,21 +432,31 @@ def collect(
                     collected_at,
                 )
             )
+            if max_total_items is not None and len(seen_ids) >= max_total_items:
+                break
 
         if dry_run:
             logger.info("[dry-run] keyword=%s 파싱/태깅 %s건", entry.keyword, len(rows))
-            continue
-        saved = db.upsert_products(conn, rows)
-        total_saved += saved
-        logger.info(
-            "저장 완료: keyword=%s [%s>%s] %s건",
-            entry.keyword,
-            entry.category_large,
-            entry.category_small,
-            saved,
-        )
+        else:
+            saved = db.upsert_products(conn, rows)
+            total_saved += saved
+            logger.info(
+                "저장 완료: keyword=%s [%s>%s] %s건",
+                entry.keyword,
+                entry.category_large,
+                entry.category_small,
+                saved,
+            )
 
-    logger.info("11번가 수집 종료: 총 %s건 저장", total_saved)
+        if max_total_items is not None and len(seen_ids) >= max_total_items:
+            logger.info("11번가 일일 수집 상한 %s건에 도달", max_total_items)
+            break
+
+    logger.info(
+        "11번가 수집 종료: 총 %s건 저장 (고유 상품 %s건)",
+        total_saved,
+        len(seen_ids),
+    )
     return total_saved
 
 
@@ -441,6 +466,7 @@ def run_collect_job(
     limit_per_keyword: int,
     skip_llm: bool,
     dry_run: bool = False,
+    max_total_items: int | None = None,
 ) -> None:
     """설정된 태깅 모드에 따라 동기 태깅 또는 Batch 제출을 수행한다."""
     if TAGGING_MODE == "batch" and not skip_llm:
@@ -450,6 +476,7 @@ def run_collect_job(
             limit_per_keyword,
             skip_llm=True,
             dry_run=dry_run,
+            max_total_items=max_total_items,
         )
         if not dry_run:
             import batch_tagger
@@ -462,6 +489,7 @@ def run_collect_job(
             limit_per_keyword,
             skip_llm=skip_llm,
             dry_run=dry_run,
+            max_total_items=max_total_items,
         )
 
 
@@ -495,9 +523,10 @@ def retag(conn, limit: int) -> int:
 def run_scheduler(limit_per_keyword: int, skip_llm: bool) -> None:
     logger.info(
         "scheduler 시작: 매일 %02d:%02d KST 카테고리 동기화 + "
-        "상품 수집 (tagging_mode=%s)",
+        "상품 수집 최대 %d건 (tagging_mode=%s)",
         SCHEDULE_HOUR,
         SCHEDULE_MINUTE,
+        DAILY_MAX_ITEMS,
         TAGGING_MODE,
     )
     last_run_date = None
@@ -521,9 +550,15 @@ def run_scheduler(limit_per_keyword: int, skip_llm: bool) -> None:
                     logger.exception("카테고리 동기화 실패. 키워드 fallback으로 수집합니다.")
                 run_collect_job(
                     conn,
-                    iter_keywords(),
+                    iter_daily_keywords(
+                        current.date(),
+                        expected_keywords_per_day=math.ceil(
+                            DAILY_MAX_ITEMS / MAX_ITEMS_PER_KEYWORD
+                        ),
+                    ),
                     limit_per_keyword,
                     skip_llm,
+                    max_total_items=DAILY_MAX_ITEMS,
                 )
             except Exception:
                 logger.exception("11번가 스케줄 수집 실패")
@@ -552,7 +587,7 @@ def run_scheduler(limit_per_keyword: int, skip_llm: bool) -> None:
         time.sleep(SCHEDULER_POLL_SECONDS)
 
 
-def parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
+def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="11번가 ProductSearch collector")
     parser.add_argument(
         "--job",
@@ -588,7 +623,7 @@ def parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
     return parser.parse_args(argv)
 
 
-def main(argv: Optional[Sequence[str]] = None) -> int:
+def main(argv: Sequence[str] | None = None) -> int:
     args = parse_args(argv)
     if args.limit < 1:
         raise ValueError("--limit은 1 이상이어야 합니다.")

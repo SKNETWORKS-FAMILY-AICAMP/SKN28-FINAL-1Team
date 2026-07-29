@@ -29,7 +29,11 @@ CATEGORY_API_URL = os.getenv(
 )
 
 PAGE_SIZE = max(1, min(int(os.getenv("ELEVEN_PAGE_SIZE", "50")), 200))
-MAX_ITEMS_PER_KEYWORD = int(os.getenv("ELEVEN_MAX_ITEMS_PER_KEYWORD", "300"))
+MAX_ITEMS_PER_KEYWORD = max(
+    1,
+    min(int(os.getenv("ELEVEN_MAX_ITEMS_PER_KEYWORD", "50")), 50),
+)
+DAILY_MAX_ITEMS = max(1, int(os.getenv("ELEVEN_DAILY_MAX_ITEMS", "1000")))
 SEARCH_SORT = os.getenv("ELEVEN_SEARCH_SORT", "N").strip()
 REQUEST_INTERVAL_SECONDS = float(
     os.getenv("ELEVEN_REQUEST_INTERVAL_SECONDS", "0.2")

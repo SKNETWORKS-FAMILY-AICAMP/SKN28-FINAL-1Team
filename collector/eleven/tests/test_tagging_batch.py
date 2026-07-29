@@ -111,6 +111,7 @@ class ElevenBatchTaggerTests(unittest.TestCase):
                 entries,
                 limit_per_keyword=3,
                 skip_llm=False,
+                max_total_items=1000,
             )
 
         collect.assert_called_once_with(
@@ -119,6 +120,7 @@ class ElevenBatchTaggerTests(unittest.TestCase):
             3,
             skip_llm=True,
             dry_run=False,
+            max_total_items=1000,
         )
         fake_batch_module.submit_pending.assert_called_once_with(conn)
 
@@ -131,6 +133,96 @@ class ElevenBatchTaggerTests(unittest.TestCase):
             collector.parse_args(["--job", "batch-poll"]).job,
             "batch-poll",
         )
+
+
+class ElevenDailyCollectionLimitTests(unittest.TestCase):
+    def test_collect_caps_keyword_request_at_fifty(self):
+        conn = object()
+        entries = [
+            SimpleNamespace(
+                keyword="keyword-1",
+                category_large="상의",
+                category_small="티셔츠",
+            )
+        ]
+
+        with (
+            patch.object(
+                collector,
+                "fetch_keyword_products",
+                return_value=[],
+            ) as fetch,
+            patch.object(collector.db, "load_category_paths", return_value={}),
+            patch.object(collector.db, "upsert_products", return_value=0),
+        ):
+            collector.collect(
+                conn,
+                entries,
+                limit_per_keyword=300,
+                skip_llm=True,
+                max_total_items=1000,
+            )
+
+        fetch.assert_called_once_with(conn, "keyword-1", 50)
+
+    def test_collect_stops_at_total_unique_product_limit(self):
+        conn = object()
+        entries = [
+            SimpleNamespace(
+                keyword=f"keyword-{index}",
+                category_large="상의",
+                category_small="티셔츠",
+            )
+            for index in range(1, 4)
+        ]
+        first_items = [
+            {"ProductCode": str(index), "ProductName": f"상품 {index}"}
+            for index in range(1, 4)
+        ]
+        second_items = [
+            {"ProductCode": str(index), "ProductName": f"상품 {index}"}
+            for index in range(4, 6)
+        ]
+
+        with (
+            patch.object(
+                collector,
+                "fetch_keyword_products",
+                side_effect=[first_items, second_items],
+            ) as fetch,
+            patch.object(collector.db, "load_category_paths", return_value={}),
+            patch.object(
+                collector.db,
+                "upsert_products",
+                side_effect=lambda _conn, rows: len(rows),
+            ) as upsert,
+            patch.object(collector, "extract_attributes", return_value={}),
+            patch.object(collector, "extract_category_disp_no", return_value=None),
+            patch.object(collector, "extract_category_path", return_value=[]),
+            patch.object(
+                collector,
+                "map_eleven_category",
+                return_value=(None, None, None),
+            ),
+            patch.object(collector, "build_row", return_value=("row",)),
+        ):
+            saved = collector.collect(
+                conn,
+                entries,
+                limit_per_keyword=300,
+                skip_llm=True,
+                max_total_items=5,
+            )
+
+        self.assertEqual(saved, 5)
+        self.assertEqual(
+            fetch.call_args_list,
+            [
+                unittest.mock.call(conn, "keyword-1", 5),
+                unittest.mock.call(conn, "keyword-2", 2),
+            ],
+        )
+        self.assertEqual([len(call.args[1]) for call in upsert.call_args_list], [3, 2])
 
 
 if __name__ == "__main__":
