@@ -95,6 +95,10 @@ python manage.py runserver
 - **타입 힌트**: 함수 시그니처에 타입 힌트를 작성한다.
 - **Django 관례**: fat model / thin view 지향, 비즈니스 로직은 서비스 계층 또는 모델 메서드로.
 - **DB 테이블 명명**: 새 Django 모델에는 반드시 `Meta.db_table`을 명시한다 (기존 예: `users`, `naver_product`, `weather_area`, `wardrobe_item`). 기본 규칙(`<앱라벨>_<모델명소문자>`)에 맡기면 모델명에 도메인 접두사가 있는 경우 `wardrobe_wardrobeitem`처럼 문구가 중복된다. migrate 전에 `python manage.py sqlmigrate <앱> <번호>`로 실제 생성될 테이블 이름을 확인한다.
+- **DB comment 필수**: 새 모델(테이블)에는 `Meta.db_table_comment`, 새 필드(컬럼)에는 `db_comment`를 **반드시** 작성한다 — DB 툴에서 스키마만 봐도 의미가 읽히게 하는 것이 목적이며, 전 테이블·컬럼 comment는 users 0009·0010 / catalog 0003 / weather 0002 / wardrobe 0003 마이그레이션으로 일괄 적용돼 있다.
+  - comment는 한글로, "무엇인지 + 단위/코드값/제약"을 담는다. 예) `db_comment="허리둘레(cm)"`, `db_comment="측정 상태 (in_progress/succeeded/failed)"`.
+  - 모델로 커버되지 않는 컬럼(자동 `id` PK, 자동 생성 M2M through 테이블 등)을 만들면 해당 마이그레이션에 `migrations.RunSQL`로 `COMMENT ON` 구문을 함께 추가한다 (`reverse_sql`은 `IS NULL`). 기존 예: `apps/users/migrations/0010_system_table_comments.py`.
+  - ⚠️ comment 문자열에 `%` 문자를 쓰지 않는다 (psycopg 파라미터 보간과 충돌 — "백분율"로 풀어 쓴다). migrate 전 `sqlmigrate`로 COMMENT 구문 생성 여부를 확인한다.
 - **설정 분리**: `settings/base.py`를 공통으로 두고 `dev`/`prod`로 분리. 시크릿은 설정 파일에 직접 쓰지 않는다.
 - **주석/문서화**: 왜(why) 그렇게 했는지 위주로 작성. 자명한 코드에 불필요한 주석 금지.
 
@@ -154,4 +158,4 @@ python manage.py runserver
 
 ---
 
-_마지막 업데이트: 2026-07-12_
+_마지막 업데이트: 2026-07-29_
