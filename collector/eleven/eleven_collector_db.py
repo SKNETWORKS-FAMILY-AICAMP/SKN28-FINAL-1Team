@@ -38,6 +38,7 @@ from config import (
     logger,
 )
 from keywords import KeywordEntry, iter_daily_keywords, iter_keywords
+from util.product_indexer_trigger import trigger_product_indexer
 from xml_parser import (
     decode_xml,
     extract_api_error,
@@ -503,7 +504,7 @@ def run_collect_job(
 
             batch_tagger.submit_pending(conn)
     else:
-        collect(
+        saved = collect(
             conn,
             entries,
             limit_per_keyword,
@@ -511,6 +512,12 @@ def run_collect_job(
             dry_run=dry_run,
             max_total_items=max_total_items,
         )
+        if not dry_run and not skip_llm:
+            trigger_product_indexer(
+                source="eleven",
+                reason="sync_completed",
+                tagged_count=saved,
+            )
 
 
 def retag(conn, limit: int) -> int:
@@ -537,6 +544,12 @@ def retag(conn, limit: int) -> int:
         if meta.get("tagging_status") == "tagged":
             done += 1
     logger.info("재태깅 완료: %s/%s건", done, len(products))
+    if done:
+        trigger_product_indexer(
+            source="eleven",
+            reason="retag_completed",
+            tagged_count=done,
+        )
     return done
 
 

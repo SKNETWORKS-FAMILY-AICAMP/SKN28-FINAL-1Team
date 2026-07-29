@@ -24,7 +24,7 @@ services:
     image: postgres:16-alpine
     container_name: skn28-postgres
     restart: unless-stopped
-    profiles: ["db", "api", "weather", "naver", "eleven", "embedding", "all"]
+    profiles: ["db", "api", "weather", "naver", "eleven", "all"]
     env_file:
       - .env                  # POSTGRES_DB / POSTGRES_USER / POSTGRES_PASSWORD
     environment:
@@ -74,7 +74,7 @@ services:
       context: ./api
     container_name: skn28-migrate
     restart: "no"
-    profiles: ["api", "weather", "naver", "eleven", "embedding", "all"]
+    profiles: ["api", "weather", "naver", "eleven", "all"]
     depends_on:
       db:
         condition: service_healthy
@@ -188,39 +188,6 @@ services:
       POSTGRES_HOST: db
       POSTGRES_PORT: 5432
     command: python /app/eleven/eleven_collector_db.py --scheduler
-
-  # 태깅 완료된 신규 상품을 S3 → FashionSigLIP/BGE-M3 → Qdrant로 적재한다.
-  # 과거 DB 상품은 product_embedding_job이 없으므로 자동 백필하지 않는다.
-  # 외부 스케줄러에서 하루 1회 실행하며 준비된 작업을 모두 처리하고 종료한다.
-  product-indexer:
-    build:
-      context: ./indexer
-      dockerfile: Dockerfile.product-indexer
-    container_name: product-indexer
-    restart: "no"
-    profiles: ["embedding", "all"]
-    depends_on:
-      db:
-        condition: service_healthy
-      migrate:
-        condition: service_completed_successfully
-    env_file:
-      - .env
-    environment:
-      TZ: Asia/Seoul
-      POSTGRES_HOST: db
-      POSTGRES_PORT: 5432
-    deploy:
-      resources:
-        reservations:
-          devices:
-            - driver: nvidia
-              count: all
-              capabilities: [gpu]
-    command:
-      - --drain
-      - --batch-size
-      - ${PRODUCT_INDEXER_BATCH_SIZE:-32}
 
 volumes:
   postgres_data:

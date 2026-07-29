@@ -12,7 +12,8 @@
 5. `.env`의 provider와 mode에 따라 태깅한다.
 6. 원본 XML은 `eleven_api_response`, 상품은 `eleven_product`에 저장한다.
 7. 신규 INSERT 상품만 `product_embedding_job`에 등록한다.
-8. 별도 `product-indexer`가 S3 이미지와 상품 텍스트를 임베딩해 Qdrant에 적재한다.
+8. 태깅 완료 후 외부 GPU `product-indexer` API에 drain 시작 신호를 보낸다.
+9. GPU worker가 S3 이미지와 상품 텍스트를 임베딩해 Qdrant에 적재한다.
 
 | provider | mode | 동작 |
 |---|---|---|
@@ -30,6 +31,17 @@ Batch 상태 흐름은 `pending → queued → tagged | failed`이며 작업 이
 DB 트랜잭션에서 작업만 등록하고 GPU worker가 비동기로 처리한다. Batch 태깅 결과가
 반영되면 작업 행이 있는 신규 상품만 재색인하며 기존 DB 상품은 자동 백필하지 않는다.
 상세 실행법은 `indexer/PRODUCTS_README.md`를 참고한다.
+
+원격 GPU trigger 설정:
+
+    PRODUCT_INDEXER_TRIGGER_URL=https://<gpu-host>/v1/product-indexer/drain
+    PRODUCT_INDEXER_TRIGGER_TOKEN=<shared-secret>
+    PRODUCT_INDEXER_TRIGGER_TIMEOUT_SECONDS=10
+    PRODUCT_INDEXER_TRIGGER_MAX_RETRIES=2
+
+URL이 비어 있으면 원격 trigger만 비활성화되고 기존 수집·태깅·DB 작업 등록은
+그대로 동작한다. sync는 수집과 태깅 저장 후, Batch는 완료 결과 반영 후 한 번
+호출한다. GPU API 호출 실패는 저장된 상품을 롤백하지 않는다.
 
 ## 환경 설정
 

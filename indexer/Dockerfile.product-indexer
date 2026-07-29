@@ -10,4 +10,6 @@ COPY *.py .
 
 ENV HF_HOME=/app/.cache/huggingface
 
-ENTRYPOINT ["python", "/app/product_indexer.py"]
+EXPOSE 8080
+
+CMD ["python", "/app/product_indexer_api.py"]

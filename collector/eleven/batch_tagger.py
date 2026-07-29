@@ -19,6 +19,7 @@ from config import (
     TAGGING_PROVIDER,
     logger,
 )
+from util.product_indexer_trigger import trigger_product_indexer
 from util.tagging import merge_tags
 from util.tagging.openai_batch import (
     FAIL_BATCH_STATUSES,
@@ -170,6 +171,12 @@ def poll_batches(conn) -> int:
     restored = db.reset_orphan_queued_products(conn)
     if restored:
         logger.info("queued 잔여 상품 %s건을 pending으로 복구", restored)
+    if tagged_total:
+        trigger_product_indexer(
+            source="eleven",
+            reason="batch_completed",
+            tagged_count=tagged_total,
+        )
     return tagged_total
 
 
