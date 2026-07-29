@@ -2,6 +2,7 @@ import { Editorial, ink, ContentMax } from '@/constants/theme';
 import { useBreakpoint } from '@/hooks/use-breakpoint';
 import { Icon } from '@/components/icon';
 import { SmartImage, ModalShell } from '@/components/ui';
+import { LIBRARY_ITEMS } from '@/constants/wardrobe';
 import { draftItem } from '@/state/draft-item';
 import { router } from 'expo-router';
 import { goBack } from '@/lib/goBack';
@@ -11,37 +12,10 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 const INK = Editorial.ink;
 const PAD = 20;
 
-/** 팀 카탈로그 연동 전 목업 — 탭하면 등록 화면으로 */
-const LIBRARY_ITEMS = [
-  {
-    id: 'c1',
-    name: '오버사이즈 셔츠',
-    brand: '무신사 스탠다드',
-    image: 'https://images.unsplash.com/photo-1596755094514-f87e34085b2c?w=400&h=500&fit=crop',
-  },
-  {
-    id: 'c2',
-    name: '울 블렌드 코트',
-    brand: 'COS',
-    image: 'https://images.unsplash.com/photo-1544966503-7cc5ac882d5f?w=400&h=500&fit=crop',
-  },
-  {
-    id: 'c3',
-    name: '데님 팬츠',
-    brand: '유니클로',
-    image: 'https://images.unsplash.com/photo-1591195853828-11db59a44f6b?w=400&h=500&fit=crop',
-  },
-  {
-    id: 'c4',
-    name: '레더 스니커즈',
-    brand: '나이키',
-    image: 'https://images.unsplash.com/photo-1549298916-b41d501d3772?w=400&h=500&fit=crop',
-  },
-];
-
 export default function ItemAddLibraryScreen() {
   const { contentStyle } = useBreakpoint();
-  const pick = (uri: string) => {
+  const pick = (uri?: string) => {
+    if (!uri) return;
     draftItem.setPhoto(uri);
     router.replace('/item-add');
   };

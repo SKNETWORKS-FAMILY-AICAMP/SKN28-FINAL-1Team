@@ -22,6 +22,7 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { Editorial, ink, BottomTabInset, GridCard, gridCardImageHeight, gridCardWidth , ContentMax} from '@/constants/theme';
+import { CLOSET_ITEMS, SHARED_CLOSET_ITEMS, type WardrobeItem } from '@/constants/wardrobe';
 import { useBreakpoint } from '@/hooks/use-breakpoint';
 import { Icon } from '@/components/icon';
 import { useAuth } from '@/state/auth';
@@ -34,110 +35,10 @@ const PAD = GridCard.pad;
 
 const DEFAULT_CATEGORIES = ['전체', '상의', '하의', '아우터', '신발', '가방', '액세서리'];
 
-type Item = {
-  id: string;
-  name: string;
-  category: string;
-  tone: number;
-  owner?: string;
-  image?: string;
-};
-
-const MY_ITEMS: Item[] = [
-  {
-    id: '1',
-    name: '연두 나시',
-    category: '상의',
-    tone: 0.05,
-    image: 'https://i.pinimg.com/1200x/3e/04/ea/3e04eaa53146fd9bf93736707fffcb4f.jpg',
-  },
-  {
-    id: '2',
-    name: '연노랑 반팔 가디건',
-    category: '아우터',
-    tone: 0.22,
-    image: 'https://i.pinimg.com/736x/a5/22/df/a522dfff1a759163fae0616ec0cab583.jpg',
-  },
-  {
-    id: '3',
-    name: '버뮤다 팬츠',
-    category: '하의',
-    tone: 0.16,
-    image: 'https://i.pinimg.com/1200x/14/64/d4/1464d4e315aa8e7df53bb6c74fc31e59.jpg',
-  },
-  {
-    id: '4',
-    name: '아디다스 스니커즈',
-    category: '신발',
-    tone: 0.24,
-    image: 'https://i.pinimg.com/736x/6e/ce/fa/6ecefa13347d6487fc30c0fda287d4dd.jpg',
-  },
-  {
-    id: '5',
-    name: '모자',
-    category: '하의',
-    tone: 0.08,
-    image: 'https://i.pinimg.com/736x/ef/fa/96/effa960f41d4e20b7a0e31253732d75e.jpg',
-  },
-  {
-    id: '6',
-    name: '체크 가방',
-    category: '가방',
-    tone: 0.3,
-    image: 'https://i.pinimg.com/1200x/39/32/c4/3932c44dead7e38ad916ef2e8cc2902f.jpg',
-  },
-];
-
-const SHARED_ITEMS: Item[] = [
-  {
-    id: 's1',
-    name: '카멜 오버 코트',
-    category: '아우터',
-    tone: 0.12,
-    owner: '지민',
-    image: 'https://images.unsplash.com/photo-1596755094514-f87e34085b2c?w=400&h=500&fit=crop',
-  },
-  {
-    id: 's2',
-    name: '플리츠 미디 스커트',
-    category: '하의',
-    tone: 0.07,
-    owner: '서연',
-    image: 'https://images.unsplash.com/photo-1591195853828-11db59a44f6b?w=400&h=500&fit=crop',
-  },
-  {
-    id: 's3',
-    name: '체크 오버 셔츠',
-    category: '상의',
-    tone: 0.18,
-    owner: '민준',
-    image: 'https://images.unsplash.com/photo-1602810318383-e386cc2a3ccf?w=400&h=500&fit=crop',
-  },
-  {
-    id: 's4',
-    name: '스웨이드 첼시 부츠',
-    category: '신발',
-    tone: 0.26,
-    owner: '지민',
-    image: 'https://images.unsplash.com/photo-1549298916-b41d501d3772?w=400&h=500&fit=crop',
-  },
-  {
-    id: 's5',
-    name: '베이지 트렌치 코트',
-    category: '아우터',
-    tone: 0.1,
-    owner: '서연',
-    image: 'https://images.unsplash.com/photo-1539533018447-63fcce2678e3?w=400&h=500&fit=crop',
-  },
-  {
-    id: 's6',
-    name: '실버 체인 목걸이',
-    category: '액세서리',
-    tone: 0.14,
-    owner: '민준',
-    image: 'https://images.unsplash.com/photo-1515562141207-7a88fb7ce338?w=400&h=500&fit=crop',
-  },
-];
+/* 옷 목록은 캘린더의 '옷 고르기' 시트와 공유한다 → @/constants/wardrobe 가 단일 출처 */
+type Item = WardrobeItem;
+const MY_ITEMS = CLOSET_ITEMS;
+const SHARED_ITEMS = SHARED_CLOSET_ITEMS;
 
 function matchesQuery(item: Item, query: string): boolean {
   const q = query.trim();
