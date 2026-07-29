@@ -1,43 +1,55 @@
 import { Icon } from '@/components/icon';
 import { router } from 'expo-router';
 import { goBack } from '@/lib/goBack';
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-import { LoginGate } from '@/components/ui';
-import { Editorial, ink, Fonts , ContentMax} from '@/constants/theme';
+import { ShareLookSheet } from '@/components/calendar/share-look-sheet';
+import { LoginGate, SmartImage } from '@/components/ui';
+import { ContentMax, Editorial, Fonts, ink, Type } from '@/constants/theme';
 import { useBreakpoint } from '@/hooks/use-breakpoint';
 import { useAuth } from '@/state/auth';
+import { calendarStore, toDateKey, todayKey, useCalendarEntries } from '@/state/calendar';
 
 const INK = Editorial.ink;
-const BONE = Editorial.bone;
 
 const WEEKDAYS = ['일', '월', '화', '수', '목', '금', '토'];
-const FIRST_WEEKDAY = 3; // 2026년 7월 1일 = 수요일
-const DAYS_IN_MONTH = 31;
 
-// 착장 기록이 있는 날 (day → 룩)
-const RECORDS: Record<number, { title: string; tags: string[]; tone: number }> = {
-  3: { title: '레이어드 트렌치', tags: ['#가을', '#클래식'], tone: 0.12 },
-  5: { title: '주말 브런치 룩', tags: ['#데이트'], tone: 0.06 },
-  7: { title: '포근한 니트 오피스룩', tags: ['#출근', '#미니멀'], tone: 0.1 },
-  8: { title: '미니멀 오피스', tags: ['#출근'], tone: 0.18 },
-  12: { title: '데님 캐주얼', tags: ['#주말'], tone: 0.22 },
-  15: { title: '봄 산책 코디', tags: ['#러블리'], tone: 0.08 },
-  20: { title: '겨울 울 코트', tags: ['#포멀'], tone: 0.28 },
-};
+const TODAY = todayKey();
 
-// B2 착장 캘린더 — 월 그리드 + 선택일 상세
+// B2 착장 캘린더 — 월 그리드 + 선택일 상세(기록·공유)
 export default function Calendar() {
   const { isLoggedIn } = useAuth();
   const { contentStyle } = useBreakpoint();
-  const [selected, setSelected] = useState(7);
-  const cells: (number | null)[] = [
-    ...Array(FIRST_WEEKDAY).fill(null),
-    ...Array.from({ length: DAYS_IN_MONTH }, (_, i) => i + 1),
-  ];
-  const rec = RECORDS[selected];
+  const entries = useCalendarEntries();
+
+  const now = useMemo(() => new Date(), []);
+  const [view, setView] = useState({ year: now.getFullYear(), month: now.getMonth() + 1 });
+  const [selectedDay, setSelectedDay] = useState(now.getDate());
+  const [shareOpen, setShareOpen] = useState(false);
+
+  const { cells, selectedKey } = useMemo(() => {
+    const first = new Date(view.year, view.month - 1, 1).getDay();
+    const days = new Date(view.year, view.month, 0).getDate();
+    return {
+      cells: [
+        ...Array<number | null>(first).fill(null),
+        ...Array.from({ length: days }, (_, i) => i + 1),
+      ],
+      selectedKey: toDateKey(view.year, view.month, selectedDay),
+    };
+  }, [view, selectedDay]);
+
+  const entry = entries[selectedKey];
+
+  const moveMonth = (delta: number) => {
+    const d = new Date(view.year, view.month - 1 + delta, 1);
+    setView({ year: d.getFullYear(), month: d.getMonth() + 1 });
+    setSelectedDay(1);
+  };
+
+  const openEntry = (dateKey: string) => router.push(`/calendar-entry?date=${dateKey}`);
 
   // 착장 기록은 내 데이터라 비회원에게 보여줄 것이 없다. (훅 순서 유지를 위해 전부 호출한 뒤 분기)
   if (!isLoggedIn) {
@@ -57,18 +69,24 @@ export default function Calendar() {
             <Icon name="chevron.left" tintColor={INK} size={20} />
           </Pressable>
           <Text style={styles.headerTitle}>착장 캘린더</Text>
-          <View style={{ width: 20 }} />
+          <Pressable hitSlop={12} onPress={() => openEntry(TODAY)}>
+            <Icon name="plus" tintColor={INK} size={20} />
+          </Pressable>
         </View>
       </SafeAreaView>
 
-      <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={[styles.content, contentStyle(ContentMax.default)]}>
+      <ScrollView
+        showsVerticalScrollIndicator={false}
+        contentContainerStyle={[styles.content, contentStyle(ContentMax.default)]}>
         {/* 월 네비 */}
         <View style={styles.monthRow}>
-          <Pressable hitSlop={10}>
+          <Pressable hitSlop={10} onPress={() => moveMonth(-1)}>
             <Icon name="chevron.left" tintColor={ink(0.4)} size={16} />
           </Pressable>
-          <Text style={styles.monthText}>2026년 7월</Text>
-          <Pressable hitSlop={10}>
+          <Text style={styles.monthText}>
+            {view.year}년 {view.month}월
+          </Text>
+          <Pressable hitSlop={10} onPress={() => moveMonth(1)}>
             <Icon name="chevron.right" tintColor={ink(0.4)} size={16} />
           </Pressable>
         </View>
@@ -88,28 +106,38 @@ export default function Calendar() {
           ))}
         </View>
 
-        {/* 날짜 그리드 */}
+        {/* 날짜 그리드 — 기록이 있는 날은 룩 사진이 셀 배경이 된다 */}
         <View style={styles.grid}>
           {cells.map((day, idx) => {
             if (day === null) return <View key={`e${idx}`} style={styles.cell} />;
-            const r = RECORDS[day];
-            const on = day === selected;
+            const key = toDateKey(view.year, view.month, day);
+            const rec = entries[key];
+            const on = day === selectedDay;
             return (
-              <Pressable key={day} style={styles.cell} onPress={() => setSelected(day)}>
+              <Pressable key={day} style={styles.cell} onPress={() => setSelectedDay(day)}>
                 <View style={[styles.dayInner, on && styles.dayInnerOn]}>
-                  {r ? (
-                    <View
-                      style={[styles.dayThumb, { backgroundColor: `rgba(28,25,23,${r.tone})` }]}
-                    />
+                  {rec?.photo ? (
+                    <>
+                      <SmartImage uri={rec.photo} width="100%" radius={11} style={styles.dayThumb} />
+                      {/* 사진 위에서도 날짜가 읽히도록 얇게 덮는다 */}
+                      <View style={styles.dayScrim} />
+                    </>
+                  ) : rec ? (
+                    <View style={styles.dayFill} />
                   ) : null}
                   <Text
                     style={[
                       styles.dayNum,
-                      r && styles.dayNumRec,
+                      rec && styles.dayNumRec,
                       on && styles.dayNumOn,
+                      rec?.photo && styles.dayNumOnPhoto,
+                      key === TODAY && styles.dayNumToday,
                     ]}>
                     {day}
                   </Text>
+                  {rec?.shared ? (
+                    <View style={[styles.sharedDot, !rec.photo && styles.sharedDotDark]} />
+                  ) : null}
                 </View>
               </Pressable>
             );
@@ -118,30 +146,84 @@ export default function Calendar() {
 
         {/* 선택일 상세 */}
         <View style={styles.detail}>
-          <Text style={styles.detailDate}>7월 {selected}일</Text>
-          {rec ? (
-            <Pressable style={styles.recCard} onPress={() => router.push('/saved-look')}>
-              <View style={[styles.recThumb, { backgroundColor: `rgba(28,25,23,${rec.tone})` }]} />
-              <View style={styles.recBody}>
-                <Text style={styles.recTitle}>{rec.title}</Text>
-                <View style={styles.recTags}>
-                  {rec.tags.map((t) => (
-                    <Text key={t} style={styles.recTag}>{t}</Text>
-                  ))}
+          <View style={styles.detailHead}>
+            <Text style={styles.detailDate}>
+              {view.month}월 {selectedDay}일
+            </Text>
+            {entry ? (
+              <Pressable
+                style={styles.shareBtn}
+                onPress={() => setShareOpen(true)}
+                hitSlop={8}>
+                <Icon name="square.and.arrow.up" tintColor={INK} size={15} />
+                <Text style={styles.shareBtnText}>공유</Text>
+              </Pressable>
+            ) : null}
+          </View>
+
+          {entry ? (
+            <>
+              <Pressable style={styles.recCard} onPress={() => openEntry(selectedKey)}>
+                <SmartImage uri={entry.photo} width={60} height={72} radius={12} />
+                <View style={styles.recBody}>
+                  <Text style={styles.recTitle}>
+                    {entry.items.length > 0 ? `옷 ${entry.items.length}개 기록` : '룩 사진 기록'}
+                  </Text>
+                  <View style={styles.recTags}>
+                    {entry.tags.map((t) => (
+                      <Text key={t} style={styles.recTag}>
+                        #{t}
+                      </Text>
+                    ))}
+                  </View>
                 </View>
-              </View>
-              <Icon name="chevron.right" tintColor={ink(0.25)} size={15} />
-            </Pressable>
+                <Icon name="chevron.right" tintColor={ink(0.25)} size={15} />
+              </Pressable>
+
+              {/* 담긴 옷 미리보기 */}
+              {entry.items.length > 0 ? (
+                <ScrollView
+                  horizontal
+                  showsHorizontalScrollIndicator={false}
+                  contentContainerStyle={styles.itemRow}>
+                  {entry.items.map((it) => (
+                    <View key={`${it.source}:${it.id}`} style={styles.itemChip}>
+                      <SmartImage uri={it.image} width={56} aspectRatio={1} radius={10} />
+                      <Text style={styles.itemName} numberOfLines={1}>
+                        {it.name}
+                      </Text>
+                    </View>
+                  ))}
+                </ScrollView>
+              ) : null}
+
+              <Text style={styles.sharedNote}>
+                {entry.shared ? '함께 쓰는 옷장 친구에게 공개 중' : '나만 보는 기록'}
+              </Text>
+            </>
           ) : (
             <View style={styles.empty}>
               <Text style={styles.emptyText}>이 날은 기록된 착장이 없어요</Text>
-              <Pressable style={styles.addBtn} onPress={() => router.push('/chat-mode')}>
-                <Text style={styles.addText}>코디 추천받기</Text>
+              <Pressable style={styles.addBtn} onPress={() => openEntry(selectedKey)}>
+                <Icon name="plus" tintColor="#fff" size={16} />
+                <Text style={styles.addText}>이 날 착장 기록하기</Text>
+              </Pressable>
+              <Pressable onPress={() => router.push('/chat-mode')}>
+                <Text style={styles.subLink}>코디 추천받기</Text>
               </Pressable>
             </View>
           )}
         </View>
       </ScrollView>
+
+      {entry ? (
+        <ShareLookSheet
+          entry={entry}
+          visible={shareOpen}
+          onClose={() => setShareOpen(false)}
+          onToggleShared={(next) => calendarStore.setShared(entry.date, next)}
+        />
+      ) : null}
     </View>
   );
 }
@@ -157,7 +239,7 @@ const styles = StyleSheet.create({
     paddingTop: 8,
     paddingBottom: 8,
   },
-  headerTitle: { fontSize: 15, fontWeight: '600', color: INK },
+  headerTitle: { fontSize: Type.body, fontWeight: '600', color: INK },
 
   content: { paddingHorizontal: 16, paddingBottom: 32 },
   monthRow: {
@@ -170,7 +252,13 @@ const styles = StyleSheet.create({
   monthText: { fontFamily: Fonts.serif, fontSize: 19, color: INK },
 
   weekHeader: { flexDirection: 'row', paddingBottom: 6 },
-  weekday: { flex: 1, textAlign: 'center', fontSize: 11.5, color: Editorial.textCaption, fontWeight: '500' },
+  weekday: {
+    flex: 1,
+    textAlign: 'center',
+    fontSize: Type.micro,
+    color: Editorial.textCaption,
+    fontWeight: '500',
+  },
 
   grid: { flexDirection: 'row', flexWrap: 'wrap' },
   cell: { width: `${100 / 7}%`, aspectRatio: 0.82, alignItems: 'center', justifyContent: 'center' },
@@ -183,45 +271,94 @@ const styles = StyleSheet.create({
     overflow: 'hidden',
   },
   dayInnerOn: { borderWidth: 1.5, borderColor: Editorial.selected },
-  dayThumb: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, borderRadius: 11 },
-  dayNum: { fontSize: 13, color: Editorial.textCaption },
-  dayNumRec: { color: Editorial.ink, fontWeight: '600' },
+  dayThumb: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0 },
+  dayScrim: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: ink(0.3) },
+  /* 사진 없이 옷만 기록한 날 — 사진 대신 옅은 면으로 '기록 있음'을 표시 */
+  dayFill: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    borderRadius: 11,
+    backgroundColor: ink(0.07),
+  },
+  dayNum: { fontSize: Type.caption, color: Editorial.textCaption },
+  dayNumRec: { color: INK, fontWeight: '700' },
   dayNumOn: { fontWeight: '700', color: INK },
+  dayNumOnPhoto: { color: '#fff' },
+  dayNumToday: { textDecorationLine: 'underline' },
+  sharedDot: {
+    position: 'absolute',
+    bottom: 5,
+    width: 4,
+    height: 4,
+    borderRadius: 2,
+    backgroundColor: '#fff',
+  },
+  sharedDotDark: { backgroundColor: ink(0.45) },
 
   detail: { marginTop: 22 },
-  detailDate: { fontSize: 13, fontWeight: '600', color: INK, marginBottom: 12, marginLeft: 4 },
+  detailHead: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 12,
+    marginLeft: 4,
+  },
+  detailDate: { fontSize: Type.caption, fontWeight: '600', color: INK },
+  shareBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    paddingHorizontal: 12,
+    height: 32,
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: Editorial.line,
+  },
+  shareBtnText: { fontSize: Type.micro, fontWeight: '600', color: INK },
+
   recCard: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 14,
     borderWidth: 1,
-    borderColor: ink(0.1),
+    borderColor: Editorial.line,
     borderRadius: 16,
     padding: 12,
   },
-  recThumb: { width: 60, height: 72, borderRadius: 12, backgroundColor: BONE },
   recBody: { flex: 1, gap: 6 },
-  recTitle: { fontSize: 14.5, fontWeight: '500', color: Editorial.ink },
+  recTitle: { fontSize: Type.footnote, fontWeight: '500', color: INK },
   recTags: { flexDirection: 'row', gap: 8 },
-  recTag: { fontSize: 11.5, color: Editorial.textCaption },
+  recTag: { fontSize: Type.micro, color: Editorial.textCaption },
+
+  itemRow: { gap: 8, paddingTop: 12, paddingRight: 16 },
+  itemChip: { width: 56 },
+  itemName: { fontSize: Type.micro, color: Editorial.textCaption, marginTop: 4 },
+
+  sharedNote: { fontSize: Type.micro, color: Editorial.textMuted, marginTop: 12, marginLeft: 4 },
 
   empty: {
     alignItems: 'center',
     gap: 14,
     borderWidth: 1,
-    borderColor: ink(0.1),
+    borderColor: Editorial.line,
     borderStyle: 'dashed',
     borderRadius: 16,
     paddingVertical: 30,
   },
-  emptyText: { fontSize: 13, color: Editorial.textCaption },
+  emptyText: { fontSize: Type.caption, color: Editorial.textCaption },
   addBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
     paddingHorizontal: 18,
-    height: 40,
+    height: 44,
     borderRadius: 999,
     backgroundColor: Editorial.cta,
-    alignItems: 'center',
     justifyContent: 'center',
   },
-  addText: { fontSize: 13, color: '#fff', fontWeight: '500' },
+  addText: { fontSize: Type.footnote, color: '#fff', fontWeight: '600' },
+  subLink: { fontSize: Type.caption, color: Editorial.textCaption, textDecorationLine: 'underline' },
 });

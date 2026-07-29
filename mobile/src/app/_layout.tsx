@@ -35,6 +35,7 @@ export default function RootLayout() {
             <Stack.Screen name="item-add" options={{ presentation: 'modal' }} />
             <Stack.Screen name="item-add-library" options={{ presentation: 'modal' }} />
             <Stack.Screen name="import" options={{ presentation: 'modal' }} />
+            <Stack.Screen name="calendar-entry" options={{ presentation: 'modal' }} />
             <Stack.Screen name="outfit-review" options={{ presentation: 'modal' }} />
             <Stack.Screen name="edit-profile" options={{ presentation: 'modal' }} />
           </Stack>

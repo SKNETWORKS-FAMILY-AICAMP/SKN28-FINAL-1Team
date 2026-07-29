@@ -30,6 +30,7 @@ const MAP = {
   'exclamationmark.triangle': 'warning-outline',
   'ellipsis': 'ellipsis-horizontal',
   'checkmark': 'checkmark',
+  'xmark': 'close',
   'checkmark.circle.fill': 'checkmark-circle',
   'camera': 'camera-outline',
   'calendar': 'calendar-outline',
