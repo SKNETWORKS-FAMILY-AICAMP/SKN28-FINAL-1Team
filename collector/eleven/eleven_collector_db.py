@@ -360,10 +360,13 @@ def collect(
     category_paths = db.load_category_paths(conn)
     seen_ids: set[str] = set()
     total_saved = 0
+    total_new_candidates = 0
+    skipped_existing = 0
 
     for entry in entries:
+        counted_total = total_new_candidates if dry_run else total_saved
         if max_total_items is not None:
-            remaining = max_total_items - len(seen_ids)
+            remaining = max_total_items - counted_total
             if remaining <= 0:
                 break
             keyword_limit = min(
@@ -382,12 +385,25 @@ def collect(
 
         collected_at = now_kst()
         rows: list[tuple[Any, ...]] = []
+        candidate_items: list[tuple[str, dict[str, Any]]] = []
         for item in items:
             product_id = str(get_value(item, "ProductCode") or "").strip()
             if not product_id or product_id in seen_ids:
                 continue
             seen_ids.add(product_id)
+            candidate_items.append((product_id, item))
 
+        new_product_ids = set(
+            db.find_new_product_ids(
+                conn,
+                [product_id for product_id, _ in candidate_items],
+            )
+        )
+        skipped_existing += len(candidate_items) - len(new_product_ids)
+
+        for product_id, item in candidate_items:
+            if product_id not in new_product_ids:
+                continue
             title = clean_title(str(get_value(item, "ProductName") or ""))
             rule_attrs = extract_attributes(title)
             disp_no = extract_category_disp_no(item)
@@ -432,7 +448,8 @@ def collect(
                     collected_at,
                 )
             )
-            if max_total_items is not None and len(seen_ids) >= max_total_items:
+            total_new_candidates += 1
+            if max_total_items is not None and len(rows) >= remaining:
                 break
 
         if dry_run:
@@ -448,14 +465,17 @@ def collect(
                 saved,
             )
 
-        if max_total_items is not None and len(seen_ids) >= max_total_items:
+        counted_total = total_new_candidates if dry_run else total_saved
+        if max_total_items is not None and counted_total >= max_total_items:
             logger.info("11번가 일일 수집 상한 %s건에 도달", max_total_items)
             break
 
     logger.info(
-        "11번가 수집 종료: 총 %s건 저장 (고유 상품 %s건)",
+        "11번가 수집 종료: 신규 %s건 저장 "
+        "(실행 내 확인 %s건, 기존 DB 중복 제외 %s건)",
         total_saved,
         len(seen_ids),
+        skipped_existing,
     )
     return total_saved
 

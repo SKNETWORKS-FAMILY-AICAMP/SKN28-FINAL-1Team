@@ -193,6 +193,11 @@ class ElevenDailyCollectionLimitTests(unittest.TestCase):
             patch.object(collector.db, "load_category_paths", return_value={}),
             patch.object(
                 collector.db,
+                "find_new_product_ids",
+                side_effect=lambda _conn, external_ids: external_ids,
+            ),
+            patch.object(
+                collector.db,
                 "upsert_products",
                 side_effect=lambda _conn, rows: len(rows),
             ) as upsert,
@@ -223,6 +228,70 @@ class ElevenDailyCollectionLimitTests(unittest.TestCase):
             ],
         )
         self.assertEqual([len(call.args[1]) for call in upsert.call_args_list], [3, 2])
+
+    def test_existing_and_same_run_duplicates_do_not_count(self):
+        conn = object()
+        entries = [
+            SimpleNamespace(
+                keyword=f"keyword-{index}",
+                category_large="상의",
+                category_small="티셔츠",
+            )
+            for index in range(1, 4)
+        ]
+        existing_and_new = [
+            {"ProductCode": "existing", "ProductName": "기존 상품"},
+            {"ProductCode": "new-1", "ProductName": "신규 상품 1"},
+        ]
+        repeated = [
+            {"ProductCode": "new-1", "ProductName": "신규 상품 1"},
+        ]
+        final_new = [
+            {"ProductCode": "new-2", "ProductName": "신규 상품 2"},
+        ]
+
+        with (
+            patch.object(
+                collector,
+                "fetch_keyword_products",
+                side_effect=[existing_and_new, repeated, final_new],
+            ) as fetch,
+            patch.object(collector.db, "load_category_paths", return_value={}),
+            patch.object(
+                collector.db,
+                "find_new_product_ids",
+                side_effect=[["new-1"], [], ["new-2"]],
+            ),
+            patch.object(
+                collector.db,
+                "upsert_products",
+                side_effect=lambda _conn, rows: len(rows),
+            ) as upsert,
+            patch.object(collector, "extract_attributes", return_value={}),
+            patch.object(collector, "extract_category_disp_no", return_value=None),
+            patch.object(collector, "extract_category_path", return_value=[]),
+            patch.object(
+                collector,
+                "map_eleven_category",
+                return_value=(None, None, None),
+            ),
+            patch.object(collector, "build_row", return_value=("row",)) as build,
+        ):
+            saved = collector.collect(
+                conn,
+                entries,
+                limit_per_keyword=50,
+                skip_llm=True,
+                max_total_items=2,
+            )
+
+        self.assertEqual(saved, 2)
+        self.assertEqual(build.call_count, 2)
+        self.assertEqual(
+            [call.args[2] for call in fetch.call_args_list],
+            [2, 1, 1],
+        )
+        self.assertEqual([len(call.args[1]) for call in upsert.call_args_list], [1, 0, 1])
 
 
 if __name__ == "__main__":

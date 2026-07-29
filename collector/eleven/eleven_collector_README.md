@@ -85,7 +85,11 @@ LLM 호출 없이 수집만 확인:
     python eleven_collector_db.py --job collect --keyword "반팔 티셔츠" --limit 1 --skip-llm
 
 `--scheduler`는 매일 카테고리 동기화와 상품 수집을 실행한다. 한 번의 일일 수집은
-중복을 제외한 고유 상품 기준 `ELEVEN_DAILY_MAX_ITEMS`(기본 1,000건)에서 멈춘다.
+DB에 새로 INSERT된 상품 기준 `ELEVEN_DAILY_MAX_ITEMS`(기본 1,000건)에서 멈춘다.
+같은 실행에서 반복된 상품 ID와 DB에 이미 존재하는 상품은 태깅·저장·일일 수량
+계산에서 제외한다. INSERT 시점에 충돌한 상품도 `ON CONFLICT DO NOTHING`으로
+건너뛰므로 기존 상품을 새 상품으로 잘못 계산하지 않는다.
+
 키워드당 조회는 최대 `ELEVEN_MAX_ITEMS_PER_KEYWORD`(기본 및 최대 50건)다.
 스케줄러는 대분류가 번갈아 나오도록 키워드를 배치하고, 날짜마다 예상 일일 처리
 키워드 수만큼 시작 위치를 이동한다. 따라서 매일 같은 티셔츠 키워드부터 시작하지

@@ -281,29 +281,23 @@ PRODUCT_COLUMNS = [
 def upsert_products(conn, rows: Sequence[tuple[Any, ...]]) -> int:
     if not rows:
         return 0
-    external_ids = [str(row[0]) for row in rows if row and row[0]]
-    new_external_ids = find_new_external_ids(conn, "eleven", external_ids)
     columns = ", ".join(PRODUCT_COLUMNS)
-    update_columns = [
-        column
-        for column in PRODUCT_COLUMNS
-        if column not in {"eleven_product_id", "collected_at"}
-    ]
-    assignments = ",\n        ".join(
-        f"{column} = EXCLUDED.{column}" for column in update_columns
-    )
     sql = f"""
     INSERT INTO eleven_product ({columns}) VALUES %s
-    ON CONFLICT (eleven_product_id) DO UPDATE SET
-        {assignments},
-        collected_at = EXCLUDED.collected_at,
-        updated_at = NOW()
+    ON CONFLICT (eleven_product_id) DO NOTHING
+    RETURNING eleven_product_id
     """
     with conn.cursor() as cur:
-        execute_values(cur, sql, rows)
-    enqueue_new_products(conn, "eleven", new_external_ids)
+        inserted_rows = execute_values(cur, sql, rows, fetch=True)
+    inserted_ids = [str(row[0]) for row in inserted_rows]
+    enqueue_new_products(conn, "eleven", inserted_ids)
     conn.commit()
-    return len(rows)
+    return len(inserted_ids)
+
+
+def find_new_product_ids(conn, external_ids: Sequence[str]) -> list[str]:
+    """입력 순서를 유지하며 DB에 아직 없는 11번가 상품 ID만 반환한다."""
+    return find_new_external_ids(conn, "eleven", external_ids)
 
 
 def fetch_pending_products(conn, limit: int) -> list[dict[str, Any]]:
