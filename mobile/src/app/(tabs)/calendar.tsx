@@ -5,6 +5,7 @@ import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { ItemMosaic } from '@/components/calendar/item-mosaic';
+import { MonthPickerSheet } from '@/components/calendar/month-picker-sheet';
 import { ShareLookSheet } from '@/components/calendar/share-look-sheet';
 import { LoginGate, SmartImage } from '@/components/ui';
 import { ContentMax, Editorial, Fonts, ink, Type } from '@/constants/theme';
@@ -31,6 +32,7 @@ export default function Calendar() {
   const [view, setView] = useState({ year: now.getFullYear(), month: now.getMonth() + 1 });
   const [selectedDay, setSelectedDay] = useState(now.getDate());
   const [shareOpen, setShareOpen] = useState(false);
+  const [pickerOpen, setPickerOpen] = useState(false);
 
   const { cells, selectedKey } = useMemo(() => {
     const first = new Date(view.year, view.month - 1, 1).getDay();
@@ -101,9 +103,13 @@ export default function Calendar() {
           <Pressable hitSlop={10} onPress={() => moveMonth(-1)}>
             <Icon name="chevron.left" tintColor={ink(0.4)} size={16} />
           </Pressable>
-          <Text style={styles.monthText}>
-            {view.year}년 {view.month}월
-          </Text>
+          {/* 년·월을 직접 고르는 자리 — 화살표만으로는 작년까지 가는 데 열두 번을 눌러야 한다 */}
+          <Pressable style={styles.monthBtn} onPress={() => setPickerOpen(true)} hitSlop={8}>
+            <Text style={styles.monthText}>
+              {view.year}년 {view.month}월
+            </Text>
+            <Icon name="chevron.down" tintColor={ink(0.4)} size={13} />
+          </Pressable>
           <Pressable hitSlop={10} onPress={() => moveMonth(1)}>
             <Icon name="chevron.right" tintColor={ink(0.4)} size={16} />
           </Pressable>
@@ -226,6 +232,17 @@ export default function Calendar() {
         </View>
       </ScrollView>
 
+      <MonthPickerSheet
+        visible={pickerOpen}
+        year={view.year}
+        month={view.month}
+        onClose={() => setPickerOpen(false)}
+        onSelect={(year, month) => {
+          setView({ year, month });
+          setSelectedDay(1);
+        }}
+      />
+
       {entry ? (
         <ShareLookSheet
           entry={entry}
@@ -249,6 +266,7 @@ const styles = StyleSheet.create({
     gap: 20,
     paddingVertical: 16,
   },
+  monthBtn: { flexDirection: 'row', alignItems: 'center', gap: 6 },
   monthText: { fontFamily: Fonts.serif, fontSize: 19, color: INK },
 
   weekHeader: { flexDirection: 'row', paddingBottom: 6 },
