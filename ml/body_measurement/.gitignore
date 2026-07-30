@@ -3,5 +3,9 @@ __pycache__/
 *.pyc
 *.pyo
 
+# 원본 데이터 (S3에서 재생성 가능, 19MB)
+# 재실행: python src/manual_test.py
+data/raw/
+
 # 노트북 체크포인트
 .ipynb_checkpoints/
