@@ -1,6 +1,5 @@
 import { Icon, type IconName } from '@/components/icon';
 import { router } from 'expo-router';
-import { goBack } from '@/lib/goBack';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
@@ -48,13 +47,9 @@ export default function ChatMode() {
 
   return (
     <View style={styles.container}>
+      {/* 닫기 버튼은 두지 않는다 — 이 화면에서도 탭바(데스크톱은 사이드바)가 그대로 보여
+          나갈 길이 이미 있고, 화면 구석의 ✕ 는 무엇을 닫는지 읽히지 않는다. */}
       <SafeAreaView edges={['top', 'bottom']} style={styles.safe}>
-        <View style={[styles.top, contentStyle(ContentMax.narrow)]}>
-          <Pressable hitSlop={12} onPress={() => goBack('/(tabs)/chat')}>
-            <Text style={styles.close}>✕</Text>
-          </Pressable>
-        </View>
-
         <View style={[styles.head, contentStyle(ContentMax.narrow)]}>
           <Text style={styles.eyebrow}>NEW CHAT</Text>
           <Text style={styles.title}>어떻게 추천받을까요?</Text>
@@ -91,10 +86,9 @@ export default function ChatMode() {
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: Editorial.page },
   safe: { flex: 1 },
-  top: { paddingHorizontal: 24, paddingTop: 8, alignItems: 'flex-end' },
-  close: { fontSize: 20, color: Editorial.textCaption },
 
-  head: { paddingHorizontal: 24, paddingTop: 12, paddingBottom: 8 },
+  // ✕ 를 없앤 만큼 제목이 화면 위쪽에 붙지 않게 여백을 옮겨 왔다.
+  head: { paddingHorizontal: 24, paddingTop: 28, paddingBottom: 8 },
   eyebrow: { fontSize: 11, letterSpacing: 2, color: Editorial.textCaption, fontWeight: '600' },
   title: { fontFamily: Fonts.serif, fontSize: 28, color: INK, marginTop: 10 },
   lead: { fontSize: 14, color: Editorial.textCaption, marginTop: 10 },
