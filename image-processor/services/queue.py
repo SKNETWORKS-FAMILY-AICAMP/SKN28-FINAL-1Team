@@ -22,7 +22,12 @@ logger = logging.getLogger(__name__)
 
 @lru_cache(maxsize=1)
 def _redis() -> redis.Redis:
-    return redis.Redis.from_url(config.REDIS_URL, decode_responses=True)
+    # REDIS_PASSWORD가 있을 때만 password 인자를 넘긴다.
+    # (from_url은 URL에 내장된 비밀번호를 kwargs보다 우선하므로 둘 다 있으면 URL이 이긴다)
+    kwargs: dict = {"decode_responses": True}
+    if config.REDIS_PASSWORD:
+        kwargs["password"] = config.REDIS_PASSWORD
+    return redis.Redis.from_url(config.REDIS_URL, **kwargs)
 
 
 def fetch(timeout: int = config.QUEUE_BLOCK_SEC) -> str | None:

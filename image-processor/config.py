@@ -18,6 +18,9 @@ load_dotenv(Path(__file__).resolve().parent.parent / ".env")
 # ── Redis 큐 (reliable queue: pending → processing → done/dead) ──
 # wardrobe-api의 WARDROBE_JOB_QUEUE와 같은 키를 pending으로 사용한다.
 REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379/0")
+# requirepass 비밀번호 (Infisical: REDIS_PASSWORD). URL에 비밀번호를 내장하지 않고
+# 이 변수로 별도 주입한다 — URL에 비밀번호가 이미 들어 있으면 URL 쪽이 우선한다.
+REDIS_PASSWORD = os.getenv("REDIS_PASSWORD", "")
 PENDING_KEY = os.getenv("WARDROBE_JOB_QUEUE", "wardrobe:jobs")
 PROCESSING_KEY = f"{PENDING_KEY}:processing"
 DEAD_KEY = f"{PENDING_KEY}:dead"

@@ -23,13 +23,20 @@ import redis
 from . import storage
 
 REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379/0")
+# requirepass 비밀번호 (Infisical: REDIS_PASSWORD). URL에 내장하지 않고 별도 주입한다.
+REDIS_PASSWORD = os.getenv("REDIS_PASSWORD", "")
 QUEUE_KEY = os.getenv("WARDROBE_JOB_QUEUE", "wardrobe:jobs")
 CALLBACK_URL = os.getenv("WARDROBE_CALLBACK_URL", "")
 
 
 @lru_cache(maxsize=1)
 def _redis():
-    return redis.Redis.from_url(REDIS_URL, decode_responses=True)
+    # REDIS_PASSWORD가 있을 때만 password 인자를 넘긴다.
+    # (from_url은 URL에 내장된 비밀번호를 kwargs보다 우선하므로 둘 다 있으면 URL이 이긴다)
+    kwargs = {"decode_responses": True}
+    if REDIS_PASSWORD:
+        kwargs["password"] = REDIS_PASSWORD
+    return redis.Redis.from_url(REDIS_URL, **kwargs)
 
 
 def enqueue(job) -> None:
