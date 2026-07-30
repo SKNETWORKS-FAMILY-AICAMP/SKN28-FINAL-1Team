@@ -4,6 +4,7 @@ import { useMemo, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import { ItemMosaic } from '@/components/calendar/item-mosaic';
 import { ShareLookSheet } from '@/components/calendar/share-look-sheet';
 import { LoginGate, SmartImage } from '@/components/ui';
 import { ContentMax, Editorial, Fonts, ink, Type } from '@/constants/theme';
@@ -204,19 +205,9 @@ export default function Calendar() {
 
               {/* 담긴 옷 미리보기 */}
               {entry.items.length > 0 ? (
-                <ScrollView
-                  horizontal
-                  showsHorizontalScrollIndicator={false}
-                  contentContainerStyle={styles.itemRow}>
-                  {entry.items.map((it) => (
-                    <View key={`${it.source}:${it.id}`} style={styles.itemChip}>
-                      <SmartImage uri={it.image} width={56} aspectRatio={1} radius={10} />
-                      <Text style={styles.itemName} numberOfLines={1}>
-                        {it.name}
-                      </Text>
-                    </View>
-                  ))}
-                </ScrollView>
+                <View style={styles.mosaic}>
+                  <ItemMosaic items={entry.items} onPress={() => openEntry(selectedKey)} />
+                </View>
               ) : null}
             </>
           ) : (
@@ -349,9 +340,7 @@ const styles = StyleSheet.create({
   recTags: { flexDirection: 'row', gap: 8 },
   recTag: { fontSize: Type.micro, color: Editorial.textCaption },
 
-  itemRow: { gap: 8, paddingTop: 12, paddingRight: 16 },
-  itemChip: { width: 56 },
-  itemName: { fontSize: Type.micro, color: Editorial.textCaption, marginTop: 4 },
+  mosaic: { marginTop: 10 },
 
 
   empty: {
