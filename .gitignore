@@ -6,6 +6,7 @@ local/
 *.env
 .env.*
 !.env.example
+!.env.gpu.example
 
 # Apple Sign In 개인키 (.p8 다운로드 파일)
 *.p8
