@@ -16,7 +16,6 @@ sentencepiece>=0.2
 protobuf>=4.25
 qdrant-client>=1.9
 boto3>=1.34
-psycopg2-binary>=2.9
 Pillow>=10.0
 python-dotenv>=1.0
 tqdm>=4.66

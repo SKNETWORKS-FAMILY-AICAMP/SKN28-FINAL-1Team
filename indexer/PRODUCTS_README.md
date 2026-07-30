@@ -4,16 +4,20 @@
 GPU worker가 선점해 다음 순서로 처리한다. 태깅 로직은 indexer에 포함하지 않는다.
 collector는 태깅 결과를 DB에 저장한 뒤 인증된 HTTP API로 drain 시작 신호만
 보내며 상품 데이터나 이미지를 HTTP 요청에 포함하지 않는다.
+GPU worker는 PostgreSQL에 직접 연결하지 않고 Django `catalog` 내부 API를 통해
+작업을 선점하고 상품 데이터 및 처리 상태를 주고받는다. S3와 Qdrant에는 직접
+연결한다.
 
 ```text
 태깅 완료 + product_embedding_job(pending)
+  → catalog 내부 API로 작업 선점 + 상품 데이터 조회
   → 외부 이미지 다운로드·검증
   → S3 고정 키에 JPEG 원본 저장
-  → S3 key/checksum DB 체크포인트
+  → catalog 내부 API로 S3 key/checksum 체크포인트
   → Marqo-FashionSigLIP 이미지 임베딩(768d)
   → BGE-M3 한국어 텍스트 임베딩(1024d)
   → Qdrant products_v1 upsert
-  → 상품·작업 상태 completed
+  → catalog 내부 API로 상품·작업 상태 completed
 ```
 
 기존 DB 상품은 `product_embedding_job` 행이 없으므로 자동 처리되지 않는다.
@@ -58,6 +62,12 @@ PRODUCT_TEXT_MODEL_REVISION=<huggingface-commit-hash>
 PRODUCT_EMBEDDING_VERSION=marqo-fashionSigLIP+bge-m3-v1
 PRODUCT_INDEXER_MAX_RETRIES=2
 
+# Django API와 GPU worker에 같은 내부 API token을 설정한다.
+PRODUCT_INDEXER_INTERNAL_TOKEN=<random-catalog-api-token>
+# GPU worker에 Django catalog 내부 API URL을 설정한다.
+PRODUCT_CATALOG_API_URL=https://<api-host>/api/v1/internal/catalog/product-embeddings
+PRODUCT_CATALOG_API_TIMEOUT_SECONDS=30
+
 # collector와 GPU API에 같은 token을 설정한다.
 PRODUCT_INDEXER_TRIGGER_TOKEN=<random-secret-token>
 # collector 서버에만 GPU API의 전체 trigger URL을 설정한다.
@@ -70,8 +80,9 @@ PRODUCT_INDEXER_API_HOST=0.0.0.0
 PRODUCT_INDEXER_API_PORT=8080
 ```
 
-RunPod에서는 S3·Qdrant·PostgreSQL에 필요한 자격증명을 환경변수/시크릿으로
-주입한다. 자격증명을 이미지에 포함하지 않는다.
+RunPod에서는 catalog API·S3·Qdrant에 필요한 자격증명을 환경변수/시크릿으로
+주입한다. PostgreSQL 접속 정보는 GPU 서버에 주입하지 않으며 자격증명을
+이미지에 포함하지 않는다.
 
 ## 실행
 
@@ -114,8 +125,9 @@ curl -X POST https://<gpu-host>/v1/product-indexer/drain \
 ```
 
 API는 `202 Accepted`를 즉시 반환하고 별도 subprocess가 `--drain`을 수행한다.
-이미 drain이 실행 중이면 `already_running`을 반환한다. 여러 API 인스턴스에서
-동시에 요청해도 PostgreSQL advisory lock을 획득한 worker 하나만 모델을 로드한다.
+이미 같은 GPU API 인스턴스에서 drain이 실행 중이면 `already_running`을 반환한다.
+여러 worker가 동시에 실행되더라도 catalog API의 행 잠금으로 같은 작업을 중복
+선점하지 않는다.
 
 API를 거치지 않고 Docker에서 일회성 drain을 실행하려면 entrypoint를 덮어쓴다.
 
@@ -139,7 +151,7 @@ EC2 cron 또는 RunPod 스케줄러에서 하루 1회 수동 drain 명령을 실
 - 태깅 완료 작업만 `pending → processing`으로 선점한다.
 - 기본값은 최초 1회 + 재시도 2회(총 3회)다.
 - 재시도 대기는 30초, 60초처럼 지수 증가한다.
-- S3 저장 성공 직후 key/checksum을 DB에 남겨 임베딩 재시도에서 재사용한다.
+- S3 저장 성공 직후 catalog API로 key/checksum을 남겨 재시도에서 재사용한다.
 - 한 상품이 실패해도 다음 작업을 계속 처리한다.
 - worker 비정상 종료로 `processing`에 남은 작업은 기본 30분 후 복구한다.
 - 잘못된 이미지, 존재하지 않는 상품, 버전 불일치는 즉시 `failed`로 기록한다.

@@ -14,7 +14,6 @@ from typing import Any
 
 import boto3
 import product_config as config
-import product_db
 import requests
 from bge_embedder import BgeM3Embedder
 from botocore.exceptions import ClientError
@@ -26,6 +25,7 @@ from product_assets import (
     download_and_store_image,
     load_stored_image,
 )
+from product_catalog_api import ProductCatalogApiClient
 from product_qdrant import (
     build_point,
     ensure_collection,
@@ -47,7 +47,10 @@ class PreparedProduct:
 
 def _retry_delay(job: dict[str, Any]) -> int:
     exponent = max(0, int(job["attempt_count"]) - 1)
-    return config.RETRY_BASE_SECONDS * (2**exponent)
+    return min(
+        24 * 60 * 60,
+        config.RETRY_BASE_SECONDS * (2**exponent),
+    )
 
 
 def _is_transient_http_error(error: requests.HTTPError) -> bool:
@@ -68,16 +71,18 @@ class ProductIndexer:
     def __init__(
         self,
         *,
-        db_connection=None,
+        catalog_client: ProductCatalogApiClient | None = None,
         reset_stale: bool = True,
     ) -> None:
         config.validate_runtime_config()
-        self.db = db_connection or product_db.get_connection()
+        self.catalog = catalog_client or ProductCatalogApiClient()
         if reset_stale:
-            stale_count = product_db.reset_stale_jobs(
-                self.db,
-                config.STALE_JOB_MINUTES,
+            state = self.catalog.status(
+                config.EMBEDDING_VERSION,
+                reset_stale=True,
+                stale_job_minutes=config.STALE_JOB_MINUTES,
             )
+            stale_count = int(state.get("reset_stale_count", 0))
             if stale_count:
                 logger.warning(
                     "stale 임베딩 작업 %d건을 pending으로 복구",
@@ -107,7 +112,7 @@ class ProductIndexer:
 
     def close(self) -> None:
         self.http.close()
-        self.db.close()
+        self.catalog.close()
 
     def _fail(
         self,
@@ -117,12 +122,7 @@ class ProductIndexer:
         transient: bool,
     ) -> None:
         message = str(error)
-        try:
-            self.db.rollback()
-        except Exception:
-            logger.exception("실패 기록 전 DB rollback 실패")
-        next_status = product_db.mark_failure(
-            self.db,
+        next_status = self.catalog.mark_failure(
             job,
             message,
             max_retries=config.MAX_RETRIES,
@@ -196,8 +196,7 @@ class ProductIndexer:
             timeout=config.IMAGE_DOWNLOAD_TIMEOUT,
             max_bytes=config.MAX_IMAGE_BYTES,
         )
-        accepted = product_db.mark_image_stored(
-            self.db,
+        accepted = self.catalog.mark_image_stored(
             job,
             image_s3_key=image.s3_key,
             image_checksum=image.checksum,
@@ -227,13 +226,13 @@ class ProductIndexer:
             )
             return None
 
-        product = product_db.fetch_product(
-            self.db,
-            job["source"],
-            job["external_product_id"],
-        )
-        if product is None:
-            self._fail(job, "DB에서 상품을 찾을 수 없습니다.", transient=False)
+        product = job.get("product")
+        if not isinstance(product, dict):
+            self._fail(
+                job,
+                "catalog API 응답에 상품 데이터가 없습니다.",
+                transient=False,
+            )
             return None
 
         try:
@@ -261,8 +260,7 @@ class ProductIndexer:
         )
 
     def process_once(self, batch_size: int) -> int:
-        jobs = product_db.claim_jobs(
-            self.db,
+        jobs = self.catalog.claim_jobs(
             batch_size,
             config.EMBEDDING_VERSION,
         )
@@ -314,8 +312,7 @@ class ProductIndexer:
                 item.image.image.close()
 
         for item in prepared:
-            accepted = product_db.mark_success(
-                self.db,
+            accepted = self.catalog.mark_success(
                 item.job,
                 embedding_version=config.EMBEDDING_VERSION,
                 image_s3_key=item.image.s3_key,
@@ -353,10 +350,10 @@ class ProductIndexer:
             if claimed:
                 continue
 
-            next_delay = product_db.seconds_until_next_job(
-                self.db,
+            state = self.catalog.status(
                 config.EMBEDDING_VERSION,
             )
+            next_delay = state.get("next_available_in_seconds")
             if (
                 next_delay is None
                 or max_wait_seconds == 0
@@ -424,28 +421,23 @@ def _create_indexer(args: argparse.Namespace) -> ProductIndexer | None:
     if not args.drain:
         return ProductIndexer()
 
-    conn = product_db.get_connection()
+    config.validate_runtime_config()
+    catalog = ProductCatalogApiClient()
     try:
-        if not product_db.try_acquire_drain_lock(conn):
-            logger.warning("다른 임베딩 drain worker가 실행 중이어서 종료합니다.")
-            conn.close()
-            return None
-
-        stale_count = product_db.reset_stale_jobs(
-            conn,
-            config.STALE_JOB_MINUTES,
+        state = catalog.status(
+            config.EMBEDDING_VERSION,
+            reset_stale=True,
+            stale_job_minutes=config.STALE_JOB_MINUTES,
         )
+        stale_count = int(state.get("reset_stale_count", 0))
         if stale_count:
             logger.warning("stale 임베딩 작업 %d건을 pending으로 복구", stale_count)
 
-        if not product_db.has_pending_jobs(conn, config.EMBEDDING_VERSION):
+        if not state.get("has_pending_jobs"):
             logger.info("처리 가능한 임베딩 작업이 없어 모델 로드 전 종료합니다.")
-            conn.close()
+            catalog.close()
             return None
-        next_delay = product_db.seconds_until_next_job(
-            conn,
-            config.EMBEDDING_VERSION,
-        )
+        next_delay = state.get("next_available_in_seconds")
         if (
             next_delay is None
             or next_delay > args.drain_max_wait_seconds
@@ -454,14 +446,14 @@ def _create_indexer(args: argparse.Namespace) -> ProductIndexer | None:
                 "설정된 drain 대기 시간 안에 실행할 작업이 없어 "
                 "모델 로드 전 종료합니다."
             )
-            conn.close()
+            catalog.close()
             return None
         return ProductIndexer(
-            db_connection=conn,
+            catalog_client=catalog,
             reset_stale=False,
         )
     except Exception:
-        conn.close()
+        catalog.close()
         raise
 
 
@@ -469,6 +461,8 @@ def main() -> int:
     args = parse_args()
     if args.batch_size < 1:
         raise ValueError("--batch-size는 1 이상이어야 합니다.")
+    if args.batch_size > 256:
+        raise ValueError("--batch-size는 256 이하여야 합니다.")
     if args.poll_seconds < 1:
         raise ValueError("--poll-seconds는 1 이상이어야 합니다.")
     if args.drain_max_wait_seconds < 0:

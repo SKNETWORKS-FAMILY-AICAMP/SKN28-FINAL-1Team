@@ -2,7 +2,8 @@
 
 이 모듈은 모델 추론이나 Qdrant에 의존하지 않는다. 네이버/11번가 collector가
 상품 INSERT와 같은 PostgreSQL 트랜잭션에서 작업을 등록하는 역할만 담당한다.
-실제 임베딩은 별도 indexer 프로세스가 product_embedding_job을 claim해 수행한다.
+실제 임베딩 작업 선점과 상태 변경은 catalog 내부 API가 담당하고, 별도 indexer
+프로세스는 해당 API를 호출해 임베딩과 Qdrant 적재를 수행한다.
 """
 
 from __future__ import annotations

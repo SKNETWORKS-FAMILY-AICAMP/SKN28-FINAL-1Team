@@ -216,9 +216,9 @@ class NaverTaggingBatch(models.Model):
 class ProductEmbeddingJob(models.Model):
     """신규 쇼핑 상품의 비동기 임베딩 작업.
 
-    collector가 상품 INSERT와 같은 트랜잭션에서 생성하고, RunPod/AWS의
-    product indexer가 PostgreSQL에서 claim해 처리한다. source와 외부 상품 ID
-    조합을 멱등 키로 사용하므로 같은 상품을 다시 수집해도 작업이 중복되지 않는다.
+    collector가 상품 INSERT와 같은 트랜잭션에서 생성한다. catalog 내부 API가
+    작업을 claim하고 상태를 갱신하며, 외부 product-indexer는 DB에 직접 연결하지
+    않는다. source와 외부 상품 ID 조합을 멱등 키로 사용한다.
     """
 
     source = models.CharField(max_length=20)
