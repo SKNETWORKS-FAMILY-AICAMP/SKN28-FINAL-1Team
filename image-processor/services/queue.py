@@ -24,7 +24,14 @@ logger = logging.getLogger(__name__)
 def _redis() -> redis.Redis:
     # REDIS_PASSWORD가 있을 때만 password 인자를 넘긴다.
     # (from_url은 URL에 내장된 비밀번호를 kwargs보다 우선하므로 둘 다 있으면 URL이 이긴다)
-    kwargs: dict = {"decode_responses": True}
+    #
+    # socket_timeout: redis-py 8.0부터 기본값이 None → 5초로 바뀌어, BLMOVE가
+    # QUEUE_BLOCK_SEC(기본 5초) 동안 블로킹하면 응답 전에 소켓 read가 먼저
+    # TimeoutError로 끊긴다. 블로킹 대기시간보다 넉넉히 크게 명시해 이를 막는다.
+    kwargs: dict = {
+        "decode_responses": True,
+        "socket_timeout": config.QUEUE_BLOCK_SEC + 10,
+    }
     if config.REDIS_PASSWORD:
         kwargs["password"] = config.REDIS_PASSWORD
     return redis.Redis.from_url(config.REDIS_URL, **kwargs)
