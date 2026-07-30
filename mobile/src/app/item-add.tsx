@@ -2,164 +2,224 @@ import { Image } from 'expo-image';
 import { router } from 'expo-router';
 import { useState } from 'react';
 import {
-  Platform,
+  ActivityIndicator,
   Pressable,
   ScrollView,
   StyleSheet,
   Text,
-  TextInput,
   View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-import { Editorial, ink, Fonts , ContentMax} from '@/constants/theme';
-import { ModalShell } from '@/components/ui';
+import { Icon } from '@/components/icon';
+import { ModalShell, SmartImage, useToast } from '@/components/ui';
+import { ContentMax, Editorial, ink, Type } from '@/constants/theme';
 import { useBreakpoint } from '@/hooks/use-breakpoint';
+import { confirmWardrobeItem, useWardrobeUpload } from '@/hooks/use-wardrobe';
+import { deleteWardrobeItem, itemDisplayName, type WardrobeApiItem } from '@/lib/wardrobeApi';
 import { draftItem, useDraftPhoto } from '@/state/draft-item';
 
-// ── 에디토리얼 본(Editorial Bone) 팔레트 ─────────────────
-// 디자인은 라이트 모드 고정. 잉크 + 크림 톤.
 const INK = Editorial.ink;
-const BONE = Editorial.bone;
 
-/** 라벨 + (선택)AI 뱃지 + 밑줄 입력 필드 */
-function Field({
-  label,
-  ai,
-  value,
-  onChangeText,
-  placeholder,
-}: {
-  label: string;
-  ai?: boolean;
-  value: string;
-  onChangeText: (t: string) => void;
-  placeholder?: string;
-}) {
-  return (
-    <View style={styles.field}>
-      <View style={styles.fieldLabelRow}>
-        <Text style={styles.fieldLabel}>{label}</Text>
-        {ai ? (
-          <View style={styles.aiBadge}>
-            <Text style={styles.aiBadgeText}>AI</Text>
-          </View>
-        ) : null}
-      </View>
-      <TextInput
-        style={styles.fieldValue}
-        value={value}
-        onChangeText={onChangeText}
-        placeholder={placeholder}
-        placeholderTextColor={ink(0.32)}
-      />
-      <View style={styles.fieldUnderline} />
-    </View>
-  );
+/** 태그 몇 개를 한 줄로 — 확인 단계에선 전체가 아니라 알아볼 만큼만 보여준다. */
+function tagLine(item: WardrobeApiItem): string {
+  return [item.category_small || item.category_large, item.color, item.material, item.fit]
+    .filter(Boolean)
+    .join(' · ');
 }
 
+/**
+ * D2 아이템 등록.
+ *
+ * 등록은 비동기다: 사진을 올리면(202) 이미지 프로세서가 누끼·분류를 하고,
+ * 끝나면 job 에 아이템이 채워진다. 사진 1장에서 **여러 벌**이 나올 수 있다.
+ * 결과는 confirmed=false(확인 대기) 상태이므로, 사용자가 확인해야 옷장에 정식 편입된다.
+ * 태그 하나하나를 고치는 일은 아이템 상세에서 한다 — 여기선 맞는지만 확인한다.
+ */
 export default function ItemAddScreen() {
   const { contentStyle } = useBreakpoint();
-  // 무신사 WebView(모달)에서 가져온 사진 URL. 없으면 빈 상태.
   const photo = useDraftPhoto();
+  const toast = useToast();
+  const upload = useWardrobeUpload();
 
-  // AI가 자동 분류한 값 (사용자가 수정 가능)
-  const [category, setCategory] = useState('상의');
-  const [color, setColor] = useState('화이트');
-  const [material, setMaterial] = useState('코튼');
-  const [size, setSize] = useState('M');
-  const [brand, setBrand] = useState('');
-  const [memo, setMemo] = useState('');
+  /* 확정·삭제로 처리를 끝낸 아이템은 목록에서 뺀다 (남은 것만 보여주면 할 일이 분명해진다) */
+  const [handled, setHandled] = useState<string[]>([]);
+  const [busyId, setBusyId] = useState<string | null>(null);
 
-  // 사진 영역 — item-add-source 에서 가져온 사진 표시
+  const remaining = upload.items.filter((i) => !handled.includes(i.id));
+
   const openSource = () => router.push('/item-add-source');
 
-  const handleSave = () => {
-    // TODO: 백엔드 전송 → 누끼(rembg) → 옷장 저장
-    console.log('[옷장 저장]', { photo, category, color, material, size, brand, memo });
+  const close = () => {
     draftItem.setPhoto(null);
+    upload.reset();
+    router.replace('/(tabs)/closet');
   };
+
+  const startUpload = () => {
+    if (!photo) {
+      openSource();
+      return;
+    }
+    upload.start(photo);
+  };
+
+  const confirmOne = async (item: WardrobeApiItem) => {
+    setBusyId(item.id);
+    try {
+      await confirmWardrobeItem(item.id);
+      setHandled((prev) => [...prev, item.id]);
+      toast(`${itemDisplayName(item)}을(를) 옷장에 담았어요`, { variant: 'success' });
+    } catch (e) {
+      toast(e instanceof Error ? e.message : '저장하지 못했어요', { variant: 'error' });
+    } finally {
+      setBusyId(null);
+    }
+  };
+
+  const discardOne = async (item: WardrobeApiItem) => {
+    setBusyId(item.id);
+    try {
+      await deleteWardrobeItem(item.id);
+      setHandled((prev) => [...prev, item.id]);
+    } catch (e) {
+      toast(e instanceof Error ? e.message : '삭제하지 못했어요', { variant: 'error' });
+    } finally {
+      setBusyId(null);
+    }
+  };
+
+  const busy = upload.phase === 'uploading' || upload.phase === 'processing';
 
   return (
     <ModalShell maxWidth={ContentMax.narrow}>
       <View style={styles.container}>
-      {/* 헤더 */}
-      <SafeAreaView edges={['top']} style={styles.headerSafe}>
-        <View style={[styles.header, contentStyle(ContentMax.narrow)]}>
-          <View style={styles.headerText}>
-            <Text style={styles.title}>아이템 등록</Text>
-            <Text style={styles.subtitle}>사진을 올리면 AI가 자동으로 분류해요</Text>
-          </View>
-          <Pressable hitSlop={12} onPress={() => draftItem.setPhoto(null)}>
-            <Text style={styles.close}>✕</Text>
-          </Pressable>
-        </View>
-      </SafeAreaView>
-      <View style={styles.divider} />
-
-      {/* 본문 */}
-      <ScrollView
-        contentContainerStyle={[styles.content, contentStyle(ContentMax.narrow)]}
-        keyboardShouldPersistTaps="handled">
-        {/* 사진 영역 = 가져오기 버튼 (탭하면 무신사 WebView 열림) */}
-        <Pressable style={styles.photo} onPress={openSource}>
-          {photo ? (
-            <Image source={{ uri: photo }} style={StyleSheet.absoluteFill} contentFit="cover" />
-          ) : (
-            <View style={styles.photoEmpty}>
-              <Text style={styles.photoEmptyIcon}>＋</Text>
-              <Text style={styles.photoEmptyText}>사진 추가하기</Text>
+        <SafeAreaView edges={['top']} style={styles.headerSafe}>
+          <View style={[styles.header, contentStyle(ContentMax.narrow)]}>
+            <View style={styles.headerText}>
+              <Text style={styles.title}>아이템 등록</Text>
+              <Text style={styles.subtitle}>
+                {upload.phase === 'done'
+                  ? 'AI가 분류한 결과를 확인해 주세요'
+                  : '사진을 올리면 AI가 누끼 처리·분류해요'}
+              </Text>
             </View>
-          )}
-          {photo ? (
-            <View style={styles.aiDoneBadge}>
-              <Text style={styles.aiDoneText}>✓ AI 분석 완료</Text>
+            <Pressable hitSlop={12} onPress={close} accessibilityLabel="닫기">
+              <Icon name="xmark" tintColor={ink(0.5)} size={18} />
+            </Pressable>
+          </View>
+        </SafeAreaView>
+        <View style={styles.divider} />
+
+        <ScrollView contentContainerStyle={[styles.content, contentStyle(ContentMax.narrow)]}>
+          {/* 사진 — 처리 중에는 바꿀 수 없다 */}
+          <Pressable style={styles.photo} onPress={busy ? undefined : openSource} disabled={busy}>
+            {photo ? (
+              <Image source={{ uri: photo }} style={StyleSheet.absoluteFill} contentFit="cover" />
+            ) : (
+              <View style={styles.photoEmpty}>
+                <Text style={styles.photoEmptyIcon}>＋</Text>
+                <Text style={styles.photoEmptyText}>사진 추가하기</Text>
+              </View>
+            )}
+          </Pressable>
+
+          {/* 진행 상태 */}
+          {upload.phase === 'uploading' ? (
+            <View style={styles.statusRow}>
+              <ActivityIndicator color={INK} />
+              <Text style={styles.statusText}>사진을 올리는 중…</Text>
             </View>
           ) : null}
-        </Pressable>
 
-        {/* 2열 필드: 카테고리 / 색상 */}
-        <View style={styles.row}>
-          <View style={styles.col}>
-            <Field label="카테고리" ai value={category} onChangeText={setCategory} />
-          </View>
-          <View style={styles.col}>
-            <Field label="색상" ai value={color} onChangeText={setColor} />
-          </View>
-        </View>
+          {upload.phase === 'processing' ? (
+            <View style={styles.statusRow}>
+              <ActivityIndicator color={INK} />
+              <View style={styles.statusBody}>
+                <Text style={styles.statusText}>옷을 분리하고 태그를 붙이는 중…</Text>
+                <Text style={styles.statusHint}>
+                  잠시 걸릴 수 있어요. 이 화면을 열어 두면 끝나는 대로 보여드려요.
+                </Text>
+              </View>
+            </View>
+          ) : null}
 
-        {/* 2열 필드: 소재 / 사이즈 */}
-        <View style={styles.row}>
-          <View style={styles.col}>
-            <Field label="소재" ai value={material} onChangeText={setMaterial} />
-          </View>
-          <View style={styles.col}>
-            <Field label="사이즈" value={size} onChangeText={setSize} />
-          </View>
-        </View>
+          {upload.phase === 'failed' ? (
+            <View style={styles.failCard}>
+              <Text style={styles.failText}>{upload.error}</Text>
+              <Pressable style={styles.retryBtn} onPress={startUpload}>
+                <Icon name="arrow.clockwise" tintColor={INK} size={14} />
+                <Text style={styles.retryText}>다시 시도</Text>
+              </Pressable>
+            </View>
+          ) : null}
 
-        {/* 전체 폭 필드 */}
-        <Field
-          label="브랜드"
-          value={brand}
-          onChangeText={setBrand}
-          placeholder="브랜드를 입력하세요"
-        />
-        <Field
-          label="메모"
-          value={memo}
-          onChangeText={setMemo}
-          placeholder="스타일링 메모 (선택)"
-        />
-      </ScrollView>
+          {/* 결과 — 사진 1장에서 여러 벌이 나올 수 있다 */}
+          {upload.phase === 'done' ? (
+            remaining.length === 0 ? (
+              <View style={styles.doneCard}>
+                <Text style={styles.doneText}>
+                  {upload.items.length === 0
+                    ? '옷을 찾지 못했어요. 옷이 잘 보이는 사진으로 다시 올려보세요.'
+                    : '모두 정리했어요.'}
+                </Text>
+              </View>
+            ) : (
+              <>
+                <Text style={styles.resultCount}>찾은 옷 {remaining.length}개</Text>
+                {remaining.map((item) => (
+                  <View key={item.id} style={styles.resultCard}>
+                    <SmartImage uri={item.image_url} width={64} height={78} radius={12} />
+                    <View style={styles.resultBody}>
+                      <Text style={styles.resultName} numberOfLines={1}>
+                        {itemDisplayName(item)}
+                      </Text>
+                      <Text style={styles.resultTags} numberOfLines={2}>
+                        {tagLine(item)}
+                      </Text>
+                    </View>
+                    <View style={styles.resultActions}>
+                      <Pressable
+                        style={styles.discardBtn}
+                        onPress={() => discardOne(item)}
+                        disabled={busyId === item.id}>
+                        <Text style={styles.discardText}>제외</Text>
+                      </Pressable>
+                      <Pressable
+                        style={styles.confirmBtn}
+                        onPress={() => confirmOne(item)}
+                        disabled={busyId === item.id}>
+                        <Text style={styles.confirmText}>담기</Text>
+                      </Pressable>
+                    </View>
+                  </View>
+                ))}
+                <Text style={styles.resultHint}>
+                  태그를 자세히 고치려면 담은 뒤 옷장에서 아이템을 열어 주세요.
+                </Text>
+              </>
+            )
+          ) : null}
+        </ScrollView>
 
-      {/* 하단 저장 바 */}
-      <View style={styles.bottomDivider} />
-      <SafeAreaView edges={['bottom']} style={[styles.bottomBar, contentStyle(ContentMax.narrow)]}>
-        <Pressable style={styles.saveButton} onPress={handleSave}>
-          <Text style={styles.saveText}>옷장에 저장</Text>
-        </Pressable>
-      </SafeAreaView>
+        {/* 하단 바 — 단계에 따라 하는 일이 바뀐다 */}
+        <View style={styles.bottomDivider} />
+        <SafeAreaView edges={['bottom']} style={[styles.bottomBar, contentStyle(ContentMax.narrow)]}>
+          {upload.phase === 'done' ? (
+            <Pressable style={styles.primaryBtn} onPress={close}>
+              <Text style={styles.primaryText}>옷장으로</Text>
+            </Pressable>
+          ) : (
+            <Pressable
+              style={[styles.primaryBtn, (!photo || busy) && styles.primaryBtnOff]}
+              onPress={startUpload}
+              disabled={!photo || busy}>
+              <Text style={styles.primaryText}>
+                {busy ? '처리 중…' : '분류 시작'}
+              </Text>
+            </Pressable>
+          )}
+        </SafeAreaView>
       </View>
     </ModalShell>
   );
@@ -168,7 +228,6 @@ export default function ItemAddScreen() {
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: Editorial.page },
 
-  // 헤더
   headerSafe: { backgroundColor: Editorial.page },
   header: {
     flexDirection: 'row',
@@ -178,93 +237,98 @@ const styles = StyleSheet.create({
     paddingTop: 14,
     paddingBottom: 12,
   },
-  headerText: { gap: 3 },
-  title: {
-    fontFamily: Fonts.serif,
-    fontSize: 24,
-    color: INK,
-    fontWeight: '500',
-  },
-  subtitle: { fontSize: 11.5, color: Editorial.textCaption },
-  close: { fontSize: 18, color: Editorial.textCaption },
-  divider: { height: 1, backgroundColor: ink(0.1) },
+  headerText: { flex: 1, gap: 4 },
+  title: { fontSize: Type.lead, fontWeight: '700', color: INK },
+  subtitle: { fontSize: Type.caption, color: Editorial.textCaption },
+  divider: { height: 1, backgroundColor: ink(0.08) },
 
-  // 본문
-  content: { paddingHorizontal: 20, paddingTop: 24, paddingBottom: 32, gap: 22 },
+  content: { paddingHorizontal: 20, paddingTop: 18, paddingBottom: 24, gap: 16 },
 
-  // 사진
   photo: {
-    height: 180,
+    height: 240,
     borderRadius: 16,
-    backgroundColor: BONE,
     overflow: 'hidden',
-    justifyContent: 'flex-end',
+    backgroundColor: Editorial.surface,
+    borderWidth: 1,
+    borderColor: Editorial.line,
   },
-  photoEmpty: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
+  photoEmpty: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: 6 },
+  photoEmptyIcon: { fontSize: 26, color: ink(0.35) },
+  photoEmptyText: { fontSize: Type.footnote, color: Editorial.textCaption },
+
+  statusRow: { flexDirection: 'row', alignItems: 'flex-start', gap: 12 },
+  statusBody: { flex: 1, gap: 4 },
+  statusText: { fontSize: Type.footnote, color: INK, fontWeight: '500' },
+  statusHint: { fontSize: Type.caption, color: Editorial.textCaption, lineHeight: 19 },
+
+  failCard: {
+    gap: 12,
+    padding: 16,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: Editorial.line,
+  },
+  failText: { fontSize: Type.footnote, color: INK, lineHeight: 21 },
+  retryBtn: {
+    alignSelf: 'flex-start',
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingHorizontal: 14,
+    height: 38,
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: ink(0.16),
+  },
+  retryText: { fontSize: Type.caption, fontWeight: '600', color: INK },
+
+  doneCard: { padding: 16, borderRadius: 14, borderWidth: 1, borderColor: Editorial.line },
+  doneText: { fontSize: Type.footnote, color: Editorial.textCaption, lineHeight: 21 },
+
+  resultCount: { fontSize: Type.caption, fontWeight: '600', color: Editorial.textCaption },
+  resultCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    padding: 12,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: Editorial.line,
+  },
+  resultBody: { flex: 1, gap: 4, minWidth: 0 },
+  resultName: { fontSize: Type.footnote, fontWeight: '600', color: INK },
+  resultTags: { fontSize: Type.caption, color: Editorial.textCaption, lineHeight: 18 },
+  resultActions: { gap: 6, alignItems: 'stretch' },
+  discardBtn: {
+    paddingHorizontal: 12,
+    height: 32,
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: ink(0.16),
     alignItems: 'center',
     justifyContent: 'center',
-    gap: 6,
   },
-  photoEmptyIcon: { fontSize: 30, color: Editorial.textMuted, lineHeight: 34 },
-  photoEmptyText: { fontSize: 13, color: Editorial.textCaption },
-  aiDoneBadge: {
-    position: 'absolute',
-    left: 14,
-    bottom: 14,
-    flexDirection: 'row',
-    backgroundColor: INK,
-    paddingLeft: 11,
-    paddingRight: 13,
-    paddingVertical: 6,
-    borderRadius: 999,
-  },
-  aiDoneText: { fontSize: 10, color: '#ffffff', fontWeight: '500' },
-
-  // 필드
-  row: { flexDirection: 'row', gap: 16 },
-  col: { flex: 1 },
-  field: { gap: 9 },
-  fieldLabelRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
-  fieldLabel: {
-    fontSize: 10,
-    fontWeight: '500',
-    color: Editorial.textCaption,
-    letterSpacing: 0.2,
-  },
-  aiBadge: {
-    backgroundColor: INK,
-    paddingHorizontal: 6,
-    paddingVertical: 2,
-    borderRadius: 999,
-  },
-  aiBadgeText: {
-    fontSize: 8,
-    fontWeight: '500',
-    color: '#ffffff',
-    letterSpacing: 0.16,
-  },
-  fieldValue: {
-    fontSize: 14,
-    color: Editorial.ink,
-    padding: 0,
-    ...Platform.select({ android: { paddingVertical: 0 } }),
-  },
-  fieldUnderline: { height: 1, backgroundColor: ink(0.15) },
-
-  // 하단 바
-  bottomDivider: { height: 1, backgroundColor: ink(0.1) },
-  bottomBar: { backgroundColor: Editorial.page, paddingHorizontal: 20, paddingTop: 16 },
-  saveButton: {
-    height: 48,
+  discardText: { fontSize: Type.micro, fontWeight: '600', color: Editorial.textCaption },
+  confirmBtn: {
+    paddingHorizontal: 12,
+    height: 32,
     borderRadius: 999,
     backgroundColor: Editorial.cta,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  saveText: { fontSize: 14, fontWeight: '500', color: '#ffffff' },
+  confirmText: { fontSize: Type.micro, fontWeight: '600', color: '#fff' },
+  resultHint: { fontSize: Type.micro, color: Editorial.textMuted, lineHeight: 18 },
+
+  bottomDivider: { height: 1, backgroundColor: ink(0.08) },
+  bottomBar: { paddingHorizontal: 20, paddingTop: 12 },
+  primaryBtn: {
+    height: 52,
+    borderRadius: 14,
+    backgroundColor: Editorial.cta,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  primaryBtnOff: { opacity: 0.35 },
+  primaryText: { fontSize: Type.label, fontWeight: '600', color: '#fff' },
 });

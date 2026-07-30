@@ -8,7 +8,7 @@ import {
   SharedSpaceOnboarding,
   type SharedSpace,
 } from '@/components/closet/shared-space-flow';
-import { CategoryEditSheet, EmptyState, LoginGate, SearchFilterBar, SegmentedToggle, SmartImage, useToast } from '@/components/ui';
+import { CategoryEditSheet, EmptyState, ErrorState, LoadingState, LoginGate, SearchFilterBar, SegmentedToggle, SmartImage, useToast } from '@/components/ui';
 import { useMultiSelectFilter } from '@/hooks/useMultiSelectFilter';
 import { router } from 'expo-router';
 import { useMemo, useState } from 'react';
@@ -22,8 +22,11 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { Editorial, ink, BottomTabInset, GridCard, gridCardImageHeight, gridCardWidth , ContentMax} from '@/constants/theme';
-import { CLOSET_ITEMS, SHARED_CLOSET_ITEMS, type WardrobeItem } from '@/constants/wardrobe';
+import { SHARED_CLOSET_ITEMS } from '@/constants/wardrobe';
+import { WARDROBE_FILTER_OPTIONS } from '@/constants/wardrobe-taxonomy';
 import { useBreakpoint } from '@/hooks/use-breakpoint';
+import { useWardrobeItems } from '@/hooks/use-wardrobe';
+import { itemDisplayName } from '@/lib/wardrobeApi';
 import { Icon } from '@/components/icon';
 import { useAuth } from '@/state/auth';
 
@@ -33,14 +36,28 @@ const INK = Editorial.ink;
    (모듈 최상단에서 읽으면 리사이즈에 반응하지 않는다) */
 const PAD = GridCard.pad;
 
-const DEFAULT_CATEGORIES = ['전체', '상의', '하의', '아우터', '신발', '가방', '액세서리'];
+/* 카테고리는 백엔드 taxonomy(대분류 8종)를 따른다 — 프론트가 임의 목록을 쓰면 필터가 서버와 어긋난다. */
+const DEFAULT_CATEGORIES = WARDROBE_FILTER_OPTIONS;
 
-/* 옷 목록은 캘린더의 '옷 고르기' 시트와 공유한다 → @/constants/wardrobe 가 단일 출처 */
-type Item = WardrobeItem;
-const MY_ITEMS = CLOSET_ITEMS;
-const SHARED_ITEMS = SHARED_CLOSET_ITEMS;
+/** 그리드 카드가 쓰는 최소 형태 — 내 옷장(API)과 공유 옷장(목업)을 한 모양으로 맞춘다. */
+type Card = {
+  id: string;
+  name: string;
+  category: string;
+  image?: string;
+  owner?: string;
+};
 
-function matchesQuery(item: Item, query: string): boolean {
+/* 공유 옷장은 아직 백엔드가 없어 목업을 그대로 쓴다. */
+const SHARED_ITEMS: Card[] = SHARED_CLOSET_ITEMS.map((i) => ({
+  id: i.id,
+  name: i.name,
+  category: i.category,
+  image: i.image,
+  owner: i.owner,
+}));
+
+function matchesQuery(item: Card, query: string): boolean {
   const q = query.trim();
   if (!q) return true;
   return item.name.includes(q) || item.category.includes(q);
@@ -58,13 +75,31 @@ export default function ClosetScreen() {
   const [sharedSpace, setSharedSpace] = useState<SharedSpace | null>(null);
   const [inviteOpen, setInviteOpen] = useState(false);
   const [joinOpen, setJoinOpen] = useState(false);
-  const [categories, setCategories] = useState(DEFAULT_CATEGORIES);
+  const [categories, setCategories] = useState<string[]>(DEFAULT_CATEGORIES);
   const [editOpen, setEditOpen] = useState(false);
   const { toggle, reset, prune, isActive, matches, label } = useMultiSelectFilter();
 
-  const sharedSource =
-    sharedSpace && sharedSpace.members.length > 1 ? SHARED_ITEMS : [];
-  const source = tab === 'mine' ? MY_ITEMS : sharedSource;
+  /* 내 옷장은 서버가 출처. 카테고리 필터는 여러 개를 고를 수 있어(멀티) 서버 파라미터로
+     넘기지 않고 전체를 받아 프론트에서 걸러낸다 — 서버는 단일 category_large 만 받는다.
+     확정(confirmed=true)만 보여준다: 확인 대기 중인 아이템은 태그가 아직 사용자 손을 안 거쳤다. */
+  const { items: apiItems, loading, error, reload } = useWardrobeItems(
+    { confirmed: true },
+    isLoggedIn,
+  );
+
+  const myItems = useMemo<Card[]>(
+    () =>
+      apiItems.map((i) => ({
+        id: i.id,
+        name: itemDisplayName(i),
+        category: i.category_large,
+        image: i.image_url,
+      })),
+    [apiItems],
+  );
+
+  const sharedSource = sharedSpace && sharedSpace.members.length > 1 ? SHARED_ITEMS : [];
+  const source = tab === 'mine' ? myItems : sharedSource;
   const items = useMemo(
     () => source.filter((i) => matches(i.category) && matchesQuery(i, query)),
     [source, matches, query],
@@ -171,7 +206,17 @@ export default function ClosetScreen() {
             style={styles.gridScroll}
             showsVerticalScrollIndicator={false}
             contentContainerStyle={[styles.grid, contentStyle(ContentMax.wide)]}>
-            {items.length === 0 ? (
+            {/* 내 옷장만 서버에서 온다 — 공유 옷장은 아직 목업이라 로딩·에러가 없다. */}
+            {tab === 'mine' && loading ? (
+              <LoadingState message="옷장을 불러오는 중…" style={styles.empty} />
+            ) : tab === 'mine' && error ? (
+              <ErrorState
+                title="옷장을 불러오지 못했어요"
+                description={error}
+                onRetry={reload}
+                style={styles.empty}
+              />
+            ) : items.length === 0 ? (
               <EmptyState
                 icon={tab === 'shared' ? 'person' : 'tshirt'}
                 title={emptyTitle}
@@ -197,7 +242,9 @@ export default function ClosetScreen() {
                 <Pressable
                   key={it.id}
                   style={[styles.card, { width: cardW }]}
-                  onPress={() => router.push('/item-detail')}>
+                  onPress={() =>
+                    router.push({ pathname: '/item-detail', params: { id: it.id } })
+                  }>
                   <View style={[styles.cardImage, { height: cardH }]}>
                     <SmartImage
                       uri={it.image}
