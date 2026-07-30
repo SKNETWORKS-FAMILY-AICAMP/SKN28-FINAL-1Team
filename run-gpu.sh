@@ -1,7 +1,7 @@
 cd "$(dirname "$0")"
 
 # 1단계: Infisical에서 시크릿을 .env 파일로 내보내기 (실패 시 중단)
-infisical export --env=gpu --output-file=./.env
+infisical export --env=gpu --format=dotenv --output-file=./.env
 
 # 2단계: Docker Compose 실행 (.env를 읽어 컨테이너에 주입)
 # Swagger/noauth 모드는 별도 compose 파일 없이 .env의 DJANGO_SETTINGS_MODULE로 제어한다
