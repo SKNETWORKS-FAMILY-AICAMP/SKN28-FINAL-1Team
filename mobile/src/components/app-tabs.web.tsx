@@ -35,6 +35,9 @@ const CALENDAR_TAB = { name: 'calendar', href: '/calendar', icon: 'calendar', la
    TabTrigger 가 트리에 없으면 expo-router 가 라우트를 인식 못 해 엉뚱한 탭이 열리므로 등록만 해 둔다.
    (탭 그룹 밖 화면은 사이드바 없이 전체폭으로 떠 사이드바가 사라진다. icon 은 hidden 이라 표시 안 됨.) */
 const HIDDEN_ROUTES = [
+  /* 채팅 목록 — 사이드바에는 '새 채팅'만 두지만, 라우트로 등록해 두지 않으면
+     대화 화면의 뒤로가기(navigate '/(tabs)/chat')가 조용히 무시된다. */
+  { name: 'chat', href: '/chat', icon: 'bubble.left', label: '채팅' },
   { name: 'chat-room', href: '/chat-room', icon: 'bubble.left', label: '대화' },
   { name: 'look-detail', href: '/look-detail', icon: 'book', label: '추천 룩' },
   { name: 'fitting', href: '/fitting', icon: 'sparkles', label: '가상 피팅' },

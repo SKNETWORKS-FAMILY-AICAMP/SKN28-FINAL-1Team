@@ -99,16 +99,19 @@ const styles = StyleSheet.create({
   title: { fontFamily: Fonts.serif, fontSize: 28, color: INK, marginTop: 10 },
   lead: { fontSize: 14, color: Editorial.textCaption, marginTop: 10 },
 
-  cards: { paddingHorizontal: 24, paddingTop: 24, gap: 14 },
+  /* 두 카드를 한 줄에 나란히 — 고를 것이 둘뿐이라 위아래로 쌓으면 비교가 어렵다. */
+  cards: { flexDirection: 'row', paddingHorizontal: 24, paddingTop: 24, gap: 14 },
   card: {
+    flex: 1,
     borderWidth: 1,
     borderColor: ink(0.1),
     borderRadius: 20,
     padding: 20,
     gap: 12,
   },
-  // 아이콘과 제목을 한 줄에. 제목이 길어지면 아이콘은 그대로 두고 제목만 줄바꿈된다.
-  cardHead: { flexDirection: 'row', alignItems: 'center', gap: 14 },
+  /* 카드 폭이 절반이 되므로 아이콘을 제목 옆이 아니라 위에 둔다. 옆에 두면
+     좁은 화면에서 제목이 아이콘 옆 좁은 틈으로 밀려 줄줄이 쪼개진다. */
+  cardHead: { alignItems: 'flex-start', gap: 12 },
   cardIcon: {
     width: 52,
     height: 52,
@@ -119,10 +122,11 @@ const styles = StyleSheet.create({
     // 배경은 두 카드 공통. 모드별로 다른 건 아이콘 글리프와 점 색(m.tint)뿐이다.
     backgroundColor: Editorial.surface,
   },
-  cardTitle: { flex: 1, fontFamily: Fonts.serif, fontSize: 20, color: INK },
+  cardTitle: { fontFamily: Fonts.serif, fontSize: 20, color: INK },
   cardDesc: { fontSize: 13.5, color: Editorial.textCaption, lineHeight: 20 },
   cardFoot: { flexDirection: 'row', alignItems: 'center', gap: 7, marginTop: 4 },
-  dot: { width: 6, height: 6, borderRadius: 3 },
-  cardNote: { fontSize: 12, color: Editorial.textCaption, fontWeight: '500' },
+  dot: { width: 6, height: 6, borderRadius: 3, flexShrink: 0 },
+  // 좁은 카드에서 화살표를 밀어내지 않고 스스로 줄바꿈되게
+  cardNote: { flexShrink: 1, fontSize: 12, color: Editorial.textCaption, fontWeight: '500' },
   spacer: { flex: 1 },
 });

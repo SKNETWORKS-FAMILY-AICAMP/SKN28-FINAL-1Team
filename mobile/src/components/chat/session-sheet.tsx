@@ -3,7 +3,8 @@ import { Modal, Pressable, StyleSheet, Text, TextInput, View } from 'react-nativ
 
 import { Icon } from '@/components/icon';
 import { useConfirm, useToast } from '@/components/ui';
-import { Editorial, ink, Type } from '@/constants/theme';
+import { ContentMax, Editorial, ink, Type } from '@/constants/theme';
+import { useBreakpoint } from '@/hooks/use-breakpoint';
 import { chatStore, type ChatSession } from '@/state/chat';
 
 const INK = Editorial.ink;
@@ -27,6 +28,7 @@ export function ChatSessionSheet({
   onDeleted,
 }: ChatSessionSheetProps) {
   const [draft, setDraft] = useState(session?.title ?? '');
+  const { isDesktop } = useBreakpoint();
   const confirm = useConfirm();
   const toast = useToast();
 
@@ -68,7 +70,9 @@ export function ChatSessionSheet({
   return (
     <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
       <Pressable style={styles.backdrop} onPress={onClose}>
-        <Pressable style={styles.sheet} onPress={(e) => e.stopPropagation()}>
+        <Pressable
+          style={[styles.sheet, isDesktop && styles.sheetDesktop]}
+          onPress={(e) => e.stopPropagation()}>
           <View style={styles.handle} />
           <Text style={styles.title}>대화 관리</Text>
 
@@ -117,6 +121,15 @@ const styles = StyleSheet.create({
     borderTopRightRadius: 20,
     paddingHorizontal: 20,
     paddingBottom: 32,
+  },
+  /* 데스크톱에선 창 폭을 다 쓰지 않는다 — 모드 카드가 놓이는 열과 같은 폭으로 맞춘다. */
+  sheetDesktop: {
+    width: '100%',
+    maxWidth: ContentMax.narrow,
+    marginHorizontal: 'auto',
+    borderBottomLeftRadius: 20,
+    borderBottomRightRadius: 20,
+    marginBottom: 24,
   },
   handle: {
     alignSelf: 'center',
