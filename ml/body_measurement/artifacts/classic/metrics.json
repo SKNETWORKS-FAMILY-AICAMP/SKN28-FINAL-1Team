@@ -1,0 +1,212 @@
+[
+  {
+    "model": "random_forest",
+    "target": "chest",
+    "mae": 2.6172253292785435,
+    "rmse": 3.3434550671177115,
+    "r2": 0.8518185126108846,
+    "p90_absolute_error": 5.288838532948441,
+    "fit_seconds": 0.5933330999687314,
+    "predict_ms_per_row": 0.12172502465546131
+  },
+  {
+    "model": "random_forest",
+    "target": "waist",
+    "mae": 3.520496576881121,
+    "rmse": 4.410722865843405,
+    "r2": 0.8111821835693158,
+    "p90_absolute_error": 6.884276296481282,
+    "fit_seconds": 0.5933330999687314,
+    "predict_ms_per_row": 0.12172502465546131
+  },
+  {
+    "model": "random_forest",
+    "target": "hip",
+    "mae": 2.5409548446111,
+    "rmse": 3.2685844314652113,
+    "r2": 0.7102637709861496,
+    "p90_absolute_error": 5.37506097217598,
+    "fit_seconds": 0.5933330999687314,
+    "predict_ms_per_row": 0.12172502465546131
+  },
+  {
+    "model": "random_forest",
+    "target": "thigh",
+    "mae": 2.4432634844433547,
+    "rmse": 3.1311629769516967,
+    "r2": 0.5952017687854492,
+    "p90_absolute_error": 5.223035791245795,
+    "fit_seconds": 0.5933330999687314,
+    "predict_ms_per_row": 0.12172502465546131
+  },
+  {
+    "model": "random_forest",
+    "target": "calf",
+    "mae": 1.1803381207228223,
+    "rmse": 1.512926027883234,
+    "r2": 0.7564081957091694,
+    "p90_absolute_error": 2.4445874177674103,
+    "fit_seconds": 0.5933330999687314,
+    "predict_ms_per_row": 0.12172502465546131
+  },
+  {
+    "model": "random_forest",
+    "target": "arm",
+    "mae": 1.1210545204981297,
+    "rmse": 1.4637667884752574,
+    "r2": 0.8117614652427749,
+    "p90_absolute_error": 2.1554925182225406,
+    "fit_seconds": 0.5933330999687314,
+    "predict_ms_per_row": 0.12172502465546131
+  },
+  {
+    "model": "random_forest",
+    "target": "shoulder",
+    "mae": 1.2053575763569333,
+    "rmse": 1.5286789589247625,
+    "r2": 0.7054260668948114,
+    "p90_absolute_error": 2.5027425267325314,
+    "fit_seconds": 0.5933330999687314,
+    "predict_ms_per_row": 0.12172502465546131
+  },
+  {
+    "model": "hist_gradient_boosting",
+    "target": "chest",
+    "mae": 2.6017895943232183,
+    "rmse": 3.340310313804503,
+    "r2": 0.8520971316226523,
+    "p90_absolute_error": 5.221412053101364,
+    "fit_seconds": 8.235076300101355,
+    "predict_ms_per_row": 0.2158544651462063
+  },
+  {
+    "model": "hist_gradient_boosting",
+    "target": "waist",
+    "mae": 3.468023203587653,
+    "rmse": 4.334879779551875,
+    "r2": 0.8176198603437803,
+    "p90_absolute_error": 6.816678958981407,
+    "fit_seconds": 8.235076300101355,
+    "predict_ms_per_row": 0.2158544651462063
+  },
+  {
+    "model": "hist_gradient_boosting",
+    "target": "hip",
+    "mae": 2.5300981078743083,
+    "rmse": 3.2310053431517973,
+    "r2": 0.7168876985451397,
+    "p90_absolute_error": 5.3204327451342275,
+    "fit_seconds": 8.235076300101355,
+    "predict_ms_per_row": 0.2158544651462063
+  },
+  {
+    "model": "hist_gradient_boosting",
+    "target": "thigh",
+    "mae": 2.4243397937704225,
+    "rmse": 3.0997490168042217,
+    "r2": 0.603283447207237,
+    "p90_absolute_error": 5.220923796384901,
+    "fit_seconds": 8.235076300101355,
+    "predict_ms_per_row": 0.2158544651462063
+  },
+  {
+    "model": "hist_gradient_boosting",
+    "target": "calf",
+    "mae": 1.1870669128439408,
+    "rmse": 1.5228080619055053,
+    "r2": 0.7532156482959822,
+    "p90_absolute_error": 2.468781263418281,
+    "fit_seconds": 8.235076300101355,
+    "predict_ms_per_row": 0.2158544651462063
+  },
+  {
+    "model": "hist_gradient_boosting",
+    "target": "arm",
+    "mae": 1.1426138900960467,
+    "rmse": 1.5061648303409094,
+    "r2": 0.8006988704612605,
+    "p90_absolute_error": 2.276694184995174,
+    "fit_seconds": 8.235076300101355,
+    "predict_ms_per_row": 0.2158544651462063
+  },
+  {
+    "model": "hist_gradient_boosting",
+    "target": "shoulder",
+    "mae": 1.2042806268875639,
+    "rmse": 1.533403338390902,
+    "r2": 0.7036024929868665,
+    "p90_absolute_error": 2.5154969074627638,
+    "fit_seconds": 8.235076300101355,
+    "predict_ms_per_row": 0.2158544651462063
+  },
+  {
+    "model": "knn",
+    "target": "chest",
+    "mae": 2.6309330774901327,
+    "rmse": 3.3906969980217463,
+    "r2": 0.8476014162309352,
+    "p90_absolute_error": 5.370911295075851,
+    "fit_seconds": 0.0062658998649567366,
+    "predict_ms_per_row": 0.00784435730804054
+  },
+  {
+    "model": "knn",
+    "target": "waist",
+    "mae": 3.4829980489770382,
+    "rmse": 4.39678619912902,
+    "r2": 0.8123735227963321,
+    "p90_absolute_error": 6.817789604233747,
+    "fit_seconds": 0.0062658998649567366,
+    "predict_ms_per_row": 0.00784435730804054
+  },
+  {
+    "model": "knn",
+    "target": "hip",
+    "mae": 2.529503813161418,
+    "rmse": 3.283046437880677,
+    "r2": 0.7076941956318442,
+    "p90_absolute_error": 5.341685303411195,
+    "fit_seconds": 0.0062658998649567366,
+    "predict_ms_per_row": 0.00784435730804054
+  },
+  {
+    "model": "knn",
+    "target": "thigh",
+    "mae": 2.419922545351775,
+    "rmse": 3.1375865324451735,
+    "r2": 0.5935391845567246,
+    "p90_absolute_error": 5.139137287225679,
+    "fit_seconds": 0.0062658998649567366,
+    "predict_ms_per_row": 0.00784435730804054
+  },
+  {
+    "model": "knn",
+    "target": "calf",
+    "mae": 1.177732059240793,
+    "rmse": 1.5166457870301226,
+    "r2": 0.7552089080753487,
+    "p90_absolute_error": 2.438678820113779,
+    "fit_seconds": 0.0062658998649567366,
+    "predict_ms_per_row": 0.00784435730804054
+  },
+  {
+    "model": "knn",
+    "target": "arm",
+    "mae": 1.1253305347074976,
+    "rmse": 1.477696912561564,
+    "r2": 0.8081616249500955,
+    "p90_absolute_error": 2.197672930763499,
+    "fit_seconds": 0.0062658998649567366,
+    "predict_ms_per_row": 0.00784435730804054
+  },
+  {
+    "model": "knn",
+    "target": "shoulder",
+    "mae": 1.206846525193617,
+    "rmse": 1.5403251736220736,
+    "r2": 0.7009205564284297,
+    "p90_absolute_error": 2.523473296203347,
+    "fit_seconds": 0.0062658998649567366,
+    "predict_ms_per_row": 0.00784435730804054
+  }
+]

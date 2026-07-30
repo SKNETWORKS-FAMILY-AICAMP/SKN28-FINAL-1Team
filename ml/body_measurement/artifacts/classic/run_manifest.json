@@ -1,0 +1,50 @@
+{
+  "created_at": "2026-07-30T05:21:42.254096+00:00",
+  "random_state": 42,
+  "features": [
+    "height",
+    "weight"
+  ],
+  "targets": [
+    "chest",
+    "waist",
+    "hip",
+    "thigh",
+    "calf",
+    "arm",
+    "shoulder"
+  ],
+  "models": [
+    "random_forest",
+    "hist_gradient_boosting",
+    "knn"
+  ],
+  "test_size": 0.2,
+  "dataset": {
+    "source": "C:\\Users\\Playdata\\Desktop\\SKN28-FINAL-1Team\\local\\sizekorea\\sizekorea_measurements_clean.csv",
+    "local_path": "C:\\Users\\Playdata\\Desktop\\SKN28-FINAL-1Team\\local\\sizekorea\\sizekorea_measurements_clean.csv",
+    "sha256": "16f4d07e5360edcf1b7dbfcdc6232473f2fe845a905e36dee23ef7c503b12f8e",
+    "sheet": "cleaned_csv",
+    "raw_rows": 5092,
+    "cleaned_rows": 5092,
+    "columns": {
+      "height": "height",
+      "weight": "weight",
+      "chest": "chest",
+      "waist": "waist",
+      "hip": "hip",
+      "thigh": "thigh",
+      "calf": "calf",
+      "arm": "arm",
+      "shoulder": "shoulder"
+    }
+  },
+  "sample": {
+    "height": 170.0,
+    "weight": 65.0
+  },
+  "versions": {
+    "numpy": "2.4.3",
+    "pandas": "3.0.1"
+  }
+}
