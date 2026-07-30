@@ -11,7 +11,7 @@ S3_KEY = (
     "22.사이즈코리아/"
     "8차 인체치수조사(2020~24)_치수데이터(공개용).xlsx"
 )
-LOCAL_PATH = Path("local/sizekorea/sizekorea_8th.xlsx")
+LOCAL_PATH = Path(__file__).resolve().parent.parent / "data" / "raw" / "sizekorea_8th.xlsx"
 COLUMN_MAP = {
     "002. 키":"height",
     "125. 몸무게":"weight",
@@ -46,9 +46,7 @@ VALID_RANGES = {
     "shoulder" : (20, 80),
 }
 
-OUTPUT_PATH = Path(
-    "local/sizekorea/sizekorea_measurements_clean.csv"
-)
+OUTPUT_PATH = Path(__file__).resolve().parent.parent / "data" / "sizekorea_measurements_clean.csv"
 
 def download_excel() -> Path:
     """S3에서 SizeKorea Excel을 다운로드하고 로컬 경로를 반환한다."""      

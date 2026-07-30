@@ -10,9 +10,7 @@ from sklearn.ensemble import RandomForestRegressor, HistGradientBoostingRegresso
 from sklearn.multioutput import MultiOutputRegressor
 from sklearn.neighbors import KNeighborsRegressor
 
-DATA_PATH = Path(
-    "local/sizekorea/sizekorea_measurements_clean.csv"
-)
+DATA_PATH = Path(__file__).resolve().parent.parent / "data" / "sizekorea_measurements_clean.csv"
 
 # 사용자가 모델에 입력할 값
 INPUT_COLUMNS = [

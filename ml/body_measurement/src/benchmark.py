@@ -24,7 +24,7 @@ import numpy as np
 import pandas as pd
 from sklearn.base import RegressorMixin
 from sklearn.ensemble import HistGradientBoostingRegressor, RandomForestRegressor
-from sklearn.metrics import mean_absolute_error, mean_squared_error
+from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
 from sklearn.model_selection import train_test_split
 from sklearn.multioutput import MultiOutputRegressor
 from sklearn.neighbors import KNeighborsRegressor
@@ -72,13 +72,14 @@ class Predictor(Protocol):
 class Metric:
     """모델 하나가 target 하나를 예측했을 때의 성능 기록이다.
 
-    예를 들어 random_forest가 chest를 예측한 MAE, RMSE, 속도를 한 줄로 저장한다.
+    예를 들어 random_forest가 chest를 예측한 MAE, RMSE, R², 속도를 한 줄로 저장한다.
     """
 
     model: str
     target: str
     mae: float
     rmse: float
+    r2: float
     p90_absolute_error: float
     fit_seconds: float
     predict_ms_per_row: float
@@ -494,6 +495,7 @@ def benchmark(
                     rmse=float(
                         math.sqrt(mean_squared_error(actual, predicted))
                     ),
+                    r2=float(r2_score(actual, predicted)),
                     p90_absolute_error=float(
                         np.quantile(absolute_errors, 0.9)
                     ),
@@ -630,7 +632,7 @@ def parse_args() -> argparse.Namespace:
     benchmark_parser.add_argument(
         "--artifact-dir",
         type=Path,
-        default=Path("ml/body_measurement/artifacts/local"),
+        default=Path(__file__).resolve().parent.parent / "artifacts" / "classic",
     )
     benchmark_parser.add_argument(
         "--cache-dir",
@@ -660,7 +662,7 @@ def parse_args() -> argparse.Namespace:
     predict_parser.add_argument(
         "--artifact-dir",
         type=Path,
-        default=Path("ml/body_measurement/artifacts/local"),
+        default=Path(__file__).resolve().parent.parent / "artifacts" / "classic",
     )
     return parser.parse_args()
 
@@ -712,6 +714,7 @@ def main() -> None:
             .agg(
                 mean_mae=("mae", "mean"),
                 mean_rmse=("rmse", "mean"),
+                mean_r2=("r2", "mean"),
                 mean_p90_error=("p90_absolute_error", "mean"),
                 fit_seconds=("fit_seconds", "max"),
                 predict_ms_per_row=("predict_ms_per_row", "max"),
