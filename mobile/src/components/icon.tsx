@@ -29,6 +29,7 @@ const MAP = {
   'figure.stand': 'body-outline',
   'exclamationmark.triangle': 'warning-outline',
   'ellipsis': 'ellipsis-horizontal',
+  'line.3.horizontal': 'menu',
   'checkmark': 'checkmark',
   'xmark': 'close',
   'checkmark.circle.fill': 'checkmark-circle',

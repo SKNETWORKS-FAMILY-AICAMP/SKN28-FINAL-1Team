@@ -4,7 +4,7 @@ import { Tabs, TabList, TabTrigger, TabSlot, TabTriggerSlotProps } from 'expo-ro
 import { Pressable, View, Text, StyleSheet } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import { Editorial, Fonts, ink } from '@/constants/theme';
+import { ChatPanelWidth, Editorial, Fonts, ink } from '@/constants/theme';
 import { useBreakpoint } from '@/hooks/use-breakpoint';
 
 import { ChatConversation } from './chat/chat-conversation';
@@ -14,9 +14,6 @@ const INK = Editorial.ink;
 
 /** 데스크톱 사이드바 폭 */
 const SIDEBAR_W = 232;
-
-/** 우측 채팅 패널 폭 — 대화는 폭이 넓을수록 읽기 어려워 고정한다. */
-const CHAT_PANEL_W = 400;
 
 // 채팅은 탭이 아니라 + 버튼에서 시작한다.
 const TABS = [
@@ -248,7 +245,7 @@ const styles = StyleSheet.create({
 
   // 우측 채팅 패널 (≥1280)
   chatPanel: {
-    width: CHAT_PANEL_W,
+    width: ChatPanelWidth,
     borderLeftWidth: 1,
     borderLeftColor: ink(0.08),
     backgroundColor: Editorial.page,
