@@ -66,6 +66,34 @@ export function sessionPreview(session: ChatSession): string {
   return '사진을 보냈어요';
 }
 
+/** 검색이 훑을 글자. 사진 말풍선은 글자가 없어 검색되지 않는다. */
+function searchableText(m: ChatMessage): string {
+  if (m.kind === 'text') return m.text;
+  if (m.kind === 'rec') return `${m.title} ${m.tags.join(' ')}`;
+  return '';
+}
+
+/** 제목과 대화 내용으로 찾는다. 대소문자 구분 없는 부분 일치. */
+export function sessionMatches(session: ChatSession, query: string): boolean {
+  const q = query.trim().toLowerCase();
+  if (!q) return true;
+  if (session.title.toLowerCase().includes(q)) return true;
+  return session.messages.some((m) => searchableText(m).toLowerCase().includes(q));
+}
+
+/**
+ * 검색 결과의 미리보기 — 검색어가 걸린 말풍선을 보여준다.
+ * 마지막 대화를 그대로 두면 '왜 이게 결과인지' 알 수 없다.
+ */
+export function searchPreview(session: ChatSession, query: string): string {
+  const q = query.trim().toLowerCase();
+  if (!q) return sessionPreview(session);
+  const hit = session.messages.find((m) => searchableText(m).toLowerCase().includes(q));
+  if (!hit) return sessionPreview(session);
+  if (hit.kind === 'rec') return `추천 · ${hit.title}`;
+  return searchableText(hit).replace(/\n/g, ' ');
+}
+
 /* ── 시드 ─────────────────────────────────────────────
    데모용 지난 대화. 시각은 모듈이 로드된 시점 기준으로 벌려 둔다. */
 const seededAt = Date.now();
@@ -242,6 +270,15 @@ export function useChatSession(id: string | undefined): ChatSession | undefined 
 export function useLatestSession(): ChatSession | undefined {
   const all = useChatSessions();
   return sortByRecent(all)[0];
+}
+
+/**
+ * 검색 결과 — 모드로 묶지 않고 최근 순 한 줄로 준다.
+ * 찾는 사람은 '어느 모드였는지'가 아니라 '어느 대화였는지'를 좇는다.
+ */
+export function useSearchedSessions(query: string): ChatSession[] {
+  const all = useChatSessions();
+  return sortByRecent(all.filter((s) => sessionMatches(s, query)));
 }
 
 /** 모드별로 묶은 목록 — 각 모드 안에서는 최근 대화가 위로 온다. */
