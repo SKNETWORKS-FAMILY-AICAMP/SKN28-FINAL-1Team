@@ -21,7 +21,7 @@ const TODAY = todayKey();
 // B2 착장 캘린더 — 월 그리드 + 선택일 상세(기록·공유)
 export default function Calendar() {
   const { isLoggedIn } = useAuth();
-  const { contentStyle } = useBreakpoint();
+  const { contentStyle, isDesktop, height } = useBreakpoint();
   const entries = useCalendarEntries();
 
   const now = useMemo(() => new Date(), []);
@@ -42,6 +42,16 @@ export default function Calendar() {
   }, [view, selectedDay]);
 
   const entry = entries[selectedKey];
+
+  /* 데스크톱에선 달력이 스크롤 없이 한 화면에 들어와야 한다.
+     화면 높이에서 머리(화면 헤더·월 네비·요일 줄)와 아래 여백으로 쓰이는 몫을 뺀 나머지를
+     그 달의 주 수로 나눠 셀 높이를 정한다. 모바일은 기존처럼 가로:세로 비율로 둔다
+     (한 손 스크롤이 자연스럽고, 셀을 줄이면 사진이 너무 작아진다). */
+  const weeks = Math.ceil(cells.length / 7);
+  const CHROME = 200;
+  const cellHeight = isDesktop
+    ? Math.max(72, Math.floor((height - CHROME) / weeks))
+    : undefined;
 
   const moveMonth = (delta: number) => {
     const d = new Date(view.year, view.month - 1 + delta, 1);
@@ -64,7 +74,7 @@ export default function Calendar() {
   return (
     <View style={styles.container}>
       <SafeAreaView edges={['top']} style={styles.headerSafe}>
-        <View style={[styles.header, contentStyle(ContentMax.default)]}>
+        <View style={[styles.header, contentStyle(ContentMax.wide)]}>
           <Pressable hitSlop={12} onPress={() => goBack('/(tabs)/home')}>
             <Icon name="chevron.left" tintColor={INK} size={20} />
           </Pressable>
@@ -77,7 +87,10 @@ export default function Calendar() {
 
       <ScrollView
         showsVerticalScrollIndicator={false}
-        contentContainerStyle={[styles.content, contentStyle(ContentMax.default)]}>
+        contentContainerStyle={[styles.content, contentStyle(ContentMax.wide)]}>
+        {/* 데스크톱은 달력 옆에 선택일 상세를 둔다 — 아래로 쌓으면 한 화면에 들어오지 않는다. */}
+        <View style={[isDesktop && styles.twoPane]}>
+        <View style={[isDesktop && styles.calendarCol]}>
         {/* 월 네비 */}
         <View style={styles.monthRow}>
           <Pressable hitSlop={10} onPress={() => moveMonth(-1)}>
@@ -109,12 +122,14 @@ export default function Calendar() {
         {/* 날짜 그리드 — 기록이 있는 날은 룩 사진이 셀 배경이 된다 */}
         <View style={styles.grid}>
           {cells.map((day, idx) => {
-            if (day === null) return <View key={`e${idx}`} style={styles.cell} />;
+            // 높이를 정해 주면 aspectRatio 는 무시된다 → 데스크톱만 계산값을 얹는다.
+            const cellStyle = [styles.cell, cellHeight ? { height: cellHeight } : styles.cellRatio];
+            if (day === null) return <View key={`e${idx}`} style={cellStyle} />;
             const key = toDateKey(view.year, view.month, day);
             const rec = entries[key];
             const on = day === selectedDay;
             return (
-              <Pressable key={day} style={styles.cell} onPress={() => setSelectedDay(day)}>
+              <Pressable key={day} style={cellStyle} onPress={() => setSelectedDay(day)}>
                 <View style={[styles.dayInner, on && styles.dayInnerOn]}>
                   {rec?.photo ? (
                     <>
@@ -143,9 +158,10 @@ export default function Calendar() {
             );
           })}
         </View>
+        </View>
 
         {/* 선택일 상세 */}
-        <View style={styles.detail}>
+        <View style={[styles.detail, isDesktop && styles.detailCol]}>
           <View style={styles.detailHead}>
             <Text style={styles.detailDate}>
               {view.month}월 {selectedDay}일
@@ -214,6 +230,7 @@ export default function Calendar() {
             </View>
           )}
         </View>
+        </View>
       </ScrollView>
 
       {entry ? (
@@ -260,8 +277,15 @@ const styles = StyleSheet.create({
     fontWeight: '500',
   },
 
+  /* 데스크톱 2단 — 왼쪽 달력이 남는 폭을 채우고, 오른쪽 상세는 고정 폭. */
+  twoPane: { flexDirection: 'row', alignItems: 'flex-start', gap: 28 },
+  calendarCol: { flex: 1, minWidth: 0 },
+  detailCol: { width: 320, flexShrink: 0, marginTop: 16 },
+
   grid: { flexDirection: 'row', flexWrap: 'wrap' },
-  cell: { width: `${100 / 7}%`, aspectRatio: 0.82, alignItems: 'center', justifyContent: 'center' },
+  cell: { width: `${100 / 7}%`, alignItems: 'center', justifyContent: 'center' },
+  // 모바일 기본 — 높이를 정하지 않고 가로:세로 비율로 둔다.
+  cellRatio: { aspectRatio: 0.82 },
   dayInner: {
     width: '86%',
     height: '90%',
