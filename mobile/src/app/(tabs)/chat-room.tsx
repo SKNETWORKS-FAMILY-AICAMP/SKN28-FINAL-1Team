@@ -1,10 +1,11 @@
 import { goBack } from '@/lib/goBack';
 import { useLocalSearchParams } from 'expo-router';
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { ChatConversation } from '@/components/chat/chat-conversation';
+import { ChatSessionSheet } from '@/components/chat/session-sheet';
 import { Icon } from '@/components/icon';
 import { ContentMax, Editorial, ink } from '@/constants/theme';
 import { useBreakpoint } from '@/hooks/use-breakpoint';
@@ -25,6 +26,7 @@ export default function ChatRoom() {
   const requested = useChatSession(id);
   const latest = useLatestSession();
   const session = requested ?? latest;
+  const [managing, setManaging] = useState(false);
 
   useEffect(() => {
     if (!session) chatStore.createSession('taste');
@@ -48,7 +50,7 @@ export default function ChatRoom() {
               <Text style={styles.modeText}>{mode.label}</Text>
             </View>
           </View>
-          <Pressable hitSlop={12}>
+          <Pressable hitSlop={12} onPress={() => setManaging(true)} accessibilityLabel="대화 관리">
             <Icon name="ellipsis" tintColor={ink(0.5)} size={18} />
           </Pressable>
         </View>
@@ -56,6 +58,13 @@ export default function ChatRoom() {
       <View style={styles.divider} />
 
       <ChatConversation variant="screen" sessionId={session.id} />
+
+      <ChatSessionSheet
+        visible={managing}
+        session={session}
+        onClose={() => setManaging(false)}
+        onDeleted={() => goBack('/(tabs)/chat')}
+      />
     </View>
   );
 }

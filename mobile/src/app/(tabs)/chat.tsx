@@ -4,10 +4,11 @@ import { useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import { ChatSessionSheet } from '@/components/chat/session-sheet';
 import { EmptyState } from '@/components/ui';
 import { Editorial, ink, BottomTabInset, Fonts , ContentMax} from '@/constants/theme';
 import { useBreakpoint } from '@/hooks/use-breakpoint';
-import { formatRelativeTime, sessionPreview, useChatGroups } from '@/state/chat';
+import { chatStore, formatRelativeTime, sessionPreview, useChatGroups } from '@/state/chat';
 
 const INK = Editorial.ink;
 
@@ -17,6 +18,9 @@ export default function ChatScreen() {
   const groups = useChatGroups();
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
   const toggle = (mode: string) => setCollapsed((c) => ({ ...c, [mode]: !c[mode] }));
+
+  /* 관리 시트는 id 로 열어 둔다 — 세션 객체를 담아두면 이름을 바꾼 뒤 옛 값이 남는다. */
+  const [managingId, setManagingId] = useState<string | null>(null);
 
   const isEmpty = groups.every((g) => g.sessions.length === 0);
 
@@ -86,12 +90,25 @@ export default function ChatScreen() {
                     </View>
                     <Text style={styles.sessionLast} numberOfLines={1}>{sessionPreview(s)}</Text>
                   </View>
+                  <Pressable
+                    hitSlop={10}
+                    style={styles.sessionMore}
+                    onPress={() => setManagingId(s.id)}
+                    accessibilityLabel={`${s.title} 관리`}>
+                    <Icon name="ellipsis" tintColor={ink(0.4)} size={16} />
+                  </Pressable>
                 </Pressable>
               ))}
             </View>
             );
           })}
         </ScrollView>
+
+        <ChatSessionSheet
+          visible={managingId !== null}
+          session={chatStore.getSession(managingId ?? undefined)}
+          onClose={() => setManagingId(null)}
+        />
       </SafeAreaView>
     </View>
   );
@@ -168,4 +185,5 @@ const styles = StyleSheet.create({
   sessionTitle: { flex: 1, fontSize: 14.5, fontWeight: '500', color: Editorial.ink },
   sessionTime: { fontSize: 11, color: Editorial.textCaption, marginLeft: 8 },
   sessionLast: { fontSize: 12.5, color: Editorial.textCaption },
+  sessionMore: { paddingLeft: 4, paddingVertical: 6 },
 });
