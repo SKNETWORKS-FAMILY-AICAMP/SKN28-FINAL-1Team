@@ -2,9 +2,16 @@ import { useMemo, useState } from 'react';
 import { Modal, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 
 import { Icon } from '@/components/icon';
-import { SmartImage } from '@/components/ui';
+import { ErrorState, LoadingState, SmartImage } from '@/components/ui';
 import { ContentMax, Editorial, ink, Type } from '@/constants/theme';
-import { WARDROBE_SOURCES, type WardrobeSource } from '@/constants/wardrobe';
+import {
+  LIBRARY_ITEMS,
+  SHARED_CLOSET_ITEMS,
+  type WardrobeItem,
+  type WardrobeSource,
+} from '@/constants/wardrobe';
+import { useWardrobeItems } from '@/hooks/use-wardrobe';
+import { itemDisplayName } from '@/lib/wardrobeApi';
 import { entryItemKey, toEntryItem, type EntryItem } from '@/state/calendar';
 
 const INK = Editorial.ink;
@@ -41,7 +48,37 @@ export function ItemPickerSheet({
     if (visible) setDraft(selected);
   }
 
-  const source = WARDROBE_SOURCES.find((s) => s.key === tab)!;
+  /* '내 옷장'은 서버가 출처다 — 옷장 화면이 실 API 를 보는데 여기서 목업 옷을 고르게 하면
+     옷장에 없는 옷이 착장 기록에 남는다. 시트를 열 때만 조회한다.
+     '앱 추천'·'친구 옷장'은 아직 백엔드가 없어 목업을 그대로 쓴다. */
+  const { items: apiItems, loading, error, reload } = useWardrobeItems(
+    { confirmed: true },
+    visible,
+  );
+
+  const closetItems = useMemo<WardrobeItem[]>(
+    () =>
+      apiItems.map((i) => ({
+        id: i.id,
+        name: itemDisplayName(i),
+        category: i.category_large,
+        // tone 은 사진이 없을 때의 대체 면 색. 서버 아이템은 사진이 있어 쓰이지 않는다.
+        tone: 0.12,
+        image: i.image_url,
+      })),
+    [apiItems],
+  );
+
+  const sources = useMemo(
+    () => [
+      { key: 'closet' as WardrobeSource, label: '내 옷장', items: closetItems },
+      { key: 'library' as WardrobeSource, label: '앱 추천', items: LIBRARY_ITEMS },
+      { key: 'shared' as WardrobeSource, label: '친구 옷장', items: SHARED_CLOSET_ITEMS },
+    ],
+    [closetItems],
+  );
+
+  const source = sources.find((s) => s.key === tab)!;
   const selectedKeys = useMemo(() => new Set(draft.map(entryItemKey)), [draft]);
   const cellWidth = gridWidth > 0 ? (gridWidth - GAP * (COLUMNS - 1)) / COLUMNS : 0;
 
@@ -63,7 +100,7 @@ export function ItemPickerSheet({
           <Text style={styles.title}>옷 고르기</Text>
 
           <View style={styles.tabs}>
-            {WARDROBE_SOURCES.map((s) => {
+            {sources.map((s) => {
               const on = s.key === tab;
               return (
                 <Pressable
@@ -76,6 +113,25 @@ export function ItemPickerSheet({
             })}
           </View>
 
+          {/* 내 옷장만 서버에서 온다 */}
+          {tab === 'closet' && loading ? (
+            <LoadingState message="옷장을 불러오는 중…" style={styles.state} />
+          ) : tab === 'closet' && error ? (
+            <ErrorState
+              title="옷장을 불러오지 못했어요"
+              description={error}
+              onRetry={reload}
+              style={styles.state}
+            />
+          ) : source.items.length === 0 ? (
+            <View style={styles.state}>
+              <Text style={styles.emptyText}>
+                {tab === 'closet'
+                  ? '옷장에 등록한 옷이 없어요.'
+                  : '고를 수 있는 옷이 없어요.'}
+              </Text>
+            </View>
+          ) : (
           <ScrollView showsVerticalScrollIndicator={false} style={styles.scroll}>
             <View
               style={styles.grid}
@@ -108,6 +164,7 @@ export function ItemPickerSheet({
                 : null}
             </View>
           </ScrollView>
+          )}
 
           <Pressable
             style={styles.confirmBtn}
@@ -164,6 +221,8 @@ const styles = StyleSheet.create({
   tabTextOn: { color: '#fff' },
 
   scroll: { flexGrow: 0 },
+  state: { paddingVertical: 40, alignItems: 'center' },
+  emptyText: { fontSize: Type.caption, color: Editorial.textCaption },
   grid: { flexDirection: 'row', flexWrap: 'wrap', gap: GAP, paddingBottom: 8 },
   thumbWrap: { borderRadius: 12, borderWidth: 1, borderColor: Editorial.lineSoft, overflow: 'hidden' },
   thumbWrapOn: { borderWidth: 2, borderColor: Editorial.selected },

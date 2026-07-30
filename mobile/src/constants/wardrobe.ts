@@ -1,7 +1,11 @@
 /**
- * 옷 목업 데이터 — 옷장 화면과 '옷 고르기' 시트가 같은 목록을 봐야 하므로 여기로 통합.
- * (예전엔 closet.tsx / item-add-library.tsx 가 각자 배열을 들고 있었다.)
- * 백엔드가 붙으면 이 세 배열이 각각 API 응답으로 대체된다.
+ * 아직 백엔드가 없는 옷 목록의 목업.
+ *
+ * ⚠️ **내 옷장(CLOSET_ITEMS)은 더 이상 화면이 쓰지 않는다** — 옷장 화면과 캘린더 '옷 고르기'는
+ * 실 API(hooks/use-wardrobe.ts)를 본다. 남겨 둔 이유는 캘린더 시드 기록이 이 배열을 참조하기
+ * 때문이다(state/calendar.ts). 착장 기록이 서버로 옮겨가면 함께 지운다.
+ *
+ * SHARED_CLOSET_ITEMS(친구 옷장)·LIBRARY_ITEMS(앱 카탈로그)는 백엔드가 아직 없어 계속 목업이다.
  */
 
 /** 옷이 어디서 왔는지 — 캘린더 기록은 소스까지 함께 저장한다 */
@@ -167,10 +171,4 @@ export const LIBRARY_ITEMS: WardrobeItem[] = [
     brand: '마르디 메크르디',
     image: 'https://images.unsplash.com/photo-1515562141207-7a88fb7ce338?w=400&h=500&fit=crop',
   },
-];
-
-export const WARDROBE_SOURCES: { key: WardrobeSource; label: string; items: WardrobeItem[] }[] = [
-  { key: 'closet', label: '내 옷장', items: CLOSET_ITEMS },
-  { key: 'library', label: '앱 추천', items: LIBRARY_ITEMS },
-  { key: 'shared', label: '친구 옷장', items: SHARED_CLOSET_ITEMS },
 ];
