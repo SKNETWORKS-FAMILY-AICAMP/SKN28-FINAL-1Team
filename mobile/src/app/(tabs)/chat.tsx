@@ -4,36 +4,21 @@ import { useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import { EmptyState } from '@/components/ui';
 import { Editorial, ink, BottomTabInset, Fonts , ContentMax} from '@/constants/theme';
 import { useBreakpoint } from '@/hooks/use-breakpoint';
+import { formatRelativeTime, sessionPreview, useChatGroups } from '@/state/chat';
 
 const INK = Editorial.ink;
-
-type Session = { id: string; title: string; last: string; time: string };
-const GROUPS: { mode: string; tint: string; sessions: Session[] }[] = [
-  {
-    mode: '추구미 반영',
-    tint: Editorial.wine,
-    sessions: [
-      { id: '1', title: '가을 데일리 미니멀', last: '이 니트에 슬랙스 매치 어때요?', time: '방금' },
-      { id: '2', title: '면접룩 추천', last: '차분한 네이비 코디로 정리했어요', time: '어제' },
-    ],
-  },
-  {
-    mode: '옷장 기반',
-    tint: Editorial.ink,
-    sessions: [
-      { id: '3', title: '내 트렌치로 코디', last: '보유하신 트렌치 3가지로 제안해요', time: '2일 전' },
-      { id: '4', title: '주말 브런치룩', last: '데님에 로퍼로 캐주얼하게', time: '3일 전' },
-    ],
-  },
-];
 
 // C1 채팅 탭 — 모드별 세션 목록 (그룹 접기 지원)
 export default function ChatScreen() {
   const { contentStyle } = useBreakpoint();
+  const groups = useChatGroups();
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
   const toggle = (mode: string) => setCollapsed((c) => ({ ...c, [mode]: !c[mode] }));
+
+  const isEmpty = groups.every((g) => g.sessions.length === 0);
 
   return (
     <View style={styles.container}>
@@ -58,13 +43,25 @@ export default function ChatScreen() {
         <ScrollView
           showsVerticalScrollIndicator={false}
           contentContainerStyle={[styles.content, contentStyle(ContentMax.narrow)]}>
-          {GROUPS.map((g) => {
+          {isEmpty ? (
+            <EmptyState
+              icon="bubble.left.and.bubble.right"
+              title="아직 대화가 없어요"
+              description="무엇을 입을지 물어보면 코지가 룩을 골라드려요."
+              actionLabel="새 채팅 시작하기"
+              onAction={() => router.push('/chat-mode')}
+              style={styles.empty}
+            />
+          ) : null}
+
+          {/* 대화가 하나도 없는 모드는 머리만 남으므로 그룹째 감춘다 */}
+          {groups.filter((g) => g.sessions.length > 0).map((g) => {
             const isCollapsed = collapsed[g.mode];
             return (
             <View key={g.mode} style={styles.group}>
               <Pressable style={styles.groupHead} onPress={() => toggle(g.mode)} hitSlop={8}>
                 <View style={[styles.modeDot, { backgroundColor: g.tint }]} />
-                <Text style={styles.groupTitle}>{g.mode}</Text>
+                <Text style={styles.groupTitle}>{g.label}</Text>
                 <Text style={styles.groupCount}>{g.sessions.length}</Text>
                 <View style={styles.groupSpacer} />
                 <Icon
@@ -78,16 +75,16 @@ export default function ChatScreen() {
                 <Pressable
                   key={s.id}
                   style={styles.session}
-                  onPress={() => router.push('/chat-room')}>
+                  onPress={() => router.push({ pathname: '/chat-room', params: { id: s.id } })}>
                   <View style={[styles.thumb, { backgroundColor: `${g.tint}14` }]}>
                     <Icon name="bubble.left.and.bubble.right" tintColor={g.tint} size={18} />
                   </View>
                   <View style={styles.sessionBody}>
                     <View style={styles.sessionTop}>
                       <Text style={styles.sessionTitle} numberOfLines={1}>{s.title}</Text>
-                      <Text style={styles.sessionTime}>{s.time}</Text>
+                      <Text style={styles.sessionTime}>{formatRelativeTime(s.updatedAt)}</Text>
                     </View>
-                    <Text style={styles.sessionLast} numberOfLines={1}>{s.last}</Text>
+                    <Text style={styles.sessionLast} numberOfLines={1}>{sessionPreview(s)}</Text>
                   </View>
                 </Pressable>
               ))}
@@ -139,6 +136,7 @@ const styles = StyleSheet.create({
   searchPlaceholder: { fontSize: 13.5, color: Editorial.textCaption },
 
   content: { paddingHorizontal: 20, paddingTop: 8, paddingBottom: BottomTabInset + 24 },
+  empty: { paddingTop: 60 },
   group: { marginTop: 20 },
   groupHead: { flexDirection: 'row', alignItems: 'center', gap: 7, marginBottom: 8, paddingVertical: 4 },
   modeDot: { width: 7, height: 7, borderRadius: 3.5 },

@@ -6,23 +6,22 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { Editorial, ink, ContentMax, Fonts } from '@/constants/theme';
 import { useBreakpoint } from '@/hooks/use-breakpoint';
+import { CHAT_MODE_META, chatStore, type ChatMode as Mode } from '@/state/chat';
 
 const INK = Editorial.ink;
-const WINE = Editorial.wine;
 
-type Mode = {
-  key: string;
+/** 카드 문구는 이 화면만의 것이고, 이름·색은 목록과 공유한다(CHAT_MODE_META). */
+type ModeCard = {
+  key: Mode;
   icon: IconName;
-  tint: string;
   title: string;
   desc: string;
   note: string;
 };
-const MODES: Mode[] = [
+const MODES: ModeCard[] = [
   {
     key: 'taste',
     icon: 'sparkles',
-    tint: WINE,
     title: '추구미 반영 추천',
     desc: '설정한 취향과 무드를 반영해\n새로운 룩을 제안해요.',
     note: '옷장에 없는 아이템도 추천',
@@ -30,7 +29,6 @@ const MODES: Mode[] = [
   {
     key: 'closet',
     icon: 'tshirt',
-    tint: INK,
     title: '옷장 기반 추천',
     desc: '지금 가지고 있는 옷들로\n입을 수 있는 코디를 짜드려요.',
     note: '내 옷장 42개로 조합',
@@ -40,6 +38,14 @@ const MODES: Mode[] = [
 // C3 모드 선택 — 새 대화의 추천 방식 고르기
 export default function ChatMode() {
   const { contentStyle } = useBreakpoint();
+
+  /* 여기서 세션을 만들고 대화 화면으로 넘긴다. replace 인 이유 — 모드 선택은 대화로 가는
+     경유지라, 대화에서 뒤로 가면 이 화면이 아니라 목록으로 돌아가야 한다. */
+  const startChat = (mode: Mode) => {
+    const session = chatStore.createSession(mode);
+    router.replace({ pathname: '/chat-room', params: { id: session.id } });
+  };
+
   return (
     <View style={styles.container}>
       <SafeAreaView edges={['top', 'bottom']} style={styles.safe}>
@@ -60,16 +66,16 @@ export default function ChatMode() {
             <Pressable
               key={m.key}
               style={styles.card}
-              onPress={() => router.push('/chat-room')}>
+              onPress={() => startChat(m.key)}>
               <View style={styles.cardHead}>
                 <View style={styles.cardIcon}>
-                  <Icon name={m.icon} tintColor={m.tint} size={24} />
+                  <Icon name={m.icon} tintColor={CHAT_MODE_META[m.key].tint} size={24} />
                 </View>
                 <Text style={styles.cardTitle}>{m.title}</Text>
               </View>
               <Text style={styles.cardDesc}>{m.desc}</Text>
               <View style={styles.cardFoot}>
-                <View style={[styles.dot, { backgroundColor: m.tint }]} />
+                <View style={[styles.dot, { backgroundColor: CHAT_MODE_META[m.key].tint }]} />
                 <Text style={styles.cardNote}>{m.note}</Text>
                 <View style={styles.spacer} />
                 <Icon name="arrow.right" tintColor={ink(0.35)} size={16} />
