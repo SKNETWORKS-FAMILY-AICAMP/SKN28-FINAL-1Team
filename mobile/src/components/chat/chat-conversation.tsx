@@ -1,5 +1,5 @@
 import { router } from 'expo-router';
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   Animated,
   KeyboardAvoidingView,
@@ -17,33 +17,15 @@ import { Icon } from '@/components/icon';
 import { useToast } from '@/components/ui';
 import { ContentMax, Editorial, Fonts, ink } from '@/constants/theme';
 import { useBreakpoint } from '@/hooks/use-breakpoint';
+import { chatStore, nextMessageId, useChatSession, type ChatMessage } from '@/state/chat';
 
 const INK = Editorial.ink;
 const BONE = Editorial.bone;
 
 const QUICK = ['더 캐주얼하게', '다른 색으로', '아우터 추천', '신발만 바꿔줘'];
 
-type Msg =
-  | { id: string; role: 'ai' | 'user'; kind: 'text'; text: string }
-  | { id: string; role: 'user'; kind: 'image' }
-  | { id: string; role: 'ai'; kind: 'rec'; title: string; tags: string[] }
-  | { id: string; role: 'ai'; kind: 'typing' };
-
-/** 대화 화면(/chat-room)에서 쓰는 예시 대화 */
-const SEED: Msg[] = [
-  {
-    id: 'a1',
-    role: 'ai',
-    kind: 'text',
-    text: '안녕하세요 코지님! 오늘 서울은 8도로 쌀쌀해요.\n미니멀한 무드로 따뜻한 코디 골라봤어요.',
-  },
-  { id: 'u1', role: 'user', kind: 'text', text: '출근할 때 입을 거예요' },
-  { id: 'a2', role: 'ai', kind: 'text', text: '그럼 단정하면서 포근한 룩은 어떠세요? 니트에 슬랙스를 매치했어요.' },
-  { id: 'a3', role: 'ai', kind: 'rec', title: '포근한 니트 오피스룩', tags: ['니트', '슬랙스', '로퍼'] },
-];
-
 /** 사이드 패널에서 쓰는 시작 인사 — 넓은 화면에선 옷장을 보며 바로 물어보는 흐름이다. */
-const PANEL_SEED: Msg[] = [
+const PANEL_SEED: ChatMessage[] = [
   {
     id: 'p1',
     role: 'ai',
@@ -54,11 +36,11 @@ const PANEL_SEED: Msg[] = [
 
 // 타이핑 표시 — 점 3개가 순차로 밝아지는 애니메이션
 function TypingDots() {
-  const dots = [
-    useRef(new Animated.Value(0.3)).current,
-    useRef(new Animated.Value(0.3)).current,
-    useRef(new Animated.Value(0.3)).current,
-  ];
+  /* ref 세 개가 아니라 useMemo 하나로 — ref 값을 렌더 중에 읽으면 안 된다(react-hooks/refs). */
+  const dots = useMemo(
+    () => [new Animated.Value(0.3), new Animated.Value(0.3), new Animated.Value(0.3)],
+    [],
+  );
   useEffect(() => {
     const anims = dots.map((d, i) =>
       Animated.loop(
@@ -72,8 +54,7 @@ function TypingDots() {
     );
     anims.forEach((a) => a.start());
     return () => anims.forEach((a) => a.stop());
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [dots]);
 
   return (
     <View style={styles.typing}>
@@ -88,23 +69,32 @@ function TypingDots() {
  * 대화 본문(메시지 · 빠른 프롬프트 · 입력창).
  *
  * 두 곳에서 쓴다:
- *   - variant="screen" : /chat-room 화면. 헤더는 화면 쪽이 그린다.
- *   - variant="panel"  : 넓은 화면(≥1280)에서 우측에 상주하는 패널.
+ *   - variant="screen" : /chat-room 화면. 헤더는 화면 쪽이 그린다. sessionId 로 세션에 붙는다.
+ *   - variant="panel"  : 넓은 화면(≥1280)에서 우측에 상주하는 패널. 세션에 속하지 않는
+ *                        즉석 문답이라 대화를 지역 상태로만 들고 있다.
  *
  * 패널은 폭이 이미 고정이라 본문 최대 폭을 걸지 않고, 하단 SafeArea 여백도 쓰지 않는다.
  */
-export function ChatConversation({ variant = 'screen' }: { variant?: 'screen' | 'panel' }) {
+export function ChatConversation({
+  variant = 'screen',
+  sessionId,
+}: {
+  variant?: 'screen' | 'panel';
+  sessionId?: string;
+}) {
   const isPanel = variant === 'panel';
   const { contentStyle } = useBreakpoint();
   // 패널은 자체 폭이 고정이라 최대 폭 제한이 필요 없다.
   const widthStyle = isPanel ? null : contentStyle(ContentMax.narrow);
 
   const [text, setText] = useState('');
-  const [messages, setMessages] = useState<Msg[]>(isPanel ? PANEL_SEED : SEED);
+  const session = useChatSession(sessionId);
+  const [panelMessages, setPanelMessages] = useState<ChatMessage[]>(PANEL_SEED);
+  const messages = session?.messages ?? panelMessages;
+  /* 타이핑 표시는 답변을 기다리는 '지금'만의 상태라 저장하지 않는다 (state/chat.ts 참고). */
+  const [typing, setTyping] = useState(false);
   const toast = useToast();
 
-  const idRef = useRef(100);
-  const nextId = () => `m${++idRef.current}`;
   const scrollRef = useRef<ScrollView>(null);
   const timers = useRef<ReturnType<typeof setTimeout>[]>([]);
 
@@ -115,26 +105,30 @@ export function ChatConversation({ variant = 'screen' }: { variant?: 'screen' | 
 
   useEffect(() => () => timers.current.forEach(clearTimeout), []);
 
+  /* 스토어는 외부 상태라 setState 의 함수형 갱신을 쓸 수 없다 → 쓸 때마다 현재 값을 읽는다. */
+  const append = (...added: ChatMessage[]) => {
+    if (sessionId) {
+      const current = chatStore.getSession(sessionId)?.messages ?? [];
+      chatStore.setMessages(sessionId, [...current, ...added]);
+    } else {
+      setPanelMessages((m) => [...m, ...added]);
+    }
+  };
+
   // 유저 메시지 → 타이핑 표시 → AI 답변 (프로토타입: 정해진 답변)
   const simulateReply = (fromImage: boolean) => {
-    const typingId = nextId();
-    setMessages((m) => [...m, { id: typingId, role: 'ai', kind: 'typing' }]);
+    setTyping(true);
     scrollToEnd();
     const t = setTimeout(() => {
-      const reply: Msg = fromImage
-        ? {
-            id: nextId(),
-            role: 'ai',
-            kind: 'text',
-            text: '사진 잘 받았어요! 이 무드를 추구미로 기억해둘게요.\n비슷한 분위기로 코디를 찾아볼까요?',
-          }
-        : {
-            id: nextId(),
-            role: 'ai',
-            kind: 'text',
-            text: '좋아요, 말씀하신 방향으로 다시 골라볼게요. 잠시만요…',
-          };
-      setMessages((m) => m.filter((x) => x.id !== typingId).concat(reply));
+      setTyping(false);
+      append({
+        id: nextMessageId(),
+        role: 'ai',
+        kind: 'text',
+        text: fromImage
+          ? '사진 잘 받았어요! 이 무드를 추구미로 기억해둘게요.\n비슷한 분위기로 코디를 찾아볼까요?'
+          : '좋아요, 말씀하신 방향으로 다시 골라볼게요. 잠시만요…',
+      });
       scrollToEnd();
     }, 1500);
     timers.current.push(t);
@@ -143,7 +137,8 @@ export function ChatConversation({ variant = 'screen' }: { variant?: 'screen' | 
   const send = () => {
     const t = text.trim();
     if (!t) return;
-    setMessages((m) => [...m, { id: nextId(), role: 'user', kind: 'text', text: t }]);
+    append({ id: nextMessageId(), role: 'user', kind: 'text', text: t });
+    if (sessionId) chatStore.nameFromFirstMessage(sessionId, t);
     setText('');
     scrollToEnd();
     simulateReply(false);
@@ -151,7 +146,7 @@ export function ChatConversation({ variant = 'screen' }: { variant?: 'screen' | 
 
   // 사진 넣기 — 이 앱은 카메라/피커 없이 목업(예시 데이터)으로 첨부
   const attachPhoto = () => {
-    setMessages((m) => [...m, { id: nextId(), role: 'user', kind: 'image' }]);
+    append({ id: nextMessageId(), role: 'user', kind: 'image' });
     toast('사진을 첨부했어요');
     scrollToEnd();
     simulateReply(true);
@@ -189,11 +184,7 @@ export function ChatConversation({ variant = 'screen' }: { variant?: 'screen' | 
                 <Text style={styles.avatarMark}>c</Text>
               </View>
               <View style={styles.aiCol}>
-                {m.kind === 'typing' ? (
-                  <View style={[styles.aiBubble, styles.typingBubble]}>
-                    <TypingDots />
-                  </View>
-                ) : m.kind === 'rec' ? (
+                {m.kind === 'rec' ? (
                   <Pressable style={styles.recCard} onPress={() => router.push('/look-detail')}>
                     <View style={styles.recImage}>
                       <Text style={styles.recImageLabel}>LOOK</Text>
@@ -222,6 +213,19 @@ export function ChatConversation({ variant = 'screen' }: { variant?: 'screen' | 
             </View>
           );
         })}
+
+        {typing ? (
+          <View style={styles.aiRow}>
+            <View style={styles.avatar}>
+              <Text style={styles.avatarMark}>c</Text>
+            </View>
+            <View style={styles.aiCol}>
+              <View style={[styles.aiBubble, styles.typingBubble]}>
+                <TypingDots />
+              </View>
+            </View>
+          </View>
+        ) : null}
       </ScrollView>
 
       {/* 빠른 프롬프트 */}

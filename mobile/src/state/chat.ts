@@ -151,23 +151,51 @@ export function nextMessageId(): string {
   return `m${Date.now()}-${++messageSeq}`;
 }
 
+/** 사용자가 첫 질문을 하기 전까지의 임시 제목 */
+const DEFAULT_TITLE = '새 대화';
+
+/** 목록에서 제목을 대신할 만큼만 남기고 자른다 */
+const MAX_TITLE = 20;
+
+/** 새 대화를 열면 코지가 먼저 말을 건다 — 빈 화면은 무엇을 물어야 할지 알려주지 않는다. */
+const GREETING: Record<ChatMode, string> = {
+  taste: '추구미를 반영해 새 룩을 골라드릴게요.\n어떤 자리에 입을 옷이 필요하세요?',
+  closet: '옷장에 있는 옷으로 코디를 짜드릴게요.\n어떤 자리에 입을 옷이 필요하세요?',
+};
+
 export const chatStore = {
   getSessions: () => sessions,
   getSession: (id: string | undefined) =>
     id ? sessions.find((s) => s.id === id) : undefined,
 
-  /** 새 대화. 제목은 첫 답변이 오기 전까지의 임시 이름이다. */
+  /** 새 대화. 제목은 첫 질문이 오기 전까지의 임시 이름이다. */
   createSession(mode: ChatMode): ChatSession {
     const session: ChatSession = {
       id: String(Date.now()),
       mode,
-      title: '새 대화',
-      messages: [],
+      title: DEFAULT_TITLE,
+      messages: [
+        { id: nextMessageId(), role: 'ai', kind: 'text', text: GREETING[mode] },
+      ],
       updatedAt: Date.now(),
     };
     sessions = [session, ...sessions];
     notify();
     return session;
+  },
+
+  /**
+   * 첫 질문을 제목으로 삼는다. 이름을 한 번이라도 정한 세션은 건드리지 않는다.
+   * ('새 대화'가 여러 개면 목록에서 서로 구분되지 않는다)
+   */
+  nameFromFirstMessage(id: string, text: string) {
+    const session = sessions.find((s) => s.id === id);
+    if (!session || session.title !== DEFAULT_TITLE) return;
+    const line = text.trim().replace(/\s+/g, ' ');
+    if (!line) return;
+    const title = line.length > MAX_TITLE ? `${line.slice(0, MAX_TITLE)}…` : line;
+    sessions = sessions.map((s) => (s.id === id ? { ...s, title } : s));
+    notify();
   },
 
   renameSession(id: string, title: string) {
@@ -202,6 +230,18 @@ export const chatStore = {
 
 export function useChatSessions(): ChatSession[] {
   return useSyncExternalStore(chatStore.subscribe, chatStore.getSessions, chatStore.getSessions);
+}
+
+/** 세션 하나를 구독. 없는 id(삭제된 대화 등)면 undefined. */
+export function useChatSession(id: string | undefined): ChatSession | undefined {
+  const all = useChatSessions();
+  return id ? all.find((s) => s.id === id) : undefined;
+}
+
+/** 가장 최근 대화 — id 없이 대화 화면으로 들어온 경우의 기본값. */
+export function useLatestSession(): ChatSession | undefined {
+  const all = useChatSessions();
+  return sortByRecent(all)[0];
 }
 
 /** 모드별로 묶은 목록 — 각 모드 안에서는 최근 대화가 위로 온다. */

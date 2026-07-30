@@ -1,4 +1,6 @@
 import { goBack } from '@/lib/goBack';
+import { useLocalSearchParams } from 'expo-router';
+import { useEffect } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
@@ -6,9 +8,9 @@ import { ChatConversation } from '@/components/chat/chat-conversation';
 import { Icon } from '@/components/icon';
 import { ContentMax, Editorial, ink } from '@/constants/theme';
 import { useBreakpoint } from '@/hooks/use-breakpoint';
+import { CHAT_MODE_META, chatStore, useChatSession, useLatestSession } from '@/state/chat';
 
 const INK = Editorial.ink;
-const WINE = Editorial.wine;
 
 /**
  * C2 채팅 대화 화면.
@@ -16,6 +18,21 @@ const WINE = Editorial.wine;
  */
 export default function ChatRoom() {
   const { contentStyle } = useBreakpoint();
+  const { id } = useLocalSearchParams<{ id?: string }>();
+
+  /* 옷 상세·저장한 룩처럼 id 없이 들어오는 입구가 있다 → 가장 최근 대화로 이어 붙인다.
+     대화가 하나도 없을 때(전부 삭제한 경우)만 새로 만든다. */
+  const requested = useChatSession(id);
+  const latest = useLatestSession();
+  const session = requested ?? latest;
+
+  useEffect(() => {
+    if (!session) chatStore.createSession('taste');
+  }, [session]);
+
+  if (!session) return <View style={styles.container} />;
+
+  const mode = CHAT_MODE_META[session.mode];
 
   return (
     <View style={styles.container}>
@@ -25,10 +42,10 @@ export default function ChatRoom() {
             <Icon name="chevron.left" tintColor={INK} size={20} />
           </Pressable>
           <View style={styles.headerCenter}>
-            <Text style={styles.headerTitle}>가을 데일리 미니멀</Text>
+            <Text style={styles.headerTitle} numberOfLines={1}>{session.title}</Text>
             <View style={styles.modeBadge}>
-              <View style={styles.modeDot} />
-              <Text style={styles.modeText}>추구미 반영</Text>
+              <View style={[styles.modeDot, { backgroundColor: mode.tint }]} />
+              <Text style={styles.modeText}>{mode.label}</Text>
             </View>
           </View>
           <Pressable hitSlop={12}>
@@ -38,7 +55,7 @@ export default function ChatRoom() {
       </SafeAreaView>
       <View style={styles.divider} />
 
-      <ChatConversation variant="screen" />
+      <ChatConversation variant="screen" sessionId={session.id} />
     </View>
   );
 }
@@ -57,7 +74,7 @@ const styles = StyleSheet.create({
   headerCenter: { flex: 1, alignItems: 'center', gap: 3 },
   headerTitle: { fontSize: 15, fontWeight: '600', color: INK },
   modeBadge: { flexDirection: 'row', alignItems: 'center', gap: 5 },
-  modeDot: { width: 5, height: 5, borderRadius: 2.5, backgroundColor: WINE },
+  modeDot: { width: 5, height: 5, borderRadius: 2.5 },
   modeText: { fontSize: 11, color: Editorial.textCaption },
   divider: { height: 1, backgroundColor: ink(0.08) },
 });
