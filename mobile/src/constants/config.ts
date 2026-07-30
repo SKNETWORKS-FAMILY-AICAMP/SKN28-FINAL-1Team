@@ -104,3 +104,28 @@ export const BodyEndpoints = {
  *   ※ 옵션 목록(GET /api/v1/preference-options/)은 로컬 pursuit-options.ts 를 그대로 쓴다(프론트 기준).
  */
 export const PursuitEndpoint = '/api/v1/users/me/pursuit/';
+
+/**
+ * 옷장 (api/apps/wardrobe/urls.py 기준). 전부 JWT 필요.
+ *
+ * 등록은 **비동기**다 — 사진을 올리면 202 로 job_id 만 받고, 이미지 프로세서가
+ * 누끼·분류를 끝내면 콜백으로 아이템이 채워진다. 프론트는 job 을 폴링해야 한다.
+ * 사진 1장에서 아이템이 **여러 개** 나올 수 있다(세그멘테이션).
+ *
+ *   POST  /api/v1/wardrobe/uploads/           multipart { image } → 202 { job_id, status }
+ *   GET   /api/v1/wardrobe/uploads/{job_id}/  → { id, status, error_message, created_at, finished_at, items[] }
+ *         status: PENDING | PROCESSING | DONE | FAILED
+ *   GET   /api/v1/wardrobe/items/             → WardrobeApiItem[]  (?category_large=&confirmed=true|false)
+ *   PATCH /api/v1/wardrobe/items/{id}/        태그 수정 + confirmed → 수정된 아이템
+ *   DELETE /api/v1/wardrobe/items/{id}/       → 204
+ *
+ * ⚠️ 새로 만들어진 아이템은 confirmed=false(사용자 확인 대기)이고 추천 검색에서 제외된다.
+ *    사용자가 태그를 확인·수정한 뒤 PATCH 로 confirmed=true 를 보내야 옷장에 정식 편입된다.
+ * ⚠️ 업로드 제한: 15MB 이하, jpeg/png/webp/heic.
+ */
+export const WardrobeEndpoints = {
+  uploads: '/api/v1/wardrobe/uploads/',
+  uploadJob: (jobId: string) => `/api/v1/wardrobe/uploads/${jobId}/`,
+  items: '/api/v1/wardrobe/items/',
+  item: (itemId: string) => `/api/v1/wardrobe/items/${itemId}/`,
+} as const;
