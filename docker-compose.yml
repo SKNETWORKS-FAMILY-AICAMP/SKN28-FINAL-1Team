@@ -200,7 +200,7 @@ services:
     command: >
       redis-server
       --appendonly yes
-      --requirepass mypassword
+      --requirepass "${REDIS_PASSWORD:?REDIS_PASSWORD를 루트 .env에 설정해야 합니다}"
 
 volumes:
   postgres_data:
