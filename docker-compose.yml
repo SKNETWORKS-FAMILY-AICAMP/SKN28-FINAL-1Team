@@ -188,7 +188,21 @@ services:
       POSTGRES_HOST: db
       POSTGRES_PORT: 5432
     command: python /app/eleven/eleven_collector_db.py --scheduler
+  
+  redis:
+    image: redis:7
+    container_name: redis
+    restart: always
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    command: >
+      redis-server
+      --appendonly yes
+      --requirepass mypassword
 
 volumes:
   postgres_data:
   qdrant_data:
+  redis_data:
