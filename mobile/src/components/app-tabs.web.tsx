@@ -29,15 +29,15 @@ const TABS = [
 /* 하단 탭바에는 넣지 않지만 라우트로는 등록해야 하는 화면들.
    TabTrigger 가 트리에 없으면 expo-router 가 라우트를 인식하지 못해 다른 탭이 열린다.
    그래서 모바일 바에서도 숨긴 채로 등록해 둔다. */
+/* 사이드바 첫 항목은 '채팅'(지난 대화 목록)이다. 목록 안에 '새 채팅' 버튼이 있어
+   목록·새 대화 양쪽으로 갈 수 있다 — 반대로 새 대화로 바로 보내면 지난 대화를 열 길이 없다. */
+const CHAT_TAB = { name: 'chat', href: '/chat', icon: 'bubble.left', label: '채팅' } as const;
 const NEW_CHAT_TAB = { name: 'chat-mode', href: '/chat-mode', icon: 'bubble.left', label: '새 채팅' } as const;
 const CALENDAR_TAB = { name: 'calendar', href: '/calendar', icon: 'calendar', label: '캘린더' } as const;
 /* 사이드바 항목으로는 안 보이지만 (tabs) 안에 있어야 좌측 사이드바가 유지되는 상세·설정 화면들.
    TabTrigger 가 트리에 없으면 expo-router 가 라우트를 인식 못 해 엉뚱한 탭이 열리므로 등록만 해 둔다.
    (탭 그룹 밖 화면은 사이드바 없이 전체폭으로 떠 사이드바가 사라진다. icon 은 hidden 이라 표시 안 됨.) */
 const HIDDEN_ROUTES = [
-  /* 채팅 목록 — 사이드바에는 '새 채팅'만 두지만, 라우트로 등록해 두지 않으면
-     대화 화면의 뒤로가기(navigate '/(tabs)/chat')가 조용히 무시된다. */
-  { name: 'chat', href: '/chat', icon: 'bubble.left', label: '채팅' },
   { name: 'chat-room', href: '/chat-room', icon: 'bubble.left', label: '대화' },
   { name: 'look-detail', href: '/look-detail', icon: 'book', label: '추천 룩' },
   { name: 'fitting', href: '/fitting', icon: 'sparkles', label: '가상 피팅' },
@@ -90,8 +90,8 @@ export default function AppTabs() {
       <TabList asChild>
         {isDesktop ? (
           <Sidebar>
-            <TabTrigger name={NEW_CHAT_TAB.name} href={NEW_CHAT_TAB.href} asChild>
-              <SidebarItem icon={NEW_CHAT_TAB.icon} label={NEW_CHAT_TAB.label} />
+            <TabTrigger name={CHAT_TAB.name} href={CHAT_TAB.href} asChild>
+              <SidebarItem icon={CHAT_TAB.icon} label={CHAT_TAB.label} />
             </TabTrigger>
             {TABS.map((t) => (
               <TabTrigger key={t.name} name={t.name} href={t.href} asChild>
@@ -102,7 +102,7 @@ export default function AppTabs() {
               <SidebarItem icon={CALENDAR_TAB.icon} label={CALENDAR_TAB.label} />
             </TabTrigger>
             {/* 라우트 등록용 — 사이드바 항목으로는 보이지 않는다. */}
-            {HIDDEN_ROUTES.map((t) => (
+            {[NEW_CHAT_TAB, ...HIDDEN_ROUTES].map((t) => (
               <TabTrigger key={t.name} name={t.name} href={t.href} asChild>
                 <SidebarItem icon={t.icon} label={t.label} hidden />
               </TabTrigger>
@@ -122,7 +122,7 @@ export default function AppTabs() {
               </TabTrigger>
             ))}
             {/* 라우트 등록용 — 하단 바에는 자리를 차지하지 않게 숨긴다. */}
-            {[CALENDAR_TAB, NEW_CHAT_TAB, ...HIDDEN_ROUTES].map((t) => (
+            {[CALENDAR_TAB, CHAT_TAB, NEW_CHAT_TAB, ...HIDDEN_ROUTES].map((t) => (
               <TabTrigger key={t.name} name={t.name} href={t.href} asChild>
                 <TabItem icon={t.icon} label={t.label} hidden />
               </TabTrigger>

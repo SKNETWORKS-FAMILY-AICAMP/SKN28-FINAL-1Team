@@ -78,7 +78,7 @@ export default function ChatScreen() {
     <View style={styles.container}>
       <SafeAreaView edges={['top']} style={styles.safe}>
         {/* 헤더 */}
-        <View style={[styles.header, contentStyle(ContentMax.narrow)]}>
+        <View style={[styles.header, contentStyle(ContentMax.wide)]}>
           <Text style={styles.title}>채팅</Text>
           <Pressable
             style={styles.newBtn}
@@ -89,7 +89,7 @@ export default function ChatScreen() {
         </View>
 
         {/* 검색 — 제목과 대화 내용을 함께 훑는다 */}
-        <View style={[styles.searchWrap, contentStyle(ContentMax.narrow)]}>
+        <View style={[styles.searchWrap, contentStyle(ContentMax.wide)]}>
         <View style={styles.searchBar}>
           <Icon name="magnifyingglass" tintColor={ink(0.35)} size={16} />
           <TextInput
@@ -113,7 +113,7 @@ export default function ChatScreen() {
         <ScrollView
           showsVerticalScrollIndicator={false}
           keyboardShouldPersistTaps="handled"
-          contentContainerStyle={[styles.content, contentStyle(ContentMax.narrow)]}>
+          contentContainerStyle={[styles.content, contentStyle(ContentMax.wide)]}>
           {isEmpty ? (
             <EmptyState
               icon="bubble.left.and.bubble.right"

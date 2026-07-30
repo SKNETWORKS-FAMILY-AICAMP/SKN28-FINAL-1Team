@@ -10,18 +10,11 @@ import { useAuth } from '@/state/auth';
 import { formatBudget, usePrefs } from '@/state/prefs';
 
 const INK = Editorial.ink;
-const CHIP = Editorial.surface;
 
 type Row = {
   icon: IconName;
   label: string;
   hint?: string;
-  onPress: () => void;
-};
-
-type Stat = {
-  num: string;
-  label: string;
   onPress: () => void;
 };
 
@@ -43,12 +36,6 @@ export default function MyScreen() {
   const { user, isLoggedIn, signOut } = useAuth();
   const name = prefs.nickname || displayName(user?.nickname, user?.email) || '코지';
   const email = user?.email ?? 'cozy@example.com';
-
-  const stats: Stat[] = [
-    { num: '42', label: '옷장', onPress: () => router.push('/closet') },
-    { num: '8', label: '저장 룩', onPress: () => router.push('/lookbook') },
-    { num: '156', label: '착용', onPress: () => router.push('/calendar') },
-  ];
 
   const groups: { title: string; rows: Row[] }[] = [
     {
@@ -105,33 +92,21 @@ export default function MyScreen() {
       <SafeAreaView edges={['top']} style={styles.safe}>
         <ScrollView
           showsVerticalScrollIndicator={false}
-          contentContainerStyle={[styles.content, contentStyle(ContentMax.narrow)]}>
-          {/* 프로필 + 활동 요약 */}
-          <View style={styles.heroCard}>
-            <View style={styles.profile}>
-              <View style={styles.avatar} />
-              <View style={styles.profileText}>
-                <Text style={styles.name}>{name}</Text>
-                <Text style={styles.email} numberOfLines={1}>{email}</Text>
-              </View>
-              <Pressable
-                style={styles.editBtn}
-                hitSlop={8}
-                onPress={() => router.push('/edit-profile')}>
-                <Icon name="pencil" tintColor={ink(0.55)} size={14} />
-                <Text style={styles.editText}>편집</Text>
-              </Pressable>
+          contentContainerStyle={[styles.content, contentStyle(ContentMax.wide)]}>
+          {/* 프로필 — 테두리로 감싸지 않는다. 화면에 하나뿐인 머리라 굳이 구분할 상대가 없다. */}
+          <View style={styles.profile}>
+            <View style={styles.avatar} />
+            <View style={styles.profileText}>
+              <Text style={styles.name}>{name}</Text>
+              <Text style={styles.email} numberOfLines={1}>{email}</Text>
             </View>
-
-            <View style={styles.statsRow}>
-              {stats.map((s, i) => (
-                <Pressable key={s.label} style={styles.statTile} onPress={s.onPress}>
-                  {i > 0 ? <View style={styles.statDivider} /> : null}
-                  <Text style={styles.statNum}>{s.num}</Text>
-                  <Text style={styles.statLabel}>{s.label}</Text>
-                </Pressable>
-              ))}
-            </View>
+            <Pressable
+              style={styles.editBtn}
+              hitSlop={8}
+              onPress={() => router.push('/edit-profile')}>
+              <Icon name="pencil" tintColor={ink(0.55)} size={14} />
+              <Text style={styles.editText}>편집</Text>
+            </Pressable>
           </View>
 
           {/* 메뉴 그룹 */}
@@ -177,20 +152,12 @@ const styles = StyleSheet.create({
   safe: { flex: 1 },
   content: { paddingHorizontal: 20, paddingTop: 16, paddingBottom: BottomTabInset + 24 },
 
-  heroCard: {
-    borderWidth: 1,
-    borderColor: ink(0.1),
-    borderRadius: 16,
-    overflow: 'hidden',
-    backgroundColor: Editorial.surface,
-  },
+  /* 감싸는 카드가 없으니 좌우 여백은 content 가 이미 준다 — 위아래만 띄운다. */
   profile: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 12,
-    paddingHorizontal: 18,
-    paddingTop: 18,
-    paddingBottom: 18,
+    paddingVertical: 12,
   },
   avatar: {
     width: 52,
@@ -212,32 +179,6 @@ const styles = StyleSheet.create({
     borderWidth: 1, borderColor: Editorial.line,
   },
   editText: { fontSize: 12, color: Editorial.textCaption, fontWeight: '600' },
-
-  statsRow: {
-    flexDirection: 'row',
-    borderTopWidth: 1,
-    borderTopColor: ink(0.07),
-    paddingVertical: 15,
-    paddingHorizontal: 12,
-  },
-  statTile: {
-    flex: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 5,
-    paddingVertical: 4,
-    position: 'relative',
-  },
-  statDivider: {
-    position: 'absolute',
-    left: 0,
-    top: 6,
-    bottom: 6,
-    width: 1,
-    backgroundColor: ink(0.08),
-  },
-  statNum: { fontSize: 18, fontWeight: '600', color: INK, letterSpacing: -0.2 },
-  statLabel: { fontSize: 12, color: Editorial.textCaption, fontWeight: '500' },
 
   group: { marginTop: 28 },
   groupTitle: { fontSize: 12, fontWeight: '600', color: Editorial.textCaption, marginBottom: 10, marginLeft: 4 },
