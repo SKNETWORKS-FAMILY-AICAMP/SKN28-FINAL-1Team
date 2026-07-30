@@ -17,19 +17,20 @@ type ModeCard = {
   desc: string;
   note: string;
 };
+/* 설명은 카드 폭이 절반이라 한 줄에 들어갈 만큼만 — 문장 대신 명사구로 둔다. */
 const MODES: ModeCard[] = [
   {
     key: 'taste',
     icon: 'sparkles',
     title: '추구미 반영 추천',
-    desc: '설정한 취향과 무드를 반영해\n새로운 룩을 제안해요.',
+    desc: '취향과 무드에 맞춘 새 룩',
     note: '옷장에 없는 아이템도 추천',
   },
   {
     key: 'closet',
     icon: 'tshirt',
     title: '옷장 기반 추천',
-    desc: '지금 가지고 있는 옷들로\n입을 수 있는 코디를 짜드려요.',
+    desc: '가진 옷으로 짜는 코디',
     note: '내 옷장 42개로 조합',
   },
 ];
@@ -69,12 +70,8 @@ export default function ChatMode() {
                 <Text style={styles.cardTitle}>{m.title}</Text>
               </View>
               <Text style={styles.cardDesc}>{m.desc}</Text>
-              <View style={styles.cardFoot}>
-                <View style={[styles.dot, { backgroundColor: CHAT_MODE_META[m.key].tint }]} />
-                <Text style={styles.cardNote}>{m.note}</Text>
-                <View style={styles.spacer} />
-                <Icon name="arrow.right" tintColor={ink(0.35)} size={16} />
-              </View>
+              {/* 점·화살표를 두지 않는다 — 카드 전체가 이미 누를 수 있고, 이 줄은 조건 한 마디다 */}
+              <Text style={styles.cardNote}>{m.note}</Text>
             </Pressable>
           ))}
         </View>
@@ -113,14 +110,10 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     flexShrink: 0,
-    // 배경은 두 카드 공통. 모드별로 다른 건 아이콘 글리프와 점 색(m.tint)뿐이다.
+    // 배경은 두 카드 공통. 모드별로 다른 건 아이콘 글리프뿐이다.
     backgroundColor: Editorial.surface,
   },
   cardTitle: { fontFamily: Fonts.serif, fontSize: 20, color: INK },
   cardDesc: { fontSize: 13.5, color: Editorial.textCaption, lineHeight: 20 },
-  cardFoot: { flexDirection: 'row', alignItems: 'center', gap: 7, marginTop: 4 },
-  dot: { width: 6, height: 6, borderRadius: 3, flexShrink: 0 },
-  // 좁은 카드에서 화살표를 밀어내지 않고 스스로 줄바꿈되게
-  cardNote: { flexShrink: 1, fontSize: 12, color: Editorial.textCaption, fontWeight: '500' },
-  spacer: { flex: 1 },
+  cardNote: { fontSize: 12, color: Editorial.textCaption, fontWeight: '500', marginTop: 4 },
 });
