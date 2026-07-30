@@ -13,6 +13,7 @@ S3_KEY = (
 )
 LOCAL_PATH = Path(__file__).resolve().parent.parent / "data" / "raw" / "sizekorea_8th.xlsx"
 COLUMN_MAP = {
+    "성별":"gender",
     "002. 키":"height",
     "125. 몸무게":"weight",
     "041. 가슴둘레":"chest",
@@ -44,6 +45,17 @@ VALID_RANGES = {
     "calf" : (15, 80),
     "arm" : (10, 80),
     "shoulder" : (20, 80),
+}
+
+GENDER_VALUES = {
+    "M": "M",
+    "F": "F",
+    "MALE": "M",
+    "FEMALE": "F",
+    "남": "M",
+    "여": "F",
+    "남성": "M",
+    "여성": "F",
 }
 
 OUTPUT_PATH = Path(__file__).resolve().parent.parent / "data" / "sizekorea_measurements_clean.csv"
@@ -90,7 +102,17 @@ def clean_measurements(dataframe: pd.DataFrame) -> pd.DataFrame:
         )
     cleaned = cleaned[list(COLUMN_MAP)].rename(columns=COLUMN_MAP)
     
+    cleaned["gender"] = (
+        cleaned["gender"]
+        .astype("string")
+        .str.strip()
+        .str.upper()
+        .map(GENDER_VALUES)
+    )
+    
     for column in cleaned.columns:
+        if column == "gender":
+            continue
         cleaned[column] = pd.to_numeric(
             cleaned[column],
             errors="coerce",
@@ -137,6 +159,7 @@ def create_training_data(
     
     # 사용자가 모델에 입력할 값
     input_columns = [
+        "gender",
         "height",
         "weight",
     ]

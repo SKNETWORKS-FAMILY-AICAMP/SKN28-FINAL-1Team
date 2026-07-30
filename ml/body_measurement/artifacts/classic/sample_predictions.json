@@ -1,29 +1,29 @@
 {
   "random_forest": {
-    "chest": 95.8,
-    "waist": 77.1,
-    "hip": 93.1,
-    "thigh": 55.5,
-    "calf": 37.6,
-    "arm": 31.7,
-    "shoulder": 38.4
+    "chest": 86.8,
+    "waist": 72.7,
+    "hip": 93.5,
+    "thigh": 55.3,
+    "calf": 34.8,
+    "arm": 28.7,
+    "shoulder": 35.3
   },
   "hist_gradient_boosting": {
-    "chest": 95.0,
-    "waist": 79.0,
-    "hip": 92.9,
-    "thigh": 55.9,
-    "calf": 37.5,
-    "arm": 31.2,
-    "shoulder": 38.2
+    "chest": 87.0,
+    "waist": 73.6,
+    "hip": 93.7,
+    "thigh": 56.3,
+    "calf": 34.5,
+    "arm": 28.9,
+    "shoulder": 34.9
   },
   "knn": {
-    "chest": 95.5,
-    "waist": 79.8,
-    "hip": 93.6,
-    "thigh": 55.2,
-    "calf": 37.5,
-    "arm": 31.1,
-    "shoulder": 38.2
+    "chest": 87.0,
+    "waist": 72.9,
+    "hip": 94.1,
+    "thigh": 55.5,
+    "calf": 34.6,
+    "arm": 28.7,
+    "shoulder": 35.5
   }
 }

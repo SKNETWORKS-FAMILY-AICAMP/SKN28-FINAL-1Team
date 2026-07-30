@@ -1,7 +1,8 @@
 {
-  "created_at": "2026-07-30T05:21:42.254096+00:00",
+  "created_at": "2026-07-30T08:28:04.361865+00:00",
   "random_state": 42,
   "features": [
+    "gender",
     "height",
     "weight"
   ],
@@ -19,15 +20,19 @@
     "hist_gradient_boosting",
     "knn"
   ],
-  "test_size": 0.2,
+  "train_rows": 4092,
+  "validation_rows": 1000,
+  "validation_set_path": "ml\\body_measurement\\artifacts\\classic\\validation_set.csv",
+  "prediction_file_pattern": "validation_predictions_{model}.csv",
   "dataset": {
-    "source": "C:\\Users\\Playdata\\Desktop\\SKN28-FINAL-1Team\\local\\sizekorea\\sizekorea_measurements_clean.csv",
-    "local_path": "C:\\Users\\Playdata\\Desktop\\SKN28-FINAL-1Team\\local\\sizekorea\\sizekorea_measurements_clean.csv",
-    "sha256": "16f4d07e5360edcf1b7dbfcdc6232473f2fe845a905e36dee23ef7c503b12f8e",
+    "source": "ml\\body_measurement\\data\\sizekorea_measurements_clean.csv",
+    "local_path": "C:\\Users\\Playdata\\Desktop\\SKN28-FINAL-1Team\\ml\\body_measurement\\data\\sizekorea_measurements_clean.csv",
+    "sha256": "f5ef3c0888aa1160b1f2452615298a168f0eca251ae44c823bbc89dcf338e10e",
     "sheet": "cleaned_csv",
     "raw_rows": 5092,
     "cleaned_rows": 5092,
     "columns": {
+      "gender": "gender",
       "height": "height",
       "weight": "weight",
       "chest": "chest",
@@ -40,8 +45,9 @@
     }
   },
   "sample": {
-    "height": 170.0,
-    "weight": 65.0
+    "gender": "F",
+    "height": 160.0,
+    "weight": 55.0
   },
   "versions": {
     "numpy": "2.4.3",

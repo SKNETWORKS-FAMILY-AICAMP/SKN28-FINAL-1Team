@@ -31,18 +31,20 @@ from sklearn.neighbors import KNeighborsRegressor
 from sklearn.pipeline import make_pipeline
 from sklearn.preprocessing import StandardScaler
 
-FEATURES = ["height", "weight"]
+FEATURES = ["gender", "height", "weight"]
 TARGETS = ["chest", "waist", "hip", "thigh", "calf", "arm", "shoulder"]
 CLASSIC_MODELS = ("random_forest", "hist_gradient_boosting", "knn")
 HF_MODELS = ("tabpfn_v2", "nori", "tabpfn_mix")
 ALL_MODELS = (*CLASSIC_MODELS, *HF_MODELS)
 RANDOM_STATE = 42
+DEFAULT_VALIDATION_ROWS = 1000
 DEFAULT_S3_URI = (
     "s3://skn28-cozy/22.사이즈코리아/"
     "8차 인체치수조사(2020~24)_치수데이터(공개용).xlsx"
 )
 DEFAULT_SHEET = "(1~2차년도) 직접측정"
 SOURCE_COLUMNS = {
+    "gender": "성별",
     "height": "키",
     "weight": "체중(몸무게)",
     "chest": "가슴둘레",
@@ -54,6 +56,17 @@ SOURCE_COLUMNS = {
     "shoulder": "어깨너비",
 }
 MM_COLUMNS = ["height", *TARGETS]
+GENDER_CODES = {"M": 0.0, "F": 1.0}
+GENDER_VALUES = {
+    "M": "M",
+    "F": "F",
+    "MALE": "M",
+    "FEMALE": "F",
+    "남": "M",
+    "여": "F",
+    "남성": "M",
+    "여성": "F",
+}
 
 
 class Predictor(Protocol):
@@ -290,7 +303,20 @@ def validate_frame(frame: pd.DataFrame) -> pd.DataFrame:
     if missing:
         raise ValueError(f"CSV 필수 컬럼이 없습니다: {', '.join(missing)}")
 
-    cleaned = frame[required].apply(pd.to_numeric, errors="coerce").dropna()
+    cleaned = frame[required].copy()
+    cleaned["gender"] = (
+        cleaned["gender"]
+        .astype("string")
+        .str.strip()
+        .str.upper()
+        .map(GENDER_VALUES)
+    )
+    numeric_columns = ["height", "weight", *TARGETS]
+    cleaned[numeric_columns] = cleaned[numeric_columns].apply(
+        pd.to_numeric,
+        errors="coerce",
+    )
+    cleaned = cleaned.dropna()
     cleaned = cleaned[
         cleaned["height"].between(100, 230)
         & cleaned["weight"].between(25, 300)
@@ -300,6 +326,47 @@ def validate_frame(frame: pd.DataFrame) -> pd.DataFrame:
     if len(cleaned) < 50:
         raise ValueError(
             f"정제 후 행이 {len(cleaned)}개입니다. 최소 50개 이상의 실측 행이 필요합니다."
+        )
+    return cleaned.reset_index(drop=True)
+
+
+def make_model_features(frame: pd.DataFrame) -> pd.DataFrame:
+    """사람이 읽는 gender 값을 모델이 학습 가능한 숫자 feature로 바꾼다."""
+
+    features = frame[FEATURES].copy()
+    features["gender"] = features["gender"].map(GENDER_CODES)
+    if features["gender"].isna().any():
+        raise ValueError("gender는 M 또는 F로 정제되어 있어야 합니다.")
+    return features
+
+
+def validate_frame_for_sample(frame: pd.DataFrame) -> pd.DataFrame:
+    """단일 예측 입력의 gender, height, weight를 검증한다."""
+
+    missing = [column for column in FEATURES if column not in frame.columns]
+    if missing:
+        raise ValueError(f"입력 필수 컬럼이 없습니다: {', '.join(missing)}")
+
+    cleaned = frame[FEATURES].copy()
+    cleaned["gender"] = (
+        cleaned["gender"]
+        .astype("string")
+        .str.strip()
+        .str.upper()
+        .map(GENDER_VALUES)
+    )
+    cleaned[["height", "weight"]] = cleaned[["height", "weight"]].apply(
+        pd.to_numeric,
+        errors="coerce",
+    )
+    cleaned = cleaned.dropna()
+    cleaned = cleaned[
+        cleaned["height"].between(100, 230)
+        & cleaned["weight"].between(25, 300)
+    ]
+    if len(cleaned) != len(frame):
+        raise ValueError(
+            "gender(M/F), height(100~230), weight(25~300)를 확인하세요."
         )
     return cleaned.reset_index(drop=True)
 
@@ -394,7 +461,11 @@ def load_sizekorea_excel(
         for service_name, index in source_indexes.items()
     }
     frame = raw.rename(columns=rename)[[*FEATURES, *TARGETS]].copy()
-    frame = frame.apply(pd.to_numeric, errors="coerce")
+    numeric_columns = ["height", "weight", *TARGETS]
+    frame[numeric_columns] = frame[numeric_columns].apply(
+        pd.to_numeric,
+        errors="coerce",
+    )
     frame[MM_COLUMNS] = frame[MM_COLUMNS] / 10.0
     cleaned = validate_frame(frame)
     info = DatasetInfo(
@@ -417,6 +488,8 @@ def make_demo_data(rows: int = 600) -> pd.DataFrame:
     """
 
     rng = np.random.default_rng(RANDOM_STATE)
+    gender = rng.choice(["M", "F"], rows)
+    gender_factor = np.where(gender == "F", 1.0, 0.0)
     height = np.clip(rng.normal(168, 9, rows), 145, 195)
     weight = np.clip(
         22 * (height / 100) ** 2 + rng.normal(0, 8, rows),
@@ -427,15 +500,37 @@ def make_demo_data(rows: int = 600) -> pd.DataFrame:
     noise = lambda scale: rng.normal(0, scale, rows)
     return pd.DataFrame(
         {
+            "gender": gender,
             "height": height,
             "weight": weight,
-            "chest": 45 + 0.28 * weight + 0.11 * height + noise(2.5),
-            "waist": 18 + 1.8 * bmi + 0.12 * weight + noise(3.0),
-            "hip": 50 + 0.25 * weight + 0.14 * height + noise(2.5),
-            "thigh": 25 + 0.27 * weight + 0.05 * height + noise(2.0),
-            "calf": 18 + 0.10 * weight + 0.06 * height + noise(1.3),
-            "arm": 8 + 0.16 * weight + 0.05 * height + noise(1.2),
-            "shoulder": 14 + 0.11 * weight + 0.13 * height + noise(1.5),
+            "chest": (
+                45 + 0.28 * weight + 0.11 * height
+                - 2.0 * gender_factor + noise(2.5)
+            ),
+            "waist": (
+                18 + 1.8 * bmi + 0.12 * weight
+                - 3.0 * gender_factor + noise(3.0)
+            ),
+            "hip": (
+                50 + 0.25 * weight + 0.14 * height
+                + 2.0 * gender_factor + noise(2.5)
+            ),
+            "thigh": (
+                25 + 0.27 * weight + 0.05 * height
+                + 1.0 * gender_factor + noise(2.0)
+            ),
+            "calf": (
+                18 + 0.10 * weight + 0.06 * height
+                - 0.5 * gender_factor + noise(1.3)
+            ),
+            "arm": (
+                8 + 0.16 * weight + 0.05 * height
+                - 1.0 * gender_factor + noise(1.2)
+            ),
+            "shoulder": (
+                14 + 0.11 * weight + 0.13 * height
+                - 2.0 * gender_factor + noise(1.5)
+            ),
         }
     )
 
@@ -445,7 +540,7 @@ def benchmark(
     model_names: list[str],
     artifact_dir: Path,
     *,
-    sample: tuple[float, float] | None = None,
+    sample: tuple[str, float, float] | None = None,
     dataset_info: DatasetInfo | None = None,
 ) -> tuple[list[Metric], dict[str, dict[str, float]]]:
     """선택한 모델들을 같은 데이터 분할과 같은 지표로 비교한다.
@@ -458,14 +553,28 @@ def benchmark(
     """
 
     data = validate_frame(frame)
+    if len(data) <= DEFAULT_VALIDATION_ROWS:
+        raise ValueError(
+            f"검증셋 {DEFAULT_VALIDATION_ROWS}개를 만들려면 "
+            f"정제 데이터가 최소 {DEFAULT_VALIDATION_ROWS + 1}행 필요합니다. "
+            f"현재 데이터: {len(data)}행"
+        )
     train, test = train_test_split(
         data,
-        test_size=0.2,
+        test_size=DEFAULT_VALIDATION_ROWS,
         random_state=RANDOM_STATE,
     )
-    x_train, y_train = train[FEATURES], train[TARGETS]
-    x_test, y_test = test[FEATURES], test[TARGETS]
     artifact_dir.mkdir(parents=True, exist_ok=True)
+    x_train, y_train = make_model_features(train), train[TARGETS]
+    x_test, y_test = make_model_features(test), test[TARGETS]
+    validation_export = test[FEATURES].copy()
+    for target in TARGETS:
+        validation_export[f"actual_{target}"] = test[target].to_numpy()
+    validation_export.to_csv(
+        artifact_dir / "validation_set.csv",
+        index=False,
+        encoding="utf-8-sig",
+    )
     metrics: list[Metric] = []
     sample_predictions: dict[str, dict[str, float]] = {}
 
@@ -482,11 +591,18 @@ def benchmark(
             raise ValueError(
                 f"{name} 예측 shape={predictions.shape}, 예상={y_test.shape}"
             )
+        prediction_export = validation_export.copy()
+        prediction_export["fit_seconds"] = fit_seconds
+        prediction_export["predict_ms_per_row"] = (
+            predict_seconds / len(x_test) * 1_000
+        )
 
         for index, target in enumerate(TARGETS):
             actual = y_test[target].to_numpy()
             predicted = predictions[:, index]
             absolute_errors = np.abs(actual - predicted)
+            prediction_export[f"pred_{target}"] = predicted
+            prediction_export[f"error_{target}"] = predicted - actual
             metrics.append(
                 Metric(
                     model=name,
@@ -505,14 +621,21 @@ def benchmark(
                     ),
                 )
             )
+        prediction_export.to_csv(
+            artifact_dir / f"validation_predictions_{name}.csv",
+            index=False,
+            encoding="utf-8-sig",
+        )
 
         if sample is not None:
-            height, weight = sample
+            gender, height, weight = sample
             sample_frame = pd.DataFrame(
-                [{"height": height, "weight": weight}]
+                [{"gender": gender, "height": height, "weight": weight}]
             )
             sample_values = np.asarray(
-                model.predict(sample_frame),
+                model.predict(
+                    make_model_features(validate_frame_for_sample(sample_frame))
+                ),
                 dtype=float,
             )[0]
             sample_predictions[name] = {
@@ -538,10 +661,13 @@ def benchmark(
         "features": FEATURES,
         "targets": TARGETS,
         "models": model_names,
-        "test_size": 0.2,
+        "train_rows": len(train),
+        "validation_rows": len(test),
+        "validation_set_path": str(artifact_dir / "validation_set.csv"),
+        "prediction_file_pattern": "validation_predictions_{model}.csv",
         "dataset": asdict(dataset_info) if dataset_info else None,
         "sample": (
-            {"height": sample[0], "weight": sample[1]}
+            {"gender": sample[0], "height": sample[1], "weight": sample[2]}
             if sample is not None
             else None
         ),
@@ -559,21 +685,23 @@ def benchmark(
 
 def predict_saved(
     artifact_dir: Path,
+    gender: str,
     height: float,
     weight: float,
 ) -> dict[str, dict[str, float]]:
-    """저장된 기본 모델(joblib)을 불러와 키와 몸무게로 신체 치수를 예측한다.
+    """저장된 기본 모델(joblib)을 불러와 성별, 키, 몸무게로 신체 치수를 예측한다.
 
     Hugging Face 모델은 라이브러리마다 저장 방식이 달라 여기서는 기본
     scikit-learn 모델 3개만 재사용 대상으로 본다.
     """
 
-    if not 100 <= height <= 230:
-        raise ValueError("height는 100~230cm 범위여야 합니다.")
-    if not 25 <= weight <= 300:
-        raise ValueError("weight는 25~300kg 범위여야 합니다.")
-
-    x = pd.DataFrame([{"height": height, "weight": weight}])
+    x = make_model_features(
+        validate_frame_for_sample(
+            pd.DataFrame(
+                [{"gender": gender, "height": height, "weight": weight}]
+            )
+        )
+    )
     result: dict[str, dict[str, float]] = {}
     for name in CLASSIC_MODELS:
         path = artifact_dir / f"{name}.joblib"
@@ -641,6 +769,12 @@ def parse_args() -> argparse.Namespace:
         help="S3 원본 캐시 경로",
     )
     benchmark_parser.add_argument(
+        "--gender",
+        choices=["M", "F"],
+        default="M",
+        help="학습 직후 비교 예측할 성별(M/F)",
+    )
+    benchmark_parser.add_argument(
         "--height",
         type=float,
         default=170.0,
@@ -655,8 +789,9 @@ def parse_args() -> argparse.Namespace:
 
     predict_parser = subparsers.add_parser(
         "predict",
-        help="저장된 기본 모델로 키·몸무게를 예측합니다.",
+        help="저장된 기본 모델로 성별·키·몸무게를 예측합니다.",
     )
+    predict_parser.add_argument("--gender", choices=["M", "F"], required=True)
     predict_parser.add_argument("--height", type=float, required=True)
     predict_parser.add_argument("--weight", type=float, required=True)
     predict_parser.add_argument(
@@ -705,7 +840,7 @@ def main() -> None:
             frame,
             args.models,
             args.artifact_dir,
-            sample=(args.height, args.weight),
+            sample=(args.gender, args.height, args.weight),
             dataset_info=dataset_info,
         )
         report = pd.DataFrame(asdict(metric) for metric in metrics)
@@ -729,6 +864,7 @@ def main() -> None:
             json.dumps(
                 {
                     "input": {
+                        "gender": args.gender,
                         "height": args.height,
                         "weight": args.weight,
                     },
@@ -743,6 +879,7 @@ def main() -> None:
 
     predictions = predict_saved(
         args.artifact_dir,
+        gender=args.gender,
         height=args.height,
         weight=args.weight,
     )
