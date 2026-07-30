@@ -79,10 +79,14 @@ export default function AppTabs() {
   /* 채팅 패널을 띄우지 않는 화면:
      - 채팅 화면 자체(chat/chat-room/chat-mode): 대화를 고르는 자리 옆에 또 다른 대화가
        열려 있으면 어느 쪽에 말하는지 알 수 없다.
-     - 상세 화면(추천룩/가상피팅/아이템상세): 이 화면들은 그 자리를 아이템 2단 배치에 쓴다. */
+     - 상세 화면(추천룩/가상피팅/아이템상세): 이 화면들은 그 자리를 아이템 2단 배치에 쓴다.
+     - 캘린더: 7열 그리드 + 선택일 상세로 앱에서 폭을 가장 많이 쓴다. 패널까지 얹으면
+       날짜 칸이 세로로 길쭉해진다. 코디 추천은 화면 안의 '코디 추천받기'로 간다. */
   const showChatPanel =
     isWide &&
-    !['/chat', '/chat-room', '/chat-mode', '/look-detail', '/fitting', '/item-detail'].includes(pathname);
+    !['/chat', '/chat-room', '/chat-mode', '/calendar', '/look-detail', '/fitting', '/item-detail'].includes(
+      pathname,
+    );
 
   return (
     <Tabs style={[styles.root, isDesktop && styles.rootDesktop]}>
