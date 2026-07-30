@@ -22,21 +22,19 @@ const PAD = 20;
 /* 타일 폭은 창 폭에서 파생 → 컴포넌트 안에서 useBreakpoint() 로 구한다. */
 const GAP = 10;
 
-type SourceKey = 'album' | 'camera' | 'web' | 'library';
+type SourceKey = 'album' | 'camera' | 'web';
 
+/* 세 갈래로 충분하다. 앨범·카메라는 내 사진, Web 은 쇼핑몰에서 가져오기.
+   '라이브러리'(앱 카탈로그에서 고르기)는 뺐다 — 카탈로그 사진을 내 옷으로 업로드하면
+   실제로 갖고 있지 않은 옷이 옷장에 들어간다. */
 const SOURCES: { key: SourceKey; label: string; icon: IconName; hint: string }[] = [
   { key: 'album', label: '앨범', icon: 'photo.on.rectangle', hint: '갤러리에서 선택' },
   { key: 'camera', label: '카메라', icon: 'camera', hint: '직접 촬영' },
-  { key: 'web', label: 'Web', icon: 'globe', hint: '쇼핑몰에서 가져오기' },
-  { key: 'library', label: '라이브러리', icon: 'building.columns', hint: '카탈로그에서 선택' },
+  { key: 'web', label: 'Web', icon: 'globe', hint: '쇼핑몰에서' },
 ];
 
 export default function ItemAddSourceScreen() {
-  const { frameWidth, isDesktop, contentStyle } = useBreakpoint();
-  // 데스크톱 다이얼로그에선 타일이 카드 폭(card)을 2열로 채우도록, 모바일은 프레임 폭 기준.
-  const gridW = isDesktop ? ContentMax.card : frameWidth;
-  const tileW = (gridW - PAD * 2 - GAP) / 2;
-
+  const { contentStyle } = useBreakpoint();
   const toast = useToast();
   const [active, setActive] = useState<SourceKey | null>(null);
   const [loading, setLoading] = useState(false);
@@ -50,10 +48,6 @@ export default function ItemAddSourceScreen() {
     setActive(key);
     if (key === 'web') {
       router.push('/import');
-      return;
-    }
-    if (key === 'library') {
-      router.push('/item-add-library');
       return;
     }
 
@@ -91,15 +85,15 @@ export default function ItemAddSourceScreen() {
         </View>
 
         <Text style={styles.sectionTitle}>직접 추가</Text>
-        <Text style={styles.sectionHint}>사진을 올리면 AI가 누끼 처리·분류해요</Text>
 
+        {/* 세 갈래를 한 줄에. 폭은 flex 로 나눠 가지므로 창 폭에 따라 계산할 필요가 없다. */}
         <View style={[styles.grid, contentStyle(ContentMax.narrow)]}>
           {SOURCES.map((src) => {
             const on = active === src.key;
             return (
               <Pressable
                 key={src.key}
-                style={[styles.tile, { width: tileW, height: tileW * 0.88 }, on && styles.tileOn]}
+                style={[styles.tile, on && styles.tileOn]}
                 onPress={() => handlePick(src.key)}
                 disabled={loading}>
                 <Icon
@@ -154,16 +148,17 @@ const styles = StyleSheet.create({
   searchPlaceholder: { flex: 1, fontSize: 14, color: Editorial.textCaption },
   helpBtn: { width: 28, alignItems: 'flex-end' },
 
-  sectionTitle: { fontSize: 16, fontWeight: '700', color: INK },
-  sectionHint: { fontSize: 12, color: Editorial.textCaption, marginTop: 4, marginBottom: 16 },
+  sectionTitle: { fontSize: 16, fontWeight: '700', color: INK, marginBottom: 14 },
 
   grid: {
     flexDirection: 'row',
-    flexWrap: 'wrap',
     gap: GAP,
   },
-  // width/height 는 창 폭에서 파생되므로 컴포넌트에서 인라인으로 덧붙인다.
   tile: {
+    /* 세 칸이 남는 폭을 똑같이 나눈다 — 폭을 직접 계산하면 좁은 창에서 넘쳐 줄이 바뀌었다. */
+    flex: 1,
+    minWidth: 0,
+    aspectRatio: 0.92,
     borderRadius: 14,
     borderWidth: 1,
     borderColor: ink(0.12),
@@ -171,7 +166,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     gap: 6,
-    paddingHorizontal: 8,
+    paddingHorizontal: 6,
   },
   tileOn: {
     backgroundColor: Editorial.selected,
