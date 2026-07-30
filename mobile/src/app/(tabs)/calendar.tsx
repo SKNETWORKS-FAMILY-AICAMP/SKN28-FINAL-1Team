@@ -1,6 +1,5 @@
 import { Icon } from '@/components/icon';
 import { router } from 'expo-router';
-import { goBack } from '@/lib/goBack';
 import { useMemo, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -47,14 +46,15 @@ export default function Calendar() {
   const entry = entries[selectedKey];
 
   /* 데스크톱에선 달력이 스크롤 없이 한 화면에 들어와야 한다.
-     화면 높이에서 머리(화면 헤더·월 네비·요일 줄)와 아래 여백으로 쓰이는 몫을 뺀 나머지를
+     화면 높이에서 머리(월 네비·요일 줄)와 아래 여백으로 쓰이는 몫을 뺀 나머지를
      그 달의 주 수로 나눠 셀 높이를 정한다. 모바일은 기존처럼 가로:세로 비율로 둔다
      (한 손 스크롤이 자연스럽고, 셀을 줄이면 사진이 너무 작아진다).
 
      ⚠️ 높이만 화면에 맞추면 창이 높고 달력 열이 좁을 때 날짜 칸이 세로로 길쭉해진다.
      그래서 실제 그리드 폭을 재서 **모바일과 같은 비율(0.82)을 넘지 않도록** 함께 묶는다. */
   const weeks = Math.ceil(cells.length / 7);
-  const CHROME = 200;
+  /* 월 네비 56 + 요일 줄 30 + 아래 여백 32 ≈ 118. 여유를 조금 얹은 값. */
+  const CHROME = 160;
   const [gridWidth, setGridWidth] = useState(0);
   const cellHeight =
     isDesktop && gridWidth > 0
@@ -84,17 +84,10 @@ export default function Calendar() {
 
   return (
     <View style={styles.container}>
-      <SafeAreaView edges={['top']} style={styles.headerSafe}>
-        <View style={[styles.header, contentStyle(ContentMax.wide)]}>
-          <Pressable hitSlop={12} onPress={() => goBack('/(tabs)/home')}>
-            <Icon name="chevron.left" tintColor={INK} size={20} />
-          </Pressable>
-          <Text style={styles.headerTitle}>착장 캘린더</Text>
-          <Pressable hitSlop={12} onPress={() => openEntry(TODAY)}>
-            <Icon name="plus" tintColor={INK} size={20} />
-          </Pressable>
-        </View>
-      </SafeAreaView>
+      {/* 헤더를 두지 않는다 — 화면 이름은 탭에 이미 있고, 뒤로 갈 곳도 탭이 맡는다.
+          기록은 오른쪽(좁은 화면에선 아래) 선택일 상세의 '이 날 착장 기록하기'로 한다.
+          SafeAreaView 는 남긴다: 위쪽 노치만큼은 여전히 비켜야 한다. */}
+      <SafeAreaView edges={['top']} style={styles.headerSafe} />
 
       <ScrollView
         showsVerticalScrollIndicator={false}
@@ -261,16 +254,6 @@ export default function Calendar() {
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: Editorial.page },
   headerSafe: { backgroundColor: Editorial.page },
-  header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: 16,
-    paddingTop: 8,
-    paddingBottom: 8,
-  },
-  headerTitle: { fontSize: Type.body, fontWeight: '600', color: INK },
-
   content: { paddingHorizontal: 16, paddingBottom: 32 },
   monthRow: {
     flexDirection: 'row',
