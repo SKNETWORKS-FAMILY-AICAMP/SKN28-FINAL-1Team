@@ -13,7 +13,7 @@
         "buildType": "apk"
       },
       "env": {
-        "EXPO_PUBLIC_API_URL": "https://member-significance-schema-iron.trycloudflare.com"
+        "EXPO_PUBLIC_API_URL": "https://qualifications-database-additional-achieved.trycloudflare.com"
       }
     },
     "development": {
