@@ -8,6 +8,7 @@ import {
   SharedSpaceOnboarding,
   type SharedSpace,
 } from '@/components/closet/shared-space-flow';
+import { PhotoSourceSheet } from '@/components/closet/photo-source-sheet';
 import { CategoryEditSheet, EmptyState, ErrorState, LoadingState, LoginGate, SearchFilterBar, SegmentedToggle, SmartImage, useToast } from '@/components/ui';
 import { useMultiSelectFilter } from '@/hooks/useMultiSelectFilter';
 import { router } from 'expo-router';
@@ -77,6 +78,7 @@ export default function ClosetScreen() {
   const [joinOpen, setJoinOpen] = useState(false);
   const [categories, setCategories] = useState<string[]>(DEFAULT_CATEGORIES);
   const [editOpen, setEditOpen] = useState(false);
+  const [sourceOpen, setSourceOpen] = useState(false);
   const { toggle, reset, prune, isActive, matches, label } = useMultiSelectFilter();
 
   /* 내 옷장은 서버가 출처. 카테고리 필터는 여러 개를 고를 수 있어(멀티) 서버 파라미터로
@@ -230,7 +232,7 @@ export default function ClosetScreen() {
                 }
                 onAction={
                   tab === 'mine' && !query.trim() && label === '전체'
-                    ? () => router.push('/item-add-source')
+                    ? () => setSourceOpen(true)
                     : tab === 'shared' && sharedSpace && !query.trim() && label === '전체'
                       ? () => setInviteOpen(true)
                       : undefined
@@ -281,6 +283,8 @@ export default function ClosetScreen() {
           onClose={() => setJoinOpen(false)}
           onJoin={handleJoinSpace}
         />
+        <PhotoSourceSheet visible={sourceOpen} onClose={() => setSourceOpen(false)} />
+
         <CategoryEditSheet
           visible={editOpen}
           title="카테고리 관리"
@@ -292,7 +296,7 @@ export default function ClosetScreen() {
         {showAddFab ? (
           <Pressable
             style={styles.addFab}
-            onPress={() => router.push('/item-add-source')}
+            onPress={() => setSourceOpen(true)}
             accessibilityLabel="아이템 추가">
             <Icon name="plus" tintColor={INK} size={22} />
           </Pressable>

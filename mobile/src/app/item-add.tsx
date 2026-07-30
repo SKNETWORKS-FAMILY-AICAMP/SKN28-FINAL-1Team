@@ -11,6 +11,7 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import { PhotoSourceSheet } from '@/components/closet/photo-source-sheet';
 import { Icon } from '@/components/icon';
 import { ModalShell, SmartImage, useToast } from '@/components/ui';
 import { ContentMax, Editorial, ink, Type } from '@/constants/theme';
@@ -48,7 +49,8 @@ export default function ItemAddScreen() {
 
   const remaining = upload.items.filter((i) => !handled.includes(i.id));
 
-  const openSource = () => router.push('/item-add-source');
+  const [sourceOpen, setSourceOpen] = useState(false);
+  const openSource = () => setSourceOpen(true);
 
   const close = () => {
     draftItem.setPhoto(null);
@@ -220,6 +222,9 @@ export default function ItemAddScreen() {
             </Pressable>
           )}
         </SafeAreaView>
+
+        {/* 사진을 다시 고를 때도 화면을 옮기지 않고 시트로 띄운다 */}
+        <PhotoSourceSheet visible={sourceOpen} onClose={() => setSourceOpen(false)} />
       </View>
     </ModalShell>
   );

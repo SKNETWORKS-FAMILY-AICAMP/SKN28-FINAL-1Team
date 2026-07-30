@@ -69,10 +69,10 @@ function ImportUnsupportedOnWeb() {
             title="가져오기는 앱에서 쓸 수 있어요"
             description={
               '쇼핑몰에 로그인해 구매목록을 불러오는 기능이라\n' +
-              'iOS·Android 앱에서만 동작해요. 웹에서는 앨범·카메라·라이브러리로 추가해 주세요.'
+              'iOS·Android 앱에서만 동작해요. 웹에서는 앨범·카메라로 추가해 주세요.'
             }
-            actionLabel="다른 방법으로 추가하기"
-            onAction={() => router.replace('/item-add-source')}
+            actionLabel="옷장으로 돌아가기"
+            onAction={() => router.replace('/(tabs)/closet')}
           />
         </SafeAreaView>
       </View>

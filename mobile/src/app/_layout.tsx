@@ -31,7 +31,6 @@ export default function RootLayout() {
             <Stack.Screen name="(tabs)" />
             {/* 위에서 올라오는 모달 화면들 */}
             <Stack.Screen name="look-add" options={{ presentation: 'modal' }} />
-            <Stack.Screen name="item-add-source" options={{ presentation: 'modal' }} />
             <Stack.Screen name="item-add" options={{ presentation: 'modal' }} />
             <Stack.Screen name="item-add-library" options={{ presentation: 'modal' }} />
             <Stack.Screen name="import" options={{ presentation: 'modal' }} />

@@ -5,7 +5,7 @@ import { ContentMax, Editorial, ink } from '@/constants/theme';
 import { useBreakpoint } from '@/hooks/use-breakpoint';
 
 /**
- * presentation:'modal' 로 등록된 화면들(look-add·item-add·item-add-source·item-add-library·import)의 본문을 감싸는 래퍼.
+ * presentation:'modal' 로 등록된 화면들(look-add·item-add·item-add-library·import)의 본문을 감싸는 래퍼.
  *
  * - 모바일/태블릿: 지금 그대로. children 을 그대로 통과한다(위에서 올라오는 전체 화면).
  * - 데스크톱(≥1024): 뒤 배경을 dim 처리하고 **가운데 고정폭·고정높이 카드**로 띄운다.
