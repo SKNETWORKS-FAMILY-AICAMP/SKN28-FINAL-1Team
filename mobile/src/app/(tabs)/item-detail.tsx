@@ -1,37 +1,47 @@
 import { Icon } from '@/components/icon';
-import { useConfirm, useToast } from '@/components/ui';
-import { router } from 'expo-router';
+import { ErrorState, LoadingState, SmartImage, useConfirm, useToast } from '@/components/ui';
+import { router, useLocalSearchParams } from 'expo-router';
 import { goBack } from '@/lib/goBack';
+import { useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import { ItemTagSheet } from '@/components/closet/item-tag-sheet';
+import { DetailTwoPane } from '@/components/detail-two-pane';
 import { Editorial, ink, Fonts } from '@/constants/theme';
 import { useBreakpoint } from '@/hooks/use-breakpoint';
-import { DetailTwoPane } from '@/components/detail-two-pane';
+import { useWardrobeItem } from '@/hooks/use-wardrobe';
+import { deleteWardrobeItem, itemDisplayName, type WardrobeApiItem } from '@/lib/wardrobeApi';
 
 const INK = Editorial.ink;
 const BONE = Editorial.bone;
-const WINE = Editorial.wine;
 
-const SPECS = [
-  { label: '색상', value: '아이보리' },
-  { label: '소재', value: '울 80%' },
-  { label: '사이즈', value: 'M' },
-  { label: '계절', value: '가을·겨울' },
-];
+/** 스펙 표에 올릴 것 — 값이 빈 항목은 서버가 못 채운 것이라 아예 빼고 보여준다. */
+function specsOf(item: WardrobeApiItem): { label: string; value: string }[] {
+  return [
+    { label: '색', value: item.color },
+    { label: '소재', value: item.material },
+    { label: '핏', value: item.fit },
+    { label: '패턴', value: item.pattern },
+    { label: '소매', value: item.sleeve },
+    { label: '기장', value: item.length },
+    { label: '계절', value: item.season.join('·') },
+  ].filter((s) => s.value);
+}
 
-const TAGS = ['#미니멀', '#데일리', '#오피스', '#포근함'];
-
-// D3 아이템 상세 — 정보·착용 기록·저활용 경고
+// D3 아이템 상세 — 태그 확인·수정·삭제
 export default function ItemDetail() {
   const { contentStyle, width } = useBreakpoint();
   const maxW = width >= 1280 ? 960 : 720;
-  const wearCount = 3;
-  const underused = wearCount < 5;
+  const { id } = useLocalSearchParams<{ id?: string }>();
+
+  const { item, loading, error, reload, setItem } = useWardrobeItem(id);
+  const [editing, setEditing] = useState(false);
   const toast = useToast();
   const confirm = useConfirm();
 
   const onDelete = async () => {
+    if (!item) return;
     const ok = await confirm({
       title: '이 아이템을 삭제할까요?',
       message: '삭제하면 되돌릴 수 없어요.',
@@ -39,88 +49,123 @@ export default function ItemDetail() {
       destructive: true,
     });
     if (!ok) return;
-    // TODO: 실제 삭제 연동 (지금은 프로토타입 — 목록에서 빠진 척 뒤로 이동)
-    toast('삭제됐어요', { variant: 'success' });
-    goBack('/(tabs)/closet');
+    try {
+      await deleteWardrobeItem(item.id);
+      toast('삭제했어요', { variant: 'success' });
+      goBack('/(tabs)/closet');
+    } catch (e) {
+      toast(e instanceof Error ? e.message : '삭제하지 못했어요', { variant: 'error' });
+    }
   };
 
-  return (
-    <View style={styles.container}>
-      <SafeAreaView edges={['top']} style={styles.headerSafe}>
-        <View style={[styles.header, contentStyle(maxW)]}>
-          <Pressable hitSlop={12} onPress={() => goBack('/(tabs)/closet')}>
-            <Icon name="chevron.left" tintColor={INK} size={20} />
-          </Pressable>
+  const header = (
+    <SafeAreaView edges={['top']} style={styles.headerSafe}>
+      <View style={[styles.header, contentStyle(maxW)]}>
+        <Pressable hitSlop={12} onPress={() => goBack('/(tabs)/closet')}>
+          <Icon name="chevron.left" tintColor={INK} size={20} />
+        </Pressable>
+        {item ? (
           <View style={styles.headerActions}>
-            <Pressable hitSlop={10}>
+            <Pressable hitSlop={10} onPress={() => setEditing(true)} accessibilityLabel="태그 수정">
               <Icon name="square.and.pencil" tintColor={ink(0.6)} size={19} />
             </Pressable>
-            <Pressable hitSlop={10} onPress={onDelete}>
+            <Pressable hitSlop={10} onPress={onDelete} accessibilityLabel="삭제">
               <Icon name="trash" tintColor={ink(0.6)} size={18} />
             </Pressable>
           </View>
-        </View>
-      </SafeAreaView>
+        ) : null}
+      </View>
+    </SafeAreaView>
+  );
+
+  if (loading) {
+    return (
+      <View style={styles.container}>
+        {header}
+        <LoadingState message="아이템을 불러오는 중…" style={styles.state} />
+      </View>
+    );
+  }
+
+  if (error || !item) {
+    return (
+      <View style={styles.container}>
+        {header}
+        <ErrorState
+          title="아이템을 불러오지 못했어요"
+          description={error ?? '옷장에서 다시 열어 주세요.'}
+          onRetry={reload}
+          style={styles.state}
+        />
+      </View>
+    );
+  }
+
+  const specs = specsOf(item);
+  const category = [item.category_large, item.category_small].filter(Boolean).join(' · ');
+
+  return (
+    <View style={styles.container}>
+      {header}
 
       <ScrollView
         showsVerticalScrollIndicator={false}
         contentContainerStyle={[styles.content, contentStyle(maxW)]}>
-        {/* 데스크톱: [사진 | 상세·아이템] 2단 / 태블릿·모바일: 세로 */}
+        {/* 데스크톱: [사진 | 상세] 2단 / 태블릿·모바일: 세로 */}
         <DetailTwoPane
           image={
-            /* 이미지 */
             <View style={styles.image}>
+              {/* 바깥 View 가 비율로 크기를 잡으므로 사진은 그 안을 절대좌표로 채운다 */}
+              <SmartImage
+                uri={item.image_url}
+                width="100%"
+                radius={20}
+                contentFit="cover"
+                style={styles.imageFill}
+              />
               <View style={styles.catBadge}>
-                <Text style={styles.catBadgeText}>상의 · 니트</Text>
+                <Text style={styles.catBadgeText}>{category}</Text>
               </View>
             </View>
           }
           details={
             <View style={styles.body}>
-          <Text style={styles.name}>크림 울 니트</Text>
-          <Text style={styles.brand}>COS</Text>
+              <Text style={styles.name}>{itemDisplayName(item)}</Text>
+              {item.style.length > 0 ? (
+                <Text style={styles.styleLine}>{item.style.join(' · ')}</Text>
+              ) : null}
 
-          {/* 스펙 그리드 */}
-          <View style={styles.specGrid}>
-            {SPECS.map((s) => (
-              <View key={s.label} style={styles.specTile}>
-                <Text style={styles.specLabel}>{s.label}</Text>
-                <Text style={styles.specValue}>{s.value}</Text>
-              </View>
-            ))}
-          </View>
+              {/* 확인 대기 — 확정 전에는 추천에 쓰이지 않는다는 걸 알려준다 */}
+              {!item.confirmed ? (
+                <View style={styles.pending}>
+                  <Icon name="exclamationmark.triangle" tintColor={Editorial.wine} size={15} />
+                  <Text style={styles.pendingText}>
+                    아직 확인하지 않은 아이템이에요. 태그를 확인하면 추천에 함께 쓰여요.
+                  </Text>
+                </View>
+              ) : null}
 
-          {/* 착용 기록 */}
-          <Text style={styles.sectionTitle}>착용 기록</Text>
-          <View style={styles.wearRow}>
-            <View style={styles.wearTile}>
-              <Text style={styles.wearNum}>{wearCount}</Text>
-              <Text style={styles.wearLabel}>착용 횟수</Text>
-            </View>
-            <View style={styles.wearTile}>
-              <Text style={styles.wearNum}>21일 전</Text>
-              <Text style={styles.wearLabel}>마지막 착용</Text>
-            </View>
-          </View>
+              {specs.length > 0 ? (
+                <View style={styles.specGrid}>
+                  {specs.map((s) => (
+                    <View key={s.label} style={styles.specTile}>
+                      <Text style={styles.specLabel}>{s.label}</Text>
+                      <Text style={styles.specValue}>{s.value}</Text>
+                    </View>
+                  ))}
+                </View>
+              ) : (
+                <Pressable style={styles.noSpec} onPress={() => setEditing(true)}>
+                  <Text style={styles.noSpecText}>
+                    태그가 아직 비어 있어요. 눌러서 채워 주세요.
+                  </Text>
+                </Pressable>
+              )}
 
-          {underused ? (
-            <View style={styles.warn}>
-              <Icon name="exclamationmark.triangle" tintColor={WINE} size={15} />
-              <Text style={styles.warnText}>
-                최근 착용이 적어요. 이 니트로 새 코디를 받아볼까요?
-              </Text>
-            </View>
-          ) : null}
-
-          {/* 태그 */}
-          <Text style={styles.sectionTitle}>태그</Text>
-          <View style={styles.tags}>
-            {TAGS.map((t) => (
-              <View key={t} style={styles.tag}>
-                <Text style={styles.tagText}>{t}</Text>
-              </View>
-            ))}
-          </View>
+              <Pressable style={styles.editRow} onPress={() => setEditing(true)}>
+                <Icon name="square.and.pencil" tintColor={ink(0.55)} size={15} />
+                <Text style={styles.editText}>태그 수정</Text>
+              </Pressable>
             </View>
           }
         />
@@ -128,11 +173,18 @@ export default function ItemDetail() {
 
       <View style={styles.bottomDivider} />
       <SafeAreaView edges={['bottom']} style={[styles.bottomBar, contentStyle(maxW)]}>
-        <Pressable style={styles.cta} onPress={() => router.push('/chat-room')}>
+        <Pressable style={styles.cta} onPress={() => router.push('/chat-mode')}>
           <Icon name="sparkles" tintColor="#fff" size={15} />
           <Text style={styles.ctaText}>이 옷으로 코디 추천받기</Text>
         </Pressable>
       </SafeAreaView>
+
+      <ItemTagSheet
+        visible={editing}
+        item={item}
+        onClose={() => setEditing(false)}
+        onSaved={setItem}
+      />
     </View>
   );
 }
@@ -149,6 +201,7 @@ const styles = StyleSheet.create({
     paddingBottom: 8,
   },
   headerActions: { flexDirection: 'row', gap: 18 },
+  state: { paddingTop: 80 },
 
   content: { paddingBottom: 24 },
   image: {
@@ -160,6 +213,7 @@ const styles = StyleSheet.create({
     borderRadius: 20,
     overflow: 'hidden',
   },
+  imageFill: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0 },
   catBadge: {
     position: 'absolute',
     top: 14,
@@ -173,7 +227,21 @@ const styles = StyleSheet.create({
 
   body: { paddingHorizontal: 20, paddingTop: 22 },
   name: { fontFamily: Fonts.serif, fontSize: 26, color: INK },
-  brand: { fontSize: 14, color: Editorial.textCaption, marginTop: 5 },
+  styleLine: { fontSize: 14, color: Editorial.textCaption, marginTop: 5 },
+
+  pending: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 9,
+    marginTop: 18,
+    backgroundColor: Editorial.accent,
+    borderWidth: 1,
+    borderColor: Editorial.line,
+    borderRadius: 14,
+    paddingHorizontal: 14,
+    paddingVertical: 13,
+  },
+  pendingText: { flex: 1, fontSize: 12.5, color: Editorial.wine, lineHeight: 18 },
 
   specGrid: {
     flexDirection: 'row',
@@ -184,50 +252,34 @@ const styles = StyleSheet.create({
     borderRadius: 16,
     overflow: 'hidden',
   },
-  specTile: {
-    width: '50%',
-    paddingHorizontal: 16,
-    paddingVertical: 15,
-    gap: 5,
-  },
+  specTile: { width: '50%', paddingHorizontal: 16, paddingVertical: 15, gap: 5 },
   specLabel: { fontSize: 11, color: Editorial.textCaption },
   specValue: { fontSize: 14.5, fontWeight: '500', color: Editorial.ink },
 
-  sectionTitle: { fontSize: 13, fontWeight: '600', color: INK, marginTop: 28, marginBottom: 12 },
-  wearRow: { flexDirection: 'row', gap: 10 },
-  wearTile: {
-    flex: 1,
-    backgroundColor: Editorial.surfaceSoft,
-    borderWidth: 1, borderColor: Editorial.line,
-    borderRadius: 14,
-    paddingHorizontal: 16,
-    paddingVertical: 16,
-    gap: 4,
+  noSpec: {
+    marginTop: 22,
+    borderWidth: 1,
+    borderStyle: 'dashed',
+    borderColor: Editorial.line,
+    borderRadius: 16,
+    paddingVertical: 22,
+    alignItems: 'center',
   },
-  wearNum: { fontFamily: Fonts.serif, fontSize: 22, fontWeight: '600', color: INK },
-  wearLabel: { fontSize: 11.5, color: Editorial.textCaption },
+  noSpecText: { fontSize: 13, color: Editorial.textCaption },
 
-  warn: {
+  editRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 9,
-    marginTop: 12,
-    backgroundColor: Editorial.accent,
-    borderWidth: 1, borderColor: Editorial.line,
-    borderRadius: 14,
+    gap: 7,
+    alignSelf: 'flex-start',
+    marginTop: 18,
     paddingHorizontal: 14,
-    paddingVertical: 13,
-  },
-  warnText: { flex: 1, fontSize: 12.5, color: WINE, lineHeight: 18 },
-
-  tags: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
-  tag: {
-    backgroundColor: Editorial.control,
+    height: 40,
     borderRadius: 999,
-    paddingHorizontal: 13,
-    paddingVertical: 7,
+    borderWidth: 1,
+    borderColor: ink(0.14),
   },
-  tagText: { fontSize: 12.5, color: Editorial.textCaption, fontWeight: '500' },
+  editText: { fontSize: 13, fontWeight: '600', color: INK },
 
   bottomDivider: { height: 1, backgroundColor: ink(0.08) },
   bottomBar: { backgroundColor: Editorial.page, paddingHorizontal: 20, paddingTop: 12 },

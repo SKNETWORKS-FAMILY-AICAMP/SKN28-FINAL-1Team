@@ -112,6 +112,10 @@ export function listWardrobeItems(query: WardrobeItemQuery = {}): Promise<Wardro
   );
 }
 
+export function getWardrobeItem(itemId: string): Promise<WardrobeApiItem> {
+  return api.get<WardrobeApiItem>(WardrobeEndpoints.item(itemId));
+}
+
 /** 태그 수정. confirmed:true 를 함께 보내면 확정까지 한 번에 된다. */
 export function patchWardrobeItem(
   itemId: string,

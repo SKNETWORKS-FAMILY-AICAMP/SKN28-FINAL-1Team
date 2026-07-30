@@ -3,6 +3,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   deleteWardrobeItem,
   getUploadJob,
+  getWardrobeItem,
   listWardrobeItems,
   patchWardrobeItem,
   uploadWardrobePhoto,
@@ -74,6 +75,52 @@ export function useWardrobeItems(query: WardrobeItemQuery = {}, enabled = true):
   }, []);
 
   return { items, loading, error, reload, removeLocal, replaceLocal };
+}
+
+type ItemResult = {
+  item: WardrobeApiItem | null;
+  loading: boolean;
+  error: string | null;
+  reload: () => Promise<void>;
+  /** 수정 결과를 화면에 즉시 반영 */
+  setItem: (item: WardrobeApiItem) => void;
+};
+
+/** 아이템 한 벌. 상세 화면에서 쓴다. */
+export function useWardrobeItem(itemId: string | undefined): ItemResult {
+  const [item, setItem] = useState<WardrobeApiItem | null>(null);
+  const [loading, setLoading] = useState(Boolean(itemId));
+  const [error, setError] = useState<string | null>(null);
+
+  const load = useCallback(async () => {
+    if (!itemId) {
+      setError('아이템을 찾을 수 없어요');
+      setLoading(false);
+      return;
+    }
+    try {
+      setItem(await getWardrobeItem(itemId));
+      setError(null);
+    } catch (e) {
+      setItem(null);
+      setError(e instanceof Error ? e.message : '아이템을 불러오지 못했어요');
+    } finally {
+      setLoading(false);
+    }
+  }, [itemId]);
+
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    load();
+  }, [load]);
+
+  const reload = useCallback(async () => {
+    setLoading(true);
+    setError(null);
+    await load();
+  }, [load]);
+
+  return { item, loading, error, reload, setItem };
 }
 
 /** 폴링 간격·한도 — 누끼+캡셔닝이 GPU 큐를 타므로 즉시 끝나지 않는다. */
