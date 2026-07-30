@@ -12,8 +12,8 @@ import { Icon, type IconName } from './icon';
 
 const INK = Editorial.ink;
 
-/** 데스크톱 사이드바 폭 */
-const SIDEBAR_W = 232;
+/** 데스크톱 사이드바 폭 — 가장 긴 항목('캘린더')에 필요한 만큼만. 남는 폭은 본문에 준다. */
+const SIDEBAR_W = 196;
 
 // 채팅은 탭이 아니라 + 버튼에서 시작한다.
 const TABS = [
