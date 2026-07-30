@@ -218,10 +218,6 @@ export default function Calendar() {
                   ))}
                 </ScrollView>
               ) : null}
-
-              <Text style={styles.sharedNote}>
-                {entry.shared ? '함께 쓰는 옷장 친구에게 공개 중' : '나만 보는 기록'}
-              </Text>
             </>
           ) : (
             <View style={styles.empty}>
@@ -357,7 +353,6 @@ const styles = StyleSheet.create({
   itemChip: { width: 56 },
   itemName: { fontSize: Type.micro, color: Editorial.textCaption, marginTop: 4 },
 
-  sharedNote: { fontSize: Type.micro, color: Editorial.textMuted, marginTop: 12, marginLeft: 4 },
 
   empty: {
     alignItems: 'center',

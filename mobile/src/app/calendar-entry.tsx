@@ -109,8 +109,7 @@ export default function CalendarEntryScreen() {
             <Text style={styles.dateLabel}>{formatDateLabel(date)}</Text>
 
             {/* 오늘의 룩 사진 */}
-            <Text style={styles.sectionTitle}>오늘의 룩 사진</Text>
-            <Text style={styles.sectionHint}>입은 모습을 남겨두면 나중에 찾기 쉬워요</Text>
+            <Text style={[styles.sectionTitle, styles.sectionLead]}>오늘의 룩 사진</Text>
             {photo ? (
               <View style={styles.photoWrap}>
                 <SmartImage uri={photo} width="100%" aspectRatio={4 / 5} radius={16} />
@@ -145,7 +144,6 @@ export default function CalendarEntryScreen() {
               <Text style={styles.sectionTitle}>입은 옷</Text>
               {items.length > 0 ? <Text style={styles.count}>{items.length}개</Text> : null}
             </View>
-            <Text style={styles.sectionHint}>내 옷장·앱 추천·친구 옷장에서 골라요</Text>
             <ScrollView
               horizontal
               showsHorizontalScrollIndicator={false}
@@ -245,10 +243,17 @@ const styles = StyleSheet.create({
   content: { paddingHorizontal: PAD, paddingBottom: 24 },
   dateLabel: { fontSize: Type.lead, fontWeight: '700', color: INK, marginBottom: 22 },
 
-  sectionHead: { flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 28 },
+  sectionHead: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginTop: 28,
+    marginBottom: 12,
+  },
   sectionTitle: { fontSize: Type.body, fontWeight: '700', color: INK },
+  /* 섹션 머리와 내용 사이 간격 — sectionHead 를 쓰지 않는 단독 제목용 */
+  sectionLead: { marginBottom: 12 },
   count: { fontSize: Type.caption, color: Editorial.textCaption },
-  sectionHint: { fontSize: Type.micro, color: Editorial.textCaption, marginTop: 4, marginBottom: 12 },
 
   photoWrap: { position: 'relative' },
   photoRemove: {
