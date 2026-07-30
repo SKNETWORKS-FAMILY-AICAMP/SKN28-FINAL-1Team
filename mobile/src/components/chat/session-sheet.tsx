@@ -1,9 +1,9 @@
 import { useState } from 'react';
-import { Modal, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
+import { Modal, Platform, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 
 import { Icon } from '@/components/icon';
 import { useConfirm, useToast } from '@/components/ui';
-import { ContentMax, Editorial, ink, Type } from '@/constants/theme';
+import { ChatPanelWidth, Editorial, ink, SidebarWidth, Type } from '@/constants/theme';
 import { useBreakpoint } from '@/hooks/use-breakpoint';
 import { chatStore, type ChatSession } from '@/state/chat';
 
@@ -28,9 +28,17 @@ export function ChatSessionSheet({
   onDeleted,
 }: ChatSessionSheetProps) {
   const [draft, setDraft] = useState(session?.title ?? '');
-  const { isDesktop } = useBreakpoint();
+  const { isDesktop, isWide } = useBreakpoint();
   const confirm = useConfirm();
   const toast = useToast();
+
+  /* 데스크톱 웹에선 바닥에서 밀려 올라오는 시트가 아니라 가운데 다이얼로그로 뜬다.
+     사이드바·지난 대화 패널이 쓰는 폭만큼 좌우를 비켜 두면, 창 크기가 바뀌어도
+     늘 '대화가 놓인 열' 안에 뜬다. (사이드바는 웹 레이아웃에만 있다) */
+  const asDialog = Platform.OS === 'web' && isDesktop;
+  const columnInset = asDialog
+    ? { marginLeft: SidebarWidth, marginRight: isWide ? ChatPanelWidth : 0 }
+    : null;
 
   /* 시트를 열 때(또는 다른 대화로 바꿔 열 때) 입력값을 그 대화의 이름으로 되돌린다.
      effect 가 아니라 렌더 중에 맞추므로, 여는 순간 한 프레임 옛 이름이 스치지 않는다. */
@@ -68,12 +76,19 @@ export function ChatSessionSheet({
   };
 
   return (
-    <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
-      <Pressable style={styles.backdrop} onPress={onClose}>
+    <Modal
+      visible={visible}
+      transparent
+      animationType={asDialog ? 'fade' : 'slide'}
+      onRequestClose={onClose}>
+      <Pressable
+        style={[styles.backdrop, asDialog && styles.backdropDialog, columnInset]}
+        onPress={onClose}>
         <Pressable
-          style={[styles.sheet, isDesktop && styles.sheetDesktop]}
+          style={[styles.sheet, asDialog && styles.dialog]}
           onPress={(e) => e.stopPropagation()}>
-          <View style={styles.handle} />
+          {/* 끌어내리는 손잡이는 바닥에 붙은 시트에서만 뜻이 있다 */}
+          {asDialog ? null : <View style={styles.handle} />}
           <Text style={styles.title}>대화 관리</Text>
 
           <Text style={styles.fieldLabel}>이름</Text>
@@ -122,14 +137,24 @@ const styles = StyleSheet.create({
     paddingHorizontal: 20,
     paddingBottom: 32,
   },
-  /* 시트가 열리는 자리(채팅 목록·대화)와 같은 폭으로 맞춘다. */
-  sheetDesktop: {
+  /* 데스크톱 웹 — 대화 열 안에서 가운데 뜨는 카드. 회색 면이 바닥에서 밀려 올라오는
+     대신 자리에서 그대로 나타난다(모달은 fade). */
+  backdropDialog: {
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingHorizontal: 24,
+    backgroundColor: 'rgba(28,25,23,0.22)',
+  },
+  dialog: {
     width: '100%',
-    maxWidth: ContentMax.wide,
-    marginHorizontal: 'auto',
-    borderBottomLeftRadius: 20,
-    borderBottomRightRadius: 20,
-    marginBottom: 24,
+    maxWidth: 460,
+    borderRadius: 20,
+    paddingTop: 24,
+    shadowColor: Editorial.ink,
+    shadowOffset: { width: 0, height: 12 },
+    shadowOpacity: 0.14,
+    shadowRadius: 32,
+    elevation: 12,
   },
   handle: {
     alignSelf: 'center',

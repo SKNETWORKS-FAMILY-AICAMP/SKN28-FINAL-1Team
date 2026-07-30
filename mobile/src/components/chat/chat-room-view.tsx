@@ -100,6 +100,13 @@ export function ChatRoomView({
             </View>
 
             <View style={[styles.headerSide, styles.headerSideEnd]}>
+              {/* 새 대화는 목록 패널이 아니라 여기서 시작한다 — 지금 대화 옆이 가장 가까운 자리다. */}
+              <Pressable
+                hitSlop={12}
+                onPress={() => router.push('/chat-mode')}
+                accessibilityLabel="새 채팅">
+                <Icon name="plus" tintColor={INK} size={19} />
+              </Pressable>
               <Pressable
                 hitSlop={12}
                 onPress={() => setManaging(true)}
@@ -114,13 +121,10 @@ export function ChatRoomView({
         <ChatConversation variant="screen" sessionId={session.id} />
       </View>
 
-      {/* 넓은 화면 — 다른 화면의 코지 패널과 같은 자리에 지난 대화 목록 */}
+      {/* 넓은 화면 — 다른 화면의 코지 패널과 같은 자리에 지난 대화 목록.
+          제목과 구분선은 두지 않는다. 검색창이 바로 '무엇을 찾는 자리'인지 말해 준다. */}
       {isWide ? (
         <View style={styles.panel}>
-          <View style={styles.panelHeader}>
-            <Text style={styles.panelTitle}>지난 대화</Text>
-          </View>
-          <View style={styles.divider} />
           <SessionList variant="panel" activeId={session.id} />
         </View>
       ) : null}
@@ -193,14 +197,6 @@ const styles = StyleSheet.create({
     borderLeftColor: ink(0.08),
     backgroundColor: Editorial.page,
   },
-  panelHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    height: 52,
-    paddingHorizontal: 16,
-  },
-  panelTitle: { fontSize: 14, fontWeight: '600', color: INK },
-
   overlayHead: {
     flexDirection: 'row',
     alignItems: 'center',

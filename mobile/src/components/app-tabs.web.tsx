@@ -4,16 +4,13 @@ import { Tabs, TabList, TabTrigger, TabSlot, TabTriggerSlotProps } from 'expo-ro
 import { Pressable, View, Text, StyleSheet } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import { ChatPanelWidth, Editorial, Fonts, ink } from '@/constants/theme';
+import { ChatPanelWidth, Editorial, Fonts, ink, SidebarWidth } from '@/constants/theme';
 import { useBreakpoint } from '@/hooks/use-breakpoint';
 
 import { ChatConversation } from './chat/chat-conversation';
 import { Icon, type IconName } from './icon';
 
 const INK = Editorial.ink;
-
-/** 데스크톱 사이드바 폭 — 가장 긴 항목('캘린더')에 필요한 만큼만. 남는 폭은 본문에 준다. */
-const SIDEBAR_W = 196;
 
 // 채팅은 탭이 아니라 + 버튼에서 시작한다.
 const TABS = [
@@ -266,7 +263,7 @@ const styles = StyleSheet.create({
 
   // 데스크톱 사이드바
   sidebar: {
-    width: SIDEBAR_W,
+    width: SidebarWidth,
     borderRightWidth: 1,
     borderRightColor: ink(0.08),
     backgroundColor: Editorial.page,

@@ -198,6 +198,12 @@ export const ContentMax = {
 export const ChatPanelWidth = 400;
 
 /**
+ * 데스크톱 좌측 사이드바 폭 (웹 전용).
+ * 다이얼로그를 본문 열에 맞추려면 사이드바가 얼마를 쓰는지 알아야 해서 여기 둔다.
+ */
+export const SidebarWidth = 196;
+
+/**
  * 반응형 기준 폭. 창 폭이 이 값 **이상**이면 해당 레이아웃으로 본다.
  * 기기 종류(User-Agent)가 아니라 창 폭으로 판단해야 데스크톱에서 창을 줄였을 때도 맞게 동작한다.
  * 값을 바꾸면 useBreakpoint() 를 쓰는 모든 화면이 함께 따라온다.

@@ -140,13 +140,13 @@ export function SessionList({
             </Pressable>
           ) : null}
         </View>
-        <Pressable
-          style={[styles.newBtn, isPanel && styles.newBtnPanel]}
-          onPress={startNew}
-          accessibilityLabel="새 채팅">
-          <Icon name="plus" tintColor="#fff" size={15} />
-          {isPanel ? null : <Text style={styles.newText}>새 채팅</Text>}
-        </Pressable>
+        {/* 패널에는 두지 않는다 — 새 대화는 왼쪽 대화 헤더의 ＋ 로 시작한다(자리 하나에만). */}
+        {isPanel ? null : (
+          <Pressable style={styles.newBtn} onPress={startNew} accessibilityLabel="새 채팅">
+            <Icon name="plus" tintColor="#fff" size={15} />
+            <Text style={styles.newText}>새 채팅</Text>
+          </Pressable>
+        )}
       </View>
 
       <ScrollView
@@ -251,8 +251,6 @@ const styles = StyleSheet.create({
     height: 38,
     borderRadius: 999,
   },
-  /* 패널은 폭이 좁아 글자를 빼고 ＋ 만 남긴다 */
-  newBtnPanel: { width: 38, paddingLeft: 0, paddingRight: 0, justifyContent: 'center' },
   newText: { color: '#fff', fontSize: 13, fontWeight: '500' },
 
   scroll: { flex: 1 },
