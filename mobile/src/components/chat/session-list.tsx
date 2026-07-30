@@ -34,27 +34,32 @@ function SessionRow({
   onManage: () => void;
 }) {
   const { tint } = CHAT_MODE_META[session.mode];
+  /* 목록에선 제목만 보여준다 — 미리보기 한 줄은 대화를 고르는 데 도움이 안 되고 줄만 길어졌다.
+     검색 중에는 남긴다: 제목이 아니라 대화 내용이 걸린 경우 왜 걸렸는지 보여야 하기 때문. */
+  const preview = query.trim() ? searchPreview(session, query) : null;
   return (
     <Pressable style={[styles.session, active && styles.sessionOn]} onPress={onOpen}>
       <View style={[styles.thumb, { backgroundColor: `${tint}14` }]}>
-        <Icon name="bubble.left.and.bubble.right" tintColor={tint} size={18} />
+        <Icon name="bubble.left.and.bubble.right" tintColor={tint} size={16} />
       </View>
       <View style={styles.sessionBody}>
         <View style={styles.sessionTop}>
           <Text style={styles.sessionTitle} numberOfLines={1}>{session.title}</Text>
           <Text style={styles.sessionTime}>{formatRelativeTime(session.updatedAt)}</Text>
+          <Pressable
+            hitSlop={10}
+            style={styles.sessionMore}
+            onPress={onManage}
+            accessibilityLabel={`${session.title} 관리`}>
+            <Icon name="ellipsis" tintColor={ink(0.4)} size={16} />
+          </Pressable>
         </View>
-        <Text style={styles.sessionLast} numberOfLines={1}>
-          {searchPreview(session, query)}
-        </Text>
+        {preview ? (
+          <Text style={styles.sessionLast} numberOfLines={1}>
+            {preview}
+          </Text>
+        ) : null}
       </View>
-      <Pressable
-        hitSlop={10}
-        style={styles.sessionMore}
-        onPress={onManage}
-        accessibilityLabel={`${session.title} 관리`}>
-        <Icon name="ellipsis" tintColor={ink(0.4)} size={16} />
-      </Pressable>
     </Pressable>
   );
 }
@@ -295,16 +300,17 @@ const styles = StyleSheet.create({
   /* 패널에서 지금 열려 있는 대화 */
   sessionOn: { backgroundColor: Editorial.control },
   thumb: {
-    width: 46,
-    height: 46,
-    borderRadius: 14,
+    width: 38,
+    height: 38,
+    borderRadius: 12,
     alignItems: 'center',
     justifyContent: 'center',
   },
   sessionBody: { flex: 1, gap: 3 },
-  sessionTop: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+  /* 제목·시간·점세개가 한 줄 — 제목만 늘어나고 나머지는 오른쪽에 붙는다 */
+  sessionTop: { flexDirection: 'row', alignItems: 'center' },
   sessionTitle: { flex: 1, fontSize: 14.5, fontWeight: '500', color: Editorial.ink },
   sessionTime: { fontSize: 11, color: Editorial.textCaption, marginLeft: 8 },
   sessionLast: { fontSize: 12.5, color: Editorial.textCaption },
-  sessionMore: { paddingLeft: 4, paddingVertical: 6 },
+  sessionMore: { paddingLeft: 6, paddingVertical: 4 },
 });
