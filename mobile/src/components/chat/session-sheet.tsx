@@ -122,10 +122,10 @@ const styles = StyleSheet.create({
     paddingHorizontal: 20,
     paddingBottom: 32,
   },
-  /* 데스크톱에선 창 폭을 다 쓰지 않는다 — 모드 카드가 놓이는 열과 같은 폭으로 맞춘다. */
+  /* 시트가 열리는 자리(채팅 목록·대화)와 같은 폭으로 맞춘다. */
   sheetDesktop: {
     width: '100%',
-    maxWidth: ContentMax.narrow,
+    maxWidth: ContentMax.wide,
     marginHorizontal: 'auto',
     borderBottomLeftRadius: 20,
     borderBottomRightRadius: 20,

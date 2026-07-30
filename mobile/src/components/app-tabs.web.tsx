@@ -80,10 +80,12 @@ export default function AppTabs() {
   const [barHeight, setBarHeight] = useState(0);
   const liftCta = !isDesktop && CTA_ROUTES.includes(pathname);
   /* 채팅 패널을 띄우지 않는 화면:
-     - 채팅 화면 자체(chat-room/chat-mode): 같은 대화가 두 벌로 보이게 된다.
+     - 채팅 화면 자체(chat/chat-room/chat-mode): 대화를 고르는 자리 옆에 또 다른 대화가
+       열려 있으면 어느 쪽에 말하는지 알 수 없다.
      - 상세 화면(추천룩/가상피팅/아이템상세): 이 화면들은 그 자리를 아이템 2단 배치에 쓴다. */
   const showChatPanel =
-    isWide && !['/chat-room', '/chat-mode', '/look-detail', '/fitting', '/item-detail'].includes(pathname);
+    isWide &&
+    !['/chat', '/chat-room', '/chat-mode', '/look-detail', '/fitting', '/item-detail'].includes(pathname);
 
   return (
     <Tabs style={[styles.root, isDesktop && styles.rootDesktop]}>

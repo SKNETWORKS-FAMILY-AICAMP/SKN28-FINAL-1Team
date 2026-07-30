@@ -6,7 +6,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { ChatSessionSheet } from '@/components/chat/session-sheet';
 import { EmptyState } from '@/components/ui';
-import { Editorial, ink, BottomTabInset, Fonts , ContentMax} from '@/constants/theme';
+import { Editorial, ink, BottomTabInset, ContentMax } from '@/constants/theme';
 import { useBreakpoint } from '@/hooks/use-breakpoint';
 import {
   CHAT_MODE_META,
@@ -77,37 +77,33 @@ export default function ChatScreen() {
   return (
     <View style={styles.container}>
       <SafeAreaView edges={['top']} style={styles.safe}>
-        {/* 헤더 */}
-        <View style={[styles.header, contentStyle(ContentMax.wide)]}>
-          <Text style={styles.title}>채팅</Text>
+        {/* 검색 + 새 채팅 한 줄. 화면 이름은 탭에 이미 적혀 있어 제목을 따로 두지 않는다.
+            검색은 제목과 대화 내용을 함께 훑는다. */}
+        <View style={[styles.topRow, contentStyle(ContentMax.wide)]}>
+          <View style={styles.searchBar}>
+            <Icon name="magnifyingglass" tintColor={ink(0.35)} size={16} />
+            <TextInput
+              style={styles.searchInput}
+              value={query}
+              onChangeText={setQuery}
+              placeholder="대화 검색"
+              placeholderTextColor={Editorial.textCaption}
+              returnKeyType="search"
+              clearButtonMode="while-editing"
+            />
+            {/* iOS 는 clearButtonMode 가 지우기 버튼을 그려주지만 안드로이드·웹은 없다 */}
+            {searching ? (
+              <Pressable hitSlop={10} onPress={() => setQuery('')} accessibilityLabel="검색어 지우기">
+                <Icon name="xmark" tintColor={ink(0.35)} size={14} />
+              </Pressable>
+            ) : null}
+          </View>
           <Pressable
             style={styles.newBtn}
             onPress={() => router.push('/chat-mode')}>
             <Icon name="plus" tintColor="#fff" size={15} />
             <Text style={styles.newText}>새 채팅</Text>
           </Pressable>
-        </View>
-
-        {/* 검색 — 제목과 대화 내용을 함께 훑는다 */}
-        <View style={[styles.searchWrap, contentStyle(ContentMax.wide)]}>
-        <View style={styles.searchBar}>
-          <Icon name="magnifyingglass" tintColor={ink(0.35)} size={16} />
-          <TextInput
-            style={styles.searchInput}
-            value={query}
-            onChangeText={setQuery}
-            placeholder="대화 검색"
-            placeholderTextColor={Editorial.textCaption}
-            returnKeyType="search"
-            clearButtonMode="while-editing"
-          />
-          {/* iOS 는 clearButtonMode 가 지우기 버튼을 그려주지만 안드로이드·웹은 없다 */}
-          {searching ? (
-            <Pressable hitSlop={10} onPress={() => setQuery('')} accessibilityLabel="검색어 지우기">
-              <Icon name="xmark" tintColor={ink(0.35)} size={14} />
-            </Pressable>
-          ) : null}
-        </View>
         </View>
 
         <ScrollView
@@ -190,16 +186,15 @@ const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: Editorial.page },
   safe: { flex: 1 },
 
-  header: {
+  topRow: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
     alignItems: 'center',
+    gap: 10,
     paddingHorizontal: 20,
-    paddingTop: 12,
-    paddingBottom: 12,
+    paddingTop: 14,
   },
-  title: { fontFamily: Fonts.serif, fontSize: 26, fontWeight: '500', color: INK },
   newBtn: {
+    flexShrink: 0,
     flexDirection: 'row',
     alignItems: 'center',
     gap: 6,
@@ -211,9 +206,8 @@ const styles = StyleSheet.create({
   },
   newText: { color: '#fff', fontSize: 13, fontWeight: '500' },
 
-  /* 검색 바는 헤더와 같은 열에 맞춘다 — 감싸는 쪽이 폭을, 안쪽이 높이·테두리를 맡는다 */
-  searchWrap: { paddingHorizontal: 20 },
   searchBar: {
+    flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
     gap: 8,
