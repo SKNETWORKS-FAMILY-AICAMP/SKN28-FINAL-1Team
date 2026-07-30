@@ -8,7 +8,7 @@ import {
   SharedSpaceOnboarding,
   type SharedSpace,
 } from '@/components/closet/shared-space-flow';
-import { CategoryEditSheet, EmptyState, InlineDropdown, LoginGate, SearchFilterBar, SmartImage, useToast } from '@/components/ui';
+import { CategoryEditSheet, EmptyState, LoginGate, SearchFilterBar, SegmentedToggle, SmartImage, useToast } from '@/components/ui';
 import { useMultiSelectFilter } from '@/hooks/useMultiSelectFilter';
 import { router } from 'expo-router';
 import { useMemo, useState } from 'react';
@@ -110,9 +110,8 @@ export default function ClosetScreen() {
     prune(next.slice(1));
   };
 
-  const wardrobeDropdown = (
-    <InlineDropdown
-      compact
+  const wardrobeToggle = (
+    <SegmentedToggle
       value={tab}
       options={[
         { value: 'mine', label: '내 옷장' },
@@ -139,7 +138,7 @@ export default function ClosetScreen() {
       <SafeAreaView edges={['top']} style={styles.safe}>
         <View style={styles.filterArea}>
           <SearchFilterBar
-            trailing={wardrobeDropdown}
+            trailing={wardrobeToggle}
             showFilters={!(tab === 'shared' && !sharedSpace)}
             query={query}
             onQueryChange={setQuery}

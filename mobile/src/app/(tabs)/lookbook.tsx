@@ -1,4 +1,4 @@
-import { CategoryEditSheet, SearchFilterBar, SmartImage } from '@/components/ui';
+import { CategoryEditSheet, SearchFilterBar, SegmentedToggle, SmartImage } from '@/components/ui';
 import { Icon } from '@/components/icon';
 import { useMultiSelectFilter } from '@/hooks/useMultiSelectFilter';
 import {
@@ -28,9 +28,9 @@ const DEFAULT_TAGS = [...LOOKBOOK_FILTER_OPTIONS];
 
 /** 상단 세그먼트: 둘러보기(남들이 올린 피드) / 저장됨(내가 저장한 룩) */
 type Mode = 'browse' | 'saved';
-const TABS: { key: Mode; label: string }[] = [
-  { key: 'browse', label: '둘러보기' },
-  { key: 'saved', label: '저장됨' },
+const MODE_OPTIONS: { value: Mode; label: string }[] = [
+  { value: 'browse', label: '둘러보기' },
+  { value: 'saved', label: '저장됨' },
 ];
 
 /** 그리드 카드 공통 형태 — 피드 룩(price 有)·저장 룩(asset 有) 모두 이 형태로 정규화 */
@@ -45,24 +45,6 @@ function matchesQuery(look: { tags: string[] }, query: string): boolean {
 function matchesTags(look: { tags: string[] }, selected: string[]): boolean {
   if (selected.length === 0) return true;
   return look.tags.some((tag) => selected.includes(tag));
-}
-
-function LookbookTabs({ mode, onChange }: { mode: Mode; onChange: (m: Mode) => void }) {
-  return (
-    <View style={styles.tabs}>
-      {TABS.map((t) => {
-        const on = mode === t.key;
-        return (
-          <Pressable
-            key={t.key}
-            style={[styles.tab, on && styles.tabOn]}
-            onPress={() => onChange(t.key)}>
-            <Text style={[styles.tabText, on && styles.tabTextOn]}>{t.label}</Text>
-          </Pressable>
-        );
-      })}
-    </View>
-  );
 }
 
 export default function LookbookScreen() {
@@ -124,7 +106,9 @@ export default function LookbookScreen() {
             isActive={isActive}
             showChips={mode === 'browse'}
             onEditCategories={mode === 'browse' ? () => setEditOpen(true) : undefined}
-            trailing={<LookbookTabs mode={mode} onChange={setMode} />}
+            trailing={
+              <SegmentedToggle value={mode} options={MODE_OPTIONS} onChange={setMode} />
+            }
           />
         </View>
 
@@ -198,28 +182,6 @@ const styles = StyleSheet.create({
   safe: { flex: 1 },
 
   filterArea: { marginTop: 30 },
-
-  // 검색바 오른쪽에 붙는 컴팩트 세그먼티드 컨트롤(둘러보기/저장됨). 높이 44로 검색바와 맞춘다.
-  tabs: {
-    flexDirection: 'row',
-    height: 44,
-    borderRadius: 12,
-    padding: 4,
-    alignItems: 'center',
-    backgroundColor: Editorial.control,
-    borderWidth: 1, borderColor: Editorial.line,
-    flexShrink: 0,
-  },
-  tab: {
-    paddingHorizontal: 13,
-    height: 36,
-    borderRadius: 9,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  tabOn: { backgroundColor: Editorial.selected },
-  tabText: { fontSize: 13, fontWeight: '600', color: Editorial.textCaption },
-  tabTextOn: { color: '#fff' },
 
   gridScroll: { flex: 1, marginTop: 8 },
   grid: {
