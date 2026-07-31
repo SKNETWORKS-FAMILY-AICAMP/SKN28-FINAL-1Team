@@ -3,7 +3,7 @@ import { router } from 'expo-router';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-import { Editorial, ink, ContentMax, Fonts } from '@/constants/theme';
+import { Editorial, ink, ContentMax, Fonts, Type } from '@/constants/theme';
 import { useBreakpoint } from '@/hooks/use-breakpoint';
 import { useWardrobeItems } from '@/hooks/use-wardrobe';
 import { useAuth } from '@/state/auth';
@@ -131,6 +131,8 @@ const styles = StyleSheet.create({
     backgroundColor: Editorial.surface,
   },
   cardTitle: { fontFamily: Fonts.serif, fontSize: 20, color: INK },
-  cardDesc: { fontSize: 13.5, color: Editorial.textCaption, lineHeight: 20 },
-  cardNote: { fontSize: 12, color: Editorial.textCaption, fontWeight: '500', marginTop: 4 },
+  /* 설명·조건 줄이 작아서 키웠다. 크기 차이만으로는 둘의 위계가 안 서므로
+     설명은 색을 한 단계 진하게(textSoft) 두어 조건 줄과 갈라놓는다. */
+  cardDesc: { fontSize: Type.body, color: Editorial.textSoft, lineHeight: 22 },
+  cardNote: { fontSize: Type.footnote, color: Editorial.textCaption, fontWeight: '500', marginTop: 4 },
 });
