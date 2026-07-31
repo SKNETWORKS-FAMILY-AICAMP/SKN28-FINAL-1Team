@@ -19,21 +19,20 @@ type ModeCard = {
   desc: string;
   note: string;
 };
-/* 설명은 두 줄 문장. 줄바꿈을 `\n` 으로 직접 잡되, **한 줄이 폰 카드 폭(≈130px)에
-   들어갈 만큼만** 담는다 — 길면 폰에서 한 번 더 접혀 '해'·'요.' 가 홀로 떨어진 세 줄이 된다. */
+/* 설명은 한 줄 명사구. 카드가 화면 폭을 다 쓰므로 굳이 문장으로 늘려 두 줄을 만들 이유가 없다. */
 const MODES: ModeCard[] = [
   {
     key: 'taste',
     icon: 'sparkles',
     title: '추구미 반영 추천',
-    desc: '취향과 무드에 맞춰\n새 룩을 제안해요.',
+    desc: '취향과 무드에 맞춘 새 룩',
     note: '옷장에 없는 아이템도 추천',
   },
   {
     key: 'closet',
     icon: 'tshirt',
     title: '옷장 기반 추천',
-    desc: '가지고 있는 옷들로\n코디를 짜드려요.',
+    desc: '가진 옷으로 짜는 코디',
     note: '', // 실제 옷장 개수로 채운다 (closetNote)
   },
 ];
@@ -108,19 +107,19 @@ const styles = StyleSheet.create({
   title: { fontFamily: Fonts.serif, fontSize: 28, color: INK, marginTop: 10 },
   lead: { fontSize: 14, color: Editorial.textCaption, marginTop: 10 },
 
-  /* 두 카드를 한 줄에 나란히 — 고를 것이 둘뿐이라 위아래로 쌓으면 비교가 어렵다. */
-  cards: { flexDirection: 'row', paddingHorizontal: 24, paddingTop: 24, gap: 14 },
+  /* 두 카드를 위아래로 쌓는다. 나란히 두면 폰에서 카드 폭이 절반이라
+     '추구미 반영 추천' 같은 제목이 두 줄로 쪼개진다. */
+  cards: { paddingHorizontal: 24, paddingTop: 24, gap: 14 },
   card: {
-    flex: 1,
     borderWidth: 1,
     borderColor: ink(0.1),
     borderRadius: 20,
     padding: 20,
     gap: 12,
   },
-  /* 카드 폭이 절반이 되므로 아이콘을 제목 옆이 아니라 위에 둔다. 옆에 두면
-     좁은 화면에서 제목이 아이콘 옆 좁은 틈으로 밀려 줄줄이 쪼개진다. */
-  cardHead: { alignItems: 'flex-start', gap: 12 },
+  /* 카드가 가로로 넓어졌으니 아이콘을 제목 옆에 둔다 — 위에 쌓으면 카드가 길어져
+     두 장이 한 화면에 안 들어온다. */
+  cardHead: { flexDirection: 'row', alignItems: 'center', gap: 14 },
   cardIcon: {
     width: 52,
     height: 52,
