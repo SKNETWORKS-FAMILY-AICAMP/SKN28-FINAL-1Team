@@ -12,6 +12,7 @@ import { useBottomTabInset } from '@/hooks/use-bottom-tab-inset';
 import { useBreakpoint } from '@/hooks/use-breakpoint';
 import { useHome, type HomeData, type HomeWeather } from '@/hooks/use-home';
 import { useRefresh } from '@/hooks/use-refresh';
+import { useWardrobeItems } from '@/hooks/use-wardrobe';
 import { useAuth } from '@/state/auth';
 import { savedLookStore } from '@/state/saved';
 
@@ -53,6 +54,12 @@ export default function HomeScreen() {
      체험용 링크에서 홈이 통째로 에러 화면이 되는 것보다 낫다. */
   const data = apiData ?? (isDemo ? DEMO_HOME : null);
 
+  /* 옷장이 비었는지는 **실제 옷장**에 물어본다.
+     홈 API 의 closet_count 는 백엔드가 아직 고정값(MOCK_CLOSET_COUNT)을 주기 때문에,
+     그대로 믿으면 옷장이 텅 비어도 "42벌 있다"고 보고 추천 카드를 띄운다.
+     옷장·채팅 모드 선택과 같은 출처(필터 없음)를 써서 세 화면이 늘 같은 수를 본다. */
+  const { items: closetItems, loading: closetLoading } = useWardrobeItems({}, status === 'authed');
+
   /* 서비스 페르소나 이름으로 부른다. 백엔드 nickname 은 개발용 계정명이라 그대로 쓰지 않는다. */
   const nickname = '코지';
 
@@ -85,11 +92,11 @@ export default function HomeScreen() {
             <LoadingState message="홈을 준비하는 중…" />
           ) : status === 'guest' ? (
             <EmptyClosetStart />
-          ) : loading ? (
+          ) : loading || closetLoading ? (
             <LoadingState message="오늘의 추천을 불러오는 중…" />
           ) : error || !data ? (
             <ErrorState onRetry={reload} />
-          ) : data.closet_count === 0 ? (
+          ) : closetItems.length === 0 ? (
             <EmptyClosetStart />
           ) : (
             <HomeBody data={data} />
