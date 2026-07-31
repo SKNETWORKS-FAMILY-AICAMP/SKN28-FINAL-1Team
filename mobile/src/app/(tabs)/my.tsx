@@ -7,6 +7,7 @@ import { LoginGate } from '@/components/ui';
 import { ink, ContentMax, Editorial } from '@/constants/theme';
 import { useBottomTabInset } from '@/hooks/use-bottom-tab-inset';
 import { useBreakpoint } from '@/hooks/use-breakpoint';
+import { useProfileSummary } from '@/hooks/use-profile-summary';
 import { useAuth } from '@/state/auth';
 import { useWishlist } from '@/state/likes';
 import { formatBudget, usePrefs } from '@/state/prefs';
@@ -38,6 +39,23 @@ export default function MyScreen() {
   const prefs = usePrefs();
   const { user, isLoggedIn, signOut } = useAuth();
   const wishlist = useWishlist();
+  const profile = useProfileSummary();
+
+  /* 힌트는 "설정했나"를 한눈에 알리는 자리다. 불러오는 중에 '측정하기'라고 단정하면
+     이미 측정을 마친 사람에게 거짓말이 되므로, 값이 올 때까지는 아무 말도 하지 않는다. */
+  const bodyHint = profile.loading
+    ? undefined
+    : profile.height != null
+      ? [`${profile.height}cm`, profile.weight != null ? `${profile.weight}kg` : null]
+          .filter(Boolean)
+          .join(' · ')
+      : '측정하기';
+
+  const pursuitHint = profile.loading
+    ? undefined
+    : profile.pursuitCount > 0
+      ? `${profile.pursuitCount}개 선택`
+      : '설정하기';
   const name = prefs.nickname || displayName(user?.nickname, user?.email) || '코지';
   const email = user?.email ?? 'cozy@example.com';
 
@@ -48,13 +66,13 @@ export default function MyScreen() {
         {
           icon: 'figure.stand',
           label: '체형 정보',
-          hint: '측정하기',
+          hint: bodyHint,
           onPress: () => router.push({ pathname: '/measure-input', params: { returnTo: 'my' } }),
         },
         {
           icon: 'sparkles',
           label: '추구미·선호도',
-          hint: '미니멀 외 2',
+          hint: pursuitHint,
           onPress: () => router.push({ pathname: '/style-onboarding', params: { returnTo: 'my' } }),
         },
         {
@@ -82,7 +100,9 @@ export default function MyScreen() {
       rows: [
         { icon: 'bell', label: '알림 설정', onPress: () => router.push('/notifications') },
         { icon: 'lock', label: '데이터·권한 관리', onPress: () => router.push('/permissions') },
-        { icon: 'questionmark.circle', label: '도움말·문의', onPress: () => {} },
+        { icon: 'questionmark.circle', label: '도움말·문의', onPress: () => router.push('/support') },
+        { icon: 'book', label: '약관·정책', onPress: () => router.push('/terms') },
+        { icon: 'person', label: '계정 관리', onPress: () => router.push('/account') },
       ],
     },
   ];
