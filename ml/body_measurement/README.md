@@ -13,15 +13,17 @@ body_measurement/
 │       └── sizekorea_8th.xlsx            ← SizeKorea 8차 원본 (재정제용)
 ├── src/
 │   ├── benchmark.py                       ← 메인 벤치마크 CLI
-│   ├── compare_all_models.py              ← 6모델 비교 리포트 생성
+│   ├── compare_all_models.py              ← 7모델 비교 리포트 생성
 │   ├── manual_test.py                     ← S3 원본 → CSV 정제
 │   ├── model_test.py                      ← 초기 모델 검증
 │   └── huggingface_benchmark.ipynb        ← Colab GPU에서 HF 모델 실행
-├── artifacts/                             ← 모델 출력물
-│   ├── classic/                           ← RF, HGB, KNN
-│   ├── tabpfn_v2/  nori/  tabpfn_mix/     ← HF 모델 metrics
+├── artifacts/                             ← 모델 출력물 (형식별 폴더, 모델별 폴더 아님)
+│   ├── csv/                               ← test_set.csv, test_predictions_{model}.csv
+│   ├── models/                            ← 기본 모델 {model}.joblib (baseline/RF/HGB/KNN)
+│   └── metrics/                           ← metrics.json(기본 4개), metrics_{model}.json(HF 3개),
+│                                             run_manifest.json, sample_predictions.json
 ├── reports/                               ← 비교 리포트
-│   ├── model_comparison_report.md         ← 사람이 보는 6모델 비교 보고서
+│   ├── model_comparison_report.md         ← 사람이 보는 7모델 비교 보고서
 │   ├── model_comparison_summary.csv       ← 모델별 평균 지표
 │   ├── model_comparison_detail.csv        ← target별 상세 지표
 │   └── model_comparison.png               ← R2/MAE/RMSE 차트
@@ -35,15 +37,16 @@ body_measurement/
 
 기본 설치:
 
-1. `RandomForestRegressor`
-2. `HistGradientBoostingRegressor`
-3. `KNeighborsRegressor`
+1. `DummyRegressor(strategy="mean")` — baseline
+2. `RandomForestRegressor`
+3. `HistGradientBoostingRegressor`
+4. `KNeighborsRegressor`
 
 선택 설치 (GPU/외부 의존성 필요):
 
-4. `Prior-Labs/TabPFN-v2-reg`
-5. `Synthefy/Nori`
-6. `autogluon/tabpfn-mix-1.0-regressor`
+5. `Prior-Labs/TabPFN-v2-reg`
+6. `Synthefy/Nori`
+7. `autogluon/tabpfn-mix-1.0-regressor`
 
 Hugging Face 후보는 모델 다운로드, 큰 의존성, 라이선스 검토가 필요하므로
 기본 설치에서 제외했다.
@@ -53,9 +56,10 @@ Hugging Face 후보는 모델 다운로드, 큰 의존성, 라이선스 검토�
 정제 CSV에 다음 컬럼이 필요하다.
 
 ```text
-height,weight,chest,waist,hip,thigh,calf,arm,shoulder
+gender,height,weight,chest,waist,hip,thigh,calf,arm,shoulder
 ```
 
+- `gender`: M/F
 - `height`: cm
 - `weight`: kg
 - 나머지 target: cm
@@ -82,7 +86,7 @@ cd ml\body_measurement
 
 ## 배선 확인
 
-실제 데이터가 없을 때 기본 3개 모델의 학습·저장·예측 흐름만 확인한다.
+실제 데이터가 없을 때 기본 4개 모델의 학습·저장·예측 흐름만 확인한다.
 이 결과는 실제 신체치수나 모델 성능으로 해석하면 안 된다.
 
 ```powershell
@@ -102,10 +106,10 @@ python src\benchmark.py benchmark --data data\sizekorea_measurements_clean.csv
 ```powershell
 python src\benchmark.py benchmark `
   --data data\sizekorea_measurements_clean.csv `
-  --models random_forest hist_gradient_boosting knn
+  --models baseline random_forest hist_gradient_boosting knn
 ```
 
-기본 `--artifact-dir`은 스크립트 기준 `artifacts\classic` 이다.
+기본 `--artifact-dir`은 스크립트 기준 `artifacts` 이다.
 다른 위치에 저장하려면:
 
 ```powershell
@@ -114,13 +118,15 @@ python src\benchmark.py benchmark `
   --artifact-dir artifacts\my_run
 ```
 
-평가 결과 (artifact_dir 아래):
+평가 결과 (artifact_dir 아래, 형식별 하위폴더에 저장된다):
 
 ```text
-artifacts/classic/metrics.json
-artifacts/classic/run_manifest.json
-artifacts/classic/sample_predictions.json
-artifacts/classic/{model_name}.joblib
+artifacts/csv/test_set.csv
+artifacts/csv/test_predictions_{model_name}.csv
+artifacts/models/{model_name}.joblib
+artifacts/metrics/metrics.json
+artifacts/metrics/run_manifest.json
+artifacts/metrics/sample_predictions.json
 ```
 
 각 target에 대해 다음을 기록한다.
@@ -142,7 +148,7 @@ s3://skn28-cozy/22.사이즈코리아/8차 인체치수조사(2020~24)_치수데
 
 ```powershell
 python src\benchmark.py benchmark `
-  --models random_forest hist_gradient_boosting knn `
+  --models baseline random_forest hist_gradient_boosting knn `
   --height 170 `
   --weight 65
 ```
@@ -175,21 +181,22 @@ python src\benchmark.py benchmark `
 
 ```powershell
 python src\benchmark.py predict `
-  --artifact-dir artifacts\classic `
+  --artifact-dir artifacts `
   --height 170 `
   --weight 65
 ```
 
 세 기본 모델의 상세 7개 예측값이 JSON으로 출력된다.
 
-`benchmark` 명령에도 `--height`, `--weight`가 있으므로 6개 모델을 학습한
+`benchmark` 명령에도 `--height`, `--weight`가 있으므로 7개 모델을 학습한
 직후 같은 입력을 한 번에 비교할 수 있다. Hugging Face 모델은 라이브러리별
 영구 저장 방식이 달라 `sample_predictions.json`에 해당 실행의 예측값을 남긴다.
 
-## 6모델 비교 리포트 생성
+## 7모델 비교 리포트 생성
 
-기본 3개 + HF 3개, 총 6개 모델을 한 표로 비교한 리포트를 생성한다.
-각 모델의 `metrics.json`을 `artifacts/{model}/` 아래에서 읽어 합친다.
+기본 4개 + HF 3개, 총 7개 모델을 한 표로 비교한 리포트를 생성한다.
+`artifacts/metrics/metrics.json`(기본 4개)과 `artifacts/metrics/metrics_{model}.json`(HF 3개)을
+읽어 합친다.
 
 ```powershell
 python src\compare_all_models.py
@@ -230,15 +237,33 @@ src/huggingface_benchmark.ipynb
 노트북은 다음을 수행한다:
 
 1. Colab GPU 런타임에 HF 패키지 설치
-2. `benchmark.py`를 Colab으로 복사해 같은 split/지표로 HF 3개 모델 학습
-3. 결과를 `artifacts/{tabpfn_v2|nori|tabpfn_mix}/metrics.json`으로 저장
-4. 로컬의 같은 경로에 metrics.json을 옮기면 `compare_all_models.py`가
-   6모델을 합쳐서 비교한다.
+2. 최신 `benchmark.py`를 Colab으로 복사해 같은 split/지표로 HF 3개 모델 학습
+3. 기본 모델에서 생성한 `test_set.csv`를 `--test-data`로 전달해 같은 1000개 테스트셋을 사용한다.
+4. `gender`, `height`, `weight` 입력으로 나머지 신체 치수를 예측한다.
+5. Colab 쪽 결과는 `colab_{model}/` 아래에 로컬과 같은 `csv/`, `models/`, `metrics/`
+   구조로 저장된다.
+   - `metrics/metrics.json`: MAE/RMSE/R²/예측 시간 요약
+   - `csv/test_set.csv`: 1000개 테스트 입력과 실제값 (로컬과 동일한 test_set)
+   - `csv/test_predictions_{model}.csv`: 모델별 1000개 예측값과 오차
+     (`actual_{부위}`, `predicted_{부위}`, `error_{부위}` 순서)
+   - `metrics/run_manifest.json`: 실행 조건과 산출물 경로
+6. 로컬로 가져올 때는 파일명에 모델명을 붙여서 넣는다. 로컬 `artifacts/`는
+   모델별 폴더가 아니라 형식별 폴더 하나이므로, 이름으로 모델을 구분해야 한다.
+
+   ```text
+   colab_tabpfn_v2/metrics/metrics.json  → artifacts/metrics/metrics_tabpfn_v2.json
+   colab_nori/metrics/metrics.json       → artifacts/metrics/metrics_nori.json
+   colab_tabpfn_mix/metrics/metrics.json → artifacts/metrics/metrics_tabpfn_mix.json
+
+   colab_{model}/csv/test_predictions_{model}.csv → artifacts/csv/test_predictions_{model}.csv
+   ```
+7. 그러면 `compare_all_models.py`가 7모델을 합쳐서 비교한다.
 
 각 패키지를 별도로 설치한 후 `--models`에 추가한다.
 
 ```powershell
 pip install tabpfn
+pip install huggingface-hub
 pip install synthefy-nori
 pip install "autogluon.tabular[tabpfnmix]"
 ```
@@ -248,7 +273,11 @@ pip install "autogluon.tabular[tabpfnmix]"
 ```powershell
 python src\benchmark.py benchmark `
   --data data\sizekorea_measurements_clean.csv `
-  --models tabpfn_v2 nori tabpfn_mix
+  --test-data artifacts\csv\test_set.csv `
+  --models tabpfn_v2 nori tabpfn_mix `
+  --gender F `
+  --height 160 `
+  --weight 55
 ```
 
 주의:
@@ -257,11 +286,13 @@ python src\benchmark.py benchmark `
 2. 최초 실행은 Hugging Face 모델 다운로드 때문에 네트워크가 필요하다.
 3. foundation 모델은 target별로 7번 실행하므로 CPU·메모리·지연을 측정한다.
 4. Hugging Face 모델 저장·재로딩은 라이브러리별 방식이 달라 현재 CLI의
-   `predict` 명령은 기본 3개 모델부터 지원한다.
+   `predict` 명령은 기본 4개 모델부터 지원한다.
+5. Colab 노트북에 예전 `benchmark.py` 패치 셀이 남아 있으면 실행하지 않는다.
+   최신 `benchmark.py`가 이미 TabPFN-v2 체크포인트 다운로드와 모델별 CSV 생성을 처리한다.
 
 ## 보고서 (사람이 보는 결과)
 
-`reports/model_comparison_report.md`는 6개 모델의 비교를 사람이 읽기 좋게
+`reports/model_comparison_report.md`는 7개 모델의 비교를 사람이 읽기 좋게
 정리한 보고서다. 표·차트·분석·재현 명령어가 한 파일에 들어 있다.
 
 ```powershell
@@ -269,6 +300,6 @@ python src\benchmark.py benchmark `
 cd ml\body_measurement
 python src\benchmark.py benchmark --data data\sizekorea_measurements_clean.csv
 python src\compare_all_models.py
-# Colab에서 HF 모델 metrics.json을 artifacts/{tabpfn_v2|nori|tabpfn_mix}/에 추가
+# Colab에서 HF 모델 metrics.json을 artifacts/metrics/metrics_{model}.json 이름으로 추가
 # → reports/model_comparison_report.md 직접 작성/갱신
 ```

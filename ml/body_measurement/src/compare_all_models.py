@@ -1,4 +1,4 @@
-"""기본 3개 모델 + Hugging Face 3개 모델, 총 6개 모델을 한 표로 비교한다."""
+"""기본 4개 모델 + Hugging Face 3개 모델, 총 7개 모델을 한 표로 비교한다."""
 
 from __future__ import annotations
 
@@ -12,15 +12,18 @@ plt.rcParams["font.family"] = "Malgun Gothic"
 plt.rcParams["axes.unicode_minus"] = False
 
 BASE_DIR = Path(__file__).resolve().parent.parent
-ARTIFACT_SOURCES = {
-    "random_forest": "artifacts/classic",
-    "hist_gradient_boosting": "artifacts/classic",
-    "knn": "artifacts/classic",
-    "tabpfn_v2": "artifacts/tabpfn_v2",
-    "nori": "artifacts/nori",
-    "tabpfn_mix": "artifacts/tabpfn_mix",
+ARTIFACT_DIR = "artifacts/metrics"
+METRICS_FILENAME = {
+    "baseline": "metrics.json",
+    "random_forest": "metrics.json",
+    "hist_gradient_boosting": "metrics.json",
+    "knn": "metrics.json",
+    "tabpfn_v2": "metrics_tabpfn_v2.json",
+    "nori": "metrics_nori.json",
+    "tabpfn_mix": "metrics_tabpfn_mix.json",
 }
 MODEL_GROUP = {
+    "baseline": "기본",
     "random_forest": "기본",
     "hist_gradient_boosting": "기본",
     "knn": "기본",
@@ -34,15 +37,12 @@ REPORT_DIR.mkdir(exist_ok=True)
 
 def load_detail() -> pd.DataFrame:
     frames = []
-    seen_dirs = set()
-    for model, rel_dir in ARTIFACT_SOURCES.items():
-        if rel_dir in seen_dirs:
-            path = BASE_DIR / rel_dir / "metrics.json"
-        else:
-            path = BASE_DIR / rel_dir / "metrics.json"
-        seen_dirs.add(rel_dir)
-        records = json.loads(path.read_text(encoding="utf-8"))
-        frames.extend(r for r in records if r["model"] == model)
+    records_by_file: dict[str, list[dict]] = {}
+    for model, filename in METRICS_FILENAME.items():
+        if filename not in records_by_file:
+            path = BASE_DIR / ARTIFACT_DIR / filename
+            records_by_file[filename] = json.loads(path.read_text(encoding="utf-8"))
+        frames.extend(r for r in records_by_file[filename] if r["model"] == model)
     return pd.DataFrame(frames)
 
 
@@ -91,7 +91,7 @@ def plot_summary(summary: pd.DataFrame) -> Path:
         plt.Rectangle((0, 0), 1, 1, color="#DD8452", label="Hugging Face 모델"),
     ]
     fig.legend(handles=handles, loc="upper center", ncol=2, bbox_to_anchor=(0.5, 1.05))
-    fig.suptitle("신체치수 예측 모델 6종 비교 (SizeKorea, height/weight -> 7개 치수)", y=1.12)
+    fig.suptitle("신체치수 예측 모델 7종 비교 (SizeKorea, gender/height/weight -> 7개 치수)", y=1.12)
     fig.tight_layout()
 
     out_path = REPORT_DIR / "model_comparison.png"

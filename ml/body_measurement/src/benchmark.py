@@ -23,6 +23,7 @@ import joblib
 import numpy as np
 import pandas as pd
 from sklearn.base import RegressorMixin
+from sklearn.dummy import DummyRegressor
 from sklearn.ensemble import HistGradientBoostingRegressor, RandomForestRegressor
 from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
 from sklearn.model_selection import train_test_split
@@ -33,11 +34,12 @@ from sklearn.preprocessing import StandardScaler
 
 FEATURES = ["gender", "height", "weight"]
 TARGETS = ["chest", "waist", "hip", "thigh", "calf", "arm", "shoulder"]
-CLASSIC_MODELS = ("random_forest", "hist_gradient_boosting", "knn")
+ROW_ID = "source_row_id"
+CLASSIC_MODELS = ("baseline", "random_forest", "hist_gradient_boosting", "knn")
 HF_MODELS = ("tabpfn_v2", "nori", "tabpfn_mix")
 ALL_MODELS = (*CLASSIC_MODELS, *HF_MODELS)
 RANDOM_STATE = 42
-DEFAULT_VALIDATION_ROWS = 1000
+DEFAULT_TEST_ROWS = 1000
 DEFAULT_S3_URI = (
     "s3://skn28-cozy/22.사이즈코리아/"
     "8차 인체치수조사(2020~24)_치수데이터(공개용).xlsx"
@@ -121,6 +123,8 @@ def _classic_model(name: str) -> RegressorMixin:
     RandomForestRegressor 같은 실제 학습 모델을 만들어 반환한다.
     """
 
+    if name == "baseline":
+        return DummyRegressor(strategy="mean")
     if name == "random_forest":
         return RandomForestRegressor(
             n_estimators=300,
@@ -173,8 +177,19 @@ class PerTargetFoundationRegressor:
                 raise RuntimeError(
                     "TabPFN 실행에는 `pip install tabpfn`이 필요합니다."
                 ) from exc
+            try:
+                from huggingface_hub import hf_hub_download
+            except ImportError as exc:
+                raise RuntimeError(
+                    "TabPFN-v2 체크포인트 다운로드에는 "
+                    "`pip install huggingface-hub`가 필요합니다."
+                ) from exc
+            checkpoint = hf_hub_download(
+                repo_id="Prior-Labs/TabPFN-v2-reg",
+                filename="tabpfn-v2-regressor-v2_default.ckpt",
+            )
             return TabPFNRegressor(
-                model_path="Prior-Labs/TabPFN-v2-reg",
+                model_path=checkpoint,
                 random_state=RANDOM_STATE,
             )
 
@@ -229,7 +244,7 @@ class TabPFNMixRegressor:
         """AutoGluon TabPFNMix를 target별로 학습한다.
 
         AutoGluon은 train_data 안에 입력 컬럼과 정답 컬럼이 함께 있어야 하므로
-        매 target마다 height, weight, 정답 target 형태의 DataFrame을 만든다.
+        매 target마다 gender, height, weight, 정답 target 형태의 DataFrame을 만든다.
         """
 
         try:
@@ -248,6 +263,9 @@ class TabPFNMixRegressor:
                 "max_epochs": 30,
             }]
         }
+        import torch
+
+        use_gpu = torch.cuda.is_available()
         for target in TARGETS:
             train_data = x.copy()
             train_data[target] = y[target].to_numpy()
@@ -260,6 +278,7 @@ class TabPFNMixRegressor:
             predictor.fit(
                 train_data=train_data,
                 hyperparameters=hyperparameters,
+                ag_args_fit={"num_gpus": 1} if use_gpu else None,
             )
             self.predictors[target] = predictor
         return self
@@ -304,6 +323,11 @@ def validate_frame(frame: pd.DataFrame) -> pd.DataFrame:
         raise ValueError(f"CSV 필수 컬럼이 없습니다: {', '.join(missing)}")
 
     cleaned = frame[required].copy()
+    if ROW_ID in frame.columns:
+        cleaned.insert(0, ROW_ID, frame[ROW_ID])
+    else:
+        cleaned.insert(0, ROW_ID, frame.index)
+    cleaned[ROW_ID] = pd.to_numeric(cleaned[ROW_ID], errors="coerce")
     cleaned["gender"] = (
         cleaned["gender"]
         .astype("string")
@@ -317,6 +341,7 @@ def validate_frame(frame: pd.DataFrame) -> pd.DataFrame:
         errors="coerce",
     )
     cleaned = cleaned.dropna()
+    cleaned[ROW_ID] = cleaned[ROW_ID].astype(int)
     cleaned = cleaned[
         cleaned["height"].between(100, 230)
         & cleaned["weight"].between(25, 300)
@@ -328,6 +353,18 @@ def validate_frame(frame: pd.DataFrame) -> pd.DataFrame:
             f"정제 후 행이 {len(cleaned)}개입니다. 최소 50개 이상의 실측 행이 필요합니다."
         )
     return cleaned.reset_index(drop=True)
+
+
+def load_test_frame(path: Path) -> pd.DataFrame:
+    """기본 모델에서 저장한 test_set.csv를 다시 평가용 DataFrame으로 읽는다."""
+
+    raw = pd.read_csv(path)
+    rename = {
+        f"actual_{target}": target
+        for target in TARGETS
+        if f"actual_{target}" in raw.columns
+    }
+    return raw.rename(columns=rename)
 
 
 def make_model_features(frame: pd.DataFrame) -> pd.DataFrame:
@@ -540,6 +577,7 @@ def benchmark(
     model_names: list[str],
     artifact_dir: Path,
     *,
+    test_frame: pd.DataFrame | None = None,
     sample: tuple[str, float, float] | None = None,
     dataset_info: DatasetInfo | None = None,
 ) -> tuple[list[Metric], dict[str, dict[str, float]]]:
@@ -553,25 +591,44 @@ def benchmark(
     """
 
     data = validate_frame(frame)
-    if len(data) <= DEFAULT_VALIDATION_ROWS:
-        raise ValueError(
-            f"검증셋 {DEFAULT_VALIDATION_ROWS}개를 만들려면 "
-            f"정제 데이터가 최소 {DEFAULT_VALIDATION_ROWS + 1}행 필요합니다. "
-            f"현재 데이터: {len(data)}행"
+    if test_frame is None:
+        if len(data) <= DEFAULT_TEST_ROWS:
+            raise ValueError(
+                f"테스트셋 {DEFAULT_TEST_ROWS}개를 만들려면 "
+                f"정제 데이터가 최소 {DEFAULT_TEST_ROWS + 1}행 필요합니다. "
+                f"현재 데이터: {len(data)}행"
+            )
+        train, test = train_test_split(
+            data,
+            test_size=DEFAULT_TEST_ROWS,
+            random_state=RANDOM_STATE,
         )
-    train, test = train_test_split(
-        data,
-        test_size=DEFAULT_VALIDATION_ROWS,
-        random_state=RANDOM_STATE,
-    )
-    artifact_dir.mkdir(parents=True, exist_ok=True)
+    else:
+        test = validate_frame(test_frame)
+        unknown_ids = sorted(set(test[ROW_ID]) - set(data[ROW_ID]))
+        if unknown_ids:
+            preview = ", ".join(str(value) for value in unknown_ids[:5])
+            raise ValueError(
+                f"test data에 원본 데이터에 없는 {ROW_ID}가 있습니다: {preview}"
+            )
+        train = data[~data[ROW_ID].isin(test[ROW_ID])].copy()
+        if len(train) < 50:
+            raise ValueError(
+                f"test data를 제외한 학습 데이터가 {len(train)}개입니다. "
+                "최소 50개 이상 필요합니다."
+            )
+    csv_dir = artifact_dir / "csv"
+    models_dir = artifact_dir / "models"
+    metrics_dir = artifact_dir / "metrics"
+    for directory in (csv_dir, models_dir, metrics_dir):
+        directory.mkdir(parents=True, exist_ok=True)
     x_train, y_train = make_model_features(train), train[TARGETS]
     x_test, y_test = make_model_features(test), test[TARGETS]
-    validation_export = test[FEATURES].copy()
+    test_export = test[[ROW_ID, *FEATURES]].copy()
     for target in TARGETS:
-        validation_export[f"actual_{target}"] = test[target].to_numpy()
-    validation_export.to_csv(
-        artifact_dir / "validation_set.csv",
+        test_export[f"actual_{target}"] = test[target].to_numpy()
+    test_export.to_csv(
+        csv_dir / "test_set.csv",
         index=False,
         encoding="utf-8-sig",
     )
@@ -591,7 +648,7 @@ def benchmark(
             raise ValueError(
                 f"{name} 예측 shape={predictions.shape}, 예상={y_test.shape}"
             )
-        prediction_export = validation_export.copy()
+        prediction_export = test_export.copy()
         prediction_export["fit_seconds"] = fit_seconds
         prediction_export["predict_ms_per_row"] = (
             predict_seconds / len(x_test) * 1_000
@@ -601,7 +658,7 @@ def benchmark(
             actual = y_test[target].to_numpy()
             predicted = predictions[:, index]
             absolute_errors = np.abs(actual - predicted)
-            prediction_export[f"pred_{target}"] = predicted
+            prediction_export[f"predicted_{target}"] = predicted
             prediction_export[f"error_{target}"] = predicted - actual
             metrics.append(
                 Metric(
@@ -621,8 +678,24 @@ def benchmark(
                     ),
                 )
             )
+        prediction_columns = [
+            ROW_ID,
+            *FEATURES,
+            "fit_seconds",
+            "predict_ms_per_row",
+            *[
+                column
+                for target in TARGETS
+                for column in (
+                    f"actual_{target}",
+                    f"predicted_{target}",
+                    f"error_{target}",
+                )
+            ],
+        ]
+        prediction_export = prediction_export[prediction_columns]
         prediction_export.to_csv(
-            artifact_dir / f"validation_predictions_{name}.csv",
+            csv_dir / f"test_predictions_{name}.csv",
             index=False,
             encoding="utf-8-sig",
         )
@@ -644,14 +717,14 @@ def benchmark(
             }
 
         if name in CLASSIC_MODELS:
-            joblib.dump(model, artifact_dir / f"{name}.joblib")
+            joblib.dump(model, models_dir / f"{name}.joblib")
 
     result = [asdict(metric) for metric in metrics]
-    (artifact_dir / "metrics.json").write_text(
+    (metrics_dir / "metrics.json").write_text(
         json.dumps(result, ensure_ascii=False, indent=2),
         encoding="utf-8",
     )
-    (artifact_dir / "sample_predictions.json").write_text(
+    (metrics_dir / "sample_predictions.json").write_text(
         json.dumps(sample_predictions, ensure_ascii=False, indent=2),
         encoding="utf-8",
     )
@@ -662,9 +735,10 @@ def benchmark(
         "targets": TARGETS,
         "models": model_names,
         "train_rows": len(train),
-        "validation_rows": len(test),
-        "validation_set_path": str(artifact_dir / "validation_set.csv"),
-        "prediction_file_pattern": "validation_predictions_{model}.csv",
+        "test_rows": len(test),
+        "test_source": "external_test_data" if test_frame is not None else "split",
+        "test_set_path": str(csv_dir / "test_set.csv"),
+        "test_prediction_file_pattern": "test_predictions_{model}.csv",
         "dataset": asdict(dataset_info) if dataset_info else None,
         "sample": (
             {"gender": sample[0], "height": sample[1], "weight": sample[2]}
@@ -676,7 +750,7 @@ def benchmark(
             "pandas": pd.__version__,
         },
     }
-    (artifact_dir / "run_manifest.json").write_text(
+    (metrics_dir / "run_manifest.json").write_text(
         json.dumps(manifest, ensure_ascii=False, indent=2),
         encoding="utf-8",
     )
@@ -704,7 +778,7 @@ def predict_saved(
     )
     result: dict[str, dict[str, float]] = {}
     for name in CLASSIC_MODELS:
-        path = artifact_dir / f"{name}.joblib"
+        path = artifact_dir / "models" / f"{name}.joblib"
         if not path.exists():
             continue
         model = joblib.load(path)
@@ -760,7 +834,16 @@ def parse_args() -> argparse.Namespace:
     benchmark_parser.add_argument(
         "--artifact-dir",
         type=Path,
-        default=Path(__file__).resolve().parent.parent / "artifacts" / "classic",
+        default=Path(__file__).resolve().parent.parent / "artifacts",
+    )
+    benchmark_parser.add_argument(
+        "--test-data",
+        type=Path,
+        default=None,
+        help=(
+            "이미 생성된 test_set.csv. 지정하면 랜덤 분할 대신 이 1000개 "
+            "테스트셋을 그대로 사용합니다."
+        ),
     )
     benchmark_parser.add_argument(
         "--cache-dir",
@@ -797,7 +880,7 @@ def parse_args() -> argparse.Namespace:
     predict_parser.add_argument(
         "--artifact-dir",
         type=Path,
-        default=Path(__file__).resolve().parent.parent / "artifacts" / "classic",
+        default=Path(__file__).resolve().parent.parent / "artifacts",
     )
     return parser.parse_args()
 
@@ -840,6 +923,11 @@ def main() -> None:
             frame,
             args.models,
             args.artifact_dir,
+            test_frame=(
+                load_test_frame(args.test_data)
+                if args.test_data is not None
+                else None
+            ),
             sample=(args.gender, args.height, args.weight),
             dataset_info=dataset_info,
         )
@@ -874,7 +962,7 @@ def main() -> None:
                 indent=2,
             )
         )
-        print(f"\n상세 지표: {args.artifact_dir / 'metrics.json'}")
+        print(f"\n상세 지표: {args.artifact_dir / 'metrics' / 'metrics.json'}")
         return
 
     predictions = predict_saved(
