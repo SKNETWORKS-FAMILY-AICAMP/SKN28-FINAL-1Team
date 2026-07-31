@@ -76,7 +76,9 @@ export default function MeasureInput() {
           ? '과체중'
           : '비만'
     : '';
-  const canNext = h > 0 && w > 0;
+  /* 성별도 있어야 다음으로 간다 — 서버가 gender 없이는 키·몸무게를 아예 저장하지 않는다.
+     빼먹으면 측정을 끝내도 아무것도 안 남아 '된 것처럼 보이는' 화면이 된다. */
+  const canNext = h > 0 && w > 0 && sex !== null;
 
   const goCapture = () => {
     router.push({
@@ -176,6 +178,10 @@ export default function MeasureInput() {
             </View>
           </View>
 
+          {h > 0 && w > 0 && sex === null ? (
+            <Text style={styles.sexHint}>성별까지 골라야 저장돼요</Text>
+          ) : null}
+
           <Pressable style={styles.skipWrap} hitSlop={8} onPress={goCapture}>
             <Text style={styles.skipText}>입력 없이 건너뛰기</Text>
           </Pressable>
@@ -223,6 +229,7 @@ const styles = StyleSheet.create({
   title: { fontFamily: Fonts.serif, fontSize: 24, color: INK, marginTop: 10, lineHeight: 30 },
   lead: { fontSize: 14, color: Editorial.textCaption, marginTop: 12 },
   prefillWarn: { fontSize: 12.5, color: WINE, marginTop: 8, lineHeight: 18 },
+  sexHint: { fontSize: 12.5, color: Editorial.textCaption, marginTop: 10 },
 
   field: { marginTop: 28 },
   label: { fontSize: 13, fontWeight: '600', color: Editorial.textCaption, letterSpacing: 0.2 },

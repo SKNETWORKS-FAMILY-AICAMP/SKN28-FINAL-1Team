@@ -11,7 +11,7 @@ import { ApiError, api } from '@/lib/apiClient';
  * authStore 와 동일한 경량 모듈 스토어(useSyncExternalStore) 로 스텝 간 데이터를 잇는다.
  *
  * 백엔드 연동(팀레포 main, users/body):
- *   - STEP1  "다음"  → PUT   /users/me/body/basic/  { height, weight }  (saveBasic)
+ *   - STEP1  "다음"  → PUT   /users/me/body/basic/  { gender, height, weight }  (saveBasic)
  *   - 결과 진입      → GET   /users/me/body/  로 저장된 상세치수를 불러오고,
  *                      없으면 키·몸무게 기반 제안값(mock)을 초기값으로 보여준다 (estimate)
  *   - STEP2  "측정 시작하기" → POST /body/photos/(multipart) → 트랜잭션 폴링 →
@@ -212,7 +212,14 @@ export const measureStore = {
    */
   async saveBasic(input: MeasureInput): Promise<void> {
     setState({ input });
+    /* 서버는 gender·height·weight 를 **셋 다** 요구하고, gender 는 male|female 만 받는다.
+       예전엔 gender 를 안 보내 매번 400 이 났다.
+       성별을 안 고른 상태로는 저장할 방법이 없으므로 요청을 보내지 않는다 —
+       어차피 400 이 될 요청을 던져 에러 토스트만 띄우느니 로컬 입력만 들고 진행한다.
+       (화면에서 성별을 고르게 막아 두어 여기까진 잘 오지 않는다) */
+    if (input.sex === 'none') return;
     await api.put(BodyEndpoints.basic, {
+      gender: input.sex,
       height: input.height,
       weight: input.weight,
     });
