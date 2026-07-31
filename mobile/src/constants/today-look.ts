@@ -6,7 +6,21 @@
  * API 응답으로 교체한다(필드명 유지).
  */
 
-export type LookRelated = { name: string; brand: string; price: string; tone: number };
+import type { MallKey } from '@/lib/mall';
+
+export type LookRelated = {
+  name: string;
+  brand: string;
+  price: string;
+  tone: number;
+  /**
+   * 외부 쇼핑몰 상품 주소. 백엔드 catalog 가 아직 link 를 안 내려줘서 지금은 비어 있고,
+   * 비어 있으면 `mall` 에서 브랜드+상품명 검색 주소를 만든다(lib/mall.ts).
+   */
+  link?: string;
+  /** 어느 몰로 보낼지. 생략하면 네이버쇼핑. */
+  mall?: MallKey;
+};
 
 export type LookPiece = {
   slot: string;
@@ -58,7 +72,7 @@ export const TODAY_LOOK = {
       tone: 0.15,
       mine: false,
       related: [
-        { name: '미니멀 레더 벨트', brand: 'Musinsa Standard', price: '29,000', tone: 0.15 },
+        { name: '미니멀 레더 벨트', brand: 'Musinsa Standard', price: '29,000', tone: 0.15, mall: 'musinsa' },
         { name: '스퀘어 버클 벨트', brand: 'COS', price: '55,000', tone: 0.18 },
       ],
     },
