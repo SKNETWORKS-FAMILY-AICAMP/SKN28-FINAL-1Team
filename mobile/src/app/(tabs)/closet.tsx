@@ -16,6 +16,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Pressable,
+  RefreshControl,
   ScrollView,
   StyleSheet,
   Text,
@@ -28,6 +29,7 @@ import { SHARED_CLOSET_ITEMS } from '@/constants/wardrobe';
 import { WARDROBE_FILTER_OPTIONS } from '@/constants/wardrobe-taxonomy';
 import { useBottomTabInset } from '@/hooks/use-bottom-tab-inset';
 import { useBreakpoint } from '@/hooks/use-breakpoint';
+import { useRefresh } from '@/hooks/use-refresh';
 import { useWardrobeItems } from '@/hooks/use-wardrobe';
 import { itemDisplayName } from '@/lib/wardrobeApi';
 import { Icon } from '@/components/icon';
@@ -92,6 +94,7 @@ export default function ClosetScreen() {
      직접 넣은 옷처럼 확인 단계를 거치지 않은 아이템이 옷장에 영영 안 보인다.
      대신 미확인 아이템에는 배지를 달아 구분한다. */
   const { items: apiItems, loading, error, reload } = useWardrobeItems({}, isLoggedIn);
+  const { refreshing, onRefresh } = useRefresh(reload);
 
   /* 등록은 이 화면을 떠나도 계속 돈다(state/upload-jobs.ts). 진행 중인 것을 위에 보여주고,
      하나 끝날 때마다 목록을 다시 불러와 새 옷이 바로 보이게 한다. */
@@ -249,6 +252,12 @@ export default function ClosetScreen() {
           <ScrollView
             style={styles.gridScroll}
             showsVerticalScrollIndicator={false}
+            /* 공유 옷장은 아직 목업이라 다시 불러올 것이 없다 — 내 옷장에서만 당길 수 있게 둔다. */
+            refreshControl={
+              tab === 'mine' && isLoggedIn ? (
+                <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={INK} />
+              ) : undefined
+            }
             contentContainerStyle={[styles.grid, { paddingBottom: tabInset + 24 }, contentStyle(ContentMax.wide)]}>
             {/* 내 옷장만 서버에서 온다 — 공유 옷장은 아직 목업이라 로딩·에러가 없다. */}
             {tab === 'mine' && loading ? (

@@ -1,7 +1,7 @@
 import { Icon } from '@/components/icon';
 import { router } from 'expo-router';
 import { useMemo, useState } from 'react';
-import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Pressable, RefreshControl, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { ErrorState, LoadingState, SmartImage, useToast } from '@/components/ui';
@@ -11,6 +11,7 @@ import { TODAY_LOOK_IMAGE } from '@/constants/look-images';
 import { useBottomTabInset } from '@/hooks/use-bottom-tab-inset';
 import { useBreakpoint } from '@/hooks/use-breakpoint';
 import { useHome, type HomeData, type HomeWeather } from '@/hooks/use-home';
+import { useRefresh } from '@/hooks/use-refresh';
 import { useAuth } from '@/state/auth';
 import { savedLookStore } from '@/state/saved';
 
@@ -46,6 +47,7 @@ export default function HomeScreen() {
   /* 홈 API는 JWT가 필요하다. 비회원은 요청하지 않고 온보딩 전용 홈을 즉시 보여준다.
      데모 세션도 토큰이 없어 호출하지 않고 고정 목업으로 '로그인한 홈'을 렌더한다. */
   const { data: apiData, error, loading, reload } = useHome(undefined, status === 'authed' && !isDemo);
+  const { refreshing, onRefresh } = useRefresh(reload);
   const data = isDemo ? DEMO_HOME : apiData;
 
   /* 서비스 페르소나 이름으로 부른다. 백엔드 nickname 은 개발용 계정명이라 그대로 쓰지 않는다. */
@@ -56,6 +58,12 @@ export default function HomeScreen() {
       <SafeAreaView edges={['top']} style={styles.safe}>
         <ScrollView
           showsVerticalScrollIndicator={false}
+          /* 비회원·데모는 불러올 것이 없어 당겨도 반응하지 않는다. */
+          refreshControl={
+            status === 'authed' && !isDemo ? (
+              <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={INK} />
+            ) : undefined
+          }
           contentContainerStyle={[styles.content, { paddingBottom: tabInset + 24 }, contentStyle(ContentMax.card)]}>
           {/* 헤더: 인사말 + 캘린더/프로필 (한 줄) */}
           <View style={styles.header}>
@@ -114,7 +122,14 @@ function EmptyClosetStart() {
   );
 }
 
-type DisplayLook = { image?: string | null; asset?: number; comment: string; tags: string[] };
+type DisplayLook = {
+  image?: string | null;
+  asset?: number;
+  comment: string;
+  tags: string[];
+  /** 눌렀을 때 열 룩 상세 (constants/today-look.ts LOOK_VARIANTS) */
+  variantId: string;
+};
 
 /** '다른 룩' 순환용 대안 추천 — 오늘의 룩(API) 다음으로 돌아가며 보여준다(룩북 피드와 같은 사진 재사용). */
 const ALT_LOOKS: DisplayLook[] = [
@@ -122,16 +137,19 @@ const ALT_LOOKS: DisplayLook[] = [
     image: 'https://i.pinimg.com/736x/55/26/0d/55260de328aec1e50740655fd4b5fdc5.jpg',
     comment: '데이트에 어울리게 색을 절제한 부드러운 캐주얼로 골라봤어요.',
     tags: ['#데이트', '#캐주얼'],
+    variantId: 'date',
   },
   {
     image: 'https://i.pinimg.com/736x/b4/cd/22/b4cd22015add333e10cd2ba06067406b.jpg',
     comment: '나들이용으로 편하면서도 산뜻한 조합이에요.',
     tags: ['#나들이', '#미니멀'],
+    variantId: 'outdoor',
   },
   {
     image: 'https://i.pinimg.com/736x/ec/96/f3/ec96f39eb800d19290736c17f0253ed9.jpg',
     comment: '일교차가 큰 날 가볍게 걸치기 좋은 레이어드 룩이에요.',
     tags: ['#여행', '#캐주얼'],
+    variantId: 'outdoor',
   },
 ];
 
@@ -149,6 +167,7 @@ function HomeBody({ data }: { data: HomeData }) {
         asset: data.today_look.image ? undefined : TODAY_LOOK_IMAGE,
         comment: data.today_look.comment,
         tags: data.today_look.tags,
+        variantId: 'daily',
       },
       ...ALT_LOOKS,
     ],
@@ -179,7 +198,7 @@ function HomeBody({ data }: { data: HomeData }) {
               {todayLabel()} | {weatherLabel(data.weather)}
             </Text>
           </View>
-          <Pressable onPress={() => router.push('/look-detail')}>
+          <Pressable onPress={() => router.push(`/look-detail?id=${look.variantId}`)}>
             <SmartImage
               uri={look.image}
               asset={look.image ? undefined : look.asset}
