@@ -29,7 +29,10 @@ export const CHAT_MODE_ORDER: ChatMode[] = ['taste', 'closet'];
  */
 export type ChatMessage =
   | { id: string; role: 'ai' | 'user'; kind: 'text'; text: string }
-  | { id: string; role: 'user'; kind: 'image' }
+  /** 사용자가 올린 사진. uri 가 없던 시절(목업)에도 말풍선은 떠서 optional 로 둔다. */
+  | { id: string; role: 'user'; kind: 'image'; uri?: string }
+  /** 첨부한 사진에서 읽어낸 무드 — 추구미로 삼을지 묻는 카드 */
+  | { id: string; role: 'ai'; kind: 'mood'; tags: string[] }
   | { id: string; role: 'ai'; kind: 'rec'; title: string; tags: string[] };
 
 export type ChatSession = {
@@ -63,6 +66,7 @@ export function sessionPreview(session: ChatSession): string {
   if (!last) return '아직 대화가 없어요';
   if (last.kind === 'text') return last.text.replace(/\n/g, ' ');
   if (last.kind === 'rec') return `추천 · ${last.title}`;
+  if (last.kind === 'mood') return `추구미 · ${last.tags.join(' ')}`;
   return '사진을 보냈어요';
 }
 
@@ -70,6 +74,7 @@ export function sessionPreview(session: ChatSession): string {
 function searchableText(m: ChatMessage): string {
   if (m.kind === 'text') return m.text;
   if (m.kind === 'rec') return `${m.title} ${m.tags.join(' ')}`;
+  if (m.kind === 'mood') return m.tags.join(' ');
   return '';
 }
 
@@ -91,6 +96,7 @@ export function searchPreview(session: ChatSession, query: string): string {
   const hit = session.messages.find((m) => searchableText(m).toLowerCase().includes(q));
   if (!hit) return sessionPreview(session);
   if (hit.kind === 'rec') return `추천 · ${hit.title}`;
+  if (hit.kind === 'mood') return `추구미 · ${hit.tags.join(' ')}`;
   return searchableText(hit).replace(/\n/g, ' ');
 }
 

@@ -14,12 +14,17 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { Icon } from '@/components/icon';
-import { useToast } from '@/components/ui';
+import { SmartImage, useToast } from '@/components/ui';
 import { ContentMax, Editorial, Fonts, ink } from '@/constants/theme';
 import { useBreakpoint } from '@/hooks/use-breakpoint';
+import { pickOutfitPhoto } from '@/lib/pickItemPhoto';
 import { chatStore, nextMessageId, useChatSession, type ChatMessage } from '@/state/chat';
 
 const INK = Editorial.ink;
+
+/* 사진에서 읽어낸 무드 후보 — 이미지 분석 API 가 붙기 전까지 쓰는 고정값.
+   어떤 사진을 넣어도 같은 태그가 나오므로 시연 때는 이 점을 말해야 한다. */
+const MOOD_GUESS = ['#미니멀', '#톤다운', '#오버핏'];
 const BONE = Editorial.bone;
 
 const QUICK = ['더 캐주얼하게', '다른 색으로', '아우터 추천', '신발만 바꿔줘'];
@@ -116,7 +121,7 @@ export function ChatConversation({
   };
 
   // 유저 메시지 → 타이핑 표시 → AI 답변 (프로토타입: 정해진 답변)
-  const simulateReply = (fromImage: boolean) => {
+  const simulateReply = () => {
     setTyping(true);
     scrollToEnd();
     const t = setTimeout(() => {
@@ -125,9 +130,7 @@ export function ChatConversation({
         id: nextMessageId(),
         role: 'ai',
         kind: 'text',
-        text: fromImage
-          ? '사진 잘 받았어요! 이 무드를 추구미로 기억해둘게요.\n비슷한 분위기로 코디를 찾아볼까요?'
-          : '좋아요, 말씀하신 방향으로 다시 골라볼게요. 잠시만요…',
+        text: '좋아요, 말씀하신 방향으로 다시 골라볼게요. 잠시만요…',
       });
       scrollToEnd();
     }, 1500);
@@ -141,15 +144,80 @@ export function ChatConversation({
     if (sessionId) chatStore.nameFromFirstMessage(sessionId, t);
     setText('');
     scrollToEnd();
-    simulateReply(false);
+    simulateReply();
   };
 
-  // 사진 넣기 — 이 앱은 카메라/피커 없이 목업(예시 데이터)으로 첨부
-  const attachPhoto = () => {
-    append({ id: nextMessageId(), role: 'user', kind: 'image' });
-    toast('사진을 첨부했어요');
+  /**
+   * 사진 넣기 — 갤러리에서 고른 **진짜 사진**을 올린다.
+   * (예전엔 사진을 고르지 않고 아이콘 말풍선만 띄웠다)
+   *
+   * 올린 뒤엔 그 사진의 무드를 추구미로 삼을지 되묻는다. 되묻는 이유 —
+   * 인플루언서 사진 한 장이 곧 취향이라고 단정하면, 그냥 참고로 보여준 사진까지
+   * 추천 기준이 되어버린다.
+   *
+   * ⚠️ 무드를 **읽어내는 것은 아직 서버가 없다.** 지금은 고정 후보를 보여주고,
+   *    이미지 분석 API 가 붙으면 이 함수의 태그만 응답으로 바뀐다.
+   */
+  const attachPhoto = async () => {
+    let uri: string | null = null;
+    try {
+      uri = await pickOutfitPhoto();
+    } catch {
+      toast('사진을 불러오지 못했어요', { variant: 'error' });
+      return;
+    }
+    if (!uri) return; // 고르다 취소 — 아무 일도 일어나지 않는다
+    append({ id: nextMessageId(), role: 'user', kind: 'image', uri });
     scrollToEnd();
-    simulateReply(true);
+
+    setTyping(true);
+    const t = setTimeout(() => {
+      setTyping(false);
+      append({ id: nextMessageId(), role: 'ai', kind: 'mood', tags: MOOD_GUESS });
+      scrollToEnd();
+    }, 1200);
+    timers.current.push(t);
+  };
+
+  /** "이걸로 추천받기" — 무드를 확정하고 비슷한 룩을 찾는다. */
+  const acceptMood = (tags: string[]) => {
+    append({
+      id: nextMessageId(),
+      role: 'user',
+      kind: 'text',
+      text: `내 추구미는 이거야 — ${tags.join(' ')}`,
+    });
+    scrollToEnd();
+    setTyping(true);
+    const t = setTimeout(() => {
+      setTyping(false);
+      append({
+        id: nextMessageId(),
+        role: 'ai',
+        kind: 'text',
+        text: '기억해 둘게요. 이 무드에 가까운 룩으로 골라봤어요.',
+      });
+      append({
+        id: nextMessageId(),
+        role: 'ai',
+        kind: 'rec',
+        title: '부드러운 데이트 룩',
+        tags,
+      });
+      scrollToEnd();
+    }, 1500);
+    timers.current.push(t);
+  };
+
+  /** "아니에요" — 무드를 기억하지 않고 원하는 것을 직접 듣는다. */
+  const rejectMood = () => {
+    append({
+      id: nextMessageId(),
+      role: 'ai',
+      kind: 'text',
+      text: '알겠어요. 어떤 느낌을 찾고 계신지 말씀해 주시면 그 방향으로 찾아볼게요.',
+    });
+    scrollToEnd();
   };
 
   return (
@@ -168,7 +236,17 @@ export function ChatConversation({
               <View key={m.id} style={styles.userRow}>
                 {m.kind === 'image' ? (
                   <View style={styles.userImage}>
-                    <Icon name="photo" tintColor={ink(0.3)} size={30} />
+                    {m.uri ? (
+                      <SmartImage
+                        uri={m.uri}
+                        width="100%"
+                        radius={0}
+                        contentFit="cover"
+                        style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0 }}
+                      />
+                    ) : (
+                      <Icon name="photo" tintColor={ink(0.3)} size={30} />
+                    )}
                   </View>
                 ) : (
                   <View style={styles.userBubble}>
@@ -204,6 +282,25 @@ export function ChatConversation({
                       </View>
                     </View>
                   </Pressable>
+                ) : m.kind === 'mood' ? (
+                  <View style={styles.moodCard}>
+                    <Text style={styles.moodLead}>사진에서 이런 무드가 보여요</Text>
+                    <View style={styles.recTags}>
+                      {m.tags.map((t) => (
+                        <View key={t} style={styles.recTag}>
+                          <Text style={styles.recTagText}>{t}</Text>
+                        </View>
+                      ))}
+                    </View>
+                    <View style={styles.moodBtns}>
+                      <Pressable style={styles.moodPrimary} onPress={() => acceptMood(m.tags)}>
+                        <Text style={styles.moodPrimaryText}>이걸로 추천받기</Text>
+                      </Pressable>
+                      <Pressable style={styles.moodGhost} onPress={rejectMood}>
+                        <Text style={styles.moodGhostText}>아니에요</Text>
+                      </Pressable>
+                    </View>
+                  </View>
                 ) : (
                   <View style={styles.aiBubble}>
                     <Text style={styles.aiText}>{m.text}</Text>
@@ -322,6 +419,8 @@ const styles = StyleSheet.create({
     backgroundColor: BONE,
     alignItems: 'center',
     justifyContent: 'center',
+    /* 사진이 모서리 밖으로 넘치지 않게 — 말풍선 모양이 사진에도 그대로 적용돼야 한다. */
+    overflow: 'hidden',
   },
 
   // 추천 카드
@@ -352,6 +451,35 @@ const styles = StyleSheet.create({
   },
   recTagText: { fontSize: 11, color: Editorial.textCaption, fontWeight: '500' },
   recCta: { flexDirection: 'row', alignItems: 'center', gap: 5, marginTop: 2 },
+  moodCard: {
+    borderWidth: 1,
+    borderColor: ink(0.12),
+    borderRadius: 16,
+    padding: 14,
+    gap: 10,
+    backgroundColor: Editorial.surface,
+  },
+  moodLead: { fontSize: 13, color: Editorial.textSoft },
+  moodBtns: { flexDirection: 'row', gap: 8, marginTop: 2 },
+  moodPrimary: {
+    height: 36,
+    paddingHorizontal: 14,
+    borderRadius: 999,
+    backgroundColor: Editorial.cta,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  moodPrimaryText: { fontSize: 12.5, fontWeight: '600', color: '#fff' },
+  moodGhost: {
+    height: 36,
+    paddingHorizontal: 14,
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: ink(0.14),
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  moodGhostText: { fontSize: 12.5, color: Editorial.textCaption },
   recCtaText: { fontSize: 13, fontWeight: '600', color: INK },
 
   // 빠른 프롬프트
