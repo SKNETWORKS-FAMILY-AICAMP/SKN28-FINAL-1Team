@@ -1,6 +1,14 @@
 import { useLocalSearchParams } from 'expo-router';
 import { useState } from 'react';
-import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import {
+  ActivityIndicator,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  View,
+} from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { ItemPickerSheet } from '@/components/calendar/item-picker-sheet';
@@ -40,6 +48,7 @@ export default function CalendarEntryScreen() {
 
   const [photo, setPhoto] = useState<string | undefined>(existing?.photo);
   const [items, setItems] = useState<EntryItem[]>(existing?.items ?? []);
+  const [note, setNote] = useState(existing?.note ?? '');
   const [tags, setTags] = useState<AllowedHashtag[]>(existing?.tags ?? []);
   const [shared, setShared] = useState(existing?.shared ?? false);
   const [pickerOpen, setPickerOpen] = useState(false);
@@ -63,11 +72,12 @@ export default function CalendarEntryScreen() {
     setItems((prev) => prev.filter((i) => entryItemKey(i) !== key));
   };
 
-  const canSave = Boolean(photo) || items.length > 0;
+  /* 일정만 적어 둔 날도 유효한 기록이다 — 사진도 옷도 없이 '친구 결혼식'만 남길 수 있다. */
+  const canSave = Boolean(photo) || items.length > 0 || note.trim().length > 0;
 
   const handleSave = () => {
     if (!canSave) return;
-    calendarStore.saveEntry({ date, photo, items, tags, shared });
+    calendarStore.saveEntry({ date, photo, items, note, tags, shared });
     toast(existing ? '기록을 수정했어요' : '착장을 기록했어요', { variant: 'success' });
     goBack('/(tabs)/calendar');
   };
@@ -120,7 +130,7 @@ export default function CalendarEntryScreen() {
             ) : (
               <View style={styles.photoEmpty}>
                 <Icon name="photo" tintColor={ink(0.28)} size={30} />
-                <Text style={styles.photoHint}>사진 없이 옷만 기록해도 괜찮아요</Text>
+                <Text style={styles.photoHint}>사진 없이 옷이나 일정만 기록해도 괜찮아요</Text>
               </View>
             )}
             <View style={styles.pickRow}>
@@ -175,6 +185,22 @@ export default function CalendarEntryScreen() {
                 <Text style={styles.addChipText}>옷 고르기</Text>
               </Pressable>
             </ScrollView>
+
+            {/* 그날 일정 */}
+            <View style={styles.sectionHead}>
+              <Text style={styles.sectionTitle}>그날 일정</Text>
+              <Text style={styles.count}>선택</Text>
+            </View>
+            <TextInput
+              style={styles.noteInput}
+              value={note}
+              onChangeText={setNote}
+              placeholder="예) 팀 회의, 친구 결혼식, 제주 여행"
+              placeholderTextColor={Editorial.textMuted}
+              maxLength={60}
+              returnKeyType="done"
+            />
+            <Text style={styles.noteHint}>나중에 &quot;이날 왜 이 옷을 입었지&quot;를 되짚는 단서가 돼요</Text>
 
             {/* 해시태그 */}
             <Text style={[styles.sectionTitle, styles.tagSection]}>해시태그</Text>
@@ -278,6 +304,17 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   photoHint: { fontSize: Type.caption, color: Editorial.textCaption },
+
+  noteInput: {
+    height: 48,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: Editorial.line,
+    paddingHorizontal: 14,
+    fontSize: Type.footnote,
+    color: INK,
+  },
+  noteHint: { fontSize: Type.micro, color: Editorial.textMuted, marginTop: 8 },
   pickRow: { flexDirection: 'row', gap: 10, marginTop: 12 },
   pickBtn: {
     flex: 1,

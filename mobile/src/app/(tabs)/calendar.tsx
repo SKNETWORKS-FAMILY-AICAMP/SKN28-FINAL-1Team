@@ -195,9 +195,16 @@ export default function Calendar() {
               <Pressable style={styles.recCard} onPress={() => openEntry(selectedKey)}>
                 <SmartImage uri={entry.photo} width={60} height={72} radius={12} />
                 <View style={styles.recBody}>
-                  <Text style={styles.recTitle}>
-                    {entry.items.length > 0 ? `옷 ${entry.items.length}개 기록` : '룩 사진 기록'}
+                  {/* 일정이 있으면 그게 제목이 된다 — '옷 2개 기록'보다 그날을 잘 가리킨다. */}
+                  <Text style={styles.recTitle} numberOfLines={1}>
+                    {entry.note ??
+                      (entry.items.length > 0 ? `옷 ${entry.items.length}개 기록` : '룩 사진 기록')}
                   </Text>
+                  {entry.note ? (
+                    <Text style={styles.recSub}>
+                      {entry.items.length > 0 ? `옷 ${entry.items.length}개 기록` : '룩 사진 기록'}
+                    </Text>
+                  ) : null}
                   <View style={styles.recTags}>
                     {entry.tags.map((t) => (
                       <Text key={t} style={styles.recTag}>
@@ -355,6 +362,7 @@ const styles = StyleSheet.create({
   },
   recBody: { flex: 1, gap: 6 },
   recTitle: { fontSize: Type.footnote, fontWeight: '500', color: INK },
+  recSub: { fontSize: Type.micro, color: Editorial.textCaption, marginTop: -2 },
   recTags: { flexDirection: 'row', gap: 8 },
   recTag: { fontSize: Type.micro, color: Editorial.textCaption },
 

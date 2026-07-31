@@ -27,6 +27,12 @@ export type CalendarEntry = {
   date: string;
   photo?: string;
   items: EntryItem[];
+  /**
+   * 그날 무슨 일정이었는지 — '팀 회의', '친구 결혼식'처럼 자유롭게 적는다.
+   * 해시태그(무드·상황)와 따로 두는 이유: 태그는 고르는 것이고 일정은 그날에만 있는 사실이다.
+   * "왜 이 옷을 입었나"를 나중에 되짚는 단서라 남의 태그 체계에 끼워 맞출 수 없다.
+   */
+  note?: string;
   tags: AllowedHashtag[];
   /** 함께 쓰는 옷장 친구에게 공개 여부 */
   shared: boolean;
@@ -86,9 +92,10 @@ function seed(
   photo: string,
   tags: AllowedHashtag[],
   picks: EntryItem[],
+  note?: string,
   shared = false,
 ): CalendarEntry {
-  return { date, photo, items: picks, tags, shared, shareCode: makeShareCode(), updatedAt: 0 };
+  return { date, photo, items: picks, note, tags, shared, shareCode: makeShareCode(), updatedAt: 0 };
 }
 
 const mine = (id: string) => toEntryItem(CLOSET_ITEMS.find((i) => i.id === id)!, 'closet');
@@ -100,12 +107,14 @@ const SEED_ENTRIES: CalendarEntry[] = [
     'https://i.pinimg.com/736x/c1/ae/c8/c1aec88282cee841eca0f6e0da5d1174.jpg',
     ['출근', '미니멀'],
     [mine('2'), mine('3')],
+    '분기 보고 발표',
   ),
   seed(
     '2026-07-07',
     'https://i.pinimg.com/736x/55/26/0d/55260de328aec1e50740655fd4b5fdc5.jpg',
     ['데이트'],
     [mine('1'), mine('4'), mine('6')],
+    '기념일 저녁 약속',
     true,
   ),
   seed(
@@ -119,6 +128,7 @@ const SEED_ENTRIES: CalendarEntry[] = [
     'https://i.pinimg.com/736x/ec/96/f3/ec96f39eb800d19290736c17f0253ed9.jpg',
     ['여행'],
     [friend('s1'), mine('5')],
+    '제주 2박 3일',
   ),
 ];
 
@@ -142,6 +152,7 @@ export const calendarStore = {
     date: string;
     photo?: string;
     items: EntryItem[];
+    note?: string;
     tags: AllowedHashtag[];
     shared: boolean;
   }): CalendarEntry {
@@ -150,6 +161,7 @@ export const calendarStore = {
       date: input.date,
       photo: input.photo,
       items: input.items,
+      note: input.note?.trim() || undefined,
       tags: input.tags,
       shared: input.shared,
       shareCode: prev?.shareCode ?? makeShareCode(),
