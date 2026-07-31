@@ -30,7 +30,7 @@ Batch 상태 흐름은 `pending → queued → tagged | failed`이며 작업 이
 상품 임베딩 작업은 collector 안에서 모델을 실행하지 않는다. 상품 INSERT와 같은
 DB 트랜잭션에서 작업만 등록하고 GPU worker가 비동기로 처리한다. Batch 태깅 결과가
 반영되면 작업 행이 있는 신규 상품만 재색인하며 기존 DB 상품은 자동 백필하지 않는다.
-상세 실행법은 `indexer/PRODUCTS_README.md`를 참고한다.
+상세 실행법은 `indexer/product_indexer/PRODUCTS_README.md`를 참고한다.
 
 원격 GPU trigger 설정:
 

@@ -21,7 +21,7 @@ from dataclasses import dataclass, field
 
 import boto3
 
-from config import ETRI11_IMG_PREFIX, ETRI11_MDATA_KEY, S3_BUCKET
+from .config import ETRI11_IMG_PREFIX, ETRI11_MDATA_KEY, S3_BUCKET
 
 logger = logging.getLogger(__name__)
 

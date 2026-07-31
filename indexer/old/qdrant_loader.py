@@ -20,7 +20,7 @@ from qdrant_client.models import (
     VectorParams,
 )
 
-from config import QDRANT_API_KEY, QDRANT_COLLECTION, QDRANT_URL
+from .config import QDRANT_API_KEY, QDRANT_COLLECTION, QDRANT_URL
 
 logger = logging.getLogger(__name__)
 

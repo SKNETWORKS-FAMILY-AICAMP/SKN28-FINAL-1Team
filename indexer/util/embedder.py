@@ -1,8 +1,11 @@
-"""Marqo Fashion SigLIP 임베딩 래퍼.
+"""Marqo Fashion SigLIP 임베딩 래퍼 (product_indexer·old 공용).
 
 - 이미지·텍스트를 같은 공간에 임베딩하는 패션 도메인 특화 모델.
 - open_clip으로 HuggingFace 허브에서 로드한다.
 - RTX 3090 등 CUDA 환경에서는 fp16 autocast로 추론한다.
+
+두 컨테이너가 공유하므로 설정 모듈을 import 하지 않고 model_id/device를
+호출자가 명시적으로 넘긴다.
 
 주의: 텍스트 인코더는 영어 중심으로 학습되어 한국어 임베딩 품질에는
 한계가 있다. 한국어 텍스트 검색 품질이 중요해지면 다국어 모델
@@ -15,13 +18,12 @@ import logging
 
 import numpy as np
 import torch
-from config import DEVICE, EMBED_MODEL_ID
 
 logger = logging.getLogger(__name__)
 
 
 class FashionSigLIPEmbedder:
-    def __init__(self, model_id: str = EMBED_MODEL_ID, device: str = DEVICE):
+    def __init__(self, model_id: str, device: str = "auto"):
         import open_clip  # 무거운 임포트라 사용 시점에 로드
 
         if device == "auto":

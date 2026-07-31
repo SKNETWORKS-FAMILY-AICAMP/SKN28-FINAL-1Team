@@ -7,11 +7,12 @@ from pathlib import Path
 
 from PIL import Image
 
-INDEXER_ROOT = Path(__file__).resolve().parents[1]
+# indexer/ 를 import 루트로 잡아 product_indexer·util 패키지를 찾게 한다.
+INDEXER_ROOT = Path(__file__).resolve().parents[2]
 if str(INDEXER_ROOT) not in sys.path:
     sys.path.insert(0, str(INDEXER_ROOT))
 
-from product_assets import (
+from product_indexer.product_assets import (
     InvalidProductImage,
     StoredProductImageUnavailable,
     download_and_store_image,

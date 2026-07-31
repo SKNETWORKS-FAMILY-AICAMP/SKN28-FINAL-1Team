@@ -13,26 +13,28 @@ from dataclasses import dataclass
 from typing import Any
 
 import boto3
-import product_config as config
 import requests
-from bge_embedder import BgeM3Embedder
 from botocore.exceptions import ClientError
-from embedder import FashionSigLIPEmbedder
-from product_assets import (
+
+from util.embedder import FashionSigLIPEmbedder
+
+from . import product_config as config
+from .bge_embedder import BgeM3Embedder
+from .product_assets import (
     InvalidProductImage,
     PreparedImage,
     StoredProductImageUnavailable,
     download_and_store_image,
     load_stored_image,
 )
-from product_catalog_api import ProductCatalogApiClient
-from product_qdrant import (
+from .product_catalog_api import ProductCatalogApiClient
+from .product_qdrant import (
     build_point,
     ensure_collection,
     make_client,
     upsert_points,
 )
-from product_text import build_product_payload, serialize_product_text
+from .product_text import build_product_payload, serialize_product_text
 
 logger = logging.getLogger("product_indexer")
 

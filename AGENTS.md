@@ -55,6 +55,9 @@ SKN28-FINAL-1Team/
 │   ├── naver/             # 네이버 쇼핑 상품 수집 + LLM 태깅
 │   └── eleven/            # 11번가 ProductSearch 수집 + OpenAI Batch/동기·Claude 동기 태깅
 ├── indexer/               # catalog API 클라이언트 + S3 이미지·상품 텍스트 임베딩 + Qdrant 적재 GPU worker
+│   ├── util/              # 컨테이너 공용 모듈 (FashionSigLIP 임베더)
+│   ├── product_indexer/   # 운영: 네이버·11번가 상품 임베딩 worker + drain HTTP API
+│   └── old/               # 레거시: ETRI 패션 코디 데이터셋 적재 (Dockerfile.indexer.old)
 ├── ml/                    # 모델 학습·추론 코드 (예정)
 ├── scripts/               # 배포·데이터 처리 스크립트
 └── docs/                  # 설계·아키텍처 문서

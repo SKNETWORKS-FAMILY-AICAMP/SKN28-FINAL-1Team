@@ -43,10 +43,15 @@ class DrainProcessManager:
 
             command = [
                 sys.executable,
-                str(Path(__file__).with_name("product_indexer.py")),
+                "-m",
+                "product_indexer.product_indexer",
                 "--drain",
             ]
-            process = subprocess.Popen(command)
+            # 패키지 상대 import가 동작하도록 패키지 상위(/app)에서 실행한다.
+            process = subprocess.Popen(
+                command,
+                cwd=str(Path(__file__).resolve().parents[1]),
+            )
             self._process = process
             threading.Thread(
                 target=self._wait_for_exit,

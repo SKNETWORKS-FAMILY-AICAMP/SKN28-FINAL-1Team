@@ -4,8 +4,9 @@ from __future__ import annotations
 
 from typing import Any
 
-import product_config as config
 import requests
+
+from . import product_config as config
 
 
 class ProductCatalogApiError(RuntimeError):

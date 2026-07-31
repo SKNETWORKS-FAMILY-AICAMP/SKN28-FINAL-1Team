@@ -7,13 +7,49 @@
 """
 from __future__ import annotations
 
+import logging
 import os
 from pathlib import Path
 
 from dotenv import load_dotenv
 
-# 루트 .env (image-processor/의 상위 = 프로젝트 루트)
-load_dotenv(Path(__file__).resolve().parent.parent / ".env")
+_logger = logging.getLogger(__name__)
+
+# 리포에서 실행할 때 거슬러 올라갈 최대 단계 (리포 바깥 .env 오탐 방지)
+_MAX_PARENT_DEPTH = 5
+
+
+def _load_project_env() -> Path | None:
+    """루트 .env를 찾아 로드한다 (컨테이너·리포 체크아웃 공용).
+
+    `.env` 위치를 `parent.parent`로 고정하면 실행 위치에 따라 깨진다.
+    리포에서는 `image-processor/`의 한 단계 위가 루트지만, 이미지 안에는
+    `/app/config.py`만 있고 루트 `.env`는 복사되지 않는다. docker compose가
+    `env_file: .env`로 값을 컨테이너 환경변수에 직접 주입하므로 파일이
+    없는 게 정상이다.
+
+    (1) ENV_FILE 명시 지정 → (2) 상위 디렉터리 탐색 → (3) 조용히 통과 순.
+    항상 override=False라 compose가 주입한 환경변수를 파일이 덮어쓰지 않는다.
+    """
+    explicit = os.getenv("ENV_FILE", "").strip()
+    if explicit:
+        path = Path(explicit).expanduser()
+        if path.is_file():
+            load_dotenv(path, override=False)
+            return path
+        _logger.warning("ENV_FILE 경로에 파일이 없습니다: %s", path)
+        return None
+
+    origin = Path(__file__).resolve()
+    for parent in list(origin.parents)[:_MAX_PARENT_DEPTH]:
+        candidate = parent / ".env"
+        if candidate.is_file():
+            load_dotenv(candidate, override=False)
+            return candidate
+    return None
+
+
+_load_project_env()
 
 # ── Redis 큐 (reliable queue: pending → processing → done/dead) ──
 # wardrobe-api의 WARDROBE_JOB_QUEUE와 같은 키를 pending으로 사용한다.

@@ -7,12 +7,11 @@ RunPod(GPU)·AWS 어디서든 동작해야 하므로 경로·디바이스·자�
 from __future__ import annotations
 
 import os
-from pathlib import Path
 
-from dotenv import load_dotenv
+from util.env import load_project_env
 
 # 리포 체크아웃 상태면 루트 .env를 읽고, 컨테이너면 --env-file로 주입된다.
-load_dotenv(Path(__file__).resolve().parent.parent / ".env")
+load_project_env(__file__)
 
 # ---------- S3 (원본 데이터) ----------
 S3_BUCKET = os.getenv("INDEXER_S3_BUCKET", "skn28-cozy")

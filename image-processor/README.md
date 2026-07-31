@@ -60,6 +60,11 @@ services/
 ## 실행
 
 ```bash
+# GPU 서버 스택 (product-indexer와 함께) — 권장
+./run-gpu.sh                                             # 리포 루트에서
+docker compose -f docker-compose.gpu.yml up -d --build image-processor
+
+# 단독 실행
 cd image-processor
 ./run.sh                 # Docker 빌드 + 실행 (GPU 자동 감지)
 NO_BUILD=1 ./run.sh      # 재빌드 생략
@@ -68,6 +73,12 @@ NO_BUILD=1 ./run.sh      # 재빌드 생략
 pip install -r requirements.txt
 python worker.py
 ```
+
+`.env`는 루트 하나만 쓴다. compose로 띄우면 `env_file: .env`가 값을 컨테이너
+환경변수로 주입하므로 이미지 안에는 `.env` 파일이 없고, 리포에서 직접 실행하면
+`config.py`가 상위 디렉터리를 훑어 루트 `.env`를 읽는다. 다른 경로를 쓰려면
+`ENV_FILE=/path/to/.env`로 지정한다. 파일 값은 `override=False`로 읽으므로
+compose가 주입한 환경변수를 덮어쓰지 않는다.
 
 첫 실행 시 임베딩 모델(FashionSigLIP ~0.8GB, bge-m3 ~2.3GB)이 HF에서
 다운로드된다. 임베딩 없이 빠르게 확인하려면 `WORKER_EMBED_ENABLED=0`.

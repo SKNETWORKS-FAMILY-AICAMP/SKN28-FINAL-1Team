@@ -53,7 +53,7 @@ SKN28-FINAL-1Team/
 ├── collector/             # 독립 실행 데이터 수집기 (스키마는 Django migration이 소유)
 │   ├── weather/           # 기상청 APIHub 수집
 │   └── naver/             # 네이버 쇼핑 상품 수집 + LLM 태깅
-├── indexer/               # S3 패션아이템 → Marqo FashionSigLIP 임베딩 → Qdrant 적재 (GPU 배치)
+├── indexer/               # 임베딩 → Qdrant 적재 GPU worker (util/ 공용 · product_indexer/ 운영 · old/ 레거시)
 ├── ml/                    # 모델 학습·추론 코드 (예정)
 ├── scripts/               # 배포·데이터 처리 스크립트
 └── docs/                  # 설계·아키텍처 문서

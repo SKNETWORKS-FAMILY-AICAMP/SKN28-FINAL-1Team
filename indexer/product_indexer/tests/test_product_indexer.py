@@ -7,12 +7,16 @@ from unittest.mock import Mock, patch
 
 from PIL import Image
 
-INDEXER_ROOT = Path(__file__).resolve().parents[1]
+# indexer/ 를 import 루트로 잡아 product_indexer·util 패키지를 찾게 한다.
+INDEXER_ROOT = Path(__file__).resolve().parents[2]
 if str(INDEXER_ROOT) not in sys.path:
     sys.path.insert(0, str(INDEXER_ROOT))
 
-import product_indexer
-from product_assets import PreparedImage, StoredProductImageUnavailable
+from product_indexer import product_indexer
+from product_indexer.product_assets import (
+    PreparedImage,
+    StoredProductImageUnavailable,
+)
 
 
 def prepared_image() -> PreparedImage:

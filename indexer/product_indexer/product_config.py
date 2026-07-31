@@ -3,11 +3,11 @@
 from __future__ import annotations
 
 import os
-from pathlib import Path
 
-from dotenv import load_dotenv
+from util.env import load_project_env
 
-load_dotenv(Path(__file__).resolve().parent.parent / ".env")
+# 리포 체크아웃이면 루트 .env를, 컨테이너면 compose가 주입한 환경변수를 쓴다.
+load_project_env(__file__)
 
 # Django catalog 내부 API. product-indexer는 PostgreSQL에 직접 연결하지 않는다.
 CATALOG_API_URL = os.getenv("PRODUCT_CATALOG_API_URL", "").strip().rstrip("/")

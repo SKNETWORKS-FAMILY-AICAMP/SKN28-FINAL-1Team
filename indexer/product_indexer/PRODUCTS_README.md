@@ -97,17 +97,20 @@ RunPod 등 GPU 환경에서 worker를 직접 실행할 수도 있다.
 
 ```bash
 cd indexer
-pip install -r requirements.txt
-python product_indexer.py --once --batch-size 2
-python product_indexer.py --drain --batch-size 32
+pip install -r product_indexer/requirements.txt
+python -m product_indexer.product_indexer --once --batch-size 2
+python -m product_indexer.product_indexer --drain --batch-size 32
 ```
 
 GPU 서버용 Docker 이미지는 기본적으로 HTTP API를 실행한다.
 
 ```bash
-docker build -f indexer/Dockerfile.product-indexer -t skn28-product-indexer indexer/
+docker build -f indexer/product_indexer/Dockerfile.product-indexer \
+  -t skn28-product-indexer indexer/
 docker run --gpus all --env-file .env -p 8080:8080 skn28-product-indexer
 ```
+
+빌드 컨텍스트는 `indexer/`다. 공용 임베더(`util/embedder.py`)를 함께 COPY 해야 한다.
 
 상태 확인:
 
@@ -132,8 +135,9 @@ API는 `202 Accepted`를 즉시 반환하고 별도 subprocess가 `--drain`을 �
 API를 거치지 않고 Docker에서 일회성 drain을 실행하려면 entrypoint를 덮어쓴다.
 
 ```bash
-docker run --gpus all --env-file .env --entrypoint python \
-  skn28-product-indexer /app/product_indexer.py --drain --batch-size 32
+docker run --gpus all --env-file .env \
+  skn28-product-indexer python -m product_indexer.product_indexer \
+  --drain --batch-size 32
 ```
 
 `--drain`은 모델을 한 번만 로드하고 준비된 작업을 배치 단위로 모두 처리한 뒤

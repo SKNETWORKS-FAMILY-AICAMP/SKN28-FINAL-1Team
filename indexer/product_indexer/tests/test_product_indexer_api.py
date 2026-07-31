@@ -1,10 +1,20 @@
+from __future__ import annotations
+
 import os
+import sys
 import threading
 import unittest
+from pathlib import Path
 from unittest.mock import patch
 
-import product_indexer_api
 import requests
+
+# indexer/ 를 import 루트로 잡아 product_indexer·util 패키지를 찾게 한다.
+INDEXER_ROOT = Path(__file__).resolve().parents[2]
+if str(INDEXER_ROOT) not in sys.path:
+    sys.path.insert(0, str(INDEXER_ROOT))
+
+from product_indexer import product_indexer_api
 
 
 class ProductIndexerApiTests(unittest.TestCase):

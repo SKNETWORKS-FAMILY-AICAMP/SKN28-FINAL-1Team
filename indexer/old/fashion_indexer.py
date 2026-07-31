@@ -1,10 +1,10 @@
 """ETRI 패션 코디 데이터셋(11번) → Marqo Fashion SigLIP 임베딩 → Qdrant 적재.
 
-실행:
-    python fashion_indexer.py                 # 전체 적재
-    python fashion_indexer.py --limit 32      # 스모크 테스트
-    python fashion_indexer.py --recreate      # 컬렉션 재생성 후 적재
-    python fashion_indexer.py --category BL   # 특정 카테고리만
+실행 (indexer/ 디렉터리 기준):
+    python -m old.fashion_indexer                 # 전체 적재
+    python -m old.fashion_indexer --limit 32      # 스모크 테스트
+    python -m old.fashion_indexer --recreate      # 컬렉션 재생성 후 적재
+    python -m old.fashion_indexer --category BL   # 특정 카테고리만
 
 point id가 item_id 기반 uuid5라 재실행해도 중복 없이 덮어써진다.
 """
@@ -21,10 +21,11 @@ from PIL import Image
 from qdrant_client.models import PointStruct
 from tqdm import tqdm
 
-import config
-from embedder import FashionSigLIPEmbedder
-from etri_dataset import FashionItem, download_images, load_items
-from qdrant_loader import ensure_collection, make_client, point_id, upsert_points
+from util.embedder import FashionSigLIPEmbedder
+
+from . import config
+from .etri_dataset import FashionItem, download_images, load_items
+from .qdrant_loader import ensure_collection, make_client, point_id, upsert_points
 
 logger = logging.getLogger("indexer")
 
@@ -32,7 +33,7 @@ DATASET_TAG = "etri_fashion_poc_11"
 
 
 def build_payload(item: FashionItem) -> dict:
-    from etri_dataset import ASPECT_LABELS
+    from .etri_dataset import ASPECT_LABELS
 
     return {
         "dataset": DATASET_TAG,
@@ -122,7 +123,10 @@ def main() -> int:
         logger.error("적재할 아이템이 없습니다.")
         return 1
 
-    embedder = FashionSigLIPEmbedder()
+    embedder = FashionSigLIPEmbedder(
+        model_id=config.EMBED_MODEL_ID,
+        device=config.DEVICE,
+    )
     qdrant = make_client()
     ensure_collection(qdrant, embedder.dim, recreate=args.recreate)
 
