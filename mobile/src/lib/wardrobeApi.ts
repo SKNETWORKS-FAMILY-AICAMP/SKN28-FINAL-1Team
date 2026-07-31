@@ -1,5 +1,9 @@
-import { WardrobeEndpoints } from '@/constants/config';
-import { api, apiFetch } from '@/lib/apiClient';
+import { File, UploadType } from 'expo-file-system';
+import { Platform } from 'react-native';
+
+import { API_BASE_URL, WardrobeEndpoints } from '@/constants/config';
+import { api, apiFetch, ApiError } from '@/lib/apiClient';
+import { getAccessToken } from '@/lib/secureStore';
 
 /**
  * 옷장 API 호출 — 전송만 담당한다(상태·폴링은 hooks/use-wardrobe.ts).
@@ -72,7 +76,14 @@ export type WardrobeItemQuery = {
   confirmed?: boolean;
 };
 
-/** 사진 1장 업로드 → 처리 job 접수(202). 아이템은 아직 없다. */
+/**
+ * 사진 1장 업로드 → 처리 job 접수(202). 아이템은 아직 없다.
+ *
+ * ⚠️ 네이티브에서 `FormData.append('image', { uri, name, type })`(예전 RN 관용구)를 쓰면
+ * `Unsupported FormDataPart implementation` 으로 실패한다 — Expo SDK 54+ 의 전역 fetch 가
+ * 표준(WinterCG) 구현이라 uri 객체 파트를 받지 않고 Blob/File 만 받기 때문이다.
+ * 그래서 네이티브는 expo-file-system 의 네이티브 멀티파트 업로드를 쓴다.
+ */
 export async function uploadWardrobePhoto(
   uri: string,
   opts: { name?: string; mimeType?: string } = {},
@@ -80,21 +91,42 @@ export async function uploadWardrobePhoto(
   const name = opts.name ?? guessFileName(uri);
   const type = opts.mimeType ?? guessMimeType(name);
 
-  const form = new FormData();
-  /* React Native 의 FormData 는 { uri, name, type } 객체를 파일로 취급한다.
-     웹에서는 Blob 이어야 하므로 uri 를 먼저 Blob 으로 읽는다. */
-  if (uri.startsWith('data:') || uri.startsWith('blob:') || uri.startsWith('http')) {
+  if (Platform.OS === 'web') {
     const blob = await fetch(uri).then((r) => r.blob());
+    const form = new FormData();
     form.append('image', blob, name);
-  } else {
-    // @ts-expect-error RN 전용 파일 형태 — 웹 FormData 타입에는 없다
-    form.append('image', { uri, name, type });
+    return apiFetch<{ job_id: string; status: UploadJobStatus }>(WardrobeEndpoints.uploads, {
+      method: 'POST',
+      body: form,
+    });
   }
 
-  return apiFetch<{ job_id: string; status: UploadJobStatus }>(WardrobeEndpoints.uploads, {
-    method: 'POST',
-    body: form,
+  /* 네이티브 경로는 apiClient 를 타지 않으므로 인증 헤더를 직접 붙인다. */
+  const token = await getAccessToken();
+  const res = await new File(uri).upload(`${API_BASE_URL}${WardrobeEndpoints.uploads}`, {
+    httpMethod: 'POST',
+    uploadType: UploadType.MULTIPART,
+    fieldName: 'image',
+    mimeType: type,
+    headers: {
+      Accept: 'application/json',
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    },
   });
+
+  let data: unknown = null;
+  try {
+    data = res.body ? JSON.parse(res.body) : null;
+  } catch {
+    data = res.body;
+  }
+
+  if (res.status < 200 || res.status >= 300) {
+    const detail = (data as { detail?: string } | null)?.detail;
+    throw new ApiError(detail ?? `업로드 실패 (${res.status})`, res.status, data);
+  }
+
+  return data as { job_id: string; status: UploadJobStatus };
 }
 
 /** 처리 상태 조회 — DONE 이 되면 items 가 채워진다. */
