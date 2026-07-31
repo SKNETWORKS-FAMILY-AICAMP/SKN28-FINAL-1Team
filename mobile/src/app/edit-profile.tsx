@@ -7,7 +7,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { ContentMax, Editorial, ink, Type } from '@/constants/theme';
 import { useBreakpoint } from '@/hooks/use-breakpoint';
-import { useAuth } from '@/state/auth';
+import { authStore, useAuth } from '@/state/auth';
 import { prefsStore, usePrefs } from '@/state/prefs';
 
 const INK = Editorial.ink;
@@ -32,10 +32,31 @@ export default function EditProfileScreen() {
   const email = user?.email ?? 'cozy@example.com';
   const initial = (name.trim() || '코')[0];
 
-  const save = () => {
-    prefsStore.setNickname(name);
-    toast('프로필을 저장했어요');
-    goBack('/(tabs)/my');
+  const [saving, setSaving] = useState(false);
+
+  /**
+   * 이름 저장 — 로컬에 먼저 반영하고 서버에도 남긴다.
+   * 로컬을 먼저 하는 이유: 서버가 막혀도 화면에는 방금 바꾼 이름이 보여야 한다.
+   * 서버 저장이 실패하면 숨기지 않고 "이 기기에만 저장됐다"고 알린다 —
+   * 저장된 줄 알고 다른 기기에서 찾으면 없는 일이 생긴다.
+   */
+  const save = async () => {
+    const trimmed = name.trim();
+    prefsStore.setNickname(trimmed);
+    if (!trimmed) {
+      goBack('/(tabs)/my');
+      return;
+    }
+    setSaving(true);
+    try {
+      await authStore.updateNickname(trimmed);
+      toast('프로필을 저장했어요');
+    } catch {
+      toast('이 기기에만 저장했어요. 서버에는 반영되지 않았어요', { variant: 'error' });
+    } finally {
+      setSaving(false);
+      goBack('/(tabs)/my');
+    }
   };
 
   return (
@@ -77,11 +98,12 @@ export default function EditProfileScreen() {
           </View>
 
           <SafeAreaView edges={['bottom']} style={[styles.bottomBar, contentStyle(ContentMax.card)]}>
+            {/* 서버 왕복이 생겼으니 진행 중임을 알리고 두 번 눌리지 않게 막는다. */}
             <Pressable
-              style={[styles.saveBtn, !name.trim() && styles.saveBtnDisabled]}
+              style={[styles.saveBtn, (!name.trim() || saving) && styles.saveBtnDisabled]}
               onPress={save}
-              disabled={!name.trim()}>
-              <Text style={styles.saveText}>저장</Text>
+              disabled={!name.trim() || saving}>
+              <Text style={styles.saveText}>{saving ? '저장 중…' : '저장'}</Text>
             </Pressable>
           </SafeAreaView>
         </SafeAreaView>

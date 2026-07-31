@@ -108,6 +108,16 @@ export const authStore = {
     await clearDemoFlag();
   },
 
+  /**
+   * 표시 이름 저장 — PATCH /users/me/ 로 서버에 남기고 로컬 세션도 갱신한다.
+   * 예전엔 로컬에만 두어 앱을 다시 켜면 사라졌다(서버는 진작 받을 준비가 돼 있었다).
+   */
+  async updateNickname(nickname: string): Promise<AuthUser> {
+    const user = await api.patch<AuthUser>(AuthEndpoints.me, { nickname });
+    setState({ user });
+    return user;
+  },
+
   /** 로그아웃: simplejwt(stateless)라 서버 엔드포인트가 없다 → 클라이언트 토큰 폐기로 처리 */
   async signOut(): Promise<void> {
     await Promise.all([clearTokens(), clearDemoFlag()]);
