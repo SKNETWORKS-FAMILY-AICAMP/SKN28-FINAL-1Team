@@ -28,6 +28,7 @@ class ProductEmbeddingStatusView(ProductEmbeddingBaseView):
             data["target_version"],
             reset_stale=data["reset_stale"],
             stale_job_minutes=data["stale_job_minutes"],
+            source=data.get("source"),
         )
         return Response(result)
 
@@ -40,6 +41,7 @@ class ProductEmbeddingClaimView(ProductEmbeddingBaseView):
         jobs = product_embeddings.claim_jobs(
             data["limit"],
             data["target_version"],
+            source=data.get("source"),
         )
         return Response({"jobs": jobs})
 

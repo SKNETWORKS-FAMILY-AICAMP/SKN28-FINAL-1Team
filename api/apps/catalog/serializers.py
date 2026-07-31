@@ -2,8 +2,22 @@
 
 from rest_framework import serializers
 
+# product_embedding_job은 source 컬럼을 가진 공용 테이블이다. worker가 source를
+# 지정하면 해당 쇼핑몰 작업만 선점해 naver/eleven drain이 서로를 기다리지 않는다.
+# 생략하면 기존과 동일하게 전체 source를 대상으로 한다.
+PRODUCT_SOURCES = ("naver", "eleven")
 
-class ProductEmbeddingStatusSerializer(serializers.Serializer):
+
+class SourceScopedSerializer(serializers.Serializer):
+    source = serializers.ChoiceField(
+        choices=PRODUCT_SOURCES,
+        required=False,
+        allow_null=True,
+        default=None,
+    )
+
+
+class ProductEmbeddingStatusSerializer(SourceScopedSerializer):
     target_version = serializers.CharField(max_length=200)
     reset_stale = serializers.BooleanField(default=False)
     stale_job_minutes = serializers.IntegerField(
@@ -13,7 +27,7 @@ class ProductEmbeddingStatusSerializer(serializers.Serializer):
     )
 
 
-class ProductEmbeddingClaimSerializer(serializers.Serializer):
+class ProductEmbeddingClaimSerializer(SourceScopedSerializer):
     target_version = serializers.CharField(max_length=200)
     limit = serializers.IntegerField(min_value=1, max_value=256)
 

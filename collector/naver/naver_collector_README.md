@@ -28,6 +28,14 @@ PRODUCT_INDEXER_TRIGGER_TIMEOUT_SECONDS=10
 PRODUCT_INDEXER_TRIGGER_MAX_RETRIES=2
 ```
 
+태깅이 끝나면 `trigger_product_indexer(source="naver", ...)`가 위 URL로 drain
+시작 신호만 보낸다(상품 데이터·이미지는 보내지 않는다). GPU worker는 payload의
+`source=naver`를 보고 네이버 작업만 선점하므로 11번가 drain과 동시에 실행된다.
+임베딩 결과는 네이버 전용 Qdrant 컬렉션(`PRODUCT_NAVER_QDRANT_COLLECTION`,
+기본 `products_naver_v1`)에 적재되고, 상품 이미지는
+`PRODUCT_NAVER_IMAGE_S3_PREFIX`(기본 `products/naver`) 아래에 보존된다.
+상세는 `indexer/product_indexer/PRODUCTS_README.md`를 참고한다.
+
 URL이 없으면 trigger만 비활성화된다. sync 수집·재태깅 완료 후와 Batch 결과 반영
 후에 호출하며, GPU API 장애가 상품 저장을 롤백하지 않는다.
 

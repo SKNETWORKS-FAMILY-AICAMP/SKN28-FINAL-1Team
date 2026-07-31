@@ -55,17 +55,31 @@ def _source_config(source: str) -> dict[str, Any]:
         raise ValueError(f"지원하지 않는 상품 source: {source}") from exc
 
 
-def _tagged_jobs(queryset: QuerySet) -> QuerySet:
-    naver_ids = NaverProduct.objects.filter(tagging_status="tagged").values(
-        "naver_product_id"
-    )
-    eleven_ids = ElevenProduct.objects.filter(tagging_status="tagged").values(
-        "eleven_product_id"
-    )
-    return queryset.filter(
-        Q(source="naver", external_product_id__in=naver_ids)
-        | Q(source="eleven", external_product_id__in=eleven_ids)
-    )
+def _tagged_jobs(queryset: QuerySet, source: str | None = None) -> QuerySet:
+    """태깅 완료 상품의 작업만 남긴다. source를 주면 해당 쇼핑몰로 좁힌다.
+
+    source별로 좁히면 naver drain이 eleven 백로그를 선점하지 않아 두 쇼핑몰의
+    임베딩이 서로를 기다리지 않고 동시에 진행된다. 테이블은 그대로 공용
+    product_embedding_job 하나를 쓴다.
+    """
+    conditions = []
+    if source in (None, "naver"):
+        naver_ids = NaverProduct.objects.filter(tagging_status="tagged").values(
+            "naver_product_id"
+        )
+        conditions.append(Q(source="naver", external_product_id__in=naver_ids))
+    if source in (None, "eleven"):
+        eleven_ids = ElevenProduct.objects.filter(tagging_status="tagged").values(
+            "eleven_product_id"
+        )
+        conditions.append(Q(source="eleven", external_product_id__in=eleven_ids))
+    if not conditions:
+        raise ValueError(f"지원하지 않는 상품 source: {source}")
+
+    combined = conditions[0]
+    for condition in conditions[1:]:
+        combined |= condition
+    return queryset.filter(combined)
 
 
 def _product_for_job(job: ProductEmbeddingJob):
@@ -108,13 +122,20 @@ def _serialize_job(job: ProductEmbeddingJob, product) -> dict[str, Any]:
     }
 
 
-def reset_stale_jobs(stale_job_minutes: int) -> int:
-    """비정상 종료 후 오래 processing에 남은 작업을 pending으로 복구한다."""
+def reset_stale_jobs(stale_job_minutes: int, source: str | None = None) -> int:
+    """비정상 종료 후 오래 processing에 남은 작업을 pending으로 복구한다.
+
+    source를 주면 다른 쇼핑몰 worker가 정상 처리 중인 작업을 건드리지 않는다.
+    """
     now = timezone.now()
-    return ProductEmbeddingJob.objects.filter(
+    queryset = ProductEmbeddingJob.objects.filter(
         status="processing",
         claimed_at__lt=now - timedelta(minutes=stale_job_minutes),
-    ).update(
+    )
+    if source is not None:
+        _source_config(source)
+        queryset = queryset.filter(source=source)
+    return queryset.update(
         status="pending",
         claimed_at=None,
         available_at=now,
@@ -134,14 +155,18 @@ def get_status(
     *,
     reset_stale: bool,
     stale_job_minutes: int,
+    source: str | None = None,
 ) -> dict[str, Any]:
-    stale_count = reset_stale_jobs(stale_job_minutes) if reset_stale else 0
-    pending = _tagged_jobs(
-        ProductEmbeddingJob.objects.filter(
-            status="pending",
-            target_version=target_version,
-        )
+    stale_count = (
+        reset_stale_jobs(stale_job_minutes, source) if reset_stale else 0
     )
+    queryset = ProductEmbeddingJob.objects.filter(
+        status="pending",
+        target_version=target_version,
+    )
+    if source is not None:
+        queryset = queryset.filter(source=source)
+    pending = _tagged_jobs(queryset, source)
     next_available_at = pending.aggregate(value=Min("available_at"))["value"]
     next_delay = None
     if next_available_at is not None:
@@ -157,16 +182,27 @@ def get_status(
 
 
 @transaction.atomic
-def claim_jobs(limit: int, target_version: str) -> list[dict[str, Any]]:
-    """태깅 완료된 pending 작업을 원자적으로 선점하고 상품 데이터를 반환한다."""
+def claim_jobs(
+    limit: int,
+    target_version: str,
+    source: str | None = None,
+) -> list[dict[str, Any]]:
+    """태깅 완료된 pending 작업을 원자적으로 선점하고 상품 데이터를 반환한다.
+
+    source를 주면 해당 쇼핑몰 작업만 선점한다. skip_locked 덕분에 naver worker와
+    eleven worker가 같은 테이블을 동시에 폴링해도 서로 블로킹되지 않는다.
+    """
     now = timezone.now()
-    candidates = _tagged_jobs(
-        ProductEmbeddingJob.objects.select_for_update(skip_locked=True).filter(
-            status="pending",
-            target_version=target_version,
-            available_at__lte=now,
-        )
-    ).order_by("id")[:limit]
+    queryset = ProductEmbeddingJob.objects.select_for_update(
+        skip_locked=True
+    ).filter(
+        status="pending",
+        target_version=target_version,
+        available_at__lte=now,
+    )
+    if source is not None:
+        queryset = queryset.filter(source=source)
+    candidates = _tagged_jobs(queryset, source).order_by("id")[:limit]
 
     claimed: list[dict[str, Any]] = []
     for job in candidates:

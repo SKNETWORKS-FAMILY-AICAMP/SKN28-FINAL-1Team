@@ -8,6 +8,7 @@ from rest_framework.test import APIRequestFactory
 from apps.catalog.views import (
     ProductEmbeddingClaimView,
     ProductEmbeddingCompleteView,
+    ProductEmbeddingStatusView,
 )
 
 
@@ -50,7 +51,63 @@ class ProductEmbeddingApiTests(SimpleTestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.data["jobs"][0]["id"], 1)
-        claim_jobs.assert_called_once_with(2, "embed-v1")
+        claim_jobs.assert_called_once_with(2, "embed-v1", source=None)
+
+    @patch("apps.catalog.views.product_embeddings.claim_jobs")
+    def test_claim_scopes_to_source_when_given(self, claim_jobs) -> None:
+        """source를 주면 해당 쇼핑몰 작업만 선점한다 (naver/eleven 동시 drain용)."""
+        claim_jobs.return_value = []
+        request = self.post(
+            "/api/v1/internal/catalog/product-embeddings/claim/",
+            {"target_version": "embed-v1", "limit": 2, "source": "naver"},
+            token="catalog-secret",
+        )
+
+        response = ProductEmbeddingClaimView.as_view()(request)
+
+        self.assertEqual(response.status_code, 200)
+        claim_jobs.assert_called_once_with(2, "embed-v1", source="naver")
+
+    @patch("apps.catalog.views.product_embeddings.claim_jobs")
+    def test_claim_rejects_unknown_source(self, claim_jobs) -> None:
+        request = self.post(
+            "/api/v1/internal/catalog/product-embeddings/claim/",
+            {"target_version": "embed-v1", "limit": 2, "source": "coupang"},
+            token="catalog-secret",
+        )
+
+        response = ProductEmbeddingClaimView.as_view()(request)
+
+        self.assertEqual(response.status_code, 400)
+        claim_jobs.assert_not_called()
+
+    @patch("apps.catalog.views.product_embeddings.get_status")
+    def test_status_passes_source_to_service(self, get_status) -> None:
+        get_status.return_value = {
+            "has_pending_jobs": False,
+            "next_available_in_seconds": None,
+            "reset_stale_count": 0,
+        }
+        request = self.post(
+            "/api/v1/internal/catalog/product-embeddings/status/",
+            {
+                "target_version": "embed-v1",
+                "reset_stale": True,
+                "stale_job_minutes": 30,
+                "source": "eleven",
+            },
+            token="catalog-secret",
+        )
+
+        response = ProductEmbeddingStatusView.as_view()(request)
+
+        self.assertEqual(response.status_code, 200)
+        get_status.assert_called_once_with(
+            "embed-v1",
+            reset_stale=True,
+            stale_job_minutes=30,
+            source="eleven",
+        )
 
     @patch("apps.catalog.views.product_embeddings.mark_success")
     def test_complete_passes_attempt_identity_to_service(self, mark_success) -> None:

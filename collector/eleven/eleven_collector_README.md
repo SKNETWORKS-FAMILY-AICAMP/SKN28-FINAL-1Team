@@ -32,6 +32,12 @@ DB 트랜잭션에서 작업만 등록하고 GPU worker가 비동기로 처리�
 반영되면 작업 행이 있는 신규 상품만 재색인하며 기존 DB 상품은 자동 백필하지 않는다.
 상세 실행법은 `indexer/product_indexer/PRODUCTS_README.md`를 참고한다.
 
+작업 큐(`product_embedding_job`)는 네이버와 공용이지만 S3 prefix
+(`PRODUCT_ELEVEN_IMAGE_S3_PREFIX`, 기본 `products/eleven`)와 Qdrant 컬렉션
+(`PRODUCT_ELEVEN_QDRANT_COLLECTION`, 기본 `products_eleven_v1`)은 분리돼 있다.
+drain 트리거의 `source=eleven`이 11번가 작업만 선점하므로 네이버 drain과
+동시에 실행된다.
+
 원격 GPU trigger 설정:
 
     PRODUCT_INDEXER_TRIGGER_URL=https://<gpu-host>/v1/product-indexer/drain
