@@ -120,7 +120,7 @@ services:
       dockerfile: Dockerfile.weather
     container_name: weather-collector
     restart: unless-stopped
-    profiles: ["weather", "all"]
+    profiles: ["weather", "all", "api"]
     depends_on:
       db:
         condition: service_healthy
