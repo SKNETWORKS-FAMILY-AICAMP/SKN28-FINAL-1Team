@@ -3,7 +3,7 @@ import { SmartImage, useToast } from '@/components/ui';
 import { formatBudget, parsePrice, usePrefs } from '@/state/prefs';
 import { router } from 'expo-router';
 import { goBack } from '@/lib/goBack';
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
@@ -11,6 +11,9 @@ import { Editorial, ink, Fonts } from '@/constants/theme';
 import { TODAY_LOOK_IMAGE } from '@/constants/look-images';
 import { TODAY_LOOK } from '@/constants/today-look';
 import { savedLookStore } from '@/state/saved';
+import { brandScores, likesStore, useWishlist, wishKey } from '@/state/likes';
+import { mallLabel, openExternal, productUrl } from '@/lib/mall';
+import type { LookRelated } from '@/constants/today-look';
 import { useBottomTabInset } from '@/hooks/use-bottom-tab-inset';
 import { useBreakpoint } from '@/hooks/use-breakpoint';
 import { useHome } from '@/hooks/use-home';
@@ -43,8 +46,48 @@ export default function LookDetail() {
   const [openSlot, setOpenSlot] = useState<string | null>(null);
   const toast = useToast();
   const { budget } = usePrefs();
+  const wishlist = useWishlist();
 
-  // 하트 = 저장 토글. 켜면 '저장됨'에 담고, 끄면 뺀다.
+  /* 찜한 브랜드 = 취향. 예산 다음 순위로 써서 관련 상품 순서를 정한다(아래 sortRelated). */
+  const brands = useMemo(() => brandScores(wishlist), [wishlist]);
+  const wishedIds = useMemo(() => new Set(wishlist.map((w) => w.id)), [wishlist]);
+
+  /**
+   * 관련 상품 정렬 — ①예산 안 ②찜한 브랜드 순.
+   * 예산을 앞에 두는 이유: 살 수 없는 것을 아무리 취향에 맞게 올려도 소용이 없다.
+   */
+  const sortRelated = (items: LookRelated[]) =>
+    [...items].sort((a, b) => {
+      if (budget != null) {
+        const fit = (p: LookRelated) => (parsePrice(p.price) <= budget ? 0 : 1);
+        if (fit(a) !== fit(b)) return fit(a) - fit(b);
+      }
+      return (brands[b.brand] ?? 0) - (brands[a.brand] ?? 0);
+    });
+
+  const relatedHead = (() => {
+    const parts: string[] = [];
+    if (budget != null) parts.push(`${formatBudget(budget)} 예산 내 우선`);
+    if (Object.keys(brands).length > 0) parts.push('찜한 브랜드 우선');
+    return parts.length ? `비슷한 상품 · ${parts.join(' · ')}` : '비슷한 상품';
+  })();
+
+  const toggleWish = (r: LookRelated, slot: string) => {
+    const added = likesStore.toggleWish({
+      name: r.name,
+      brand: r.brand,
+      price: r.price,
+      tone: r.tone,
+      link: r.link,
+      mall: r.mall,
+      slot,
+    });
+    toast(added ? '위시리스트에 담았어요' : '위시리스트에서 뺐어요');
+  };
+
+  /* 북마크 = 저장 토글. 켜면 '저장됨'에 담고, 끄면 뺀다.
+     하트를 안 쓰는 이유 — 하트는 룩북 피드의 '좋아요'가 가져갔다. 한 아이콘이 화면마다
+     다른 뜻이면 누르기 전에 무슨 일이 생길지 알 수 없다. */
   const toggleSave = () => {
     if (saved) {
       const found = savedLookStore.getLooks().find((l) => l.asset === TODAY_LOOK_IMAGE);
@@ -81,9 +124,13 @@ export default function LookDetail() {
             <Icon name="chevron.left" tintColor={INK} size={20} />
           </Pressable>
           <Text style={styles.headerTitle}>추천 룩</Text>
-          <Pressable style={styles.headerRight} hitSlop={12} onPress={toggleSave}>
+          <Pressable
+            style={styles.headerRight}
+            hitSlop={12}
+            onPress={toggleSave}
+            accessibilityLabel={saved ? '저장 취소' : '저장'}>
             <Icon
-              name={saved ? 'heart.fill' : 'heart'}
+              name={saved ? 'bookmark.fill' : 'bookmark'}
               tintColor={saved ? WINE : ink(0.5)}
               size={20}
             />
@@ -153,46 +200,55 @@ export default function LookDetail() {
 
                   {open ? (
                     <View style={styles.related}>
-                      <Text style={styles.relatedHead}>
-                        {budget != null
-                          ? `비슷한 상품 · ${formatBudget(budget)} 예산 내 우선`
-                          : '비슷한 상품'}
-                      </Text>
-                      {(budget != null
-                        ? [...p.related].sort(
-                            (a, b) =>
-                              (parsePrice(a.price) <= budget ? 0 : 1) -
-                              (parsePrice(b.price) <= budget ? 0 : 1),
-                          )
-                        : p.related
-                      ).map((r) => {
+                      <Text style={styles.relatedHead}>{relatedHead}</Text>
+                      {sortRelated(p.related).map((r) => {
                         const inBudget = budget != null && parsePrice(r.price) <= budget;
+                        const wished = wishedIds.has(wishKey(r));
+                        const url = productUrl(r, r.mall);
                         return (
-                          <Pressable
-                            key={r.name}
-                            style={styles.relatedItem}
-                            onPress={() => toast(`${r.brand} · ${r.name} 담았어요`)}>
-                            <View
-                              style={[
-                                styles.relatedThumb,
-                                { backgroundColor: `rgba(28,25,23,${r.tone})` },
-                              ]}
-                            />
-                            <View style={styles.relatedBody}>
-                              <Text style={styles.relatedName} numberOfLines={1}>
-                                {r.name}
-                              </Text>
-                              <Text style={styles.relatedBrand}>{r.brand}</Text>
-                            </View>
-                            <View style={styles.relatedRight}>
-                              <Text style={styles.relatedPrice}>{r.price}원</Text>
-                              {inBudget ? (
-                                <View style={styles.budgetTag}>
-                                  <Text style={styles.budgetTagText}>예산 내</Text>
+                          <View key={r.name} style={styles.relatedItem}>
+                            {/* 상품 본문을 누르면 판매처로 나간다 — 우리는 결제를 받지 않는다. */}
+                            <Pressable
+                              style={styles.relatedMain}
+                              onPress={() => openExternal(url)}
+                              accessibilityLabel={`${r.brand} ${r.name} — ${mallLabel(url)}에서 보기`}>
+                              <View
+                                style={[
+                                  styles.relatedThumb,
+                                  { backgroundColor: `rgba(28,25,23,${r.tone})` },
+                                ]}
+                              />
+                              <View style={styles.relatedBody}>
+                                <Text style={styles.relatedName} numberOfLines={1}>
+                                  {r.name}
+                                </Text>
+                                <View style={styles.relatedMeta}>
+                                  <Text style={styles.relatedBrand}>{r.brand}</Text>
+                                  <Icon name="arrow.up.right.square" tintColor={ink(0.32)} size={11} />
+                                  <Text style={styles.relatedMall}>{mallLabel(url)}</Text>
                                 </View>
-                              ) : null}
-                            </View>
-                          </Pressable>
+                              </View>
+                              <View style={styles.relatedRight}>
+                                <Text style={styles.relatedPrice}>{r.price}원</Text>
+                                {inBudget ? (
+                                  <View style={styles.budgetTag}>
+                                    <Text style={styles.budgetTagText}>예산 내</Text>
+                                  </View>
+                                ) : null}
+                              </View>
+                            </Pressable>
+                            <Pressable
+                              style={styles.wishBtn}
+                              hitSlop={6}
+                              onPress={() => toggleWish(r, p.slot)}
+                              accessibilityLabel={wished ? '위시리스트에서 빼기' : '위시리스트에 담기'}>
+                              <Icon
+                                name={wished ? 'heart.fill' : 'heart'}
+                                tintColor={wished ? WINE : ink(0.35)}
+                                size={17}
+                              />
+                            </Pressable>
+                          </View>
                         );
                       })}
                       {budget == null ? (
@@ -209,6 +265,15 @@ export default function LookDetail() {
               );
             })}
           </View>
+
+          {/* 담아 둔 상품으로 가는 길 — 아코디언을 닫으면 찜한 게 어디 갔는지 알 수 없어서 둔다. */}
+          {wishlist.length > 0 ? (
+            <Pressable style={styles.wishLink} onPress={() => router.push('/wishlist')}>
+              <Icon name="heart.fill" tintColor={WINE} size={14} />
+              <Text style={styles.wishLinkText}>위시리스트 {wishlist.length}개 보기</Text>
+              <Icon name="chevron.right" tintColor={ink(0.3)} size={14} />
+            </Pressable>
+          ) : null}
 
           {/* 추천 이유 */}
           <Text style={styles.sectionTitle}>왜 이 룩일까요?</Text>
@@ -368,11 +433,28 @@ const styles = StyleSheet.create({
     gap: 10,
   },
   relatedHead: { fontSize: 11, color: Editorial.textCaption, fontWeight: '600' },
-  relatedItem: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+  relatedItem: { flexDirection: 'row', alignItems: 'center', gap: 4 },
+  // 상품 본문(→판매처)과 찜 버튼을 갈라 놓는다. 한 행에서 두 동작이 갈리므로 영역도 나눈다.
+  relatedMain: { flex: 1, flexDirection: 'row', alignItems: 'center', gap: 10 },
   relatedThumb: { width: 44, height: 44, borderRadius: 10, backgroundColor: BONE },
   relatedBody: { flex: 1, gap: 2 },
   relatedName: { fontSize: 13, fontWeight: '500', color: Editorial.ink },
+  relatedMeta: { flexDirection: 'row', alignItems: 'center', gap: 4 },
   relatedBrand: { fontSize: 11.5, color: Editorial.textCaption },
+  relatedMall: { fontSize: 11, color: Editorial.textMuted },
+  wishBtn: { width: 32, height: 32, alignItems: 'center', justifyContent: 'center' },
+  wishLink: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginTop: 12,
+    paddingVertical: 12,
+    paddingHorizontal: 14,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: Editorial.line,
+  },
+  wishLinkText: { flex: 1, fontSize: 13, color: Editorial.textSoft, fontWeight: '500' },
   relatedRight: { alignItems: 'flex-end', gap: 4 },
   relatedPrice: { fontSize: 13, fontWeight: '600', color: INK },
   budgetTag: {
