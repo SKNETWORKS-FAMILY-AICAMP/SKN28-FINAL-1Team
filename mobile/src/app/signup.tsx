@@ -25,6 +25,10 @@ const TERMS: { key: TermKey; label: string; required: boolean }[] = [
   { key: 'marketing', label: '마케팅 정보 수신 동의', required: false },
 ];
 
+/** 최소 검증용 — 서버가 붙으면 진짜 판정은 서버가 한다. 여기선 명백한 오타만 걸러낸다. */
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const MIN_PW = 8;
+
 // A4 회원가입 — 이메일/비밀번호 + 약관 동의 → 권한 동의(A6)로 진입
 export default function Signup() {
   const { contentStyle } = useBreakpoint();
@@ -47,7 +51,30 @@ export default function Signup() {
   const toggleAll = () =>
     setAgreed(allChecked ? new Set() : new Set(TERMS.map((t) => t.key)));
 
-  const create = () => router.replace('/permissions');
+  /* 빈칸·형식 오류를 처음부터 빨갛게 칠하면 아직 아무것도 안 쓴 사람을 나무라는 꼴이 된다.
+     한 번 눌러본 뒤부터 보여준다(비밀번호 확인만은 입력 중에도 바로 알린다 — 오타를 늦게 알수록 손해다). */
+  const [submitted, setSubmitted] = useState(false);
+
+  const emailError = !email.trim()
+    ? '이메일을 입력해 주세요'
+    : !EMAIL_RE.test(email.trim())
+      ? '이메일 형식이 올바르지 않아요'
+      : null;
+  const pwError = !pw
+    ? '비밀번호를 입력해 주세요'
+    : pw.length < MIN_PW
+      ? `비밀번호는 ${MIN_PW}자 이상이어야 해요`
+      : null;
+  const pw2Error = pw2 !== pw ? '비밀번호가 일치하지 않아요' : null;
+
+  const create = () => {
+    setSubmitted(true);
+    if (emailError || pwError || pw2Error) return;
+    router.replace('/permissions');
+  };
+
+  /* 소셜 가입은 이메일·비밀번호를 받지 않으므로 폼 검증을 태우지 않는다. */
+  const createWithSocial = () => router.replace('/permissions');
 
   return (
     <View style={styles.container}>
@@ -73,7 +100,8 @@ export default function Signup() {
               autoCapitalize="none"
               keyboardType="email-address"
             />
-            <View style={styles.underline} />
+            <View style={[styles.underline, submitted && emailError && styles.underlineError]} />
+            {submitted && emailError ? <Text style={styles.errText}>{emailError}</Text> : null}
           </View>
 
           {/* 비밀번호 */}
@@ -92,7 +120,8 @@ export default function Signup() {
                 <Text style={styles.showText}>{show ? '숨김' : '표시'}</Text>
               </Pressable>
             </View>
-            <View style={styles.underline} />
+            <View style={[styles.underline, submitted && pwError && styles.underlineError]} />
+            {submitted && pwError ? <Text style={styles.errText}>{pwError}</Text> : null}
           </View>
 
           {/* 비밀번호 확인 */}
@@ -112,8 +141,8 @@ export default function Signup() {
                 pw2.length > 0 && pw2 !== pw && styles.underlineError,
               ]}
             />
-            {pw2.length > 0 && pw2 !== pw ? (
-              <Text style={styles.errText}>비밀번호가 일치하지 않아요</Text>
+            {(pw2.length > 0 || submitted) && pw2Error ? (
+              <Text style={styles.errText}>{pw2Error}</Text>
             ) : null}
           </View>
 
@@ -159,10 +188,10 @@ export default function Signup() {
             <View style={styles.line} />
           </View>
 
-          <Pressable style={[styles.social, { backgroundColor: KAKAO }]} onPress={create}>
+          <Pressable style={[styles.social, { backgroundColor: KAKAO }]} onPress={createWithSocial}>
             <Text style={styles.socialText}>카카오로 시작하기</Text>
           </Pressable>
-          <Pressable style={[styles.social, { backgroundColor: INK }]} onPress={create}>
+          <Pressable style={[styles.social, { backgroundColor: INK }]} onPress={createWithSocial}>
             <Text style={[styles.socialText, styles.socialTextLight]}>Apple로 시작하기</Text>
           </Pressable>
 
