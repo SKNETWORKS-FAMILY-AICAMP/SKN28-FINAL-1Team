@@ -44,11 +44,14 @@ export default function HomeScreen() {
   const { contentStyle } = useBreakpoint();
   const tabInset = useBottomTabInset();
   const { status, isDemo } = useAuth();
-  /* 홈 API는 JWT가 필요하다. 비회원은 요청하지 않고 온보딩 전용 홈을 즉시 보여준다.
-     데모 세션도 토큰이 없어 호출하지 않고 고정 목업으로 '로그인한 홈'을 렌더한다. */
-  const { data: apiData, error, loading, reload } = useHome(undefined, status === 'authed' && !isDemo);
+  /* 비회원은 부를 것이 없어(토큰도, 옷장도 없다) 온보딩 전용 홈을 즉시 보여준다.
+     데모 세션도 부른다 — 토큰이 없을 뿐 요청은 통과한다(dev 서버가 무토큰 요청을 허용).
+     그래야 발표에서 진짜 날씨가 뜬다. 예전엔 여기서 막아 두어 고정 목업만 보였다. */
+  const { data: apiData, error, loading, reload } = useHome(undefined, status === 'authed');
   const { refreshing, onRefresh } = useRefresh(reload);
-  const data = isDemo ? DEMO_HOME : apiData;
+  /* 실패하면 데모 세션만 목업으로 물러난다 — 인증이 켜지면 401 이 나는데,
+     체험용 링크에서 홈이 통째로 에러 화면이 되는 것보다 낫다. */
+  const data = apiData ?? (isDemo ? DEMO_HOME : null);
 
   /* 서비스 페르소나 이름으로 부른다. 백엔드 nickname 은 개발용 계정명이라 그대로 쓰지 않는다. */
   const nickname = '코지';
@@ -60,7 +63,7 @@ export default function HomeScreen() {
           showsVerticalScrollIndicator={false}
           /* 비회원·데모는 불러올 것이 없어 당겨도 반응하지 않는다. */
           refreshControl={
-            status === 'authed' && !isDemo ? (
+            status === 'authed' ? (
               <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={INK} />
             ) : undefined
           }
@@ -82,7 +85,7 @@ export default function HomeScreen() {
             <LoadingState message="홈을 준비하는 중…" />
           ) : status === 'guest' ? (
             <EmptyClosetStart />
-          ) : loading && !isDemo ? (
+          ) : loading ? (
             <LoadingState message="오늘의 추천을 불러오는 중…" />
           ) : error || !data ? (
             <ErrorState onRetry={reload} />
