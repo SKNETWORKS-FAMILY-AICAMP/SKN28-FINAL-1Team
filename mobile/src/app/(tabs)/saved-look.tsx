@@ -179,13 +179,16 @@ export default function SavedLook() {
                     {p.name}
                   </Text>
                 </View>
-                <Pressable
-                  style={styles.addBtn}
-                  onPress={() => addToCloset(p.image)}
-                  accessibilityLabel={`${p.name} 옷장에 추가`}>
-                  <Icon name="plus" tintColor={INK} size={13} />
-                  <Text style={styles.addBtnText}>옷장에 추가</Text>
-                </Pressable>
+                {/* 사진이 없는 아이템은 등록할 것이 없다 — 옷장 등록은 사진 한 장에서 시작한다. */}
+                {p.image ? (
+                  <Pressable
+                    style={styles.addBtn}
+                    onPress={() => addToCloset(p.image!)}
+                    accessibilityLabel={`${p.name} 옷장에 추가`}>
+                    <Icon name="plus" tintColor={INK} size={13} />
+                    <Text style={styles.addBtnText}>옷장에 추가</Text>
+                  </Pressable>
+                ) : null}
               </View>
             ))}
           </View>

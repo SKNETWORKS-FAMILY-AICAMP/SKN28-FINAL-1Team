@@ -61,7 +61,13 @@ export const savedLookStore = {
   isSaved: (look: { image?: string; asset?: number }) =>
     savedLooks.some((l) => keyOf(l) === keyOf(look)),
   /** 저장. 이미 있으면 중복 추가하지 않고 기존 것을 돌려준다. */
-  addLook(input: { image?: string; asset?: number; comment?: string; tags?: string[] }) {
+  addLook(input: {
+    image?: string;
+    asset?: number;
+    comment?: string;
+    tags?: string[];
+    reason?: string;
+  }) {
     const existing = savedLooks.find((l) => keyOf(l) === keyOf(input));
     if (existing) return existing;
     const look: SavedLook = {
@@ -69,6 +75,7 @@ export const savedLookStore = {
       image: input.image,
       asset: input.asset,
       comment: input.comment,
+      reason: input.reason,
       tags: input.tags ?? [],
       savedAt: Date.now(),
     };

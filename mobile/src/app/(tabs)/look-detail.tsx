@@ -1,15 +1,14 @@
 import { Icon } from '@/components/icon';
 import { SmartImage, useToast } from '@/components/ui';
 import { formatBudget, parsePrice, usePrefs } from '@/state/prefs';
-import { router } from 'expo-router';
-import { goBack } from '@/lib/goBack';
+import { router, useLocalSearchParams } from 'expo-router';
 import { useMemo, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { Editorial, ink, Fonts } from '@/constants/theme';
 import { TODAY_LOOK_IMAGE } from '@/constants/look-images';
-import { TODAY_LOOK } from '@/constants/today-look';
+import { LOOK_VARIANTS, resolveLookVariant } from '@/constants/today-look';
 import { savedLookStore } from '@/state/saved';
 import { brandScores, likesStore, useWishlist, wishKey } from '@/state/likes';
 import { mallLabel, openExternal, productUrl } from '@/lib/mall';
@@ -23,17 +22,10 @@ const INK = Editorial.ink;
 const WINE = Editorial.wine;
 const BONE = Editorial.bone;
 
-// 구성 아이템 = 오늘의 룩 단일 출처. 가상피팅 화면과 같은 목록을 공유한다.
-const PIECES = TODAY_LOOK.pieces;
-
 /** 저장 시 태그 — 무드·상황 서브텍스트에서 뽑는다('미니멀 · 데일리' → ['미니멀','데일리']) */
-const LOOK_TAGS = TODAY_LOOK.subtitle.split('·').map((s) => s.trim()).filter(Boolean);
-
-const REASONS = [
-  '연분홍 상의에 검정 하의를 더해 화사함과 차분함의 균형을 잡았어요.',
-  '추구하시는 미니멀 무드에 맞게 색을 둘로 절제하고 장식을 덜어냈어요.',
-  '벨트로 허리선을 정리해 가벼운 반팔 룩에도 단정한 인상을 더했어요.',
-];
+function tagsOf(subtitle: string): string[] {
+  return subtitle.split('·').map((s) => s.trim()).filter(Boolean);
+}
 
 // C4 추천 룩 상세 — 2D 가상착장 + 구성 + 추천 이유 + 피드백
 export default function LookDetail() {
@@ -41,7 +33,15 @@ export default function LookDetail() {
   const tabInset = useBottomTabInset();
   // 2단(≥1280)일 땐 본문을 넓게, 세로로 쌓일 땐 좁게 잡아 사진·카드가 과하게 커지지 않게 한다.
   const maxW = width >= 1280 ? 960 : 720;
-  const [saved, setSaved] = useState(() => savedLookStore.isSaved({ asset: TODAY_LOOK_IMAGE }));
+  /* 어떤 룩을 볼지는 주소가 정한다. 없으면 오늘의 룩. */
+  const { id } = useLocalSearchParams<{ id?: string }>();
+  const look = resolveLookVariant(id);
+  const PIECES = look.pieces;
+  const lookTags = tagsOf(look.subtitle);
+  /* 사진은 원격 URL 이 있으면 그것, 없으면 번들 목업(오늘의 룩) */
+  const lookKey = look.image ? { image: look.image } : { asset: TODAY_LOOK_IMAGE };
+
+  const [saved, setSaved] = useState(() => savedLookStore.isSaved(lookKey));
   const [vote, setVote] = useState<'up' | 'down' | null>(null);
   const [openSlot, setOpenSlot] = useState<string | null>(null);
   const toast = useToast();
@@ -72,6 +72,16 @@ export default function LookDetail() {
     return parts.length ? `비슷한 상품 · ${parts.join(' · ')}` : '비슷한 상품';
   })();
 
+  /* [다른 룩] = 다음 변형으로. 이름 그대로 다른 룩을 보여준다 —
+     예전엔 룩북으로 나가버려서 버튼 이름과 하는 일이 어긋나 있었다. */
+  const showAnotherLook = () => {
+    const at = LOOK_VARIANTS.findIndex((l) => l.id === look.id);
+    const next = LOOK_VARIANTS[(at + 1) % LOOK_VARIANTS.length];
+    router.setParams({ id: next.id });
+    setOpenSlot(null);
+    setVote(null);
+  };
+
   const toggleWish = (r: LookRelated, slot: string) => {
     const added = likesStore.toggleWish({
       name: r.name,
@@ -90,11 +100,18 @@ export default function LookDetail() {
      다른 뜻이면 누르기 전에 무슨 일이 생길지 알 수 없다. */
   const toggleSave = () => {
     if (saved) {
-      const found = savedLookStore.getLooks().find((l) => l.asset === TODAY_LOOK_IMAGE);
+      const found = savedLookStore
+        .getLooks()
+        .find((l) => (look.image ? l.image === look.image : l.asset === TODAY_LOOK_IMAGE));
       if (found) savedLookStore.removeLook(found.id);
       setSaved(false);
     } else {
-      savedLookStore.addLook({ asset: TODAY_LOOK_IMAGE, comment: TODAY_LOOK.title, tags: LOOK_TAGS });
+      savedLookStore.addLook({
+        ...lookKey,
+        comment: look.title,
+        tags: lookTags,
+        reason: look.reasons[0],
+      });
       setSaved(true);
       toast('저장됨에 담았어요');
     }
@@ -102,7 +119,12 @@ export default function LookDetail() {
 
   // 하단 '룩북에 저장' = 담고 룩북 저장됨 탭으로 이동.
   const saveAndGoLookbook = () => {
-    savedLookStore.addLook({ asset: TODAY_LOOK_IMAGE, comment: TODAY_LOOK.title, tags: LOOK_TAGS });
+    savedLookStore.addLook({
+      ...lookKey,
+      comment: look.title,
+      tags: lookTags,
+      reason: look.reasons[0],
+    });
     setSaved(true);
     router.push('/(tabs)/lookbook?tab=saved');
   };
@@ -112,7 +134,7 @@ export default function LookDetail() {
   const { data: home } = useHome();
   const w = home?.weather;
   const weatherPart = w && w.temperature != null ? `${w.region ?? '서울'} ${w.temperature}°` : null;
-  const subtitle = [weatherPart, TODAY_LOOK.subtitle].filter(Boolean).join(' · ');
+  const subtitle = [weatherPart, look.subtitle].filter(Boolean).join(' · ');
 
   return (
     <View style={styles.container}>
@@ -147,7 +169,8 @@ export default function LookDetail() {
             /* 2D 가상착장 — 탭하면 가상 피팅 화면으로 */
             <Pressable style={styles.fitting} onPress={() => router.push('/fitting')}>
           <SmartImage
-            asset={TODAY_LOOK_IMAGE}
+            uri={look.image}
+            asset={look.image ? undefined : TODAY_LOOK_IMAGE}
             width="100%"
             radius={0}
             contentFit="cover"
@@ -165,7 +188,7 @@ export default function LookDetail() {
           }
           details={
             <View style={styles.body}>
-          <Text style={styles.title}>{TODAY_LOOK.title}</Text>
+          <Text style={styles.title}>{look.title}</Text>
           <Text style={styles.subtitle}>{subtitle}</Text>
 
           {/* 구성 아이템 — 탭하면 비슷한/대체 상품 아코디언 */}
@@ -278,7 +301,7 @@ export default function LookDetail() {
           {/* 추천 이유 */}
           <Text style={styles.sectionTitle}>왜 이 룩일까요?</Text>
           <View style={styles.reasonCard}>
-            {REASONS.map((r, i) => (
+            {look.reasons.map((r, i) => (
               <View key={i} style={styles.reasonRow}>
                 <View style={styles.pin}>
                   <Text style={styles.pinNum}>{i + 1}</Text>
@@ -322,7 +345,7 @@ export default function LookDetail() {
       {/* 하단 바 */}
       <View style={styles.bottomDivider} />
       <View style={[styles.bottomBar, { paddingBottom: tabInset }, contentStyle(maxW)]}>
-        <Pressable style={styles.altBtn} onPress={() => goBack('/(tabs)/lookbook')}>
+        <Pressable style={styles.altBtn} onPress={showAnotherLook}>
           <Text style={styles.altText}>다른 룩</Text>
         </Pressable>
         <Pressable style={styles.saveBtn} onPress={saveAndGoLookbook}>

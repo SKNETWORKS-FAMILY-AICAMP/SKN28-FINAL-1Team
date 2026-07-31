@@ -44,6 +44,8 @@ type CardData = {
   price?: string;
   /** 좋아요 대상은 피드 룩뿐이다. 저장 룩은 이미 내 것이라 하트를 달지 않는다. */
   tags?: string[];
+  /** 피드 룩이 가리키는 룩 상세 */
+  variantId?: string;
 };
 
 /** 취향 추천 가로 카드 크기 — 그리드보다 작게 잡아 본 목록을 밀어내지 않는다. */
@@ -94,7 +96,7 @@ export default function LookbookScreen() {
 
   const cards: CardData[] =
     mode === 'browse'
-      ? feedLooks.map((l) => ({ id: l.id, uri: l.image, price: l.price, tags: l.tags }))
+      ? feedLooks.map((l) => ({ id: l.id, uri: l.image, price: l.price, tags: l.tags, variantId: l.variantId }))
       : savedFiltered.map((l) => ({ id: l.id, uri: l.image, asset: l.asset }));
 
   /* ── 취향 추천 ──
@@ -172,7 +174,7 @@ export default function LookbookScreen() {
                   <Pressable
                     key={p.id}
                     style={styles.railCard}
-                    onPress={() => router.push('/saved-look')}>
+                    onPress={() => router.push(`/look-detail?id=${p.variantId ?? 'daily'}`)}>
                     <SmartImage
                       uri={p.image}
                       width={RAIL_CARD_W}
@@ -207,11 +209,13 @@ export default function LookbookScreen() {
               <Pressable
                 key={c.id}
                 style={[styles.card, { width: cardW }]}
-                /* 저장 룩은 어느 것을 눌렀는지 id 로 넘긴다. 피드 룩은 아직 상세가 없어
-                   id 없이 열리고 첫 저장 룩이 뜬다 — 룩 id 작업에서 함께 정리한다. */
+                /* 저장 룩은 저장 상세로, 피드 룩은 그 룩의 추천 상세로 보낸다.
+                   둘 다 어느 것을 눌렀는지 id 로 넘긴다. */
                 onPress={() =>
                   router.push(
-                    mode === 'saved' ? `/saved-look?id=${c.id}` : '/saved-look',
+                    mode === 'saved'
+                      ? `/saved-look?id=${c.id}`
+                      : `/look-detail?id=${c.variantId ?? 'daily'}`,
                   )
                 }>
                 <View style={[styles.cardImage, { height: cardH }]}>
