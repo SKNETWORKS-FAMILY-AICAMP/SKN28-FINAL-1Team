@@ -4,10 +4,10 @@ import { useMemo, useState } from 'react';
 import { Pressable, RefreshControl, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-import { ErrorState, LoadingState, SmartImage, useToast } from '@/components/ui';
+import { Avatar, ErrorState, LoadingState, SmartImage, useToast } from '@/components/ui';
 import { DEMO_HOME } from '@/constants/demo';
 import { Editorial, ink, Fonts , ContentMax} from '@/constants/theme';
-import { TODAY_LOOK_IMAGE } from '@/constants/look-images';
+import { PROFILE_IMAGE, TODAY_LOOK_IMAGE } from '@/constants/look-images';
 import { useBottomTabInset } from '@/hooks/use-bottom-tab-inset';
 import { useBreakpoint } from '@/hooks/use-breakpoint';
 import { useHome, type HomeData, type HomeWeather } from '@/hooks/use-home';
@@ -84,7 +84,10 @@ export default function HomeScreen() {
               <Pressable hitSlop={10} onPress={() => router.push('/calendar')}>
                 <Icon name="calendar" tintColor={INK} size={24} />
               </Pressable>
-              <View style={styles.avatar} />
+              {/* 옆의 캘린더 아이콘은 눌리는데 아바타만 안 눌리면 어긋난다 → 마이로 보낸다 */}
+              <Pressable hitSlop={10} onPress={() => router.push('/my')}>
+                <Avatar name={nickname} asset={PROFILE_IMAGE} size={40} />
+              </Pressable>
             </View>
           </View>
 
@@ -265,7 +268,6 @@ const styles = StyleSheet.create({
   },
   greeting: { flex: 1, fontFamily: Fonts.serif, fontSize: 18, fontWeight: '500', color: INK },
   headerRight: { flexDirection: 'row', alignItems: 'center', gap: 14, flexShrink: 0 },
-  avatar: { width: 40, height: 40, borderRadius: 20, backgroundColor: CHIP },
 
   emptyStart: {
     borderRadius: 28,

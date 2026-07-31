@@ -3,6 +3,7 @@
 export { EmptyState } from './empty-state';
 export { LoadingState, ErrorState, Skeleton } from './state-views';
 export { SmartImage } from './smart-image';
+export { Avatar } from './avatar';
 export { SearchFilterBar } from './search-filter-bar';
 export { SegmentedToggle } from './segmented-toggle';
 export { CategoryEditSheet } from './category-edit-sheet';

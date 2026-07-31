@@ -3,7 +3,8 @@ import { router } from 'expo-router';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-import { LoginGate } from '@/components/ui';
+import { Avatar, LoginGate } from '@/components/ui';
+import { PROFILE_IMAGE } from '@/constants/look-images';
 import { ink, ContentMax, Editorial } from '@/constants/theme';
 import { useBottomTabInset } from '@/hooks/use-bottom-tab-inset';
 import { useBreakpoint } from '@/hooks/use-breakpoint';
@@ -125,7 +126,7 @@ export default function MyScreen() {
           contentContainerStyle={[styles.content, { paddingBottom: tabInset + 24 }, contentStyle(ContentMax.wide)]}>
           {/* 프로필 — 테두리로 감싸지 않는다. 화면에 하나뿐인 머리라 굳이 구분할 상대가 없다. */}
           <View style={styles.profile}>
-            <View style={styles.avatar} />
+            <Avatar name={name} asset={PROFILE_IMAGE} size={52} />
             <View style={styles.profileText}>
               <Text style={styles.name}>{name}</Text>
               <Text style={styles.email} numberOfLines={1}>{email}</Text>
@@ -188,12 +189,6 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 12,
     paddingVertical: 12,
-  },
-  avatar: {
-    width: 52,
-    height: 52,
-    borderRadius: 26,
-    backgroundColor: Editorial.accent,
   },
   profileText: { flex: 1, minWidth: 0 },
   name: { fontSize: 18, fontWeight: '700', color: INK, letterSpacing: -0.3 },

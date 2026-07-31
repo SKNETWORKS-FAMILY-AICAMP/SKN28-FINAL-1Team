@@ -1,5 +1,6 @@
 import { Icon } from '@/components/icon';
-import { ModalShell, useToast } from '@/components/ui';
+import { Avatar, ModalShell, useToast } from '@/components/ui';
+import { PROFILE_IMAGE } from '@/constants/look-images';
 import { goBack } from '@/lib/goBack';
 import { useState } from 'react';
 import { Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
@@ -30,7 +31,6 @@ export default function EditProfileScreen() {
   const current = prefs.nickname ?? accountName(user?.nickname, user?.email);
   const [name, setName] = useState(current);
   const email = user?.email ?? 'cozy@example.com';
-  const initial = (name.trim() || '코')[0];
 
   const [saving, setSaving] = useState(false);
 
@@ -72,9 +72,7 @@ export default function EditProfileScreen() {
           </View>
 
           <View style={[styles.body, contentStyle(ContentMax.card)]}>
-            <View style={styles.avatar}>
-              <Text style={styles.avatarText}>{initial}</Text>
-            </View>
+            <Avatar name={name} asset={PROFILE_IMAGE} size={84} style={styles.avatar} />
 
             <Text style={styles.label}>이름</Text>
             <TextInput
@@ -128,17 +126,7 @@ const styles = StyleSheet.create({
   headerSpacer: { width: 22 },
 
   body: { flex: 1, paddingHorizontal: 20, paddingTop: 16 },
-  avatar: {
-    width: 84,
-    height: 84,
-    borderRadius: 42,
-    backgroundColor: Editorial.bone,
-    alignSelf: 'center',
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginBottom: 28,
-  },
-  avatarText: { fontSize: 32, fontWeight: '700', color: INK },
+  avatar: { alignSelf: 'center', marginBottom: 28 },
 
   label: { fontSize: Type.caption, fontWeight: '600', color: Editorial.textCaption, marginBottom: 8 },
   labelSpaced: { marginTop: 22 },
