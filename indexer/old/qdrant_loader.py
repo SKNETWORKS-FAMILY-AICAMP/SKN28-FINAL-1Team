@@ -33,7 +33,14 @@ def point_id(dataset: str, item_id: str) -> str:
 
 def make_client() -> QdrantClient:
     # prefer_grpc=False → REST API 사용 (요구사항)
-    return QdrantClient(url=QDRANT_URL, api_key=QDRANT_API_KEY, prefer_grpc=False)
+    # port=None: 포트 없는 URL에 qdrant-client가 6333을 붙이는 것을 막는다
+    # (리버스 프록시 뒤 https 엔드포인트에서 필수 — product_qdrant.make_client 참고)
+    return QdrantClient(
+        url=QDRANT_URL,
+        api_key=QDRANT_API_KEY,
+        port=None,
+        prefer_grpc=False,
+    )
 
 
 def ensure_collection(client: QdrantClient, dim: int, recreate: bool = False) -> None:

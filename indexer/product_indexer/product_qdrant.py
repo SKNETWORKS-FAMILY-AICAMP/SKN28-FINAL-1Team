@@ -28,7 +28,24 @@ def product_point_id(source: str, external_product_id: str) -> str:
 
 
 def make_client(url: str, api_key: str | None) -> QdrantClient:
-    return QdrantClient(url=url, api_key=api_key, prefer_grpc=False)
+    """QDRANT_URL을 그대로 존중하는 REST 클라이언트를 만든다.
+
+    port=None이 핵심이다. qdrant-client의 port 기본값은 6333이라, 포트가 없는
+    URL을 주면 스킴의 기본 포트(443/80)가 아니라 6333을 붙여버린다.
+        https://qdrant.example.com  →  https://qdrant.example.com:6333
+    리버스 프록시(cloudflared·ALB·nginx) 뒤에 Qdrant를 두면 엣지는 443만 열려
+    있으므로 "[Errno 101] Network is unreachable"로 실패한다.
+
+    port=None이면 URL을 손대지 않고, URL에 포트가 명시돼 있으면 그 값을 쓴다.
+    따라서 프록시가 없는 환경에서는 QDRANT_URL에 포트를 명시해야 한다
+    (예: http://qdrant-host:6333 — .env 템플릿의 기본값도 포트를 포함한다).
+    """
+    return QdrantClient(
+        url=url,
+        api_key=api_key,
+        port=None,
+        prefer_grpc=False,
+    )
 
 
 def _vector_size(vectors_config: Any, name: str) -> int | None:

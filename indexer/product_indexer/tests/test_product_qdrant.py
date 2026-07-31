@@ -14,8 +14,36 @@ if str(INDEXER_ROOT) not in sys.path:
 from product_indexer.product_qdrant import (
     build_point,
     ensure_collection,
+    make_client,
     product_point_id,
 )
+
+
+class MakeClientUrlTests(unittest.TestCase):
+    """QDRANT_URL을 qdrant-client가 변형하지 않는지 확인한다.
+
+    port 기본값(6333) 때문에 포트 없는 https URL에 :6333이 붙으면
+    리버스 프록시 뒤의 Qdrant에 도달할 수 없다 (Errno 101).
+    """
+
+    def rest_uri(self, url: str) -> str:
+        client = make_client(url, None)
+        try:
+            return client._client.rest_uri
+        finally:
+            client.close()
+
+    def test_portless_https_url_is_left_alone(self) -> None:
+        url = "https://qdrant.example.com"
+        self.assertEqual(self.rest_uri(url), url)
+
+    def test_portless_http_url_is_left_alone(self) -> None:
+        url = "http://qdrant.example.com"
+        self.assertEqual(self.rest_uri(url), url)
+
+    def test_explicit_port_in_url_is_preserved(self) -> None:
+        url = "http://qdrant-host:6333"
+        self.assertEqual(self.rest_uri(url), url)
 
 
 class ProductQdrantTest(unittest.TestCase):
