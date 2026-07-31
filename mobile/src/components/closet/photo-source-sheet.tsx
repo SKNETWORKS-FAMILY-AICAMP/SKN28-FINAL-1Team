@@ -18,13 +18,16 @@ import { draftItem } from '@/state/draft-item';
 
 const INK = Editorial.ink;
 
-type SourceKey = 'album' | 'camera' | 'web';
+type SourceKey = 'album' | 'camera' | 'web' | 'library';
 
-/* 세 갈래로 충분하다. 앨범·카메라는 내 사진, Web 은 쇼핑몰에서 가져오기. */
+/* 앨범·카메라는 내 사진, Web 은 쇼핑몰에서 가져오기, 라이브러리는 준비된 옷에서 고르기.
+   라이브러리를 넣은 이유 — 사진이 없어도 옷장을 채워볼 수 있는 유일한 길이다.
+   (화면은 진작 있었는데 아무 데서도 열어주지 않아 닿을 수 없었다) */
 const SOURCES: { key: SourceKey; label: string; icon: IconName; hint: string }[] = [
   { key: 'album', label: '앨범', icon: 'photo.on.rectangle', hint: '갤러리에서 선택' },
   { key: 'camera', label: '카메라', icon: 'camera', hint: '직접 촬영' },
   { key: 'web', label: 'Web', icon: 'globe', hint: '쇼핑몰에서' },
+  { key: 'library', label: '라이브러리', icon: 'book', hint: '준비된 옷에서' },
 ];
 
 /**
@@ -49,9 +52,9 @@ export function PhotoSourceSheet({
   const handlePick = async (key: SourceKey) => {
     setActive(key);
 
-    if (key === 'web') {
+    if (key === 'web' || key === 'library') {
       onClose();
-      router.push('/import');
+      router.push(key === 'web' ? '/import' : '/item-add-library');
       setActive(null);
       return;
     }
@@ -80,7 +83,7 @@ export function PhotoSourceSheet({
           <View style={styles.handle} />
           <Text style={styles.title}>사진 추가</Text>
 
-          {/* 세 갈래를 한 줄에. 폭은 flex 로 나눠 가지므로 창 폭에 따라 계산할 필요가 없다. */}
+          {/* 네 갈래를 2×2 로. 한 줄에 넷을 넣으면 좁은 폰에서 '라이브러리'가 잘린다. */}
           <View style={styles.grid}>
             {SOURCES.map((src) => {
               const on = active === src.key;
@@ -141,12 +144,14 @@ const styles = StyleSheet.create({
   },
   title: { fontSize: Type.lead, fontWeight: '700', color: INK, marginBottom: 14 },
 
-  grid: { flexDirection: 'row', gap: 10 },
+  grid: { flexDirection: 'row', flexWrap: 'wrap', gap: 10 },
   tile: {
-    /* 세 칸이 남는 폭을 똑같이 나눈다 — 폭을 직접 계산하면 좁은 창에서 넘쳐 줄이 바뀐다. */
-    flex: 1,
+    /* 두 칸씩 나눠 갖는다(48% + gap). 폭을 직접 계산하면 좁은 창에서 넘쳐 줄이 어긋난다.
+       높이는 고정 — 비율로 두면 폭이 넓은 데스크톱에서 타일이 쓸데없이 커진다. */
+    flexBasis: '48%',
+    flexGrow: 1,
     minWidth: 0,
-    aspectRatio: 0.92,
+    height: 96,
     borderRadius: 14,
     borderWidth: 1,
     borderColor: ink(0.12),
