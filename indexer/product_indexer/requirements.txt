@@ -3,9 +3,8 @@
 -r ../util/requirements.txt
 
 # BGE-M3 한국어 텍스트 임베딩.
-# 주의: transformers 4.5x의 torch>=2.6 강제(CVE-2025-32434)는 .bin 체크포인트에만
-# 적용된다. bge_embedder가 use_safetensors=True로 safetensors를 강제하므로
-# 베이스 이미지의 torch 2.3.1에서도 로드된다.
+# transformers 상한(<4.52)은 util/requirements.txt가 소유한다 — bge-m3가
+# .bin 체크포인트만 제공해 torch 2.3.1에서 로드하려면 필요하다.
 sentence-transformers>=3.0,<4
 # Qdrant 적재
 qdrant-client>=1.9

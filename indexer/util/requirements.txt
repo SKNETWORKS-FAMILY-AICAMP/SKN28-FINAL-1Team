@@ -9,8 +9,13 @@ open_clip_torch>=2.24
 # marqo-fashionSigLIP는 open_clip 자체 토크나이저가 아닌 HFTokenizer를 쓴다.
 # transformers는 open_clip의 선택적 의존성이라 명시해야 하고,
 # SigLIP 토크나이저가 sentencepiece 기반이라 sentencepiece/protobuf도 필요하다.
-# transformers v5는 torch 최소 버전 요구가 높아 베이스 이미지(torch 2.3.1)와
-# 호환되지 않으므로 4.x로 고정한다 (v5에서 is_torch_available()이 False가 됨).
-transformers>=4.40,<5
+# 상한이 4.52인 이유: transformers 4.52.0의 check_torch_load_is_safe()가
+# .bin(pickle) 체크포인트 로드에 torch>=2.6을 강제한다 (CVE-2025-32434).
+# 베이스 이미지는 torch 2.3.1이고 BAAI/bge-m3에는 safetensors 가중치가 없어
+# 우회가 불가능하다. 4.51.3까지는 이 검사가 없다 (직접 확인함).
+# v5는 애초에 torch 최소 버전 요구가 더 높다 (is_torch_available()이 False가 됨).
+# 이 핀을 올리려면 indexer/product_indexer/bge_embedder.py docstring의
+# 선행 조건을 먼저 처리할 것.
+transformers>=4.40,<4.52
 sentencepiece>=0.2
 protobuf>=4.25
