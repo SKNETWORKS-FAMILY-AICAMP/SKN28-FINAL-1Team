@@ -42,8 +42,10 @@ const MODES: ModeCard[] = [
 export default function ChatMode() {
   const { contentStyle } = useBreakpoint();
   const { isLoggedIn } = useAuth();
-  /* 확정된 옷만 센다 — 등록 처리 중인 것까지 세면 옷장 목록에 안 보이는 옷을 세는 셈이 된다. */
-  const { items, loading } = useWardrobeItems({ confirmed: true }, isLoggedIn);
+  /* 옷장 화면과 **같은 조건으로** 센다(필터 없음). confirmed=true 로 거르면 0 이 나온다 —
+     백엔드에서 직접 넣은 옷은 확인 단계를 거치지 않아 확정 표시가 없기 때문이다(closet.tsx 참고).
+     여기서만 다르게 세면 옷장엔 18벌인데 "옷을 먼저 등록해 주세요" 라고 말하게 된다. */
+  const { items, loading } = useWardrobeItems({}, isLoggedIn);
 
   /* 개수를 고정값으로 두면 옷장이 비어 있어도 "42개로 조합"이라고 말하게 된다.
      불러오는 중이거나 비회원이면 개수를 빼고, 옷이 없으면 먼저 등록하라고 알린다. */
