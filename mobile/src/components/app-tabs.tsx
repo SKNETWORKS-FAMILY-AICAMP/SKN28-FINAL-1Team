@@ -1,3 +1,5 @@
+import { GlassView, isLiquidGlassAvailable } from 'expo-glass-effect';
+
 import { Editorial, ink } from '@/constants/theme';
 import { Tabs, TabList, TabSlot, TabTrigger, TabTriggerSlotProps } from 'expo-router/ui';
 import { router } from 'expo-router';
@@ -72,9 +74,26 @@ export default function AppTabs() {
   );
 }
 
+/**
+ * 하단 바 — 콘텐츠 위에 떠 있으므로 뒤가 비쳐야 '위에 얹혀 있다'는 게 읽힌다.
+ *
+ * 리퀴드 글래스를 쓸 수 있는 기기(iOS 26+)에서만 GlassView 로 그린다.
+ * 안 되는 기기에서 억지로 흉내 내지 않고 기존 불투명 바를 그대로 쓴다 —
+ * 반투명 흉내는 배경이 밝은 화면에서 글자만 흐려 보이게 만든다.
+ * (웹은 app-tabs.web.tsx 가 backdrop-filter 로 따로 처리한다)
+ */
 function BottomBar({ children, ...props }: React.ComponentProps<typeof View>) {
   const insets = useSafeAreaInsets();
-  return <View {...props} style={[styles.bar, { paddingBottom: Math.max(insets.bottom, 8) }]}>{children}</View>;
+  const pad = { paddingBottom: Math.max(insets.bottom, 8) };
+
+  if (isLiquidGlassAvailable()) {
+    return (
+      <GlassView {...props} glassEffectStyle="regular" style={[styles.bar, styles.barGlass, pad]}>
+        {children}
+      </GlassView>
+    );
+  }
+  return <View {...props} style={[styles.bar, pad]}>{children}</View>;
 }
 
 function TabItem({ icon, label, isFocused, ...props }: TabTriggerSlotProps & { icon: IconName; label: string }) {
@@ -109,6 +128,8 @@ const styles = StyleSheet.create({
     position: 'absolute', left: 0, right: 0, bottom: 0, flexDirection: 'row', alignItems: 'center',
     backgroundColor: 'rgba(255,255,255,0.96)', borderTopWidth: 1, borderTopColor: ink(0.06), paddingTop: 8,
   },
+  /* 유리가 뒤를 비추므로 흰 판을 걷어낸다 — 안 걷으면 유리 위에 불투명 종이를 덮는 꼴이 된다. */
+  barGlass: { backgroundColor: 'transparent', borderTopColor: ink(0.04) },
   item: { flex: 1, alignItems: 'center', gap: 3, paddingVertical: 2 },
   // 라우트 등록만 하고 자리는 차지하지 않는다
   hidden: { width: 0, height: 0, opacity: 0 },
