@@ -19,20 +19,21 @@ type ModeCard = {
   desc: string;
   note: string;
 };
-/* 설명은 카드 폭이 절반이라 한 줄에 들어갈 만큼만 — 문장 대신 명사구로 둔다. */
+/* 설명은 두 줄 문장. 줄바꿈을 `\n` 으로 직접 잡되, **한 줄이 폰 카드 폭(≈130px)에
+   들어갈 만큼만** 담는다 — 길면 폰에서 한 번 더 접혀 '해'·'요.' 가 홀로 떨어진 세 줄이 된다. */
 const MODES: ModeCard[] = [
   {
     key: 'taste',
     icon: 'sparkles',
     title: '추구미 반영 추천',
-    desc: '취향과 무드에 맞춘 새 룩',
+    desc: '취향과 무드에 맞춰\n새 룩을 제안해요.',
     note: '옷장에 없는 아이템도 추천',
   },
   {
     key: 'closet',
     icon: 'tshirt',
     title: '옷장 기반 추천',
-    desc: '가진 옷으로 짜는 코디',
+    desc: '가지고 있는 옷들로\n코디를 짜드려요.',
     note: '', // 실제 옷장 개수로 채운다 (closetNote)
   },
 ];
