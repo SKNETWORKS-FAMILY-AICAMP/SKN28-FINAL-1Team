@@ -10,6 +10,8 @@ import { Editorial, ink, Fonts } from '@/constants/theme';
 import { TODAY_LOOK_IMAGE } from '@/constants/look-images';
 import { LOOK_VARIANTS, resolveLookVariant } from '@/constants/today-look';
 import { savedLookStore } from '@/state/saved';
+import { useAuth } from '@/state/auth';
+import { draftItem } from '@/state/draft-item';
 import { brandScores, likesStore, useWishlist, wishKey } from '@/state/likes';
 import { mallLabel, openExternal, productUrl } from '@/lib/mall';
 import type { LookRelated } from '@/constants/today-look';
@@ -47,6 +49,7 @@ export default function LookDetail() {
   const toast = useToast();
   const { budget } = usePrefs();
   const wishlist = useWishlist();
+  const { isLoggedIn } = useAuth();
 
   /* 찜한 브랜드 = 취향. 예산 다음 순위로 써서 관련 상품 순서를 정한다(아래 sortRelated). */
   const brands = useMemo(() => brandScores(wishlist), [wishlist]);
@@ -80,6 +83,20 @@ export default function LookDetail() {
     router.setParams({ id: next.id });
     setOpenSlot(null);
     setVote(null);
+  };
+
+  /**
+   * 이 옷을 내 옷장에 등록한다 — 등록 화면에서 사진을 확인하고 시작한다.
+   * (같은 흐름을 저장 룩 상세에서도 쓴다)
+   */
+  const addToCloset = (photo: string) => {
+    if (!isLoggedIn) {
+      toast('옷장은 로그인하고 쓸 수 있어요');
+      router.push('/login');
+      return;
+    }
+    draftItem.setPhoto(photo);
+    router.push('/item-add');
   };
 
   const toggleWish = (r: LookRelated, slot: string) => {
@@ -214,6 +231,18 @@ export default function LookDetail() {
                       <Text style={styles.pieceName}>{p.name}</Text>
                       <Text style={styles.pieceBrand}>{p.brand}</Text>
                     </View>
+                    {/* 내 옷장에 없는 옷만 담을 수 있다. 이미 가진 옷을 또 넣으면 옷장이 겹친다.
+                        사진이 없는 아이템도 뺀다 — 옷장 등록은 사진 한 장에서 시작한다. */}
+                    {!p.mine && p.image ? (
+                      <Pressable
+                        style={styles.pieceAdd}
+                        hitSlop={6}
+                        onPress={() => addToCloset(p.image!)}
+                        accessibilityLabel={`${p.name} 옷장에 추가`}>
+                        <Icon name="plus" tintColor={INK} size={13} />
+                        <Text style={styles.pieceAddText}>옷장에</Text>
+                      </Pressable>
+                    ) : null}
                     <Icon
                       name={open ? 'chevron.down' : 'chevron.right'}
                       tintColor={ink(0.3)}
@@ -443,6 +472,17 @@ const styles = StyleSheet.create({
   newTag: { backgroundColor: Editorial.accent },
   newTagText: { color: WINE },
   pieceName: { fontSize: 14, fontWeight: '500', color: Editorial.ink },
+  pieceAdd: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 3,
+    height: 28,
+    paddingHorizontal: 9,
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: ink(0.14),
+  },
+  pieceAddText: { fontSize: 11, fontWeight: '600', color: INK },
   pieceBrand: { fontSize: 12, color: Editorial.textCaption },
 
   // 관련/대체 상품 아코디언
