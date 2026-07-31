@@ -167,8 +167,17 @@ export const Type = {
   lead: 18, // 소제목
 } as const;
 
-// web은 유리(글래스) 탭바가 콘텐츠 위에 떠 있으므로 그만큼 하단 여백 확보
-export const BottomTabInset = Platform.select({ ios: 50, android: 80, web: 76 }) ?? 0;
+/**
+ * 하단 탭바가 콘텐츠 위에 떠 있으므로(position:absolute) 그만큼 아래 여백을 확보해야 한다.
+ *
+ * ⚠️ 이 값은 **바의 내용 높이만**이다. 실제로 가려지는 높이는 여기에 기기의 하단
+ * 안전영역(아이폰 홈 인디케이터 34, 안드로이드 제스처 바 등)이 더해진 값이라,
+ * 상수 하나로는 기기마다 맞출 수 없다. 화면에서는 useBottomTabInset() 을 쓸 것.
+ */
+export const TabBarHeight = Platform.select({ ios: 50, android: 50, web: 68 }) ?? 0;
+
+/** @deprecated 기기별 안전영역이 빠져 콘텐츠가 탭바에 가린다. useBottomTabInset() 을 쓸 것. */
+export const BottomTabInset = TabBarHeight;
 
 /**
  * 폰 프레임 폭 — 모바일 레이아웃에서 콘텐츠가 넓어지지 않게 잡는 상한.

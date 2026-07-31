@@ -23,9 +23,10 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-import { Editorial, ink, BottomTabInset, GridCard, gridCardImageHeight, gridCardWidth , ContentMax} from '@/constants/theme';
+import { Editorial, ink, GridCard, gridCardImageHeight, gridCardWidth , ContentMax} from '@/constants/theme';
 import { SHARED_CLOSET_ITEMS } from '@/constants/wardrobe';
 import { WARDROBE_FILTER_OPTIONS } from '@/constants/wardrobe-taxonomy';
+import { useBottomTabInset } from '@/hooks/use-bottom-tab-inset';
 import { useBreakpoint } from '@/hooks/use-breakpoint';
 import { useWardrobeItems } from '@/hooks/use-wardrobe';
 import { itemDisplayName } from '@/lib/wardrobeApi';
@@ -71,6 +72,7 @@ export default function ClosetScreen() {
   const { frameWidth, contentStyle } = useBreakpoint();
   const cardW = gridCardWidth(frameWidth);
   const cardH = gridCardImageHeight(cardW);
+  const tabInset = useBottomTabInset();
 
   const toast = useToast();
   const [tab, setTab] = useState<'mine' | 'shared'>('mine');
@@ -247,7 +249,7 @@ export default function ClosetScreen() {
           <ScrollView
             style={styles.gridScroll}
             showsVerticalScrollIndicator={false}
-            contentContainerStyle={[styles.grid, contentStyle(ContentMax.wide)]}>
+            contentContainerStyle={[styles.grid, { paddingBottom: tabInset + 24 }, contentStyle(ContentMax.wide)]}>
             {/* 내 옷장만 서버에서 온다 — 공유 옷장은 아직 목업이라 로딩·에러가 없다. */}
             {tab === 'mine' && loading ? (
               <LoadingState message="옷장을 불러오는 중…" style={styles.empty} />
@@ -335,7 +337,7 @@ export default function ClosetScreen() {
 
         {showAddFab ? (
           <Pressable
-            style={styles.addFab}
+            style={[styles.addFab, { bottom: tabInset + 12 }]}
             onPress={() => setSourceOpen(true)}
             accessibilityLabel="아이템 추가">
             <Icon name="plus" tintColor={INK} size={22} />
@@ -379,7 +381,6 @@ const styles = StyleSheet.create({
     justifyContent: 'flex-start',
     columnGap: GridCard.gap,
     paddingHorizontal: PAD,
-    paddingBottom: BottomTabInset + 24,
   },
   // width/height 는 창 폭에서 파생되므로 컴포넌트에서 인라인으로 덧붙인다.
   card: { marginBottom: 16 },
@@ -416,7 +417,6 @@ const styles = StyleSheet.create({
   addFab: {
     position: 'absolute',
     right: PAD,
-    bottom: BottomTabInset + 12,
     width: 52,
     height: 52,
     borderRadius: 26,

@@ -4,7 +4,8 @@ import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { LoginGate } from '@/components/ui';
-import { ink, BottomTabInset, ContentMax, Editorial } from '@/constants/theme';
+import { ink, ContentMax, Editorial } from '@/constants/theme';
+import { useBottomTabInset } from '@/hooks/use-bottom-tab-inset';
 import { useBreakpoint } from '@/hooks/use-breakpoint';
 import { useAuth } from '@/state/auth';
 import { formatBudget, usePrefs } from '@/state/prefs';
@@ -32,6 +33,7 @@ function displayName(
 // H1 마이 탭 — 프로필 요약 + 설정 메뉴
 export default function MyScreen() {
   const { contentStyle } = useBreakpoint();
+  const tabInset = useBottomTabInset();
   const prefs = usePrefs();
   const { user, isLoggedIn, signOut } = useAuth();
   const name = prefs.nickname || displayName(user?.nickname, user?.email) || '코지';
@@ -92,7 +94,7 @@ export default function MyScreen() {
       <SafeAreaView edges={['top']} style={styles.safe}>
         <ScrollView
           showsVerticalScrollIndicator={false}
-          contentContainerStyle={[styles.content, contentStyle(ContentMax.wide)]}>
+          contentContainerStyle={[styles.content, { paddingBottom: tabInset + 24 }, contentStyle(ContentMax.wide)]}>
           {/* 프로필 — 테두리로 감싸지 않는다. 화면에 하나뿐인 머리라 굳이 구분할 상대가 없다. */}
           <View style={styles.profile}>
             <View style={styles.avatar} />
@@ -150,7 +152,7 @@ export default function MyScreen() {
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: Editorial.page },
   safe: { flex: 1 },
-  content: { paddingHorizontal: 20, paddingTop: 16, paddingBottom: BottomTabInset + 24 },
+  content: { paddingHorizontal: 20, paddingTop: 16 },
 
   /* 감싸는 카드가 없으니 좌우 여백은 content 가 이미 준다 — 위아래만 띄운다. */
   profile: {

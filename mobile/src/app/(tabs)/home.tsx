@@ -6,8 +6,9 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { ErrorState, LoadingState, SmartImage, useToast } from '@/components/ui';
 import { DEMO_HOME } from '@/constants/demo';
-import { Editorial, ink, BottomTabInset, Fonts , ContentMax} from '@/constants/theme';
+import { Editorial, ink, Fonts , ContentMax} from '@/constants/theme';
 import { TODAY_LOOK_IMAGE } from '@/constants/look-images';
+import { useBottomTabInset } from '@/hooks/use-bottom-tab-inset';
 import { useBreakpoint } from '@/hooks/use-breakpoint';
 import { useHome, type HomeData, type HomeWeather } from '@/hooks/use-home';
 import { useAuth } from '@/state/auth';
@@ -40,6 +41,7 @@ function weatherLabel(w: HomeWeather): string {
 // 홈 탭 (Figma B1) — GET /api/v1/home/ 연동
 export default function HomeScreen() {
   const { contentStyle } = useBreakpoint();
+  const tabInset = useBottomTabInset();
   const { status, isDemo } = useAuth();
   /* 홈 API는 JWT가 필요하다. 비회원은 요청하지 않고 온보딩 전용 홈을 즉시 보여준다.
      데모 세션도 토큰이 없어 호출하지 않고 고정 목업으로 '로그인한 홈'을 렌더한다. */
@@ -54,7 +56,7 @@ export default function HomeScreen() {
       <SafeAreaView edges={['top']} style={styles.safe}>
         <ScrollView
           showsVerticalScrollIndicator={false}
-          contentContainerStyle={[styles.content, contentStyle(ContentMax.card)]}>
+          contentContainerStyle={[styles.content, { paddingBottom: tabInset + 24 }, contentStyle(ContentMax.card)]}>
           {/* 헤더: 인사말 + 캘린더/프로필 (한 줄) */}
           <View style={styles.header}>
             <Text style={styles.greeting} numberOfLines={1}>
@@ -221,7 +223,6 @@ const styles = StyleSheet.create({
   content: {
     paddingHorizontal: 20,
     paddingTop: 16,
-    paddingBottom: BottomTabInset + 24,
     gap: 24,
   },
   lookSection: { gap: 14 },

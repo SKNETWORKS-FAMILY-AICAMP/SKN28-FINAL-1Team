@@ -17,7 +17,8 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-import { Editorial, ink, BottomTabInset, GridCard, gridCardImageHeight, gridCardWidth , ContentMax} from '@/constants/theme';
+import { Editorial, ink, GridCard, gridCardImageHeight, gridCardWidth , ContentMax} from '@/constants/theme';
+import { useBottomTabInset } from '@/hooks/use-bottom-tab-inset';
 import { useBreakpoint } from '@/hooks/use-breakpoint';
 
 const INK = Editorial.ink;
@@ -51,6 +52,7 @@ export default function LookbookScreen() {
   const { frameWidth, contentStyle } = useBreakpoint();
   const cardW = gridCardWidth(frameWidth);
   const cardH = gridCardImageHeight(cardW);
+  const tabInset = useBottomTabInset();
 
   const allLooks = useLookbook();
   const savedLooks = useSavedLooks();
@@ -115,7 +117,7 @@ export default function LookbookScreen() {
         <ScrollView
           style={styles.gridScroll}
           showsVerticalScrollIndicator={false}
-          contentContainerStyle={[styles.grid, contentStyle(ContentMax.wide)]}>
+          contentContainerStyle={[styles.grid, { paddingBottom: tabInset + 24 }, contentStyle(ContentMax.wide)]}>
           {cards.length === 0 ? (
             <View style={styles.empty}>
               <Text style={styles.emptyText}>{emptyText}</Text>
@@ -166,7 +168,7 @@ export default function LookbookScreen() {
 
         {mode === 'browse' ? (
           <Pressable
-            style={styles.addFab}
+            style={[styles.addFab, { bottom: tabInset + 12 }]}
             onPress={() => router.push('/look-add')}
             accessibilityLabel="룩 올리기">
             <Icon name="plus" tintColor={INK} size={22} />
@@ -192,7 +194,6 @@ const styles = StyleSheet.create({
     justifyContent: 'flex-start',
     columnGap: GridCard.gap,
     paddingHorizontal: PAD,
-    paddingBottom: BottomTabInset + 24,
   },
   // width/height 는 창 폭에서 파생되므로 컴포넌트에서 인라인으로 덧붙인다.
   card: { marginBottom: 12 },
@@ -226,7 +227,6 @@ const styles = StyleSheet.create({
   addFab: {
     position: 'absolute',
     right: PAD,
-    bottom: BottomTabInset + 12,
     width: 52,
     height: 52,
     borderRadius: 26,

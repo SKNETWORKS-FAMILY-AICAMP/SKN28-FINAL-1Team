@@ -2,7 +2,7 @@ import { router, type Href } from 'expo-router';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-import { BottomTabInset, ContentMax, Editorial, Fonts, ink } from '@/constants/theme';
+import { ContentMax, Editorial, Fonts, ink } from '@/constants/theme';
 import { useBreakpoint } from '@/hooks/use-breakpoint';
 
 const INK = Editorial.ink;
@@ -57,7 +57,6 @@ const styles = StyleSheet.create({
        여기엔 헤더가 없으므로 그 높이만큼 위 여백으로 대신한다.
        홈 헤더를 손보면 이 값도 같이 맞춰야 한다. */
     paddingTop: 80,
-    paddingBottom: BottomTabInset,
   },
 
   panel: {
