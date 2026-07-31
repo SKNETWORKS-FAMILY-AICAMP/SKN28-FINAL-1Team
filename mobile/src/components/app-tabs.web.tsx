@@ -37,6 +37,7 @@ const HIDDEN_ROUTES = [
   { name: 'fitting', href: '/fitting', icon: 'sparkles', label: '가상 피팅' },
   { name: 'item-detail', href: '/item-detail', icon: 'tshirt', label: '아이템' },
   { name: 'saved-look', href: '/saved-look', icon: 'book', label: '저장 룩' },
+  { name: 'wishlist', href: '/wishlist', icon: 'heart', label: '위시리스트' },
   { name: 'budget', href: '/budget', icon: 'person', label: '예산' },
   { name: 'personal-color', href: '/personal-color', icon: 'person', label: '퍼스널컬러' },
   { name: 'style-onboarding', href: '/style-onboarding', icon: 'person', label: '추구미' },

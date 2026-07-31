@@ -29,6 +29,7 @@ const HIDDEN_ROUTES = [
   { name: 'look-detail', href: '/look-detail' },
   { name: 'fitting', href: '/fitting' },
   { name: 'saved-look', href: '/saved-look' },
+  { name: 'wishlist', href: '/wishlist' },
   { name: 'budget', href: '/budget' },
   { name: 'personal-color', href: '/personal-color' },
   { name: 'style-onboarding', href: '/style-onboarding' },

@@ -8,6 +8,7 @@ import { ink, ContentMax, Editorial } from '@/constants/theme';
 import { useBottomTabInset } from '@/hooks/use-bottom-tab-inset';
 import { useBreakpoint } from '@/hooks/use-breakpoint';
 import { useAuth } from '@/state/auth';
+import { useWishlist } from '@/state/likes';
 import { formatBudget, usePrefs } from '@/state/prefs';
 
 const INK = Editorial.ink;
@@ -36,6 +37,7 @@ export default function MyScreen() {
   const tabInset = useBottomTabInset();
   const prefs = usePrefs();
   const { user, isLoggedIn, signOut } = useAuth();
+  const wishlist = useWishlist();
   const name = prefs.nickname || displayName(user?.nickname, user?.email) || '코지';
   const email = user?.email ?? 'cozy@example.com';
 
@@ -66,6 +68,12 @@ export default function MyScreen() {
           label: '예산',
           hint: formatBudget(prefs.budget) ?? '설정하기',
           onPress: () => router.push('/budget'),
+        },
+        {
+          icon: 'heart',
+          label: '위시리스트',
+          hint: wishlist.length > 0 ? `${wishlist.length}개` : '담은 상품 없음',
+          onPress: () => router.push('/wishlist'),
         },
       ],
     },
