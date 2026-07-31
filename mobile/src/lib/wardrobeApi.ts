@@ -144,8 +144,28 @@ export function listWardrobeItems(query: WardrobeItemQuery = {}): Promise<Wardro
   );
 }
 
-export function getWardrobeItem(itemId: string): Promise<WardrobeApiItem> {
-  return api.get<WardrobeApiItem>(WardrobeEndpoints.item(itemId));
+/* 백엔드가 단건 조회(GET items/{id}/)를 아직 구현하지 않았다 — allow 는 PATCH·DELETE 뿐이라
+   405 가 온다. 한 번 405 를 보면 그 뒤로는 바로 목록에서 찾는다(불필요한 왕복 제거).
+   백엔드에 GET 이 생기면 이 플래그가 계속 false 로 남아 원래 경로를 쓴다. */
+let detailGetUnsupported = false;
+
+async function findItemInList(itemId: string): Promise<WardrobeApiItem> {
+  const found = (await listWardrobeItems()).find((i) => i.id === itemId);
+  if (!found) throw new ApiError('아이템을 찾을 수 없어요', 404, null);
+  return found;
+}
+
+export async function getWardrobeItem(itemId: string): Promise<WardrobeApiItem> {
+  if (detailGetUnsupported) return findItemInList(itemId);
+  try {
+    return await api.get<WardrobeApiItem>(WardrobeEndpoints.item(itemId));
+  } catch (e) {
+    if (e instanceof ApiError && e.status === 405) {
+      detailGetUnsupported = true;
+      return findItemInList(itemId);
+    }
+    throw e;
+  }
 }
 
 /** 태그 수정. confirmed:true 를 함께 보내면 확정까지 한 번에 된다. */
