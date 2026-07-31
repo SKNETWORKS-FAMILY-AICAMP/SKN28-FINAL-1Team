@@ -47,8 +47,6 @@ type Card = {
   category: string;
   image?: string;
   owner?: string;
-  /** 서버가 붙인 태그를 아직 사람이 확인하지 않은 아이템 */
-  pending?: boolean;
 };
 
 /* 공유 옷장은 아직 백엔드가 없어 목업을 그대로 쓴다. */
@@ -98,7 +96,6 @@ export default function ClosetScreen() {
         name: itemDisplayName(i),
         category: i.category_large,
         image: i.image_url,
-        pending: !i.confirmed,
       })),
     [apiItems],
   );
@@ -263,12 +260,6 @@ export default function ClosetScreen() {
                         <Text style={styles.ownerText}>{it.owner}님</Text>
                       </View>
                     ) : null}
-                    {/* 태그를 아직 사람이 확인하지 않은 옷 — 눌러서 상세에서 확인한다 */}
-                    {it.pending ? (
-                      <View style={styles.pendingBadge}>
-                        <Text style={styles.pendingText}>확인 필요</Text>
-                      </View>
-                    ) : null}
                   </View>
                   <View style={styles.cardMeta}>
                     <Text style={styles.cardName} numberOfLines={1}>{it.name}</Text>
@@ -350,16 +341,6 @@ const styles = StyleSheet.create({
     borderRadius: 999,
   },
   ownerText: { fontSize: 11, fontWeight: '600', color: '#fff' },
-  pendingBadge: {
-    position: 'absolute',
-    top: 10,
-    right: 10,
-    backgroundColor: 'rgba(255,255,255,0.94)',
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 999,
-  },
-  pendingText: { fontSize: 10.5, fontWeight: '700', color: Editorial.wine },
   cardMeta: {
     flexDirection: 'row',
     alignItems: 'baseline',
