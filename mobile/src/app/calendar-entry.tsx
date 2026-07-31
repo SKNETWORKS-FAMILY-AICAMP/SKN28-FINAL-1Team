@@ -186,9 +186,9 @@ export default function CalendarEntryScreen() {
               </Pressable>
             </ScrollView>
 
-            {/* 그날 일정 */}
+            {/* 일정 */}
             <View style={styles.sectionHead}>
-              <Text style={styles.sectionTitle}>그날 일정</Text>
+              <Text style={styles.sectionTitle}>일정</Text>
               <Text style={styles.count}>선택</Text>
             </View>
             <TextInput
@@ -200,7 +200,6 @@ export default function CalendarEntryScreen() {
               maxLength={60}
               returnKeyType="done"
             />
-            <Text style={styles.noteHint}>나중에 &quot;이날 왜 이 옷을 입었지&quot;를 되짚는 단서가 돼요</Text>
 
             {/* 해시태그 */}
             <Text style={[styles.sectionTitle, styles.tagSection]}>해시태그</Text>
@@ -314,7 +313,6 @@ const styles = StyleSheet.create({
     fontSize: Type.footnote,
     color: INK,
   },
-  noteHint: { fontSize: Type.micro, color: Editorial.textMuted, marginTop: 8 },
   pickRow: { flexDirection: 'row', gap: 10, marginTop: 12 },
   pickBtn: {
     flex: 1,
