@@ -1,8 +1,9 @@
-import { File, UploadType } from 'expo-file-system';
+import { File, Paths, UploadType } from 'expo-file-system';
 import { Platform } from 'react-native';
 
 import { API_BASE_URL, WardrobeEndpoints } from '@/constants/config';
 import { api, apiFetch, ApiError } from '@/lib/apiClient';
+import { getImageSource } from '@/lib/resolveImageUri';
 import { getAccessToken } from '@/lib/secureStore';
 
 /**
@@ -92,7 +93,10 @@ export async function uploadWardrobePhoto(
   const type = opts.mimeType ?? guessMimeType(name);
 
   if (Platform.OS === 'web') {
-    const blob = await fetch(uri).then((r) => r.blob());
+    /* 남의 도메인 이미지는 CORS 때문에 그대로 fetch 하면 막힌다 —
+       화면에서 쓰는 것과 같은 프록시를 태워 받아온다. */
+    const source = isRemote(uri) ? (getImageSource(uri)?.uri ?? uri) : uri;
+    const blob = await fetch(source).then((r) => r.blob());
     const form = new FormData();
     form.append('image', blob, name);
     return apiFetch<{ job_id: string; status: UploadJobStatus }>(WardrobeEndpoints.uploads, {
@@ -103,17 +107,64 @@ export async function uploadWardrobePhoto(
 
   /* 네이티브 경로는 apiClient 를 타지 않으므로 인증 헤더를 직접 붙인다. */
   const token = await getAccessToken();
-  const res = await new File(uri).upload(`${API_BASE_URL}${WardrobeEndpoints.uploads}`, {
-    httpMethod: 'POST',
-    uploadType: UploadType.MULTIPART,
-    fieldName: 'image',
-    mimeType: type,
-    headers: {
-      Accept: 'application/json',
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
-    },
-  });
+  const { file, downloaded } = await toLocalFile(uri, name);
+  try {
+    const res = await file.upload(`${API_BASE_URL}${WardrobeEndpoints.uploads}`, {
+      httpMethod: 'POST',
+      uploadType: UploadType.MULTIPART,
+      fieldName: 'image',
+      mimeType: type,
+      headers: {
+        Accept: 'application/json',
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      },
+    });
+    return parseUploadResponse(res);
+  } finally {
+    // 내려받은 임시 파일만 지운다. 사용자가 고른 사진은 우리 것이 아니다.
+    if (downloaded) {
+      try {
+        file.delete();
+      } catch {
+        // 캐시 정리 실패는 업로드 성패와 무관하다 — 조용히 넘어간다.
+      }
+    }
+  }
+}
 
+function isRemote(uri: string): boolean {
+  return /^https?:/i.test(uri);
+}
+
+/**
+ * 업로드에 쓸 로컬 파일을 만든다.
+ *
+ * `File` 은 기기 안의 파일을 가리키는 것이라 `https://...` 주소를 그대로 넣으면 올라가지 않는다.
+ * 룩의 구성 아이템이나 쇼핑몰에서 가져온 사진은 전부 원격 주소라, 캐시에 한 번 내려받아
+ * 진짜 파일로 만든 뒤 올린다.
+ */
+async function toLocalFile(
+  uri: string,
+  name: string,
+): Promise<{ file: File; downloaded: boolean }> {
+  if (!isRemote(uri)) return { file: new File(uri), downloaded: false };
+
+  /* 이름이 겹치면 내려받기가 실패하므로 매번 다른 이름을 쓴다.
+     (핀터레스트처럼 핫링크를 막는 곳은 화면에서 쓰는 것과 같은 헤더를 붙여야 받아진다) */
+  const dest = new File(Paths.cache, `upload-${Date.now()}-${name}`);
+  const source = getImageSource(uri);
+  const file = await File.downloadFileAsync(uri, dest, {
+    headers: (source && 'headers' in source ? source.headers : undefined) as
+      | Record<string, string>
+      | undefined,
+  });
+  return { file, downloaded: true };
+}
+
+function parseUploadResponse(res: {
+  status: number;
+  body?: string;
+}): { job_id: string; status: UploadJobStatus } {
   let data: unknown = null;
   try {
     data = res.body ? JSON.parse(res.body) : null;
