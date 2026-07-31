@@ -46,6 +46,8 @@ import JoggerPantsIcon from '@/assets/icons/pants-fit/jogger.svg';
 import StraightPantsIcon from '@/assets/icons/pants-fit/straight.svg';
 import SkinnyPantsIcon from '@/assets/icons/pants-fit/skinny.svg';
 import BootcutPantsIcon from '@/assets/icons/pants-fit/bootcut.svg';
+import SlacksPantsIcon from '@/assets/icons/pants-fit/slacks.svg';
+import SemiWidePantsIcon from '@/assets/icons/pants-fit/semi-wide.svg';
 // 바지 기장
 import ShortShortsIcon from '@/assets/icons/pants-length/short-shorts-3.svg';
 import ShortsIcon from '@/assets/icons/pants-length/shorts-5.svg';
@@ -152,9 +154,9 @@ export const CATEGORY_OPTIONS: Record<CategoryKey, PreferenceOption[]> = {
     { code: 'beige', label: '베이지', colorHex: '#F5F5DC' },
     { code: 'brown', label: '브라운', colorHex: '#8B4513' },
     { code: 'khaki', label: '카키', colorHex: '#F0E68C' },
+    { code: 'olive', label: '올리브', colorHex: '#6B7A3A' },
+    { code: 'carmel', label: '카멜', colorHex: '#C19A6B' },
     { code: 'denim_blue', label: '데님블루', colorHex: '#1560BD' },
-    { code: 'neon', label: '네온', colorHex: '#39FF14' },
-    { code: 'monotone', label: '모노톤', colorHex: '#A9A9A9' },
     { code: 'light_pink', label: '라이트 핑크', colorHex: '#FFB6C1' },
     { code: 'pink', label: '핑크', colorHex: '#FFC0CB' },
     { code: 'rose', label: '로즈', colorHex: '#FF007F' },
@@ -179,6 +181,8 @@ export const CATEGORY_OPTIONS: Record<CategoryKey, PreferenceOption[]> = {
     { code: 'straight', label: '스트레이트', icon: StraightPantsIcon },
     { code: 'skinny', label: '스키니', icon: SkinnyPantsIcon },
     { code: 'bootcut', label: '부츠컷', icon: BootcutPantsIcon },
+    { code: 'slacks', label: '슬랙스', icon: SlacksPantsIcon },
+    { code: 'semi_wide', label: '세미와이드', icon: SemiWidePantsIcon },
   ],
   pants_lengths: [
     { code: 'short_shorts', label: '짧은 반바지(3부)', icon: ShortShortsIcon },
