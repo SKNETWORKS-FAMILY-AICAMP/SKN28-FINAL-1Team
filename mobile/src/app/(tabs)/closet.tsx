@@ -12,8 +12,9 @@ import { PhotoSourceSheet } from '@/components/closet/photo-source-sheet';
 import { CategoryEditSheet, EmptyState, ErrorState, LoadingState, LoginGate, SearchFilterBar, SegmentedToggle, SmartImage, useToast } from '@/components/ui';
 import { useMultiSelectFilter } from '@/hooks/useMultiSelectFilter';
 import { router } from 'expo-router';
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
+  ActivityIndicator,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -30,6 +31,7 @@ import { useWardrobeItems } from '@/hooks/use-wardrobe';
 import { itemDisplayName } from '@/lib/wardrobeApi';
 import { Icon } from '@/components/icon';
 import { useAuth } from '@/state/auth';
+import { uploadJobs, useUploadCompleted, useUploadJobs } from '@/state/upload-jobs';
 
 const INK = Editorial.ink;
 
@@ -88,6 +90,21 @@ export default function ClosetScreen() {
      직접 넣은 옷처럼 확인 단계를 거치지 않은 아이템이 옷장에 영영 안 보인다.
      대신 미확인 아이템에는 배지를 달아 구분한다. */
   const { items: apiItems, loading, error, reload } = useWardrobeItems({}, isLoggedIn);
+
+  /* 등록은 이 화면을 떠나도 계속 돈다(state/upload-jobs.ts). 진행 중인 것을 위에 보여주고,
+     하나 끝날 때마다 목록을 다시 불러와 새 옷이 바로 보이게 한다. */
+  const jobs = useUploadJobs();
+  const completed = useUploadCompleted();
+  const running = jobs.filter((j) => j.phase !== 'failed');
+  const failed = jobs.filter((j) => j.phase === 'failed');
+
+  const seenCompleted = useRef(completed);
+  useEffect(() => {
+    if (completed === seenCompleted.current) return;
+    seenCompleted.current = completed;
+    reload();
+    toast('옷장에 추가됐어요', { variant: 'success' });
+  }, [completed, reload, toast]);
 
   const myItems = useMemo<Card[]>(
     () =>
@@ -186,6 +203,29 @@ export default function ClosetScreen() {
             onEditCategories={() => setEditOpen(true)}
           />
         </View>
+
+        {/* 등록 진행 — 화면을 닫아도 계속 도는 작업의 상태 */}
+        {tab === 'mine' && running.length > 0 ? (
+          <View style={[styles.jobStrip, contentStyle(ContentMax.wide)]}>
+            <ActivityIndicator color={INK} size="small" />
+            <Text style={styles.jobText}>
+              옷 등록 중 · {running.length}장
+            </Text>
+          </View>
+        ) : null}
+        {tab === 'mine'
+          ? failed.map((j) => (
+              <View key={j.key} style={[styles.jobStrip, styles.jobStripFail, contentStyle(ContentMax.wide)]}>
+                <Icon name="exclamationmark.triangle" tintColor={Editorial.danger} size={15} />
+                <Text style={[styles.jobText, styles.jobTextFail]} numberOfLines={2}>
+                  {j.error}
+                </Text>
+                <Pressable hitSlop={10} onPress={() => uploadJobs.dismiss(j.key)} accessibilityLabel="닫기">
+                  <Icon name="xmark" tintColor={ink(0.45)} size={14} />
+                </Pressable>
+              </View>
+            ))
+          : null}
 
         {tab === 'shared' && sharedSpace ? (
           <>
@@ -311,6 +351,23 @@ const styles = StyleSheet.create({
   safe: { flex: 1 },
 
   filterArea: { marginTop: 30 },
+
+  jobStrip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    marginHorizontal: PAD,
+    marginBottom: 8,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    borderRadius: 12,
+    backgroundColor: Editorial.control,
+    borderWidth: 1,
+    borderColor: Editorial.line,
+  },
+  jobStripFail: { backgroundColor: Editorial.surface },
+  jobText: { flex: 1, fontSize: 13, color: Editorial.textCaption, fontWeight: '500' },
+  jobTextFail: { color: Editorial.ink },
 
   gridScroll: { flex: 1, marginTop: 8 },
   onboardingWrap: { flex: 1, paddingHorizontal: PAD, paddingTop: 8 },

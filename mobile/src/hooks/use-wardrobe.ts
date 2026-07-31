@@ -1,13 +1,10 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 
 import {
   deleteWardrobeItem,
-  getUploadJob,
   getWardrobeItem,
   listWardrobeItems,
   patchWardrobeItem,
-  uploadWardrobePhoto,
-  type UploadJob,
   type WardrobeApiItem,
   type WardrobeItemPatch,
   type WardrobeItemQuery,
@@ -121,113 +118,6 @@ export function useWardrobeItem(itemId: string | undefined): ItemResult {
   }, [load]);
 
   return { item, loading, error, reload, setItem };
-}
-
-/** 폴링 간격·한도 — 누끼+캡셔닝이 GPU 큐를 타므로 즉시 끝나지 않는다. */
-const POLL_INTERVAL_MS = 1500;
-const POLL_TIMEOUT_MS = 120_000;
-
-export type UploadPhase = 'idle' | 'uploading' | 'processing' | 'done' | 'failed';
-
-type UploadResult = {
-  phase: UploadPhase;
-  /** DONE 일 때 이 사진에서 나온 아이템들 (1장 → N벌) */
-  items: WardrobeApiItem[];
-  error: string | null;
-  jobId: string | null;
-  /** 사진 한 장을 올리고 처리가 끝날 때까지 따라간다 */
-  start: (uri: string, opts?: { name?: string; mimeType?: string }) => Promise<void>;
-  reset: () => void;
-};
-
-/**
- * 사진 업로드 → job 폴링 → 결과 아이템.
- *
- * 등록이 비동기라 화면은 세 단계를 보여줘야 한다:
- *   uploading(사진 전송) → processing(누끼·분류 대기) → done(확인·수정할 아이템 N개)
- * 결과 아이템은 confirmed=false 이므로, 사용자가 태그를 확인하고 PATCH 로 확정해야
- * 옷장에 정식으로 들어간다.
- */
-export function useWardrobeUpload(): UploadResult {
-  const [phase, setPhase] = useState<UploadPhase>('idle');
-  const [items, setItems] = useState<WardrobeApiItem[]>([]);
-  const [error, setError] = useState<string | null>(null);
-  const [jobId, setJobId] = useState<string | null>(null);
-
-  /* 화면을 떠난 뒤에도 폴링이 계속 돌면(그리고 setState 하면) 안 된다. */
-  const alive = useRef(true);
-  useEffect(() => {
-    alive.current = true;
-    return () => {
-      alive.current = false;
-    };
-  }, []);
-
-  const reset = useCallback(() => {
-    setPhase('idle');
-    setItems([]);
-    setError(null);
-    setJobId(null);
-  }, []);
-
-  const start = useCallback(async (uri: string, opts?: { name?: string; mimeType?: string }) => {
-    setPhase('uploading');
-    setItems([]);
-    setError(null);
-    setJobId(null);
-
-    let id: string;
-    try {
-      const accepted = await uploadWardrobePhoto(uri, opts);
-      if (!alive.current) return;
-      id = accepted.job_id;
-      setJobId(id);
-      setPhase('processing');
-    } catch (e) {
-      if (!alive.current) return;
-      setPhase('failed');
-      setError(e instanceof Error ? e.message : '사진을 올리지 못했어요');
-      return;
-    }
-
-    const startedAt = Date.now();
-    /* 재귀 setTimeout — setInterval 은 응답이 간격보다 느릴 때 요청이 겹친다. */
-    const poll = async () => {
-      if (!alive.current) return;
-
-      let job: UploadJob;
-      try {
-        job = await getUploadJob(id);
-      } catch (e) {
-        if (!alive.current) return;
-        setPhase('failed');
-        setError(e instanceof Error ? e.message : '처리 상태를 확인하지 못했어요');
-        return;
-      }
-      if (!alive.current) return;
-
-      if (job.status === 'DONE') {
-        setItems(job.items);
-        setPhase('done');
-        return;
-      }
-      if (job.status === 'FAILED') {
-        setPhase('failed');
-        setError(job.error_message || '사진을 처리하지 못했어요. 다시 시도해 주세요.');
-        return;
-      }
-      if (Date.now() - startedAt > POLL_TIMEOUT_MS) {
-        setPhase('failed');
-        setError('처리가 오래 걸리고 있어요. 잠시 후 옷장에서 확인해 주세요.');
-        return;
-      }
-      setTimeout(poll, POLL_INTERVAL_MS);
-    };
-
-    setTimeout(poll, POLL_INTERVAL_MS);
-  }, []);
-
-  return { phase, items, error, jobId, start, reset };
 }
 
 /** 태그 확인·수정 후 확정. 화면에서 바로 쓰도록 얇게 감쌌다. */
