@@ -1,11 +1,11 @@
 import { Icon } from '@/components/icon';
 import { router } from 'expo-router';
-import { useMemo, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { ItemMosaic } from '@/components/calendar/item-mosaic';
-import { MonthPickerSheet } from '@/components/calendar/month-picker-sheet';
+import { MonthPicker, type Anchor } from '@/components/calendar/month-picker';
 import { ShareLookSheet } from '@/components/calendar/share-look-sheet';
 import { LoginGate, SmartImage } from '@/components/ui';
 import { ContentMax, Editorial, Fonts, ink, Type } from '@/constants/theme';
@@ -33,6 +33,16 @@ export default function Calendar() {
   const [selectedDay, setSelectedDay] = useState(now.getDate());
   const [shareOpen, setShareOpen] = useState(false);
   const [pickerOpen, setPickerOpen] = useState(false);
+  /* 드롭다운을 달 이름 바로 아래에 붙이려면 눌린 자리의 화면 좌표가 필요하다 */
+  const monthBtnRef = useRef<View>(null);
+  const [anchor, setAnchor] = useState<Anchor | null>(null);
+
+  const openPicker = () => {
+    monthBtnRef.current?.measureInWindow((x, y, width, height) => {
+      setAnchor({ x, y, width, height });
+      setPickerOpen(true);
+    });
+  };
 
   const { cells, selectedKey } = useMemo(() => {
     const first = new Date(view.year, view.month - 1, 1).getDay();
@@ -103,12 +113,12 @@ export default function Calendar() {
           <Pressable hitSlop={10} onPress={() => moveMonth(-1)}>
             <Icon name="chevron.left" tintColor={ink(0.4)} size={16} />
           </Pressable>
-          {/* 년·월을 직접 고르는 자리 — 화살표만으로는 작년까지 가는 데 열두 번을 눌러야 한다 */}
-          <Pressable style={styles.monthBtn} onPress={() => setPickerOpen(true)} hitSlop={8}>
+          {/* 년·월을 직접 고르는 자리 — 화살표만으로는 작년까지 가는 데 열두 번을 눌러야 한다.
+              좌우 화살표가 이미 양옆에 있어 여기에 표시를 더 두면 화살표만 늘어난다. */}
+          <Pressable ref={monthBtnRef} onPress={openPicker} hitSlop={10}>
             <Text style={styles.monthText}>
               {view.year}년 {view.month}월
             </Text>
-            <Icon name="chevron.down" tintColor={ink(0.4)} size={13} />
           </Pressable>
           <Pressable hitSlop={10} onPress={() => moveMonth(1)}>
             <Icon name="chevron.right" tintColor={ink(0.4)} size={16} />
@@ -239,8 +249,9 @@ export default function Calendar() {
         </View>
       </ScrollView>
 
-      <MonthPickerSheet
+      <MonthPicker
         visible={pickerOpen}
+        anchor={anchor}
         year={view.year}
         month={view.month}
         onClose={() => setPickerOpen(false)}
@@ -273,7 +284,6 @@ const styles = StyleSheet.create({
     gap: 20,
     paddingVertical: 16,
   },
-  monthBtn: { flexDirection: 'row', alignItems: 'center', gap: 6 },
   monthText: { fontFamily: Fonts.serif, fontSize: 19, color: INK },
 
   weekHeader: { flexDirection: 'row', paddingBottom: 6 },
