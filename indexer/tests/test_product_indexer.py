@@ -28,7 +28,7 @@ class ProductIndexerTests(unittest.TestCase):
         self.indexer = product_indexer.ProductIndexer.__new__(
             product_indexer.ProductIndexer
         )
-        self.indexer.db = Mock()
+        self.indexer.catalog = Mock()
         self.indexer.s3 = Mock()
         self.indexer.http = Mock()
 
@@ -84,18 +84,13 @@ class ProductIndexerTests(unittest.TestCase):
                 "download_and_store_image",
                 return_value=downloaded,
             ) as download,
-            patch.object(
-                product_indexer.product_db,
-                "mark_image_stored",
-                return_value=True,
-            ) as checkpoint,
         ):
+            self.indexer.catalog.mark_image_stored.return_value = True
             result = self.indexer._load_or_store_image(job, product)
 
         self.assertIs(result, downloaded)
         download.assert_called_once()
-        checkpoint.assert_called_once_with(
-            self.indexer.db,
+        self.indexer.catalog.mark_image_stored.assert_called_once_with(
             job,
             image_s3_key=downloaded.s3_key,
             image_checksum=downloaded.checksum,
@@ -105,32 +100,26 @@ class ProductIndexerTests(unittest.TestCase):
 
     def test_drain_processes_batches_until_no_pending_job(self) -> None:
         self.indexer.process_once = Mock(side_effect=[32, 5, 0])
+        self.indexer.catalog.status.return_value = {
+            "next_available_in_seconds": None
+        }
 
-        with patch.object(
-            product_indexer.product_db,
-            "seconds_until_next_job",
-            return_value=None,
-        ):
-            claimed = self.indexer.drain(
-                32,
-                max_wait_seconds=120,
-                max_runtime_minutes=5,
-            )
+        claimed = self.indexer.drain(
+            32,
+            max_wait_seconds=120,
+            max_runtime_minutes=5,
+        )
 
         self.assertEqual(claimed, 37)
         self.assertEqual(self.indexer.process_once.call_count, 3)
 
     def test_drain_does_not_wait_when_retry_wait_is_disabled(self) -> None:
         self.indexer.process_once = Mock(side_effect=[1, 0])
+        self.indexer.catalog.status.return_value = {
+            "next_available_in_seconds": 30
+        }
 
-        with (
-            patch.object(
-                product_indexer.product_db,
-                "seconds_until_next_job",
-                return_value=30,
-            ),
-            patch.object(product_indexer.time, "sleep") as sleep,
-        ):
+        with patch.object(product_indexer.time, "sleep") as sleep:
             claimed = self.indexer.drain(
                 32,
                 max_wait_seconds=0,
