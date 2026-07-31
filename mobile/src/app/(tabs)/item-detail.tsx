@@ -9,6 +9,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { ItemTagSheet } from '@/components/closet/item-tag-sheet';
 import { DetailTwoPane } from '@/components/detail-two-pane';
 import { Editorial, ink, Fonts } from '@/constants/theme';
+import { useBottomTabInset } from '@/hooks/use-bottom-tab-inset';
 import { useBreakpoint } from '@/hooks/use-breakpoint';
 import { confirmWardrobeItem, useWardrobeItem } from '@/hooks/use-wardrobe';
 import { deleteWardrobeItem, itemDisplayName, type WardrobeApiItem } from '@/lib/wardrobeApi';
@@ -32,6 +33,7 @@ function specsOf(item: WardrobeApiItem): { label: string; value: string }[] {
 // D3 아이템 상세 — 태그 확인·수정·삭제
 export default function ItemDetail() {
   const { contentStyle, width } = useBreakpoint();
+  const tabInset = useBottomTabInset();
   const maxW = width >= 1280 ? 960 : 720;
   const { id } = useLocalSearchParams<{ id?: string }>();
 
@@ -198,12 +200,12 @@ export default function ItemDetail() {
       </ScrollView>
 
       <View style={styles.bottomDivider} />
-      <SafeAreaView edges={['bottom']} style={[styles.bottomBar, contentStyle(maxW)]}>
+      <View style={[styles.bottomBar, { paddingBottom: tabInset }, contentStyle(maxW)]}>
         <Pressable style={styles.cta} onPress={() => router.push('/chat-mode')}>
           <Icon name="sparkles" tintColor="#fff" size={15} />
           <Text style={styles.ctaText}>이 옷으로 코디 추천받기</Text>
         </Pressable>
-      </SafeAreaView>
+      </View>
 
       <ItemTagSheet
         visible={editing}

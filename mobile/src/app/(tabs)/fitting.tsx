@@ -10,6 +10,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { Editorial, ink, Fonts } from '@/constants/theme';
 import { FITTING_RESULT_IMAGE } from '@/constants/look-images';
 import { TODAY_LOOK } from '@/constants/today-look';
+import { useBottomTabInset } from '@/hooks/use-bottom-tab-inset';
 import { useBreakpoint } from '@/hooks/use-breakpoint';
 import { DetailTwoPane } from '@/components/detail-two-pane';
 
@@ -24,6 +25,7 @@ const PIECES = TODAY_LOOK.pieces;
 // C5 가상 피팅 — 내 체형에 룩을 입혀 생성 (프로토타입: 타이머로 생성 과정 시뮬레이션)
 export default function Fitting() {
   const { contentStyle, width } = useBreakpoint();
+  const tabInset = useBottomTabInset();
   const maxW = width >= 1280 ? 960 : 720;
   const [phase, setPhase] = useState<'loading' | 'done'>('loading');
   const toast = useToast();
@@ -114,7 +116,7 @@ export default function Fitting() {
 
       {/* 하단 바 */}
       <View style={styles.bottomDivider} />
-      <SafeAreaView edges={['bottom']} style={[styles.bottomBar, contentStyle(maxW)]}>
+      <View style={[styles.bottomBar, { paddingBottom: tabInset }, contentStyle(maxW)]}>
         <Pressable
           style={[styles.altBtn, phase === 'loading' && styles.btnDisabled]}
           disabled={phase === 'loading'}
@@ -132,7 +134,7 @@ export default function Fitting() {
           <Icon name="bookmark.fill" tintColor="#fff" size={15} />
           <Text style={styles.saveText}>룩북에 저장</Text>
         </Pressable>
-      </SafeAreaView>
+      </View>
     </View>
   );
 }

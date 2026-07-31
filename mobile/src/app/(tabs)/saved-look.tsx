@@ -5,6 +5,7 @@ import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { Editorial, ink, Fonts , ContentMax} from '@/constants/theme';
+import { useBottomTabInset } from '@/hooks/use-bottom-tab-inset';
 import { useBreakpoint } from '@/hooks/use-breakpoint';
 
 const INK = Editorial.ink;
@@ -22,6 +23,7 @@ const HASHTAGS = ['#가을', '#출근', '#미니멀', '#포근함'];
 // E2 저장 룩 상세 — 구성·추천이유 재확인·메모/해시태그
 export default function SavedLook() {
   const { contentStyle } = useBreakpoint();
+  const tabInset = useBottomTabInset();
   return (
     <View style={styles.container}>
       <SafeAreaView edges={['top']} style={styles.headerSafe}>
@@ -97,12 +99,12 @@ export default function SavedLook() {
       </ScrollView>
 
       <View style={styles.bottomDivider} />
-      <SafeAreaView edges={['bottom']} style={[styles.bottomBar, contentStyle(ContentMax.card)]}>
+      <View style={[styles.bottomBar, { paddingBottom: tabInset }, contentStyle(ContentMax.card)]}>
         <Pressable style={styles.cta} onPress={() => router.push('/chat-room')}>
           <Icon name="sparkles" tintColor="#fff" size={15} />
           <Text style={styles.ctaText}>비슷하게 추천받기</Text>
         </Pressable>
-      </SafeAreaView>
+      </View>
     </View>
   );
 }

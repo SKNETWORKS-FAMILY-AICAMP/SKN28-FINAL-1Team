@@ -25,6 +25,7 @@ import {
 } from '@/constants/pursuit-options';
 import { PursuitEndpoint } from '@/constants/config';
 import { ContentMax, Editorial, Fonts, ink } from '@/constants/theme';
+import { useBottomTabInset } from '@/hooks/use-bottom-tab-inset';
 import { useBreakpoint } from '@/hooks/use-breakpoint';
 import { ApiError, api } from '@/lib/apiClient';
 
@@ -155,6 +156,7 @@ function CategorySection({
  */
 export default function StyleOnboarding() {
   const { contentStyle } = useBreakpoint();
+  const tabInset = useBottomTabInset();
   const toast = useToast();
   const { returnTo } = useLocalSearchParams<{ returnTo?: string }>();
 
@@ -320,7 +322,7 @@ export default function StyleOnboarding() {
         </ScrollView>
 
         <View style={styles.bottomDivider} />
-        <SafeAreaView edges={['bottom']} style={[styles.bottomBar, contentStyle(ContentMax.narrow)]}>
+        <View style={[styles.bottomBar, { paddingBottom: tabInset }, contentStyle(ContentMax.narrow)]}>
           <Pressable style={styles.skipBtn} onPress={goHome} disabled={saving}>
             <Text style={styles.skipText}>나중에</Text>
           </Pressable>
@@ -332,7 +334,7 @@ export default function StyleOnboarding() {
               {saving ? '저장 중…' : hasSelection ? '저장하고 시작하기' : '시작하기'}
             </Text>
           </Pressable>
-        </SafeAreaView>
+        </View>
       </SafeAreaView>
     </View>
   );

@@ -5,6 +5,7 @@ import { Pressable, ScrollView, StyleSheet, Switch, Text, View } from 'react-nat
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { Editorial, ink, Fonts , ContentMax} from '@/constants/theme';
+import { useBottomTabInset } from '@/hooks/use-bottom-tab-inset';
 import { useBreakpoint } from '@/hooks/use-breakpoint';
 
 const INK = Editorial.ink;
@@ -47,6 +48,7 @@ const PERMS: {
 // A6 권한 동의 — 항목별 동의 → 스타일 온보딩(A7)
 export default function Permissions() {
   const { contentStyle } = useBreakpoint();
+  const tabInset = useBottomTabInset();
   const [granted, setGranted] = useState<Record<Key, boolean>>({
     location: true,
     photo: true,
@@ -57,7 +59,7 @@ export default function Permissions() {
 
   return (
     <View style={styles.container}>
-      <SafeAreaView edges={['top', 'bottom']} style={styles.safe}>
+      <SafeAreaView edges={['top']} style={styles.safe}>
         <ScrollView
           contentContainerStyle={[styles.content, contentStyle(ContentMax.narrow)]}
           showsVerticalScrollIndicator={false}>
@@ -105,7 +107,7 @@ export default function Permissions() {
           </Text>
         </ScrollView>
 
-        <View style={[styles.bottomBar, contentStyle(ContentMax.narrow)]}>
+        <View style={[styles.bottomBar, { paddingBottom: tabInset }, contentStyle(ContentMax.narrow)]}>
           <Pressable
             style={[styles.cta, !requiredOk && styles.ctaDisabled]}
             disabled={!requiredOk}

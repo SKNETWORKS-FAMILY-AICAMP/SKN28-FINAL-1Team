@@ -13,6 +13,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { ErrorState, LoadingState, useToast } from '@/components/ui';
 import { Editorial, ink, Fonts , ContentMax} from '@/constants/theme';
+import { useBottomTabInset } from '@/hooks/use-bottom-tab-inset';
 import { useBreakpoint } from '@/hooks/use-breakpoint';
 import { ApiError } from '@/lib/apiClient';
 import { measureStore, useMeasure } from '@/state/measure';
@@ -40,6 +41,7 @@ const MEASURE_ROWS = [
 // G3 치수 결과·사이즈 매칭 — measureStore 결과를 구독. 완료 시 측정 플로우 닫기
 export default function MeasureResult() {
   const { contentStyle } = useBreakpoint();
+  const tabInset = useBottomTabInset();
   const { returnTo } = useLocalSearchParams<{ returnTo?: string }>();
   const { status, result, input, photos, error } = useMeasure();
   const toast = useToast();
@@ -142,7 +144,7 @@ export default function MeasureResult() {
 
   return (
     <View style={styles.container}>
-      <SafeAreaView edges={['top', 'bottom']} style={styles.safe}>
+      <SafeAreaView edges={['top']} style={styles.safe}>
         <ScrollView contentContainerStyle={[styles.content, contentStyle(ContentMax.narrow)]} showsVerticalScrollIndicator={false}>
           <Steps active={2} />
 
@@ -221,7 +223,7 @@ export default function MeasureResult() {
           </Pressable>
         </ScrollView>
 
-        <View style={[styles.bottomBar, contentStyle(ContentMax.narrow)]}>
+        <View style={[styles.bottomBar, { paddingBottom: tabInset }, contentStyle(ContentMax.narrow)]}>
           <Pressable style={styles.cta} onPress={onDone} disabled={savingDone}>
             <Text style={styles.ctaText}>{savingDone ? '저장 중…' : '완료'}</Text>
           </Pressable>

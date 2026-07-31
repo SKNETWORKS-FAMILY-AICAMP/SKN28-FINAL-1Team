@@ -13,6 +13,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { useToast } from '@/components/ui';
 import { Editorial, ink, Fonts , ContentMax} from '@/constants/theme';
+import { useBottomTabInset } from '@/hooks/use-bottom-tab-inset';
 import { useBreakpoint } from '@/hooks/use-breakpoint';
 import { ApiError } from '@/lib/apiClient';
 import { fetchBodyBasic, measureStore } from '@/state/measure';
@@ -33,6 +34,7 @@ function Steps({ active }: { active: number }) {
 // G1 체형 정보 입력 — 키/몸무게 + BMI 자동계산
 export default function MeasureInput() {
   const { contentStyle } = useBreakpoint();
+  const tabInset = useBottomTabInset();
   const { returnTo } = useLocalSearchParams<{ returnTo?: string }>();
   const toast = useToast();
   const [height, setHeight] = useState('');
@@ -77,7 +79,7 @@ export default function MeasureInput() {
 
   return (
     <View style={styles.container}>
-      <SafeAreaView edges={['top', 'bottom']} style={styles.safe}>
+      <SafeAreaView edges={['top']} style={styles.safe}>
         <View style={styles.top}>
           <Pressable hitSlop={12} onPress={() => goBack('/(tabs)/my')}>
             <Text style={styles.close}>✕</Text>
@@ -166,7 +168,7 @@ export default function MeasureInput() {
           </Pressable>
         </ScrollView>
 
-        <View style={[styles.bottomBar, contentStyle(ContentMax.narrow)]}>
+        <View style={[styles.bottomBar, { paddingBottom: tabInset }, contentStyle(ContentMax.narrow)]}>
           <Pressable
             style={[styles.cta, (!canNext || saving) && styles.ctaDisabled]}
             disabled={!canNext || saving}

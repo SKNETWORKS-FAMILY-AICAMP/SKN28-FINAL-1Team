@@ -11,6 +11,7 @@ import { Editorial, ink, Fonts } from '@/constants/theme';
 import { TODAY_LOOK_IMAGE } from '@/constants/look-images';
 import { TODAY_LOOK } from '@/constants/today-look';
 import { savedLookStore } from '@/state/saved';
+import { useBottomTabInset } from '@/hooks/use-bottom-tab-inset';
 import { useBreakpoint } from '@/hooks/use-breakpoint';
 import { useHome } from '@/hooks/use-home';
 import { DetailTwoPane } from '@/components/detail-two-pane';
@@ -34,6 +35,7 @@ const REASONS = [
 // C4 추천 룩 상세 — 2D 가상착장 + 구성 + 추천 이유 + 피드백
 export default function LookDetail() {
   const { contentStyle, width } = useBreakpoint();
+  const tabInset = useBottomTabInset();
   // 2단(≥1280)일 땐 본문을 넓게, 세로로 쌓일 땐 좁게 잡아 사진·카드가 과하게 커지지 않게 한다.
   const maxW = width >= 1280 ? 960 : 720;
   const [saved, setSaved] = useState(() => savedLookStore.isSaved({ asset: TODAY_LOOK_IMAGE }));
@@ -254,7 +256,7 @@ export default function LookDetail() {
 
       {/* 하단 바 */}
       <View style={styles.bottomDivider} />
-      <SafeAreaView edges={['bottom']} style={[styles.bottomBar, contentStyle(maxW)]}>
+      <View style={[styles.bottomBar, { paddingBottom: tabInset }, contentStyle(maxW)]}>
         <Pressable style={styles.altBtn} onPress={() => goBack('/(tabs)/lookbook')}>
           <Text style={styles.altText}>다른 룩</Text>
         </Pressable>
@@ -262,7 +264,7 @@ export default function LookDetail() {
           <Icon name="bookmark.fill" tintColor="#fff" size={15} />
           <Text style={styles.saveText}>룩북에 저장</Text>
         </Pressable>
-      </SafeAreaView>
+      </View>
     </View>
   );
 }
