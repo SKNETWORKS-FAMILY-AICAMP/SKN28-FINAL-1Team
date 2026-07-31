@@ -4,19 +4,19 @@ import { goBack } from '@/lib/goBack';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import { SmartImage, useToast } from '@/components/ui';
 import { Editorial, ink, Fonts , ContentMax} from '@/constants/theme';
+import { TODAY_LOOK } from '@/constants/today-look';
 import { useBottomTabInset } from '@/hooks/use-bottom-tab-inset';
 import { useBreakpoint } from '@/hooks/use-breakpoint';
+import { useAuth } from '@/state/auth';
+import { draftItem } from '@/state/draft-item';
 
 const INK = Editorial.ink;
 const BONE = Editorial.bone;
 
-const PIECES = [
-  { slot: '상의', name: '크림 울 니트', tone: 0.06 },
-  { slot: '하의', name: '차콜 슬랙스', tone: 0.18 },
-  { slot: '아우터', name: '트렌치 코트', tone: 0.1 },
-  { slot: '신발', name: '스웨이드 로퍼', tone: 0.24 },
-];
+/* 구성 아이템은 룩 단일 출처를 그대로 쓴다 — 여기만 목업을 따로 두면 룩상세와 다른 옷이 나온다. */
+const PIECES = TODAY_LOOK.pieces;
 
 const HASHTAGS = ['#가을', '#출근', '#미니멀', '#포근함'];
 
@@ -24,6 +24,24 @@ const HASHTAGS = ['#가을', '#출근', '#미니멀', '#포근함'];
 export default function SavedLook() {
   const { contentStyle } = useBreakpoint();
   const tabInset = useBottomTabInset();
+  const toast = useToast();
+  const { isLoggedIn } = useAuth();
+
+  /**
+   * 이 옷을 내 옷장에 등록한다.
+   * 바로 올리지 않고 등록 화면을 거치는 이유 — 무엇이 등록되는지 사진으로 확인시키고,
+   * 등록은 서버 큐를 타서 시간이 걸리므로 진행 상황을 옷장에서 보게 하기 위해서다.
+   */
+  const addToCloset = (photo: string) => {
+    if (!isLoggedIn) {
+      toast('옷장은 로그인하고 쓸 수 있어요');
+      router.push('/login');
+      return;
+    }
+    draftItem.setPhoto(photo);
+    router.push('/item-add');
+  };
+
   return (
     <View style={styles.container}>
       <SafeAreaView edges={['top']} style={styles.headerSafe}>
@@ -62,9 +80,22 @@ export default function SavedLook() {
           <View style={styles.pieces}>
             {PIECES.map((p) => (
               <View key={p.slot} style={styles.piece}>
-                <View style={[styles.pieceThumb, { backgroundColor: `rgba(28,25,23,${p.tone})` }]} />
-                <Text style={styles.pieceSlot}>{p.slot}</Text>
-                <Text style={styles.pieceName}>{p.name}</Text>
+                <View style={styles.pieceThumb}>
+                  <SmartImage uri={p.image} width="100%" aspectRatio={1} radius={10} contentFit="cover" />
+                </View>
+                <View style={styles.pieceBody}>
+                  <Text style={styles.pieceSlot}>{p.slot}</Text>
+                  <Text style={styles.pieceName} numberOfLines={1}>
+                    {p.name}
+                  </Text>
+                </View>
+                <Pressable
+                  style={styles.addBtn}
+                  onPress={() => addToCloset(p.image)}
+                  accessibilityLabel={`${p.name} 옷장에 추가`}>
+                  <Icon name="plus" tintColor={INK} size={13} />
+                  <Text style={styles.addBtnText}>옷장에 추가</Text>
+                </Pressable>
               </View>
             ))}
           </View>
@@ -152,20 +183,32 @@ const styles = StyleSheet.create({
 
   sectionTitle: { fontSize: 13, fontWeight: '600', color: INK, marginTop: 26, marginBottom: 12 },
 
-  pieces: { flexDirection: 'row', flexWrap: 'wrap', gap: 10 },
+  /* 아이템마다 '옷장에' 버튼이 붙어 2단으로 두면 이름이 잘린다 → 한 줄에 하나씩. */
+  pieces: { gap: 10 },
   piece: {
-    width: '47.5%',
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 10,
+    gap: 12,
     borderWidth: 1,
     borderColor: ink(0.09),
     borderRadius: 14,
-    padding: 8,
+    padding: 10,
   },
-  pieceThumb: { width: 38, height: 38, borderRadius: 9, backgroundColor: BONE },
-  pieceSlot: { fontSize: 10, color: Editorial.textCaption, position: 'absolute', left: 56, top: 8 },
-  pieceName: { flex: 1, fontSize: 12.5, fontWeight: '500', color: Editorial.ink, marginTop: 12 },
+  pieceThumb: { width: 44, height: 44, borderRadius: 10, backgroundColor: BONE, overflow: 'hidden' },
+  pieceBody: { flex: 1, gap: 3 },
+  pieceSlot: { fontSize: 10.5, color: Editorial.textCaption },
+  pieceName: { fontSize: 13.5, fontWeight: '500', color: Editorial.ink },
+  addBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 3,
+    height: 30,
+    paddingHorizontal: 10,
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: ink(0.14),
+  },
+  addBtnText: { fontSize: 11.5, fontWeight: '600', color: INK },
 
   reasonCard: { backgroundColor: Editorial.surfaceSoft, borderWidth: 1, borderColor: Editorial.line, borderRadius: 16, padding: 16 },
   reasonText: { fontSize: 13.5, color: Editorial.textSoft, lineHeight: 21 },
