@@ -34,6 +34,7 @@ if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental
 }
 
 const INK = Editorial.ink;
+const WINE = Editorial.wine;
 
 /* 선택색. 선호=파랑, 기피=빨강 계열.
    FILL = 옅게 채우는 배경색(사용자 지정), LINE = 글자용 진한 강조색. */
@@ -166,6 +167,8 @@ export default function StyleOnboarding() {
   /* 접을 수는 있되 처음에는 전부 펼쳐 둔다 — 어떤 항목이 있는지 한 번에 보이는 편이 고르기 쉽다. */
   const [openKeys, setOpenKeys] = useState<Set<CategoryKey>>(() => new Set(CATEGORY_ORDER));
   const [saving, setSaving] = useState(false);
+  /** 저장된 선택을 못 불러왔다 — 이대로 저장하면 기존 것을 덮어쓴다 */
+  const [loadFailed, setLoadFailed] = useState(false);
 
   // 진입 시 저장된 선호도를 불러와 프리필 (미로그인/미배포/최초진입이면 빈 선택으로 시작).
   useEffect(() => {
@@ -177,8 +180,13 @@ export default function StyleOnboarding() {
         setPreferred(fromPayload(data.preferred));
         setAvoided(fromPayload(data.avoided));
       })
-      .catch(() => {
-        /* 아직 저장 전이거나 서버 미배포 — 빈 선택으로 둔다 */
+      .catch((e) => {
+        /* 404(아직 저장 전)는 정상이다 — 빈 선택으로 시작하면 된다.
+           그 밖의 실패는 알려야 한다. 불러오지 못한 걸 모른 채 저장하면
+           **서버에 있던 기존 선택이 지금 화면의 빈 값으로 덮인다.** */
+        if (!alive) return;
+        if (e instanceof ApiError && e.status === 404) return;
+        setLoadFailed(true);
       });
     return () => {
       alive = false;
@@ -322,6 +330,15 @@ export default function StyleOnboarding() {
         </ScrollView>
 
         <View style={styles.bottomDivider} />
+        {/* 덮어쓰기 경고 — 저장 버튼 바로 위에 둔다. 누르기 직전에 읽혀야 소용이 있다. */}
+        {loadFailed ? (
+          <View style={[styles.loadWarn, contentStyle(ContentMax.narrow)]}>
+            <Icon name="exclamationmark.triangle" tintColor={WINE} size={14} />
+            <Text style={styles.loadWarnText}>
+              저장해 둔 선택을 불러오지 못했어요. 지금 저장하면 기존 선택을 덮어쓸 수 있어요.
+            </Text>
+          </View>
+        ) : null}
         <View style={[styles.bottomBar, { paddingBottom: tabInset }, contentStyle(ContentMax.narrow)]}>
           <Pressable style={styles.skipBtn} onPress={goHome} disabled={saving}>
             <Text style={styles.skipText}>나중에</Text>
@@ -420,6 +437,14 @@ const styles = StyleSheet.create({
     backgroundColor: Editorial.surface,
   },
 
+  loadWarn: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 8,
+    paddingHorizontal: 20,
+    paddingTop: 12,
+  },
+  loadWarnText: { flex: 1, fontSize: 12, color: WINE, lineHeight: 18 },
   bottomDivider: { height: 1, backgroundColor: ink(0.08) },
   bottomBar: {
     flexDirection: 'row',

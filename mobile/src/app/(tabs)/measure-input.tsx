@@ -41,16 +41,24 @@ export default function MeasureInput() {
   const [weight, setWeight] = useState('');
   const [sex, setSex] = useState<'female' | 'male' | null>(null);
   const [saving, setSaving] = useState(false);
+  /** 저장된 치수를 못 불러왔을 때 — 칸이 빈 이유를 알린다(입력은 그대로 가능) */
+  const [prefillFailed, setPrefillFailed] = useState(false);
 
   // 새 측정 플로우 진입 → 이전 데이터 초기화 후, 저장된 키·몸무게가 있으면 프리필
   useEffect(() => {
     measureStore.reset();
     let alive = true;
-    fetchBodyBasic().then((b) => {
-      if (!alive || !b) return;
-      if (b.height != null) setHeight(String(b.height));
-      if (b.weight != null) setWeight(String(b.weight));
-    });
+    fetchBodyBasic()
+      .then((b) => {
+        if (!alive || !b) return;
+        if (b.height != null) setHeight(String(b.height));
+        if (b.weight != null) setWeight(String(b.weight));
+      })
+      /* catch 가 없으면 서버가 막혔을 때 처리되지 않은 거부가 된다.
+         못 불러와도 직접 입력하면 되는 화면이라 막지 않고, 빈칸인 이유만 알린다. */
+      .catch(() => {
+        if (alive) setPrefillFailed(true);
+      });
     return () => {
       alive = false;
     };
@@ -93,6 +101,11 @@ export default function MeasureInput() {
           <Text style={styles.eyebrow}>STEP 1 / 3</Text>
           <Text style={styles.title}>체형 정보를 알려주세요</Text>
           <Text style={styles.lead}>키와 몸무게로 치수를 더 정확히 추정해요.</Text>
+          {prefillFailed ? (
+            <Text style={styles.prefillWarn}>
+              저장해 둔 값을 불러오지 못했어요. 직접 입력하면 그대로 진행돼요.
+            </Text>
+          ) : null}
 
           {/* 키 */}
           <View style={styles.field}>
@@ -209,6 +222,7 @@ const styles = StyleSheet.create({
   eyebrow: { fontSize: 11, letterSpacing: 1.5, color: Editorial.textCaption, fontWeight: '600' },
   title: { fontFamily: Fonts.serif, fontSize: 24, color: INK, marginTop: 10, lineHeight: 30 },
   lead: { fontSize: 14, color: Editorial.textCaption, marginTop: 12 },
+  prefillWarn: { fontSize: 12.5, color: WINE, marginTop: 8, lineHeight: 18 },
 
   field: { marginTop: 28 },
   label: { fontSize: 13, fontWeight: '600', color: Editorial.textCaption, letterSpacing: 0.2 },
