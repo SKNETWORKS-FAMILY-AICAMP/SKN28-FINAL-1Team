@@ -203,7 +203,7 @@ export default function Calendar() {
           {entry ? (
             <>
               <Pressable style={styles.recCard} onPress={() => openEntry(selectedKey)}>
-                <SmartImage uri={entry.photo} width={60} height={72} radius={12} />
+                <SmartImage uri={entry.photo} width={84} height={100} radius={12} />
                 <View style={styles.recBody}>
                   {/* 일정이 있으면 그게 제목이 된다 — '옷 2개 기록'보다 그날을 잘 가리킨다. */}
                   <Text style={styles.recTitle} numberOfLines={1}>
@@ -234,10 +234,13 @@ export default function Calendar() {
               ) : null}
             </>
           ) : (
-            <View style={styles.empty}>
+            <View style={[styles.empty, isDesktop && styles.emptyTall]}>
+              <View style={styles.emptyIcon}>
+                <Icon name="tshirt" tintColor={ink(0.3)} size={26} />
+              </View>
               <Text style={styles.emptyText}>이 날은 기록된 착장이 없어요</Text>
               <Pressable style={styles.addBtn} onPress={() => openEntry(selectedKey)}>
-                <Icon name="plus" tintColor="#fff" size={16} />
+                <Icon name="plus" tintColor="#fff" size={18} />
                 <Text style={styles.addText}>이 날 착장 기록하기</Text>
               </Pressable>
               <Pressable onPress={() => router.push('/chat-mode')}>
@@ -298,7 +301,7 @@ const styles = StyleSheet.create({
   /* 데스크톱 2단 — 왼쪽 달력이 남는 폭을 채우고, 오른쪽 상세는 고정 폭. */
   twoPane: { flexDirection: 'row', alignItems: 'flex-start', gap: 28 },
   calendarCol: { flex: 1, minWidth: 0 },
-  detailCol: { width: 320, flexShrink: 0, marginTop: 16 },
+  detailCol: { width: 400, flexShrink: 0, marginTop: 16 },
 
   grid: { flexDirection: 'row', flexWrap: 'wrap' },
   cell: { width: `${100 / 7}%`, alignItems: 'center', justifyContent: 'center' },
@@ -348,7 +351,7 @@ const styles = StyleSheet.create({
     marginBottom: 12,
     marginLeft: 4,
   },
-  detailDate: { fontSize: Type.caption, fontWeight: '600', color: INK },
+  detailDate: { fontFamily: Fonts.serif, fontSize: 19, color: INK },
   shareBtn: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -371,34 +374,46 @@ const styles = StyleSheet.create({
     padding: 12,
   },
   recBody: { flex: 1, gap: 6 },
-  recTitle: { fontSize: Type.footnote, fontWeight: '500', color: INK },
-  recSub: { fontSize: Type.micro, color: Editorial.textCaption, marginTop: -2 },
+  recTitle: { fontSize: Type.label, fontWeight: '600', color: INK },
+  recSub: { fontSize: Type.caption, color: Editorial.textCaption, marginTop: -2 },
   recTags: { flexDirection: 'row', gap: 8 },
-  recTag: { fontSize: Type.micro, color: Editorial.textCaption },
+  recTag: { fontSize: Type.caption, color: Editorial.textCaption },
 
   mosaic: { marginTop: 10 },
 
 
   empty: {
     alignItems: 'center',
-    gap: 14,
+    justifyContent: 'center',
+    gap: 16,
     borderWidth: 1,
     borderColor: Editorial.line,
     borderStyle: 'dashed',
     borderRadius: 16,
     paddingVertical: 30,
   },
-  emptyText: { fontSize: Type.caption, color: Editorial.textCaption },
+  /* 데스크톱에선 옆 달력이 화면을 꽉 채워, 이 카드가 작으면 빈 날이 '없는 기능'처럼 보인다 */
+  emptyTall: { minHeight: 360, paddingVertical: 40 },
+  emptyIcon: {
+    width: 56,
+    height: 56,
+    borderRadius: 28,
+    borderWidth: 1,
+    borderColor: Editorial.line,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  emptyText: { fontSize: Type.body, color: Editorial.textCaption },
   addBtn: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 6,
-    paddingHorizontal: 18,
-    height: 44,
+    gap: 7,
+    paddingHorizontal: 24,
+    height: 52,
     borderRadius: 999,
     backgroundColor: Editorial.cta,
     justifyContent: 'center',
   },
-  addText: { fontSize: Type.footnote, color: '#fff', fontWeight: '600' },
-  subLink: { fontSize: Type.caption, color: Editorial.textCaption, textDecorationLine: 'underline' },
+  addText: { fontSize: Type.label, color: '#fff', fontWeight: '600' },
+  subLink: { fontSize: Type.footnote, color: Editorial.textCaption, textDecorationLine: 'underline' },
 });
