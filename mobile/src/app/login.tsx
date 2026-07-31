@@ -16,6 +16,7 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { useToast } from '@/components/ui';
+import { APPLE_LOGIN_ENABLED } from '@/constants/config';
 import { Editorial, ink, Fonts , ContentMax} from '@/constants/theme';
 import { useBreakpoint } from '@/hooks/use-breakpoint';
 import { useSocialLogin } from '@/hooks/use-social-login';
@@ -149,8 +150,9 @@ export default function Login() {
             disabled={pending !== null}
             onPress={() => onSocial(google)}
           />
-          {/* 애플은 iOS 전용 (App Store 정책상 소셜로그인 제공 시 필수) */}
-          {Platform.OS === 'ios' && (
+          {/* 애플은 iOS 전용 (App Store 정책상 소셜로그인 제공 시 필수).
+              지금은 백엔드가 네이티브 애플을 못 받아 숨겨 뒀다 — config.ts APPLE_LOGIN_ENABLED */}
+          {APPLE_LOGIN_ENABLED && Platform.OS === 'ios' && (
             <SocialButton
               label="Apple로 계속하기"
               style={{ backgroundColor: INK }}

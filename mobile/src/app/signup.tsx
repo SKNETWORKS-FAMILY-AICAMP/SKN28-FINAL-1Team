@@ -11,6 +11,7 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import { APPLE_LOGIN_ENABLED } from '@/constants/config';
 import { Editorial, ink, Fonts , ContentMax} from '@/constants/theme';
 import { useBreakpoint } from '@/hooks/use-breakpoint';
 
@@ -191,9 +192,12 @@ export default function Signup() {
           <Pressable style={[styles.social, { backgroundColor: KAKAO }]} onPress={createWithSocial}>
             <Text style={styles.socialText}>카카오로 시작하기</Text>
           </Pressable>
-          <Pressable style={[styles.social, { backgroundColor: INK }]} onPress={createWithSocial}>
-            <Text style={[styles.socialText, styles.socialTextLight]}>Apple로 시작하기</Text>
-          </Pressable>
+          {/* 백엔드가 네이티브 애플을 못 받아 숨겨 뒀다 — config.ts APPLE_LOGIN_ENABLED */}
+          {APPLE_LOGIN_ENABLED ? (
+            <Pressable style={[styles.social, { backgroundColor: INK }]} onPress={createWithSocial}>
+              <Text style={[styles.socialText, styles.socialTextLight]}>Apple로 시작하기</Text>
+            </Pressable>
+          ) : null}
 
           {/* 로그인 이동 */}
           <Pressable style={styles.login} onPress={() => goBack('/login')}>

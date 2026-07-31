@@ -11,8 +11,23 @@
 export const API_BASE_URL =
   process.env.EXPO_PUBLIC_API_URL ?? 'http://localhost:8000';
 
-/** 백엔드가 지원하는 소셜 제공자. ⚠️ 애플은 아직 백엔드 미지원(naver/kakao/google만). */
+/** 백엔드가 지원하는 소셜 제공자. ⚠️ 애플은 아래 APPLE_LOGIN_ENABLED 참고. */
 export type SocialProvider = 'kakao' | 'naver' | 'google';
+
+/**
+ * 애플 로그인 노출 여부. **지금은 끈다.**
+ *
+ * 백엔드가 애플에 **code 방식만** 열어 두었고(`authenticate_with_token` 은 애플 미지원),
+ * code 방식은 `redirect_uri` 를 필수로 받는다. 그런데 네이티브 Apple Sign In 에는
+ * 리디렉트 주소라는 게 없어서 앱이 채울 값이 없다 → 누르면 반드시 실패한다.
+ * 반드시 실패하는 버튼을 띄워 두느니 감춘다.
+ *
+ * ⚠️ App Store 정책(4.8)상 다른 소셜 로그인을 제공하면 Sign in with Apple 이 필요하다.
+ *    **심사 제출 전에는 백엔드가 네이티브(bundle id 클라이언트·redirect_uri 없음)를
+ *    받아주도록 고치고 이 값을 다시 true 로 되돌려야 한다.**
+ * 앱 쪽 구현(loginWithApple)은 그대로 두었으므로 이 한 줄만 바꾸면 다시 나온다.
+ */
+export const APPLE_LOGIN_ENABLED = false;
 
 /**
  * 카카오 네이티브 앱 키 — 네이티브 SDK 초기화(initializeKakaoSDK)에 사용.
