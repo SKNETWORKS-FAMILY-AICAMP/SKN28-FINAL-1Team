@@ -12,6 +12,13 @@ export type SavedLook = {
   /** 번들 목업 사진 (require 결과, SmartImage asset) — image 가 없을 때 */
   asset?: number;
   comment?: string;
+  /** 사용자가 직접 남긴 메모 — "회사 발표 있는 날 입기 좋았음" 같은 것 */
+  memo?: string;
+  /**
+   * 추천받을 때 들었던 이유. 추천 룩 API(C4)가 붙으면 저장 시점에 같이 담긴다.
+   * 없으면 상세에서 그 칸을 그리지 않는다 — 모든 룩에 같은 이유를 보여주면 그건 거짓말이다.
+   */
+  reason?: string;
   tags: string[];
   savedAt: number;
 };
@@ -27,6 +34,8 @@ const SEED_SAVED: SavedLook[] = [
     id: 's1',
     image: 'https://i.pinimg.com/736x/c1/ae/c8/c1aec88282cee841eca0f6e0da5d1174.jpg',
     comment: '차분한 출근 룩',
+    memo: '회사 발표 있는 날 입기 좋았음. 로퍼 대신 부츠도 잘 어울릴 듯.',
+    reason: '8도의 쌀쌀한 날씨에 맞춰 니트와 코트로 보온성을 확보하고, 미니멀 무드에 맞게 톤을 절제한 오피스 코디예요.',
     tags: ['출근', '미니멀'],
     savedAt: 2,
   },
@@ -48,6 +57,7 @@ function notify() {
 
 export const savedLookStore = {
   getLooks: () => savedLooks,
+  getLook: (id: string) => savedLooks.find((l) => l.id === id),
   isSaved: (look: { image?: string; asset?: number }) =>
     savedLooks.some((l) => keyOf(l) === keyOf(look)),
   /** 저장. 이미 있으면 중복 추가하지 않고 기존 것을 돌려준다. */
@@ -68,6 +78,15 @@ export const savedLookStore = {
   },
   removeLook(id: string) {
     savedLooks = savedLooks.filter((l) => l.id !== id);
+    notify();
+  },
+  /** 메모·태그 수정. 사진과 저장 시각은 건드리지 않는다. */
+  updateLook(id: string, patch: { memo?: string; tags?: string[] }) {
+    savedLooks = savedLooks.map((l) =>
+      l.id === id
+        ? { ...l, memo: patch.memo?.trim() || undefined, tags: patch.tags ?? l.tags }
+        : l,
+    );
     notify();
   },
   subscribe(listener: () => void) {

@@ -207,7 +207,13 @@ export default function LookbookScreen() {
               <Pressable
                 key={c.id}
                 style={[styles.card, { width: cardW }]}
-                onPress={() => router.push('/saved-look')}>
+                /* 저장 룩은 어느 것을 눌렀는지 id 로 넘긴다. 피드 룩은 아직 상세가 없어
+                   id 없이 열리고 첫 저장 룩이 뜬다 — 룩 id 작업에서 함께 정리한다. */
+                onPress={() =>
+                  router.push(
+                    mode === 'saved' ? `/saved-look?id=${c.id}` : '/saved-look',
+                  )
+                }>
                 <View style={[styles.cardImage, { height: cardH }]}>
                   <SmartImage
                     uri={c.uri}

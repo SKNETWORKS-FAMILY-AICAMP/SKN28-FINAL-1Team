@@ -1,16 +1,19 @@
 import { Icon } from '@/components/icon';
-import { router } from 'expo-router';
+import { router, useLocalSearchParams } from 'expo-router';
 import { goBack } from '@/lib/goBack';
-import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { useState } from 'react';
+import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-import { SmartImage, useToast } from '@/components/ui';
+import { EmptyState, SmartImage, useConfirm, useToast } from '@/components/ui';
 import { Editorial, ink, Fonts , ContentMax} from '@/constants/theme';
 import { TODAY_LOOK } from '@/constants/today-look';
 import { useBottomTabInset } from '@/hooks/use-bottom-tab-inset';
 import { useBreakpoint } from '@/hooks/use-breakpoint';
 import { useAuth } from '@/state/auth';
 import { draftItem } from '@/state/draft-item';
+import { ALLOWED_HASHTAGS, type AllowedHashtag } from '@/state/lookbook';
+import { savedLookStore, useSavedLooks } from '@/state/saved';
 
 const INK = Editorial.ink;
 const BONE = Editorial.bone;
@@ -18,14 +21,67 @@ const BONE = Editorial.bone;
 /* 구성 아이템은 룩 단일 출처를 그대로 쓴다 — 여기만 목업을 따로 두면 룩상세와 다른 옷이 나온다. */
 const PIECES = TODAY_LOOK.pieces;
 
-const HASHTAGS = ['#가을', '#출근', '#미니멀', '#포근함'];
+/** '2026. 7. 6. 저장' — 목록에서 온 룩의 저장 시각. 시드(0·1·2)는 날짜가 아니라 순번이라 건너뛴다. */
+function savedAtLabel(savedAt: number): string | null {
+  if (savedAt < 1_000_000_000) return null;
+  return `${new Date(savedAt).toLocaleDateString('ko-KR')} 저장`;
+}
 
 // E2 저장 룩 상세 — 구성·추천이유 재확인·메모/해시태그
 export default function SavedLook() {
   const { contentStyle } = useBreakpoint();
   const tabInset = useBottomTabInset();
   const toast = useToast();
+  const confirm = useConfirm();
   const { isLoggedIn } = useAuth();
+
+  /* 어떤 룩인지는 목록에서 id 로 받는다. id 없이 들어오면(아직 id 를 안 넘기는 경로가 있다)
+     첫 저장 룩을 보여준다 — 고정 목업을 그리던 자리다. */
+  const { id } = useLocalSearchParams<{ id?: string }>();
+  const looks = useSavedLooks();
+  const look = (id ? looks.find((l) => l.id === id) : looks[0]) ?? null;
+
+  const [editing, setEditing] = useState(false);
+  const [memo, setMemo] = useState('');
+  const [tags, setTags] = useState<AllowedHashtag[]>([]);
+
+  const startEdit = () => {
+    if (!look) return;
+    setMemo(look.memo ?? '');
+    setTags(look.tags.filter((t): t is AllowedHashtag =>
+      (ALLOWED_HASHTAGS as readonly string[]).includes(t),
+    ));
+    setEditing(true);
+  };
+
+  const save = () => {
+    if (!look) return;
+    savedLookStore.updateLook(look.id, { memo, tags });
+    setEditing(false);
+    toast('저장했어요', { variant: 'success' });
+  };
+
+  const toggleTag = (tag: AllowedHashtag) => {
+    setTags((prev) => (prev.includes(tag) ? prev.filter((t) => t !== tag) : [...prev, tag]));
+  };
+
+  const remove = async () => {
+    if (!look) return;
+    const ok = await confirm({
+      title: '이 룩을 저장됨에서 뺄까요?',
+      message: '메모와 태그도 함께 사라져요.',
+      confirmLabel: '삭제',
+      destructive: true,
+    });
+    if (!ok) return;
+    savedLookStore.removeLook(look.id);
+    toast('저장됨에서 뺐어요');
+    goBack('/(tabs)/lookbook');
+  };
+
+  const subtitle = look
+    ? [savedAtLabel(look.savedAt), look.tags.join(' · ')].filter(Boolean).join(' · ')
+    : '';
 
   /**
    * 이 옷을 내 옷장에 등록한다.
@@ -42,6 +98,27 @@ export default function SavedLook() {
     router.push('/item-add');
   };
 
+  if (!look) {
+    return (
+      <View style={styles.container}>
+        <SafeAreaView edges={['top']} style={styles.headerSafe}>
+          <View style={[styles.header, contentStyle(ContentMax.card)]}>
+            <Pressable hitSlop={12} onPress={() => goBack('/(tabs)/lookbook')}>
+              <Icon name="chevron.left" tintColor={INK} size={20} />
+            </Pressable>
+          </View>
+        </SafeAreaView>
+        <EmptyState
+          icon="book"
+          title="저장한 룩이 없어요"
+          description="추천 룩에서 마음에 드는 것을 저장하면 여기에 모여요."
+          actionLabel="추천 룩 보러 가기"
+          onAction={() => router.push('/look-detail')}
+        />
+      </View>
+    );
+  }
+
   return (
     <View style={styles.container}>
       <SafeAreaView edges={['top']} style={styles.headerSafe}>
@@ -50,10 +127,14 @@ export default function SavedLook() {
             <Icon name="chevron.left" tintColor={INK} size={20} />
           </Pressable>
           <View style={styles.headerActions}>
-            <Pressable hitSlop={10}>
-              <Icon name="square.and.pencil" tintColor={ink(0.6)} size={19} />
+            <Pressable hitSlop={10} onPress={editing ? save : startEdit}>
+              {editing ? (
+                <Text style={styles.doneText}>완료</Text>
+              ) : (
+                <Icon name="square.and.pencil" tintColor={ink(0.6)} size={19} />
+              )}
             </Pressable>
-            <Pressable hitSlop={10}>
+            <Pressable hitSlop={10} onPress={remove} accessibilityLabel="이 룩 삭제">
               <Icon name="trash" tintColor={ink(0.6)} size={18} />
             </Pressable>
           </View>
@@ -65,6 +146,15 @@ export default function SavedLook() {
         contentContainerStyle={[styles.content, contentStyle(ContentMax.card)]}>
         {/* 룩 이미지 */}
         <View style={styles.image}>
+          {/* 바깥 View 가 이미 비율(1.176)을 잡고 있어, 사진은 그 안을 채우기만 하면 된다. */}
+          <SmartImage
+            uri={look.image}
+            asset={look.image ? undefined : look.asset}
+            width="100%"
+            radius={20}
+            contentFit="cover"
+            style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0 }}
+          />
           <View style={styles.savedBadge}>
             <Icon name="heart.fill" tintColor="#fff" size={11} />
             <Text style={styles.savedText}>저장한 룩</Text>
@@ -72,8 +162,8 @@ export default function SavedLook() {
         </View>
 
         <View style={styles.body}>
-          <Text style={styles.title}>포근한 니트 데이</Text>
-          <Text style={styles.subtitle}>2026. 7. 6. 저장 · 미니멀</Text>
+          <Text style={styles.title}>{look.comment ?? '저장한 룩'}</Text>
+          <Text style={styles.subtitle}>{subtitle}</Text>
 
           {/* 구성 (칩 나열) */}
           <Text style={styles.sectionTitle}>구성 아이템</Text>
@@ -100,31 +190,58 @@ export default function SavedLook() {
             ))}
           </View>
 
-          {/* 추천 이유 */}
-          <Text style={styles.sectionTitle}>추천받은 이유</Text>
-          <View style={styles.reasonCard}>
-            <Text style={styles.reasonText}>
-              8도의 쌀쌀한 날씨에 맞춰 니트와 코트로 보온성을 확보하고,
-              미니멀 무드에 맞게 톤을 절제한 오피스 코디예요.
-            </Text>
-          </View>
+          {/* 추천 이유 — 저장할 때 받아둔 것이 있을 때만. 없는 룩에 남의 이유를 붙이지 않는다. */}
+          {look.reason ? (
+            <>
+              <Text style={styles.sectionTitle}>추천받은 이유</Text>
+              <View style={styles.reasonCard}>
+                <Text style={styles.reasonText}>{look.reason}</Text>
+              </View>
+            </>
+          ) : null}
 
           {/* 메모 */}
           <Text style={styles.sectionTitle}>메모</Text>
-          <Pressable style={styles.memoCard}>
-            <Text style={styles.memoText}>회사 발표 있는 날 입기 좋았음. 로퍼 대신 부츠도 잘 어울릴 듯.</Text>
-            <View style={styles.memoEdit}>
-              <Icon name="pencil" tintColor={ink(0.4)} size={13} />
-            </View>
-          </Pressable>
-
-          {/* 해시태그 */}
-          <View style={styles.tags}>
-            {HASHTAGS.map((t) => (
-              <View key={t} style={styles.tag}>
-                <Text style={styles.tagText}>{t}</Text>
+          {editing ? (
+            <TextInput
+              style={styles.memoInput}
+              value={memo}
+              onChangeText={setMemo}
+              placeholder="이 룩에 대해 남겨둘 것이 있나요?"
+              placeholderTextColor={Editorial.textMuted}
+              multiline
+              maxLength={200}
+            />
+          ) : (
+            <Pressable style={styles.memoCard} onPress={startEdit}>
+              <Text style={[styles.memoText, !look.memo && styles.memoEmpty]}>
+                {look.memo ?? '메모를 남겨보세요'}
+              </Text>
+              <View style={styles.memoEdit}>
+                <Icon name="pencil" tintColor={ink(0.4)} size={13} />
               </View>
-            ))}
+            </Pressable>
+          )}
+
+          {/* 해시태그 — 수정 중에는 전체 목록에서 고르고, 평소엔 고른 것만 보여준다 */}
+          <View style={styles.tags}>
+            {editing
+              ? ALLOWED_HASHTAGS.map((t) => {
+                  const on = tags.includes(t);
+                  return (
+                    <Pressable
+                      key={t}
+                      onPress={() => toggleTag(t)}
+                      style={[styles.tag, on && styles.tagOn]}>
+                      <Text style={[styles.tagText, on && styles.tagTextOn]}>#{t}</Text>
+                    </Pressable>
+                  );
+                })
+              : look.tags.map((t) => (
+                  <View key={t} style={styles.tag}>
+                    <Text style={styles.tagText}>#{t}</Text>
+                  </View>
+                ))}
           </View>
         </View>
       </ScrollView>
@@ -221,11 +338,34 @@ const styles = StyleSheet.create({
     paddingRight: 40,
   },
   memoText: { fontSize: 13.5, color: Editorial.textSoft, lineHeight: 20 },
+  memoEmpty: { color: Editorial.textMuted },
   memoEdit: { position: 'absolute', top: 12, right: 12 },
+  memoInput: {
+    borderWidth: 1,
+    borderColor: ink(0.16),
+    borderRadius: 14,
+    padding: 15,
+    minHeight: 90,
+    fontSize: 13.5,
+    color: Editorial.textSoft,
+    lineHeight: 20,
+    textAlignVertical: 'top',
+  },
 
   tags: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 18 },
-  tag: { backgroundColor: Editorial.control, borderRadius: 999, paddingHorizontal: 13, paddingVertical: 7 },
+  tag: {
+    backgroundColor: Editorial.control,
+    borderRadius: 999,
+    paddingHorizontal: 13,
+    paddingVertical: 7,
+    borderWidth: 1,
+    borderColor: Editorial.line,
+  },
+  tagOn: { backgroundColor: Editorial.selected, borderColor: Editorial.selected },
   tagText: { fontSize: 12.5, color: Editorial.textCaption, fontWeight: '500' },
+  tagTextOn: { color: '#fff' },
+
+  doneText: { fontSize: 14, fontWeight: '600', color: INK },
 
   bottomDivider: { height: 1, backgroundColor: ink(0.08) },
   bottomBar: { backgroundColor: Editorial.page, paddingHorizontal: 20, paddingTop: 12 },
