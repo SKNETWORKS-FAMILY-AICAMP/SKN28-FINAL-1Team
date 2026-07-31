@@ -10,7 +10,7 @@ import { ItemTagSheet } from '@/components/closet/item-tag-sheet';
 import { DetailTwoPane } from '@/components/detail-two-pane';
 import { Editorial, ink, Fonts } from '@/constants/theme';
 import { useBreakpoint } from '@/hooks/use-breakpoint';
-import { useWardrobeItem } from '@/hooks/use-wardrobe';
+import { confirmWardrobeItem, useWardrobeItem } from '@/hooks/use-wardrobe';
 import { deleteWardrobeItem, itemDisplayName, type WardrobeApiItem } from '@/lib/wardrobeApi';
 
 const INK = Editorial.ink;
@@ -37,8 +37,23 @@ export default function ItemDetail() {
 
   const { item, loading, error, reload, setItem } = useWardrobeItem(id);
   const [editing, setEditing] = useState(false);
+  const [confirming, setConfirming] = useState(false);
   const toast = useToast();
   const confirm = useConfirm();
+
+  /* 태그를 고치지 않고 "맞다"고만 확인하는 경로. 고칠 게 있으면 수정 시트에서 저장하면 된다. */
+  const onConfirm = async () => {
+    if (!item) return;
+    setConfirming(true);
+    try {
+      setItem(await confirmWardrobeItem(item.id));
+      toast('옷장에 확정했어요', { variant: 'success' });
+    } catch (e) {
+      toast(e instanceof Error ? e.message : '확인하지 못했어요', { variant: 'error' });
+    } finally {
+      setConfirming(false);
+    }
+  };
 
   const onDelete = async () => {
     if (!item) return;
@@ -138,10 +153,21 @@ export default function ItemDetail() {
               {/* 확인 대기 — 확정 전에는 추천에 쓰이지 않는다는 걸 알려준다 */}
               {!item.confirmed ? (
                 <View style={styles.pending}>
-                  <Icon name="exclamationmark.triangle" tintColor={Editorial.wine} size={15} />
-                  <Text style={styles.pendingText}>
-                    아직 확인하지 않은 아이템이에요. 태그를 확인하면 추천에 함께 쓰여요.
-                  </Text>
+                  <View style={styles.pendingHead}>
+                    <Icon name="exclamationmark.triangle" tintColor={Editorial.wine} size={15} />
+                    <Text style={styles.pendingText}>
+                      AI가 붙인 태그를 아직 확인하지 않았어요. 확인해야 추천에 함께 쓰여요.
+                    </Text>
+                  </View>
+                  <Pressable
+                    style={[styles.confirmBtn, confirming && styles.confirmBtnOff]}
+                    onPress={onConfirm}
+                    disabled={confirming}>
+                    <Icon name="checkmark" tintColor="#fff" size={14} />
+                    <Text style={styles.confirmText}>
+                      {confirming ? '확인 중…' : '태그가 맞아요'}
+                    </Text>
+                  </Pressable>
                 </View>
               ) : null}
 
@@ -230,9 +256,7 @@ const styles = StyleSheet.create({
   styleLine: { fontSize: 14, color: Editorial.textCaption, marginTop: 5 },
 
   pending: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 9,
+    gap: 12,
     marginTop: 18,
     backgroundColor: Editorial.accent,
     borderWidth: 1,
@@ -241,7 +265,20 @@ const styles = StyleSheet.create({
     paddingHorizontal: 14,
     paddingVertical: 13,
   },
+  pendingHead: { flexDirection: 'row', alignItems: 'center', gap: 9 },
   pendingText: { flex: 1, fontSize: 12.5, color: Editorial.wine, lineHeight: 18 },
+  confirmBtn: {
+    alignSelf: 'flex-start',
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingHorizontal: 14,
+    height: 36,
+    borderRadius: 999,
+    backgroundColor: Editorial.cta,
+  },
+  confirmBtnOff: { opacity: 0.5 },
+  confirmText: { fontSize: 13, fontWeight: '600', color: '#fff' },
 
   specGrid: {
     flexDirection: 'row',

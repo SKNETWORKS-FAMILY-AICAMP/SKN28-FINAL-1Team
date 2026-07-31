@@ -47,6 +47,8 @@ type Card = {
   category: string;
   image?: string;
   owner?: string;
+  /** 서버가 붙인 태그를 아직 사람이 확인하지 않은 아이템 */
+  pending?: boolean;
 };
 
 /* 공유 옷장은 아직 백엔드가 없어 목업을 그대로 쓴다. */
@@ -83,11 +85,11 @@ export default function ClosetScreen() {
 
   /* 내 옷장은 서버가 출처. 카테고리 필터는 여러 개를 고를 수 있어(멀티) 서버 파라미터로
      넘기지 않고 전체를 받아 프론트에서 걸러낸다 — 서버는 단일 category_large 만 받는다.
-     확정(confirmed=true)만 보여준다: 확인 대기 중인 아이템은 태그가 아직 사용자 손을 안 거쳤다. */
-  const { items: apiItems, loading, error, reload } = useWardrobeItems(
-    { confirmed: true },
-    isLoggedIn,
-  );
+
+     확정 여부로 거르지 않는다. 예전엔 confirmed=true 만 받았는데, 그러면 백엔드에서
+     직접 넣은 옷처럼 확인 단계를 거치지 않은 아이템이 옷장에 영영 안 보인다.
+     대신 미확인 아이템에는 배지를 달아 구분한다. */
+  const { items: apiItems, loading, error, reload } = useWardrobeItems({}, isLoggedIn);
 
   const myItems = useMemo<Card[]>(
     () =>
@@ -96,6 +98,7 @@ export default function ClosetScreen() {
         name: itemDisplayName(i),
         category: i.category_large,
         image: i.image_url,
+        pending: !i.confirmed,
       })),
     [apiItems],
   );
@@ -260,6 +263,12 @@ export default function ClosetScreen() {
                         <Text style={styles.ownerText}>{it.owner}님</Text>
                       </View>
                     ) : null}
+                    {/* 태그를 아직 사람이 확인하지 않은 옷 — 눌러서 상세에서 확인한다 */}
+                    {it.pending ? (
+                      <View style={styles.pendingBadge}>
+                        <Text style={styles.pendingText}>확인 필요</Text>
+                      </View>
+                    ) : null}
                   </View>
                   <View style={styles.cardMeta}>
                     <Text style={styles.cardName} numberOfLines={1}>{it.name}</Text>
@@ -341,6 +350,16 @@ const styles = StyleSheet.create({
     borderRadius: 999,
   },
   ownerText: { fontSize: 11, fontWeight: '600', color: '#fff' },
+  pendingBadge: {
+    position: 'absolute',
+    top: 10,
+    right: 10,
+    backgroundColor: 'rgba(255,255,255,0.94)',
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 999,
+  },
+  pendingText: { fontSize: 10.5, fontWeight: '700', color: Editorial.wine },
   cardMeta: {
     flexDirection: 'row',
     alignItems: 'baseline',

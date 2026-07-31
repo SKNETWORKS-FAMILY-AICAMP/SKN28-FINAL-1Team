@@ -51,10 +51,7 @@ export function ItemPickerSheet({
   /* '내 옷장'은 서버가 출처다 — 옷장 화면이 실 API 를 보는데 여기서 목업 옷을 고르게 하면
      옷장에 없는 옷이 착장 기록에 남는다. 시트를 열 때만 조회한다.
      '앱 추천'·'친구 옷장'은 아직 백엔드가 없어 목업을 그대로 쓴다. */
-  const { items: apiItems, loading, error, reload } = useWardrobeItems(
-    { confirmed: true },
-    visible,
-  );
+  const { items: apiItems, loading, error, reload } = useWardrobeItems({}, visible);
 
   const closetItems = useMemo<WardrobeItem[]>(
     () =>

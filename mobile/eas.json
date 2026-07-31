@@ -16,6 +16,17 @@
         "EXPO_PUBLIC_API_URL": "https://qualifications-database-additional-achieved.trycloudflare.com"
       }
     },
+    "simulator": {
+      "distribution": "internal",
+      "channel": "preview",
+      "environment": "preview",
+      "ios": {
+        "simulator": true
+      },
+      "env": {
+        "EXPO_PUBLIC_API_URL": "https://qualifications-database-additional-achieved.trycloudflare.com"
+      }
+    },
     "development": {
       "developmentClient": true,
       "distribution": "internal",
