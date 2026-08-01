@@ -98,7 +98,7 @@ export default function OutfitReviewScreen() {
             <>
               <Image source={{ uri: photo! }} style={styles.resultImage} contentFit="cover" />
               <Text style={styles.resultEyebrow}>COZY&apos;S REVIEW</Text>
-              <Text style={styles.title}>균형감 있는{`\n`}모노톤 룩이에요.</Text>
+              <Text style={styles.title}>균형감 있는 모노톤 룩이에요.</Text>
               <View style={styles.feedbackCard}>
                 <Text style={styles.feedbackTitle}>잘 어울리는 포인트</Text>
                 <Text style={styles.feedbackText}>• 상·하의 명도 대비가 깔끔해 비율이 좋아 보여요.{`\n`}• 절제된 색 조합이 차분한 인상을 만들어줘요.</Text>
@@ -135,7 +135,8 @@ const styles = StyleSheet.create({
   headerTitle: { fontSize: 16, fontWeight: '600', color: INK },
   close: { fontSize: 18, color: Editorial.textCaption },
   content: { padding: 24, paddingBottom: 40 },
-  title: { marginTop: 10, fontFamily: Fonts.serif, fontSize: 28, lineHeight: 36, color: INK },
+  /* 한 줄에 담기는 크기 — 줄바꿈은 강제하지 않고 좁은 화면에서만 흐르게 둔다 */
+  title: { marginTop: 10, fontFamily: Fonts.serif, fontSize: 24, lineHeight: 32, color: INK },
   body: { marginTop: 13, fontSize: 14, lineHeight: 21, color: Editorial.textCaption },
   photoBox: { height: 300, marginTop: 28, borderRadius: 20, overflow: 'hidden', backgroundColor: Editorial.surface, borderWidth: 1, borderColor: Editorial.line },
   photoEmpty: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: 7 },
@@ -162,11 +163,11 @@ const styles = StyleSheet.create({
   resultImage: { height: 250, borderRadius: 20 },
   resultEyebrow: { marginTop: 22, fontSize: 10, letterSpacing: 1.6, fontWeight: '600', color: Editorial.textCaption },
   feedbackCard: { marginTop: 22, borderRadius: 16, padding: 18, backgroundColor: Editorial.surface, borderWidth: 1, borderColor: Editorial.line },
-  feedbackTitle: { fontSize: 13, fontWeight: '700', color: INK },
-  feedbackText: { marginTop: 9, fontSize: 13, lineHeight: 21, color: Editorial.textSoft },
+  feedbackTitle: { fontSize: 14, fontWeight: '700', color: INK },
+  feedbackText: { marginTop: 10, fontSize: 15, lineHeight: 24, color: Editorial.textSoft },
   tipCard: { marginTop: 10, borderRadius: 16, borderWidth: 1, borderColor: ink(0.1), padding: 18 },
-  tipTitle: { fontSize: 13, fontWeight: '700', color: INK },
-  tipText: { marginTop: 9, fontSize: 13, lineHeight: 20, color: Editorial.textSoft },
+  tipTitle: { fontSize: 14, fontWeight: '700', color: INK },
+  tipText: { marginTop: 10, fontSize: 15, lineHeight: 24, color: Editorial.textSoft },
   itemsTitle: { marginTop: 27, fontSize: 15, fontWeight: '700', color: INK },
   itemRow: { minHeight: 47, flexDirection: 'row', alignItems: 'center', gap: 11, borderBottomWidth: 1, borderBottomColor: ink(0.08) },
   checkbox: { width: 19, height: 19, borderRadius: 6, borderWidth: 1, borderColor: ink(0.25), alignItems: 'center', justifyContent: 'center' },
