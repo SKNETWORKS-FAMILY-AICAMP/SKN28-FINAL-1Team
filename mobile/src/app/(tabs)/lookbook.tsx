@@ -1,4 +1,4 @@
-import { CategoryEditSheet, SearchFilterBar, SegmentedToggle, SmartImage, useToast } from '@/components/ui';
+import { CategoryEditSheet, SearchFilterBar, SegmentedToggle, SmartImage } from '@/components/ui';
 import { Icon } from '@/components/icon';
 import { useMultiSelectFilter } from '@/hooks/useMultiSelectFilter';
 import { LOOKBOOK_FILTER_OPTIONS, useLookbook } from '@/state/lookbook';
@@ -124,12 +124,10 @@ export default function LookbookScreen() {
         ? likedCards
         : savedFiltered.map((l) => ({ id: l.id, uri: l.image, asset: l.asset }));
 
-  const toast = useToast();
   const likedIds = useMemo(() => new Set(likedLooks.map((l) => l.id)), [likedLooks]);
-  const toggleLike = (look: { id: string; image?: string; tags?: string[] }) => {
-    const liked = likesStore.toggleLook(look);
-    toast(liked ? '좋아요 — 취향에 반영할게요' : '좋아요를 취소했어요');
-  };
+  /* 토스트를 띄우지 않는다 — 하트가 그 자리에서 바로 채워지고 비워져 결과가 이미 보인다. */
+  const toggleLike = (look: { id: string; image?: string; tags?: string[] }) =>
+    likesStore.toggleLook(look);
 
   const emptyText = useMemo(() => {
     if (query.trim()) return `'${query.trim()}' 검색 결과가 없어요`;
