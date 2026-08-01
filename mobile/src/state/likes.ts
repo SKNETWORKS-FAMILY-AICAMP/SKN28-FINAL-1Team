@@ -117,39 +117,16 @@ export function useWishlist() {
   return useSyncExternalStore(subscribe, likesStore.getWishlist, likesStore.getWishlist);
 }
 
-/* ── 취향 점수 (추천 재료) ─────────────────────────────────────
-   "좋아요 누른 것 기반 추천"의 알맹이. 좋아요·찜을 **빈도**로 환산해
-   룩은 태그로, 상품은 브랜드로 순위를 매긴다.
-   최근에 누른 것에 가중치를 더 주지는 않는다 — 프로토타입 규모(좋아요 수십 개)에서는
-   시간 가중치를 넣어도 순서가 거의 그대로라, 설명하기 쉬운 빈도만 쓴다. */
+/* ── 취향 점수 ──
+   좋아요·찜을 빈도로 환산해 순위를 매기는 자리. 룩 쪽(태그 빈도)은 프론트에서 뽑던 걸 걷어냈다 —
+   좋아요는 화면에 목록을 만들지 않고, 무엇을 추천할지는 백엔드가 정한다.
+   상품 쪽만 남는다: 룩 상세의 '관련 상품' 순서를 찜한 브랜드로 앞당기는 데 쓴다. */
 
 export type Scores = Record<string, number>;
-
-/** 좋아요한 룩들의 태그 빈도. 예) { 출근: 2, 미니멀: 1 } */
-export function tagScores(looks: LikedLook[]): Scores {
-  const out: Scores = {};
-  for (const look of looks) {
-    for (const tag of look.tags) out[tag] = (out[tag] ?? 0) + 1;
-  }
-  return out;
-}
 
 /** 찜한 상품들의 브랜드 빈도. 예) { COS: 2, Uniqlo: 1 } */
 export function brandScores(items: WishItem[]): Scores {
   const out: Scores = {};
   for (const item of items) out[item.brand] = (out[item.brand] ?? 0) + 1;
   return out;
-}
-
-/** 룩 하나가 취향과 얼마나 겹치는지 — 태그 점수의 합 */
-export function matchScore(tags: readonly string[], scores: Scores): number {
-  return tags.reduce((sum, tag) => sum + (scores[tag] ?? 0), 0);
-}
-
-/** 점수 높은 순 상위 n개 키 (추천 이유 문구에 쓴다) */
-export function topKeys(scores: Scores, n: number): string[] {
-  return Object.entries(scores)
-    .sort((a, b) => b[1] - a[1])
-    .slice(0, n)
-    .map(([key]) => key);
 }

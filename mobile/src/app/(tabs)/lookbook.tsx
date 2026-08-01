@@ -1,12 +1,8 @@
 import { CategoryEditSheet, SearchFilterBar, SegmentedToggle, SmartImage, useToast } from '@/components/ui';
 import { Icon } from '@/components/icon';
 import { useMultiSelectFilter } from '@/hooks/useMultiSelectFilter';
-import {
-  LOOKBOOK_FILTER_OPTIONS,
-  useLookbook,
-  type LookPost,
-} from '@/state/lookbook';
-import { likesStore, matchScore, tagScores, topKeys, useLikedLooks } from '@/state/likes';
+import { LOOKBOOK_FILTER_OPTIONS, useLookbook } from '@/state/lookbook';
+import { likesStore, useLikedLooks } from '@/state/likes';
 import { useSavedLooks } from '@/state/saved';
 import { router, useLocalSearchParams } from 'expo-router';
 import { useMemo, useState } from 'react';
@@ -49,7 +45,6 @@ type CardData = {
 };
 
 /** 취향 추천 가로 카드 크기 — 그리드보다 작게 잡아 본 목록을 밀어내지 않는다. */
-const RAIL_CARD_W = 116;
 
 function matchesQuery(look: { tags: string[] }, query: string): boolean {
   const q = query.trim().toLocaleLowerCase();
@@ -99,30 +94,12 @@ export default function LookbookScreen() {
       ? feedLooks.map((l) => ({ id: l.id, uri: l.image, price: l.price, tags: l.tags, variantId: l.variantId }))
       : savedFiltered.map((l) => ({ id: l.id, uri: l.image, asset: l.asset }));
 
-  /* ── 취향 추천 ──
-     좋아요한 룩의 태그와 겹치는 **아직 안 누른** 룩을 골라 목록 위에 따로 보여준다.
-     본 그리드를 재정렬하지 않는 이유: 하트를 누를 때마다 카드가 자리를 옮기면
-     방금 뭘 눌렀는지 놓친다. 추천은 추천대로 한 줄에 모아 두고 그리드는 그대로 둔다. */
+  /* 하트 표시용 — 좋아요는 화면에 목록을 만들지 않는다.
+     추천은 백엔드가 좋아요를 재료로 골라 주는 몫이고, 눈에 보이는 모음은 '저장됨'이 맡는다. */
   const likedIds = useMemo(() => new Set(likedLooks.map((l) => l.id)), [likedLooks]);
-  const scores = useMemo(() => tagScores(likedLooks), [likedLooks]);
-  const likedTags = useMemo(() => topKeys(scores, 2), [scores]);
-  const picks: LookPost[] = useMemo(() => {
-    if (likedTags.length === 0) return [];
-    return allLooks
-      .filter((l) => !likedIds.has(l.id))
-      .map((l) => ({ look: l, score: matchScore(l.tags, scores) }))
-      .filter((x) => x.score > 0)
-      .sort((a, b) => b.score - a.score)
-      .slice(0, 8)
-      .map((x) => x.look);
-  }, [allLooks, scores, likedTags, likedIds]);
-  /* 검색·필터 중에는 숨긴다. 사용자가 직접 좁혀 놓은 결과 위에 우리가 고른 것을 얹으면
-     필터가 안 먹은 것처럼 보인다. */
-  const showPicks = mode === 'browse' && picks.length > 0 && !query.trim() && selected.length === 0;
-
   const toggleLike = (look: { id: string; image?: string; tags?: string[] }) => {
     const liked = likesStore.toggleLook(look);
-    toast(liked ? '좋아요 — 비슷한 룩을 더 보여드릴게요' : '좋아요를 취소했어요');
+    toast(liked ? '좋아요 — 취향에 반영할게요' : '좋아요를 취소했어요');
   };
 
   const emptyText = useMemo(() => {
@@ -160,37 +137,6 @@ export default function LookbookScreen() {
           style={styles.gridScroll}
           showsVerticalScrollIndicator={false}
           contentContainerStyle={[styles.grid, { paddingBottom: tabInset + 24 }, contentStyle(ContentMax.wide)]}>
-          {showPicks ? (
-            <View style={styles.rail}>
-              <Text style={styles.railTitle}>취향 추천</Text>
-              <Text style={styles.railHint}>
-                {likedTags.map((t) => `#${t}`).join(' ')} 좋아요를 눌러서 골랐어요
-              </Text>
-              <ScrollView
-                horizontal
-                showsHorizontalScrollIndicator={false}
-                contentContainerStyle={styles.railRow}>
-                {picks.map((p) => (
-                  <Pressable
-                    key={p.id}
-                    style={styles.railCard}
-                    onPress={() => router.push(`/look-detail?id=${p.variantId ?? 'daily'}`)}>
-                    <SmartImage
-                      uri={p.image}
-                      width={RAIL_CARD_W}
-                      height={RAIL_CARD_W * 1.25}
-                      radius={12}
-                      contentFit="cover"
-                    />
-                    <Text style={styles.railTags} numberOfLines={1}>
-                      {p.tags.map((t) => `#${t}`).join(' ')}
-                    </Text>
-                  </Pressable>
-                ))}
-              </ScrollView>
-            </View>
-          ) : null}
-
           {cards.length === 0 ? (
             <View style={styles.empty}>
               <Text style={styles.emptyText}>{emptyText}</Text>
@@ -322,12 +268,6 @@ const styles = StyleSheet.create({
   },
 
   // 취향 추천 — 그리드(row wrap) 안에 끼므로 한 줄을 통째로 차지하게 100% 로 둔다.
-  rail: { width: '100%', marginBottom: 18 },
-  railTitle: { fontSize: 14, fontWeight: '600', color: INK },
-  railHint: { fontSize: 12, color: Editorial.textCaption, marginTop: 3 },
-  railRow: { gap: 10, paddingTop: 10, paddingRight: PAD },
-  railCard: { width: RAIL_CARD_W, gap: 6 },
-  railTags: { fontSize: 11, color: Editorial.textCaption },
 
   empty: { width: '100%', alignItems: 'center', paddingTop: 60, gap: 16 },
   emptyText: { fontSize: 13, color: Editorial.textCaption },
