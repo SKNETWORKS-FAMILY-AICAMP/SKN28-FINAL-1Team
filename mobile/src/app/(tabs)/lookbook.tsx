@@ -25,11 +25,22 @@ const INK = Editorial.ink;
 const PAD = GridCard.pad;
 const DEFAULT_TAGS = [...LOOKBOOK_FILTER_OPTIONS];
 
-/** 상단 세그먼트: 둘러보기(남들이 올린 피드) / 저장됨(내가 저장한 룩) */
-type Mode = 'browse' | 'saved';
+/**
+ * 상단 세그먼트: 둘러보기(남들이 올린 피드) / 내 룩북(내가 모은 것).
+ * 저장·좋아요를 세그먼트에 나란히 세우지 않는 이유: 갈림길은 '남의 룩이냐 내 것이냐' 하나이고,
+ * 저장과 좋아요는 둘 다 내 것이라 그 아래 층이다. 셋을 한 줄에 두면 검색행도 좁아진다.
+ */
+type Mode = 'browse' | 'mine';
 const MODE_OPTIONS: { value: Mode; label: string }[] = [
   { value: 'browse', label: '둘러보기' },
+  { value: 'mine', label: '내 룩북' },
+];
+
+/** '내 룩북' 안의 갈래 — 저장(내가 담아둔 룩) / 좋아요(피드에서 하트 누른 룩) */
+type MineTab = 'saved' | 'liked';
+const MINE_TABS: { value: MineTab; label: string }[] = [
   { value: 'saved', label: '저장됨' },
+  { value: 'liked', label: '좋아요' },
 ];
 
 /** 그리드 카드 공통 형태 — 피드 룩(price 有)·저장 룩(asset 有) 모두 이 형태로 정규화 */
@@ -66,14 +77,16 @@ export default function LookbookScreen() {
   const allLooks = useLookbook();
   const savedLooks = useSavedLooks();
   const likedLooks = useLikedLooks();
-  const toast = useToast();
 
   // 홈 '저장' 등에서 ?tab=saved 로 진입하면 저장됨 탭이 열린다.
   // 모드는 URL 파라미터에서 파생하고, 세그먼트 전환은 setParams 로 파라미터를 바꾼다
   // (useState+useEffect 동기화는 불필요한 리렌더를 만들어 지양).
   const { tab } = useLocalSearchParams<{ tab?: string }>();
-  const mode: Mode = tab === 'saved' ? 'saved' : 'browse';
-  const setMode = (m: Mode) => router.setParams({ tab: m });
+  const mode: Mode = tab === 'saved' || tab === 'liked' ? 'mine' : 'browse';
+  const mineTab: MineTab = tab === 'liked' ? 'liked' : 'saved';
+  /* '내 룩북'으로 갈 때는 저장됨부터 연다. 홈의 ?tab=saved 링크도 그대로 살아 있다. */
+  const setMode = (m: Mode) => router.setParams({ tab: m === 'mine' ? 'saved' : 'browse' });
+  const setMineTab = (t: MineTab) => router.setParams({ tab: t });
 
   const [query, setQuery] = useState('');
   const [tags, setTags] = useState(DEFAULT_TAGS);
@@ -89,13 +102,29 @@ export default function LookbookScreen() {
     [savedLooks, query],
   );
 
+  /* 좋아요한 룩은 피드 룩이라 상세로 보내려면 variantId 가 필요하다 → 피드에서 다시 찾는다.
+     피드에서 내려간 룩이면 기본 룩으로 떨어뜨린다. */
+  const likedCards: CardData[] = useMemo(
+    () =>
+      likedLooks
+        .filter((l) => matchesQuery({ tags: l.tags }, query))
+        .map((l) => ({
+          id: l.id,
+          uri: l.image,
+          tags: l.tags,
+          variantId: allLooks.find((f) => f.id === l.id)?.variantId,
+        })),
+    [likedLooks, allLooks, query],
+  );
+
   const cards: CardData[] =
     mode === 'browse'
       ? feedLooks.map((l) => ({ id: l.id, uri: l.image, price: l.price, tags: l.tags, variantId: l.variantId }))
-      : savedFiltered.map((l) => ({ id: l.id, uri: l.image, asset: l.asset }));
+      : mineTab === 'liked'
+        ? likedCards
+        : savedFiltered.map((l) => ({ id: l.id, uri: l.image, asset: l.asset }));
 
-  /* 하트 표시용 — 좋아요는 화면에 목록을 만들지 않는다.
-     추천은 백엔드가 좋아요를 재료로 골라 주는 몫이고, 눈에 보이는 모음은 '저장됨'이 맡는다. */
+  const toast = useToast();
   const likedIds = useMemo(() => new Set(likedLooks.map((l) => l.id)), [likedLooks]);
   const toggleLike = (look: { id: string; image?: string; tags?: string[] }) => {
     const liked = likesStore.toggleLook(look);
@@ -104,10 +133,12 @@ export default function LookbookScreen() {
 
   const emptyText = useMemo(() => {
     if (query.trim()) return `'${query.trim()}' 검색 결과가 없어요`;
-    if (mode === 'saved') return '아직 저장한 룩이 없어요';
+    if (mode === 'mine') {
+      return mineTab === 'liked' ? '아직 좋아요한 룩이 없어요' : '아직 저장한 룩이 없어요';
+    }
     if (label !== '전체') return `'${label}' 태그 룩이 없어요`;
     return '아직 올린 룩이 없어요';
-  }, [mode, query, label]);
+  }, [mode, mineTab, query, label]);
 
   const handleSaveTags = (next: string[]) => {
     setTags(next);
@@ -131,6 +162,26 @@ export default function LookbookScreen() {
               <SegmentedToggle value={mode} options={MODE_OPTIONS} onChange={setMode} />
             }
           />
+          {/* 해시태그 칩이 비는 자리에 '내 룩북'의 갈래를 놓는다 — 줄이 새로 생기지 않는다 */}
+          {mode === 'mine' ? (
+            <View style={styles.mineTabs}>
+              {MINE_TABS.map((t) => {
+                const on = t.value === mineTab;
+                const count = t.value === 'liked' ? likedLooks.length : savedLooks.length;
+                return (
+                  <Pressable
+                    key={t.value}
+                    style={[styles.mineChip, on && styles.mineChipOn]}
+                    onPress={() => setMineTab(t.value)}>
+                    <Text style={[styles.mineChipText, on && styles.mineChipTextOn]}>
+                      {t.label}
+                      {count > 0 ? ` ${count}` : ''}
+                    </Text>
+                  </Pressable>
+                );
+              })}
+            </View>
+          ) : null}
         </View>
 
         <ScrollView
@@ -143,6 +194,10 @@ export default function LookbookScreen() {
               {mode === 'browse' ? (
                 <Pressable style={styles.emptyBtn} onPress={() => router.push('/look-add')}>
                   <Text style={styles.emptyBtnText}>첫 룩 올리기</Text>
+                </Pressable>
+              ) : mineTab === 'liked' ? (
+                <Pressable style={styles.emptyBtn} onPress={() => setMode('browse')}>
+                  <Text style={styles.emptyBtnText}>둘러보며 마음에 드는 룩 찾기</Text>
                 </Pressable>
               ) : (
                 <Pressable style={styles.emptyBtn} onPress={() => router.push('/(tabs)/home')}>
@@ -159,7 +214,7 @@ export default function LookbookScreen() {
                    둘 다 어느 것을 눌렀는지 id 로 넘긴다. */
                 onPress={() =>
                   router.push(
-                    mode === 'saved'
+                    mode === 'mine' && mineTab === 'saved'
                       ? `/saved-look?id=${c.id}`
                       : `/look-detail?id=${c.variantId ?? 'daily'}`,
                   )
@@ -254,6 +309,21 @@ const styles = StyleSheet.create({
     borderRadius: 999,
   },
   priceText: { fontSize: 12, fontWeight: '700', color: INK },
+  /* 검색행 바로 아래 — 해시태그 칩과 같은 크기·간격이라 자리가 튀지 않는다 */
+  mineTabs: { flexDirection: 'row', gap: 8, paddingHorizontal: PAD, paddingBottom: 20 },
+  mineChip: {
+    height: 36,
+    paddingHorizontal: 15,
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: ink(0.12),
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  mineChipOn: { backgroundColor: Editorial.selected, borderColor: Editorial.selected },
+  mineChipText: { fontSize: 13, lineHeight: 18, color: Editorial.textCaption, fontWeight: '500' },
+  mineChipTextOn: { color: '#fff' },
+
   likeBtn: {
     position: 'absolute',
     top: 10,
