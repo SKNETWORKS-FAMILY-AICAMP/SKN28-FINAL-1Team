@@ -1,0 +1,7 @@
+# 외부 데이터셋 원본 이미지 — 얼굴 블러 미적용 상태라 커밋 금지.
+# AI Hub 전신 데이터(raw_test_data/)는 제공처가 이미 비식별 처리한 원천이지만,
+# 아래 두 디렉터리는 외부(HuggingFace 등)에서 받은 미가공 인물 사진이라
+# 식별 가능한 개인이 그대로 드러난다. 재현이 필요하면 ml/scratch/의
+# download_front_samples.py / download_10_samples.py 로 다시 받는다.
+body_measurement/data/samples_10_front/
+body_measurement/data/external_samples/
