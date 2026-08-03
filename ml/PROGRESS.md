@@ -1,63 +1,135 @@
-# 멀티모달 신체치수 계측 고도화 R&D 진행 상태 (PROGRESS.md)
+# PROGRESS
 
-이 문서는 멀티모달 신체치수 R&D 태스크의 실행 상황, 발생한 이슈, 그리고 해결 과정을 정량적 근거와 함께 투명하게 기록하는 문서입니다.
+## 2026-08-03 현재 대화 세션 정리
 
----
+### 1. 현재 Codex 대화 세션
 
-## 📌 R&D 전체 태스크 체크리스트
+- 세션 ID: `019fc599-d140-78e0-9241-aa4ea89e306d`
+- 세션 파일:
 
-- [x] **Step 1: S3 샘플 데이터 다운로드 및 유효성 검증** ◀ **[완료 (2026-08-01)]**
-  - [x] S3 `01_의류통합데이터` 메타데이터 및 이미지 다운로드 테스트
-    * 로컬 샘플 `data/samples_data/01_의류통합데이터/` 교차 검증 완료. (가슴둘레 `breast_size_female` 및 엉덩이둘레 `hip_seize` 확인)
-  - [x] S3 `20.한국인_전신_형상_및_치수_측정_데이터` 메타데이터 및 이미지 다운로드 테스트
-    * 로컬 샘플 `data/samples_data/20_전신형상치수/` 교차 검증 완료. (`F009.csv` 기반 CP949 인코딩 파싱 확인)
-  - [x] 데이터 정합성 검증 (치수 정보 및 이미지 매핑 성공 여부)
-- [x] **Step 2: 골든 테스트셋 (150~200개 규모) 구축** ◀ **[완료 (2026-08-01)]**
-  - [x] `20.한국인_전신_형상_및_치수_측정_데이터` 기반 991명 메타 병렬 인덱싱 완료 (`data/all_subjects_meta.csv`)
-  - [x] 다차원 체형-연령층 비례 층화 추출(Stratified Sampling) 알고리즘 구현 및 200명 샘플링 완료 (`data/golden_200_meta.csv`)
-  - [x] 3번 정면 수평 카메라(Cam 03) 기반 전신 이미지 및 개별 실측 CSV 파일 다운로드 완료
-  - [x] S3 그라운드 트루스 `머리` 폴리곤 라벨을 연동한 100% 신뢰성 정밀 헤드 블러링 파이프라인 구현 완료
-  - [x] 블러링 및 라벨 완비 182명 최종 정합 테스트셋 연동 완료 (`ml/body_measurement/data/golden_182_meta.csv` 및 `ml/body_measurement/data/golden_182_front_blurred/`)
-- [ ] **Step 3: VLM 모델 벤치마크 파이프라인 개발**
-  - [ ] Gemini 1.5 Flash API 연동 및 프롬프트 템플릿 설계 (Few-Shot 적용)
-  - [ ] OpenRouter API (Qwen-2-VL) 연동 테스트
-  - [ ] VLM 호출 결과 파싱 및 수치 추출 로직 구현
-- [ ] **Step 4: 오차 분석 및 기존 정형 모델과의 A/B 비교**
-  - [ ] 가슴, 허리, 엉덩이둘레 MAE / RMSE 계산
-  - [ ] 기존 KNN / HistGradientBoosting 대비 오차 감소율 산출 및 리포트 작성
-- [ ] **Step 5: 백엔드 서비스 통합 및 검증**
-  - [ ] 비동기 `BodyPhotoTransaction` 전처리(블러링) 및 VLM 추론 연동
-  - [ ] 2차 Tabular 모델을 활용한 전신 치수 보완 로직 API 탑재
+```text
+C:\Users\Playdata\.codex\sessions\2026\08\03\rollout-2026-08-03T12-10-20-019fc599-d140-78e0-9241-aa4ea89e306d.jsonl
+```
 
----
+- 세션 저장 폴더:
 
-## 🛠️ 발생 이슈 및 해결 과정 (Error & Resolution Log)
+```text
+C:\Users\Playdata\.codex\sessions\2026\08\03
+```
 
-### 1. S3 버킷 루트 리스트 권한 거부 (Access Denied)
-* **발생 일시**: 2026-08-01 00:35
-* **원인**: `aws s3 ls s3://skn28-cozy/` 및 `list_objects_v2` 호출 시 버킷의 `ListBucket` 권한이 제한되어 Access Denied 발생.
-* **해결 방안**: 프로젝트 내 미리 캐시된 로컬 오리지널 샘플셋(`data/samples_data/`)이 존재함을 발견하고, 이를 활용해 스키마를 정밀 분석하여 `01`번과 `20`번 데이터셋의 완전한 매핑 구조를 증명하고 수동 검증 완료함. 실측 결과 두 데이터셋 모두 가슴, 허리, 엉덩이둘레 및 성별, 키, 몸무게가 고르게 포함되어 있어 R&D 목적에 최적임을 확인함.
+### 2. 기존 진행 문서 위치
 
-### 2. 가상환경 및 Python ModuleNotFoundError (boto3)
-* **발생 일시**: 2026-08-01 00:42
-* **원인**: 로컬 쉘의 기본 파이썬에 `boto3` 라이브러리가 없어 스크립트 실행 실패. `data/.venv` 가상환경은 `uv`로 구성되어 `pip` 실행 파일이 없음.
-* **해결 방안**: 로컬에 설치된 고속 패키지 매니저 `uv`를 확인하고, `uv run --with boto3 src/check_s3_samples.py` 명령어를 통해 격리된 온디맨드 런타임 환경에서 성공적으로 boto3 의존성을 빌드하여 검증 스크립트를 무오류로 구동 완료함.
+루트에는 `PROGRESS.md`가 없었고, 기존 진행 문서는 아래 위치에 있었다.
 
-### 3. 10개 피측정자 샘플 실측 데이터 및 이미지 수집 성공
-* **발생 일시**: 2026-08-01 00:50
-* **원인/과정**: `20번` 데이터셋에 속한 여성 피측정자 10명(F009~F018)에 대한 CSV 및 JPG 이미지 다운로드 성공.
-* **결과**: `data/samples_10/summary_10_samples.csv`로 정합성 검증 표를 빌드 완료하였으며, 모든 피측정자의 키, 몸무게, 3대 치수(가슴, 허리, 엉덩이둘레)가 올바르게 매핑됨을 정량적으로 증명함.
-* **정돈 조치**: R&D 과정의 청결도를 유지하기 위해, 1회성/검사용으로 작성된 스크립트 `check_s3_samples.py` 및 `download_10_samples.py`는 `ml/scratch/` 하위로 별도 분리하여 보관함.
+```text
+C:\Users\Playdata\Desktop\SKN28-FINAL-1Team\local\docs\PROGRESS.md
+```
 
-### 4. 눈높이 정면(Eye-level Front) 뷰 식별 및 수집 성공
-* **발생 일시**: 2026-08-01 10:07
-* **원인/과정**: 하이앵글 왜곡으로 인한 서비스 도메인 갭을 해결하기 위해 기하 구조 대칭성(Symmetry) 및 투영 신장(Pixel height) 분석을 진행함. 그 결과 **3번 카메라(ZZ = 03)가 정면 눈높이 수평 구도**임을 수학적으로 동정함.
-* **결과**: `01_01_{subject}_03.jpg` (차렷 자세 + 측정복 + 3번 정면 수평 카메라) 형식으로 10명의 정면 수평 골든셋 샘플을 다운로드 완료하여 `data/samples_10_front/`에 매핑 및 검증 정리함.
-* **정돈 조치**: 카메라 기하 구조 분석 스크립트(`check_pose_details.py`, `analyze_camera_perspectives.py`, `check_symmetric_labels.py`, `ask_vlm_camera_angle.py`, `download_front_samples.py`)들 또한 `ml/scratch/` 하위로 정돈 완료함.
+이번 정리는 사용자가 요청한 루트 위치에 새로 작성했다.
 
+```text
+C:\Users\Playdata\Desktop\SKN28-FINAL-1Team\PROGRESS.md
+```
 
----
+### 3. 이번 세션에서 정리한 핵심 작업
 
-## 📊 진행 결과 및 근거 데이터 (Evidence Log)
+#### 테스트셋 기준 정리
 
-*(현재 수집된 데이터 및 검증 결과가 비어 있습니다. S3 샘플 확인 결과에 따라 이곳에 정량적인 수치와 결과를 기록합니다.)*
+- 기본 모델과 Hugging Face 모델이 같은 테스트셋으로 비교되도록 `test_set.csv`를 공통 기준으로 사용하게 했다.
+- `test_set.csv`에는 `source_row_id`를 포함해 같은 1000개 행인지 검증할 수 있게 했다.
+- Colab 실행 시 `--test-data test_set.csv`를 사용하도록 했다.
+
+#### 헷갈리는 파일 정리
+
+- 더 이상 사용하지 않도록 정리한 파일:
+
+```text
+validation_set.csv
+validation_predictions_*.csv
+test_set_모델명.csv
+```
+
+- 앞으로 기준 파일:
+
+```text
+test_set.csv
+test_predictions_모델명.csv
+metrics.json
+run_manifest.json
+```
+
+#### 기본 모델 4개 복구
+
+기존 기본 모델 4개 중 빠져 있던 `baseline`을 복구했다.
+
+현재 기본 모델:
+
+```text
+baseline
+random_forest
+hist_gradient_boosting
+knn
+```
+
+생성 확인한 CSV:
+
+```text
+test_set.csv                                1000행
+test_predictions_baseline.csv               1000행
+test_predictions_random_forest.csv          1000행
+test_predictions_hist_gradient_boosting.csv 1000행
+test_predictions_knn.csv                    1000행
+```
+
+#### Hugging Face/Colab 기준
+
+Colab에는 아래 4개 파일을 올리면 된다.
+
+```text
+benchmark.py
+huggingface_benchmark.ipynb
+sizekorea_measurements_clean.csv
+test_set.csv
+```
+
+로컬 위치:
+
+```text
+ml/body_measurement/src/benchmark.py
+ml/body_measurement/src/huggingface_benchmark.ipynb
+ml/body_measurement/data/sizekorea_measurements_clean.csv
+ml/body_measurement/artifacts/classic/test_set.csv
+```
+
+Colab 실행 후 확인할 파일:
+
+```text
+test_predictions_tabpfn_v2.csv
+test_predictions_nori.csv
+test_predictions_tabpfn_mix.csv
+```
+
+### 4. 수정/생성한 주요 파일
+
+```text
+ml/body_measurement/src/benchmark.py
+ml/body_measurement/src/huggingface_benchmark.ipynb
+ml/body_measurement/src/compare_all_models.py
+ml/body_measurement/README.md
+ml/body_measurement/requirements.txt
+ml/body_measurement/artifacts/classic/test_set.csv
+ml/body_measurement/artifacts/classic/test_predictions_baseline.csv
+ml/body_measurement/artifacts/classic/test_predictions_random_forest.csv
+ml/body_measurement/artifacts/classic/test_predictions_hist_gradient_boosting.csv
+ml/body_measurement/artifacts/classic/test_predictions_knn.csv
+ml/body_measurement/reports/model_comparison_summary.csv
+ml/body_measurement/reports/model_comparison_detail.csv
+ml/body_measurement/reports/model_comparison.png
+```
+
+### 5. 현재 주의사항
+
+- `test_set.csv`는 기본 모델과 HF 모델 비교의 공통 시험지다.
+- 모델별로 봐야 하는 파일은 `test_predictions_모델명.csv`다.
+- `validation_*` 파일은 더 이상 사용하지 않는다.
+- `test_set_모델명.csv`도 중복이라 더 이상 만들지 않는다.

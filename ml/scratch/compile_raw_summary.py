@@ -45,7 +45,10 @@ def main():
             waist = float(record.get("허리둘레", 0.0))
             hip = float(record.get("엉덩이둘레", 0.0))
             
-            img_filename = f"{subject_id}_front.jpg"
+            # 원본 20번 데이터셋 검증 결과: 03=정면 눈높이, 12=측면.
+            # image_path는 기존 단일-이미지 소비 코드와의 호환성을 위해 유지한다.
+            front_filename = f"{subject_id}_front.jpg"
+            side_filename = f"{subject_id}_side.jpg"
             
             results.append({
                 "subject_id": subject_id,
@@ -56,7 +59,11 @@ def main():
                 "chest": chest,
                 "waist": waist,
                 "hip": hip,
-                "image_path": f"ml/body_measurement/data/raw_test_data/{img_filename}"
+                "image_path": f"ml/body_measurement/data/raw_test_data/{front_filename}",
+                "front_image_path": f"ml/body_measurement/data/raw_test_data/{front_filename}",
+                "side_image_path": f"ml/body_measurement/data/raw_test_data/{side_filename}",
+                "front_camera_number": 3,
+                "side_camera_number": 12,
             })
             
         except Exception as e:
