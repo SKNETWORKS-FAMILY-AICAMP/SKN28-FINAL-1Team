@@ -5,3 +5,5 @@
 # download_front_samples.py / download_10_samples.py 로 다시 받는다.
 body_measurement/data/samples_10_front/
 body_measurement/data/external_samples/
+# 위 외부 데이터셋에서 복사돼 나온 낱장 테스트 이미지도 동일하게 차단
+body_measurement/data/test_subject_*.jpg

@@ -1,0 +1,5 @@
+﻿subject_id,gender,weight,height,actual_chest,pred_chest,err_chest,actual_waist,pred_waist,err_waist,actual_hip,pred_hip,err_hip,latency_sec
+REAL_000,F,49.0,159.0,79.0,84.5,5.5,68.0,66.0,2.0,70.0,88.0,18.0,3.98
+REAL_001,F,64.0,157.0,93.0,94.0,1.0,79.0,82.0,3.0,100.0,104.0,4.0,1.7
+REAL_002,M,78.0,165.0,103.0,95.0,8.0,93.0,85.0,8.0,95.0,98.0,3.0,1.68
+REAL_003,M,43.0,152.0,80.0,74.5,5.5,63.0,64.0,1.0,70.0,78.5,8.5,1.86

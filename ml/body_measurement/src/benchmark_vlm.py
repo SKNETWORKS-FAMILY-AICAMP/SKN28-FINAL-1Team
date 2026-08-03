@@ -7,25 +7,38 @@ from PIL import Image
 import google.generativeai as genai
 from openai import OpenAI
 
+# .env 파일 수동 로드
+if os.path.exists(".env"):
+    with open(".env", "r", encoding="utf-8") as f:
+        for line in f:
+            line = line.strip()
+            if line and not line.startswith("#") and "=" in line:
+                key, val = line.split("=", 1)
+                val = val.strip("'\"")
+                os.environ[key] = val
+
 # API 키 바인딩
-GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY")
+GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY")
+OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY")
 OPENROUTER_API_KEY = os.environ.get("OPENROUTER_API_KEY")
 
-# API 설정 초기화
 if GEMINI_API_KEY:
     genai.configure(api_key=GEMINI_API_KEY)
 
-def build_benchmark_prompt(height):
+def build_benchmark_prompt(height, gender, weight):
+    gender_full = "Female" if str(gender).upper().startswith("F") else "Male"
     return f"""
-    You are an expert in anthropometry and visual fashion sizing.
-    Analyze the provided front-facing full-body photo of a model.
+    You are an expert in anthropometry and visual body measurement.
+    Analyze the provided front-facing photo of a real person.
     
     Known metadata:
     - Height: {height} cm
+    - Gender: {gender_full}
+    - Weight: {weight} kg
     
-    Using the model's height as a spatial scale anchor (pixel-to-centimeter calibration), 
-    estimate their body circumferences:
-    1. Chest (Bust) circumference (가슴둘레) in cm
+    Using these physical descriptors as reference and spatial scale anchors (pixel-to-centimeter calibration based on height and body structure),
+    estimate the person's exact body circumferences:
+    1. Chest circumference (가슴둘레) in cm
     2. Waist circumference (허리둘레) in cm
     3. Hip circumference (엉덩이둘레) in cm
     
@@ -43,13 +56,9 @@ def query_gemini(img_path, prompt):
     )
     return json.loads(response.text.strip())
 
-def query_openrouter(img_path, prompt, model_id):
-    client = OpenAI(
-        base_url="https://openrouter.ai/api/v1",
-        api_key=OPENROUTER_API_KEY,
-    )
+def query_openai_direct(img_path, prompt, model_id):
+    client = OpenAI(api_key=OPENAI_API_KEY)
     
-    # 이미지를 base64 등으로 전송해야 하므로 바이너리 처리
     import base64
     with open(img_path, "rb") as image_file:
         base64_image = base64.b64encode(image_file.read()).decode('utf-8')
@@ -72,53 +81,97 @@ def query_openrouter(img_path, prompt, model_id):
             }
         ]
     )
+    res_text = response.choices[0].message.content
+    return json.loads(res_text.strip())
+
+def query_openrouter(img_path, prompt, model_id):
+    client = OpenAI(
+        base_url="https://openrouter.ai/api/v1",
+        api_key=OPENROUTER_API_KEY,
+    )
     
+    import base64
+    with open(img_path, "rb") as image_file:
+        base64_image = base64.b64encode(image_file.read()).decode('utf-8')
+        
+    response = client.chat.completions.create(
+        model=model_id,
+        response_format={"type": "json_object"},
+        messages=[
+            {
+                "role": "user",
+                "content": [
+                    {"type": "text", "text": prompt},
+                    {
+                        "type": "image_url",
+                        "image_url": {
+                            "url": f"data:image/jpeg;base64,{base64_image}"
+                        }
+                    }
+                ]
+            }
+        ]
+    )
     res_text = response.choices[0].message.content
     return json.loads(res_text.strip())
 
 def main():
     parser = argparse.ArgumentParser(description="VLM Body Measurement Benchmarker")
-    parser.add_argument("--model", type=str, default="gemini", choices=["gemini", "qwen", "internvl", "gpt4o-mini"],
+    parser.add_argument("--model", type=str, default="gpt4o-mini", choices=["gemini", "qwen", "internvl", "gpt4o-mini"],
                         help="VLM Model to benchmark")
+    parser.add_argument("--dataset", type=str, default="external", choices=["external", "raw"],
+                        help="Dataset to evaluate: 'external' (UniqueData) or 'raw' (SizeKorea)")
     parser.add_argument("--limit", type=int, default=5, help="Number of subjects to test")
     args = parser.parse_args()
 
-    meta_path = "ml/body_measurement/data/external_samples/summary_external_samples.csv"
+    if args.dataset == "external":
+        meta_path = "ml/body_measurement/data/external_samples/summary_external_samples.csv"
+    else:
+        meta_path = "ml/body_measurement/data/raw_test_data/summary_raw_test_data.csv"
+
     if not os.path.exists(meta_path):
-        print(f"오류: 수집된 외부 메타데이터를 찾을 수 없습니다 -> {meta_path}")
+        print(f"오류: 수집된 메타데이터를 찾을 수 없습니다 -> {meta_path}")
         return
         
     df = pd.read_csv(meta_path)
     limit = min(args.limit, len(df))
     test_df = df.head(limit)
     
-    print(f"\n=== {args.model.upper()} VLM 성능 계측 벤치마크 시작 (표본 수: {limit}명) ===")
+    print(f"\n=== {args.model.upper()} VLM 성능 계측 벤치마크 시작 (대상 데이터: {args.dataset.upper()} | 표본 수: {limit}명) ===")
     
     results = []
     
     for idx, row in test_df.iterrows():
         sub_id = row["subject_id"]
+        gender = row["gender"]
+        weight = row["weight"]
         height = row["height"]
-        actual_chest = row["bust"]
+        
+        actual_chest = row["chest"]
         actual_waist = row["waist"]
         actual_hip = row["hip"]
         
         img_path = row["image_path"]
         
-        print(f"[{sub_id}] 계측 수행 중... (실측 키: {height}cm)")
+        print(f"[{sub_id}] 계측 수행 중... (입력 조건 - 성별: {gender}, 키: {height}cm, 몸무게: {weight}kg)")
         
-        prompt = build_benchmark_prompt(height)
+        prompt = build_benchmark_prompt(height, gender, weight)
         
         try:
             start_time = time.time()
             if args.model == "gemini":
                 pred = query_gemini(img_path, prompt)
+            elif args.model == "gpt4o-mini":
+                # 로컬 OpenAI API 키가 있을 경우 직접 호출로 동작 보완
+                if OPENAI_API_KEY:
+                    pred = query_openai_direct(img_path, prompt, "gpt-4o-mini")
+                else:
+                    pred = query_openrouter(img_path, prompt, "openai/gpt-4o-mini")
             elif args.model == "qwen":
                 pred = query_openrouter(img_path, prompt, "qwen/qwen2.5-vl-72b-instruct")
             elif args.model == "internvl":
                 pred = query_openrouter(img_path, prompt, "opengvlab/internvl3-78b")
-            elif args.model == "gpt4o-mini":
-                pred = query_openrouter(img_path, prompt, "openai/gpt-4o-mini")
+                
             latency = time.time() - start_time
             
             p_chest = float(pred.get("chest", 0.0))
@@ -131,6 +184,8 @@ def main():
             
             results.append({
                 "subject_id": sub_id,
+                "gender": gender,
+                "weight": weight,
                 "height": height,
                 "actual_chest": actual_chest,
                 "pred_chest": p_chest,
@@ -154,7 +209,7 @@ def main():
         report_dir = "ml/body_measurement/reports"
         os.makedirs(report_dir, exist_ok=True)
         
-        output_csv = os.path.join(report_dir, f"benchmark_results_{args.model}.csv")
+        output_csv = os.path.join(report_dir, f"benchmark_{args.dataset}_{args.model}.csv")
         res_df.to_csv(output_csv, index=False, encoding="utf-8-sig")
         
         print("\n=== 벤치마크 최종 요약 리포트 ===")
