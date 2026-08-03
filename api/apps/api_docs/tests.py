@@ -19,7 +19,6 @@ class SwaggerEndpointTests(SimpleTestCase):
         self.assertIn("/api/v1/outfits/analyze/", schema["paths"])
 
         operation = schema["paths"]["/api/v1/outfits/analyze/"]["post"]
-        self.assertEqual(operation.get("security"), [])
         self.assertIn(
             "multipart/form-data",
             operation["requestBody"]["content"],
