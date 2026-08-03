@@ -16,6 +16,14 @@ class SwaggerEndpointTests(SimpleTestCase):
         self.assertIn("/api/v1/auth/{provider}/login/", schema["paths"])
         self.assertIn("/api/v1/auth/token/refresh/", schema["paths"])
         self.assertIn("/api/v1/users/me/", schema["paths"])
+        self.assertIn("/api/v1/outfits/analyze/", schema["paths"])
+
+        operation = schema["paths"]["/api/v1/outfits/analyze/"]["post"]
+        self.assertEqual(operation.get("security"), [])
+        self.assertIn(
+            "multipart/form-data",
+            operation["requestBody"]["content"],
+        )
 
     def test_swagger_ui_is_available(self) -> None:
         response = self.client.get(reverse("swagger-ui"))
