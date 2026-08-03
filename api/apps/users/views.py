@@ -8,7 +8,11 @@ from rest_framework.views import APIView
 from rest_framework_simplejwt.tokens import RefreshToken
 
 from apps.users.models import SocialAccount
-from apps.users.serializers import SocialLoginSerializer, UserSerializer
+from apps.users.serializers import (
+    BudgetSerializer,
+    SocialLoginSerializer,
+    UserSerializer,
+)
 from apps.users.services import accounts, oauth
 
 logger = logging.getLogger(__name__)
@@ -98,6 +102,19 @@ class MeView(APIView):
 
     def patch(self, request):
         serializer = UserSerializer(request.user, data=request.data, partial=True)
+        serializer.is_valid(raise_exception=True)
+        serializer.save()
+        return Response(serializer.data)
+
+
+class BudgetView(APIView):
+    """GET/PUT /api/v1/users/me/budget/ — 월 의류 구매 예산 조회/설정."""
+
+    def get(self, request):
+        return Response(BudgetSerializer(request.user).data)
+
+    def put(self, request):
+        serializer = BudgetSerializer(request.user, data=request.data)
         serializer.is_valid(raise_exception=True)
         serializer.save()
         return Response(serializer.data)

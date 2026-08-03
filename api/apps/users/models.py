@@ -16,6 +16,11 @@ class User(AbstractUser):
     # 소셜 로그인 전용이므로 password는 사용하지 않는다 (set_unusable_password).
     nickname = models.CharField("닉네임", max_length=100, blank=True)
     profile_image = models.URLField("프로필 이미지", blank=True)
+    monthly_budget = models.PositiveIntegerField(
+        "월 의류 구매 예산",
+        null=True,
+        blank=True,
+    )
 
     # PermissionsMixin의 필드를 재정의해 자동 M2M 테이블명(users_user_permissions)을
     # users_permissions로 단순화한다. db_table 외 옵션은 원본과 동일하게 유지한다.
