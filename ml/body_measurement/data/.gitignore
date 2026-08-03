@@ -1,11 +1,17 @@
-# 외부 라이선스 데이터셋 — 커밋 금지
-#
-# fitvto-100k: CC-BY-NC-ND-4.0 (비상업적 + 2차저작물 금지).
-#   내부 VLM 평가 전용으로만 로컬 보관한다. 저장소에 올리면 재배포에 해당한다.
-#   출처/라이선스는 fitvto_eval/DATASET_LICENSE.md 및
-#   reports/external_source_triage.md 에 기록.
-fitvto_eval/
+# Python 캐시
+__pycache__/
+*.pyc
+*.pyo
 
-# OrangeBear: 전속 피팅 모델 1명의 스펙이 전 상품에 재사용되어 유효 표본 1.
-#   폐기 대상. 상세는 reports/external_source_triage.md 참조.
-orangebear/
+# 원본 데이터 (S3에서 재생성 가능, 19MB)
+# 재실행: python src/manual_test.py
+data/raw/
+
+# 노트북 체크포인트
+.ipynb_checkpoints/
+
+# 학습된 모델 파일 (benchmark.py 재실행으로 복구 가능)
+artifacts/models/*.joblib
+
+# 분석용 임시 스크립트
+artifacts/csv/make_*.py
