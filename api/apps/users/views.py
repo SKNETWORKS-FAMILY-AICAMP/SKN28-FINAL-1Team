@@ -21,6 +21,7 @@ from apps.users.serializers import (
     PursuitPayloadResponseSerializer,
     SocialLoginSerializer,
     UserSerializer,
+    BudgetSerializer,
 )
 from apps.users.services import accounts, body_inference, oauth, pursuit
 
@@ -265,3 +266,14 @@ class PursuitView(APIView):
             PursuitPayloadResponseSerializer(obj.payload).data,
             status=status.HTTP_200_OK,
         )
+class BudgetView(APIView):
+    """GET/PUT /api/v1/users/me/budget/ — 월 의류 구매 예산 조회/설정."""
+
+    def get(self, request):
+        return Response(BudgetSerializer(request.user).data)
+
+    def put(self, request):
+        serializer = BudgetSerializer(request.user, data=request.data)
+        serializer.is_valid(raise_exception=True)
+        serializer.save()
+        return Response(serializer.data)
