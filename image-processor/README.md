@@ -1,7 +1,8 @@
 # image-processor — 옷장 이미지 프로세서 (AI Worker)
 
-Redis 큐에서 job을 받아 사진 속 패션 아이템을 분리·태깅·임베딩하고,
-결과를 S3에 저장한 뒤 wardrobe-api 콜백으로 등록을 완료하는 워커.
+Redis 큐에서 job을 받아 사진 속 패션 아이템을 처리하는 이미지 프로세서.
+옷장 worker와 캘린더 consumer는 서로 다른 Redis List Queue와 작업 계약을
+사용한다.
 
 - 설계: Confluence > 설계 > "옷장 이미지 파이프라인 설계서" + "옷장 기능 전체 설계"
 - 코어 로직: `test/test-llm2` (Gemini 열거 → 이미지 편집 생성 → 태깅) 이식
@@ -9,7 +10,8 @@ Redis 큐에서 job을 받아 사진 속 패션 아이템을 분리·태깅·임
 ## 구조 (컴포넌트 교체 가능 — 전략 패턴)
 
 ```
-worker.py                 # 메인 루프: 큐 → 처리 → S3 → manifest → 콜백 → ack
+worker.py                 # 옷장 메인 루프: 큐 → 처리 → S3 → manifest → 콜백 → ack
+calendar_consumer.py      # 캘린더 전용 수신·계약 검증·ack 경계
 config.py                 # 환경변수 (루트 .env)
 pipeline/
 ├── base.py               # 인터페이스: ItemEnumerator / ProductImageGenerator
@@ -23,9 +25,15 @@ pipeline/
     └── tagger.py         # ③ 태깅: taxonomy enum 강제 + 짝 보정
 services/
 ├── queue.py              # Redis reliable queue (pending/processing/dead)
+├── calendar_queue.py     # 캘린더 전용 pending/processing (자동 재시도 없음)
 ├── s3io.py               # 원본 다운로드, 크롭·manifest 업로드
 └── callback.py           # wardrobe-api 콜백 (X-Internal-Token, 재시도)
 ```
+
+캘린더 consumer는 이미지 처리와 callback을 수행하는 handler가 정상 반환한
+경우에만 processing 작업을 ack한다. 현재 단계에서는 수신 경계만 추가했으며,
+실제 캘린더 파이프라인 handler와 실행 프로세스 연결 전에는 큐를 소비하지 않는다.
+실패한 캘린더 작업은 자동 재시도·dead 이동 없이 processing에 유지한다.
 
 **구현 교체**: 새 컴포넌트로 `pipeline/base.py` 인터페이스를 구현하고
 `pipeline/__init__.py`의 `_REGISTRY`에 빌더를 등록한 뒤
@@ -48,6 +56,8 @@ services/
 | `GEMINI_API_KEY` | (필수) | 열거·생성·태깅 공용 |
 | `REDIS_URL` | redis://localhost:6379/0 | |
 | `WARDROBE_JOB_QUEUE` | wardrobe:jobs | pending 키 (processing/dead는 파생) |
+| `CALENDAR_JOB_QUEUE` | calendar:jobs | 캘린더 pending 키 |
+| `CALENDAR_PROCESSING_QUEUE` | calendar:jobs:processing | 캘린더 처리 중 작업 키 |
 | `WARDROBE_INTERNAL_TOKEN` | (필수) | 콜백 인증 — api와 동일 값 |
 | `WARDROBE_CALLBACK_URL` | | 페이로드에 callback_url 없을 때 폴백 |
 | `WORKER_PIPELINE` | gemini-edit | 파이프라인 구현 선택 |

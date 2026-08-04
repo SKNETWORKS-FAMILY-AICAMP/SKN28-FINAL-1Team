@@ -64,6 +64,15 @@ RETRY_HASH = f"{PENDING_KEY}:retries"
 MAX_RETRIES = int(os.getenv("WORKER_MAX_RETRIES", "3"))
 QUEUE_BLOCK_SEC = int(os.getenv("WORKER_QUEUE_BLOCK_SEC", "5"))
 
+# ── 캘린더 큐 (옷장 큐와 완전히 분리, 자동 재시도 없음) ──
+CALENDAR_PENDING_KEY = os.getenv("CALENDAR_JOB_QUEUE", "calendar:jobs")
+CALENDAR_PROCESSING_KEY = os.getenv(
+    "CALENDAR_PROCESSING_QUEUE",
+    "calendar:jobs:processing",
+)
+CALENDAR_JOB_SCHEMA_VERSION = "calendar-job.v1"
+CALENDAR_JOB_TASK_TYPE = "calendar_image_extraction"
+
 # ── 콜백 (wardrobe-api 구현 계약: X-Internal-Token + job_id 멱등) ──
 INTERNAL_TOKEN = os.getenv("WARDROBE_INTERNAL_TOKEN", "")
 # 원칙적으로 큐 페이로드의 callback_url을 쓰고, 없을 때만 이 값을 쓴다.
