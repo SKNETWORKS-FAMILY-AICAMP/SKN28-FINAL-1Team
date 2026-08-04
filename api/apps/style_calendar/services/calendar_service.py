@@ -9,9 +9,15 @@ from typing import TYPE_CHECKING
 from uuid import UUID
 
 from django.db import IntegrityError, transaction
-from django.db.models import Prefetch, QuerySet
+from django.db.models import Count, Prefetch, Q, QuerySet
+from django.utils import timezone
 
-from apps.style_calendar.contracts import CalendarSourceType, CalendarStatus
+from apps.style_calendar.contracts import (
+    CalendarItemInternalStatus,
+    CalendarProcessingErrorCode,
+    CalendarSourceType,
+    CalendarStatus,
+)
 from apps.style_calendar.models import (
     CalendarEntry,
     CalendarItem,
@@ -66,6 +72,24 @@ def entries_in_period(
     return entries_for_user(user=user).filter(
         date__gte=start_date,
         date__lte=end_date,
+    )
+
+
+def processing_statuses_for_user(*, user) -> QuerySet[CalendarEntry]:
+    """처리 상태 응답에 필요한 아이템 집계를 포함한 사용자 캘린더 QuerySet."""
+
+    return CalendarEntry.objects.filter(user=user).annotate(
+        total_item_count=Count("items"),
+        extracted_item_count=Count(
+            "items",
+            filter=Q(
+                items__internal_status=CalendarItemInternalStatus.EXTRACTED.value
+            ),
+        ),
+        failed_item_count=Count(
+            "items",
+            filter=Q(items__internal_status=CalendarItemInternalStatus.FAILED.value),
+        ),
     )
 
 
@@ -297,14 +321,17 @@ def create_from_photo(
 def mark_queue_enqueue_failed(entry: CalendarEntry) -> None:
     """Redis 적재 실패를 PostgreSQL의 최종 실패 상태로 기록한다."""
 
+    completed_at = timezone.now()
     entry.status = CalendarStatus.FAILED.value
-    entry.processing_error_code = "QUEUE_ENQUEUE_FAILED"
+    entry.processing_error_code = CalendarProcessingErrorCode.QUEUE_ENQUEUE_FAILED.value
     entry.processing_error_message = "캘린더 이미지 처리 큐 적재 실패"
+    entry.processing_completed_at = completed_at
     entry.save(
         update_fields=[
             "status",
             "processing_error_code",
             "processing_error_message",
+            "processing_completed_at",
             "updated_at",
         ]
     )

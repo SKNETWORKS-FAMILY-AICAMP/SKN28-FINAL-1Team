@@ -18,6 +18,7 @@ from apps.style_calendar.serializers import (
     CalendarMetadataUpdateSerializer,
     CalendarPeriodQuerySerializer,
     CalendarPhotoCreateSerializer,
+    CalendarProcessingStatusSerializer,
     CalendarWardrobeCreateSerializer,
 )
 from apps.style_calendar.services import calendar_service
@@ -230,3 +231,14 @@ class CalendarEntryDetailView(APIView):
         serializer.is_valid(raise_exception=True)
         entry = serializer.save()
         return Response(CalendarEntrySerializer(entry).data)
+
+
+class CalendarProcessingStatusView(APIView):
+    """GET /api/v1/calendars/{calendar_id}/processing-status/."""
+
+    def get(self, request, calendar_id):
+        entry = get_object_or_404(
+            calendar_service.processing_statuses_for_user(user=request.user),
+            pk=calendar_id,
+        )
+        return Response(CalendarProcessingStatusSerializer(entry).data)

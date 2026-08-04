@@ -10,6 +10,9 @@ from apps.style_calendar.contracts import (
     CALENDAR_CALLBACK_SCHEMA_VERSION,
     CalendarCallbackItemStatus,
     CalendarCallbackStatus,
+    CalendarProcessingErrorCode,
+    CalendarSourceType,
+    CalendarStatus,
 )
 from apps.style_calendar.models import (
     CalendarEntry,
@@ -308,6 +311,79 @@ class CalendarCallbackSerializer(StrictObjectInputMixin, serializers.Serializer)
                 {"error_message": "전체 또는 아이템 처리 실패 원인이 필요합니다."}
             )
         return attrs
+
+
+class CalendarProcessingStatusSerializer(serializers.ModelSerializer):
+    """사용자에게 노출하는 캘린더 이미지 처리 상태."""
+
+    calendar_id = serializers.UUIDField(source="id", read_only=True)
+    processing_required = serializers.SerializerMethodField()
+    is_terminal = serializers.SerializerMethodField()
+    result_available = serializers.SerializerMethodField()
+    item_counts = serializers.SerializerMethodField()
+    failure = serializers.SerializerMethodField()
+
+    class Meta:
+        model = CalendarEntry
+        fields = (
+            "calendar_id",
+            "status",
+            "processing_required",
+            "is_terminal",
+            "result_available",
+            "item_counts",
+            "failure",
+            "processing_started_at",
+            "processing_completed_at",
+            "updated_at",
+        )
+        read_only_fields = fields
+
+    def get_processing_required(self, obj) -> bool:
+        return obj.source_type == CalendarSourceType.PHOTO_UPLOAD.value
+
+    def get_is_terminal(self, obj) -> bool:
+        return obj.status in {
+            CalendarStatus.COMPLETED.value,
+            CalendarStatus.FAILED.value,
+        }
+
+    def get_result_available(self, obj) -> bool:
+        return obj.status == CalendarStatus.COMPLETED.value
+
+    def get_item_counts(self, obj) -> dict[str, int]:
+        return {
+            "total": obj.total_item_count,
+            "extracted": obj.extracted_item_count,
+            "failed": obj.failed_item_count,
+        }
+
+    def get_failure(self, obj) -> dict[str, str] | None:
+        if obj.status != CalendarStatus.FAILED.value:
+            return None
+
+        code = (
+            obj.processing_error_code
+            or CalendarProcessingErrorCode.IMAGE_PROCESSING_FAILED.value
+        )
+        public_messages = {
+            CalendarProcessingErrorCode.QUEUE_ENQUEUE_FAILED.value: (
+                "처리 대기열 등록에 실패했습니다. 잠시 후 다시 시도해주세요."
+            ),
+            CalendarProcessingErrorCode.NO_ITEM_EXTRACTED.value: (
+                "사진에서 처리할 수 있는 패션 아이템을 찾지 못했습니다."
+            ),
+            CalendarProcessingErrorCode.IMAGE_PROCESSING_FAILED.value: (
+                "이미지 처리에 실패했습니다. 잠시 후 다시 시도해주세요."
+            ),
+        }
+        return {
+            "code": code,
+            "message": public_messages.get(
+                code,
+                "이미지 처리에 실패했습니다. 잠시 후 다시 시도해주세요.",
+            ),
+        }
 
 
 class CalendarWardrobeItemSerializer(serializers.ModelSerializer):

@@ -236,6 +236,7 @@ class CalendarPhotoCreateApiTests(TestCase):
             entry.processing_error_message,
             "캘린더 이미지 처리 큐 적재 실패",
         )
+        self.assertIsNotNone(entry.processing_completed_at)
         self.assertTrue(entry.image_s3_key.endswith("/original.jpg"))
         self.mock_delete_objects.assert_not_called()
         self.mock_logger_exception.assert_called_once()

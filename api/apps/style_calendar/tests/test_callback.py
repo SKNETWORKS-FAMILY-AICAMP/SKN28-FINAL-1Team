@@ -184,6 +184,24 @@ class CalendarCallbackApiTests(TestCase):
         self.assertEqual(self.entry.processing_error_code, "NO_ITEM_EXTRACTED")
         self.assertEqual(self.entry.items.get().internal_status, "FAILED")
 
+    def test_failed_callback_without_code_uses_generic_failure_code(self) -> None:
+        payload = {
+            "schema_version": CALENDAR_CALLBACK_SCHEMA_VERSION,
+            "calendar_id": str(self.entry.pk),
+            "status": CalendarCallbackStatus.FAILED.value,
+            "completed_at": "2026-08-04T04:05:06Z",
+            "error_message": "provider unavailable",
+        }
+
+        response = self.client.post(self.url, payload, format="json")
+
+        self.assertEqual(response.status_code, 200)
+        self.entry.refresh_from_db()
+        self.assertEqual(
+            self.entry.processing_error_code,
+            "IMAGE_PROCESSING_FAILED",
+        )
+
     def test_rejects_url_body_id_mismatch_and_unknown_schema(self) -> None:
         mismatch = self.processing_payload()
         mismatch["calendar_id"] = str(uuid4())

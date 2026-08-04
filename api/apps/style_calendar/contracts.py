@@ -41,6 +41,14 @@ class CalendarCallbackItemStatus(StrEnum):
     FAILED = "failed"
 
 
+class CalendarProcessingErrorCode(StrEnum):
+    """캘린더 이미지 처리의 표준 전체 실패 코드."""
+
+    QUEUE_ENQUEUE_FAILED = "QUEUE_ENQUEUE_FAILED"
+    NO_ITEM_EXTRACTED = "NO_ITEM_EXTRACTED"
+    IMAGE_PROCESSING_FAILED = "IMAGE_PROCESSING_FAILED"
+
+
 CALENDAR_JOB_SCHEMA_VERSION = "calendar-job.v1"
 CALENDAR_JOB_TASK_TYPE = "calendar_image_extraction"
 CALENDAR_CALLBACK_SCHEMA_VERSION = "calendar-callback.v1"

@@ -12,6 +12,7 @@ from apps.style_calendar.contracts import (
     CalendarCallbackItemStatus,
     CalendarCallbackStatus,
     CalendarItemInternalStatus,
+    CalendarProcessingErrorCode,
     CalendarSourceType,
     CalendarStatus,
 )
@@ -104,7 +105,13 @@ def apply_callback(
         else CalendarStatus.FAILED.value
     )
     entry.manifest_s3_key = data["manifest_s3_key"]
-    entry.processing_error_code = data["error_code"]
+    if callback_status == CalendarCallbackStatus.FAILED.value:
+        entry.processing_error_code = (
+            data["error_code"]
+            or CalendarProcessingErrorCode.IMAGE_PROCESSING_FAILED.value
+        )
+    else:
+        entry.processing_error_code = ""
     entry.processing_error_message = data["error_message"]
     entry.processing_started_at = entry.processing_started_at or completed_at
     entry.processing_completed_at = completed_at
