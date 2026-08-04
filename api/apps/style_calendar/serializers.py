@@ -13,6 +13,36 @@ from apps.style_calendar.models import (
 )
 
 
+class StrictObjectInputMixin:
+    """입력 serializer가 JSON 객체와 선언된 필드만 받도록 제한한다."""
+
+    def to_internal_value(self, data):
+        if not isinstance(data, Mapping):
+            raise serializers.ValidationError(
+                {"non_field_errors": ["요청 본문은 JSON 객체여야 합니다."]}
+            )
+
+        allowed_fields = set(self.fields)
+        unknown_fields = set(data) - allowed_fields
+        if unknown_fields:
+            raise serializers.ValidationError(
+                {
+                    field: "허용되지 않은 필드입니다."
+                    for field in sorted(unknown_fields)
+                }
+            )
+        return super().to_internal_value(data)
+
+
+class StringListField(serializers.ListField):
+    """숫자를 문자열로 묵시적으로 변환하지 않는 문자열 배열 필드."""
+
+    def to_internal_value(self, data):
+        if not isinstance(data, list) or any(not isinstance(item, str) for item in data):
+            raise serializers.ValidationError("문자열 배열이어야 합니다.")
+        return super().to_internal_value(data)
+
+
 class CalendarPeriodQuerySerializer(serializers.Serializer):
     """기간별 조회 쿼리 파라미터."""
 
@@ -33,16 +63,16 @@ class CalendarDateQuerySerializer(serializers.Serializer):
     date = serializers.DateField()
 
 
-class CalendarMetadataUpdateSerializer(serializers.ModelSerializer):
+class CalendarMetadataUpdateSerializer(StrictObjectInputMixin, serializers.ModelSerializer):
     """사용자가 수정할 수 있는 캘린더 메타데이터."""
 
     schedule = serializers.CharField(required=False, allow_blank=True)
-    tpo = serializers.ListField(
+    tpo = StringListField(
         child=serializers.CharField(allow_blank=False),
         required=False,
         allow_empty=True,
     )
-    hashtags = serializers.ListField(
+    hashtags = StringListField(
         child=serializers.CharField(allow_blank=False),
         required=False,
         allow_empty=True,
@@ -52,34 +82,34 @@ class CalendarMetadataUpdateSerializer(serializers.ModelSerializer):
         model = CalendarEntry
         fields = ("schedule", "tpo", "hashtags")
 
-    def to_internal_value(self, data):
-        if not isinstance(data, Mapping):
-            raise serializers.ValidationError(
-                {"non_field_errors": ["요청 본문은 JSON 객체여야 합니다."]}
-            )
 
-        allowed_fields = set(self.fields)
-        unknown_fields = set(data) - allowed_fields
-        if unknown_fields:
-            raise serializers.ValidationError(
-                {
-                    field: "캘린더 메타데이터 수정 대상이 아닌 필드입니다."
-                    for field in sorted(unknown_fields)
-                }
-            )
 
-        errors = {}
-        for field in ("tpo", "hashtags"):
-            value = data.get(field)
-            if field in data and (
-                not isinstance(value, list)
-                or any(not isinstance(item, str) for item in value)
-            ):
-                errors[field] = "문자열 배열이어야 합니다."
-        if errors:
-            raise serializers.ValidationError(errors)
+class CalendarWardrobeCreateSerializer(StrictObjectInputMixin, serializers.Serializer):
+    """기존 옷장 아이템 직접 선택 캘린더 등록 요청."""
 
-        return super().to_internal_value(data)
+    date = serializers.DateField()
+    wardrobe_item_ids = serializers.ListField(
+        child=serializers.UUIDField(),
+        allow_empty=False,
+    )
+    schedule = serializers.CharField(required=False, allow_blank=True, default="")
+    tpo = StringListField(
+        child=serializers.CharField(allow_blank=False),
+        required=False,
+        allow_empty=True,
+        default=list,
+    )
+    hashtags = StringListField(
+        child=serializers.CharField(allow_blank=False),
+        required=False,
+        allow_empty=True,
+        default=list,
+    )
+
+    def validate_wardrobe_item_ids(self, item_ids):
+        if len(item_ids) != len(set(item_ids)):
+            raise serializers.ValidationError("중복된 옷장 아이템 ID가 있습니다.")
+        return item_ids
 
 
 class CalendarWardrobeItemSerializer(serializers.ModelSerializer):
