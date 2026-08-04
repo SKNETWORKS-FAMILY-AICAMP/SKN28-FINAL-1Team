@@ -128,8 +128,16 @@ export function LookComposer({ date }: { date?: string }) {
     setItems((prev) => prev.filter((i) => entryItemKey(i) !== key));
   };
 
-  /* 일정만 적어 둔 날도 유효한 기록이다 — 사진도 옷도 없이 '친구 결혼식'만 남길 수 있다. */
-  const canSave = Boolean(photo) || items.length > 0 || note.trim().length > 0;
+  /**
+   * 저장할 수 있는 조건이 두 모드에서 다르다.
+   * - 캘린더: 일정만 적어 둔 날도 유효한 기록이다 — 사진도 옷도 없이 '친구 결혼식'만 남길 수 있다.
+   * - 룩북: 그리드에 보여 줄 그림이 있어야 룩이 성립한다. 사진이거나, 고른 옷의 첫 장이거나.
+   *   일정만 적힌 룩은 카드가 빈칸으로 남아 목록에서 아무것도 가리키지 못한다.
+   */
+  const canSave =
+    mode === 'lookbook'
+      ? Boolean(photo) || items.length > 0
+      : Boolean(photo) || items.length > 0 || note.trim().length > 0;
 
   /** 룩북 카드에 쓸 대표 사진 — 룩 사진이 없으면 담은 옷의 첫 장으로 대신한다. */
   const coverImage = photo ?? items.find((i) => i.image)?.image;
@@ -260,7 +268,11 @@ export function LookComposer({ date }: { date?: string }) {
                 ) : (
                   <View style={styles.photoEmpty}>
                     <Icon name="photo" tintColor={ink(0.28)} size={30} />
-                    <Text style={styles.photoHint}>사진 없이 옷이나 일정만 기록해도 괜찮아요</Text>
+                    <Text style={styles.photoHint}>
+                      {mode === 'calendar'
+                        ? '사진 없이 옷이나 일정만 기록해도 괜찮아요'
+                        : '사진이 없으면 고른 옷의 첫 장이 표지가 돼요'}
+                    </Text>
                   </View>
                 )}
                 <View style={styles.pickRow}>
@@ -317,10 +329,11 @@ export function LookComposer({ date }: { date?: string }) {
               </View>
             </View>
 
-            {/* 일정 */}
+            {/* 일정 — '선택' 꼬리표를 달지 않는다. 여기만 선택이라고 적으면 나머지가 필수로 읽히는데
+                실제로는 사진·옷·일정 모두 골라 채우는 칸이고, 무엇이 있어야 저장되는지는
+                사진 자리의 안내와 저장 버튼이 이미 말해 준다. */}
             <View style={styles.sectionHead}>
               <Text style={styles.sectionTitle}>일정</Text>
-              <Text style={styles.count}>선택</Text>
             </View>
             <TextInput
               style={styles.noteInput}
@@ -591,10 +604,11 @@ const styles = StyleSheet.create({
     borderRadius: 14,
     borderWidth: 1,
     borderColor: Editorial.line,
-    marginTop: 14,
+    /* 옵션 줄끼리는 한 묶음이라 바짝 붙인다 */
+    marginTop: 8,
   },
-  /* 첫 옵션은 해시태그와 사이를 벌린다 — 고르는 것과 정하는 것의 경계 */
-  firstOption: { marginTop: 30 },
+  /* 묶음의 첫 줄만 해시태그와 사이를 벌린다 — 고르는 것과 정하는 것의 경계 */
+  firstOption: { marginTop: 34 },
   /* 이미 이어져 있어 누를 것이 없는 줄 — 면을 깔아 토글 줄과 구분한다 */
   linkedRow: { backgroundColor: Editorial.surfaceSoft },
   optionIcon: {
