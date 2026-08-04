@@ -5,7 +5,7 @@ from django.db import migrations, models
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("users", "0004_alter_socialaccount_provider_apple"),
+        ("users", "0010_system_table_comments"),
     ]
 
     operations = [
