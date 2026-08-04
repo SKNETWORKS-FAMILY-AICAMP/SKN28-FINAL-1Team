@@ -140,15 +140,29 @@ class BodyDetailInputSerializer(serializers.ModelSerializer):
 
 
 class BodyPhotoUploadSerializer(serializers.Serializer):
-    """POST /users/me/body/photos — 정면/측면 사진 (multipart/form-data).
+    """POST /users/me/body/photos — 정면/측면 사진 + 기본 정보 (multipart/form-data).
 
-    사진은 저장하지 않고 접수만 한다. 추후 상세 수치 추론에 사용될 예정.
+    사진은 디스크·DB에 저장하지 않고 추론에만 쓴다. 성별·키·몸무게는 생략 가능하며,
+    생략하면 저장된 기본 신체치수를 사용한다 (무사진 추정 API와 동일한 규칙).
     """
 
     MAX_UPLOAD_SIZE = 10 * 1024 * 1024  # 10MB
 
     front_image = serializers.ImageField(help_text="정면 전신 사진 (10MB 이하)")
     side_image = serializers.ImageField(help_text="측면 전신 사진 (10MB 이하)")
+    gender = serializers.ChoiceField(
+        choices=BodyMeasurement.Gender.choices,
+        required=False,
+        help_text="male 또는 female. 생략 시 저장된 값 사용.",
+    )
+    height = serializers.DecimalField(
+        max_digits=4, decimal_places=1, min_value=100, max_value=230,
+        required=False, help_text="키(cm). 생략 시 저장된 값 사용.",
+    )
+    weight = serializers.DecimalField(
+        max_digits=4, decimal_places=1, min_value=25, max_value=300,
+        required=False, help_text="몸무게(kg). 생략 시 저장된 값 사용.",
+    )
 
     def _validate_size(self, image):
         if image.size > self.MAX_UPLOAD_SIZE:
@@ -162,6 +176,56 @@ class BodyPhotoUploadSerializer(serializers.Serializer):
         return self._validate_size(image)
 
 
+class BodyEstimateInputSerializer(serializers.Serializer):
+    """POST /users/me/body/estimate — 성별·키·몸무게로 상세 치수 추정.
+
+    세 값 모두 생략 가능하다. 생략하면 이미 저장된 기본 신체치수
+    (PUT /users/me/body/basic 으로 입력한 값)를 사용한다. 값을 보내면
+    그 값으로 추정하고, 저장된 기본 치수도 함께 갱신한다.
+    """
+
+    gender = serializers.ChoiceField(
+        choices=BodyMeasurement.Gender.choices,
+        required=False,
+        help_text="male 또는 female. 생략 시 저장된 값 사용.",
+    )
+    height = serializers.DecimalField(
+        max_digits=4, decimal_places=1, min_value=100, max_value=230,
+        required=False, help_text="키(cm). 생략 시 저장된 값 사용.",
+    )
+    weight = serializers.DecimalField(
+        max_digits=4, decimal_places=1, min_value=25, max_value=300,
+        required=False, help_text="몸무게(kg). 생략 시 저장된 값 사용.",
+    )
+
+
+class BodyEstimationResultSerializer(serializers.Serializer):
+    """두 추정 API가 공유하는 결과 형식.
+
+    사진 유무와 무관하게 프론트가 같은 파서로 처리할 수 있도록, 무사진 추정
+    응답과 사진 측정 트랜잭션 조회 응답이 모두 이 형태를 사용한다.
+    POST 자체는 동기(200)/비동기(202)로 다를 수밖에 없어 '결과'만 통일한다.
+    """
+
+    status = serializers.ChoiceField(
+        choices=BodyPhotoTransaction.Status.choices,
+        help_text="in_progress | succeeded | failed",
+    )
+    source = serializers.ChoiceField(
+        choices=[("basic_info", "기본 정보"), ("photo", "사진")],
+        help_text="추정에 사용한 입력 (basic_info | photo)",
+    )
+    transaction_id = serializers.UUIDField(
+        allow_null=True, help_text="사진 측정일 때만 값이 있다. 무사진 추정은 null."
+    )
+    measurement = BodyMeasurementSerializer(
+        help_text="추정된 신체치수 전체. 상세 7개는 항상 채워져 있다."
+    )
+    error_message = serializers.CharField(
+        allow_null=True, help_text="실패했을 때만 사유가 들어간다."
+    )
+
+
 class BodyPhotoTransactionSerializer(serializers.ModelSerializer):
     """사진 측정 트랜잭션 상태 응답 (GET /users/me/body/photos/{transaction_id})."""
 
@@ -169,7 +233,9 @@ class BodyPhotoTransactionSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = BodyPhotoTransaction
-        fields = ["transaction_id", "status", "created_at", "updated_at"]
+        fields = [
+            "transaction_id", "status", "error_message", "created_at", "updated_at"
+        ]
         read_only_fields = fields
 
 

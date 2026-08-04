@@ -207,3 +207,78 @@ results/
 - `OPENROUTER_API_KEY`: Qwen 3.7 Flash, Kimi K2.5, Grok 4.3 호출
 - Gemini를 두 API에서 중복 호출하지 않는다.
 - AWS GPU는 현재 API 테스트에 필요 없고, 추후 오픈웨이트 모델 직접 운영에만 사용한다.
+
+## 2026-08-04 신체치수 추정 API 2종 구현 완료
+
+### 1. 무엇을 만들었나
+
+| API | 방식 | 입력 | 출력 |
+|---|---|---|---|
+| `POST /api/v1/users/me/body/estimate/` (신규) | 동기 200 | 성별·키·몸무게 | 상세 7개 |
+| `POST /api/v1/users/me/body/photos/` (기존 껍데기 → 실제 연결) | 비동기 202 + 폴링 | 성별·키·몸무게 + 사진 2장 | 상세 7개 |
+| `GET /api/v1/users/me/body/photos/{tx_id}/` | 조회 | — | 상세 7개 + 상태/실패사유 |
+
+- 성별·키·몸무게는 두 API 모두 생략 가능하다. 생략하면 저장된 기본 신체치수를 쓴다.
+
+### 2. Response 통일 방식
+
+POST 껍데기는 동기(200)/비동기(202)라 같게 만들 수 없어 **결과 payload를 통일**했다.
+`POST /body/estimate/`와 `GET /body/photos/{tx_id}/`가 아래 형태를 공유한다.
+
+```json
+{
+  "status": "succeeded",
+  "source": "basic_info | photo",
+  "transaction_id": null,
+  "measurement": { "gender": "male", "height": "175.5", "weight": "70.0",
+                   "chest": "98.7", "waist": "83.8", "hip": "94.0",
+                   "thigh": "55.2", "calf": "37.3", "arm": "32.0",
+                   "shoulder": "40.3", "updated_at": "..." },
+  "error_message": null
+}
+```
+
+### 3. 7개 vs 3개 갭 해결
+
+- 무사진 모델(hist_gradient_boosting)은 7개를 전부 예측한다.
+- 사진 모델(VLM)은 가슴·허리·엉덩이 3개만 예측한다. `vlm_*_set.csv`에 나머지 4개
+  정답이 없어 사진 기반 정확도를 한 번도 측정한 적이 없기 때문이다.
+- **결정(2026-08-04 갱신)**: 사진 VLM에게도 **7개를 전부** 물어본다. 3개만 물었던 건
+  모델 선정 벤치마크에서 비용을 아끼려던 조치였고 제품 요구사항이 아니었다.
+  기본 정보 추정으로 7개를 먼저 채운 뒤 VLM 응답으로 덮어쓴다 (VLM이 일부를
+  빠뜨려도 빈칸이 생기지 않는다).
+- ⚠️ 다만 **정확도가 측정된 부위는 여전히 가슴·허리·엉덩이 3개뿐**이다.
+  나머지 4개는 정답 데이터가 없어 오차를 계산할 수 없다.
+- 서빙 프롬프트는 `body_measurement_prompt_full.j2`(7개), 벤치마크 프롬프트는
+  기존 `body_measurement_prompt.j2`(3개)로 분리했다. 기록된 MAE를 재현할 수 있게
+  벤치마크 쪽은 건드리지 않았다.
+- 상세 값은 덮어쓴다. 추정 후 사용자가 `PATCH /body/detail/`로 고치는 흐름이다.
+
+### 4. 트러블슈팅
+
+| 문제 | 원인 | 해결 |
+|---|---|---|
+| `hist_gradient_boosting.joblib` 로드 불가 (`ModuleNotFoundError: _loss`) | sklearn 1.8.0으로 저장 → 1.9.0에서 언피클 | 실행 환경을 1.8.0으로 고정 (`api/requirements.txt`) |
+| 배포 시 모델 파일 없음 | `.gitignore`의 `*.joblib` (루트 + ml 하위 2곳) | 예외 규칙 추가해 커밋 가능하게 변경 |
+| 백그라운드에서 사진 접근 불가 | 업로드 파일이 응답 후 사라지는데 `start_measurement(tx_id)`만 넘김 | 접수 시 바이트로 읽어 스레드에 전달하도록 시그니처 변경 |
+| 실패 사유를 프론트가 알 수 없음 | 트랜잭션에 상태만 있고 사유 컬럼 없음 | `BodyPhotoTransaction.error_message` 추가 (마이그레이션 0012) |
+| sqlite로 테스트 불가 | `catalog` 앱이 Postgres 전용 ArrayField/GinIndex 사용 | Postgres(docker compose db)로 테스트 |
+
+### 5. 검증 결과
+
+- `manage.py test apps.users` — **63개 전부 통과** (Postgres)
+- 무사진 추정 종단 확인: `male 175.5cm 70kg` → 7개 전부 반환, 200
+- 사진 추정 종단 확인 (jisoo, 실제 OpenRouter 호출):
+
+| 부위 | KNN만 | 사진+모델 | 실제 |
+|---|---:|---:|---:|
+| 가슴 | 78.5 | 82.0 | 84.0 |
+| 허리 | 64.0 | 61.0 | 56.0 |
+| 엉덩이 | 84.4 | 88.0 | 86.0 |
+
+### 6. 남은 일
+
+- [ ] 사진 모델 최종 확정 (Qwen 3.7 Flash 기본값 / Kimi K2.5는 정확도 1위·비용 30배)
+- [ ] 선택한 모델로 Test 154명 최종 평가
+- [ ] 백그라운드 스레드 → Celery/SQS 교체 (AWS 이관 시)
+- [ ] 프론트 연동 확인

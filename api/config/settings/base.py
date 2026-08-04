@@ -8,6 +8,7 @@
 from __future__ import annotations
 
 import os
+import sys
 from datetime import timedelta
 from pathlib import Path
 
@@ -17,6 +18,12 @@ from dotenv import load_dotenv
 BASE_DIR = Path(__file__).resolve().parent.parent.parent
 # 루트 .env (api/의 상위 = 프로젝트 루트)
 load_dotenv(BASE_DIR.parent / ".env")
+
+# ML 추론 코드는 ml/ 아래에 두고 웹 계층이 import해서 쓴다 (CLAUDE.md §7).
+# ml/을 경로에 올려 `from body_measurement.src import inference` 로 접근한다.
+ML_ROOT = Path(os.getenv("ML_ROOT") or (BASE_DIR.parent / "ml"))
+if str(ML_ROOT) not in sys.path:
+    sys.path.insert(0, str(ML_ROOT))
 
 SECRET_KEY = os.getenv("DJANGO_SECRET_KEY", "insecure-dev-only-change-me")
 

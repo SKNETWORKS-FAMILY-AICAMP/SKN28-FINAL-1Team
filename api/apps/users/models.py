@@ -194,6 +194,12 @@ class BodyPhotoTransaction(models.Model):
         "상태", max_length=20, choices=Status.choices, default=Status.IN_PROGRESS,
         db_comment="측정 상태 (in_progress/succeeded/failed, 사용자당 진행중 1건)",
     )
+    # 실패 원인을 남기지 않으면 프론트가 재시도 안내를 못 한다. VLM 호출은 타임아웃·
+    # 응답 길이 초과 등으로 실제 실패하므로(검증 39명 중 1건) 사유를 함께 보관한다.
+    error_message = models.TextField(
+        "실패 사유", blank=True, default="",
+        db_comment="측정 실패 사유 (성공/진행중이면 빈 문자열)",
+    )
     created_at = models.DateTimeField(
         "생성 시각", auto_now_add=True, db_comment="접수 시각"
     )

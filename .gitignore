@@ -91,6 +91,10 @@ test-results/
 *.tflite
 *.pkl
 *.joblib
+# 신체치수 추정 모델은 API 서빙이 직접 읽으므로 예외로 커밋한다.
+# 단 random_forest.joblib은 50MB라 저장소가 무거워지므로 계속 제외한다 (서빙 미사용).
+!ml/body_measurement/artifacts/models/*.joblib
+ml/body_measurement/artifacts/models/random_forest.joblib
 # Hugging Face / PyTorch 등이 만드는 로컬 모델 다운로드 캐시
 .cache/
 .huggingface/

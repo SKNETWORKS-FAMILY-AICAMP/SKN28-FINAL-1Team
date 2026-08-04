@@ -13,21 +13,22 @@ TRAILING_METADATA_COLUMNS = [
     "side_image_path",
     "model",
     "run_name",
+    "prompt_set",
     "status",
 ]
+
+# 정답값이 있어 오차를 계산할 수 있는 부위.
+CORE_TARGETS = ["chest", "waist", "hip"]
+# --prompt-set full 로 돌리면 예측값은 나오지만 정답이 없어 채점은 못 한다.
+# 응답률(coverage)만 지표에 남긴다.
+EXTRA_TARGETS = ["thigh", "calf", "arm", "shoulder"]
 
 
 MEASUREMENT_COLUMNS = [
     "subject_id",
-    "predicted_chest_cm",
-    "predicted_waist_cm",
-    "predicted_hip_cm",
-    "chest",
-    "waist",
-    "hip",
-    "chest_absolute_error_cm",
-    "waist_absolute_error_cm",
-    "hip_absolute_error_cm",
+    *[f"predicted_{target}_cm" for target in [*CORE_TARGETS, *EXTRA_TARGETS]],
+    *CORE_TARGETS,
+    *[f"{target}_absolute_error_cm" for target in CORE_TARGETS],
 ]
 
 
@@ -61,7 +62,7 @@ def main() -> None:
         validate="one_to_one",
     )
 
-    for measurement in ["chest", "waist", "hip"]:
+    for measurement in CORE_TARGETS:
         prediction_column = f"predicted_{measurement}_cm"
         error_column = f"{measurement}_absolute_error_cm"
         evaluated[prediction_column] = pd.to_numeric(
@@ -82,6 +83,19 @@ def main() -> None:
         "hip_mae_cm": round(success_rows["hip_absolute_error_cm"].mean(), 3),
         "mean_latency_seconds": round(success_rows["latency_seconds"].mean(), 3),
     }
+
+    # 정답이 없어 MAE를 못 내는 부위는 "모델이 값을 주기는 했는지"만 기록한다.
+    # 이 숫자는 정확도가 아니라 응답률이므로 성능 근거로 쓰면 안 된다.
+    coverage = {}
+    for target in EXTRA_TARGETS:
+        column = f"predicted_{target}_cm"
+        if column in success_rows.columns:
+            filled = int(
+                pd.to_numeric(success_rows[column], errors="coerce").notna().sum()
+            )
+            coverage[target] = round(filled / len(success_rows), 4) if len(success_rows) else 0.0
+    if coverage:
+        metrics["extra_target_coverage_no_ground_truth"] = coverage
 
     output_path = args.predictions.with_name(
         args.predictions.stem.replace("_predictions_", "_evaluated_") + ".csv"

@@ -123,6 +123,8 @@ python manage.py runserver
 - 모델 코드는 `ml/`에 두고, Django 앱은 추론 인터페이스를 통해 호출한다(웹 계층과 ML 계층 분리).
 - **재현성**: 랜덤 시드 고정, 데이터 버전·하이퍼파라미터를 기록한다.
 - **모델 가중치**: Git에 커밋하지 않는다. S3 등 오브젝트 스토리지에 저장하고 경로/버전으로 참조한다.
+  - **예외**: `ml/body_measurement/artifacts/models/*.joblib`. 신체치수 추정 API(`/body/estimate`, `/body/photos`)가 서빙 시 직접 읽어야 해서 `.gitignore`에 예외 규칙을 뒀다. 서빙에 쓰는 건 `hist_gradient_boosting.joblib`(7.6MB) 하나이며, `random_forest.joblib`은 51MB라 커밋하면 저장소가 무거워진다. 배포 환경에서는 `BODY_MODEL_PATH`로 S3에서 받은 경로를 주입할 수 있다.
+  - ⚠️ 이 아티팩트는 scikit-learn 1.8.0으로 저장돼 있어 **실행 환경도 1.8.0이어야 한다** (1.9.0에서 언피클 실패). 재학습하면 `api/requirements.txt`의 핀도 함께 올린다.
 - **RunPod ↔ AWS 이식성**: 경로·디바이스(`cuda`/`cpu`)·자격증명을 환경변수로 추상화한다. RunPod 전용 하드코딩 금지.
 - **추론 성능**: 배치 처리·캐싱(Redis)·모델 워밍업을 고려한다.
 
