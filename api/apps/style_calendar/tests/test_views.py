@@ -18,7 +18,7 @@ from apps.users.models import User
 from apps.wardrobe.models import WardrobeItem
 
 
-class CalendarReadApiTests(TestCase):
+class CalendarApiTests(TestCase):
     def setUp(self) -> None:
         self.client = APIClient()
         self.user = User.objects.create(username="calendar-user", nickname="캘린더 사용자")
@@ -181,3 +181,110 @@ class CalendarReadApiTests(TestCase):
         self.assertEqual(own_response.status_code, 200)
         self.assertEqual(own_response.data["schedule"], "친구와 저녁 약속")
         self.assertEqual(other_response.status_code, 404)
+
+    def test_patch_updates_calendar_metadata(self) -> None:
+        response = self.client.patch(
+            reverse(
+                "style_calendar:calendar-detail",
+                kwargs={"calendar_id": self.entry.pk},
+            ),
+            {
+                "schedule": "회사 회식",
+                "tpo": ["출근", "모임"],
+                "hashtags": ["포멀", "여름"],
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.entry.refresh_from_db()
+        self.assertEqual(self.entry.schedule, "회사 회식")
+        self.assertEqual(self.entry.tpo, ["출근", "모임"])
+        self.assertEqual(self.entry.hashtags, ["포멀", "여름"])
+        self.assertEqual(response.data["schedule"], "회사 회식")
+        self.assertEqual(response.data["wardrobe_items"][0]["link_id"], str(self.wardrobe_link.pk))
+
+    def test_patch_supports_partial_metadata_update(self) -> None:
+        response = self.client.patch(
+            reverse(
+                "style_calendar:calendar-detail",
+                kwargs={"calendar_id": self.entry.pk},
+            ),
+            {"schedule": "점심 약속"},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.entry.refresh_from_db()
+        self.assertEqual(self.entry.schedule, "점심 약속")
+        self.assertEqual(self.entry.tpo, ["데이트"])
+        self.assertEqual(self.entry.hashtags, ["여름", "캐주얼"])
+
+    def test_patch_rejects_non_metadata_fields(self) -> None:
+        original_date = self.entry.date
+        original_status = self.entry.status
+        response = self.client.patch(
+            reverse(
+                "style_calendar:calendar-detail",
+                kwargs={"calendar_id": self.entry.pk},
+            ),
+            {"date": "2026-08-10", "status": CalendarStatus.FAILED.value},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.entry.refresh_from_db()
+        self.assertEqual(self.entry.date, original_date)
+        self.assertEqual(self.entry.status, original_status)
+
+    def test_patch_validates_tpo_and_hashtags_as_string_lists(self) -> None:
+        url = reverse(
+            "style_calendar:calendar-detail",
+            kwargs={"calendar_id": self.entry.pk},
+        )
+
+        non_list = self.client.patch(url, {"tpo": "데이트"}, format="json")
+        non_string_item = self.client.patch(
+            url,
+            {"hashtags": ["여름", 1]},
+            format="json",
+        )
+
+        self.assertEqual(non_list.status_code, 400)
+        self.assertEqual(non_string_item.status_code, 400)
+
+    def test_patch_rejects_non_object_request_body(self) -> None:
+        response = self.client.patch(
+            reverse(
+                "style_calendar:calendar-detail",
+                kwargs={"calendar_id": self.entry.pk},
+            ),
+            ["schedule", "잘못된 본문"],
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 400)
+
+    def test_patch_requires_authentication_and_ownership(self) -> None:
+        own_url = reverse(
+            "style_calendar:calendar-detail",
+            kwargs={"calendar_id": self.entry.pk},
+        )
+        other_url = reverse(
+            "style_calendar:calendar-detail",
+            kwargs={"calendar_id": self.other_entry.pk},
+        )
+
+        unauthenticated = APIClient().patch(
+            own_url,
+            {"schedule": "변경 시도"},
+            format="json",
+        )
+        other_user_entry = self.client.patch(
+            other_url,
+            {"schedule": "변경 시도"},
+            format="json",
+        )
+
+        self.assertEqual(unauthenticated.status_code, 401)
+        self.assertEqual(other_user_entry.status_code, 404)

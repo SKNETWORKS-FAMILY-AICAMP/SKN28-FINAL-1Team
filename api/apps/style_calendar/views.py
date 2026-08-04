@@ -9,6 +9,7 @@ from rest_framework.views import APIView
 from apps.style_calendar.serializers import (
     CalendarDateQuerySerializer,
     CalendarEntrySerializer,
+    CalendarMetadataUpdateSerializer,
     CalendarPeriodQuerySerializer,
 )
 from apps.style_calendar.services import calendar_service
@@ -42,11 +43,28 @@ class CalendarEntryByDateView(APIView):
 
 
 class CalendarEntryDetailView(APIView):
-    """GET /api/v1/calendars/{calendar_id}/ — 내 캘린더 상세."""
+    """내 캘린더 상세 조회와 메타데이터 수정."""
 
-    def get(self, request, calendar_id):
-        entry = get_object_or_404(
-            calendar_service.entries_for_user(user=request.user),
+    @staticmethod
+    def _get_entry(*, user, calendar_id):
+        return get_object_or_404(
+            calendar_service.entries_for_user(user=user),
             pk=calendar_id,
         )
+
+    def get(self, request, calendar_id):
+        entry = self._get_entry(user=request.user, calendar_id=calendar_id)
+        return Response(CalendarEntrySerializer(entry).data)
+
+    def patch(self, request, calendar_id):
+        """PATCH /api/v1/calendars/{calendar_id}/ — 일정·TPO·해시태그 수정."""
+
+        entry = self._get_entry(user=request.user, calendar_id=calendar_id)
+        serializer = CalendarMetadataUpdateSerializer(
+            entry,
+            data=request.data,
+            partial=True,
+        )
+        serializer.is_valid(raise_exception=True)
+        entry = serializer.save()
         return Response(CalendarEntrySerializer(entry).data)
