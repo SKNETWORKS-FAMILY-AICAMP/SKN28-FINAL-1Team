@@ -145,8 +145,13 @@ class GeminiServiceTests(SimpleTestCase):
         self.assertEqual(parts[1]["inlineData"]["mimeType"], "image/jpeg")
         self.assertTrue(parts[1]["inlineData"]["data"])
         self.assertIn("weather", parts[0]["text"])
-        response_format = kwargs["json"]["generationConfig"]["responseFormat"]
-        self.assertEqual(response_format["text"]["mimeType"], "application/json")
+        generation_config = kwargs["json"]["generationConfig"]
+        self.assertEqual(generation_config["responseMimeType"], "application/json")
+        self.assertEqual(
+            generation_config["responseSchema"], gemini.EVALUATION_SCHEMA
+        )
+        # Gemini Schema는 OpenAPI 서브셋이라 additionalProperties를 모른다 (400 유발)
+        self.assertNotIn("additionalProperties", gemini.EVALUATION_SCHEMA)
 
     @override_settings(GEMINI_API_KEY="")
     def test_requires_api_key(self) -> None:

@@ -61,7 +61,6 @@ EVALUATION_SCHEMA = {
         "personalization_comment",
         "styling_tips",
     ],
-    "additionalProperties": False,
 }
 
 SYSTEM_INSTRUCTION = """당신은 따뜻하고 전문적인 한국어 패션 스타일리스트입니다.
@@ -112,14 +111,12 @@ def evaluate_outfit(
                 ],
             }
         ],
+        # structured output은 responseMimeType + responseSchema로 지정한다
+        # (v1beta GenerationConfig에 responseFormat 필드는 없어 400을 받는다).
         "generationConfig": {
             "temperature": 0.4,
-            "responseFormat": {
-                "text": {
-                    "mimeType": "application/json",
-                    "schema": EVALUATION_SCHEMA,
-                }
-            },
+            "responseMimeType": "application/json",
+            "responseSchema": EVALUATION_SCHEMA,
         },
     }
     url = (
@@ -134,6 +131,11 @@ def evaluate_outfit(
             json=request_body,
             timeout=settings.GEMINI_TIMEOUT_SECONDS,
         )
+        if response.status_code >= 400:
+            # 잘못된 필드명·스키마 등 실제 사유는 본문에만 담기므로 남긴다
+            logger.error(
+                "Gemini 호출 실패 %s: %s", response.status_code, response.text[:2000]
+            )
         response.raise_for_status()
         result = json.loads(_extract_text(response.json()))
     except requests.Timeout as exc:
