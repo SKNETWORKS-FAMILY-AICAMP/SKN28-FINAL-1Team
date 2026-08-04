@@ -1,0 +1,183 @@
+from datetime import date
+
+from django.test import TestCase
+from django.urls import reverse
+from rest_framework.test import APIClient
+
+from apps.style_calendar.contracts import (
+    CalendarItemInternalStatus,
+    CalendarSourceType,
+    CalendarStatus,
+)
+from apps.style_calendar.models import (
+    CalendarEntry,
+    CalendarItem,
+    CalendarWardrobeItem,
+)
+from apps.users.models import User
+from apps.wardrobe.models import WardrobeItem
+
+
+class CalendarReadApiTests(TestCase):
+    def setUp(self) -> None:
+        self.client = APIClient()
+        self.user = User.objects.create(username="calendar-user", nickname="캘린더 사용자")
+        self.other_user = User.objects.create(username="other-user", nickname="다른 사용자")
+        self.client.force_authenticate(self.user)
+
+        self.entry = CalendarEntry.objects.create(
+            user=self.user,
+            date=date(2026, 8, 4),
+            source_type=CalendarSourceType.PHOTO_UPLOAD.value,
+            image_s3_key="calendar/user/entry/original.jpg",
+            schedule="친구와 저녁 약속",
+            tpo=["데이트"],
+            hashtags=["여름", "캐주얼"],
+            status=CalendarStatus.COMPLETED.value,
+        )
+        self.older_entry = CalendarEntry.objects.create(
+            user=self.user,
+            date=date(2026, 8, 1),
+            source_type=CalendarSourceType.WARDROBE_SELECTED.value,
+            image_s3_key="calendar/user/older/original.jpg",
+            status=CalendarStatus.COMPLETED.value,
+        )
+        self.other_entry = CalendarEntry.objects.create(
+            user=self.other_user,
+            date=date(2026, 8, 5),
+            source_type=CalendarSourceType.PHOTO_UPLOAD.value,
+            image_s3_key="calendar/other/entry/original.jpg",
+        )
+
+        wardrobe_item = WardrobeItem.objects.create(
+            user=self.user,
+            job=None,
+            s3_key="wardrobe/user/top.png",
+            item_name="흰색 반팔",
+            category_large="상의",
+            confirmed=True,
+        )
+        self.wardrobe_link = CalendarWardrobeItem.objects.create(
+            calendar=self.entry,
+            wardrobe_item=wardrobe_item,
+            sort_order=0,
+            snapshot={"item_name": "흰색 반팔", "s3_key": wardrobe_item.s3_key},
+        )
+        self.processed_item = CalendarItem.objects.create(
+            calendar=self.entry,
+            internal_status=CalendarItemInternalStatus.EXTRACTED.value,
+            processor_item_id="item-1",
+            image_s3_key="calendar/user/entry/items/item-1.png",
+            category="top",
+            tags=["반팔", "화이트"],
+            bbox={"x": 1, "y": 2, "width": 3, "height": 4},
+        )
+
+    def test_read_endpoints_require_authentication(self) -> None:
+        client = APIClient()
+        urls = [
+            reverse("style_calendar:calendar-list")
+            + "?start_date=2026-08-01&end_date=2026-08-31",
+            reverse("style_calendar:calendar-by-date") + "?date=2026-08-04",
+            reverse(
+                "style_calendar:calendar-detail",
+                kwargs={"calendar_id": self.entry.pk},
+            ),
+        ]
+
+        for url in urls:
+            with self.subTest(url=url):
+                self.assertEqual(client.get(url).status_code, 401)
+
+    def test_period_list_returns_only_my_entries_in_range(self) -> None:
+        response = self.client.get(
+            reverse("style_calendar:calendar-list"),
+            {"start_date": "2026-08-02", "end_date": "2026-08-31"},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(len(response.data), 1)
+        self.assertEqual(response.data[0]["id"], str(self.entry.pk))
+
+    def test_period_list_includes_both_boundary_dates(self) -> None:
+        response = self.client.get(
+            reverse("style_calendar:calendar-list"),
+            {"start_date": "2026-08-01", "end_date": "2026-08-04"},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(
+            [item["date"] for item in response.data],
+            ["2026-08-04", "2026-08-01"],
+        )
+
+    def test_period_list_validates_required_dates_and_order(self) -> None:
+        url = reverse("style_calendar:calendar-list")
+
+        missing = self.client.get(url, {"start_date": "2026-08-01"})
+        reversed_period = self.client.get(
+            url,
+            {"start_date": "2026-08-05", "end_date": "2026-08-01"},
+        )
+        invalid = self.client.get(
+            url,
+            {"start_date": "not-a-date", "end_date": "2026-08-31"},
+        )
+
+        self.assertEqual(missing.status_code, 400)
+        self.assertEqual(reversed_period.status_code, 400)
+        self.assertEqual(invalid.status_code, 400)
+
+    def test_by_date_returns_calendar_with_nested_items(self) -> None:
+        response = self.client.get(
+            reverse("style_calendar:calendar-by-date"),
+            {"date": "2026-08-04"},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data["id"], str(self.entry.pk))
+        self.assertEqual(
+            response.data["wardrobe_items"][0]["link_id"],
+            str(self.wardrobe_link.pk),
+        )
+        self.assertEqual(
+            response.data["wardrobe_items"][0]["wardrobe_item_id"],
+            str(self.wardrobe_link.wardrobe_item_id),
+        )
+        self.assertEqual(
+            response.data["items"][0]["id"],
+            str(self.processed_item.pk),
+        )
+        self.assertNotIn("internal_status", response.data["items"][0])
+        self.assertNotIn("processor_item_id", response.data["items"][0])
+
+    def test_by_date_returns_404_for_missing_or_other_users_entry(self) -> None:
+        missing = self.client.get(
+            reverse("style_calendar:calendar-by-date"),
+            {"date": "2026-08-10"},
+        )
+        other_only = self.client.get(
+            reverse("style_calendar:calendar-by-date"),
+            {"date": str(self.other_entry.date)},
+        )
+
+        self.assertEqual(missing.status_code, 404)
+        self.assertEqual(other_only.status_code, 404)
+
+    def test_detail_returns_only_owned_calendar(self) -> None:
+        own_response = self.client.get(
+            reverse(
+                "style_calendar:calendar-detail",
+                kwargs={"calendar_id": self.entry.pk},
+            )
+        )
+        other_response = self.client.get(
+            reverse(
+                "style_calendar:calendar-detail",
+                kwargs={"calendar_id": self.other_entry.pk},
+            )
+        )
+
+        self.assertEqual(own_response.status_code, 200)
+        self.assertEqual(own_response.data["schedule"], "친구와 저녁 약속")
+        self.assertEqual(other_response.status_code, 404)
