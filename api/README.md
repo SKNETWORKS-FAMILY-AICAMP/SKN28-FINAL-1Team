@@ -86,6 +86,29 @@ docker compose --profile all up -d --build      # db + api + collector 2종
 같은 (provider, provider_user_id)는 항상 같은 User로 연결되고,
 이메일이 같아도 제공사가 다르면 자동 통합하지 않는다(보안상 명시적 연결만).
 
+## 코디 평가 API (apps/recommend)
+
+| 메서드 | 경로 | 설명 |
+| --- | --- | --- |
+| POST | `/api/v1/outfits/analyze/` | multipart `image`(+선택 `lat`/`lon`) → Gemini 평가. 비로그인 가능, JWT를 보내면 추구미·체형 반영 |
+| GET | `/api/v1/outfits/analyses/` | 내 평가 이력 목록 (`status`/`limit`/`offset`). 로그인 필요 |
+| GET | `/api/v1/outfits/analyses/{id}/` | 평가 상세 — 질의 스냅샷 + LLM 요청·응답 원본. 로그인 필요 |
+
+요청 1건은 `outfit_analysis` 테이블에 1행으로 남는다. **LLM 질의를 구성한 정보(날씨·체형·
+추구미 스냅샷)와 LLM 요청·응답 원본을 함께 보관**해 사후에 평가를 재현·비교할 수 있게 한다.
+프로필과 날씨는 계속 바뀌므로 FK 참조가 아니라 요청 시점 값을 복사해 둔다.
+
+- 상태: `PENDING`(접수) → `SUCCEEDED` / `FAILED`. 호출 실패도 사유와 함께 남는다.
+- 원본 사진은 S3(`outfits/{user_id|anonymous}/{analysis_id}/original.<ext>`)에 두고 키만 저장.
+  버킷은 `OUTFIT_S3_BUCKET`, 없으면 `WARDROBE_S3_BUCKET`, 둘 다 없으면 업로드를 건너뛴다.
+- 기록 실패(DB·S3)는 평가 응답을 막지 않는다. 이 경우 응답의 `analysis_id`가 `null`이다.
+- 익명 요청도 `user=NULL`로 기록되며, 소유자를 특정할 수 없어 이력 조회 대상에서 제외된다.
+
+```bash
+python manage.py migrate recommend       # outfit_analysis 테이블 생성
+python manage.py test apps.recommend
+```
+
 ## 스키마 소유권 (collector 연동)
 
 collector가 쓰는 테이블의 스키마는 전부 Django migration이 관리한다:

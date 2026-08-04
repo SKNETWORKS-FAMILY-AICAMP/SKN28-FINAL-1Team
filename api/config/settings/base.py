@@ -283,7 +283,10 @@ QDRANT_TIMEOUT = int(os.getenv("QDRANT_TIMEOUT", "10"))
 QDRANT_IMAGE_VECTOR_DIM = int(os.getenv("QDRANT_IMAGE_VECTOR_DIM", "768"))
 QDRANT_TEXT_VECTOR_DIM = int(os.getenv("QDRANT_TEXT_VECTOR_DIM", "1024"))
 
-# Gemini 기반 코디 사진 평가
+# Gemini 기반 코디 사진 평가 (apps.recommend)
+# 요청/응답과 질의 컨텍스트는 outfit_analysis 테이블에 기록한다.
+# 원본 사진 버킷(OUTFIT_S3_BUCKET 또는 WARDROBE_S3_BUCKET)은
+# apps/recommend/services/storage.py에서 환경변수로 직접 읽는다.
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
 GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-3.5-flash")
 GEMINI_API_BASE_URL = os.getenv(
