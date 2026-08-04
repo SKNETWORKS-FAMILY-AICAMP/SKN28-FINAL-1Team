@@ -1,0 +1,10 @@
+{
+  "type": "object",
+  "properties": {
+    "chest_cm": { "type": "number" },
+    "waist_cm": { "type": "number" },
+    "hip_cm": { "type": "number" }
+  },
+  "required": ["chest_cm", "waist_cm", "hip_cm"],
+  "additionalProperties": false
+}
