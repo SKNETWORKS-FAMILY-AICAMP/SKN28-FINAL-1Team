@@ -26,6 +26,21 @@ class CalendarItemInternalStatus(StrEnum):
     FAILED = "FAILED"
 
 
+class CalendarCallbackStatus(StrEnum):
+    """이미지 프로세서 callback wire 상태."""
+
+    PROCESSING = "processing"
+    COMPLETED = "completed"
+    FAILED = "failed"
+
+
+class CalendarCallbackItemStatus(StrEnum):
+    """이미지 프로세서 callback 아이템 wire 상태."""
+
+    EXTRACTED = "extracted"
+    FAILED = "failed"
+
+
 CALENDAR_JOB_SCHEMA_VERSION = "calendar-job.v1"
 CALENDAR_JOB_TASK_TYPE = "calendar_image_extraction"
 CALENDAR_CALLBACK_SCHEMA_VERSION = "calendar-callback.v1"

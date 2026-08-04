@@ -6,6 +6,11 @@ from collections.abc import Mapping
 
 from rest_framework import serializers
 
+from apps.style_calendar.contracts import (
+    CALENDAR_CALLBACK_SCHEMA_VERSION,
+    CalendarCallbackItemStatus,
+    CalendarCallbackStatus,
+)
 from apps.style_calendar.models import (
     CalendarEntry,
     CalendarItem,
@@ -156,6 +161,153 @@ class CalendarPhotoCreateSerializer(StrictObjectInputMixin, serializers.Serializ
         if len(item_ids) != len(set(item_ids)):
             raise serializers.ValidationError("중복된 옷장 아이템 ID가 있습니다.")
         return item_ids
+
+
+class CalendarCallbackItemSerializer(StrictObjectInputMixin, serializers.Serializer):
+    """이미지 프로세서가 전달하는 캘린더 아이템 결과."""
+
+    processor_item_id = serializers.CharField(max_length=128)
+    status = serializers.ChoiceField(
+        choices=[
+            CalendarCallbackItemStatus.EXTRACTED.value,
+            CalendarCallbackItemStatus.FAILED.value,
+        ]
+    )
+    image_s3_key = serializers.CharField(
+        max_length=512,
+        allow_blank=True,
+        default="",
+    )
+    category = serializers.CharField(max_length=100, allow_blank=True, default="")
+    tags = serializers.JSONField(default=dict)
+    bbox = serializers.JSONField(allow_null=True, default=None)
+    sort_order = serializers.IntegerField(min_value=0)
+    error = serializers.CharField(allow_blank=True, default="")
+
+    def validate(self, attrs):
+        item_status = attrs["status"]
+        image_s3_key = attrs.get("image_s3_key", "")
+        item_error = attrs.get("error", "")
+        if item_status == CalendarCallbackItemStatus.EXTRACTED.value:
+            if not image_s3_key:
+                raise serializers.ValidationError(
+                    {"image_s3_key": "추출 성공 아이템에는 이미지 S3 키가 필요합니다."}
+                )
+        else:
+            if image_s3_key:
+                raise serializers.ValidationError(
+                    {"image_s3_key": "처리 실패 아이템에는 이미지 S3 키를 넣을 수 없습니다."}
+                )
+            if not item_error:
+                raise serializers.ValidationError(
+                    {"error": "처리 실패 원인이 필요합니다."}
+                )
+
+        if not isinstance(attrs["tags"], (dict, list)):
+            raise serializers.ValidationError(
+                {"tags": "태그는 JSON 객체 또는 배열이어야 합니다."}
+            )
+        if attrs["bbox"] is not None and not isinstance(attrs["bbox"], (dict, list)):
+            raise serializers.ValidationError(
+                {"bbox": "bbox는 JSON 객체, 배열 또는 null이어야 합니다."}
+            )
+        return attrs
+
+
+class CalendarCallbackSerializer(StrictObjectInputMixin, serializers.Serializer):
+    """POST /internal/calendars/{id}/callback/ 요청 계약."""
+
+    schema_version = serializers.CharField()
+    calendar_id = serializers.UUIDField()
+    status = serializers.ChoiceField(
+        choices=[
+            CalendarCallbackStatus.PROCESSING.value,
+            CalendarCallbackStatus.COMPLETED.value,
+            CalendarCallbackStatus.FAILED.value,
+        ]
+    )
+    manifest_s3_key = serializers.CharField(
+        max_length=512,
+        allow_blank=True,
+        default="",
+    )
+    completed_at = serializers.DateTimeField(allow_null=True, default=None)
+    error_code = serializers.CharField(max_length=64, allow_blank=True, default="")
+    error_message = serializers.CharField(allow_blank=True, default="")
+    items = CalendarCallbackItemSerializer(many=True, default=list)
+
+    def validate_schema_version(self, value):
+        if value != CALENDAR_CALLBACK_SCHEMA_VERSION:
+            raise serializers.ValidationError(
+                f"지원하지 않는 callback schema_version입니다: {value}"
+            )
+        return value
+
+    def validate(self, attrs):
+        callback_status = attrs["status"]
+        items = attrs["items"]
+        processor_item_ids = [item["processor_item_id"] for item in items]
+        sort_orders = [item["sort_order"] for item in items]
+        image_s3_keys = [item["image_s3_key"] for item in items if item["image_s3_key"]]
+
+        if len(processor_item_ids) != len(set(processor_item_ids)):
+            raise serializers.ValidationError(
+                {"items": "중복된 processor_item_id가 있습니다."}
+            )
+        if len(sort_orders) != len(set(sort_orders)):
+            raise serializers.ValidationError(
+                {"items": "중복된 sort_order가 있습니다."}
+            )
+        if len(image_s3_keys) != len(set(image_s3_keys)):
+            raise serializers.ValidationError(
+                {"items": "중복된 image_s3_key가 있습니다."}
+            )
+
+        if callback_status == CalendarCallbackStatus.PROCESSING.value:
+            if items or attrs["manifest_s3_key"] or attrs["completed_at"]:
+                raise serializers.ValidationError(
+                    "PROCESSING callback에는 완료 결과를 포함할 수 없습니다."
+                )
+            if attrs["error_code"] or attrs["error_message"]:
+                raise serializers.ValidationError(
+                    "PROCESSING callback에는 오류 정보를 포함할 수 없습니다."
+                )
+            return attrs
+
+        if attrs["completed_at"] is None:
+            raise serializers.ValidationError(
+                {"completed_at": "최종 callback에는 완료 시각이 필요합니다."}
+            )
+
+        extracted_count = sum(
+            item["status"] == CalendarCallbackItemStatus.EXTRACTED.value
+            for item in items
+        )
+        if callback_status == CalendarCallbackStatus.COMPLETED.value:
+            if not attrs["manifest_s3_key"]:
+                raise serializers.ValidationError(
+                    {"manifest_s3_key": "완료 callback에는 manifest S3 키가 필요합니다."}
+                )
+            if extracted_count == 0:
+                raise serializers.ValidationError(
+                    {"items": "COMPLETED 상태에는 추출 성공 아이템이 필요합니다."}
+                )
+            if attrs["error_code"] or attrs["error_message"]:
+                raise serializers.ValidationError(
+                    "COMPLETED callback에는 전체 오류 정보를 포함할 수 없습니다."
+                )
+            return attrs
+
+        if extracted_count:
+            raise serializers.ValidationError(
+                {"items": "FAILED 상태에는 추출 성공 아이템을 포함할 수 없습니다."}
+            )
+        has_item_error = any(item["error"] for item in items)
+        if not attrs["error_message"] and not has_item_error:
+            raise serializers.ValidationError(
+                {"error_message": "전체 또는 아이템 처리 실패 원인이 필요합니다."}
+            )
+        return attrs
 
 
 class CalendarWardrobeItemSerializer(serializers.ModelSerializer):

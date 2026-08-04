@@ -12,6 +12,7 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from apps.style_calendar.serializers import (
+    CalendarCallbackSerializer,
     CalendarDateQuerySerializer,
     CalendarEntrySerializer,
     CalendarMetadataUpdateSerializer,
@@ -20,9 +21,57 @@ from apps.style_calendar.serializers import (
     CalendarWardrobeCreateSerializer,
 )
 from apps.style_calendar.services import calendar_service
+from apps.style_calendar.services import callback as calendar_callback
 from apps.style_calendar.services import queue as calendar_queue
+from apps.wardrobe.permissions import HasInternalToken
 
 logger = logging.getLogger(__name__)
+
+
+class CalendarCallbackView(APIView):
+    """POST /api/v1/internal/calendars/{calendar_id}/callback/."""
+
+    authentication_classes = ()
+    permission_classes = (HasInternalToken,)
+
+    def post(self, request, calendar_id):
+        serializer = CalendarCallbackSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        data = serializer.validated_data
+        if data["calendar_id"] != calendar_id:
+            return Response(
+                {"calendar_id": ["URL의 calendar_id와 요청 본문이 일치하지 않습니다."]},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        try:
+            result = calendar_callback.apply_callback(
+                calendar_id=calendar_id,
+                data=data,
+            )
+        except calendar_callback.CalendarCallbackNotFoundError:
+            return Response(
+                {"detail": "캘린더를 찾을 수 없습니다."},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+        except calendar_callback.CalendarCallbackConflictError as exc:
+            return Response(
+                {"detail": str(exc)},
+                status=status.HTTP_409_CONFLICT,
+            )
+        except calendar_callback.CalendarCallbackStorageKeyError as exc:
+            return Response(
+                {"detail": str(exc)},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        response_data = {
+            "calendar_id": str(result.entry.pk),
+            "status": result.entry.status,
+            "num_items": result.created_items,
+            "duplicate": result.duplicate,
+        }
+        return Response(response_data)
 
 
 class CalendarPhotoCreateView(APIView):
