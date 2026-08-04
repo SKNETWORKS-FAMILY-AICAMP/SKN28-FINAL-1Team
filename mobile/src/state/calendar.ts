@@ -36,6 +36,12 @@ export type CalendarEntry = {
   tags: AllowedHashtag[];
   /** 함께 쓰는 옷장 친구에게 공개 여부 */
   shared: boolean;
+  /**
+   * 같이 만들어진 룩북 룩(state/saved.ts SavedLook.id).
+   * 한 번 이어 붙이면 끊지 않는다 — 룩북에서 그 룩을 지우면 여기 값만 남는데,
+   * 캘린더 화면은 실제 룩을 찾지 못하면 연결 줄을 그리지 않는다.
+   */
+  lookId?: string;
   /** 외부 공유 링크용 코드 — 기록당 한 번 만들어 고정한다(링크가 매번 바뀌면 안 되므로) */
   shareCode: string;
   updatedAt: number;
@@ -94,8 +100,19 @@ function seed(
   picks: EntryItem[],
   note?: string,
   shared = false,
+  lookId?: string,
 ): CalendarEntry {
-  return { date, photo, items: picks, note, tags, shared, shareCode: makeShareCode(), updatedAt: 0 };
+  return {
+    date,
+    photo,
+    items: picks,
+    note,
+    tags,
+    shared,
+    lookId,
+    shareCode: makeShareCode(),
+    updatedAt: 0,
+  };
 }
 
 const mine = (id: string) => toEntryItem(CLOSET_ITEMS.find((i) => i.id === id)!, 'closet');
@@ -116,6 +133,7 @@ const SEED_ENTRIES: CalendarEntry[] = [
     [mine('1'), mine('4'), mine('6')],
     '기념일 저녁 약속',
     true,
+    's3',
   ),
   seed(
     '2026-07-12',
@@ -147,7 +165,7 @@ export const calendarStore = {
   getEntries: () => entries,
   getEntry: (date: string): CalendarEntry | undefined => entries[date],
 
-  /** 새 기록 저장 또는 기존 기록 덮어쓰기. shareCode 는 기존 것을 유지한다. */
+  /** 새 기록 저장 또는 기존 기록 덮어쓰기. shareCode 와 룩북 연결은 기존 것을 유지한다. */
   saveEntry(input: {
     date: string;
     photo?: string;
@@ -155,6 +173,7 @@ export const calendarStore = {
     note?: string;
     tags: AllowedHashtag[];
     shared: boolean;
+    lookId?: string;
   }): CalendarEntry {
     const prev = entries[input.date];
     const next: CalendarEntry = {
@@ -164,6 +183,7 @@ export const calendarStore = {
       note: input.note?.trim() || undefined,
       tags: input.tags,
       shared: input.shared,
+      lookId: input.lookId ?? prev?.lookId,
       shareCode: prev?.shareCode ?? makeShareCode(),
       updatedAt: Date.now(),
     };
