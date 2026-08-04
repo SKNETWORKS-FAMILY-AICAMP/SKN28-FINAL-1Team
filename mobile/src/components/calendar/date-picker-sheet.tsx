@@ -81,7 +81,7 @@ export function DatePickerSheet({
             </Pressable>
           </View>
 
-          <View style={styles.weekHeader}>
+          <View style={[styles.calendarWidth, styles.weekHeader]}>
             {WEEKDAYS.map((d, i) => (
               <Text
                 key={d}
@@ -91,7 +91,7 @@ export function DatePickerSheet({
             ))}
           </View>
 
-          <View style={styles.grid}>
+          <View style={[styles.calendarWidth, styles.grid]}>
             {cells.map((day, idx) => {
               if (day === null) return <View key={`e${idx}`} style={styles.cell} />;
               const key = toDateKey(view.year, view.month, day);
@@ -179,6 +179,10 @@ const styles = StyleSheet.create({
   },
   weekdaySun: { color: '#c0392b' },
 
+  /* 칸이 정사각이라 폭을 풀어 두면 넓은 화면에서 칸이 같이 커져 시트가 화면을 통째로 덮는다.
+     달력이 커진다고 고르기 쉬워지지도 않으므로 폰 폭 언저리에서 묶고 가운데 세운다.
+     ⚠️ 요일 헤더와 날짜 그리드에 **함께** 붙여야 한다 — 한쪽만 묶으면 열이 어긋난다. */
+  calendarWidth: { width: '100%', maxWidth: 420, alignSelf: 'center' },
   grid: { flexDirection: 'row', flexWrap: 'wrap' },
   cell: { width: `${100 / 7}%`, aspectRatio: 1, alignItems: 'center', justifyContent: 'center' },
   dayInner: {
