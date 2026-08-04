@@ -1,0 +1,415 @@
+[33mcommit c4039649552357d2f0ab3d6c945869748cb987f9[m[33m ([m[1;36mHEAD[m[33m -> [m[1;32mtest_size[m[33m, [m[1;31morigin/test_size[m[33m)[m
+Author: vosnuev <vosnuevo@gmail.com>
+Date:   Fri Jul 31 12:47:56 2026 +0900
+
+    feat(ml): 신체치수 벤치마크 정리 및 보고서 추가
+    
+    - 기본 모델 4개 + HF 모델 3개 공통 test set(1000명) 기준 벤치마크 완료
+    - artifacts 구조 재정리: classic/nori/tabpfn_* -> csv/, metrics/ 통합
+    - 모델별 예측 결과 CSV 추가 (test_predictions_{model}.csv x 7)
+    - source_row_id=996 샘플 케이스 비교표 및 차트 추가
+    - model_comparison_report.md 보고서 업데이트 (섹션 3 샘플 케이스 분석 추가)
+    - 불필요한 파일 제거: manual_test.py, model_test.py, validation_* CSV
+    - .gitignore에 *.joblib, make_*.py 추가
+
+[33mcommit b91acf6b259a88245a2af7626bdf50cd3764fcf9[m
+Author: vosnuev <vosnuevo@gmail.com>
+Date:   Thu Jul 30 17:53:48 2026 +0900
+
+    feat(body): add gender-aware validation predictions
+
+[33mcommit f81385bc17c86056230c82ca47d630d6961c7bbf[m
+Author: vosnuev <vosnuevo@gmail.com>
+Date:   Thu Jul 30 15:21:24 2026 +0900
+
+    chore(ml): untrack raw sizekorea xlsx (19MB, regen from S3)
+    
+    - git rm --cached data/raw/sizekorea_8th.xlsx
+      (로컬 파일은 보존, remote에서만 제거)
+    - ml/body_measurement/.gitignore에 data/raw/ 다시 추가
+      (S3에서 python src/manual_test.py 로 재생성 가능)
+
+[33mcommit 2ab1fccb97b64b5f8081a060151b89d841a5592a[m
+Author: vosnuev <vosnuevo@gmail.com>
+Date:   Thu Jul 30 15:17:25 2026 +0900
+
+    chore(ml): track benchmark artifacts and raw sizekorea data
+    
+    ml/body_measurement/.gitignore에서 다음 두 줄 제거:
+    - artifacts/    → 6개 모델의 metrics.json / run_manifest / sample_predictions 추적 허용
+    - data/raw/     → S3에서 받은 원본 sizekorea_8th.xlsx (19MB) 추적 허용
+    
+    추가되는 파일:
+    - artifacts/classic/metrics.json
+    - artifacts/classic/run_manifest.json
+    - artifacts/classic/sample_predictions.json
+    - artifacts/nori/metrics.json
+    - artifacts/tabpfn_mix/metrics.json
+    - artifacts/tabpfn_v2/metrics.json
+    - data/raw/sizekorea_8th.xlsx (19MB, S3 원본)
+
+[33mcommit a31db136967452c54d11cda5581839639f6bc4a3[m
+Author: vosnuev <vosnuevo@gmail.com>
+Date:   Thu Jul 30 15:14:06 2026 +0900
+
+    refactor(ml): reorganize body_measurement to data/src layout
+    
+    구조 변경:
+    - data/ 추가: 정제본 CSV 보관 (sizekorea_measurements_clean.csv)
+    - data/raw/ 추가: S3에서 받은 원본 xlsx 보관 (재정제용)
+    - src/ 추가: 모든 .py 스크립트와 노트북
+      - benchmark.py, compare_all_models.py, manual_test.py, model_test.py 이동
+      - Huggingface_benchmark.ipynb -> src/huggingface_benchmark.ipynb (소문자)
+    - artifacts/classic_full/ -> artifacts/classic/ (짧게)
+    - 테스트 scratch 4개 삭제: guide_check, local, pre_commit_check, r2_verify
+    - sizekorea/, __pycache__/ 정리
+    
+    코드 path 일관화:
+    - 4개 .py 모두 Path(__file__).resolve().parent.parent 패턴 사용
+      (어디서 실행해도 동작)
+    - README.md 사용 예시 path 모두 src\ prefix로 갱신
+    - reports/model_comparison_report.md 재현 명령도 src\ + 새 path로 갱신
+    
+    .gitignore 정리:
+    - ml/body_measurement/.gitignore: __pycache__/, data/raw/, .ipynb_checkpoints/ 추가
+    - 루트 .gitignore: data/ -> /data/ (루트만 매치하도록)
+    
+    복구:
+    - reports/model_comparison_report.md가 백그라운드 Claude 세션에 의해
+      삭제된 것을 Recycle Bin에서 복구, classic_full -> classic path 갱신
+    
+    huggingface_benchmark.ipynb는 내용(17 cells) 그대로 유지,
+    파일 위치와 이름만 변경.
+
+[33mcommit 4c41a0af326814d23312e234fa6a83dc50b9a8a8[m
+Author: vosnuev <vosnuevo@gmail.com>
+Date:   Wed Jul 29 18:01:55 2026 +0900
+
+    feat(ml): add body measurement model benchmark
+
+[33mcommit f1bddb5b776cfaf3277abdfad03d066947042176[m[33m ([m[1;32mmain[m[33m)[m
+Author: vosnuev <vosnuevo@gmail.com>
+Date:   Wed Jul 29 11:40:47 2026 +0900
+
+    Fix: migration dependency 정리
+
+[33mcommit 0945fbe6076f968dbf1f7effb2b215bf252721df[m
+Merge: 91056fd 609ba68
+Author: 92shepherd <shepherdpkw@gmail.com>
+Date:   Wed Jul 29 10:58:42 2026 +0900
+
+    Merge branch '11st' of github.com:SKNETWORKS-FAMILY-AICAMP/SKN28-FINAL-1Team
+
+[33mcommit 609ba686b4d87ec0bb4f09ecb945034ef08ada00[m
+Author: HyejiShin-20 <s.hyeji20@gmail.com>
+Date:   Wed Jul 29 10:36:13 2026 +0900
+
+    Feat: 상품 임베딩 하루 주기 일괄 처리 및 임베딩 실패 시 S3 이미지 재사용
+
+[33mcommit 91056fdbe903fa1cfebf35e7093d46fff01e3c4a[m
+Author: 92shepherd <shepherdpkw@gmail.com>
+Date:   Wed Jul 29 10:35:43 2026 +0900
+
+    Docs: ai instruction, readme 수정
+
+[33mcommit a51e0a3b9cde31d81a3cc659e057e419805a4fed[m
+Author: 92shepherd <shepherdpkw@gmail.com>
+Date:   Wed Jul 29 10:33:01 2026 +0900
+
+    Feat: 테이블 칼럼 커멘트 작성
+
+[33mcommit 3862a5aa71f124bcddfbecc7c58a8fb9e6c9d85f[m
+Author: 92shepherd <shepherdpkw@gmail.com>
+Date:   Wed Jul 29 09:54:18 2026 +0900
+
+    Feat: 성별 등록 기능
+
+[33mcommit 845d4a4b2ebfb9e2835561fb548e4441717758af[m
+Author: HyejiShin-20 <s.hyeji20@gmail.com>
+Date:   Wed Jul 29 09:28:39 2026 +0900
+
+    Feat: 상품 중복 수집 하지 않도록 수정
+
+[33mcommit b155ee39949b99e7f9698056f5ea9d26e280faac[m
+Author: HyejiShin-20 <s.hyeji20@gmail.com>
+Date:   Wed Jul 29 09:23:49 2026 +0900
+
+    Feat: 11번가 수집기 일일 한도 추가 (1000개) 및 수집 키워드 순환
+
+[33mcommit c8df21d2414bfbfec69a3e215de55891c7e54d01[m
+Author: HyejiShin-20 <s.hyeji20@gmail.com>
+Date:   Wed Jul 29 09:10:38 2026 +0900
+
+    Feat: 쇼핑몰 상품 임베딩
+
+[33mcommit 820afcb0612873e292951b3be072a6768132d86a[m
+Merge: 7ae5330 8c30188
+Author: 92shepherd <shepherdpkw@gmail.com>
+Date:   Tue Jul 28 16:20:40 2026 +0900
+
+    Merge branch 'test-wardrobe' of github.com:SKNETWORKS-FAMILY-AICAMP/SKN28-FINAL-1Team
+
+[33mcommit 8c3018807ae3a9703dba6239f5b008373ea57866[m[33m ([m[1;31morigin/test-wardrobe[m[33m)[m
+Author: 92shepherd <shepherdpkw@gmail.com>
+Date:   Mon Jul 27 21:41:41 2026 +0900
+
+    Feat: gemini-3.1-flash 태깅 기능 강화 테스트
+
+[33mcommit b0bbd6066d8e00b91af7946fd427ce2e75975e5c[m
+Author: 92shepherd <shepherdpkw@gmail.com>
+Date:   Sun Jul 26 18:44:47 2026 +0900
+
+    Fix: 예외발생 시 대응 조치
+
+[33mcommit 779b23233171c94d2299e889d6f1f5b1ba6ae684[m
+Author: 92shepherd <shepherdpkw@gmail.com>
+Date:   Sun Jul 26 18:31:26 2026 +0900
+
+    Fix: gpt 호출시 가드레일에 걸릴 위험 요소 제거
+
+[33mcommit 59b8fc003250c8483cfbb426fdec21567db727a0[m
+Author: 92shepherd <shepherdpkw@gmail.com>
+Date:   Sun Jul 26 18:08:41 2026 +0900
+
+    Feat: 프론티어 모델 테스트
+
+[33mcommit b8fd78bebdaad8dbb5b999b164860690105ac7e0[m
+Author: 92shepherd <shepherdpkw@gmail.com>
+Date:   Sun Jul 26 17:21:58 2026 +0900
+
+    Fix: gitignore
+
+[33mcommit b60182d2c4413113954a172e9f141e20e5d2eb39[m
+Author: 92shepherd <shepherdpkw@gmail.com>
+Date:   Sun Jul 26 17:20:42 2026 +0900
+
+    Refac: 기존 테스트를 test-sam으로 이동
+
+[33mcommit 3da633f57cbb129f2dd3cae933faaf53be59bf09[m
+Author: 92shepherd <shepherdpkw@gmail.com>
+Date:   Fri Jul 24 22:49:58 2026 +0900
+
+    Fix: 통합 테스트
+
+[33mcommit f076a16ea9fdaf14e36659641c9c49c5cfac155b[m
+Author: HyejiShin-20 <s.hyeji20@gmail.com>
+Date:   Fri Jul 24 16:50:58 2026 +0900
+
+    Feat: OpenAI Batch 태깅 연결
+
+[33mcommit 7ae5330c0e899137106402c3ed9110c4a401c6d4[m
+Author: 92shepherd <shepherdpkw@gmail.com>
+Date:   Fri Jul 24 16:25:02 2026 +0900
+
+    Fix: 테이블 이름 내의 중복구문 제거
+
+[33mcommit 88483ffcbe5e972470ed3301b40d46c7b754f100[m
+Author: WHwi99 <minuk990965@gmail.com>
+Date:   Fri Jul 24 15:18:42 2026 +0900
+
+    fix: handle SAM3 names list output
+
+[33mcommit 50c079fd8e2ecc7f15259a684945a3bd8dc590b3[m
+Author: 92shepherd <shepherdpkw@gmail.com>
+Date:   Fri Jul 24 15:03:36 2026 +0900
+
+    Fix: sam3 requirements
+
+[33mcommit 82cee75754de78f9221681753a2a422946bb8aad[m
+Author: HyejiShin-20 <s.hyeji20@gmail.com>
+Date:   Fri Jul 24 14:49:15 2026 +0900
+
+    Feat: OpenAI, Claude 태깅 선택
+
+[33mcommit 6aae3b08bdf7b50215c22493996f7ab9f056f047[m
+Author: 92shepherd <shepherdpkw@gmail.com>
+Date:   Fri Jul 24 14:46:35 2026 +0900
+
+    Fix: swagger, wardrobe 탭
+
+[33mcommit 95803e765fe237e4a45e124b94c937337e0e2c05[m
+Author: WHwi99 <minuk990965@gmail.com>
+Date:   Fri Jul 24 14:41:07 2026 +0900
+
+    fix: install CLIP dependency for SAM3 Docker
+
+[33mcommit 463c9e8cf4233f046213429568bc438090c692c6[m
+Author: WHwi99 <minuk990965@gmail.com>
+Date:   Fri Jul 24 14:27:49 2026 +0900
+
+    fix: install OpenCV runtime libraries in SAM3 Docker
+
+[33mcommit ee3d7a409ed8e1280220a4c1b793207014df3d70[m
+Author: 92shepherd <shepherdpkw@gmail.com>
+Date:   Fri Jul 24 12:46:28 2026 +0900
+
+    Fix: env 경로설정
+
+[33mcommit e99c532498b86439ee59ba0a96d5eb97521f80c9[m
+Author: 92shepherd <shepherdpkw@gmail.com>
+Date:   Fri Jul 24 12:43:40 2026 +0900
+
+    Feat: 옷장 기능 초안2
+
+[33mcommit e91e3bcf57dc930e785856235cf98249a1fb3073[m
+Author: 92shepherd <shepherdpkw@gmail.com>
+Date:   Fri Jul 24 12:37:46 2026 +0900
+
+    Feat: 옷장 api 초안
+
+[33mcommit 9c1c0a2a897e2453162cb5870dbdbd6ad2fc501e[m
+Author: WHwi99 <minuk990965@gmail.com>
+Date:   Fri Jul 24 12:29:24 2026 +0900
+
+    test: SAM3 Gemini 이미지 일괄 실행 스크립트 수정
+
+[33mcommit 0e1d0794f32cf1e704e6e9a0da894b79eca60d72[m
+Merge: 782afad a65bca9
+Author: HyejiShin-20 <s.hyeji20@gmail.com>
+Date:   Fri Jul 24 10:54:28 2026 +0900
+
+    Merge branch 'main' of https://github.com/SKNETWORKS-FAMILY-AICAMP/SKN28-FINAL-1Team into 11st
+
+[33mcommit 3d6057922f004360e1b96a16171e4d2fb8d007f4[m
+Merge: ca4edcc e258128
+Author: WHwi99 <minuk990965@gmail.com>
+Date:   Fri Jul 24 10:41:13 2026 +0900
+
+    Merge branch 'feature/wardrobe' of https://github.com/SKNETWORKS-FAMILY-AICAMP/SKN28-FINAL-1Team into test-wardrobe
+
+[33mcommit 782afad393838680f6dc8899aaec6515fac51b58[m
+Merge: 2c13364 82caaaa
+Author: HyejiShin-20 <s.hyeji20@gmail.com>
+Date:   Fri Jul 24 10:34:43 2026 +0900
+
+    Merge branch 'feature/embed_11' of https://github.com/SKNETWORKS-FAMILY-AICAMP/SKN28-FINAL-1Team into 11st
+
+[33mcommit ca4edcc3d2b0ea27e56706703ff08a5540db4c6f[m
+Author: 92shepherd <shepherdpkw@gmail.com>
+Date:   Thu Jul 23 17:46:28 2026 +0900
+
+    Feat: Download sam3
+
+[33mcommit a65bca9250f190768212d41739b03a406d277aac[m
+Author: 92shepherd <shepherdpkw@gmail.com>
+Date:   Thu Jul 23 17:28:01 2026 +0900
+
+    Fix: sam3 test
+
+[33mcommit 5bc7a59200423c10c7b384575e016d103492b971[m
+Merge: 09676a1 82caaaa
+Author: 92shepherd <shepherdpkw@gmail.com>
+Date:   Thu Jul 23 15:42:33 2026 +0900
+
+    Merge branch 'feature/embed_11' of github.com:SKNETWORKS-FAMILY-AICAMP/SKN28-FINAL-1Team
+
+[33mcommit 09676a100683264301e2223b2b90b97f90060ccf[m
+Merge: e613b9b 52b1251
+Author: vosnuevo <160494678+vosnuev@users.noreply.github.com>
+Date:   Thu Jul 23 14:56:25 2026 +0900
+
+    Merge pull request #4 from SKNETWORKS-FAMILY-AICAMP/pursuit-back
+    
+    feat(users): 추구미(pursuit) 옵션/조회/저장 API 추가
+
+[33mcommit 52b125164870a4c100fcc24c831d2ab7a3dd78a3[m[33m ([m[1;31morigin/pursuit-back[m[33m, [m[1;32mpursuit-back[m[33m)[m
+Author: vosnuev <vosnuevo@gmail.com>
+Date:   Thu Jul 23 14:39:19 2026 +0900
+
+    feat(users): 추구미(pursuit) 옵션/조회/저장 API 추가
+    
+    - 옵션 마스터(PreferenceOption) 조회 + 사용자 선택(Pursuit) 조회/저장 API
+    - 신규 APIView 2종이 drf-spectacular 스키마 추론에 실패해 Swagger에 문서 없이
+      숨겨져 있던 문제를 api_docs extension으로 해결 (기존 뷰들과 동일 패턴)
+    - 로컬 docker 재빌드용 run-api.ps1 추가
+
+[33mcommit e613b9b589ce193d1de0ce28e4e275a4d544ca3a[m
+Author: 92shepherd <shepherdpkw@gmail.com>
+Date:   Thu Jul 23 12:30:01 2026 +0900
+
+    Fix: 네이버 requirements
+
+[33mcommit 5e976cd278316311dc75d6630d0b4d50f2772991[m
+Author: 92shepherd <shepherdpkw@gmail.com>
+Date:   Thu Jul 23 11:59:56 2026 +0900
+
+    Del: docker compose swagger yaml
+
+[33mcommit a95511a48b9f474e4754951fced0fc4642c6e017[m
+Merge: 6ce1754 66a0595
+Author: 92shepherd <shepherdpkw@gmail.com>
+Date:   Thu Jul 23 11:59:15 2026 +0900
+
+    Merge branch 'feature/naver' of github.com:SKNETWORKS-FAMILY-AICAMP/SKN28-FINAL-1Team
+
+[33mcommit 6ce17542f44adbeb443c59f96306f9c33e767965[m
+Author: 92shepherd <shepherdpkw@gmail.com>
+Date:   Thu Jul 23 10:18:14 2026 +0900
+
+    Fix: 실행모드 변경
+
+[33mcommit eb2316d80301bcc00f1b5f7460cafd556f4b5d4a[m
+Merge: e16ee17 2c512c3
+Author: rp1028 <lkw20001028@gmail.com>
+Date:   Thu Jul 23 09:58:29 2026 +0900
+
+    Merge pull request #2 from SKNETWORKS-FAMILY-AICAMP/feature/front
+    
+    feat(mobile): cozy 프론트엔드 앱 전체 통합
+
+[33mcommit 2c512c3ca1dd272d80c68abf3b540b286bb6551f[m
+Merge: c7119fd e16ee17
+Author: rp1028 <lkw20001028@gmail.com>
+Date:   Thu Jul 23 09:57:16 2026 +0900
+
+    Merge branch 'main' into feature/front
+
+[33mcommit c7119fd3af8463cbcdd4625e98b2d185c15d6f43[m
+Author: rp1028 <lkw20001028@gmail.com>
+Date:   Thu Jul 23 09:51:59 2026 +0900
+
+    fix(mobile): 상세 화면 웹 뒤로가기 목적지 고정 + 2단 레이아웃 폭 정리
+    
+    - goBack: 웹에선 탭 히스토리가 엉뚱한 탭으로 가서 항상 fallback으로 확정 이동(네이티브는 스택 유지)
+    - look-detail 뒤로가기=홈, fitting 뒤로가기=룩상세로 출처 고정 + 헤더 우측 아이콘 정렬
+    - detail-two-pane: 2단 조건을 isWide(≥1280)로 상향(좁은 2단 글자 깨짐 방지), 사진폭 520→560
+    - 상세 화면 본문폭 반응형(≥1280 960 / else 720)
+    - closet 목데이터 브랜드명 제거, mobile/package-lock.json gitignore
+
+[33mcommit d62010ac17ff38b552856eb759e63114c2d2b015[m
+Author: rp1028 <lkw20001028@gmail.com>
+Date:   Wed Jul 22 11:08:03 2026 +0900
+
+    feat(mobile): 추구미 선호도 SVG 아이콘·카테고리 통합 + svg 지원 셋업
+    
+    - 팀 설계(pursuit-front)의 항목 아이콘 47개를 assets/icons 로 가져와 옵션 코드에 매핑,
+      선호도 칩에 렌더한다(SVG stroke 가 짙어 선택 시 어두운 칩에서도 보이도록 흰 타일 위에 얹음).
+    - 상의 핏(top_fits)·상의 기장(top_lengths)·바지 기장(pants_lengths) 카테고리 추가.
+    - react-native-svg + react-native-svg-transformer 도입: metro transformer 설정, svg.d.ts.
+    - eslint flat config(eslint.config.js) 및 eslint-config-expo 정리.
+
+[33mcommit 9ef84918a030a80c8a402ff0fc562557fa659dfe[m
+Author: rp1028 <lkw20001028@gmail.com>
+Date:   Wed Jul 22 11:07:26 2026 +0900
+
+    feat(mobile): 오늘의 룩 단일화·상세 화면 개편 + 데스크톱 2단 레이아웃
+    
+    - constants/today-look.ts 신설: 오늘의 룩(제목·서브·구성 아이템)을 단일 출처로 정의해
+      룩상세·가상피팅이 공유. 화면 간 불일치(드리프트) 방지.
+    - 룩상세·가상피팅·아이템상세를 데스크톱에서 [사진 좌 | 상세·아이템 우] 2단 배치
+      (components/detail-two-pane.tsx). 이 화면들은 우측 채팅 패널을 끄고 그 공간을 아이템에 쓴다.
+    - 룩상세 구성 아이템/추천 이유/서브텍스트(홈 실시간 날씨) 개편, 가상피팅 결과 사진 교체
+      및 로딩 캔버스 색 완화. 옷장 아이템 이미지·이름 갱신.
+
+[33mcommit a6e8319acf55368cd7f21b8417b3584ece8b328a[m
+Author: rp1028 <lkw20001028@gmail.com>
+Date:   Wed Jul 22 11:07:03 2026 +0900
+
+    feat(mobile): 웹 상세 화면 사이드바 유지 + 뒤로가기 폴백·스플래시 클릭막힘 수정
+    
+    - 상세·설정 화면을 (tabs) 그룹으로 이동해 데스크톱 좌측 사이드바를 유지한다.
+      (탭 그룹 밖 화면은 사이드바 없이 전체폭으로 떠 사이드바가 사라졌다.) URL 경로는 그대로 유지.
+      app-tabs.web 에 hidden 트리거(HIDDEN_ROUTES)로 라우트를 등록.
+    - lib/goBack.ts 추가: canGoBack 폴백. 웹에서 URL 직접 진입 시 뒤로가기가 무반응이던 문제 해결.
+    - 스플래시 오버레이가 웹에서 reanimated 콜백 미발동으로 투명하게 남아 화면 전체 클릭을
+      막던 문제 수정(pointerEvents none + 타이머로 확실히 언마운트).

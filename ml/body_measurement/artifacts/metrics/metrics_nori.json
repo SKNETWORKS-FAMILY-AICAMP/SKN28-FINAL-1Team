@@ -1,0 +1,9 @@
+[
+  {"model": "nori", "target": "chest", "mae": 2.502219, "rmse": 3.186318, "r2": 0.865420, "p90_absolute_error": 4.981266, "fit_seconds": 1.802588, "predict_ms_per_row": 19.885299},
+  {"model": "nori", "target": "waist", "mae": 3.332211, "rmse": 4.150272, "r2": 0.832823, "p90_absolute_error": 6.479551, "fit_seconds": 1.802588, "predict_ms_per_row": 19.885299},
+  {"model": "nori", "target": "hip", "mae": 2.385558, "rmse": 3.073804, "r2": 0.743767, "p90_absolute_error": 5.129381, "fit_seconds": 1.802588, "predict_ms_per_row": 19.885299},
+  {"model": "nori", "target": "thigh", "mae": 2.278407, "rmse": 2.930113, "r2": 0.645517, "p90_absolute_error": 4.855470, "fit_seconds": 1.802588, "predict_ms_per_row": 19.885299},
+  {"model": "nori", "target": "calf", "mae": 1.121121, "rmse": 1.451097, "r2": 0.775911, "p90_absolute_error": 2.347833, "fit_seconds": 1.802588, "predict_ms_per_row": 19.885299},
+  {"model": "nori", "target": "arm", "mae": 1.085295, "rmse": 1.437569, "r2": 0.818439, "p90_absolute_error": 2.150600, "fit_seconds": 1.802588, "predict_ms_per_row": 19.885299},
+  {"model": "nori", "target": "shoulder", "mae": 1.154987, "rmse": 1.463793, "r2": 0.729902, "p90_absolute_error": 2.410149, "fit_seconds": 1.802588, "predict_ms_per_row": 19.885299}
+]
