@@ -206,7 +206,8 @@ class CalendarWardrobeCreateApiTests(TestCase):
             1,
         )
         self.assertEqual(CalendarWardrobeItem.objects.count(), 0)
-        self.mock_delete_objects.assert_called_once()
+        self.mock_copy_wardrobe_item.assert_not_called()
+        self.mock_delete_objects.assert_not_called()
 
     def test_create_rejects_photo_fields_on_wardrobe_only_endpoint(self) -> None:
         payload = self._payload()

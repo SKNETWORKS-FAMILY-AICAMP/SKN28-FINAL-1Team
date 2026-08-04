@@ -4,12 +4,18 @@ from apps.style_calendar.views import (
     CalendarEntryByDateView,
     CalendarEntryDetailView,
     CalendarEntryListView,
+    CalendarPhotoCreateView,
     CalendarWardrobeCreateView,
 )
 
 app_name = "style_calendar"
 
 urlpatterns = [
+    path(
+        "calendars/photo/",
+        CalendarPhotoCreateView.as_view(),
+        name="calendar-photo-create",
+    ),
     path(
         "calendars/wardrobe/",
         CalendarWardrobeCreateView.as_view(),

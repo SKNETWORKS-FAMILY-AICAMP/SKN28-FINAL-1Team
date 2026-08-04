@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from django.shortcuts import get_object_or_404
 from rest_framework import status
+from rest_framework.parsers import FormParser, MultiPartParser
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
@@ -12,9 +13,56 @@ from apps.style_calendar.serializers import (
     CalendarEntrySerializer,
     CalendarMetadataUpdateSerializer,
     CalendarPeriodQuerySerializer,
+    CalendarPhotoCreateSerializer,
     CalendarWardrobeCreateSerializer,
 )
 from apps.style_calendar.services import calendar_service
+
+
+class CalendarPhotoCreateView(APIView):
+    """POST /api/v1/calendars/photo/ — 사용자 사진 캘린더 선등록."""
+
+    parser_classes = (MultiPartParser, FormParser)
+
+    def post(self, request):
+        serializer = CalendarPhotoCreateSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        data = serializer.validated_data
+
+        try:
+            entry = calendar_service.create_from_photo(
+                user=request.user,
+                image=data["image"],
+                entry_date=data["date"],
+                wardrobe_item_ids=data["wardrobe_item_ids"],
+                schedule=data["schedule"],
+                tpo=data["tpo"],
+                hashtags=data["hashtags"],
+            )
+        except calendar_service.WardrobeItemsNotFoundError:
+            return Response(
+                {
+                    "wardrobe_item_ids": [
+                        "존재하지 않거나 사용자 소유가 아닌 옷장 아이템이 포함되어 있습니다."
+                    ]
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        except calendar_service.CalendarDateConflictError:
+            return Response(
+                {"date": ["해당 날짜의 캘린더가 이미 존재합니다."]},
+                status=status.HTTP_409_CONFLICT,
+            )
+        except calendar_service.CalendarStorageError:
+            return Response(
+                {"detail": "캘린더 이미지 저장에 실패했습니다. 잠시 후 다시 시도해주세요."},
+                status=status.HTTP_503_SERVICE_UNAVAILABLE,
+            )
+
+        return Response(
+            CalendarEntrySerializer(entry).data,
+            status=status.HTTP_202_ACCEPTED,
+        )
 
 
 class CalendarWardrobeCreateView(APIView):

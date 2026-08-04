@@ -17,6 +17,15 @@ class CalendarStorageKeyTests(SimpleTestCase):
             f"calendar/7/{self.calendar_id}/original.jpeg",
         )
         self.assertEqual(
+            storage.original_key(
+                7,
+                self.calendar_id,
+                "incorrect.jpg",
+                "image/png",
+            ),
+            f"calendar/7/{self.calendar_id}/original.png",
+        )
+        self.assertEqual(
             storage.selected_item_key(
                 7,
                 self.calendar_id,

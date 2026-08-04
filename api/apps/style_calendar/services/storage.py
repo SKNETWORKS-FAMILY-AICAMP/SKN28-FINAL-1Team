@@ -22,6 +22,12 @@ PRESIGNED_GET_TTL = int(os.getenv("CALENDAR_PRESIGNED_GET_TTL", "3600"))
 
 _SAFE_TOKEN_PATTERN = re.compile(r"[^A-Za-z0-9._-]")
 _SAFE_PATH_SEGMENT_PATTERN = re.compile(r"[A-Za-z0-9_-]+")
+_IMAGE_CONTENT_TYPE_EXTENSIONS = {
+    "image/jpeg": ".jpg",
+    "image/png": ".png",
+    "image/webp": ".webp",
+    "image/heic": ".heic",
+}
 
 
 class CalendarStorageConfigurationError(RuntimeError):
@@ -72,8 +78,11 @@ def original_key(
     user_id: int | str,
     calendar_id: UUID | str,
     filename: str,
+    content_type: str | None = None,
 ) -> str:
-    extension = _extension(filename, default=".jpg")
+    extension = _IMAGE_CONTENT_TYPE_EXTENSIONS.get(content_type or "")
+    if extension is None:
+        extension = _extension(filename, default=".jpg")
     return f"{calendar_prefix(user_id, calendar_id)}original{extension}"
 
 

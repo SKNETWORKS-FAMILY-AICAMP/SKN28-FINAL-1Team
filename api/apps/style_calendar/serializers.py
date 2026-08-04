@@ -13,6 +13,9 @@ from apps.style_calendar.models import (
 )
 from apps.style_calendar.services import storage
 
+MAX_CALENDAR_UPLOAD_MB = 15
+ALLOWED_CALENDAR_IMAGE_TYPES = {"image/jpeg", "image/png", "image/webp", "image/heic"}
+
 
 class StrictObjectInputMixin:
     """입력 serializer가 JSON 객체와 선언된 필드만 받도록 제한한다."""
@@ -106,6 +109,48 @@ class CalendarWardrobeCreateSerializer(StrictObjectInputMixin, serializers.Seria
         allow_empty=True,
         default=list,
     )
+
+    def validate_wardrobe_item_ids(self, item_ids):
+        if len(item_ids) != len(set(item_ids)):
+            raise serializers.ValidationError("중복된 옷장 아이템 ID가 있습니다.")
+        return item_ids
+
+
+class CalendarPhotoCreateSerializer(StrictObjectInputMixin, serializers.Serializer):
+    """사용자 사진 한 장을 이용한 캘린더 등록 요청."""
+
+    image = serializers.ImageField()
+    date = serializers.DateField()
+    wardrobe_item_ids = serializers.ListField(
+        child=serializers.UUIDField(),
+        required=False,
+        allow_empty=True,
+        default=list,
+    )
+    schedule = serializers.CharField(required=False, allow_blank=True, default="")
+    tpo = StringListField(
+        child=serializers.CharField(allow_blank=False),
+        required=False,
+        allow_empty=True,
+        default=list,
+    )
+    hashtags = StringListField(
+        child=serializers.CharField(allow_blank=False),
+        required=False,
+        allow_empty=True,
+        default=list,
+    )
+
+    def validate_image(self, image):
+        if image.size > MAX_CALENDAR_UPLOAD_MB * 1024 * 1024:
+            raise serializers.ValidationError(
+                f"이미지는 {MAX_CALENDAR_UPLOAD_MB}MB 이하여야 합니다."
+            )
+        if image.content_type not in ALLOWED_CALENDAR_IMAGE_TYPES:
+            raise serializers.ValidationError(
+                "지원하지 않는 이미지 형식입니다 (jpeg/png/webp/heic)."
+            )
+        return image
 
     def validate_wardrobe_item_ids(self, item_ids):
         if len(item_ids) != len(set(item_ids)):
