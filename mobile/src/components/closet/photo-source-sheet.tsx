@@ -3,6 +3,7 @@ import { useState } from 'react';
 import {
   ActivityIndicator,
   Modal,
+  Platform,
   Pressable,
   StyleSheet,
   Text,
@@ -23,12 +24,20 @@ type SourceKey = 'album' | 'camera' | 'web' | 'library';
 /* 앨범·카메라는 내 사진, Web 은 쇼핑몰에서 가져오기, 라이브러리는 준비된 옷에서 고르기.
    라이브러리를 넣은 이유 — 사진이 없어도 옷장을 채워볼 수 있는 유일한 길이다.
    (화면은 진작 있었는데 아무 데서도 열어주지 않아 닿을 수 없었다) */
-const SOURCES: { key: SourceKey; label: string; icon: IconName; hint: string }[] = [
+const ALL_SOURCES: { key: SourceKey; label: string; icon: IconName; hint: string }[] = [
   { key: 'album', label: '앨범', icon: 'photo.on.rectangle', hint: '갤러리에서 선택' },
   { key: 'camera', label: '카메라', icon: 'camera', hint: '직접 촬영' },
   { key: 'web', label: 'Web', icon: 'globe', hint: '쇼핑몰에서' },
   { key: 'library', label: '라이브러리', icon: 'book', hint: '준비된 옷에서' },
 ];
+
+/* Web(쇼핑몰에서 가져오기)은 인앱 브라우저가 있어야 동작한다. 브라우저에서는 쇼핑몰 페이지를
+   iframe 으로 띄우는 것도, 그 안을 읽는 것도 막혀 있어 원리적으로 불가능하다.
+   → 웹에서는 눌러봐야 안내만 뜨므로 아예 감춘다. */
+const SOURCES = ALL_SOURCES.filter((s) => !(s.key === 'web' && Platform.OS === 'web'));
+
+/* 넷이면 2×2, 셋이면 한 줄. (48%+gap / 31%+gap) */
+const TILE_BASIS = SOURCES.length === 3 ? ('31%' as const) : ('48%' as const);
 
 /**
  * 사진 가져올 곳 고르기.
@@ -83,14 +92,15 @@ export function PhotoSourceSheet({
           <View style={styles.handle} />
           <Text style={styles.title}>사진 추가</Text>
 
-          {/* 네 갈래를 2×2 로. 한 줄에 넷을 넣으면 좁은 폰에서 '라이브러리'가 잘린다. */}
+          {/* 앱은 네 갈래라 2×2 (한 줄에 넷을 넣으면 좁은 폰에서 '라이브러리'가 잘린다).
+              웹은 Web 타일이 빠져 셋이므로 한 줄에 담는다. */}
           <View style={styles.grid}>
             {SOURCES.map((src) => {
               const on = active === src.key;
               return (
                 <Pressable
                   key={src.key}
-                  style={[styles.tile, on && styles.tileOn]}
+                  style={[styles.tile, { flexBasis: TILE_BASIS }, on && styles.tileOn]}
                   onPress={() => handlePick(src.key)}
                   disabled={loading}>
                   <Icon name={src.icon} tintColor={on ? '#fff' : ink(0.55)} size={24} />
@@ -146,9 +156,8 @@ const styles = StyleSheet.create({
 
   grid: { flexDirection: 'row', flexWrap: 'wrap', gap: 10 },
   tile: {
-    /* 두 칸씩 나눠 갖는다(48% + gap). 폭을 직접 계산하면 좁은 창에서 넘쳐 줄이 어긋난다.
+    /* 폭은 flexBasis 로 나눠 갖는다(TILE_BASIS). 직접 계산하면 좁은 창에서 넘쳐 줄이 어긋난다.
        높이는 고정 — 비율로 두면 폭이 넓은 데스크톱에서 타일이 쓸데없이 커진다. */
-    flexBasis: '48%',
     flexGrow: 1,
     minWidth: 0,
     height: 96,
