@@ -1,4 +1,5 @@
 from datetime import date
+from unittest.mock import patch
 
 from django.test import TestCase
 from django.urls import reverse
@@ -20,6 +21,13 @@ from apps.wardrobe.models import WardrobeItem
 
 class CalendarApiTests(TestCase):
     def setUp(self) -> None:
+        presigned_patcher = patch(
+            "apps.style_calendar.serializers.storage.presigned_get",
+            side_effect=lambda key: f"https://calendar.example/{key}" if key else "",
+        )
+        self.mock_presigned_get = presigned_patcher.start()
+        self.addCleanup(presigned_patcher.stop)
+
         self.client = APIClient()
         self.user = User.objects.create(username="calendar-user", nickname="캘린더 사용자")
         self.other_user = User.objects.create(username="other-user", nickname="다른 사용자")

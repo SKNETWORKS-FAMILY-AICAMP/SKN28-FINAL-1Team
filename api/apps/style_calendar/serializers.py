@@ -11,6 +11,7 @@ from apps.style_calendar.models import (
     CalendarItem,
     CalendarWardrobeItem,
 )
+from apps.style_calendar.services import storage
 
 
 class StrictObjectInputMixin:
@@ -117,23 +118,47 @@ class CalendarWardrobeItemSerializer(serializers.ModelSerializer):
 
     link_id = serializers.UUIDField(source="id", read_only=True)
     wardrobe_item_id = serializers.UUIDField(read_only=True)
+    image_url = serializers.SerializerMethodField()
 
     class Meta:
         model = CalendarWardrobeItem
-        fields = ("link_id", "wardrobe_item_id", "sort_order", "snapshot")
+        fields = (
+            "link_id",
+            "wardrobe_item_id",
+            "image_url",
+            "sort_order",
+            "snapshot",
+        )
+
+    def get_image_url(self, obj) -> str:
+        return storage.presigned_get(obj.snapshot.get("s3_key", ""))
 
 
 class CalendarItemSerializer(serializers.ModelSerializer):
     """이미지 프로세서가 추출한 사용자 노출용 아이템 정보."""
 
+    image_url = serializers.SerializerMethodField()
+
     class Meta:
         model = CalendarItem
-        fields = ("id", "image_s3_key", "category", "tags", "bbox", "sort_order")
+        fields = (
+            "id",
+            "image_s3_key",
+            "image_url",
+            "category",
+            "tags",
+            "bbox",
+            "sort_order",
+        )
+
+    def get_image_url(self, obj) -> str:
+        return storage.presigned_get(obj.image_s3_key)
 
 
 class CalendarEntrySerializer(serializers.ModelSerializer):
     """캘린더 목록·날짜별·상세 조회의 공통 응답."""
 
+    image_url = serializers.SerializerMethodField()
     wardrobe_items = CalendarWardrobeItemSerializer(
         source="wardrobe_links",
         many=True,
@@ -148,6 +173,7 @@ class CalendarEntrySerializer(serializers.ModelSerializer):
             "date",
             "source_type",
             "image_s3_key",
+            "image_url",
             "schedule",
             "tpo",
             "weather_snapshot",
@@ -159,3 +185,6 @@ class CalendarEntrySerializer(serializers.ModelSerializer):
             "updated_at",
         )
         read_only_fields = fields
+
+    def get_image_url(self, obj) -> str:
+        return storage.presigned_get(obj.image_s3_key)

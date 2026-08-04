@@ -1,4 +1,5 @@
 from datetime import date
+from unittest.mock import patch
 from uuid import uuid4
 
 from django.test import TestCase
@@ -17,6 +18,23 @@ from apps.wardrobe.models import WardrobeItem
 
 class CalendarWardrobeCreateApiTests(TestCase):
     def setUp(self) -> None:
+        copy_patcher = patch(
+            "apps.style_calendar.services.calendar_service.storage.copy_wardrobe_item"
+        )
+        delete_patcher = patch(
+            "apps.style_calendar.services.calendar_service.storage.delete_objects"
+        )
+        presigned_patcher = patch(
+            "apps.style_calendar.serializers.storage.presigned_get",
+            side_effect=lambda key: f"https://calendar.example/{key}" if key else "",
+        )
+        self.mock_copy_wardrobe_item = copy_patcher.start()
+        self.mock_delete_objects = delete_patcher.start()
+        self.mock_presigned_get = presigned_patcher.start()
+        self.addCleanup(copy_patcher.stop)
+        self.addCleanup(delete_patcher.stop)
+        self.addCleanup(presigned_patcher.stop)
+
         self.client = APIClient()
         self.user = User.objects.create(username="wardrobe-calendar-user")
         self.other_user = User.objects.create(username="wardrobe-calendar-other")
@@ -72,7 +90,12 @@ class CalendarWardrobeCreateApiTests(TestCase):
         self.assertEqual(entry.date, date(2026, 8, 6))
         self.assertEqual(entry.source_type, CalendarSourceType.WARDROBE_SELECTED.value)
         self.assertEqual(entry.status, CalendarStatus.COMPLETED.value)
-        self.assertEqual(entry.image_s3_key, self.bottom.s3_key)
+        self.assertTrue(
+            entry.image_s3_key.startswith(
+                f"calendar/{self.user.pk}/{entry.pk}/selected/"
+            )
+        )
+        self.assertTrue(entry.image_s3_key.endswith(".png"))
         self.assertEqual(entry.schedule, "출근 후 저녁 약속")
         self.assertEqual(entry.tpo, ["출근", "모임"])
         self.assertEqual(entry.hashtags, ["포멀", "여름"])
@@ -84,6 +107,11 @@ class CalendarWardrobeCreateApiTests(TestCase):
         )
         self.assertEqual([link.sort_order for link in links], [0, 1])
         self.assertEqual(links[0].snapshot["item_name"], self.bottom.item_name)
+        self.assertEqual(links[0].snapshot["s3_key"], entry.image_s3_key)
+        self.assertEqual(
+            links[0].snapshot["source_wardrobe_s3_key"],
+            self.bottom.s3_key,
+        )
         self.assertEqual(links[1].snapshot["tags"]["season"], ["여름"])
         self.assertEqual(CalendarItem.objects.filter(calendar=entry).count(), 0)
 
@@ -92,6 +120,19 @@ class CalendarWardrobeCreateApiTests(TestCase):
             [str(self.bottom.pk), str(self.top.pk)],
         )
         self.assertEqual(response.data["items"], [])
+        self.assertEqual(
+            response.data["image_url"],
+            f"https://calendar.example/{entry.image_s3_key}",
+        )
+        self.assertEqual(self.mock_copy_wardrobe_item.call_count, 2)
+        self.mock_copy_wardrobe_item.assert_any_call(
+            self.bottom.s3_key,
+            links[0].snapshot["s3_key"],
+        )
+        self.mock_copy_wardrobe_item.assert_any_call(
+            self.top.s3_key,
+            links[1].snapshot["s3_key"],
+        )
 
     def test_create_uses_defaults_for_optional_metadata(self) -> None:
         response = self.client.post(
@@ -165,6 +206,7 @@ class CalendarWardrobeCreateApiTests(TestCase):
             1,
         )
         self.assertEqual(CalendarWardrobeItem.objects.count(), 0)
+        self.mock_delete_objects.assert_called_once()
 
     def test_create_rejects_photo_fields_on_wardrobe_only_endpoint(self) -> None:
         payload = self._payload()
@@ -199,6 +241,18 @@ class CalendarWardrobeCreateApiTests(TestCase):
             CalendarWardrobeItem.objects.filter(wardrobe_item=self.top).count(),
             2,
         )
+
+    def test_storage_failure_returns_503_and_rolls_back_copied_objects(self) -> None:
+        self.mock_copy_wardrobe_item.side_effect = [None, RuntimeError("copy failed")]
+
+        response = self.client.post(self.url, self._payload(), format="json")
+
+        self.assertEqual(response.status_code, 503)
+        self.assertFalse(CalendarEntry.objects.filter(user=self.user).exists())
+        self.assertEqual(CalendarWardrobeItem.objects.count(), 0)
+        self.mock_delete_objects.assert_called_once()
+        deleted_keys = self.mock_delete_objects.call_args.args[0]
+        self.assertEqual(len(deleted_keys), 1)
 
     def test_create_requires_authentication(self) -> None:
         response = APIClient().post(self.url, self._payload(), format="json")

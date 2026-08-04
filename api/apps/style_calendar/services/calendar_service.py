@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from collections.abc import Sequence
 from datetime import date
 from typing import TYPE_CHECKING
@@ -16,10 +17,13 @@ from apps.style_calendar.models import (
     CalendarItem,
     CalendarWardrobeItem,
 )
+from apps.style_calendar.services import storage
 from apps.wardrobe.models import WardrobeItem
 
 if TYPE_CHECKING:
     from apps.users.models import User
+
+logger = logging.getLogger(__name__)
 
 
 class WardrobeItemsNotFoundError(Exception):
@@ -28,6 +32,10 @@ class WardrobeItemsNotFoundError(Exception):
 
 class CalendarDateConflictError(Exception):
     """사용자의 해당 날짜 캘린더가 이미 존재하는 경우."""
+
+
+class CalendarStorageError(Exception):
+    """캘린더 소유 S3 경로로 이미지 복사 또는 정리에 실패한 경우."""
 
 
 def entries_for_user(*, user) -> QuerySet[CalendarEntry]:
@@ -59,12 +67,17 @@ def entries_in_period(
     )
 
 
-def _wardrobe_snapshot(item: WardrobeItem) -> dict[str, object]:
+def _wardrobe_snapshot(
+    item: WardrobeItem,
+    *,
+    calendar_s3_key: str,
+) -> dict[str, object]:
     """옷장 데이터 변경과 무관하게 캘린더에 남길 연결 시점 정보."""
 
     return {
         "id": str(item.pk),
-        "s3_key": item.s3_key,
+        "s3_key": calendar_s3_key,
+        "source_wardrobe_s3_key": item.s3_key,
         "item_name": item.item_name,
         "category_large": item.category_large,
         "category_small": item.category_small,
@@ -82,6 +95,13 @@ def _wardrobe_snapshot(item: WardrobeItem) -> dict[str, object]:
             "layer_order": item.layer_order,
         },
     }
+
+
+def _cleanup_copied_objects(keys: Sequence[str]) -> None:
+    try:
+        storage.delete_objects(keys)
+    except Exception:
+        logger.exception("캘린더 S3 복사 객체 정리 실패: object_count=%s", len(keys))
 
 
 def create_from_wardrobe(
@@ -105,34 +125,60 @@ def create_from_wardrobe(
 
     ordered_items = [item_by_id[item_id] for item_id in wardrobe_item_ids]
 
+    entry = CalendarEntry(
+        user=user,
+        date=entry_date,
+        source_type=CalendarSourceType.WARDROBE_SELECTED.value,
+        image_s3_key="",
+        schedule=schedule,
+        tpo=tpo,
+        hashtags=hashtags,
+        status=CalendarStatus.COMPLETED.value,
+    )
+    links: list[CalendarWardrobeItem] = []
+    destination_keys: list[str] = []
+    for sort_order, item in enumerate(ordered_items):
+        link = CalendarWardrobeItem(
+            calendar=entry,
+            wardrobe_item=item,
+            sort_order=sort_order,
+        )
+        destination_key = storage.selected_item_key(
+            user.pk,
+            entry.pk,
+            link.pk,
+            item.s3_key,
+        )
+        link.snapshot = _wardrobe_snapshot(
+            item,
+            calendar_s3_key=destination_key,
+        )
+        links.append(link)
+        destination_keys.append(destination_key)
+
+    copied_keys: list[str] = []
+    try:
+        for item, destination_key in zip(ordered_items, destination_keys, strict=True):
+            storage.copy_wardrobe_item(item.s3_key, destination_key)
+            copied_keys.append(destination_key)
+    except Exception as exc:
+        _cleanup_copied_objects(copied_keys)
+        raise CalendarStorageError from exc
+
+    entry.image_s3_key = destination_keys[0]
     try:
         with transaction.atomic():
-            entry = CalendarEntry.objects.create(
-                user=user,
-                date=entry_date,
-                source_type=CalendarSourceType.WARDROBE_SELECTED.value,
-                image_s3_key=ordered_items[0].s3_key,
-                schedule=schedule,
-                tpo=tpo,
-                hashtags=hashtags,
-                status=CalendarStatus.COMPLETED.value,
-            )
-            CalendarWardrobeItem.objects.bulk_create(
-                [
-                    CalendarWardrobeItem(
-                        calendar=entry,
-                        wardrobe_item=item,
-                        sort_order=sort_order,
-                        snapshot=_wardrobe_snapshot(item),
-                    )
-                    for sort_order, item in enumerate(ordered_items)
-                ]
-            )
+            entry.save(force_insert=True)
+            CalendarWardrobeItem.objects.bulk_create(links)
     except IntegrityError as exc:
+        _cleanup_copied_objects(destination_keys)
         cause = getattr(exc, "__cause__", None)
         diag = getattr(cause, "diag", None)
         if getattr(diag, "constraint_name", None) == "uq_calendar_user_date":
             raise CalendarDateConflictError from exc
+        raise
+    except Exception:
+        _cleanup_copied_objects(destination_keys)
         raise
 
     return entries_for_user(user=user).get(pk=entry.pk)

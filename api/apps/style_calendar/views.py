@@ -48,6 +48,11 @@ class CalendarWardrobeCreateView(APIView):
                 {"date": ["해당 날짜의 캘린더가 이미 존재합니다."]},
                 status=status.HTTP_409_CONFLICT,
             )
+        except calendar_service.CalendarStorageError:
+            return Response(
+                {"detail": "캘린더 이미지 저장에 실패했습니다. 잠시 후 다시 시도해주세요."},
+                status=status.HTTP_503_SERVICE_UNAVAILABLE,
+            )
 
         return Response(
             CalendarEntrySerializer(entry).data,

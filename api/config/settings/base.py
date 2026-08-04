@@ -199,6 +199,12 @@ CORS_ALLOWED_ORIGINS = [
 # ------------------------------------------------------------
 
 # ------------------------------------------------------------
+# 스타일 캘린더 (style_calendar) — S3
+# 상세 값은 apps/style_calendar/services/storage.py에서 환경변수로 읽는다.
+# 필수: CALENDAR_S3_BUCKET(미설정 시 WARDROBE_S3_BUCKET 사용)
+# ------------------------------------------------------------
+
+# ------------------------------------------------------------
 # Qdrant 벡터 DB (apps.recommend)
 # 컬렉션 스키마는 apps/recommend/services/qdrant.py가 소유하고
 # `manage.py init_qdrant`로 생성한다.
