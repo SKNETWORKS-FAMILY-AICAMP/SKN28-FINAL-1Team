@@ -95,6 +95,12 @@ export const AuthEndpoints = {
 export const HomeEndpoint = '/api/v1/home/';
 
 /**
+ * 착장 사진 분석. 인증 없이 호출할 수 있고, JWT가 있으면 개인화 정보를 반영한다.
+ * POST multipart { image, lat?, lon? } → { status, evaluation, context }
+ */
+export const OutfitAnalysisEndpoint = '/api/v1/outfits/analyze/';
+
+/**
  * 신체치수 (api/apps/users/urls.py 기준). 전부 JWT 필요.
  *   GET   /api/v1/users/me/body/         → 전체 치수 (미입력 필드는 null)
  *   PUT   /api/v1/users/me/body/basic/   { height, weight }  (둘 다 필수)

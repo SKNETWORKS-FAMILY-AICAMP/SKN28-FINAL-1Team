@@ -7,6 +7,8 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { Icon } from '@/components/icon';
 import { ModalShell } from '@/components/ui';
 import { ContentMax, Editorial, Fonts, ink } from '@/constants/theme';
+import { ApiError } from '@/lib/apiClient';
+import { analyzeOutfitPhoto, type OutfitEvaluation } from '@/lib/outfitAnalysisApi';
 import { pickOutfitPhoto, takeOutfitPhoto } from '@/lib/pickItemPhoto';
 import { useAuth } from '@/state/auth';
 
@@ -16,14 +18,16 @@ const FOUND_ITEMS = ['오프화이트 니트 상의', '블랙 스트레이트 �
 
 /**
  * 첫 착장 분석 경험의 프론트엔드 MVP.
- * 분석 API가 준비되기 전에는 결과 문구와 감지 아이템을 고정 데이터로 보여주며,
- * 업로드·결과·로그인 전환이라는 UX 흐름을 먼저 검증한다.
+ * 착장 평가는 분석 API 결과를 사용한다. 감지 아이템은 백엔드 응답이 보완될 때까지
+ * 프론트 MVP의 고정 데이터를 유지한다.
  */
 export default function OutfitReviewScreen() {
   const { isLoggedIn } = useAuth();
   const [photo, setPhoto] = useState<string | null>(null);
   const [analyzing, setAnalyzing] = useState(false);
   const [complete, setComplete] = useState(false);
+  const [evaluation, setEvaluation] = useState<OutfitEvaluation | null>(null);
+  const [error, setError] = useState<string | null>(null);
   const [selected, setSelected] = useState(() => new Set(FOUND_ITEMS));
 
   const choosePhoto = async (source: 'album' | 'camera' = 'album') => {
@@ -31,16 +35,35 @@ export default function OutfitReviewScreen() {
     if (!uri) return;
     setPhoto(uri);
     setComplete(false);
+    setEvaluation(null);
+    setError(null);
   };
 
-  const analyze = () => {
+  const analyze = async () => {
     if (!photo) return;
     setAnalyzing(true);
-    // 실제 분석 API 연결 전, 결과 화면의 유용성을 검증하기 위한 짧은 목업 지연.
-    setTimeout(() => {
-      setAnalyzing(false);
+    setError(null);
+    try {
+      const response = await analyzeOutfitPhoto(photo);
+      setEvaluation(response.evaluation);
       setComplete(true);
-    }, 700);
+    } catch (caught) {
+      if (caught instanceof ApiError && caught.status === 400) {
+        setError('사진 형식이나 용량을 확인하고 다시 선택해 주세요.');
+      } else if (caught instanceof ApiError && caught.status === 503) {
+        setError('지금은 착장 분석을 완료하지 못했어요. 잠시 후 다시 시도해 주세요.');
+      } else if (caught instanceof ApiError) {
+        setError(caught.message);
+      } else {
+        setError(
+          caught instanceof Error && caught.message.startsWith('착장 분석 시간이')
+            ? caught.message
+            : '서버에 연결하지 못했어요. 네트워크를 확인하고 다시 시도해 주세요.',
+        );
+      }
+    } finally {
+      setAnalyzing(false);
+    }
   };
 
   const toggleItem = (item: string) => {
@@ -89,8 +112,9 @@ export default function OutfitReviewScreen() {
                   <Text style={styles.photoActionText}>카메라로 촬영</Text>
                 </Pressable>
               </View>
+              {error ? <Text style={styles.errorText}>{error}</Text> : null}
               <Pressable style={[styles.primary, !photo && styles.primaryDisabled]} disabled={!photo || analyzing} onPress={analyze}>
-                {analyzing ? <ActivityIndicator color="#ffffff" /> : <Text style={styles.primaryText}>착장 분석하기</Text>}
+                {analyzing ? <ActivityIndicator color="#ffffff" /> : <Text style={styles.primaryText}>{error ? '다시 분석하기' : '착장 분석하기'}</Text>}
               </Pressable>
               <Text style={styles.privacy}>사진은 분석을 위해서만 사용돼요.</Text>
             </>
@@ -98,14 +122,14 @@ export default function OutfitReviewScreen() {
             <>
               <Image source={{ uri: photo! }} style={styles.resultImage} contentFit="cover" />
               <Text style={styles.resultEyebrow}>COZY&apos;S REVIEW</Text>
-              <Text style={styles.title}>균형감 있는 모노톤 룩이에요.</Text>
+              <Text style={styles.title}>{evaluation?.summary}</Text>
               <View style={styles.feedbackCard}>
                 <Text style={styles.feedbackTitle}>잘 어울리는 포인트</Text>
-                <Text style={styles.feedbackText}>• 상·하의 명도 대비가 깔끔해 비율이 좋아 보여요.{`\n`}• 절제된 색 조합이 차분한 인상을 만들어줘요.</Text>
+                <Text style={styles.feedbackText}>{evaluation?.strengths.map((strength) => `• ${strength}`).join('\n')}</Text>
               </View>
               <View style={styles.tipCard}>
                 <Text style={styles.tipTitle}>더 좋아질 수 있는 제안</Text>
-                <Text style={styles.tipText}>밝은 톤의 가방이나 액세서리를 더하면 룩에 포인트가 생겨요.</Text>
+                <Text style={styles.tipText}>{evaluation?.styling_tips.map((tip) => `• ${tip}`).join('\n')}</Text>
               </View>
               <Text style={styles.itemsTitle}>내 옷장에 추가할 아이템</Text>
               {FOUND_ITEMS.map((item) => {
@@ -159,6 +183,7 @@ const styles = StyleSheet.create({
   primary: { height: 52, marginTop: 26, borderRadius: 999, alignItems: 'center', justifyContent: 'center', backgroundColor: Editorial.cta },
   primaryDisabled: { backgroundColor: ink(0.22) },
   primaryText: { color: '#ffffff', fontSize: 14, fontWeight: '600' },
+  errorText: { marginTop: 18, textAlign: 'center', fontSize: 13, lineHeight: 20, color: Editorial.danger },
   privacy: { marginTop: 13, textAlign: 'center', fontSize: 11, lineHeight: 16, color: Editorial.textCaption },
   resultImage: { height: 250, borderRadius: 20 },
   resultEyebrow: { marginTop: 22, fontSize: 10, letterSpacing: 1.6, fontWeight: '600', color: Editorial.textCaption },
