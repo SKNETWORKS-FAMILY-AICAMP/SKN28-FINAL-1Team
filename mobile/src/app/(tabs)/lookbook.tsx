@@ -1,9 +1,9 @@
 import { CategoryEditSheet, SearchFilterBar, SegmentedToggle, SmartImage } from '@/components/ui';
-import { Icon } from '@/components/icon';
+import { Icon, type IconName } from '@/components/icon';
 import { useMultiSelectFilter } from '@/hooks/useMultiSelectFilter';
 import { LOOKBOOK_FILTER_OPTIONS, useLookbook } from '@/state/lookbook';
 import { likesStore, useLikedLooks } from '@/state/likes';
-import { useSavedLooks } from '@/state/saved';
+import { useSavedLooks, type LookOrigin } from '@/state/saved';
 import { router, useLocalSearchParams } from 'expo-router';
 import { useMemo, useState } from 'react';
 import {
@@ -53,6 +53,17 @@ type CardData = {
   tags?: string[];
   /** 피드 룩이 가리키는 룩 상세 */
   variantId?: string;
+  /**
+   * 내 룩북에서만 쓰는 출처 표시 — 앱이 추천해 준 룩과 내가 직접 기록한 룩이
+   * 한 그리드에 섞이므로, 어느 쪽인지 카드에서 바로 읽혀야 한다.
+   */
+  origin?: LookOrigin;
+};
+
+/** 출처 배지 — 아이콘만 둔다. 라벨을 붙이면 사진 위 면적을 그만큼 더 가린다. */
+const ORIGIN_BADGE: Record<LookOrigin, { icon: IconName; label: string }> = {
+  ai: { icon: 'sparkles', label: '앱이 추천한 룩' },
+  closet: { icon: 'tshirt', label: '내가 기록한 룩' },
 };
 
 /** 취향 추천 가로 카드 크기 — 그리드보다 작게 잡아 본 목록을 밀어내지 않는다. */
@@ -122,7 +133,7 @@ export default function LookbookScreen() {
       ? feedLooks.map((l) => ({ id: l.id, uri: l.image, price: l.price, tags: l.tags, variantId: l.variantId }))
       : mineTab === 'liked'
         ? likedCards
-        : savedFiltered.map((l) => ({ id: l.id, uri: l.image, asset: l.asset }));
+        : savedFiltered.map((l) => ({ id: l.id, uri: l.image, asset: l.asset, origin: l.origin }));
 
   const likedIds = useMemo(() => new Set(likedLooks.map((l) => l.id)), [likedLooks]);
   /* 토스트를 띄우지 않는다 — 하트가 그 자리에서 바로 채워지고 비워져 결과가 이미 보인다. */
@@ -135,7 +146,7 @@ export default function LookbookScreen() {
       return mineTab === 'liked' ? '아직 좋아요한 룩이 없어요' : '아직 저장한 룩이 없어요';
     }
     if (label !== '전체') return `'${label}' 태그 룩이 없어요`;
-    return '아직 올린 룩이 없어요';
+    return '아직 올라온 룩이 없어요';
   }, [mode, mineTab, query, label]);
 
   const handleSaveTags = (next: string[]) => {
@@ -191,15 +202,15 @@ export default function LookbookScreen() {
               <Text style={styles.emptyText}>{emptyText}</Text>
               {mode === 'browse' ? (
                 <Pressable style={styles.emptyBtn} onPress={() => router.push('/look-add')}>
-                  <Text style={styles.emptyBtnText}>첫 룩 올리기</Text>
+                  <Text style={styles.emptyBtnText}>내 룩 올리기</Text>
                 </Pressable>
               ) : mineTab === 'liked' ? (
                 <Pressable style={styles.emptyBtn} onPress={() => setMode('browse')}>
                   <Text style={styles.emptyBtnText}>둘러보며 마음에 드는 룩 찾기</Text>
                 </Pressable>
               ) : (
-                <Pressable style={styles.emptyBtn} onPress={() => router.push('/(tabs)/home')}>
-                  <Text style={styles.emptyBtnText}>오늘의 룩 저장하러 가기</Text>
+                <Pressable style={styles.emptyBtn} onPress={() => router.push('/look-add')}>
+                  <Text style={styles.emptyBtnText}>첫 룩 올리기</Text>
                 </Pressable>
               )}
             </View>
@@ -231,6 +242,14 @@ export default function LookbookScreen() {
                       <Text style={styles.priceText}>{c.price}</Text>
                     </View>
                   ) : null}
+                  {/* 출처 — 하트가 오른쪽 위를 쓰고 있어 왼쪽 위에 둔다 */}
+                  {c.origin ? (
+                    <View
+                      style={styles.originBadge}
+                      accessibilityLabel={ORIGIN_BADGE[c.origin].label}>
+                      <Icon name={ORIGIN_BADGE[c.origin].icon} tintColor={INK} size={15} />
+                    </View>
+                  ) : null}
                   {/* 좋아요 — 피드 룩에만. 저장 룩은 이미 내 것이라 누를 대상이 아니다. */}
                   {c.tags ? (
                     <Pressable
@@ -260,7 +279,8 @@ export default function LookbookScreen() {
           onSave={handleSaveTags}
         />
 
-        {mode === 'browse' ? (
+        {/* 올린 룩은 내 룩북(저장됨)에 쌓이므로 좋아요 탭에서는 내놓지 않는다 */}
+        {mode === 'browse' || mineTab === 'saved' ? (
           <Pressable
             style={[styles.addFab, { bottom: tabInset + 12 }]}
             onPress={() => router.push('/look-add')}
@@ -330,6 +350,17 @@ const styles = StyleSheet.create({
     height: 30,
     borderRadius: 15,
     /* 사진 위에 얹히므로 밝은 사진에서도 하트가 보이게 흰 판을 깐다. */
+    backgroundColor: 'rgba(255,255,255,0.92)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  originBadge: {
+    position: 'absolute',
+    top: 10,
+    left: 10,
+    width: 28,
+    height: 28,
+    borderRadius: 14,
     backgroundColor: 'rgba(255,255,255,0.92)',
     alignItems: 'center',
     justifyContent: 'center',

@@ -8,18 +8,27 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { EmptyState, SmartImage, useConfirm, useToast } from '@/components/ui';
 import { Editorial, ink, Fonts , ContentMax} from '@/constants/theme';
 import { TODAY_LOOK } from '@/constants/today-look';
+import type { WardrobeSource } from '@/constants/wardrobe';
 import { useBottomTabInset } from '@/hooks/use-bottom-tab-inset';
 import { useBreakpoint } from '@/hooks/use-breakpoint';
 import { useAuth } from '@/state/auth';
 import { draftItem } from '@/state/draft-item';
+import { formatDateLabel } from '@/state/calendar';
 import { ALLOWED_HASHTAGS, type AllowedHashtag } from '@/state/lookbook';
 import { savedLookStore, useSavedLooks } from '@/state/saved';
 
 const INK = Editorial.ink;
 const BONE = Editorial.bone;
 
-/* 구성 아이템은 룩 단일 출처를 그대로 쓴다 — 여기만 목업을 따로 두면 룩상세와 다른 옷이 나온다. */
+/* 구성 아이템은 룩 단일 출처를 그대로 쓴다 — 여기만 목업을 따로 두면 룩상세와 다른 옷이 나온다.
+   내가 직접 기록한 룩은 실제로 담은 옷(look.items)이 있어 이 목업 대신 그걸 그린다. */
 const PIECES = TODAY_LOOK.pieces;
+
+const SOURCE_LABEL: Record<WardrobeSource, string> = {
+  closet: '내 옷장',
+  library: '앱 추천',
+  shared: '친구 옷장',
+};
 
 /** '2026. 7. 6. 저장' — 목록에서 온 룩의 저장 시각. 시드(0·1·2)는 날짜가 아니라 순번이라 건너뛴다. */
 function savedAtLabel(savedAt: number): string | null {
@@ -82,6 +91,10 @@ export default function SavedLook() {
   const subtitle = look
     ? [savedAtLabel(look.savedAt), look.tags.join(' · ')].filter(Boolean).join(' · ')
     : '';
+
+  /* 내가 직접 기록한 룩이면 담은 옷이 실제로 있다 — 그때만 목업 구성 대신 그 옷을 그린다. */
+  const isMine = look?.origin === 'closet';
+  const myItems = look?.items?.length ? look.items : null;
 
   /**
    * 이 옷을 내 옷장에 등록한다.
@@ -156,41 +169,83 @@ export default function SavedLook() {
             style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0 }}
           />
           <View style={styles.savedBadge}>
-            <Icon name="heart.fill" tintColor="#fff" size={11} />
-            <Text style={styles.savedText}>저장한 룩</Text>
+            <Icon name={isMine ? 'tshirt' : 'sparkles'} tintColor="#fff" size={11} />
+            <Text style={styles.savedText}>{isMine ? '내가 기록한 룩' : '앱이 추천한 룩'}</Text>
           </View>
         </View>
 
         <View style={styles.body}>
-          <Text style={styles.title}>{look.comment ?? '저장한 룩'}</Text>
+          <Text style={styles.title}>{look.comment ?? (isMine ? '내가 기록한 룩' : '저장한 룩')}</Text>
           <Text style={styles.subtitle}>{subtitle}</Text>
 
+          {/* 이어진 착장 기록 — 룩북과 캘린더 중 한쪽에서 넘어갈 수 있게 한다 */}
+          {look.entryDate ? (
+            <Pressable
+              style={styles.entryLink}
+              onPress={() => router.push(`/calendar-entry?date=${look.entryDate}`)}>
+              <Icon name="calendar" tintColor={INK} size={15} />
+              <Text style={styles.entryLinkText}>
+                {formatDateLabel(look.entryDate)} 착장으로 기록됨
+              </Text>
+              <Icon name="chevron.right" tintColor={ink(0.3)} size={14} />
+            </Pressable>
+          ) : null}
+
           {/* 구성 (칩 나열) */}
-          <Text style={styles.sectionTitle}>구성 아이템</Text>
+          <Text style={styles.sectionTitle}>{isMine ? '입은 옷' : '구성 아이템'}</Text>
           <View style={styles.pieces}>
-            {PIECES.map((p) => (
-              <View key={p.slot} style={styles.piece}>
-                <View style={styles.pieceThumb}>
-                  <SmartImage uri={p.image} width="100%" aspectRatio={1} radius={10} contentFit="cover" />
-                </View>
-                <View style={styles.pieceBody}>
-                  <Text style={styles.pieceSlot}>{p.slot}</Text>
-                  <Text style={styles.pieceName} numberOfLines={1}>
-                    {p.name}
-                  </Text>
-                </View>
-                {/* 사진이 없는 아이템은 등록할 것이 없다 — 옷장 등록은 사진 한 장에서 시작한다. */}
-                {p.image ? (
-                  <Pressable
-                    style={styles.addBtn}
-                    onPress={() => addToCloset(p.image!)}
-                    accessibilityLabel={`${p.name} 옷장에 추가`}>
-                    <Icon name="plus" tintColor={INK} size={13} />
-                    <Text style={styles.addBtnText}>옷장에 추가</Text>
-                  </Pressable>
-                ) : null}
-              </View>
-            ))}
+            {myItems
+              ? myItems.map((item) => (
+                  <View key={`${item.source}:${item.id}`} style={styles.piece}>
+                    <View style={styles.pieceThumb}>
+                      <SmartImage uri={item.image} width="100%" aspectRatio={1} radius={10} contentFit="cover" />
+                    </View>
+                    <View style={styles.pieceBody}>
+                      <Text style={styles.pieceSlot}>
+                        {item.owner ? `${item.owner}님 옷` : SOURCE_LABEL[item.source]}
+                      </Text>
+                      <Text style={styles.pieceName} numberOfLines={1}>
+                        {item.name}
+                      </Text>
+                    </View>
+                    {/* 내 옷장 옷은 이미 등록돼 있다 — 남의 옷·앱 추천 옷만 담을 거리가 된다. */}
+                    {item.image && item.source !== 'closet' ? (
+                      <Pressable
+                        style={styles.addBtn}
+                        onPress={() => addToCloset(item.image!)}
+                        accessibilityLabel={`${item.name} 옷장에 추가`}>
+                        <Icon name="plus" tintColor={INK} size={13} />
+                        <Text style={styles.addBtnText}>옷장에 추가</Text>
+                      </Pressable>
+                    ) : null}
+                  </View>
+                ))
+              : isMine ? (
+                /* 사진·일정만 남긴 내 기록 — 목업 구성을 끼워 넣으면 입지도 않은 옷을 입었다고 하는 셈이다 */
+                <Text style={styles.piecesEmpty}>담아 둔 옷이 없어요</Text>
+              ) : PIECES.map((p) => (
+                  <View key={p.slot} style={styles.piece}>
+                    <View style={styles.pieceThumb}>
+                      <SmartImage uri={p.image} width="100%" aspectRatio={1} radius={10} contentFit="cover" />
+                    </View>
+                    <View style={styles.pieceBody}>
+                      <Text style={styles.pieceSlot}>{p.slot}</Text>
+                      <Text style={styles.pieceName} numberOfLines={1}>
+                        {p.name}
+                      </Text>
+                    </View>
+                    {/* 사진이 없는 아이템은 등록할 것이 없다 — 옷장 등록은 사진 한 장에서 시작한다. */}
+                    {p.image ? (
+                      <Pressable
+                        style={styles.addBtn}
+                        onPress={() => addToCloset(p.image!)}
+                        accessibilityLabel={`${p.name} 옷장에 추가`}>
+                        <Icon name="plus" tintColor={INK} size={13} />
+                        <Text style={styles.addBtnText}>옷장에 추가</Text>
+                      </Pressable>
+                    ) : null}
+                  </View>
+                ))}
           </View>
 
           {/* 추천 이유 — 저장할 때 받아둔 것이 있을 때만. 없는 룩에 남의 이유를 붙이지 않는다. */}
@@ -303,6 +358,19 @@ const styles = StyleSheet.create({
 
   sectionTitle: { fontSize: 13, fontWeight: '600', color: INK, marginTop: 26, marginBottom: 12 },
 
+  entryLink: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginTop: 16,
+    paddingHorizontal: 14,
+    height: 46,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: Editorial.line,
+  },
+  entryLinkText: { flex: 1, fontSize: 13, fontWeight: '600', color: INK },
+
   /* 아이템마다 '옷장에' 버튼이 붙어 2단으로 두면 이름이 잘린다 → 한 줄에 하나씩. */
   pieces: { gap: 10 },
   piece: {
@@ -314,6 +382,7 @@ const styles = StyleSheet.create({
     borderRadius: 14,
     padding: 10,
   },
+  piecesEmpty: { fontSize: 13, color: Editorial.textCaption },
   pieceThumb: { width: 44, height: 44, borderRadius: 10, backgroundColor: BONE, overflow: 'hidden' },
   pieceBody: { flex: 1, gap: 3 },
   pieceSlot: { fontSize: 10.5, color: Editorial.textCaption },

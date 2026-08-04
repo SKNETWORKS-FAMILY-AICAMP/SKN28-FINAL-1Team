@@ -12,6 +12,7 @@ import { ContentMax, Editorial, Fonts, ink, Type } from '@/constants/theme';
 import { useBreakpoint } from '@/hooks/use-breakpoint';
 import { useAuth } from '@/state/auth';
 import { calendarStore, toDateKey, todayKey, useCalendarEntries } from '@/state/calendar';
+import { useSavedLooks } from '@/state/saved';
 
 const INK = Editorial.ink;
 
@@ -27,6 +28,7 @@ export default function Calendar() {
   const { isLoggedIn } = useAuth();
   const { contentStyle, isDesktop, height } = useBreakpoint();
   const entries = useCalendarEntries();
+  const savedLooks = useSavedLooks();
 
   const now = useMemo(() => new Date(), []);
   const [view, setView] = useState({ year: now.getFullYear(), month: now.getMonth() + 1 });
@@ -57,6 +59,8 @@ export default function Calendar() {
   }, [view, selectedDay]);
 
   const entry = entries[selectedKey];
+  /* 이 기록과 같이 만들어진 룩북 룩. 룩북에서 지웠으면 못 찾으니 그때는 연결을 감춘다. */
+  const linkedLook = savedLooks.find((l) => l.id === entry?.lookId);
 
   /* 데스크톱에선 달력이 스크롤 없이 한 화면에 들어와야 한다.
      화면 높이에서 머리(월 네비·요일 줄)와 아래 여백으로 쓰이는 몫을 뺀 나머지를
@@ -232,6 +236,17 @@ export default function Calendar() {
                   <ItemMosaic items={entry.items} onPress={() => openEntry(selectedKey)} />
                 </View>
               ) : null}
+
+              {/* 룩북에 같이 올린 룩 — 룩이 지워졌으면 줄을 그리지 않는다 */}
+              {linkedLook ? (
+                <Pressable
+                  style={styles.lookLink}
+                  onPress={() => router.push(`/saved-look?id=${linkedLook.id}`)}>
+                  <Icon name="book" tintColor={INK} size={15} />
+                  <Text style={styles.lookLinkText}>룩북에도 올린 룩이에요</Text>
+                  <Icon name="chevron.right" tintColor={ink(0.3)} size={14} />
+                </Pressable>
+              ) : null}
             </>
           ) : (
             <View style={[styles.empty, isDesktop && styles.emptyTall]}>
@@ -380,6 +395,19 @@ const styles = StyleSheet.create({
   recTag: { fontSize: Type.caption, color: Editorial.textCaption },
 
   mosaic: { marginTop: 10 },
+
+  lookLink: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginTop: 10,
+    paddingHorizontal: 14,
+    height: 46,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: Editorial.line,
+  },
+  lookLinkText: { flex: 1, fontSize: Type.caption, fontWeight: '600', color: INK },
 
 
   empty: {
