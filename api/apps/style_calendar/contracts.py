@@ -19,17 +19,9 @@ class CalendarSourceType(StrEnum):
     WARDROBE_SELECTED = "WARDROBE_SELECTED"
 
 
-class CalendarItemSourceType(StrEnum):
-    """캘린더 아이템 생성 경로."""
-
-    USER_SELECTED = "USER_SELECTED"
-    PROCESSOR_EXTRACTED = "PROCESSOR_EXTRACTED"
-
-
 class CalendarItemInternalStatus(StrEnum):
     """사용자 화면에 노출하지 않는 캘린더 아이템 내부 상태."""
 
-    SELECTED = "SELECTED"
     EXTRACTED = "EXTRACTED"
     FAILED = "FAILED"
 

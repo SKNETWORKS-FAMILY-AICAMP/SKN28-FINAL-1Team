@@ -19,7 +19,7 @@ class CalendarContractTests(TestCase):
     def test_calendar_item_status_excludes_matching_states(self) -> None:
         self.assertEqual(
             {status.value for status in CalendarItemInternalStatus},
-            {"SELECTED", "EXTRACTED", "FAILED"},
+            {"EXTRACTED", "FAILED"},
         )
 
     def test_contract_schema_versions_are_calendar_specific(self) -> None:
