@@ -43,6 +43,8 @@ INSTALLED_APPS = [
     "apps.catalog",
     "apps.weather",
     "apps.home",
+    "apps.wardrobe",
+    "apps.recommend",
 ]
 
 MIDDLEWARE = [
@@ -188,3 +190,29 @@ OAUTH_REQUEST_TIMEOUT = int(os.getenv("OAUTH_REQUEST_TIMEOUT", "10"))
 CORS_ALLOWED_ORIGINS = [
     o.strip() for o in os.getenv("CORS_ALLOWED_ORIGINS", "").split(",") if o.strip()
 ]
+# ------------------------------------------------------------
+# 옷장 (wardrobe) — S3 / 처리 큐
+# 상세 값은 apps/wardrobe/services/* 에서 환경변수로 직접 읽는다.
+# 필수: WARDROBE_S3_BUCKET, REDIS_URL, WARDROBE_INTERNAL_TOKEN,
+#       WARDROBE_CALLBACK_URL
+# ------------------------------------------------------------
+
+# ------------------------------------------------------------
+# Qdrant 벡터 DB (apps.recommend)
+# 컬렉션 스키마는 apps/recommend/services/qdrant.py가 소유하고
+# `manage.py init_qdrant`로 생성한다.
+# ------------------------------------------------------------
+QDRANT_URL = os.getenv("QDRANT_URL", "http://localhost:6333")
+QDRANT_API_KEY = os.getenv("QDRANT_API_KEY", "")
+QDRANT_TIMEOUT = int(os.getenv("QDRANT_TIMEOUT", "10"))
+# 임베딩 모델 차원 (FashionSigLIP=768, BGE-M3=1024). 모델 교체 시에만 변경.
+QDRANT_IMAGE_VECTOR_DIM = int(os.getenv("QDRANT_IMAGE_VECTOR_DIM", "768"))
+QDRANT_TEXT_VECTOR_DIM = int(os.getenv("QDRANT_TEXT_VECTOR_DIM", "1024"))
+
+# Gemini 기반 코디 사진 평가
+GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
+GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-3.5-flash")
+GEMINI_API_BASE_URL = os.getenv(
+    "GEMINI_API_BASE_URL", "https://generativelanguage.googleapis.com"
+).rstrip("/")
+GEMINI_TIMEOUT_SECONDS = int(os.getenv("GEMINI_TIMEOUT_SECONDS", "30"))

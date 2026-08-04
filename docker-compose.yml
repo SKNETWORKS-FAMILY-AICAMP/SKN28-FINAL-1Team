@@ -1,12 +1,12 @@
 # ============================================================
-# 통합 compose: db + api + weather-collector + naver-collector
+# 통합 compose: db + qdrant + api + weather-collector + naver-collector + eleven-collector
 #
 # 모든 서비스는 profiles로 선택 실행한다. db는 어떤 스택을 켜도 함께 뜬다.
 #
-#   docker compose --profile api up -d                  # db + api
+#   docker compose --profile api up -d                  # db + qdrant + api
 #   docker compose --profile naver up -d                # db + naver collector
-#   docker compose --profile weather --profile api up -d
-#   docker compose --profile all up -d --build          # 4개 전부
+#   docker compose --profile qdrant up -d               # db + qdrant만
+#   docker compose --profile all up -d --build          # 전부
 #
 # .env에 COMPOSE_PROFILES=api,naver 처럼 지정하면 --profile 없이 up만으로 동작.
 # 환경변수는 프로젝트 루트 .env 하나로 관리한다 (이 파일이 루트에 있으므로
@@ -24,7 +24,7 @@ services:
     image: postgres:16-alpine
     container_name: skn28-postgres
     restart: unless-stopped
-    profiles: ["db", "api", "weather", "naver", "all"]
+    profiles: ["db", "api", "weather", "naver", "eleven", "all"]
     env_file:
       - .env                  # POSTGRES_DB / POSTGRES_USER / POSTGRES_PASSWORD
     environment:
@@ -42,6 +42,31 @@ services:
       timeout: 5s
       retries: 5
 
+  # 벡터 검색 (추천 RAG). 스키마(컬렉션)는 Django 커맨드가 소유:
+  #   docker compose exec api python manage.py init_qdrant
+  # 프로덕션(EC2)에서는 named volume 대신 EBS 마운트 경로를 바인드하고
+  # QDRANT_API_KEY를 반드시 설정한다 (미설정 시 무인증 — 로컬 전용).
+  qdrant:
+    image: qdrant/qdrant:v1.17.0
+    container_name: skn28-qdrant
+    restart: unless-stopped
+    profiles: ["qdrant", "api", "all"]
+    environment:
+      TZ: Asia/Seoul
+      # 비어 있으면 Qdrant가 인증 없이 뜬다. 외부 노출 시 필수.
+      QDRANT__SERVICE__API_KEY: ${QDRANT_API_KEY:-}
+    ports:
+      - "6333:6333"             # REST
+      - "6334:6334"             # gRPC
+    volumes:
+      - qdrant_data:/qdrant/storage
+    healthcheck:
+      # 이미지에 curl이 없어 bash TCP 소켓으로 포트 오픈만 확인
+      test: ["CMD-SHELL", "bash -c ':> /dev/tcp/127.0.0.1/6333' || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
   # one-shot 마이그레이션. 모든 스택(api/collector)이 이 서비스 완료 후 시작한다.
   # 스키마 소유권: Django migration (users/catalog/weather 앱)
   migrate:
@@ -49,7 +74,7 @@ services:
       context: ./api
     container_name: skn28-migrate
     restart: "no"
-    profiles: ["api", "weather", "naver", "all"]
+    profiles: ["api", "weather", "naver", "eleven", "all"]
     depends_on:
       db:
         condition: service_healthy
@@ -79,6 +104,8 @@ services:
       TZ: Asia/Seoul
       POSTGRES_HOST: db
       POSTGRES_PORT: 5432
+      QDRANT_URL: http://qdrant:6333   # 컨테이너 네트워크 내부 주소
+      REDIS_URL: redis://redis:6379/0  # 컨테이너 네트워크 내부 주소 (비밀번호는 REDIS_PASSWORD로 주입)
       DJANGO_SETTINGS_MODULE: ${DJANGO_SETTINGS_MODULE:-config.settings.prod}
     ports:
       - "8000:8000"
@@ -93,7 +120,7 @@ services:
       dockerfile: Dockerfile.weather
     container_name: weather-collector
     restart: unless-stopped
-    profiles: ["weather", "all"]
+    profiles: ["weather", "all", "api"]
     depends_on:
       db:
         condition: service_healthy
@@ -140,5 +167,43 @@ services:
     # 스키마는 migrate 서비스(Django migration)가 생성한다.
     command: python /app/naver/naver_collector_db.py --scheduler
 
+  eleven-collector:
+    build:
+      context: ./collector
+      dockerfile: eleven/Dockerfile.eleven
+      args:
+        # Claude provider 사용 시 true (Claude Code CLI 설치)
+        INSTALL_CLAUDE_CLI: ${INSTALL_CLAUDE_CLI:-false}
+    container_name: eleven-collector
+    restart: unless-stopped
+    profiles: ["eleven", "all"]
+    depends_on:
+      db:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    env_file:
+      - .env
+    environment:
+      TZ: Asia/Seoul
+      POSTGRES_HOST: db
+      POSTGRES_PORT: 5432
+    command: python /app/eleven/eleven_collector_db.py --scheduler
+  
+  redis:
+    image: redis:7
+    container_name: redis
+    restart: always
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    command: >
+      redis-server
+      --appendonly yes
+      --requirepass "${REDIS_PASSWORD:?REDIS_PASSWORD를 루트 .env에 설정해야 합니다}"
+
 volumes:
   postgres_data:
+  qdrant_data:
+  redis_data:

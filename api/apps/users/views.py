@@ -21,6 +21,7 @@ from apps.users.serializers import (
     PursuitPayloadResponseSerializer,
     SocialLoginSerializer,
     UserSerializer,
+    BudgetSerializer,
 )
 from apps.users.services import accounts, body_inference, oauth, pursuit
 
@@ -135,7 +136,7 @@ class BodyMeasurementView(APIView):
 
 
 class BodyBasicView(APIView):
-    """PUT /api/v1/users/me/body/basic/ — 키·몸무게 입력 (둘 다 필수)."""
+    """PUT /api/v1/users/me/body/basic/ — 성별·키·몸무게 입력 (셋 다 필수)."""
 
     def put(self, request):
         return _save_body_measurement(request, BodyBasicInputSerializer, partial=False)
@@ -265,3 +266,14 @@ class PursuitView(APIView):
             PursuitPayloadResponseSerializer(obj.payload).data,
             status=status.HTTP_200_OK,
         )
+class BudgetView(APIView):
+    """GET/PUT /api/v1/users/me/budget/ — 월 의류 구매 예산 조회/설정."""
+
+    def get(self, request):
+        return Response(BudgetSerializer(request.user).data)
+
+    def put(self, request):
+        serializer = BudgetSerializer(request.user, data=request.data)
+        serializer.is_valid(raise_exception=True)
+        serializer.save()
+        return Response(serializer.data)
