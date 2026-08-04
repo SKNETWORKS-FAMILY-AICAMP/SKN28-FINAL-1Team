@@ -1,11 +1,30 @@
 from __future__ import annotations
 
+from datetime import date, datetime, time
 from decimal import Decimal
 from typing import Any
 
 from apps.users.models import BodyMeasurement
 from apps.users.services.pursuit import get_pursuit
 from apps.weather.services import get_current_weather, resolve_coordinates
+
+
+def _json_safe(value: Any) -> Any:
+    """컨텍스트를 순수 JSON 타입으로 변환한다.
+
+    weather의 observed_at은 datetime이라 응답 직렬화(JSONField)를 통과하지 못한다.
+    실황 데이터가 없는 환경에서는 None이라 드러나지 않지만, weather-collector가
+    도는 서버에서는 값이 채워져 503으로 이어진다.
+    """
+    if isinstance(value, (datetime, date, time)):
+        return value.isoformat()
+    if isinstance(value, Decimal):
+        return float(value)
+    if isinstance(value, dict):
+        return {key: _json_safe(item) for key, item in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_json_safe(item) for item in value]
+    return value
 
 
 def _serialize_measurement(measurement: BodyMeasurement | None) -> dict | None:
@@ -47,9 +66,11 @@ def build_analysis_context(
             BodyMeasurement.objects.filter(user=user).first()
         )
 
-    return {
-        "weather": get_current_weather(resolved_lat, resolved_lon),
-        "pursuit": pursuit,
-        "body": body,
-        "personalized": is_authenticated,
-    }
+    return _json_safe(
+        {
+            "weather": get_current_weather(resolved_lat, resolved_lon),
+            "pursuit": pursuit,
+            "body": body,
+            "personalized": is_authenticated,
+        }
+    )

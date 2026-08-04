@@ -1,4 +1,5 @@
 import json
+from datetime import datetime, timezone as dt_timezone
 from io import BytesIO
 from types import SimpleNamespace
 from unittest.mock import Mock, patch
@@ -22,13 +23,17 @@ EVALUATION = {
     "personalization_comment": "개인 정보 없이도 조화로운 인상입니다.",
     "styling_tips": ["현재 장점을 살려 액세서리를 더해보세요."],
 }
-WEATHER = {
+OBSERVED_AT = datetime(2026, 7, 15, 14, 0, tzinfo=dt_timezone.utc)
+# weather-collector가 도는 서버에서는 observed_at이 datetime으로 채워진다.
+# 실황이 없는 로컬(None)만 검증하면 JSON 직렬화 회귀를 놓친다.
+RAW_WEATHER = {
     "region": "서울특별시 종로구",
     "temperature": 24.0,
     "sky_state": "맑음",
     "is_stale": False,
-    "observed_at": None,
+    "observed_at": OBSERVED_AT,
 }
+WEATHER = {**RAW_WEATHER, "observed_at": OBSERVED_AT.isoformat()}
 CONTEXT = {
     "weather": WEATHER,
     "pursuit": None,
@@ -127,6 +132,7 @@ class GeminiServiceTests(SimpleTestCase):
     @patch("apps.recommend.services.gemini.requests.post")
     def test_sends_image_context_and_structured_schema(self, mock_post: Mock) -> None:
         api_response = Mock()
+        api_response.status_code = 200   # Mock 기본값은 int 비교가 안 된다
         api_response.raise_for_status.return_value = None
         api_response.json.return_value = {
             "candidates": [
@@ -172,6 +178,18 @@ class OutfitContextTests(SimpleTestCase):
         self.assertIsNone(context["body"])
         self.assertFalse(context["personalized"])
         mock_weather.assert_called_once()
+
+    @patch(
+        "apps.recommend.services.outfit_context.get_current_weather",
+        return_value=dict(RAW_WEATHER),
+    )
+    def test_weather_datetime_is_json_serializable(self, _mock_weather: Mock) -> None:
+        context = build_analysis_context(AnonymousUser(), lat=None, lon=None)
+
+        self.assertEqual(
+            context["weather"]["observed_at"], OBSERVED_AT.isoformat()
+        )
+        json.dumps(context)  # 응답 직렬화(JSONField)와 같은 조건
 
     @patch("apps.recommend.services.outfit_context.get_pursuit")
     @patch("apps.recommend.services.outfit_context.BodyMeasurement.objects.filter")
