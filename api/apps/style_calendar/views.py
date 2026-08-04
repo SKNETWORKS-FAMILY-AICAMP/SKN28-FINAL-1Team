@@ -206,7 +206,7 @@ class CalendarEntryByDateView(APIView):
 
 
 class CalendarEntryDetailView(APIView):
-    """내 캘린더 상세 조회와 메타데이터 수정."""
+    """내 캘린더 상세 조회·메타데이터 수정·삭제."""
 
     @staticmethod
     def _get_entry(*, user, calendar_id):
@@ -231,6 +231,29 @@ class CalendarEntryDetailView(APIView):
         serializer.is_valid(raise_exception=True)
         entry = serializer.save()
         return Response(CalendarEntrySerializer(entry).data)
+
+    def delete(self, request, calendar_id):
+        """DELETE /api/v1/calendars/{calendar_id}/ — 종료된 캘린더 삭제."""
+
+        try:
+            calendar_service.delete_entry(
+                user=request.user,
+                calendar_id=calendar_id,
+            )
+        except calendar_service.CalendarDeletionNotFoundError:
+            return Response(
+                {"detail": "캘린더를 찾을 수 없습니다."},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+        except calendar_service.CalendarDeletionConflictError as exc:
+            return Response(
+                {
+                    "detail": str(exc),
+                    "status": exc.current_status,
+                },
+                status=status.HTTP_409_CONFLICT,
+            )
+        return Response(status=status.HTTP_204_NO_CONTENT)
 
 
 class CalendarProcessingStatusView(APIView):

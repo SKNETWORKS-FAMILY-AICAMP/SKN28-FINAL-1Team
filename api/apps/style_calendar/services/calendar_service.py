@@ -46,6 +46,18 @@ class CalendarStorageError(Exception):
     """캘린더 소유 S3 경로로 이미지 복사 또는 정리에 실패한 경우."""
 
 
+class CalendarDeletionNotFoundError(Exception):
+    """삭제 대상 캘린더가 없거나 요청 사용자 소유가 아닌 경우."""
+
+
+class CalendarDeletionConflictError(Exception):
+    """이미지 처리가 끝나지 않아 안전하게 삭제할 수 없는 경우."""
+
+    def __init__(self, current_status: str) -> None:
+        self.current_status = current_status
+        super().__init__("이미지 처리 중인 캘린더는 삭제할 수 없습니다.")
+
+
 def entries_for_user(*, user) -> QuerySet[CalendarEntry]:
     """사용자 소유 캘린더와 조회 응답에 필요한 하위 데이터를 반환한다."""
 
@@ -91,6 +103,52 @@ def processing_statuses_for_user(*, user) -> QuerySet[CalendarEntry]:
             filter=Q(items__internal_status=CalendarItemInternalStatus.FAILED.value),
         ),
     )
+
+
+@transaction.atomic
+def delete_entry(*, user, calendar_id: UUID) -> None:
+    """종료된 사용자 캘린더를 삭제하고 커밋 후 S3 prefix를 정리한다.
+
+    callback과 같은 행 잠금을 사용해 완료 처리와 삭제가 동시에 반영되지 않게
+    한다. DB 삭제가 성공한 뒤 S3 정리를 수행하므로 저장소 장애가 발생해도
+    사용자에게 깨진 DB 참조를 남기지 않는다.
+    """
+
+    entry = (
+        CalendarEntry.objects.select_for_update()
+        .filter(pk=calendar_id, user=user)
+        .first()
+    )
+    if entry is None:
+        raise CalendarDeletionNotFoundError
+    if entry.status not in {
+        CalendarStatus.COMPLETED.value,
+        CalendarStatus.FAILED.value,
+    }:
+        raise CalendarDeletionConflictError(entry.status)
+
+    user_id = entry.user_id
+    entry_id = entry.pk
+    entry.delete()
+    transaction.on_commit(
+        lambda: _cleanup_deleted_calendar_s3(
+            user_id=user_id,
+            calendar_id=entry_id,
+        )
+    )
+
+
+def _cleanup_deleted_calendar_s3(*, user_id: int | str, calendar_id: UUID) -> None:
+    try:
+        storage.delete_calendar(user_id, calendar_id)
+    except Exception:
+        # DB 삭제는 이미 커밋됐다. 사용자 요청을 실패로 되돌리지 않고 운영 로그로
+        # 남겨 고아 S3 객체를 별도로 정리할 수 있게 한다.
+        logger.exception(
+            "삭제된 캘린더 S3 prefix 정리 실패: user_id=%s calendar_id=%s",
+            user_id,
+            calendar_id,
+        )
 
 
 def _wardrobe_snapshot(
