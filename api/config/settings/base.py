@@ -168,6 +168,17 @@ OAUTH_PROVIDERS = {
         # token 방식 로그인(네이티브 앱 SDK) 검증용. aud(발급 대상 client_id)를 대조한다.
         "token_info_url": "https://www.googleapis.com/oauth2/v3/tokeninfo",
         "profile_url": "https://www.googleapis.com/oauth2/v3/userinfo",
+        # 네이티브 앱 SDK가 받아오는 토큰의 aud는 웹이 아니라 그 플랫폼의 클라이언트 ID다.
+        # 웹 하나만 대조하면 앱 로그인이 전부 막히므로, 같은 프로젝트의 클라이언트를 모두 허용한다.
+        "allowed_client_ids": [
+            client_id
+            for client_id in (
+                os.getenv("GOOGLE_OAUTH_CLIENT_ID", ""),
+                os.getenv("GOOGLE_OAUTH_IOS_CLIENT_ID", ""),
+                os.getenv("GOOGLE_OAUTH_ANDROID_CLIENT_ID", ""),
+            )
+            if client_id
+        ],
     },
     # 애플은 client_secret을 정적 문자열이 아닌 ES256 JWT로 동적 생성한다.
     # profile_url 없음 — 사용자 정보는 id_token(JWT) 디코딩으로 획득한다.
