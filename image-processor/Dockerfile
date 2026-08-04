@@ -8,7 +8,7 @@ WORKDIR /app
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-COPY config.py worker.py calendar_consumer.py ./
+COPY config.py worker.py calendar_consumer.py calendar_pipeline.py ./
 COPY pipeline/ pipeline/
 COPY services/ services/
 

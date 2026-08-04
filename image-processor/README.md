@@ -12,6 +12,7 @@ Redis 큐에서 job을 받아 사진 속 패션 아이템을 처리하는 이미
 ```
 worker.py                 # 옷장 메인 루프: 큐 → 처리 → S3 → manifest → 콜백 → ack
 calendar_consumer.py      # 캘린더 전용 수신·계약 검증·ack 경계
+calendar_pipeline.py      # 캘린더 S3 처리·결과 이미지·manifest 생성
 config.py                 # 환경변수 (루트 .env)
 pipeline/
 ├── base.py               # 인터페이스: ItemEnumerator / ProductImageGenerator
@@ -31,9 +32,11 @@ services/
 ```
 
 캘린더 consumer는 이미지 처리와 callback을 수행하는 handler가 정상 반환한
-경우에만 processing 작업을 ack한다. 현재 단계에서는 수신 경계만 추가했으며,
-실제 캘린더 파이프라인 handler와 실행 프로세스 연결 전에는 큐를 소비하지 않는다.
-실패한 캘린더 작업은 자동 재시도·dead 이동 없이 processing에 유지한다.
+경우에만 processing 작업을 ack한다. 캘린더 파이프라인은 원본 다운로드 → 의류
+열거 → 아이템 이미지 생성 → 태깅 → 결과 이미지 업로드 → `calendar-result.v1`
+manifest 저장을 담당하며, 임베딩과 옷장 아이템 매칭은 수행하지 않는다.
+callback handler와 실행 프로세스가 연결되기 전에는 큐를 소비하지 않으며, 실패한
+캘린더 작업은 자동 재시도·dead 이동 없이 processing에 유지한다.
 
 **구현 교체**: 새 컴포넌트로 `pipeline/base.py` 인터페이스를 구현하고
 `pipeline/__init__.py`의 `_REGISTRY`에 빌더를 등록한 뒤

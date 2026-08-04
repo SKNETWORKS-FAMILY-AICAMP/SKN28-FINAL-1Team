@@ -72,6 +72,7 @@ CALENDAR_PROCESSING_KEY = os.getenv(
 )
 CALENDAR_JOB_SCHEMA_VERSION = "calendar-job.v1"
 CALENDAR_JOB_TASK_TYPE = "calendar_image_extraction"
+CALENDAR_RESULT_SCHEMA_VERSION = "calendar-result.v1"
 
 # ── 콜백 (wardrobe-api 구현 계약: X-Internal-Token + job_id 멱등) ──
 INTERNAL_TOKEN = os.getenv("WARDROBE_INTERNAL_TOKEN", "")

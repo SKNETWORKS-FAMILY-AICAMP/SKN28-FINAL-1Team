@@ -33,10 +33,13 @@ class WardrobePipeline:
     아이템 단위 실패는 error에 기록하고 계속 진행한다 — 부분 성공 허용.
     """
 
-    def __init__(self, enumerator: ItemEnumerator,
-                 generator: ProductImageGenerator,
-                 tagger: ItemTagger,
-                 embedder: Embedder) -> None:
+    def __init__(
+        self,
+        enumerator: ItemEnumerator,
+        generator: ProductImageGenerator,
+        tagger: ItemTagger,
+        embedder: Embedder | None,
+    ) -> None:
         self.enumerator = enumerator
         self.generator = generator
         self.tagger = tagger
@@ -65,15 +68,17 @@ class WardrobePipeline:
                 item.tags = self.tagger.tag(item.image_png)
                 item.timings["tag"] = round(time.perf_counter() - t, 3)
 
-                t = time.perf_counter()
-                item.image_vector = self.embedder.embed_image(item.image_png)
-                item.text_vector = self.embedder.embed_text(
-                    caption_from_tags(item.tags)
-                )
-                item.timings["embed"] = round(time.perf_counter() - t, 3)
+                if self.embedder is not None:
+                    t = time.perf_counter()
+                    item.image_vector = self.embedder.embed_image(item.image_png)
+                    item.text_vector = self.embedder.embed_text(
+                        caption_from_tags(item.tags)
+                    )
+                    item.timings["embed"] = round(time.perf_counter() - t, 3)
 
                 item.tags["_missing_required"] = missing_required(item.tags)
-            except Exception as e:  # noqa: BLE001 — 아이템 단위 격리
+            # 한 아이템의 실패가 나머지 아이템 처리를 막지 않게 격리한다.
+            except Exception as e:
                 logger.exception("아이템 %d(%s) 처리 실패", i, enum_item.label_ko)
                 item.error = f"{type(e).__name__}: {e}"
             results.append(item)
@@ -81,20 +86,24 @@ class WardrobePipeline:
 
 
 # ── factory ──────────────────────────────────────────────
-def _build_gemini_edit() -> WardrobePipeline:
+def _build_gemini_edit_with(embedder: Embedder | None) -> WardrobePipeline:
     from .gemini.editor import GeminiImageEditor
     from .gemini.enumerator import GeminiEnumerator
     from .gemini.tagger import GeminiTagger
 
-    embedder: Embedder = (
-        SigLIPBgeEmbedder() if config.EMBED_ENABLED else NullEmbedder()
-    )
     return WardrobePipeline(
         enumerator=GeminiEnumerator(),
         generator=GeminiImageEditor(),
         tagger=GeminiTagger(),
         embedder=embedder,
     )
+
+
+def _build_gemini_edit() -> WardrobePipeline:
+    embedder: Embedder = (
+        SigLIPBgeEmbedder() if config.EMBED_ENABLED else NullEmbedder()
+    )
+    return _build_gemini_edit_with(embedder)
 
 
 # 새 구현은 여기 등록: {"sam3-crop": _build_sam3_crop, ...}
@@ -110,3 +119,15 @@ def build_pipeline(name: str | None = None) -> WardrobePipeline:
             f"알 수 없는 파이프라인: {key!r} (등록된 구현: {sorted(_REGISTRY)})"
         )
     return _REGISTRY[key]()
+
+
+def build_calendar_pipeline(name: str | None = None) -> WardrobePipeline:
+    """임베딩을 구성하거나 호출하지 않는 캘린더 이미지 파이프라인."""
+
+    key = name or config.PIPELINE_IMPL
+    if key != "gemini-edit":
+        raise ValueError(
+            f"알 수 없는 캘린더 파이프라인: {key!r} "
+            "(등록된 구현: ['gemini-edit'])"
+        )
+    return _build_gemini_edit_with(embedder=None)
