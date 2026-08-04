@@ -22,6 +22,7 @@ from PIL import Image
 
 import config
 from calendar_consumer import CalendarJob
+from calendar_manifest import create_manifest
 from pipeline import ProcessedItem, WardrobePipeline, build_calendar_pipeline
 from services import s3io
 
@@ -73,7 +74,7 @@ class CalendarImagePipeline:
                     image,
                 )
 
-        manifest = build_manifest(
+        manifest = create_manifest(
             job=job,
             pipeline_key=self.pipeline.key,
             items=items,
@@ -82,68 +83,6 @@ class CalendarImagePipeline:
         # 아이템 결과 업로드가 모두 끝난 뒤 manifest를 마지막에 기록한다.
         s3io.put_json(job.source.bucket, manifest_key, manifest)
         return manifest
-
-
-def build_manifest(
-    *,
-    job: CalendarJob,
-    pipeline_key: str,
-    items: list[ProcessedItem],
-    total_sec: float,
-) -> dict:
-    """이미지 프로세서 내부 결과를 calendar-result.v1 계약으로 변환한다."""
-
-    succeeded = sum(item.ok for item in items)
-    return {
-        "schema_version": config.CALENDAR_RESULT_SCHEMA_VERSION,
-        "calendar_id": job.calendar_id,
-        "source": {
-            "bucket": job.source.bucket,
-            "key": job.source.key,
-        },
-        "pipeline": {
-            "impl": pipeline_key,
-            "version": config.PIPELINE_VERSION,
-            "embedding_enabled": False,
-        },
-        "counts": {
-            "detected": len(items),
-            "succeeded": succeeded,
-            "failed": len(items) - succeeded,
-        },
-        "total_sec": round(total_sec, 3),
-        "items": [_manifest_item(job, item) for item in items],
-    }
-
-
-def _manifest_item(job: CalendarJob, item: ProcessedItem) -> dict:
-    tags = dict(item.tags or {})
-    missing_required = tags.pop("_missing_required", [])
-    image_s3_key = (
-        s3io.item_key(job.output_prefix, item.index) if item.ok else ""
-    )
-    category = (
-        tags.get("category_small")
-        or tags.get("category_large")
-        or item.enum.category_large
-    )
-    return {
-        "processor_item_id": f"{job.calendar_id}:{item.index:03d}",
-        "status": "EXTRACTED" if item.ok else "FAILED",
-        "image_s3_key": image_s3_key,
-        "category": category,
-        "tags": tags,
-        "bbox": item.enum.bbox,
-        "sort_order": item.index,
-        "processing_error": item.error or "",
-        "meta": {
-            "label_ko": item.enum.label_ko,
-            "view_angle": item.enum.view_angle,
-            "occluded_by": item.enum.occluded_by,
-            "missing_required": missing_required,
-            "timings_sec": item.timings,
-        },
-    }
 
 
 def _download_source(job: CalendarJob) -> tuple[bytes, str]:

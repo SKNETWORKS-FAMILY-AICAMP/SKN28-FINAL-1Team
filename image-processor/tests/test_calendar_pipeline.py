@@ -12,7 +12,6 @@ from calendar_consumer import CalendarJob, CalendarSource
 from calendar_pipeline import (
     CalendarImagePipeline,
     CalendarManifestConflictError,
-    build_manifest,
 )
 from pipeline import (
     EnumeratedItem,
@@ -180,29 +179,6 @@ class CalendarImagePipelineTests(unittest.TestCase):
             self.assertRaises(CalendarManifestConflictError),
         ):
             CalendarImagePipeline(item_pipeline).process(job)
-
-
-class CalendarManifestTests(unittest.TestCase):
-    def test_processor_item_id_is_stable_for_calendar_and_index(self) -> None:
-        job = calendar_job()
-        item = ProcessedItem(
-            index=3,
-            enum=enumerated_item(),
-            image_png=png_bytes(),
-            tags={"category_large": "아우터"},
-        )
-
-        manifest = build_manifest(
-            job=job,
-            pipeline_key="fake-pipeline",
-            items=[item],
-            total_sec=1.2345,
-        )
-
-        self.assertEqual(
-            manifest["items"][0]["processor_item_id"],
-            f"{job.calendar_id}:003",
-        )
 
 
 if __name__ == "__main__":

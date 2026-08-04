@@ -12,6 +12,7 @@ Redis 큐에서 job을 받아 사진 속 패션 아이템을 처리하는 이미
 ```
 worker.py                 # 옷장 메인 루프: 큐 → 처리 → S3 → manifest → 콜백 → ack
 calendar_consumer.py      # 캘린더 전용 수신·계약 검증·ack 경계
+calendar_manifest.py      # calendar-result.v1 manifest 생성 계약
 calendar_pipeline.py      # 캘린더 S3 처리·결과 이미지·manifest 생성
 config.py                 # 환경변수 (루트 .env)
 pipeline/
