@@ -196,5 +196,7 @@ output
 docs/
 main
 input
+nohup.out
 
 collector/eleven/tests/test_category_mapping.py
+
