@@ -292,3 +292,19 @@ def create_from_photo(
     _save_entry_with_links(entry=entry, links=links, stored_keys=stored_keys)
 
     return entries_for_user(user=user).get(pk=entry.pk)
+
+
+def mark_queue_enqueue_failed(entry: CalendarEntry) -> None:
+    """Redis 적재 실패를 PostgreSQL의 최종 실패 상태로 기록한다."""
+
+    entry.status = CalendarStatus.FAILED.value
+    entry.processing_error_code = "QUEUE_ENQUEUE_FAILED"
+    entry.processing_error_message = "캘린더 이미지 처리 큐 적재 실패"
+    entry.save(
+        update_fields=[
+            "status",
+            "processing_error_code",
+            "processing_error_message",
+            "updated_at",
+        ]
+    )

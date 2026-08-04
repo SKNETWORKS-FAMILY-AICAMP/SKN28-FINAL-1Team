@@ -199,9 +199,11 @@ CORS_ALLOWED_ORIGINS = [
 # ------------------------------------------------------------
 
 # ------------------------------------------------------------
-# 스타일 캘린더 (style_calendar) — S3
-# 상세 값은 apps/style_calendar/services/storage.py에서 환경변수로 읽는다.
+# 스타일 캘린더 (style_calendar) — S3 / Redis List Queue
+# 상세 값은 apps/style_calendar/services/storage.py와 queue.py에서 읽는다.
 # 필수: CALENDAR_S3_BUCKET(미설정 시 WARDROBE_S3_BUCKET 사용)
+#       CALENDAR_JOB_QUEUE, CALENDAR_PROCESSING_QUEUE,
+#       CALENDAR_CALLBACK_BASE_URL
 # ------------------------------------------------------------
 
 # ------------------------------------------------------------

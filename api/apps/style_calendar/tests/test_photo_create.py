@@ -7,6 +7,7 @@ from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import TestCase
 from django.urls import reverse
 from PIL import Image
+from redis.exceptions import ConnectionError as RedisConnectionError
 from rest_framework.test import APIClient
 
 from apps.style_calendar.contracts import CalendarSourceType, CalendarStatus
@@ -44,14 +45,20 @@ class CalendarPhotoCreateApiTests(TestCase):
             "apps.style_calendar.serializers.storage.presigned_get",
             side_effect=lambda key: f"https://calendar.example/{key}" if key else "",
         )
+        enqueue_patcher = patch("apps.style_calendar.views.calendar_queue.enqueue")
+        logger_patcher = patch("apps.style_calendar.views.logger.exception")
         self.mock_upload_fileobj = upload_patcher.start()
         self.mock_copy_wardrobe_item = copy_patcher.start()
         self.mock_delete_objects = delete_patcher.start()
         self.mock_presigned_get = presigned_patcher.start()
+        self.mock_enqueue = enqueue_patcher.start()
+        self.mock_logger_exception = logger_patcher.start()
         self.addCleanup(upload_patcher.stop)
         self.addCleanup(copy_patcher.stop)
         self.addCleanup(delete_patcher.stop)
         self.addCleanup(presigned_patcher.stop)
+        self.addCleanup(enqueue_patcher.stop)
+        self.addCleanup(logger_patcher.stop)
 
         self.client = APIClient()
         self.user = User.objects.create(username="photo-calendar-user")
@@ -131,6 +138,8 @@ class CalendarPhotoCreateApiTests(TestCase):
             response.data["image_url"],
             f"https://calendar.example/{entry.image_s3_key}",
         )
+        self.assertEqual(self.mock_enqueue.call_count, 1)
+        self.assertEqual(self.mock_enqueue.call_args.args[0].pk, entry.pk)
 
     def test_user_photo_remains_representative_with_selected_wardrobe_items(self) -> None:
         payload = self._payload()
@@ -212,6 +221,24 @@ class CalendarPhotoCreateApiTests(TestCase):
         self.assertEqual(len(deleted_keys), 2)
         self.assertTrue(deleted_keys[0].endswith("/original.jpg"))
         self.assertIn("/selected/", deleted_keys[1])
+        self.mock_enqueue.assert_not_called()
+
+    def test_queue_failure_marks_calendar_failed_and_keeps_s3_objects(self) -> None:
+        self.mock_enqueue.side_effect = RedisConnectionError("redis unavailable")
+
+        response = self.client.post(self.url, self._payload(), format="multipart")
+
+        self.assertEqual(response.status_code, 503)
+        entry = CalendarEntry.objects.get(pk=response.data["id"])
+        self.assertEqual(entry.status, CalendarStatus.FAILED.value)
+        self.assertEqual(entry.processing_error_code, "QUEUE_ENQUEUE_FAILED")
+        self.assertEqual(
+            entry.processing_error_message,
+            "캘린더 이미지 처리 큐 적재 실패",
+        )
+        self.assertTrue(entry.image_s3_key.endswith("/original.jpg"))
+        self.mock_delete_objects.assert_not_called()
+        self.mock_logger_exception.assert_called_once()
 
     def test_photo_upload_validates_image_and_item_id_inputs(self) -> None:
         missing_image = self.client.post(
@@ -266,3 +293,4 @@ class CalendarPhotoCreateApiTests(TestCase):
 
         self.assertEqual(response.status_code, 401)
         self.mock_upload_fileobj.assert_not_called()
+        self.mock_enqueue.assert_not_called()

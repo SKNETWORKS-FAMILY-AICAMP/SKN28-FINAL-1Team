@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import logging
+
+import redis as redis_lib
 from django.shortcuts import get_object_or_404
 from rest_framework import status
 from rest_framework.parsers import FormParser, MultiPartParser
@@ -17,6 +20,9 @@ from apps.style_calendar.serializers import (
     CalendarWardrobeCreateSerializer,
 )
 from apps.style_calendar.services import calendar_service
+from apps.style_calendar.services import queue as calendar_queue
+
+logger = logging.getLogger(__name__)
 
 
 class CalendarPhotoCreateView(APIView):
@@ -56,6 +62,20 @@ class CalendarPhotoCreateView(APIView):
         except calendar_service.CalendarStorageError:
             return Response(
                 {"detail": "캘린더 이미지 저장에 실패했습니다. 잠시 후 다시 시도해주세요."},
+                status=status.HTTP_503_SERVICE_UNAVAILABLE,
+            )
+
+        try:
+            calendar_queue.enqueue(entry)
+        except (redis_lib.RedisError, calendar_queue.CalendarQueueConfigurationError):
+            logger.exception("캘린더 Queue 적재 실패: calendar_id=%s", entry.pk)
+            calendar_service.mark_queue_enqueue_failed(entry)
+            return Response(
+                {
+                    "detail": "처리 대기열 등록에 실패했습니다. 잠시 후 다시 시도해주세요.",
+                    "id": str(entry.pk),
+                    "status": entry.status,
+                },
                 status=status.HTTP_503_SERVICE_UNAVAILABLE,
             )
 
