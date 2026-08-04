@@ -45,6 +45,7 @@ INSTALLED_APPS = [
     "apps.home",
     "apps.wardrobe",
     "apps.recommend",
+    "apps.style_calendar",
 ]
 
 MIDDLEWARE = [
