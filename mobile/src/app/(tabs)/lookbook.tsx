@@ -5,6 +5,7 @@ import { LOOKBOOK_FILTER_OPTIONS, useLookbook } from '@/state/lookbook';
 import { likesStore, useLikedLooks } from '@/state/likes';
 import { useSavedLooks, type LookOrigin } from '@/state/saved';
 import { router, useLocalSearchParams } from 'expo-router';
+import { withReturn } from '@/lib/goBack';
 import { useMemo, useState } from 'react';
 import {
   Pressable,
@@ -224,8 +225,11 @@ export default function LookbookScreen() {
                 onPress={() =>
                   router.push(
                     mode === 'mine' && mineTab === 'saved'
-                      ? `/saved-look?id=${c.id}`
-                      : `/look-detail?id=${c.variantId ?? 'daily'}`,
+                      ? withReturn(`/saved-look?id=${c.id}`, '/(tabs)/lookbook?tab=saved')
+                      : withReturn(
+                          `/look-detail?id=${c.variantId ?? 'daily'}`,
+                          mode === 'mine' ? '/(tabs)/lookbook?tab=liked' : '/(tabs)/lookbook',
+                        ),
                   )
                 }>
                 <View style={[styles.cardImage, { height: cardH }]}>

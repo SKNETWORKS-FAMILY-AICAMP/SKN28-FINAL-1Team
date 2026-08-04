@@ -24,3 +24,20 @@ export function goBack(fallback: Href = '/(tabs)/home') {
   if (router.canGoBack()) router.back();
   else router.replace(fallback);
 }
+
+/**
+ * 여러 화면에서 들어오는 상세로 갈 때, 돌아올 자리를 `from` 으로 함께 넘긴다.
+ *
+ * 웹의 goBack 은 히스토리를 안 쓰고 fallback 으로 확정 이동하는데, 상세 화면 하나에
+ * fallback 을 하나만 박아 두면 어느 길로 들어왔든 같은 곳으로 튕긴다
+ * (룩 상세는 홈·룩북·위시리스트·채팅에서, 저장 룩은 룩북·캘린더에서 들어온다).
+ * 부르는 쪽이 자기 자리를 알려 주고, 상세는 `from ?? 기본값` 으로 돌아간다.
+ */
+export function withReturn(href: string, from: string): Href {
+  return `${href}${href.includes('?') ? '&' : '?'}from=${encodeURIComponent(from)}` as Href;
+}
+
+/** 상세 화면에서 쓰는 짝 — `from` 이 없으면 그 화면의 기본 자리로 돌아간다. */
+export function backTo(from: string | undefined, fallback: Href): Href {
+  return (from as Href) ?? fallback;
+}

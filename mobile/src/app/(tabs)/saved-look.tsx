@@ -1,6 +1,6 @@
 import { Icon } from '@/components/icon';
 import { router, useLocalSearchParams } from 'expo-router';
-import { goBack } from '@/lib/goBack';
+import { backTo, goBack } from '@/lib/goBack';
 import { useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -46,7 +46,9 @@ export default function SavedLook() {
 
   /* 어떤 룩인지는 목록에서 id 로 받는다. id 없이 들어오면(아직 id 를 안 넘기는 경로가 있다)
      첫 저장 룩을 보여준다 — 고정 목업을 그리던 자리다. */
-  const { id } = useLocalSearchParams<{ id?: string }>();
+  const { id, from } = useLocalSearchParams<{ id?: string; from?: string }>();
+  /* 룩북에서도 캘린더에서도 들어온다 — 들어온 자리로 돌려보낸다. */
+  const back = () => goBack(backTo(from, '/(tabs)/lookbook?tab=saved'));
   const looks = useSavedLooks();
   const look = (id ? looks.find((l) => l.id === id) : looks[0]) ?? null;
 
@@ -85,7 +87,7 @@ export default function SavedLook() {
     if (!ok) return;
     savedLookStore.removeLook(look.id);
     toast('저장됨에서 뺐어요');
-    goBack('/(tabs)/lookbook');
+    back();
   };
 
   const subtitle = look
@@ -116,7 +118,7 @@ export default function SavedLook() {
       <View style={styles.container}>
         <SafeAreaView edges={['top']} style={styles.headerSafe}>
           <View style={[styles.header, contentStyle(ContentMax.card)]}>
-            <Pressable hitSlop={12} onPress={() => goBack('/(tabs)/lookbook')}>
+            <Pressable hitSlop={12} onPress={back}>
               <Icon name="chevron.left" tintColor={INK} size={20} />
             </Pressable>
           </View>
@@ -136,7 +138,7 @@ export default function SavedLook() {
     <View style={styles.container}>
       <SafeAreaView edges={['top']} style={styles.headerSafe}>
         <View style={[styles.header, contentStyle(ContentMax.card)]}>
-          <Pressable hitSlop={12} onPress={() => goBack('/(tabs)/lookbook')}>
+          <Pressable hitSlop={12} onPress={back}>
             <Icon name="chevron.left" tintColor={INK} size={20} />
           </Pressable>
           <View style={styles.headerActions}>

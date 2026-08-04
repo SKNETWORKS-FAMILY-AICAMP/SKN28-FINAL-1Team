@@ -1,5 +1,7 @@
 import { Icon } from '@/components/icon';
 import { router } from 'expo-router';
+
+import { withReturn } from '@/lib/goBack';
 import { useMemo, useRef, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -241,7 +243,7 @@ export default function Calendar() {
               {linkedLook ? (
                 <Pressable
                   style={styles.lookLink}
-                  onPress={() => router.push(`/saved-look?id=${linkedLook.id}`)}>
+                  onPress={() => router.push(withReturn(`/saved-look?id=${linkedLook.id}`, '/(tabs)/calendar'))}>
                   <Icon name="book" tintColor={INK} size={15} />
                   <Text style={styles.lookLinkText}>룩북에도 올린 룩이에요</Text>
                   <Icon name="chevron.right" tintColor={ink(0.3)} size={14} />

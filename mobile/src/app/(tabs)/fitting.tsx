@@ -1,5 +1,3 @@
-import { router } from 'expo-router';
-
 import { Icon } from '@/components/icon';
 import { LoadingState, SmartImage, useToast } from '@/components/ui';
 import { goBack } from '@/lib/goBack';
@@ -52,8 +50,8 @@ export default function Fitting() {
     <View style={styles.container}>
       <SafeAreaView edges={['top']} style={styles.headerSafe}>
         <View style={[styles.header, contentStyle(maxW)]}>
-          {/* 뒤로가기는 룩상세로 고정(여기로 들어온 출처). */}
-          <Pressable hitSlop={12} onPress={() => router.replace('/look-detail')}>
+          {/* 룩 상세에서 들어온다. ⚠️ router.replace 직접 호출 금지 — 웹에서 무시돼 먹통이 된다(lib/goBack.ts). */}
+          <Pressable hitSlop={12} onPress={() => goBack('/look-detail')}>
             <Icon name="chevron.left" tintColor={INK} size={20} />
           </Pressable>
           <Text style={styles.headerTitle}>가상 피팅</Text>

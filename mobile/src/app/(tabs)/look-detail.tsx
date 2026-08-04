@@ -13,6 +13,7 @@ import { savedLookStore } from '@/state/saved';
 import { useAuth } from '@/state/auth';
 import { draftItem } from '@/state/draft-item';
 import { brandScores, likesStore, useWishlist, wishKey } from '@/state/likes';
+import { backTo, goBack } from '@/lib/goBack';
 import { mallLabel, openExternal, productUrl } from '@/lib/mall';
 import type { LookRelated } from '@/constants/today-look';
 import { useBottomTabInset } from '@/hooks/use-bottom-tab-inset';
@@ -36,7 +37,7 @@ export default function LookDetail() {
   // 2단(≥1280)일 땐 본문을 넓게, 세로로 쌓일 땐 좁게 잡아 사진·카드가 과하게 커지지 않게 한다.
   const maxW = width >= 1280 ? 960 : 720;
   /* 어떤 룩을 볼지는 주소가 정한다. 없으면 오늘의 룩. */
-  const { id } = useLocalSearchParams<{ id?: string }>();
+  const { id, from } = useLocalSearchParams<{ id?: string; from?: string }>();
   const look = resolveLookVariant(id);
   const PIECES = look.pieces;
   const lookTags = tagsOf(look.subtitle);
@@ -158,8 +159,9 @@ export default function LookDetail() {
       {/* 헤더 */}
       <SafeAreaView edges={['top']} style={styles.headerSafe}>
         <View style={[styles.header, contentStyle(maxW)]}>
-          {/* 뒤로가기는 홈으로 고정. (탭 네비게이터에서 router.back()·히스토리가 엉뚱한 탭으로 가서 목적지를 못 박음) */}
-          <Pressable hitSlop={12} onPress={() => router.replace('/(tabs)/home')}>
+          {/* 들어온 자리(from)로 돌아간다. 없으면 홈.
+              ⚠️ router.replace 를 직접 쓰지 말 것 — 웹에서 조용히 무시돼 버튼이 먹통이 된다(lib/goBack.ts). */}
+          <Pressable hitSlop={12} onPress={() => goBack(backTo(from, '/(tabs)/home'))}>
             <Icon name="chevron.left" tintColor={INK} size={20} />
           </Pressable>
           <Text style={styles.headerTitle}>추천 룩</Text>
