@@ -1,7 +1,7 @@
 import { Icon } from '@/components/icon';
 import { router } from 'expo-router';
 import { useMemo, useState } from 'react';
-import { Pressable, RefreshControl, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, Pressable, RefreshControl, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { Avatar, ErrorState, LoadingState, SmartImage, useToast } from '@/components/ui';
@@ -14,6 +14,7 @@ import { useHome, type HomeData, type HomeWeather } from '@/hooks/use-home';
 import { useRefresh } from '@/hooks/use-refresh';
 import { useWardrobeItems } from '@/hooks/use-wardrobe';
 import { useAuth } from '@/state/auth';
+import { outfitAnalysisStore, useOutfitAnalysis } from '@/state/outfit-analysis';
 import { savedLookStore } from '@/state/saved';
 
 // ── 에디토리얼 본 팔레트 (라이트 고정) ──
@@ -112,6 +113,9 @@ export default function HomeScreen() {
 
 /** 옷장 데이터가 없는 첫 방문자를 위한 홈. 분석 경험부터 제공해 추천의 근거를 만든다. */
 function EmptyClosetStart() {
+  const { job } = useOutfitAnalysis();
+  const pending = outfitAnalysisStore.isPending(job);
+
   return (
     <View style={styles.emptyStart}>
       <View style={styles.emptyEyebrow}>
@@ -131,6 +135,30 @@ function EmptyClosetStart() {
           </Text>
         </Pressable>
       </View>
+      {job ? (
+        <Pressable style={styles.analysisStatus} onPress={() => router.push('/outfit-review')}>
+          <View style={styles.analysisStatusIcon}>
+            {pending ? (
+              <ActivityIndicator size="small" color={Editorial.selected} />
+            ) : (
+              <Text style={styles.analysisStatusMark}>{job.phase === 'SUCCEEDED' ? '✓' : '!'}</Text>
+            )}
+          </View>
+          <View style={styles.analysisStatusText}>
+            <Text style={styles.analysisStatusTitle}>
+              {pending
+                ? '착장 분석이 진행 중이에요'
+                : job.phase === 'SUCCEEDED'
+                  ? '착장 분석이 완료됐어요'
+                  : '착장 분석을 완료하지 못했어요'}
+            </Text>
+            <Text style={styles.analysisStatusBody} numberOfLines={1}>
+              {pending ? '다른 화면을 둘러봐도 분석은 계속됩니다.' : job.phase === 'SUCCEEDED' ? '눌러서 분석 결과를 확인해 보세요.' : job.detail}
+            </Text>
+          </View>
+          <Text style={styles.analysisStatusArrow}>›</Text>
+        </Pressable>
+      ) : null}
     </View>
   );
 }
@@ -303,6 +331,26 @@ const styles = StyleSheet.create({
     borderColor: ink(0.14),
   },
   emptySecondaryText: { fontSize: 14, fontWeight: '600', color: Editorial.textSoft },
+  analysisStatus: {
+    alignSelf: 'stretch',
+    marginTop: 18,
+    minHeight: 72,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    borderRadius: 16,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    backgroundColor: Editorial.page,
+    borderWidth: 1,
+    borderColor: Editorial.line,
+  },
+  analysisStatusIcon: { width: 28, height: 28, alignItems: 'center', justifyContent: 'center' },
+  analysisStatusMark: { fontSize: 17, fontWeight: '700', color: Editorial.selected },
+  analysisStatusText: { flex: 1 },
+  analysisStatusTitle: { fontSize: 14, fontWeight: '700', color: INK },
+  analysisStatusBody: { marginTop: 4, fontSize: 12, color: Editorial.textCaption },
+  analysisStatusArrow: { fontSize: 24, color: Editorial.textCaption },
 
   lookMetaRow: {
     flexDirection: 'row',

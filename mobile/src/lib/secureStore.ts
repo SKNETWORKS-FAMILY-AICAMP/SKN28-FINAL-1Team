@@ -14,6 +14,7 @@ const ACCESS_KEY = 'auth_access_token';
 const REFRESH_KEY = 'auth_refresh_token';
 /* 데모 세션 표식. 토큰이 없는 세션이라 이 값이 없으면 새로고침·앱 재시작에서 그냥 사라진다. */
 const DEMO_KEY = 'auth_demo_session';
+const OUTFIT_ANALYSIS_KEY = 'outfit_analysis_job';
 
 const isWeb = Platform.OS === 'web';
 
@@ -95,4 +96,17 @@ export async function hasDemoFlag(): Promise<boolean> {
 
 export function clearDemoFlag(): Promise<void> {
   return deleteItem(DEMO_KEY);
+}
+
+/** 비회원도 앱 재실행 후 진행 중인 착장 분석을 복구하기 위한 최소 상태 저장소. */
+export function saveOutfitAnalysisJob(value: string): Promise<void> {
+  return setItem(OUTFIT_ANALYSIS_KEY, value);
+}
+
+export function getOutfitAnalysisJob(): Promise<string | null> {
+  return getItem(OUTFIT_ANALYSIS_KEY);
+}
+
+export function clearOutfitAnalysisJob(): Promise<void> {
+  return deleteItem(OUTFIT_ANALYSIS_KEY);
 }
