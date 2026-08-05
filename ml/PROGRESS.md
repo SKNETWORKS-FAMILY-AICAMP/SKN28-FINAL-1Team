@@ -248,8 +248,8 @@ POST 껍데기는 동기(200)/비동기(202)라 같게 만들 수 없어 **결�
   기본 정보 추정으로 7개를 먼저 채운 뒤 VLM 응답으로 덮어쓴다 (VLM이 일부를
   빠뜨려도 빈칸이 생기지 않는다).
 - **2026-08-05 복구**: SizeKorea 개별 `*_profile.csv` 원본에는
-  `thigh/calf/arm/shoulder` 정답이 있었으므로 `summary_raw_test_data.csv`,
-  `multimodal_test_subjects.csv`, `vlm_*_set.csv`에 7개 정답을 복구했다.
+  `thigh/calf/arm/shoulder` 정답이 있었으므로 `data/labels/sizekorea_vlm_182_labels.csv`,
+  `data/labels/sizekorea_vlm_subjects.csv`, `data/splits/vlm/*_set.csv`에 7개 정답을 복구했다.
   Kimi K2.5 full 테스트/검증 결과도 7개 부위 MAE를 다시 계산했다.
 - 서빙 프롬프트는 `body_measurement_prompt_full.j2`(7개), 벤치마크 프롬프트는
   기존 `body_measurement_prompt.j2`(3개)로 분리했다. 기록된 MAE를 재현할 수 있게
@@ -270,17 +270,101 @@ POST 껍데기는 동기(200)/비동기(202)라 같게 만들 수 없어 **결�
 
 - `manage.py test apps.users` — **63개 전부 통과** (Postgres)
 - 무사진 추정 종단 확인: `male 175.5cm 70kg` → 7개 전부 반환, 200
-- 사진 추정 종단 확인 (jisoo, 실제 OpenRouter 호출):
-
-| 부위 | KNN만 | 사진+모델 | 실제 |
-|---|---:|---:|---:|
-| 가슴 | 78.5 | 82.0 | 84.0 |
-| 허리 | 64.0 | 61.0 | 56.0 |
-| 엉덩이 | 84.4 | 88.0 | 86.0 |
+- 사진 추정 종단 확인: SizeKorea 샘플 기준 7개 전부 반환, 200
 
 ### 6. 남은 일
 
 - [ ] 사진 모델 최종 확정 (Qwen 3.7 Flash 기본값 / Kimi K2.5는 정확도 1위·비용 30배)
-- [ ] 선택한 모델로 Test 154명 최종 평가
+- [x] 선택한 모델로 Test 154명 최종 평가 (Kimi K2.5, 2026-08-04)
+- [ ] 백그라운드 스레드 → Celery/SQS 교체 (AWS 이관 시)
+- [ ] 프론트 연동 확인
+
+## 2026-08-05 데이터셋 정책 확정 + 도커 서빙 종단 시연
+
+### 1. 데이터셋 정책 — SizeKorea만 사용
+
+최종 평가·학습 데이터는 **SizeKorea 실측만** 쓴다. 비-SizeKorea 외부 데이터는
+동일한 실측 기준으로 검증되지 않았기 때문에 최종 기준에서 제외한다.
+
+- 비-SizeKorea 외부 이미지, 라벨 행, split 행, VLM 실험 CSV 행은 삭제했다.
+- Test 기준은 SizeKorea 145명이다. 정답오류 2건 제외 시 **143명 3.126cm**다.
+- Validation 기준은 SizeKorea 36명이다.
+- SizeKorea-only 기준 split 비율은 Test 145명(80.11%) / Validation 36명(19.89%)로 유지된다.
+- 근거와 상세 표는 `reports/model_evaluation_summary.md` §5-3 참조
+
+### 2. 도커 서빙 환경 결함 3건 수정
+
+`97d23a9`(API 2종 구현)은 로컬에서만 검증됐고 **도커에서 한 번도 빌드된 적이 없었다.**
+그래서 컨테이너 이미지가 7/29에 멈춰 있었고 `/body/estimate/`가 404였다.
+Swagger 캐시 문제가 아니라 이미지가 낡은 것이 원인이었다.
+
+| # | 증상 | 원인 | 수정 |
+|---|---|---|---|
+| 1 | 컨테이너에 `OPENROUTER_API_KEY` 없음 | compose의 api 서비스에 변수 선언 자체가 없어 shell env가 전달되지 않음 | `docker-compose.yml` api에 `OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}` 추가. 값은 파일에 두지 않고 `infisical run`으로 주입 |
+| 2 | 이미지 빌드 실패 | `scipy==1.18.0`은 Python 3.12+ 요구, api 이미지는 `python:3.11-slim` | `api/requirements.txt` 핀을 실제 검증 환경 값(scipy 1.17.1 / numpy 2.4.3)으로 정정 |
+| 3 | `ModuleNotFoundError: body_measurement` | 빌드 컨텍스트가 `./api`라 이미지에 `ml/`이 없음 | compose의 `migrate`·`api`에 `- ./ml:/ml:ro` 마운트 (settings/base.py가 `BASE_DIR.parent/ml`을 sys.path에 올림) |
+
+실행 명령 (인증 우회 + 키 주입):
+
+```bash
+infisical run --env=dev --silent -- sh -c \
+  'DJANGO_SETTINGS_MODULE=config.settings.swagger_noauth docker compose --profile api up -d --build api'
+```
+
+Infisical 시크릿이 shell 변수를 덮어쓰므로 `DJANGO_SETTINGS_MODULE` 지정은
+`infisical run` **안쪽**에서 해야 한다.
+
+### 3. HTTP 종단 시연 결과 (실제 OpenRouter 호출)
+
+`POST /body/photos/` → 202 + tx_id → `GET /body/photos/{tx_id}/` 폴링 → succeeded까지
+정상 완주했다. 추론 함수 직접 호출이 아닌 **진짜 HTTP 경로로는 처음** 성공했다.
+
+여성·남성 각 1건씩 실제 호출했고 **2건 모두 7개 부위를 전부 반환**했다.
+정답 7개가 복구돼 있어 3개 기준과 7개 기준을 함께 계산했다.
+
+| 대상 | 3개 무사진 | 3개 사진 | 7개 무사진 | 7개 사진 | 우세 |
+|---|----:|----:|----:|----:|---|
+| `sizkorea_f111` (여, 164.1cm 59.3kg) | **0.667** | 3.600 | **0.800** | 2.986 | 무사진 |
+| `sizkorea_m095` (남, 172.8cm 65.8kg) | 3.933 | **2.833** | 3.000 | **1.729** | 사진 |
+
+1승 1패라 우열을 말할 수 없다. **이번 시연의 목적은 기능 검증이지 성능 비교가
+아니며**, 성능 판단은 표본 전체 평균으로만 해야 한다.
+
+관찰된 공통 패턴 하나: **두 건 모두 엉덩이 오차가 가장 컸다**
+(f111 사진 4.9 / m095 사진 7.0, 무사진도 각각 0.5 / 6.1). Test 145명 집계에서
+엉덩이가 가장 낮은 MAE(2.643)를 보인 것과 방향이 다르므로, 단건 관찰로 일반화하지 않는다.
+
+### 4. VLM 응답 비결정성 관측
+
+`temperature=0`인데도 같은 사진·같은 입력의 응답이 8/4 배치와 달라졌다.
+
+| 대상 | 8/4 배치와 일치한 부위 |
+|---|---|
+| `sizkorea_f111` | 0 / 7 (전부 다름, MAE 1.17 → 3.60) |
+| `sizkorea_m095` | 2 / 7 (`waist`, `thigh`만 동일) |
+
+단건으로 모델 성능을 판단하면 안 되며, 재현이 필요한 벤치마크는 응답을 CSV로
+남겨 대조해야 한다.
+
+### 5. 기능 검증 (2026-08-05, 무료 검증만)
+
+| 항목 | 결과 |
+|---|---|
+| `apps.users` 테스트 (dev 설정) | 65개 통과 |
+| `apps.api_docs` 테스트 (swagger 설정) | 2개 통과 |
+| 정상 경로 6개 엔드포인트 | 전부 200/202 |
+| 에러 처리 (없는 tx / 범위초과 / 성별오타 / 사진누락 / 필드명오류) | 404 1건 + 400 4건, 전부 의도대로 |
+| Swagger 스키마 노출 | body 6개 전부 |
+| 응답 스키마 통일 | `POST /body/estimate/` ↔ `GET /body/photos/{tx}/` 완전 동일 |
+
+`GET /body/`·`PUT /body/basic/`·`PATCH /body/detail/`는 `measurement` 알맹이만
+반환하고, 추정 계열 2개는 `{status, source, transaction_id, measurement,
+error_message}`로 감싼다. 감싼 형태는 비동기·실패 표현이 필요해서이며,
+`measurement` 내부 11개 필드는 5개 API가 모두 동일하다
+(프론트는 `res.measurement ?? res`로 통일 가능).
+
+### 6. 남은 일
+
+- [ ] 시연 후 `DJANGO_SETTINGS_MODULE`을 `prod`로 원복 (현재 인증 우회 상태)
 - [ ] 백그라운드 스레드 → Celery/SQS 교체 (AWS 이관 시)
 - [ ] 프론트 연동 확인
