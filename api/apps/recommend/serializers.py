@@ -93,6 +93,14 @@ class OutfitAnalysisAcceptedSerializer(serializers.Serializer):
     estimated_seconds = serializers.IntegerField(
         help_text="예상 소요 시간(초). 안내 문구용."
     )
+    claim_token = serializers.CharField(
+        allow_null=True,
+        help_text=(
+            "비로그인 접수 건의 소유권 이전용 1회성 토큰. 로그인 접수면 null. "
+            "**이 응답에서만 받을 수 있으니 앱이 로컬에 보관**했다가, 로그인 직후 "
+            "POST /api/v1/outfits/analyses/claim/ 으로 보내세요. 유효 시간이 짧습니다."
+        ),
+    )
     wardrobe_job_id = serializers.UUIDField(
         allow_null=True,
         help_text=(
@@ -228,3 +236,32 @@ class OutfitAnalysisListResponseSerializer(serializers.Serializer):
     limit = serializers.IntegerField()
     offset = serializers.IntegerField()
     results = OutfitAnalysisListItemSerializer(many=True)
+
+
+class OutfitAnalysisClaimRequestSerializer(serializers.Serializer):
+    """로그인 직후 넘겨받을 익명 접수 건들."""
+
+    claim_tokens = serializers.ListField(
+        child=serializers.CharField(),
+        min_length=1,
+        max_length=settings.OUTFIT_CLAIM_MAX_ITEMS,
+        help_text=(
+            "접수 응답에서 받은 claim_token 목록. 토큰 안에 대상 식별자가 들어 있어 "
+            "analysis_id를 따로 보낼 필요가 없습니다."
+        ),
+    )
+
+
+class OutfitAnalysisClaimSkippedSerializer(serializers.Serializer):
+    analysis_id = serializers.UUIDField(allow_null=True)
+    reason = serializers.ChoiceField(
+        choices=["invalid_token", "expired", "not_found", "already_owned"]
+    )
+
+
+class OutfitAnalysisClaimResponseSerializer(serializers.Serializer):
+    claimed = serializers.ListField(
+        child=serializers.UUIDField(),
+        help_text="소유권이 넘어온 평가 ID. 이미 본인 것이던 건도 포함합니다(멱등).",
+    )
+    skipped = OutfitAnalysisClaimSkippedSerializer(many=True)

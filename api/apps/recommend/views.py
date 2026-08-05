@@ -16,6 +16,8 @@ from rest_framework.views import APIView
 from .models import OutfitAnalysis
 from .serializers import (
     OutfitAnalysisAcceptedSerializer,
+    OutfitAnalysisClaimRequestSerializer,
+    OutfitAnalysisClaimResponseSerializer,
     OutfitAnalysisDetailSerializer,
     OutfitAnalysisListItemSerializer,
     OutfitAnalysisListResponseSerializer,
@@ -23,6 +25,7 @@ from .serializers import (
     OutfitAnalysisRequestSerializer,
 )
 from .services import analysis as analysis_service
+from .services import claim as claim_service
 
 logger = logging.getLogger(__name__)
 
@@ -57,7 +60,10 @@ class OutfitAnalysisView(APIView):
             "사진을 올린 순간의 조건으로 평가합니다.\n\n"
             "`save_to_wardrobe=true`(로그인 전용)로 보내면 같은 사진을 옷장 아이템 등록 "
             "파이프라인에도 넘기고, 응답의 `wardrobe_job_id`로 등록 진행 상황을 따로 조회할 수 있습니다. "
-            "옷장 등록이 실패해도 코디 평가 접수는 그대로 진행됩니다."
+            "옷장 등록이 실패해도 코디 평가 접수는 그대로 진행됩니다.\n\n"
+            "비로그인으로 접수하면 응답에 `claim_token`이 함께 옵니다. **이 응답에서만 받을 수 있으니** "
+            "앱이 보관했다가 로그인 직후 `POST /api/v1/outfits/analyses/claim/` 으로 보내면 "
+            "그 평가 기록의 소유권을 계정으로 가져올 수 있습니다 (유효 시간이 짧습니다)."
         ),
         request=OutfitAnalysisRequestSerializer,
         responses={
@@ -94,6 +100,7 @@ class OutfitAnalysisView(APIView):
                 ),
                 "poll_after_ms": settings.OUTFIT_POLL_AFTER_MS,
                 "estimated_seconds": settings.OUTFIT_ESTIMATED_SECONDS,
+                "claim_token": claim_service.issue_token(analysis),
                 "wardrobe_job_id": (
                     str(analysis.wardrobe_job_id) if analysis.wardrobe_job_id else None
                 ),
@@ -213,3 +220,50 @@ class OutfitAnalysisDetailView(APIView):
         if not request.user.is_authenticated or analysis.user_id != request.user.pk:
             raise NotFound("평가 기록을 찾을 수 없습니다.")
         return Response(OutfitAnalysisDetailSerializer(analysis).data)
+
+
+class OutfitAnalysisClaimView(APIView):
+    """POST /api/v1/outfits/analyses/claim/ — 익명 접수 건의 소유권을 계정으로 가져온다.
+
+    비로그인으로 평가하고 로그인한 사용자가, 앱에 보관해 둔 `claim_token`들을 한 번에
+    넘긴다. 평가는 **다시 하지 않고** 주인만 바꾼다.
+
+    조회와 달리 UUID만으로는 허용하지 않는다 — claim은 쓰기이고, 성공하면 소유자
+    응답으로 바뀌어 사진 URL과 체형 스냅샷까지 열리는 권한 상승 경로다.
+    자세한 근거는 services/claim.py 참고.
+    """
+
+    permission_classes = [IsAuthenticated]
+
+    @extend_schema(
+        operation_id="outfit_analysis_claim",
+        tags=["Outfit Analysis"],
+        summary="비로그인 코디 평가 소유권 이전",
+        description=(
+            "로그인 직후, 비로그인 상태에서 접수했던 평가 기록을 계정으로 가져옵니다. "
+            "접수 응답에서 받은 `claim_token`을 그대로 보내세요(토큰 안에 대상 식별자가 있습니다).\n\n"
+            "평가 결과는 다시 계산하지 않습니다. 비로그인 접수 건은 추구미·체형이 반영되지 않은 "
+            "상태로 평가가 끝나 있으므로, 이력에서도 개인화되지 않은 결과로 남습니다.\n\n"
+            "**주의**: 이전이 끝나면 그 기록은 더 이상 익명 조회가 되지 않습니다. "
+            "분석이 진행 중인 건을 넘겨받았다면 이후 폴링에는 반드시 Authorization 헤더를 실어야 "
+            "하며, 그렇지 않으면 404가 납니다."
+        ),
+        request=OutfitAnalysisClaimRequestSerializer,
+        responses={
+            200: OutfitAnalysisClaimResponseSerializer,
+            400: OpenApiResponse(description="토큰 목록이 비었거나 상한을 초과함"),
+            401: OpenApiResponse(description="로그인 필요"),
+        },
+    )
+    def post(self, request: Request) -> Response:
+        serializer = OutfitAnalysisClaimRequestSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        result = claim_service.claim_analyses(
+            request.user, serializer.validated_data["claim_tokens"]
+        )
+        response_serializer = OutfitAnalysisClaimResponseSerializer(
+            data={"claimed": result.claimed, "skipped": result.skipped}
+        )
+        response_serializer.is_valid(raise_exception=True)
+        return Response(response_serializer.validated_data)

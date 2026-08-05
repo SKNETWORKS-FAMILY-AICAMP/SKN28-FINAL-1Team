@@ -300,6 +300,12 @@ GEMINI_TIMEOUT_SECONDS = int(os.getenv("GEMINI_TIMEOUT_SECONDS", "60"))
 # 큐 키·재시도는 apps/recommend/services/queue.py가 환경변수로 직접 읽는다.
 # 비로그인 접수 건은 UUID를 아는 사람이 조회한다 — 무기한 열어두지 않는다.
 OUTFIT_ANON_TTL_HOURS = int(os.getenv("OUTFIT_ANON_TTL_HOURS", "24"))
+# 익명 접수 건의 소유권 이전(claim) 허용 시간. 조회(24h)보다 훨씬 짧게 잡는다 —
+# claim은 읽기가 아니라 쓰기이고, 성공하면 사진·체형까지 열리는 권한 상승 경로다.
+# 로그인 유도는 평가 결과 직후에 일어나므로 1시간이면 충분하다.
+OUTFIT_CLAIM_TTL_MINUTES = int(os.getenv("OUTFIT_CLAIM_TTL_MINUTES", "60"))
+# 한 번의 claim 요청에서 처리할 최대 건수
+OUTFIT_CLAIM_MAX_ITEMS = int(os.getenv("OUTFIT_CLAIM_MAX_ITEMS", "20"))
 # 워커가 죽어 방치된 QUEUED/PROCESSING 행을 FAILED로 정리하는 기준 (프론트 무한 폴링 방지)
 OUTFIT_STALE_AFTER_MINUTES = int(os.getenv("OUTFIT_STALE_AFTER_MINUTES", "5"))
 # 프론트가 폴링 간격을 하드코딩하지 않도록 서버가 응답에 실어 보낸다

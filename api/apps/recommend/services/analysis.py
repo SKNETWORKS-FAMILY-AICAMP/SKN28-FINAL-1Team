@@ -95,6 +95,8 @@ def accept_analysis(
     analysis = OutfitAnalysis(
         user=user if is_authenticated else None,
         status=OutfitAnalysis.Status.QUEUED,
+        # 나중에 소유권을 넘겨받아도 "개인화 없이 평가된 건"임을 구분할 수 있게 남긴다
+        accepted_anonymously=not is_authenticated,
         # 옷장은 사용자 소유 데이터다 — 비로그인 요청의 요청값은 여기서 버린다
         save_to_wardrobe=bool(save_to_wardrobe) and is_authenticated,
         image_content_type=mime_type,

@@ -56,6 +56,29 @@ def original_key(user_id: int | str | None, analysis_id: str, filename: str) -> 
     return f"outfits/{owner}/{analysis_id}/original{ext}"
 
 
+def owner_key(user_id: int | str, analysis_id: str, current_key: str) -> str:
+    """익명 프리픽스에 있는 키를 소유자 프리픽스로 바꾼 키를 만든다.
+
+    확장자는 기존 키에서 그대로 가져온다 (원본 파일명을 다시 볼 필요가 없다).
+    """
+    ext = os.path.splitext(current_key)[1].lower() or ".jpg"
+    return f"outfits/{user_id}/{analysis_id}/original{ext}"
+
+
+def move(old_key: str, new_key: str) -> None:
+    """같은 버킷 안에서 객체를 옮긴다 (서버 사이드 복사 후 원본 삭제).
+
+    바이트가 우리 서버를 거치지 않는다. 복사가 성공한 뒤에만 원본을 지우므로,
+    중간에 실패해도 사진이 사라지는 일은 없다 (최악의 경우 사본이 둘 남는다).
+    """
+    client = _client()
+    target = bucket()
+    client.copy_object(
+        Bucket=target, Key=new_key, CopySource={"Bucket": target, "Key": old_key}
+    )
+    client.delete_object(Bucket=target, Key=old_key)
+
+
 def upload_fileobj(fileobj, key: str, content_type: str | None = None) -> None:
     extra = {"ContentType": content_type} if content_type else None
     _client().upload_fileobj(fileobj, bucket(), key, ExtraArgs=extra or {})

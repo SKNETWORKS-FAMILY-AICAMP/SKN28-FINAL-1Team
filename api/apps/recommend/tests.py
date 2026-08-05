@@ -17,6 +17,7 @@ from rest_framework.test import APIClient
 
 from apps.recommend.models import OutfitAnalysis
 from apps.recommend.services import analysis as analysis_service
+from apps.recommend.services import claim as claim_service
 from apps.wardrobe.models import WardrobeUploadJob
 from apps.recommend.services import gemini, imaging
 from apps.recommend.services.outfit_context import build_analysis_context
@@ -1061,3 +1062,273 @@ class ImagingTests(SimpleTestCase):
 
         self.assertEqual(shrunk, b"not an image")
         self.assertEqual(mime, "image/jpeg")
+
+
+class ClaimTokenTests(SimpleTestCase):
+    """토큰 자체의 성질 — 서명·만료·격리."""
+
+    def test_token_carries_analysis_id(self) -> None:
+        analysis = OutfitAnalysis(user=None)
+
+        token = claim_service.issue_token(analysis)
+
+        self.assertEqual(claim_service.verify_token(token), (str(analysis.pk), None))
+
+    def test_no_token_for_logged_in_accept(self) -> None:
+        """이미 주인이 있으면 넘겨받을 것이 없다."""
+        self.assertIsNone(claim_service.issue_token(OutfitAnalysis(user_id=1)))
+
+    def test_tampered_token_is_rejected(self) -> None:
+        analysis = OutfitAnalysis(user=None)
+        token = claim_service.issue_token(analysis)
+
+        other_id = "6b2c1f3a-9d4e-4c8b-8a71-2f0e5d9c3b17"
+        forged = other_id + token[token.index(":") :]
+
+        self.assertEqual(
+            claim_service.verify_token(forged),
+            (None, claim_service.SkipReason.INVALID_TOKEN),
+        )
+
+    @override_settings(OUTFIT_CLAIM_TTL_MINUTES=0)
+    def test_expired_token_is_rejected(self) -> None:
+        token = claim_service.issue_token(OutfitAnalysis(user=None))
+
+        _, reason = claim_service.verify_token(token)
+
+        self.assertEqual(reason, claim_service.SkipReason.EXPIRED)
+
+    def test_signature_is_namespaced_by_salt(self) -> None:
+        """같은 SECRET_KEY로 만든 다른 용도의 서명을 claim 토큰으로 쓸 수 없다."""
+        from django.core import signing
+
+        foreign = signing.TimestampSigner(salt="something-else").sign("x")
+
+        self.assertEqual(
+            claim_service.verify_token(foreign),
+            (None, claim_service.SkipReason.INVALID_TOKEN),
+        )
+
+
+@patch("apps.recommend.services.claim.storage.is_configured", return_value=True)
+@patch("apps.recommend.services.claim.storage.move")
+class ClaimApiTests(TestCase):
+    """POST /outfits/analyses/claim/ — 소유권 이전."""
+
+    def setUp(self) -> None:
+        self.client = APIClient()
+        self.url = reverse("recommend:outfit-analysis-claim")
+        self.user = get_user_model().objects.create(username="naver_1")
+        self.other = get_user_model().objects.create(username="kakao_2")
+
+    def _anonymous_analysis(self) -> OutfitAnalysis:
+        analysis = OutfitAnalysis.objects.create(
+            user=None,
+            accepted_anonymously=True,
+            status=OutfitAnalysis.Status.SUCCEEDED,
+            evaluation=EVALUATION,
+            weather=WEATHER,
+        )
+        analysis.image_s3_key = f"outfits/anonymous/{analysis.pk}/original.jpg"
+        analysis.save(update_fields=["image_s3_key"])
+        return analysis
+
+    def _claim(self, *tokens) -> object:
+        return self.client.post(self.url, {"claim_tokens": list(tokens)}, format="json")
+
+    def test_requires_authentication(self, _mock_move: Mock, _mock_cfg: Mock) -> None:
+        analysis = self._anonymous_analysis()
+
+        response = self._claim(claim_service.issue_token(analysis))
+
+        self.assertEqual(response.status_code, 401)
+
+    def test_transfers_ownership_without_reevaluating(
+        self, _mock_move: Mock, _mock_cfg: Mock
+    ) -> None:
+        analysis = self._anonymous_analysis()
+        token = claim_service.issue_token(analysis)
+        self.client.force_authenticate(user=self.user)
+
+        response = self._claim(token)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual([str(i) for i in response.data["claimed"]], [str(analysis.pk)])
+        analysis.refresh_from_db()
+        self.assertEqual(analysis.user, self.user)
+        self.assertIsNotNone(analysis.claimed_at)
+        # 평가는 다시 하지 않는다 — 결과와 상태가 그대로여야 한다
+        self.assertEqual(analysis.status, OutfitAnalysis.Status.SUCCEEDED)
+        self.assertEqual(analysis.evaluation, EVALUATION)
+        self.assertEqual(analysis.attempts, 0)
+        # 개인화 없이 나온 결과라는 사실은 남는다
+        self.assertTrue(analysis.accepted_anonymously)
+        self.assertFalse(analysis.personalized)
+
+    def test_moves_photo_into_owner_folder(
+        self, mock_move: Mock, _mock_cfg: Mock
+    ) -> None:
+        """익명 프리픽스에 두면 익명 사진 정리에 함께 쓸려나간다."""
+        analysis = self._anonymous_analysis()
+        old_key = analysis.image_s3_key
+        token = claim_service.issue_token(analysis)
+        self.client.force_authenticate(user=self.user)
+
+        self._claim(token)
+
+        analysis.refresh_from_db()
+        new_key = f"outfits/{self.user.pk}/{analysis.pk}/original.jpg"
+        self.assertEqual(analysis.image_s3_key, new_key)
+        mock_move.assert_called_once_with(old_key, new_key)
+
+    def test_photo_move_failure_keeps_ownership(
+        self, mock_move: Mock, _mock_cfg: Mock
+    ) -> None:
+        """이동은 best-effort — 실패해도 기존 키로 계속 읽을 수 있다."""
+        mock_move.side_effect = RuntimeError("S3 down")
+        analysis = self._anonymous_analysis()
+        old_key = analysis.image_s3_key
+        token = claim_service.issue_token(analysis)
+        self.client.force_authenticate(user=self.user)
+
+        response = self._claim(token)
+
+        self.assertEqual(response.status_code, 200)
+        analysis.refresh_from_db()
+        self.assertEqual(analysis.user, self.user)
+        self.assertEqual(analysis.image_s3_key, old_key)
+
+    def test_uuid_alone_is_not_enough(self, _mock_move: Mock, _mock_cfg: Mock) -> None:
+        """조회는 UUID로 되지만 claim은 안 된다 (권한 상승 경로라 토큰을 요구)."""
+        analysis = self._anonymous_analysis()
+        self.client.force_authenticate(user=self.user)
+
+        response = self._claim(str(analysis.pk))
+
+        self.assertEqual(response.data["claimed"], [])
+        self.assertEqual(
+            response.data["skipped"][0]["reason"],
+            claim_service.SkipReason.INVALID_TOKEN,
+        )
+        analysis.refresh_from_db()
+        self.assertIsNone(analysis.user)
+
+    def test_cannot_steal_someone_elses_record(
+        self, _mock_move: Mock, _mock_cfg: Mock
+    ) -> None:
+        analysis = self._anonymous_analysis()
+        token = claim_service.issue_token(analysis)
+        OutfitAnalysis.objects.filter(pk=analysis.pk).update(user=self.other)
+        self.client.force_authenticate(user=self.user)
+
+        response = self._claim(token)
+
+        self.assertEqual(response.data["claimed"], [])
+        self.assertEqual(
+            response.data["skipped"][0]["reason"],
+            claim_service.SkipReason.ALREADY_OWNED,
+        )
+        analysis.refresh_from_db()
+        self.assertEqual(analysis.user, self.other)
+
+    def test_repeat_claim_is_idempotent(self, _mock_move: Mock, _mock_cfg: Mock) -> None:
+        analysis = self._anonymous_analysis()
+        token = claim_service.issue_token(analysis)
+        self.client.force_authenticate(user=self.user)
+
+        self._claim(token)
+        response = self._claim(token)
+
+        self.assertEqual([str(i) for i in response.data["claimed"]], [str(analysis.pk)])
+
+    def test_expired_row_is_rejected_even_with_valid_token(
+        self, _mock_move: Mock, _mock_cfg: Mock
+    ) -> None:
+        """토큰이 살아 있어도 행이 오래됐으면 막는다 (DB 쪽 2차 방어)."""
+        analysis = self._anonymous_analysis()
+        token = claim_service.issue_token(analysis)
+        OutfitAnalysis.objects.filter(pk=analysis.pk).update(
+            created_at=timezone.now() - timedelta(hours=3)
+        )
+        self.client.force_authenticate(user=self.user)
+
+        response = self._claim(token)
+
+        self.assertEqual(
+            response.data["skipped"][0]["reason"], claim_service.SkipReason.EXPIRED
+        )
+        analysis.refresh_from_db()
+        self.assertIsNone(analysis.user)
+
+    def test_missing_row_reports_not_found(
+        self, _mock_move: Mock, _mock_cfg: Mock
+    ) -> None:
+        analysis = self._anonymous_analysis()
+        token = claim_service.issue_token(analysis)
+        analysis.delete()
+        self.client.force_authenticate(user=self.user)
+
+        response = self._claim(token)
+
+        self.assertEqual(
+            response.data["skipped"][0]["reason"], claim_service.SkipReason.NOT_FOUND
+        )
+
+    def test_batch_processes_each_token_independently(
+        self, _mock_move: Mock, _mock_cfg: Mock
+    ) -> None:
+        good = self._anonymous_analysis()
+        self.client.force_authenticate(user=self.user)
+
+        response = self._claim(claim_service.issue_token(good), "garbage")
+
+        self.assertEqual([str(i) for i in response.data["claimed"]], [str(good.pk)])
+        self.assertEqual(len(response.data["skipped"]), 1)
+
+    def test_rejects_too_many_tokens(self, _mock_move: Mock, _mock_cfg: Mock) -> None:
+        self.client.force_authenticate(user=self.user)
+
+        response = self._claim(*["t"] * 21)
+
+        self.assertEqual(response.status_code, 400)
+
+    def test_rejects_empty_list(self, _mock_move: Mock, _mock_cfg: Mock) -> None:
+        self.client.force_authenticate(user=self.user)
+
+        self.assertEqual(self._claim().status_code, 400)
+
+    def test_claimed_record_needs_token_for_polling(
+        self, _mock_move: Mock, _mock_cfg: Mock
+    ) -> None:
+        """이전 후에는 익명 조회가 닫힌다 — 프론트가 폴링 헤더를 갈아야 한다."""
+        analysis = self._anonymous_analysis()
+        token = claim_service.issue_token(analysis)
+        detail_url = reverse("recommend:outfit-analysis-detail", args=[analysis.pk])
+        self.assertEqual(self.client.get(detail_url).status_code, 200)  # 이전 전
+
+        self.client.force_authenticate(user=self.user)
+        self._claim(token)
+
+        self.client.force_authenticate(user=None)
+        self.assertEqual(self.client.get(detail_url).status_code, 404)
+        self.client.force_authenticate(user=self.user)
+        self.assertEqual(self.client.get(detail_url).status_code, 200)
+
+    def test_internal_flag_is_not_exposed_to_clients(
+        self, _mock_move: Mock, _mock_cfg: Mock
+    ) -> None:
+        """accepted_anonymously는 내부 기록이라 응답에 싣지 않는다."""
+        analysis = self._anonymous_analysis()
+        token = claim_service.issue_token(analysis)
+        detail_url = reverse("recommend:outfit-analysis-detail", args=[analysis.pk])
+        self.assertNotIn("accepted_anonymously", self.client.get(detail_url).data)
+
+        self.client.force_authenticate(user=self.user)
+        self._claim(token)
+
+        for data in (
+            self.client.get(detail_url).data,
+            self.client.get(reverse("recommend:outfit-analysis-list")).data["results"][0],
+        ):
+            self.assertNotIn("accepted_anonymously", data)
+            self.assertNotIn("claimed_at", data)

@@ -11,6 +11,9 @@
 - **이미지는 S3**: 원본 사진은 DB에 넣지 않고 S3 키만 저장한다 (wardrobe와 동일).
 - **옷장 등록은 곁가지**: 로그인 사용자가 원하면 같은 사진을 옷장 아이템 등록
   파이프라인에도 넘긴다. 실패해도 코디 평가는 그대로 진행된다 (services/wardrobe_link.py).
+- **익명 접수는 나중에 소유권을 넘길 수 있다**: 로그인 후 claim하면 user가 채워진다.
+  이때 평가 자체는 다시 하지 않으므로, 개인화 없이 나온 결과라는 사실을
+  `accepted_anonymously`로 남긴다 (services/claim.py).
 - **익명 요청도 기록**: 이 API는 AllowAny라 user가 NULL인 행이 정상적으로 존재한다.
   익명 행은 소유자를 특정할 수 없어 UUID를 아는 사람만 조회할 수 있고(뷰에서 제어),
   일정 시간이 지나면 조회를 막는다.
@@ -120,6 +123,19 @@ class OutfitAnalysis(models.Model):
         db_comment="개인화 정보 반영 여부 (로그인 요청이면 true)",
     )
 
+    # ── 익명 접수 · 소유권 이전 ──
+    accepted_anonymously = models.BooleanField(
+        default=False,
+        db_comment=(
+            "접수 시점에 비로그인이었는지 여부 "
+            "(소유권 이전 후에도 유지 — 개인화 없이 평가된 기록임을 구분한다)"
+        ),
+    )
+    claimed_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        db_comment="익명 접수 건의 소유권이 사용자에게 이전된 시각 (감사용)",
+    )
     # ── 옷장 등록 연계 (선택) ──
     save_to_wardrobe = models.BooleanField(
         default=False,
@@ -211,6 +227,11 @@ class OutfitAnalysis(models.Model):
     @property
     def is_pending(self) -> bool:
         return self.status in self.PENDING_STATUSES
+
+    @property
+    def is_claimable(self) -> bool:
+        """아직 주인이 없는 익명 접수 건인지. TTL 검사는 claim 서비스가 따로 한다."""
+        return self.user_id is None
 
     def llm_context(self) -> dict:
         """LLM 질의에 넣을 컨텍스트를 접수 시점 스냅샷에서 복원한다.

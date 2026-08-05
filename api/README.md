@@ -105,6 +105,7 @@ Gemini 호출이 30초를 넘겨 gunicorn 워커를 붙잡던 문제 때문에 *
 | POST | `/api/v1/outfits/analyze/` | multipart `image`(+선택 `lat`/`lon`/`save_to_wardrobe`) → **202** + `analysis_id`/`poll_url`. 비로그인 가능, JWT를 보내면 추구미·체형 반영 |
 | GET | `/api/v1/outfits/analyses/{id}/` | 진행 상태 겸 결과 (폴링용). 익명 접수 건은 토큰 없이, 로그인 접수 건은 본인만 |
 | GET | `/api/v1/outfits/analyses/` | 내 이력 목록 (`status`/`limit`/`offset`). 로그인 필요 |
+| POST | `/api/v1/outfits/analyses/claim/` | 비로그인으로 접수한 건의 소유권 이전. 로그인 필요 |
 
 요청 1건은 `outfit_analysis` 테이블에 1행으로 남는다. **LLM 질의를 구성한 정보(날씨·체형·
 추구미 스냅샷)와 LLM 요청·응답 원본을 함께 보관**해 사후에 평가를 재현·비교할 수 있게 한다.
@@ -119,6 +120,35 @@ Gemini 호출이 30초를 넘겨 gunicorn 워커를 붙잡던 문제 때문에 *
   503으로 거절한다. 버킷은 `OUTFIT_S3_BUCKET`, 없으면 `WARDROBE_S3_BUCKET`.
 - 익명 요청은 `user=NULL`로 기록되고 `analysis_id`(UUID4)를 아는 사람만 조회할 수 있다.
   응답에서 사진 URL·체형·LLM 원본을 빼고, `OUTFIT_ANON_TTL_HOURS`(기본 24시간)이 지나면 닫힌다.
+
+### 비로그인 접수 건의 소유권 이전 (`claim`)
+
+비로그인으로 평가한 뒤 로그인하면, 앱이 보관해 둔 `claim_token`을 모아
+`POST /api/v1/outfits/analyses/claim/` 에 `{"claim_tokens": [...]}` 로 보낸다.
+토큰 안에 대상 식별자가 들어 있어 `analysis_id`를 따로 보낼 필요가 없다.
+
+응답은 `{"claimed": [...], "skipped": [{"analysis_id", "reason"}]}` 형태이고,
+`reason`은 `invalid_token` / `expired` / `not_found` / `already_owned` 중 하나다.
+
+**왜 UUID만으로는 안 되는가.** 조회는 UUID를 아는 사람에게 열어두지만 claim은 성격이
+다르다. 조회는 읽기라 UUID가 새어도 평가 문구만 보이지만(사진 URL·체형은 응답에서 제외),
+claim은 쓰기이고 성공하면 소유자 응답으로 바뀌어 **사진 presigned URL과 체형 스냅샷까지
+열린다.** 권한 상승 경로라 두 겹을 건다 — 접수 202 응답에만 실어 보내는 **서명 토큰**
+(`TimestampSigner`, 서버 미저장)과 **짧은 TTL**(`OUTFIT_CLAIM_TTL_MINUTES`, 기본 60분,
+조회 24시간과 별개). 토큰이 살아 있어도 행이 오래됐으면 DB 쪽에서 한 번 더 막는다.
+
+- **평가를 다시 하지 않는다.** 익명 평가는 `personalized=false`, `body/pursuit=NULL`로
+  이미 끝나 있다. 주인만 바꾸고, 개인화 없이 나온 결과라는 사실을 `accepted_anonymously`로
+  남긴다. 이 필드와 `claimed_at`은 내부 기록이라 **API 응답에 싣지 않는다**.
+- **사진을 계정 폴더로 옮긴다.** `outfits/anonymous/{id}/` → `outfits/{user_id}/{id}/`
+  (서버 사이드 CopyObject 후 원본 삭제). 익명 사진은 보관 기간을 짧게 두고 정리하게 되는데,
+  주인이 생긴 사진이 `anonymous/` 프리픽스에 남아 있으면 함께 쓸려나간다.
+  이동은 best-effort — 실패해도 기존 키로 읽히므로 소유권 이전을 되돌리지 않고 ERROR 로그만 남긴다.
+- **멱등하다.** 이미 본인 것이면 성공으로 친다. 남의 것이면 `already_owned`로 거절하고,
+  동시 요청은 `select_for_update`로 한 명만 성공한다.
+
+> ⚠️ **프론트 주의**: 이전이 끝나면 그 기록은 익명 조회가 닫힌다. 분석이 진행 중인 건을
+> 넘겨받았다면 이후 폴링에 반드시 `Authorization` 헤더를 실어야 하며, 그렇지 않으면 404가 난다.
 
 ### 옷장 등록 연계 (`save_to_wardrobe`)
 
