@@ -121,10 +121,14 @@ services:
       - ./ml:/ml:ro
     ports:
       - "8000:8000"
-    command: >
-      sh -c "python manage.py collectstatic --noinput &&
-             gunicorn config.wsgi:application --bind 0.0.0.0:8000
-             --workers ${GUNICORN_WORKERS:-3}"
+    # gunicorn 옵션(bind / workers / 액세스·에러 로그)은 api/gunicorn.conf.py가
+    # 담당한다. gunicorn이 WORKDIR(/app)의 gunicorn.conf.py를 자동으로 읽는다.
+    #
+    # 주의: 이 커맨드는 반드시 한 줄로 유지할 것. YAML 폴딩(`>`)에서 이어지는
+    # 줄을 첫 줄보다 더 들여쓰면 "more-indented" 규칙 때문에 줄바꿈이 접히지
+    # 않고 그대로 남고, sh가 그 뒤를 별개의 명령으로 실행해 버린다
+    # (예전에 --workers 옵션이 적용되지 않던 원인).
+    command: sh -c "python manage.py collectstatic --noinput && gunicorn config.wsgi:application"
 
   weather-collector:
     build:
