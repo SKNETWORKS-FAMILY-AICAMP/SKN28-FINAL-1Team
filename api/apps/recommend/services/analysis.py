@@ -14,6 +14,9 @@ Gemini 호출이 30초를 넘겨 gunicorn 워커를 붙잡고 있던 문제 때�
   워커는 `analysis.llm_context()`를 쓰고 컨텍스트를 다시 만들지 않는다.
 - **업로드 파일은 맨 앞에서 한 번만 읽는다.** boto3 upload_fileobj가 넘겨받은 파일
   객체를 닫아버려, 파일 객체를 돌려쓰면 두 번째 읽기가 ValueError로 죽는다.
+- **옷장 등록은 곁가지다.** save_to_wardrobe로 요청하면 평가 큐에 넣은 직후 같은
+  사진을 옷장 파이프라인에도 넘긴다. 실패해도 평가 접수는 성공으로 둔다
+  (services/wardrobe_link.py).
 """
 
 from __future__ import annotations
@@ -34,7 +37,7 @@ from django.utils import timezone
 from apps.weather.services import resolve_coordinates
 
 from ..models import OutfitAnalysis
-from . import gemini, imaging, queue, storage
+from . import gemini, imaging, queue, storage, wardrobe_link
 from .outfit_context import build_analysis_context
 
 logger = logging.getLogger(__name__)
@@ -67,10 +70,14 @@ def accept_analysis(
     *,
     lat: float | None,
     lon: float | None,
+    save_to_wardrobe: bool = False,
 ) -> OutfitAnalysis:
     """사진을 접수하고 분석을 큐에 넣는다. Gemini를 호출하지 않는다.
 
-    Raises: AnalysisAcceptError — 버킷 미설정, S3 업로드 실패, 큐 적재 실패
+    save_to_wardrobe: 같은 사진을 옷장 아이템 등록에도 넘긴다. 옷장은 사용자 소유
+        데이터라 **로그인 요청에만 적용**되고, 비로그인이면 조용히 무시한다.
+
+    Raises: AnalysisAcceptError — 버킷 미설정, S3 업로드 실패, 평가 큐 적재 실패
     """
     if not storage.is_configured():
         # 설정 실수를 조용히 넘기면 "접수는 되는데 영원히 분석 중"이 된다
@@ -84,9 +91,12 @@ def accept_analysis(
     context = build_analysis_context(user, lat=lat, lon=lon)
     resolved_lat, resolved_lon = resolve_coordinates(lat, lon)
 
+    is_authenticated = bool(user and user.is_authenticated)
     analysis = OutfitAnalysis(
-        user=user if (user and user.is_authenticated) else None,
+        user=user if is_authenticated else None,
         status=OutfitAnalysis.Status.QUEUED,
+        # 옷장은 사용자 소유 데이터다 — 비로그인 요청의 요청값은 여기서 버린다
+        save_to_wardrobe=bool(save_to_wardrobe) and is_authenticated,
         image_content_type=mime_type,
         image_bytes=len(image_data),
         requested_lat=lat,
@@ -129,11 +139,19 @@ def accept_analysis(
             "처리 대기열 등록에 실패했습니다. 잠시 후 다시 시도해주세요."
         ) from exc
 
+    # 평가 큐에 넣은 직후 옷장 등록을 이어서 요청한다 (사용자가 원한 경우에만).
+    # 실패해도 평가 접수는 성공이다 — 곁가지가 본류를 막지 않는다.
+    if analysis.save_to_wardrobe:
+        job = wardrobe_link.register_outfit_photo(analysis)
+        if job is not None:
+            _update(analysis, wardrobe_job=job)
+
     logger.info(
-        "코디 평가 접수: analysis=%s user=%s 원본=%dKB",
+        "코디 평가 접수: analysis=%s user=%s 원본=%dKB 옷장연계=%s",
         analysis.pk,
         analysis.user_id,
         len(image_data) // 1024,
+        analysis.wardrobe_job_id or analysis.save_to_wardrobe,
     )
     return analysis
 

@@ -33,6 +33,16 @@ class OutfitAnalysisRequestSerializer(serializers.Serializer):
         max_value=132.0,
         help_text="현재 위치 경도. 생략하면 서울 기준 날씨를 사용합니다.",
     )
+    save_to_wardrobe = serializers.BooleanField(
+        required=False,
+        default=False,
+        help_text=(
+            "이 사진을 옷장 아이템 등록에도 넘길지 여부. "
+            "**로그인 요청에만 적용**되며, 비로그인 요청에서는 무시됩니다(옷장은 사용자 소유 데이터). "
+            "true면 응답의 wardrobe_job_id로 GET /api/v1/wardrobe/uploads/{job_id}/ 에서 "
+            "등록 진행 상황을 따로 조회할 수 있습니다."
+        ),
+    )
 
     def validate_image(self, image: UploadedFile) -> UploadedFile:
         if image.size > MAX_OUTFIT_IMAGE_SIZE_MB * 1024 * 1024:
@@ -82,6 +92,13 @@ class OutfitAnalysisAcceptedSerializer(serializers.Serializer):
     )
     estimated_seconds = serializers.IntegerField(
         help_text="예상 소요 시간(초). 안내 문구용."
+    )
+    wardrobe_job_id = serializers.UUIDField(
+        allow_null=True,
+        help_text=(
+            "옷장 등록 job ID. save_to_wardrobe를 요청하지 않았거나 비로그인이면 null. "
+            "GET /api/v1/wardrobe/uploads/{job_id}/ 로 진행 상황을 조회합니다."
+        ),
     )
 
 
@@ -179,6 +196,8 @@ class OutfitAnalysisDetailSerializer(serializers.ModelSerializer):
             "body",
             "pursuit",
             "personalized",
+            "save_to_wardrobe",
+            "wardrobe_job",
             "llm_model",
             "request_payload",
             "response_payload",

@@ -102,7 +102,7 @@ Gemini 호출이 30초를 넘겨 gunicorn 워커를 붙잡던 문제 때문에 *
 
 | 메서드 | 경로 | 설명 |
 | --- | --- | --- |
-| POST | `/api/v1/outfits/analyze/` | multipart `image`(+선택 `lat`/`lon`) → **202** + `analysis_id`/`poll_url`. 비로그인 가능, JWT를 보내면 추구미·체형 반영 |
+| POST | `/api/v1/outfits/analyze/` | multipart `image`(+선택 `lat`/`lon`/`save_to_wardrobe`) → **202** + `analysis_id`/`poll_url`. 비로그인 가능, JWT를 보내면 추구미·체형 반영 |
 | GET | `/api/v1/outfits/analyses/{id}/` | 진행 상태 겸 결과 (폴링용). 익명 접수 건은 토큰 없이, 로그인 접수 건은 본인만 |
 | GET | `/api/v1/outfits/analyses/` | 내 이력 목록 (`status`/`limit`/`offset`). 로그인 필요 |
 
@@ -119,6 +119,22 @@ Gemini 호출이 30초를 넘겨 gunicorn 워커를 붙잡던 문제 때문에 *
   503으로 거절한다. 버킷은 `OUTFIT_S3_BUCKET`, 없으면 `WARDROBE_S3_BUCKET`.
 - 익명 요청은 `user=NULL`로 기록되고 `analysis_id`(UUID4)를 아는 사람만 조회할 수 있다.
   응답에서 사진 URL·체형·LLM 원본을 빼고, `OUTFIT_ANON_TTL_HOURS`(기본 24시간)이 지나면 닫힌다.
+
+### 옷장 등록 연계 (`save_to_wardrobe`)
+
+로그인 사용자가 `save_to_wardrobe=true`로 접수하면 **같은 사진을 옷장 아이템 등록
+파이프라인에도 넘긴다** (`WardrobeUploadJob` 생성 → `wardrobe:jobs` 큐 → image-processor).
+평가 큐에 적재한 직후 이어서 요청하고, 202 응답의 `wardrobe_job_id`로
+`GET /api/v1/wardrobe/uploads/{job_id}/` 에서 등록 진행 상황을 조회한다.
+
+- **비로그인 요청에서는 무시된다.** 옷장은 사용자 소유 데이터라 주인을 특정할 수 없다.
+- **사진을 다시 올리지 않는다.** 접수 때 올린 `outfits/{user}/{analysis}/original.jpg`를
+  옷장 job의 원본으로 재사용한다. 그래서 `wardrobe_upload_job.source_s3_key`가 항상
+  옷장 버킷의 키인 것은 아니다 — 큐 페이로드가 `source.bucket`/`output.bucket`을
+  각각 실어 보내고, 결과물(아이템 크롭·manifest)은 항상 옷장 버킷에 쌓인다.
+- **실패해도 평가는 진행된다.** 옷장 등록은 곁가지라 job을 FAILED로 남기고 넘어간다.
+
+크로스 앱 호출은 `services/wardrobe_link.py` 하나에 모여 있다.
 
 ### 워커 실행
 

@@ -9,6 +9,8 @@
 - **질의와 응답을 함께 보관**: LLM에 보낸 요청 본문과 원본 응답을 그대로 남겨
   프롬프트·모델 교체 전후의 평가 품질을 비교할 수 있게 한다.
 - **이미지는 S3**: 원본 사진은 DB에 넣지 않고 S3 키만 저장한다 (wardrobe와 동일).
+- **옷장 등록은 곁가지**: 로그인 사용자가 원하면 같은 사진을 옷장 아이템 등록
+  파이프라인에도 넘긴다. 실패해도 코디 평가는 그대로 진행된다 (services/wardrobe_link.py).
 - **익명 요청도 기록**: 이 API는 AllowAny라 user가 NULL인 행이 정상적으로 존재한다.
   익명 행은 소유자를 특정할 수 없어 UUID를 아는 사람만 조회할 수 있고(뷰에서 제어),
   일정 시간이 지나면 조회를 막는다.
@@ -116,6 +118,20 @@ class OutfitAnalysis(models.Model):
     personalized = models.BooleanField(
         default=False,
         db_comment="개인화 정보 반영 여부 (로그인 요청이면 true)",
+    )
+
+    # ── 옷장 등록 연계 (선택) ──
+    save_to_wardrobe = models.BooleanField(
+        default=False,
+        db_comment="이 사진을 옷장 아이템 등록에도 넘길지 여부 (비로그인 요청이면 항상 false)",
+    )
+    wardrobe_job = models.ForeignKey(
+        "wardrobe.WardrobeUploadJob",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="outfit_analyses",
+        db_comment="연계 생성한 옷장 등록 job FK (wardrobe_upload_job.id, 미요청·적재 실패 시 NULL)",
     )
 
     # ── LLM 호출·응답 ──

@@ -17,6 +17,7 @@ from rest_framework.test import APIClient
 
 from apps.recommend.models import OutfitAnalysis
 from apps.recommend.services import analysis as analysis_service
+from apps.wardrobe.models import WardrobeUploadJob
 from apps.recommend.services import gemini, imaging
 from apps.recommend.services.outfit_context import build_analysis_context
 
@@ -140,6 +141,7 @@ class OutfitAnalysisAcceptTests(TestCase):
         )
         self.assertEqual(response.data["poll_after_ms"], 2000)
         self.assertEqual(response.data["estimated_seconds"], 30)
+        self.assertIsNone(response.data["wardrobe_job_id"])  # 기본은 옷장 미연계
         mock_context.assert_called_once()
         mock_upload.assert_called_once()
         mock_enqueue.assert_called_once()
@@ -264,6 +266,127 @@ class OutfitAnalysisAcceptTests(TestCase):
     def test_rejects_json_request(self, *_mocks: Mock) -> None:
         response = self.client.post(self.url, {"image": "value"}, format="json")
         self.assertEqual(response.status_code, 415)
+
+
+@patch("apps.recommend.services.analysis.storage.is_configured", return_value=True)
+@patch("apps.recommend.services.analysis.storage.upload_fileobj")
+@patch("apps.recommend.services.analysis.queue.enqueue")
+@patch("apps.recommend.services.wardrobe_link.wardrobe_jobs.enqueue")
+@patch(
+    "apps.recommend.services.analysis.build_analysis_context",
+    return_value=CONTEXT,
+)
+class SaveToWardrobeTests(TestCase):
+    """save_to_wardrobe — 로그인 사용자만, 사진 재업로드 없이 옷장 파이프라인에 연결."""
+
+    def setUp(self) -> None:
+        self.client = APIClient()
+        self.url = reverse("recommend:outfit-analysis")
+        self.user = get_user_model().objects.create(username="naver_1")
+
+    def _post(self, **extra) -> object:
+        return self.client.post(
+            self.url, {"image": make_image_file(), **extra}, format="multipart"
+        )
+
+    def test_creates_wardrobe_job_for_logged_in_user(
+        self,
+        _mock_context: Mock,
+        mock_wardrobe_enqueue: Mock,
+        _mock_queue: Mock,
+        mock_upload: Mock,
+        _mock_configured: Mock,
+    ) -> None:
+        self.client.force_authenticate(user=self.user)
+
+        response = self._post(save_to_wardrobe=True)
+
+        self.assertEqual(response.status_code, 202)
+        analysis = OutfitAnalysis.objects.get()
+        job = WardrobeUploadJob.objects.get()
+        self.assertTrue(analysis.save_to_wardrobe)
+        self.assertEqual(analysis.wardrobe_job, job)
+        self.assertEqual(response.data["wardrobe_job_id"], job.pk)
+        self.assertEqual(job.user, self.user)
+        self.assertEqual(job.status, WardrobeUploadJob.Status.PENDING)
+        mock_wardrobe_enqueue.assert_called_once()
+        # 사진은 한 번만 올린다 — 같은 사진을 두 번 올리면 S3 비용만 두 배다
+        mock_upload.assert_called_once()
+        self.assertEqual(job.source_s3_key, analysis.image_s3_key)
+
+    def test_wardrobe_job_reuses_outfit_photo_with_explicit_bucket(
+        self,
+        _mock_context: Mock,
+        mock_wardrobe_enqueue: Mock,
+        _mock_queue: Mock,
+        _mock_upload: Mock,
+        _mock_configured: Mock,
+    ) -> None:
+        """원본이 코디 평가 버킷에 있으므로 큐 페이로드에 버킷을 명시해야 한다."""
+        self.client.force_authenticate(user=self.user)
+
+        with patch(
+            "apps.recommend.services.wardrobe_link.storage.bucket",
+            return_value="outfit-bucket",
+        ):
+            self._post(save_to_wardrobe=True)
+
+        self.assertEqual(
+            mock_wardrobe_enqueue.call_args.kwargs["source_bucket"], "outfit-bucket"
+        )
+
+    def test_ignored_for_anonymous_request(
+        self,
+        _mock_context: Mock,
+        mock_wardrobe_enqueue: Mock,
+        _mock_queue: Mock,
+        _mock_upload: Mock,
+        _mock_configured: Mock,
+    ) -> None:
+        """옷장은 사용자 소유 데이터라 비로그인 요청의 플래그는 조용히 버린다."""
+        response = self._post(save_to_wardrobe=True)
+
+        self.assertEqual(response.status_code, 202)
+        self.assertIsNone(response.data["wardrobe_job_id"])
+        self.assertFalse(OutfitAnalysis.objects.get().save_to_wardrobe)
+        self.assertEqual(WardrobeUploadJob.objects.count(), 0)
+        mock_wardrobe_enqueue.assert_not_called()
+
+    def test_not_requested_creates_no_job(
+        self,
+        _mock_context: Mock,
+        mock_wardrobe_enqueue: Mock,
+        _mock_queue: Mock,
+        _mock_upload: Mock,
+        _mock_configured: Mock,
+    ) -> None:
+        self.client.force_authenticate(user=self.user)
+
+        self._post()
+
+        self.assertEqual(WardrobeUploadJob.objects.count(), 0)
+        mock_wardrobe_enqueue.assert_not_called()
+
+    def test_wardrobe_queue_failure_does_not_block_evaluation(
+        self,
+        _mock_context: Mock,
+        mock_wardrobe_enqueue: Mock,
+        _mock_queue: Mock,
+        _mock_upload: Mock,
+        _mock_configured: Mock,
+    ) -> None:
+        """곁가지(옷장)가 본류(평가)를 막지 않는다. 다만 흔적은 남긴다."""
+        mock_wardrobe_enqueue.side_effect = redis.ConnectionError("redis down")
+        self.client.force_authenticate(user=self.user)
+
+        response = self._post(save_to_wardrobe=True)
+
+        self.assertEqual(response.status_code, 202)
+        analysis = OutfitAnalysis.objects.get()
+        self.assertEqual(analysis.status, OutfitAnalysis.Status.QUEUED)  # 평가는 정상
+        job = WardrobeUploadJob.objects.get()
+        self.assertEqual(job.status, WardrobeUploadJob.Status.FAILED)
+        self.assertEqual(response.data["wardrobe_job_id"], job.pk)
 
 
 class OutfitAnalysisAcceptFailureTests(TestCase):

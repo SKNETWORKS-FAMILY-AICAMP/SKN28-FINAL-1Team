@@ -54,7 +54,10 @@ class OutfitAnalysisView(APIView):
             "조회해 결과를 받아가세요 (보통 30초 내외).\n\n"
             "인증 없이 호출할 수 있으며, 유효한 JWT를 보내면 저장된 추구미·체형·성별을 평가에 반영합니다. "
             "평가에 사용한 날씨·체형·추구미는 **접수 시점 값으로 고정**되어, 대기 중 날씨가 바뀌어도 "
-            "사진을 올린 순간의 조건으로 평가합니다."
+            "사진을 올린 순간의 조건으로 평가합니다.\n\n"
+            "`save_to_wardrobe=true`(로그인 전용)로 보내면 같은 사진을 옷장 아이템 등록 "
+            "파이프라인에도 넘기고, 응답의 `wardrobe_job_id`로 등록 진행 상황을 따로 조회할 수 있습니다. "
+            "옷장 등록이 실패해도 코디 평가 접수는 그대로 진행됩니다."
         ),
         request=OutfitAnalysisRequestSerializer,
         responses={
@@ -75,6 +78,7 @@ class OutfitAnalysisView(APIView):
                 data["image"],
                 lat=data.get("lat"),
                 lon=data.get("lon"),
+                save_to_wardrobe=data.get("save_to_wardrobe", False),
             )
         except analysis_service.AnalysisAcceptError as exc:
             return Response(
@@ -90,6 +94,9 @@ class OutfitAnalysisView(APIView):
                 ),
                 "poll_after_ms": settings.OUTFIT_POLL_AFTER_MS,
                 "estimated_seconds": settings.OUTFIT_ESTIMATED_SECONDS,
+                "wardrobe_job_id": (
+                    str(analysis.wardrobe_job_id) if analysis.wardrobe_job_id else None
+                ),
             }
         )
         response_serializer.is_valid(raise_exception=True)
