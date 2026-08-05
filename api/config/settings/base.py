@@ -52,6 +52,7 @@ INSTALLED_APPS = [
     "apps.home",
     "apps.wardrobe",
     "apps.recommend",
+    "apps.style_calendar",
 ]
 
 # ------------------------------------------------------------
@@ -276,6 +277,13 @@ CORS_ALLOWED_ORIGINS = [
 # 상세 값은 apps/wardrobe/services/* 에서 환경변수로 직접 읽는다.
 # 필수: WARDROBE_S3_BUCKET, REDIS_URL, WARDROBE_INTERNAL_TOKEN,
 #       WARDROBE_CALLBACK_URL
+# ------------------------------------------------------------
+
+# ------------------------------------------------------------
+# 스타일 캘린더 (style_calendar) — S3
+# 상세 값은 apps/style_calendar/services/storage.py에서 읽는다.
+# 필수: CALENDAR_S3_BUCKET(미설정 시 WARDROBE_S3_BUCKET 사용)
+# 사진 처리 큐와 callback은 기존 옷장 업로드 흐름을 그대로 사용한다.
 # ------------------------------------------------------------
 
 # ------------------------------------------------------------

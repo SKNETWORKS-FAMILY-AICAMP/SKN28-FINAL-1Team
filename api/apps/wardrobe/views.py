@@ -18,6 +18,8 @@ from rest_framework.parsers import FormParser, MultiPartParser
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
+from apps.style_calendar.services import calendar_service
+
 from .models import WardrobeItem, WardrobeUploadJob
 from .permissions import HasInternalToken
 from .serializers import (
@@ -130,6 +132,7 @@ class WardrobeCallbackView(APIView):
                 job.error_message = data.get("error", "")
                 job.finished_at = timezone.now()
                 job.save(update_fields=["status", "error_message", "finished_at"])
+                calendar_service.apply_wardrobe_job_failure(job=job)
                 return Response({"job_id": str(job.pk), "status": job.status})
 
             created: list[tuple[WardrobeItem, list, list]] = []
@@ -147,6 +150,10 @@ class WardrobeCallbackView(APIView):
             job.status = WardrobeUploadJob.Status.DONE
             job.finished_at = timezone.now()
             job.save(update_fields=["status", "finished_at"])
+            calendar_service.apply_wardrobe_job_success(
+                job=job,
+                created_items=[item for item, _, _ in created],
+            )
 
         # DB 커밋 후 파생 저장소 반영 (실패해도 embedding_version으로 재색인 가능)
         for item, image_vec, text_vec in created:
