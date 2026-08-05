@@ -326,14 +326,22 @@ infisical run --env=dev --silent -- sh -c \
 | 사진 vs 무사진 A/B              | 완료                 |
 | HTTP 종단 검증                  | 완료                 |
 | 하이브리드 적용 (부위별 채택)   | 미적용               |
-| 얼굴 블러 전처리                | 미구현               |
+| 얼굴 블러 전처리                | 함수만 있고 미연결   |
 | 백그라운드 스레드 → Celery/SQS | 미적용 (AWS 이관 시) |
 | 프론트 연동                     | 미착수               |
 
 ### 11.1 서비스화 전 반드시 해결할 것
 
 전신 사진은 민감정보다. 현재는 저장하지 않고 추론에만 쓰지만 외부 API(OpenRouter)로
-전송된다. **얼굴을 자동 감지해 블러 처리하는 전처리 파이프라인**이 필요하다.
+전송된다.
+
+얼굴 블러 함수는 이미 있다 — `ml/body_measurement/src/utils/privacy.py`의 `blur_face()`가
+OpenCV Haar Cascade로 얼굴을 검출해 가우시안 블러를 적용하고, 검출에 실패하면 상단 중앙을
+강제로 블러하는 fallback까지 갖고 있다.
+
+**문제는 이 함수가 추론 경로에서 호출되지 않는다는 점이다.** `inference.py`는 업로드된
+바이트를 그대로 OpenRouter로 보낸다. 서비스화 전에 `estimate_from_photos()`가 VLM을
+호출하기 전 단계에 `blur_face()`를 끼워 넣어야 한다.
 
 ### 11.2 비용
 
