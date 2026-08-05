@@ -1,77 +1,29 @@
 {
-  "schema_version": 1,
-  "description": "HyperCLOVA와 Qwen의 1차 핵심 태그 비교용 10장 템플릿",
+  "schema_version": 2,
+  "description": "기존 Wardrobe 이미지 프로세서 출력 계약 기준 Fashion VLM 상품 이미지 검수 데이터셋",
   "samples": [
     {
       "id": "01_tshirt",
+      "input_mode": "catalog",
       "file_name": "01_tshirt.jpg",
-      "product_name": "",
-      "expected": {"category_large": "", "color": "", "pattern": "", "fit": ""},
-      "notes": "티셔츠 이미지와 사람이 검수한 정답을 입력"
-    },
-    {
-      "id": "02_shirt",
-      "file_name": "02_shirt.jpg",
-      "product_name": "",
-      "expected": {"category_large": "", "color": "", "pattern": "", "fit": ""},
-      "notes": "셔츠/블라우스 이미지와 사람이 검수한 정답을 입력"
-    },
-    {
-      "id": "03_knit",
-      "file_name": "03_knit.jpg",
-      "product_name": "",
-      "expected": {"category_large": "", "color": "", "pattern": "", "fit": ""},
-      "notes": "니트/스웨터 이미지와 사람이 검수한 정답을 입력"
-    },
-    {
-      "id": "04_jacket",
-      "file_name": "04_jacket.jpg",
-      "product_name": "",
-      "expected": {"category_large": "", "color": "", "pattern": "", "fit": ""},
-      "notes": "자켓 이미지와 사람이 검수한 정답을 입력"
-    },
-    {
-      "id": "05_pants",
-      "file_name": "05_pants.jpg",
-      "product_name": "",
-      "expected": {"category_large": "", "color": "", "pattern": "", "fit": ""},
-      "notes": "바지 이미지와 사람이 검수한 정답을 입력"
-    },
-    {
-      "id": "06_skirt",
-      "file_name": "06_skirt.jpg",
-      "product_name": "",
-      "expected": {"category_large": "", "color": "", "pattern": "", "fit": ""},
-      "notes": "스커트 이미지와 사람이 검수한 정답을 입력"
-    },
-    {
-      "id": "07_dress",
-      "file_name": "07_dress.jpg",
-      "product_name": "",
-      "expected": {"category_large": "", "color": "", "pattern": "", "fit": ""},
-      "notes": "원피스 이미지와 사람이 검수한 정답을 입력"
-    },
-    {
-      "id": "08_shoes",
-      "file_name": "08_shoes.jpg",
-      "product_name": "",
-      "expected": {"category_large": "", "color": "", "pattern": "", "fit": null},
-      "notes": "신발은 fit 정답을 null로 유지"
-    },
-    {
-      "id": "09_bag",
-      "file_name": "09_bag.jpg",
-      "product_name": "",
-      "expected": {"category_large": "", "color": "", "pattern": "", "fit": null},
-      "notes": "가방은 fit 정답을 null로 유지"
-    },
-    {
-      "id": "10_patterned",
-      "file_name": "10_patterned.jpg",
-      "product_name": "",
-      "expected": {"category_large": "", "color": "", "pattern": "", "fit": ""},
-      "notes": "체크/스트라이프/도트 등 패턴이 명확한 의류 사용"
+      "product_name": "블랙 백 그래픽 반팔 티셔츠",
+      "expected": {
+        "item_name": "블랙 그래픽 반팔 티셔츠",
+        "category_large": "상의",
+        "category_small": "티셔츠",
+        "season": ["여름"],
+        "style": ["캐주얼", "스트릿"],
+        "color": "블랙",
+        "pattern": "그래픽/로고",
+        "fit": "레귤러핏",
+        "material": "코튼",
+        "sleeve": "반팔",
+        "length": "기본",
+        "usage": ["데일리", "외출"],
+        "layer_role": "기본 상의",
+        "layer_order": 1
+      },
+      "notes": "등판에 레터링과 그래픽 프린트가 있는 블랙 반팔 티셔츠"
     }
   ]
 }
-

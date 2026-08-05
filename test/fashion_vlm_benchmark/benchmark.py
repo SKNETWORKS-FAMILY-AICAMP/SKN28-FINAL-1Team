@@ -6,6 +6,7 @@ import argparse
 import csv
 import importlib.util
 import json
+import shutil
 import statistics
 from collections import defaultdict
 from pathlib import Path
@@ -14,7 +15,35 @@ from typing import Any, Iterable
 ROOT = Path(__file__).resolve().parent
 REPO_ROOT = ROOT.parent.parent
 TAXONOMY_PATH = REPO_ROOT / "api" / "apps" / "wardrobe" / "taxonomy.py"
-CORE_FIELDS = ("category_large", "color", "pattern", "fit")
+OUTPUT_FIELDS = (
+    "item_name",
+    "category_large",
+    "category_small",
+    "season",
+    "style",
+    "color",
+    "pattern",
+    "fit",
+    "material",
+    "sleeve",
+    "length",
+    "usage",
+    "layer_role",
+    "layer_order",
+)
+SCALAR_FIELDS = (
+    "category_large",
+    "category_small",
+    "color",
+    "pattern",
+    "fit",
+    "material",
+    "sleeve",
+    "length",
+    "layer_role",
+    "layer_order",
+)
+ARRAY_FIELDS = ("season", "style", "usage")
 IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp"}
 
 
@@ -32,6 +61,12 @@ TAXONOMY = load_taxonomy()
 
 
 def load_dataset(path: Path) -> dict[str, Any]:
+    if not path.is_file():
+        raise FileNotFoundError(
+            f"dataset 파일이 없습니다: {path}\n"
+            "먼저 `python benchmark.py init`을 실행한 뒤 "
+            "dataset.json의 정답을 검수하세요."
+        )
     with path.open(encoding="utf-8") as file:
         data = json.load(file)
     if not isinstance(data, dict) or not isinstance(data.get("samples"), list):
@@ -44,7 +79,7 @@ def validate_dataset(
     *,
     image_dir: Path,
     require_images: bool = True,
-    expected_count: int | None = 10,
+    expected_count: int | None = None,
 ) -> list[str]:
     errors: list[str] = []
     samples = data["samples"]
@@ -53,13 +88,6 @@ def validate_dataset(
 
     seen_ids: set[str] = set()
     seen_files: set[str] = set()
-    allowed = {
-        "category_large": set(TAXONOMY.CATEGORY_LARGE),
-        "color": set(TAXONOMY.COLORS),
-        "pattern": set(TAXONOMY.PATTERNS),
-        "fit": set(TAXONOMY.FITS),
-    }
-
     for index, sample in enumerate(samples, start=1):
         prefix = f"samples[{index}]"
         if not isinstance(sample, dict):
@@ -67,6 +95,7 @@ def validate_dataset(
             continue
         sample_id = str(sample.get("id", "")).strip()
         file_name = str(sample.get("file_name", "")).strip()
+        input_mode = str(sample.get("input_mode", "catalog")).strip()
         product_name = str(sample.get("product_name", "")).strip()
         expected = sample.get("expected")
 
@@ -86,34 +115,50 @@ def validate_dataset(
 
         if require_images and file_name and not (image_dir / file_name).is_file():
             errors.append(f"{prefix}: 이미지 파일이 없습니다: {image_dir / file_name}")
-        if not product_name:
+        if input_mode not in {"catalog", "photo"}:
+            errors.append(f"{prefix}: input_mode는 catalog 또는 photo여야 합니다.")
+        if input_mode == "catalog" and not product_name:
             errors.append(f"{prefix}: product_name이 비어 있습니다.")
         if not isinstance(expected, dict):
             errors.append(f"{prefix}: expected가 객체가 아닙니다.")
             continue
 
-        for field in CORE_FIELDS:
-            value = expected.get(field)
-            if field == "fit" and value is None:
-                continue
-            if value not in allowed[field]:
-                errors.append(
-                    f"{prefix}: expected.{field} 값이 taxonomy에 없습니다: {value!r}"
-                )
+        missing_fields = [field for field in OUTPUT_FIELDS if field not in expected]
+        if missing_fields:
+            errors.append(
+                f"{prefix}: expected 필드가 누락됐습니다: {', '.join(missing_fields)}"
+            )
+        for field in taxonomy_errors(expected):
+            errors.append(f"{prefix}: expected.{field} 값 또는 형식이 잘못됐습니다.")
     return errors
 
 
-def build_prompt(product_name: str) -> str:
+def build_prompt(product_name: str, input_mode: str = "catalog") -> str:
     def choices(values: Iterable[str]) -> str:
         return ", ".join(values)
 
-    return f"""상품명: {product_name}
+    product_context = f"상품명: {product_name}\n" if input_mode == "catalog" else ""
+    category_small = "\n".join(
+        f"- {large}: {choices(smalls)}"
+        for large, smalls in TAXONOMY.CATEGORY_SMALL.items()
+    )
 
-이미지의 패션 상품 한 개를 분석하세요.
+    return f"""{product_context}
+
+이미지의 패션 아이템 한 개를 분석하세요.
 반드시 아래 목록 안의 값만 사용하세요.
 
 category_large:
 {choices(TAXONOMY.CATEGORY_LARGE)}
+
+category_small은 category_large에 속한 값만 선택하세요:
+{category_small}
+
+season:
+{choices(TAXONOMY.SEASONS)}
+
+style:
+{choices(TAXONOMY.STYLES)}
 
 color:
 {choices(TAXONOMY.COLORS)}
@@ -124,16 +169,44 @@ pattern:
 fit:
 {choices(TAXONOMY.FITS)}
 
+material:
+{choices(TAXONOMY.MATERIALS)}
+
+sleeve:
+{choices(TAXONOMY.SLEEVES)}
+
+length:
+{choices(TAXONOMY.LENGTHS)}
+
+layer_role:
+{choices(TAXONOMY.LAYER_ROLES)}
+
 규칙:
-- 신발, 가방, 액세서리처럼 fit이 적용되지 않거나 이미지로 판단할 수 없으면 fit은 null입니다.
+- item_name은 색상·핏·소매·소재가 드러나는 자연스러운 한국어 이름으로 작성합니다.
+- season과 style은 배열이며 style은 대표 분위기 우선 최대 2개입니다.
+- usage는 자유 문자열 배열이며 데일리, 외출, 출근, 운동, 홈웨어, 수면, 휴양지 같은 기존 프로젝트 표현을 사용합니다.
+- fit, material, sleeve, length는 해당 없거나 이미지로 판단할 수 없으면 null입니다.
+- 아우터는 layer_role="아우터", layer_order=3입니다.
+- 민소매 니트처럼 레이어드용 상의는 layer_role="레이어드 상의", layer_order=2입니다.
+- 일반 상의와 원피스는 layer_role="기본 상의", layer_order=1이며 그 외에는 둘 다 null입니다.
 - 설명, Markdown 코드 블록, 목록을 덧붙이지 마세요.
-- 다음 키를 모두 포함한 JSON 객체 하나만 답하세요.
+- 다음 14개 키를 모두 포함한 JSON 객체 하나만 답하세요.
 
 {{
+  "item_name": "",
   "category_large": "",
+  "category_small": "",
+  "season": [],
+  "style": [],
   "color": "",
   "pattern": "",
-  "fit": null
+  "fit": null,
+  "material": null,
+  "sleeve": null,
+  "length": null,
+  "usage": [],
+  "layer_role": null,
+  "layer_order": null
 }}"""
 
 
@@ -143,9 +216,12 @@ def write_prompts(data: dict[str, Any], output_path: Path) -> None:
         for sample in data["samples"]:
             record = {
                 "sample_id": sample["id"],
+                "input_mode": sample.get("input_mode", "catalog"),
                 "file_name": sample["file_name"],
                 "product_name": sample["product_name"],
-                "prompt": build_prompt(sample["product_name"]),
+                "prompt": build_prompt(
+                    sample["product_name"], sample.get("input_mode", "catalog")
+                ),
             }
             file.write(json.dumps(record, ensure_ascii=False) + "\n")
 
@@ -183,19 +259,83 @@ def load_jsonl(path: Path) -> list[dict[str, Any]]:
 
 def taxonomy_errors(output: dict[str, Any]) -> list[str]:
     errors: list[str] = []
-    allowed = {
-        "category_large": TAXONOMY.CATEGORY_LARGE,
+    if not isinstance(output.get("item_name"), str) or not output.get(
+        "item_name", ""
+    ).strip():
+        errors.append("item_name")
+
+    category_large = output.get("category_large")
+    category_small = output.get("category_small")
+    if category_large not in TAXONOMY.CATEGORY_LARGE:
+        errors.append("category_large")
+    if not isinstance(category_small, str) or not TAXONOMY.is_valid_pair(
+        category_large, category_small
+    ):
+        errors.append("category_small")
+
+    required_enum = {
         "color": TAXONOMY.COLORS,
         "pattern": TAXONOMY.PATTERNS,
-        "fit": TAXONOMY.FITS,
     }
-    for field, choices in allowed.items():
-        value = output.get(field)
-        if field == "fit" and value is None:
-            continue
-        if value not in choices:
+    nullable_enum = {
+        "fit": TAXONOMY.FITS,
+        "material": TAXONOMY.MATERIALS,
+        "sleeve": TAXONOMY.SLEEVES,
+        "length": TAXONOMY.LENGTHS,
+        "layer_role": TAXONOMY.LAYER_ROLES,
+    }
+    for field, choices in required_enum.items():
+        if output.get(field) not in choices:
             errors.append(field)
+    for field, choices in nullable_enum.items():
+        if output.get(field) is not None and output.get(field) not in choices:
+            errors.append(field)
+
+    for field, choices in (
+        ("season", TAXONOMY.SEASONS),
+        ("style", TAXONOMY.STYLES),
+    ):
+        value = output.get(field)
+        if not isinstance(value, list) or any(item not in choices for item in value):
+            errors.append(field)
+    if isinstance(output.get("style"), list) and len(output["style"]) > 2:
+        errors.append("style")
+
+    usage = output.get("usage")
+    if not isinstance(usage, list) or any(
+        not isinstance(item, str) or not item.strip() for item in usage
+    ):
+        errors.append("usage")
+
+    layer_order = output.get("layer_order")
+    if layer_order is not None and (
+        isinstance(layer_order, bool)
+        or not isinstance(layer_order, int)
+        or layer_order not in {1, 2, 3}
+    ):
+        errors.append("layer_order")
     return errors
+
+
+def array_metrics(expected: Any, actual: Any) -> dict[str, float | bool]:
+    if not isinstance(expected, list) or not isinstance(actual, list):
+        return {"precision": 0.0, "recall": 0.0, "f1": 0.0, "exact": False}
+    expected_set = set(expected)
+    actual_set = set(actual)
+    if not expected_set and not actual_set:
+        return {"precision": 1.0, "recall": 1.0, "f1": 1.0, "exact": True}
+    if not expected_set or not actual_set:
+        return {"precision": 0.0, "recall": 0.0, "f1": 0.0, "exact": False}
+    intersection = len(expected_set & actual_set)
+    precision = intersection / len(actual_set)
+    recall = intersection / len(expected_set)
+    f1 = 2 * precision * recall / (precision + recall) if intersection else 0.0
+    return {
+        "precision": precision,
+        "recall": recall,
+        "f1": f1,
+        "exact": expected_set == actual_set,
+    }
 
 
 def score_results(
@@ -217,21 +357,44 @@ def score_results(
             parsed = parse_json_object(str(record.get("raw_output", "")))
         json_valid = parsed is not None
         parsed = parsed or {}
-        invalid_fields = taxonomy_errors(parsed) if json_valid else list(CORE_FIELDS)
+        schema_complete = json_valid and all(field in parsed for field in OUTPUT_FIELDS)
+        invalid_fields = taxonomy_errors(parsed) if json_valid else list(OUTPUT_FIELDS)
         expected = expected_by_id[sample_id]
-        field_matches = {
+        scalar_matches = {
             field: json_valid and parsed.get(field) == expected.get(field)
-            for field in CORE_FIELDS
+            for field in SCALAR_FIELDS
         }
+        array_scores = {
+            field: array_metrics(expected.get(field), parsed.get(field))
+            for field in ARRAY_FIELDS
+        }
+        item_name_present = (
+            json_valid
+            and isinstance(parsed.get("item_name"), str)
+            and bool(parsed["item_name"].strip())
+        )
+        all_fields_match = all(scalar_matches.values()) and all(
+            score["exact"] for score in array_scores.values()
+        )
         rows.append(
             {
                 "model": model,
                 "sample_id": sample_id,
                 "json_valid": json_valid,
+                "schema_complete": schema_complete,
                 "taxonomy_valid": json_valid and not invalid_fields,
                 "invalid_fields": ",".join(invalid_fields),
-                **{f"{field}_match": field_matches[field] for field in CORE_FIELDS},
-                "all_fields_match": all(field_matches.values()),
+                "item_name_present": item_name_present,
+                **{
+                    f"{field}_match": scalar_matches[field]
+                    for field in SCALAR_FIELDS
+                },
+                **{
+                    f"{field}_{metric}": score[metric]
+                    for field, score in array_scores.items()
+                    for metric in ("precision", "recall", "f1", "exact")
+                },
+                "all_fields_match": all_fields_match,
                 "latency_seconds": record.get("latency_seconds"),
                 "peak_vram_mb": record.get("peak_vram_mb"),
                 "error": record.get("error") or "",
@@ -258,14 +421,28 @@ def score_results(
         metrics: dict[str, Any] = {
             "sample_count": total,
             "json_valid_rate": sum(row["json_valid"] for row in model_rows) / total,
+            "schema_complete_rate": sum(row["schema_complete"] for row in model_rows)
+            / total,
             "taxonomy_valid_rate": sum(row["taxonomy_valid"] for row in model_rows) / total,
+            "item_name_nonempty_rate": sum(
+                row["item_name_present"] for row in model_rows
+            )
+            / total,
             "all_fields_accuracy": sum(row["all_fields_match"] for row in model_rows) / total,
             "mean_latency_seconds": statistics.fmean(latencies) if latencies else None,
             "max_peak_vram_mb": max(vrams) if vrams else None,
         }
-        for field in CORE_FIELDS:
+        for field in SCALAR_FIELDS:
             metrics[f"{field}_accuracy"] = (
                 sum(row[f"{field}_match"] for row in model_rows) / total
+            )
+        for field in ARRAY_FIELDS:
+            for metric in ("precision", "recall", "f1"):
+                metrics[f"{field}_{metric}"] = statistics.fmean(
+                    row[f"{field}_{metric}"] for row in model_rows
+                )
+            metrics[f"{field}_exact_accuracy"] = (
+                sum(row[f"{field}_exact"] for row in model_rows) / total
             )
         summary["models"][model] = metrics
     return rows, summary
@@ -294,22 +471,35 @@ def write_evaluation(
     lines = [
         "# Fashion VLM 비교 결과",
         "",
-        "| 모델 | JSON 준수 | Taxonomy 준수 | 대분류 | 색상 | 패턴 | 핏 | 완전 일치 | 평균 시간(초) | 최대 VRAM(MB) |",
-        "|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|",
+        "| 모델 | JSON | 14필드 | Taxonomy | 이름 생성 | 대분류 | 소분류 | 색상 | 패턴 | 핏 | 소재 | 소매 | 기장 | 계절 F1 | 스타일 F1 | 용도 F1 | 레이어 역할 | 레이어 순서 | 완전 일치 | 평균 시간(초) | 최대 VRAM(MB) |",
+        "|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|",
     ]
     for model, metrics in summary["models"].items():
         latency = metrics["mean_latency_seconds"]
         vram = metrics["max_peak_vram_mb"]
         lines.append(
-            "| {model} | {json_rate} | {taxonomy_rate} | {category} | {color} | "
-            "{pattern} | {fit} | {all_fields} | {latency} | {vram} |".format(
+            "| {model} | {json_rate} | {schema_rate} | {taxonomy_rate} | {item_name} | "
+            "{category_large} | {category_small} | {color} | {pattern} | {fit} | "
+            "{material} | {sleeve} | {length} | {season} | {style} | {usage} | "
+            "{layer_role} | {layer_order} | {all_fields} | {latency} | {vram} |".format(
                 model=model,
                 json_rate=percent(metrics["json_valid_rate"]),
+                schema_rate=percent(metrics["schema_complete_rate"]),
                 taxonomy_rate=percent(metrics["taxonomy_valid_rate"]),
-                category=percent(metrics["category_large_accuracy"]),
+                item_name=percent(metrics["item_name_nonempty_rate"]),
+                category_large=percent(metrics["category_large_accuracy"]),
+                category_small=percent(metrics["category_small_accuracy"]),
                 color=percent(metrics["color_accuracy"]),
                 pattern=percent(metrics["pattern_accuracy"]),
                 fit=percent(metrics["fit_accuracy"]),
+                material=percent(metrics["material_accuracy"]),
+                sleeve=percent(metrics["sleeve_accuracy"]),
+                length=percent(metrics["length_accuracy"]),
+                season=percent(metrics["season_f1"]),
+                style=percent(metrics["style_f1"]),
+                usage=percent(metrics["usage_f1"]),
+                layer_role=percent(metrics["layer_role_accuracy"]),
+                layer_order=percent(metrics["layer_order_accuracy"]),
                 all_fields=percent(metrics["all_fields_accuracy"]),
                 latency=f"{latency:.3f}" if latency is not None else "-",
                 vram=f"{vram:.0f}" if vram is not None else "-",
@@ -328,6 +518,21 @@ def command_validate(args: argparse.Namespace) -> None:
     if errors:
         raise SystemExit("데이터셋 검증 실패:\n- " + "\n- ".join(errors))
     print(f"데이터셋 검증 성공: {len(data['samples'])}장")
+
+
+def command_init(args: argparse.Namespace) -> None:
+    source = Path(args.source)
+    destination = Path(args.destination)
+    if not source.is_file():
+        raise FileNotFoundError(f"템플릿 파일이 없습니다: {source}")
+    if destination.exists() and not args.force:
+        raise SystemExit(
+            f"dataset 파일이 이미 있습니다: {destination}\n"
+            "기존 정답을 보존하기 위해 중단했습니다. 덮어쓰려면 --force를 사용하세요."
+        )
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copyfile(source, destination)
+    print(f"dataset 생성 완료: {source} → {destination}")
 
 
 def command_prepare(args: argparse.Namespace) -> None:
@@ -353,6 +558,14 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
     subparsers = parser.add_subparsers(dest="command", required=True)
 
+    initialize = subparsers.add_parser(
+        "init", help="예제 정답지를 dataset.json으로 안전하게 복사"
+    )
+    initialize.add_argument("--source", default=str(ROOT / "dataset.example.json"))
+    initialize.add_argument("--destination", default=str(ROOT / "dataset.json"))
+    initialize.add_argument("--force", action="store_true")
+    initialize.set_defaults(func=command_init)
+
     validate = subparsers.add_parser("validate", help="이미지와 정답지 검증")
     validate.add_argument("--dataset", default=str(ROOT / "dataset.json"))
     validate.add_argument("--images", default=str(ROOT / "images"))
@@ -375,7 +588,10 @@ def build_parser() -> argparse.ArgumentParser:
 
 def main() -> None:
     args = build_parser().parse_args()
-    args.func(args)
+    try:
+        args.func(args)
+    except FileNotFoundError as exc:
+        raise SystemExit(str(exc)) from exc
 
 
 if __name__ == "__main__":

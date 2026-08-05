@@ -3,5 +3,3 @@ images/*
 results/*
 !results/.gitkeep
 prompts.jsonl
-dataset.json
-
