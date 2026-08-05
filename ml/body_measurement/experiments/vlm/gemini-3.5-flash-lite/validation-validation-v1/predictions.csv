@@ -1,14 +1,4 @@
 subject_id,predicted_chest_cm,predicted_waist_cm,predicted_hip_cm,latency_seconds,raw_response,front_image_path,side_image_path,model,run_name,status,error_message,created_at_utc
-jisoo,78.5,58.2,83.1,4.9,"{
-  ""chest_cm"": 78.5,
-  ""waist_cm"": 58.2,
-  ""hip_cm"": 83.1
-}",ml/body_measurement/data/people/jisoo_front.jpg,ml/body_measurement/data/people/jisoo_side.jpg,gemini-3.5-flash-lite,validation_v1,success,,2026-08-04T02:29:43.207776+00:00
-jun_ji_hyun,83.2,58.7,85.9,5.148,"{
-  ""chest_cm"": 83.2,
-  ""waist_cm"": 58.7,
-  ""hip_cm"": 85.9
-}",ml/body_measurement/data/people/jun_ji_hyun_front.jpg,ml/body_measurement/data/people/jun_ji_hyun_side.jpg,gemini-3.5-flash-lite,validation_v1,success,,2026-08-04T02:29:48.108193+00:00
 sizkorea_f031,87.2,75.8,95.1,5.258,"{
   ""chest_cm"": 87.2,
   ""waist_cm"": 75.8,
@@ -189,8 +179,3 @@ sizkorea_m497,98.5,94.2,96.1,8.923,"{
   ""waist_cm"": 94.2,
   ""hip_cm"": 96.1
 }",ml/body_measurement/data/people/sizkorea_m497_front.jpg,ml/body_measurement/data/people/sizkorea_m497_side.jpg,gemini-3.5-flash-lite,validation_v1,success,,2026-08-04T02:33:22.083127+00:00
-yoo_jae_suk,91.2,75.8,90.5,5.624,"{
-  ""chest_cm"": 91.2,
-  ""waist_cm"": 75.8,
-  ""hip_cm"": 90.5
-}",ml/body_measurement/data/people/yoo_jae_suk_front.jpg,ml/body_measurement/data/people/yoo_jae_suk_side.jpg,gemini-3.5-flash-lite,validation_v1,success,,2026-08-04T02:33:31.006161+00:00

@@ -8,8 +8,16 @@
 ```text
 body_measurement/
 ├── data/
+│   ├── labels/
+│   │   ├── sizekorea_vlm_182_labels.csv      ← 원본 profile CSV 182개 통합 정답표
+│   │   └── sizekorea_vlm_subjects.csv        ← 실제 이미지 평가 대상 181명
 │   ├── processed/
 │   │   └── sizekorea_measurements_clean.csv   ← SizeKorea 정제본 (실제 사용)
+│   ├── splits/
+│   │   └── vlm/
+│   │       ├── validation_set.csv            ← VLM 검증 세트 36명
+│   │       └── test_set.csv                  ← VLM 테스트 세트 145명
+│   ├── people/                               ← SizeKorea 정면/측면 이미지
 │   └── raw/
 │       └── sizekorea_8th.xlsx            ← SizeKorea 8차 원본 (재정제용)
 ├── src/
@@ -68,10 +76,12 @@ gender,height,weight,chest,waist,hip,thigh,calf,arm,shoulder
 - 실제 평가에서는 동일 조사 대상이 train/test에 중복되지 않도록 전처리
   단계에서 subject 기준 split 컬럼을 추가하는 방향으로 확장한다.
 
-VLM 이미지 평가용 SizeKorea 요약 CSV는
-`data/raw_test_data/summary_raw_test_data.csv`에 있다. 이 파일은
-개별 `*_profile.csv` 원본을 하나로 묶은 결과이며
-`chest/waist/hip/thigh/calf/arm/shoulder` 7개 실측값을 보존한다.
+VLM 이미지 평가용 SizeKorea 정답 CSV는 `data/labels/`에 있다.
+
+- `sizekorea_vlm_182_labels.csv`: 개별 `*_profile.csv` 원본 182개를 하나로 묶은 정답표
+- `sizekorea_vlm_subjects.csv`: 실제 이미지 평가에 쓰는 대상자 181명
+- `splits/vlm/validation_set.csv`: VLM 검증 세트 36명
+- `splits/vlm/test_set.csv`: VLM 테스트 세트 145명
 
 ## 설치
 
