@@ -20,7 +20,7 @@ from PIL import Image, ImageOps
 
 
 ROOT = Path(__file__).resolve().parents[3]
-DATA_PATH = ROOT / "ml/body_measurement/data/raw_test_data/summary_raw_test_data.csv"
+DATA_PATH = ROOT / "ml/body_measurement/data/labels/sizekorea_vlm_182_labels.csv"
 EXPERIMENTS_DIR = ROOT / "ml/body_measurement/experiments/vlm"
 MODELS = {
     "qwen3-vl-8b": "qwen/qwen3-vl-8b-instruct",

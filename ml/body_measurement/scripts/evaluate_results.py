@@ -6,7 +6,7 @@ import pandas as pd
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
-DATA_DIR = PROJECT_ROOT / "data" / "splits"
+DATA_DIR = PROJECT_ROOT / "data" / "splits" / "vlm"
 
 TRAILING_METADATA_COLUMNS = [
     "front_image_path",
@@ -49,7 +49,7 @@ def main() -> None:
     parser.add_argument("--predictions", type=Path, required=True)
     args = parser.parse_args()
 
-    labels_path = DATA_DIR / f"vlm_{args.split}_set.csv"
+    labels_path = DATA_DIR / f"{args.split}_set.csv"
     label_source = pd.read_csv(labels_path)
     available_targets = [
         target for target in FULL_TARGETS if target in label_source.columns

@@ -5,12 +5,12 @@ from sklearn.model_selection import train_test_split
 
 
 SEED = 42
-VALIDATION_COUNT = 39
+VALIDATION_COUNT = 36
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 REPO_ROOT = PROJECT_ROOT.parent.parent
-SOURCE_CSV = PROJECT_ROOT / "data" / "people" / "multimodal_test_subjects.csv"
-OUTPUT_DIR = PROJECT_ROOT / "data" / "splits"
+SOURCE_CSV = PROJECT_ROOT / "data" / "labels" / "sizekorea_vlm_subjects.csv"
+OUTPUT_DIR = PROJECT_ROOT / "data" / "splits" / "vlm"
 
 
 def main() -> None:
@@ -62,8 +62,8 @@ def main() -> None:
         raise RuntimeError(f"validation/test 중복 대상자가 있습니다: {sorted(overlap)}")
 
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
-    validation_path = OUTPUT_DIR / "vlm_validation_set.csv"
-    test_path = OUTPUT_DIR / "vlm_test_set.csv"
+    validation_path = OUTPUT_DIR / "validation_set.csv"
+    test_path = OUTPUT_DIR / "test_set.csv"
 
     validation_df.to_csv(validation_path, index=False)
     test_df.to_csv(test_path, index=False)

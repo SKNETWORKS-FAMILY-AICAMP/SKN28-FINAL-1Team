@@ -15,7 +15,7 @@ MODEL_NAME = "gemini-3.5-flash-lite"
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 REPO_ROOT = PROJECT_ROOT.parent.parent
-DATA_DIR = PROJECT_ROOT / "data" / "splits"
+DATA_DIR = PROJECT_ROOT / "data" / "splits" / "vlm"
 PROMPT_PATH = PROJECT_ROOT / "prompts" / "body_measurement_prompt.j2"
 SCHEMA_PATH = PROJECT_ROOT / "prompts" / "body_measurement_schema.json"
 TRAILING_METADATA_COLUMNS = [
@@ -90,7 +90,7 @@ def main() -> None:
     if not api_key:
         raise RuntimeError("GEMINI_API_KEY가 없습니다. Infisical 실행 여부를 확인하세요.")
 
-    dataset_path = DATA_DIR / f"vlm_{args.split}_set.csv"
+    dataset_path = DATA_DIR / f"{args.split}_set.csv"
     df = pd.read_csv(dataset_path)
 
     if args.limit:
