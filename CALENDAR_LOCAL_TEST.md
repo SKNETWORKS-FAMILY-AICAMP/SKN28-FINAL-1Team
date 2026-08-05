@@ -198,7 +198,8 @@ hashtags: ["여름", "캐주얼"]
 
 Swagger UI에서 배열 입력란이 항목 단위로 표시되면 **Add string item** 또는
 **Add item**을 눌러 값을 하나씩 넣는다. 기존 아이템을 함께 연결하지 않을 때는
-`wardrobe_item_ids`를 비워 둔다.
+`wardrobe_item_ids`를 비워 둔다. Swagger가 빈 입력란을 multipart의 빈 문자열로
+전송하더라도 API가 이를 빈 배열로 정규화하므로 옷장 아이템 없이 등록할 수 있다.
 
 예상 결과:
 

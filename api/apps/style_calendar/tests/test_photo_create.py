@@ -183,6 +183,18 @@ class CalendarPhotoCreateApiTests(TestCase):
             self.assertIn(f"calendar/{self.user.pk}/{entry.pk}/selected/", link.snapshot["s3_key"])
             self.assertNotEqual(entry.image_s3_key, link.snapshot["s3_key"])
 
+    def test_photo_upload_accepts_blank_swagger_wardrobe_item_input(self) -> None:
+        payload = self._payload()
+        payload["wardrobe_item_ids"] = ""
+
+        response = self.client.post(self.url, payload, format="multipart")
+
+        self.assertEqual(response.status_code, 202)
+        entry = CalendarEntry.objects.get(pk=response.data["id"])
+        self.assertEqual(entry.wardrobe_links.count(), 0)
+        self.assertIsNotNone(entry.wardrobe_upload_job_id)
+        self.mock_enqueue.assert_called_once()
+
     def test_photo_upload_rejects_missing_or_other_users_items_before_s3(self) -> None:
         other_payload = self._payload()
         other_payload["wardrobe_item_ids"] = [str(self.other_item.pk)]

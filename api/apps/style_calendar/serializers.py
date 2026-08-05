@@ -48,6 +48,21 @@ class StringListField(serializers.ListField):
         return super().to_internal_value(data)
 
 
+class OptionalUUIDListField(serializers.ListField):
+    """Swagger multipart가 만드는 빈 문자열 항목을 선택 없음으로 정규화한다."""
+
+    def to_internal_value(self, data):
+        if data == "":
+            data = []
+        elif isinstance(data, (list, tuple)):
+            data = [
+                item
+                for item in data
+                if not (isinstance(item, str) and not item.strip())
+            ]
+        return super().to_internal_value(data)
+
+
 class CalendarPeriodQuerySerializer(serializers.Serializer):
     start_date = serializers.DateField()
     end_date = serializers.DateField()
@@ -111,11 +126,14 @@ class CalendarWardrobeCreateSerializer(StrictObjectInputMixin, serializers.Seria
 class CalendarPhotoCreateSerializer(StrictObjectInputMixin, serializers.Serializer):
     image = serializers.ImageField()
     date = serializers.DateField()
-    wardrobe_item_ids = serializers.ListField(
+    wardrobe_item_ids = OptionalUUIDListField(
         child=serializers.UUIDField(),
         required=False,
         allow_empty=True,
         default=list,
+        help_text=(
+            "선택 사항. 기존 옷장 아이템을 함께 연결하지 않으면 비워 둡니다."
+        ),
     )
     schedule = serializers.CharField(required=False, allow_blank=True, default="")
     tpo = StringListField(
