@@ -1,7 +1,7 @@
 # 멀티모달(이미지+메타데이터) 기반 신체치수 측정 모델 개발 계획 및 로드맵
 
 > **상태: 완료 (2026-08-05)** — 아래 목표 3개는 모두 달성했다. 초기 계획을 남겨 두는
-> 이력 문서이며, 현재 설계와 성능은 [body-measurement-api-design.md](body-measurement-api-design.md)를 본다.
+> 이력 문서이며, 현재 설계와 성능은 [docs/body-measurement-api-design.md](../../docs/body-measurement-api-design.md)를 본다.
 >
 > | 목표 | 결과 |
 > |---|---|
