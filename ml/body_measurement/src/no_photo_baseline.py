@@ -31,6 +31,15 @@ SizeKorea에서 후보 컬럼별로 KNN을 학습해 split을 예측하고, MAE�
 
 ⚠️ 1·2위 MAE 격차가 `--min-margin`(기본 0.3cm) 미만이면 "구분 불가"로 보고,
    해당 부위는 사진 有/無 비교에서 제외하는 편이 안전하다.
+
+⚠️ 선결 과제 — 평가셋 라벨의 출처
+---------------------------------
+이 모듈은 SizeKorea에서 학습해 split을 예측하므로 **두 쪽 측정 프로토콜이 같아야** 한다.
+그런데 split의 `source`는 `sizkorea`인데도 실제로는 데이터셋 20일 정황이 강하다
+(피험자 ID 체계, `front_camera_number` 컬럼, SizeKorea 정제본에 해당 키·몸무게 행 부재).
+상세와 확정 방법은 `reports/model_evaluation_summary.md` §6-1 참조.
+데이터셋 20이 맞다면 `chest`는 `젖가슴둘레`이므로, `match`로 확정하기 전에는
+`CONFIRMED_MAPPING`에 chest를 넣지 말 것.
 """
 
 from __future__ import annotations
@@ -192,7 +201,12 @@ def transfer_metrics(
 
 
 def vlm_metrics(frame: pd.DataFrame, target: str) -> dict[str, float] | None:
-    """split CSV에 이미 들어 있는 VLM 예측의 오차를 같은 방식으로 계산한다."""
+    """split CSV에 이미 들어 있는 VLM 예측의 오차를 같은 방식으로 계산한다.
+
+    ⚠️ split의 `pred_*` 컬럼에는 **어느 모델이 낸 값인지 기록돼 있지 않다.**
+    모델을 특정해 비교하려면 `--vlm-predictions`로
+    `experiments/vlm/{모델}/{run}/predictions.csv`를 직접 지정할 것.
+    """
 
     column = f"pred_{target}"
     if column not in frame.columns:
@@ -291,12 +305,25 @@ def command_baseline(args: argparse.Namespace) -> None:
                     ),
                 }
             )
+    if args.vlm_predictions:
+        # 모델명이 명시된 experiments 예측 파일을 쓴다 (provenance 확실).
+        predictions = pd.read_csv(args.vlm_predictions)
+        label = str(predictions["model"].iloc[0]) if "model" in predictions else args.vlm_predictions.stem
+        predictions = predictions.rename(
+            columns={f"actual_{t}": t for t in VLM_TARGETS}
+        )
+        vlm_frame, vlm_label = predictions, f"vlm({label})"
+    else:
+        vlm_frame, vlm_label = evaluation, "vlm(split 저장값·모델 미기록)"
+        print("⚠️ split의 pred_* 컬럼에는 모델명이 없다. 특정 모델과 비교하려면 "
+              "--vlm-predictions로 experiments 예측 파일을 지정할 것.\n")
+
     for target in VLM_TARGETS:
-        metrics = vlm_metrics(evaluation, target)
+        metrics = vlm_metrics(vlm_frame, target)
         if metrics:
             rows.append(
                 {
-                    "model": "vlm(split 저장값)",
+                    "model": vlm_label,
                     "photo": True,
                     "target": target,
                     "source_column": "-",
@@ -369,6 +396,11 @@ def parse_args() -> argparse.Namespace:
         "--mapping",
         type=Path,
         help="확정된 {target: SizeKorea컬럼} JSON. 없으면 CONFIRMED_MAPPING 사용",
+    )
+    baseline.add_argument(
+        "--vlm-predictions",
+        type=Path,
+        help="experiments/vlm/{모델}/{run}/predictions.csv — 모델명이 기록된 예측 파일",
     )
     baseline.add_argument(
         "--out", type=Path, default=root / "reports" / "no_photo_baseline.csv"

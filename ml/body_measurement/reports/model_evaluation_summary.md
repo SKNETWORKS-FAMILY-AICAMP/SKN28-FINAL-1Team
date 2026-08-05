@@ -192,7 +192,7 @@ f111은 같은 입력에서 MAE 1.17cm → 3.60cm로 벌어졌다. 단건 결과
 - 1단계 tabular 보고서의 **1.915cm를 여기에 갖다 대면 안 된다.** 그건 SizeKorea 5,092명
   모집단에서 나온 값이고, 여기 평가셋은 별도 촬영 데이터셋이다. 모집단·측정 프로토콜이
   달라 차이가 사진 덕분인지 데이터가 쉬워서인지 구분되지 않는다
-  (근거: `docs/multimodal-model-selection.md` §0).
+  (근거: `ml/docs/multimodal-model-selection.md` §0).
 - 판정식: **같은 split 행에서** `MAE(VLM, 사진 사용)` < `MAE(tabular, 사진 없음)`.
 - 산출 스크립트를 만들어 뒀다 — `src/no_photo_baseline.py`.
 
@@ -211,6 +211,38 @@ python src\no_photo_baseline.py --drop-impossible baseline
 ⚠️ **스크립트는 아직 한 번도 실행되지 않았다** (작성 세션에서 Python 실행이 권한으로
 차단됨). 문법·동작 검증 전이므로 첫 실행 시 오류가 날 수 있다.
 
+### ⚠️ 선결 과제 — 평가 라벨의 출처가 SizeKorea가 맞는지 확인
+
+위 기준선 산출은 "SizeKorea에서 학습 → 평가셋 예측"이라 **두 쪽 측정 프로토콜이 같아야**
+성립한다. 그런데 평가 라벨이 SizeKorea가 아닐 정황이 있다.
+
+| 단서 | 관찰 |
+| --- | --- |
+| subject_id 형식 | `F010`, `F013`, `M163` — 데이터셋 20의 피험자 ID 체계 |
+| 컬럼 | `front_camera_number=3`, `side_camera_number=12` — 카메라 32각도는 데이터셋 20 개념 |
+| 사진 유무 | SizeKorea 8차 직접측정 시트에는 **이미지가 아예 없다** |
+| 대조 | `data/processed/sizekorea_measurements_clean.csv`에 F010(167.1cm/52.3kg)·F013(152.0cm/74.0kg)과 일치하는 행이 **없다** |
+
+즉 `sizkorea_*` 접두사와 `source=sizkorea` 값에도 불구하고, 실제 출처는
+**`s3://skn28-cozy/20.한국인_전신_형상_및_치수_측정_데이터/`일 가능성이 높다.**
+(로컬 대조까지만 한 결과이므로 S3 원본과 맞춰 확정해야 한다.)
+
+확정 방법 — 데이터셋 20의 같은 ID 원본과 값을 대조한다.
+
+```text
+s3://skn28-cozy/20.한국인_전신_형상_및_치수_측정_데이터/01.데이터/
+  1.Training/원천데이터_230524add/신체정보데이터/F010.csv
+→ 키 167.1 / 몸무게 52.3 / 젖가슴둘레 86.1 이 일치하는지 확인
+```
+
+**맞다면 따라오는 것**
+
+1. 라벨의 `chest`는 `젖가슴둘레`다. SizeKorea의 `가슴둘레`와 평균 2.47cm 차이나므로,
+   기준선 계산에서 chest를 그대로 쓰면 안 된다 → `match`를 먼저 돌려 확정할 것
+   (`no_photo_baseline.py`의 `CONFIRMED_MAPPING`은 chest·shoulder를 일부러 빼 뒀다).
+2. §5-3의 "SizeKorea 실측만 사용" 정책은 **이름 기준으로 세워진 것**이라 재검토가 필요하다.
+3. 파일·컬럼의 `sizkorea` 표기를 실제 출처에 맞게 고쳐야 혼동이 재발하지 않는다.
+
 ## 7. 결론과 다음 순서
 
 - 1순위 운영 후보: **Qwen 3.7 Flash**
@@ -226,19 +258,53 @@ python src\no_photo_baseline.py --drop-impossible baseline
 
   - **무사진 기준선부터 산출한다 (§6-1).** 사진이 이득인지 확인되기 전에 모델을 확정하면,
     더 정확한 tabular 경로를 두고 더 비싸고 느린 사진 경로를 고르는 결과가 될 수 있다
+  - **OpenRouter 크레딧을 채우고 kimi-k2.5·grok-4.3만 182명 재실행한다 (§8).**
+    현재 이 둘은 미평가 상태다. 완주한 3개 모델은 다시 돌릴 필요 없다
+  - qwen3-vl-8b의 JSON 파싱 실패 14건 원인 확인 (출력 계약 점검)
   - Qwen과 Kimi 중 최종 모델 1개 선택
   - 선택한 모델만 Test 154명에 실행하고, 예측 파일·평가 파일·지표 파일을 남김
 
-### 미해결 — 6모델 × 182명 배치 산출물 분실
+## 8. 6모델 × 182명 배치 결과 (`openrouter-182-test`)
 
-`reports/vlm_openrouter_182/run.log`를 보면 qwen3-vl-8b / gemma-3-12b /
-gemini-flash-lite / gemini-flash / kimi-k2.5 / grok-4.3 6개 모델이 각각 182/182
-완주했고, 마지막 줄에 요약 CSV 경로가 찍혀 있다.
+근거: `experiments/vlm/_summaries/openrouter-182-test/all_models_summary.csv`,
+모델별 원본은 `experiments/vlm/{모델}/openrouter-182-test/predictions.csv`.
+(`reports/vlm_openrouter_182/`에는 실행 로그만 남아 있고, 산출물은 `experiments/`로 재편됐다.)
 
-```text
-summary: ...\reports\vlm_openrouter_182\all_models_test_set_summary.csv
-```
+| 모델 | 성공 | 가슴 MAE | 허리 MAE | 엉덩이 MAE | 3부위 평균 | 평균 지연(초) |
+| ----------------- | -------: | -----: | -----: | -----: | -----: | -----: |
+| gemini-flash | **182/182** | 3.824 | 3.424 | 2.779 | **3.342** | 1.37 |
+| gemini-flash-lite | **182/182** | 3.745 | 3.036 | 3.307 | 3.363 | 2.06 |
+| gemma-3-12b | **182/182** | 4.470 | 5.208 | 3.253 | 4.310 | 1.19 |
+| qwen3-vl-8b | 168/182 | 5.942 | 7.590 | 4.590 | 6.041 | 1.08 |
+| kimi-k2.5 | 7/182 ⚠️ | (2.300) | (4.586) | (3.000) | — | 72.27 |
+| grok-4.3 | 0/182 ⚠️ | — | — | — | — | — |
 
-그런데 **해당 폴더에는 `run.log`와 `run-error.log`만 남아 있다.** 요약 CSV와 모델별
-예측 파일이 없다. `.gitignore`에도 걸려 있지 않으므로 별도로 삭제된 것으로 보인다.
-API 호출 비용이 이미 지출된 결과라, 재실행 전에 원본이 다른 경로에 남아 있는지 먼저 찾을 것.
+⚠️ Kimi·Grok의 실패는 **OpenRouter 크레딧 소진**이다 (아래 참조). 모델 성능이 아니다.
+
+### 실패 원인 — 모델 문제가 아니라 크레딧 소진
+
+`predictions.csv`의 `error` 컬럼을 집계한 결과다. **Kimi·Grok의 실패는 모델이 거부하거나
+못 푼 것이 아니다.** 실행 순서상 뒤쪽 두 모델에서 OpenRouter 크레딧이 떨어졌다.
+
+| 모델 | 실패 | 원인 내역 |
+| ----------- | ----: | --- |
+| kimi-k2.5 | 175 | HTTP 402 크레딧 부족 **173건** + 파서 버그(`'NoneType' object has no attribute 'find'`) 2건 |
+| grok-4.3 | 182 | HTTP 402 크레딧 부족 **182건** (한 번도 호출되지 못함) |
+| qwen3-vl-8b | 14 | JSON 파싱 실패 `Expecting value: line 1 column 1` 14건 |
+
+**따라서 이렇게 읽어야 한다**
+
+1. **Kimi·Grok은 이 배치에서 평가되지 않은 것이다.** "실패율이 높은 모델"이 아니다.
+   §2의 1차 게이트(거부·회피율)로 탈락시키면 잘못된 판단이 된다. 크레딧을 채우고
+   **재실행해야 비교가 성립한다.**
+2. Kimi의 가슴 2.300cm는 **7명에서 나온 값이라 지표로 쓸 수 없다.** 평균 지연 72.27초도
+   402 에러 응답이 섞인 값이라 실제 추론 시간이 아니다.
+3. **실제로 182명을 완주한 모델은 gemini-flash / gemini-flash-lite / gemma-3-12b 셋뿐이고,**
+   앞의 둘이 3.34~3.36cm로 사실상 동률이다. 이 셋 사이의 비교만 현재 유효하다.
+4. **qwen3-vl-8b의 14건은 진짜 모델 쪽 실패다** — 응답이 JSON이 아니어서 파싱이 깨졌다.
+   §2 기준 #3(출력 계약)에 걸리는 사례이므로 프롬프트·스키마 강제를 점검할 것.
+5. `qwen3-vl-8b`는 §5의 `Qwen 3.7 Flash`와 **다른 모델**이다. 두 표를 같은 줄에 놓고
+   비교하면 안 된다.
+
+**§7의 "1순위 Qwen / 정확도 후보 Kimi"는 아직 뒤집히지 않았다.** 다만 그 근거는 여전히
+Validation 39명뿐이고, 182명 배치에서 Kimi는 사실상 미평가 상태다.
