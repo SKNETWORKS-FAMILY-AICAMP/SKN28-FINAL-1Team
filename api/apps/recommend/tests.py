@@ -13,7 +13,7 @@ from PIL import Image
 from rest_framework.test import APIClient
 
 from apps.recommend.models import OutfitAnalysis
-from apps.recommend.services import gemini
+from apps.recommend.services import gemini, imaging
 from apps.recommend.services.outfit_context import build_analysis_context
 
 
@@ -54,10 +54,40 @@ CONTEXT = {
 }
 
 
-def make_image_file(name: str = "outfit.jpg") -> SimpleUploadedFile:
+# 단색 이미지는 JPEG가 극단적으로 잘 압축해 축소 효과를 관찰할 수 없다.
+# Image.effect_noise는 호출마다 결과가 달라져 크기 비교가 불안정하므로,
+# 결정적인 노이즈 타일을 만들어 채운다.
+_NOISE_TILE_PX = 64
+_NOISE_TILE = Image.frombytes(
+    "RGB",
+    (_NOISE_TILE_PX, _NOISE_TILE_PX),
+    bytes(
+        (x * 37 + y * 97 + channel * 53) % 256
+        for y in range(_NOISE_TILE_PX)
+        for x in range(_NOISE_TILE_PX)
+        for channel in range(3)
+    ),
+)
+
+
+def make_image(size: tuple[int, int] = (2, 2)) -> Image.Image:
+    image = Image.new("RGB", size)
+    for top in range(0, size[1], _NOISE_TILE_PX):
+        for left in range(0, size[0], _NOISE_TILE_PX):
+            image.paste(_NOISE_TILE, (left, top))
+    return image
+
+
+def make_image_bytes(size: tuple[int, int] = (2, 2)) -> bytes:
     buffer = BytesIO()
-    Image.new("RGB", (2, 2), color="white").save(buffer, format="JPEG")
-    return SimpleUploadedFile(name, buffer.getvalue(), content_type="image/jpeg")
+    make_image(size).save(buffer, format="JPEG", quality=95)
+    return buffer.getvalue()
+
+
+def make_image_file(
+    name: str = "outfit.jpg", size: tuple[int, int] = (2, 2)
+) -> SimpleUploadedFile:
+    return SimpleUploadedFile(name, make_image_bytes(size), content_type="image/jpeg")
 
 
 class OutfitAnalysisViewTests(TestCase):
@@ -156,7 +186,9 @@ class OutfitAnalysisViewTests(TestCase):
         image_part = analysis.request_payload["contents"][0]["parts"][1]["inlineData"]
         # 원본은 S3에 있으므로 행에는 자리표시자만 남는다 (행 크기 폭증 방지)
         self.assertTrue(image_part["data"].startswith("<image omitted"))
-        self.assertEqual(analysis.image_bytes, image_part_size(analysis))
+        # image_bytes는 원본 크기, 자리표시자는 실제 전송 크기
+        self.assertEqual(analysis.image_bytes, len(make_image_bytes()))
+        self.assertGreater(image_part_size(analysis), 0)
 
     @patch(
         "apps.recommend.services.analysis.gemini.evaluate_outfit",
@@ -266,6 +298,87 @@ class OutfitAnalysisViewTests(TestCase):
             analysis.image_s3_key,
             f"outfits/anonymous/{analysis.pk}/original.jpg",
         )
+
+    @patch(
+        "apps.recommend.services.analysis.gemini.evaluate_outfit",
+        return_value=GEMINI_RESULT,
+    )
+    @patch(
+        "apps.recommend.services.analysis.build_analysis_context",
+        return_value=CONTEXT,
+    )
+    def test_sends_shrunk_image_but_records_original_size(
+        self,
+        _mock_context: Mock,
+        mock_evaluate: Mock,
+    ) -> None:
+        """큰 사진은 전송 전에 축소한다 (원본 그대로 보내면 Gemini가 타임아웃)."""
+        original = make_image_bytes((2000, 1500))
+        self.client.post(
+            self.url,
+            {
+                "image": SimpleUploadedFile(
+                    "big.jpg", original, content_type="image/jpeg"
+                )
+            },
+            format="multipart",
+        )
+
+        sent_data = mock_evaluate.call_args.args[0]
+        self.assertLess(len(sent_data), len(original))
+        with Image.open(BytesIO(sent_data)) as sent_image:
+            self.assertLessEqual(max(sent_image.size), imaging.MAX_EDGE_PX)
+
+        analysis = OutfitAnalysis.objects.get()
+        # DB의 image_bytes는 S3에 올린 원본 기준
+        self.assertEqual(analysis.image_bytes, len(original))
+        self.assertEqual(image_part_size(analysis), len(sent_data))
+
+    @patch(
+        "apps.recommend.services.analysis.build_analysis_context",
+        return_value=CONTEXT,
+    )
+    @patch("apps.recommend.services.analysis.storage.is_configured", return_value=True)
+    @patch(
+        "apps.recommend.services.analysis.storage.upload_fileobj",
+        side_effect=lambda fileobj, key, content_type=None: fileobj.close(),
+    )
+    @patch("apps.recommend.services.gemini.requests.post")
+    def test_s3_upload_closing_stream_does_not_break_llm_call(
+        self,
+        mock_post: Mock,
+        _mock_upload: Mock,
+        _mock_configured: Mock,
+        _mock_context: Mock,
+    ) -> None:
+        """회귀: boto3 upload_fileobj가 넘겨받은 파일을 닫아 Gemini 읽기가 죽었다.
+
+        업로드와 LLM 호출이 같은 업로드 파일을 차례로 쓰던 구조라
+        두 번째 읽기가 ValueError("I/O operation on closed file")로 500을 냈다.
+        """
+        api_response = Mock()
+        api_response.status_code = 200
+        api_response.raise_for_status.return_value = None
+        api_response.json.return_value = RAW_RESPONSE
+        mock_post.return_value = api_response
+
+        with override_settings(
+            GEMINI_API_KEY="test-api-key",
+            GEMINI_MODEL="gemini-3.5-flash",
+            GEMINI_API_BASE_URL="https://example.test",
+            GEMINI_TIMEOUT_SECONDS=10,
+        ):
+            response = self.client.post(
+                self.url, {"image": make_image_file()}, format="multipart"
+            )
+
+        self.assertEqual(response.status_code, 200)
+        analysis = OutfitAnalysis.objects.get()
+        self.assertEqual(analysis.status, OutfitAnalysis.Status.SUCCEEDED)
+        self.assertTrue(analysis.image_s3_key)
+        # 실제로 이미지 base64가 실려 나갔는지 확인 (빈 바이트로 조용히 성공하면 안 된다)
+        sent_parts = mock_post.call_args.kwargs["json"]["contents"][0]["parts"]
+        self.assertTrue(len(sent_parts[1]["inlineData"]["data"]) > 100)
 
     @patch(
         "apps.recommend.services.analysis.gemini.evaluate_outfit",
@@ -390,7 +503,9 @@ class GeminiServiceTests(SimpleTestCase):
         api_response.json.return_value = RAW_RESPONSE
         mock_post.return_value = api_response
 
-        result = gemini.evaluate_outfit(make_image_file(), context=CONTEXT)
+        result = gemini.evaluate_outfit(
+            make_image_bytes(), mime_type="image/jpeg", context=CONTEXT
+        )
 
         self.assertEqual(result.evaluation, EVALUATION)
         self.assertEqual(result.response_payload, RAW_RESPONSE)
@@ -422,7 +537,9 @@ class GeminiServiceTests(SimpleTestCase):
         mock_post.return_value = api_response
 
         with self.assertRaises(gemini.GeminiServiceError) as ctx:
-            gemini.evaluate_outfit(make_image_file(), context=CONTEXT)
+            gemini.evaluate_outfit(
+            make_image_bytes(), mime_type="image/jpeg", context=CONTEXT
+        )
 
         self.assertEqual(ctx.exception.response_payload, {"error": "bad"})
 
@@ -441,7 +558,9 @@ class GeminiServiceTests(SimpleTestCase):
     @override_settings(GEMINI_API_KEY="")
     def test_requires_api_key(self) -> None:
         with self.assertRaises(gemini.GeminiConfigurationError):
-            gemini.evaluate_outfit(make_image_file(), context=CONTEXT)
+            gemini.evaluate_outfit(
+            make_image_bytes(), mime_type="image/jpeg", context=CONTEXT
+        )
 
 
 class OutfitContextTests(SimpleTestCase):
@@ -502,3 +621,43 @@ class OutfitContextTests(SimpleTestCase):
         self.assertTrue(context["personalized"])
         self.assertEqual(context["body"]["gender"], "female")
         self.assertEqual(context["pursuit"]["preferred"]["styles"], ["minimal"])
+
+
+class ImagingTests(SimpleTestCase):
+    def test_shrinks_large_image_to_max_edge(self) -> None:
+        original = make_image_bytes((2400, 1200))
+
+        shrunk, mime = imaging.shrink_for_llm(original, mime_type="image/jpeg")
+
+        self.assertEqual(mime, "image/jpeg")
+        self.assertLess(len(shrunk), len(original))
+        with Image.open(BytesIO(shrunk)) as image:
+            self.assertEqual(max(image.size), imaging.MAX_EDGE_PX)
+            self.assertEqual(image.size[0] / image.size[1], 2)  # 비율 유지
+
+    def test_uses_resized_version_even_if_bytes_grow(self) -> None:
+        """잘 압축되는 큰 PNG도 해상도를 줄여 보낸다 (모델 처리 픽셀 수가 목적)."""
+        buffer = BytesIO()
+        make_image((1600, 1600)).save(buffer, format="PNG")
+
+        shrunk, mime = imaging.shrink_for_llm(buffer.getvalue(), mime_type="image/png")
+
+        self.assertEqual(mime, "image/jpeg")
+        with Image.open(BytesIO(shrunk)) as image:
+            self.assertEqual(max(image.size), imaging.MAX_EDGE_PX)
+
+    def test_keeps_already_small_image(self) -> None:
+        original = make_image_bytes((8, 8))
+
+        shrunk, mime = imaging.shrink_for_llm(original, mime_type="image/jpeg")
+
+        # 재압축이 손해면 원본을 그대로 쓴다
+        self.assertLessEqual(len(shrunk), len(original))
+        self.assertEqual(mime, "image/jpeg")
+
+    def test_broken_image_falls_back_to_original(self) -> None:
+        """축소는 최적화일 뿐이라 실패해도 평가를 막지 않는다."""
+        shrunk, mime = imaging.shrink_for_llm(b"not an image", mime_type="image/jpeg")
+
+        self.assertEqual(shrunk, b"not an image")
+        self.assertEqual(mime, "image/jpeg")

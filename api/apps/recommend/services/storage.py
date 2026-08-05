@@ -14,6 +14,7 @@ import os
 from functools import lru_cache
 
 import boto3
+from botocore.config import Config
 
 
 def bucket() -> str:
@@ -28,12 +29,25 @@ def is_configured() -> bool:
 
 REGION = os.getenv("AWS_REGION", "ap-northeast-2")
 PRESIGNED_GET_TTL = int(os.getenv("OUTFIT_PRESIGNED_GET_TTL", "3600"))
+S3_CONNECT_TIMEOUT = int(os.getenv("OUTFIT_S3_CONNECT_TIMEOUT", "5"))
+S3_READ_TIMEOUT = int(os.getenv("OUTFIT_S3_READ_TIMEOUT", "15"))
 
 
 @lru_cache(maxsize=1)
 def _client():
-    # 자격증명은 표준 AWS 환경변수(AWS_ACCESS_KEY_ID 등) 또는 IAM 역할로 주입
-    return boto3.client("s3", region_name=REGION)
+    # 자격증명은 표준 AWS 환경변수(AWS_ACCESS_KEY_ID 등) 또는 IAM 역할로 주입.
+    # 업로드는 사용자 요청을 붙잡고 있는 동기 구간이라, 기본값(60s x 5회 재시도)으로
+    # 두면 S3가 느릴 때 요청이 몇 분씩 매달린다. 짧게 끊고 포기하는 편이 낫다
+    # — 사진 업로드는 실패해도 평가를 막지 않는 best-effort 단계다.
+    return boto3.client(
+        "s3",
+        region_name=REGION,
+        config=Config(
+            connect_timeout=S3_CONNECT_TIMEOUT,
+            read_timeout=S3_READ_TIMEOUT,
+            retries={"max_attempts": 2, "mode": "standard"},
+        ),
+    )
 
 
 def original_key(user_id: int | str | None, analysis_id: str, filename: str) -> str:

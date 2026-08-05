@@ -292,4 +292,6 @@ GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-3.5-flash")
 GEMINI_API_BASE_URL = os.getenv(
     "GEMINI_API_BASE_URL", "https://generativelanguage.googleapis.com"
 ).rstrip("/")
-GEMINI_TIMEOUT_SECONDS = int(os.getenv("GEMINI_TIMEOUT_SECONDS", "30"))
+# 사진을 base64로 실어 보내므로 업로드 시간이 붙는다. 30s로는 큰 사진에서 타임아웃한다
+# (전송본은 apps/recommend/services/imaging.py가 1024px로 축소한다).
+GEMINI_TIMEOUT_SECONDS = int(os.getenv("GEMINI_TIMEOUT_SECONDS", "60"))

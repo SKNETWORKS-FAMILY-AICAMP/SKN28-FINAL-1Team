@@ -9,7 +9,6 @@ from typing import Any
 
 import requests
 from django.conf import settings
-from django.core.files.uploadedfile import UploadedFile
 
 logger = logging.getLogger(__name__)
 
@@ -164,18 +163,24 @@ def _error_payload(response: requests.Response) -> Any:
 
 
 def evaluate_outfit(
-    image: UploadedFile,
+    image_data: bytes,
     *,
+    mime_type: str,
     context: dict[str, Any],
 ) -> GeminiResult:
+    """업로드 파일 객체가 아니라 **읽어 둔 바이트**를 받는다.
+
+    같은 업로드를 S3와 Gemini가 차례로 써야 하는데, boto3 upload_fileobj가
+    넘겨받은 파일 객체를 닫아버려 두 번째 읽기가 ValueError로 죽었다.
+    호출부에서 한 번만 읽고 바이트를 돌려쓰는 것이 유일하게 안전한 방식이다.
+    """
     api_key = settings.GEMINI_API_KEY
     if not api_key:
         raise GeminiConfigurationError("GEMINI_API_KEY가 설정되지 않았습니다.")
 
-    image.seek(0)
-    encoded_image = base64.b64encode(image.read()).decode("ascii")
+    encoded_image = base64.b64encode(image_data).decode("ascii")
     request_body = _build_request_body(
-        context, mime_type=image.content_type, image_data=encoded_image
+        context, mime_type=mime_type, image_data=encoded_image
     )
     model = settings.GEMINI_MODEL
     url = f"{settings.GEMINI_API_BASE_URL}/v1beta/models/{model}:generateContent"
@@ -199,6 +204,14 @@ def evaluate_outfit(
         response_payload = response.json()
         evaluation = json.loads(_extract_text(response_payload))
     except requests.Timeout as exc:
+        # 타임아웃은 대개 사진이 크거나 네트워크가 느린 경우다.
+        # 전송 크기를 함께 남겨야 GEMINI_TIMEOUT_SECONDS를 올릴지 판단할 수 있다.
+        logger.error(
+            "Gemini 타임아웃 %.1fs (limit=%ss, 전송=%dKB)",
+            time.monotonic() - started,
+            settings.GEMINI_TIMEOUT_SECONDS,
+            len(image_data) // 1024,
+        )
         raise GeminiServiceError("Gemini 응답 시간이 초과되었습니다.") from exc
     except GeminiServiceError:
         # _extract_text가 이미 원본 응답을 실어 던진 경우 — 덮어쓰지 않는다
