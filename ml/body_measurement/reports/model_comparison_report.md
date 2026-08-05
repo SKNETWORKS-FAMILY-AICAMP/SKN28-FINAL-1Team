@@ -34,7 +34,7 @@
 
 **결론**
 
-1. **baseline을 제외한 6개 모델은 사실상 동급이다.** MAE 1.915~2.008cm, R² 0.768~0.786으로 전체 폭이 0.09cm·0.018에 불과하다.
+1. **baseline을 제외한 6개 모델은 사실상 동급이다.** MAE 1.9152.008cm, R² 0.7680.786으로 전체 폭이 0.09cm·0.018에 불과하다.
 2. **기본 모델 3개(knn/hist_gradient_boosting/random_forest)가 오히려 근소하게 앞선다.** 상위 3위를 기본 모델이 차지했고, HF 모델 3개가 4~6위다.
 3. **1건 예측 속도 차이가 정확도 차이보다 훨씬 크다.** knn 0.013ms vs nori 19.89ms로 약 1,500배 차이다. 정확도는 0.07cm(약 3퍼센트) 차이인데 응답 속도는 세 자릿수 배율로 벌어진다. 차트에서도 MAE·R² 선은 거의 평평한 반면, 예측 시간 선만 로그 축에서 급격히 꺾인다.
 4. **baseline(평균만 찍는 더미 모델)은 R²가 -0.001로 사실상 0이다.** 나머지 6개 모델이 입력값을 실제로 학습해 예측하고 있다는 근거다. baseline 대비 오차를 절반 이하(4.50cm → 1.92cm)로 줄였다.
@@ -145,14 +145,14 @@
 4. **tabpfn_v2** — HF 모델 중 1위(MAE 1.971cm, R² 0.775)지만 기본 모델 3개보다는 낮다. 1건 예측 9.85ms로 knn 대비 약 750배 느리다.
 
    - 근거: `model_comparison_summary.csv` tabpfn_v2 행,
-     `artifacts/metrics/metrics_tabpfn_v2.json`
+     `experiments/tabular/tabpfn_v2/sizekorea-1000-v1/metrics.json`
 5. **nori** — MAE 1.980cm로 tabpfn_v2와 0.009cm 차이다. **1건 예측 19.89ms로 전체 최하위**이며, knn 대비 약 1,500배 느리다. 실시간 추천 API에는 부적합하다.
 
    - 근거: `model_comparison_summary.csv` nori 행,
-     `artifacts/metrics/metrics_nori.json`
+     `experiments/tabular/nori/sizekorea-1000-v1/metrics.json`
 6. **tabpfn_mix** — MAE 2.008cm, R² 0.768로 baseline 제외 최하위다. 1건 예측 3.47ms로 HF 중에서는 빠른 편이지만 knn 대비 265배 느리다. 참고로 학습 비용도 261.20초로 압도적으로 큰데, target 7개마다 AutoGluon predictor를 따로 학습하는 구조가 원인이라 데이터·target이 늘수록 더 느려진다.
 
-   - 근거: `artifacts/metrics/metrics_tabpfn_mix.json`의 `fit_seconds` 261.19747,
+   - 근거: `experiments/tabular/tabpfn_mix/sizekorea-1000-v1/metrics.json`의 `fit_seconds` 261.19747,
      `benchmark.py`의 `TabPFNMixRegressor.fit()`이 target마다
      `TabularPredictor`를 새로 학습하는 구조
 7. **baseline** — `DummyRegressor(strategy="mean")`. 입력을 보지 않고 학습 데이터 평균만 반환한다. R² -0.001로 예상대로 설명력이 없으며, 나머지 6개 모델의 성능이 유의미한지 판단하는 기준선 역할을 한다.
@@ -169,10 +169,9 @@
 ## 7. 산출물 경로
 
 ```text
-artifacts/csv/test_set.csv                   (공통 시험지 1000명)
-artifacts/csv/test_predictions_{model}.csv   (모델별 답안지, 7개)
-artifacts/metrics/metrics.json               (기본 4개 상세 지표)
-artifacts/metrics/metrics_{model}.json       (nori / tabpfn_mix / tabpfn_v2)
+experiments/tabular/_datasets/sizekorea-1000-v1/test_set.csv  (공통 시험지 1000명)
+experiments/tabular/<model>/sizekorea-1000-v1/predictions.csv (모델별 답안지, 7개)
+experiments/tabular/<model>/sizekorea-1000-v1/metrics.json    (모델별 상세 지표)
 reports/model_comparison_summary.csv         (모델별 평균 지표)
 reports/model_comparison_detail.csv          (모델 x 부위별 상세 지표)
 reports/test_set_model_ranking.png           (1번 섹션 차트)
@@ -190,5 +189,6 @@ python src\plot_model_ranking.py
 python src\plot_test_predictions.py
 ```
 
-HF 3개 모델(`tabpfn_v2`, `nori`, `tabpfn_mix`)은 GPU 환경(Colab)에서 `--test-data artifacts\csv\test_set.csv`로 같은 1000명을 예측한 결과를
-`artifacts/metrics/metrics_{model}.json`, `artifacts/csv/test_predictions_{model}.csv`로 옮겨둔 것을 사용했다.
+HF 3개 모델(`tabpfn_v2`, `nori`, `tabpfn_mix`)은 GPU 환경(Colab)에서
+`--test-data experiments\tabular\_datasets\sizekorea-1000-v1\test_set.csv`로 같은 1000명을 예측한 결과를
+`experiments/tabular/<model>/sizekorea-1000-v1/`에 옮겨둔 것을 사용했다.

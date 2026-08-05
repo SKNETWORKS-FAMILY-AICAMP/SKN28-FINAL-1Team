@@ -9,6 +9,7 @@ data/raw/
 
 # 노트북 체크포인트
 .ipynb_checkpoints/
+experiments/**/.ipynb_checkpoints/
 
 # 학습된 모델 파일은 커밋한다 — API 서빙이 hist_gradient_boosting.joblib을 직접 읽는다.
 # ⚠️ random_forest.joblib은 51MB로 GitHub 권장 한도(50MB)를 넘는다. 서빙에 쓰지

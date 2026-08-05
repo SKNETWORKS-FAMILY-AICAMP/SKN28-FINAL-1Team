@@ -97,12 +97,16 @@ def main() -> None:
     if coverage:
         metrics["extra_target_coverage_no_ground_truth"] = coverage
 
-    output_path = args.predictions.with_name(
-        args.predictions.stem.replace("_predictions_", "_evaluated_") + ".csv"
-    )
-    metrics_path = args.predictions.with_name(
-        args.predictions.stem.replace("_predictions_", "_metrics_") + ".json"
-    )
+    if args.predictions.name == "predictions.csv":
+        output_path = args.predictions.with_name("evaluated.csv")
+        metrics_path = args.predictions.with_name("metrics.json")
+    else:
+        output_path = args.predictions.with_name(
+            args.predictions.stem.replace("_predictions_", "_evaluated_") + ".csv"
+        )
+        metrics_path = args.predictions.with_name(
+            args.predictions.stem.replace("_predictions_", "_metrics_") + ".json"
+        )
 
     order_result_columns(evaluated).to_csv(output_path, index=False)
     metrics_path.write_text(

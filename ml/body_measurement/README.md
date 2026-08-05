@@ -17,11 +17,10 @@ body_measurement/
 │   ├── manual_test.py                     ← S3 원본 → CSV 정제
 │   ├── model_test.py                      ← 초기 모델 검증
 │   └── huggingface_benchmark.ipynb        ← Colab GPU에서 HF 모델 실행
-├── artifacts/                             ← 모델 출력물 (형식별 폴더, 모델별 폴더 아님)
-│   ├── csv/                               ← test_set.csv, test_predictions_{model}.csv
-│   ├── models/                            ← 기본 모델 {model}.joblib (baseline/RF/HGB/KNN)
-│   └── metrics/                           ← metrics.json(기본 4개), metrics_{model}.json(HF 3개),
-│                                             run_manifest.json, sample_predictions.json
+├── artifacts/models/                      ← API 서빙용 joblib 모델
+├── experiments/                           ← 모델별·실행별 평가 결과
+│   ├── tabular/<model>/<run_name>/
+│   └── vlm/<model>/<run_name>/
 ├── reports/                               ← 비교 리포트
 │   ├── model_comparison_report.md         ← 사람이 보는 7모델 비교 보고서
 │   ├── model_comparison_summary.csv       ← 모델별 평균 지표
@@ -109,24 +108,24 @@ python src\benchmark.py benchmark `
   --models baseline random_forest hist_gradient_boosting knn
 ```
 
-기본 `--artifact-dir`은 스크립트 기준 `artifacts` 이다.
-다른 위치에 저장하려면:
+기본 `--artifact-dir`은 스크립트 기준 `artifacts` 이다. 모델별 테스트 결과를
+구분하려면 모델 하나당 별도 실행 폴더를 지정한다.
 
 ```powershell
 python src\benchmark.py benchmark `
   --data data\sizekorea_measurements_clean.csv `
-  --artifact-dir artifacts\my_run
+  --models hist_gradient_boosting `
+  --artifact-dir experiments\tabular\hist_gradient_boosting\sizekorea-1000-v2
 ```
 
-평가 결과 (artifact_dir 아래, 형식별 하위폴더에 저장된다):
+평가 결과 (`--artifact-dir` 아래):
 
 ```text
-artifacts/csv/test_set.csv
-artifacts/csv/test_predictions_{model_name}.csv
-artifacts/models/{model_name}.joblib
-artifacts/metrics/metrics.json
-artifacts/metrics/run_manifest.json
-artifacts/metrics/sample_predictions.json
+csv/test_set.csv
+csv/test_predictions_{model_name}.csv
+models/{model_name}.joblib
+metrics/metrics.json
+metrics/run_manifest.json
 ```
 
 각 target에 대해 다음을 기록한다.
@@ -195,8 +194,7 @@ python src\benchmark.py predict `
 ## 7모델 비교 리포트 생성
 
 기본 4개 + HF 3개, 총 7개 모델을 한 표로 비교한 리포트를 생성한다.
-`artifacts/metrics/metrics.json`(기본 4개)과 `artifacts/metrics/metrics_{model}.json`(HF 3개)을
-읽어 합친다.
+`experiments/tabular/<model>/sizekorea-1000-v1/metrics.json`을 읽어 합친다.
 
 ```powershell
 python src\compare_all_models.py
@@ -247,15 +245,14 @@ src/huggingface_benchmark.ipynb
    - `csv/test_predictions_{model}.csv`: 모델별 1000개 예측값과 오차
      (`actual_{부위}`, `predicted_{부위}`, `error_{부위}` 순서)
    - `metrics/run_manifest.json`: 실행 조건과 산출물 경로
-6. 로컬로 가져올 때는 파일명에 모델명을 붙여서 넣는다. 로컬 `artifacts/`는
-   모델별 폴더가 아니라 형식별 폴더 하나이므로, 이름으로 모델을 구분해야 한다.
+6. 로컬로 가져올 때는 모델별 실행 폴더에 넣는다.
 
    ```text
-   colab_tabpfn_v2/metrics/metrics.json  → artifacts/metrics/metrics_tabpfn_v2.json
-   colab_nori/metrics/metrics.json       → artifacts/metrics/metrics_nori.json
-   colab_tabpfn_mix/metrics/metrics.json → artifacts/metrics/metrics_tabpfn_mix.json
+   colab_tabpfn_v2/metrics/metrics.json  → experiments/tabular/tabpfn_v2/sizekorea-1000-v1/metrics.json
+   colab_nori/metrics/metrics.json       → experiments/tabular/nori/sizekorea-1000-v1/metrics.json
+   colab_tabpfn_mix/metrics/metrics.json → experiments/tabular/tabpfn_mix/sizekorea-1000-v1/metrics.json
 
-   colab_{model}/csv/test_predictions_{model}.csv → artifacts/csv/test_predictions_{model}.csv
+   colab_{model}/csv/test_predictions_{model}.csv → experiments/tabular/{model}/sizekorea-1000-v1/predictions.csv
    ```
 7. 그러면 `compare_all_models.py`가 7모델을 합쳐서 비교한다.
 
@@ -273,7 +270,7 @@ pip install "autogluon.tabular[tabpfnmix]"
 ```powershell
 python src\benchmark.py benchmark `
   --data data\sizekorea_measurements_clean.csv `
-  --test-data artifacts\csv\test_set.csv `
+  --test-data experiments\tabular\_datasets\sizekorea-1000-v1\test_set.csv `
   --models tabpfn_v2 nori tabpfn_mix `
   --gender F `
   --height 160 `
@@ -299,7 +296,7 @@ python src\benchmark.py benchmark `
 # 추천 워크플로
 cd ml\body_measurement
 python src\benchmark.py benchmark --data data\sizekorea_measurements_clean.csv
-python src\compare_all_models.py
-# Colab에서 HF 모델 metrics.json을 artifacts/metrics/metrics_{model}.json 이름으로 추가
+python src\compare_all_models.py --run-name sizekorea-1000-v1
+# Colab에서 HF 모델 결과를 experiments/tabular/{model}/sizekorea-1000-v1/에 추가
 # → reports/model_comparison_report.md 직접 작성/갱신
 ```

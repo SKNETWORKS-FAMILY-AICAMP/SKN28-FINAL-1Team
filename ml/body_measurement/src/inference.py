@@ -12,7 +12,8 @@
 근거 없이 가정하지 말 것.
 
 학습 코드(``benchmark.py``)와 달리 이 모듈은 서빙 전용이다. 모델을 하나만 lazy 로드하고
-CLI·S3·학습 의존성을 갖지 않는다. 상수는 학습 시점 ``artifacts/metrics/run_manifest.json``
+CLI·S3·학습 의존성을 갖지 않는다. 상수는 학습 시점
+``experiments/tabular/_datasets/sizekorea-1000-v1/run_manifest.json``
 값과 반드시 일치해야 한다.
 """
 

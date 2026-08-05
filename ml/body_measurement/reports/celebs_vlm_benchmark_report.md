@@ -92,5 +92,4 @@
 - `data/celebrities/<sid>_front.jpg` × 18, `<sid>_side.jpg` × 8
 - `reports/celebrities_vlm_benchmark_20.csv` (raw, jun 포함)
 - `reports/celebrities_vlm_benchmark_final.csv` (clean, jun 제외)
-- `scratch/celeb_search/build_celebs_100.py` (전신 데이터 빌드)
-- `scratch/celeb_search/vlm_bench_20.py` (VLM 벤치마크)
+- 연예인 사진 수집·VLM 임시 벤치마크 스크립트는 현재 사용하지 않아 제거했다.

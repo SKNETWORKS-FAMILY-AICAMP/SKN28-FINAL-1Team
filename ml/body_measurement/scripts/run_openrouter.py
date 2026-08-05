@@ -156,6 +156,12 @@ def main() -> None:
     parser.add_argument("--split", choices=["validation", "test"], required=True)
     parser.add_argument("--limit", type=int, default=None)
     parser.add_argument("--run-name", required=True)
+    parser.add_argument(
+        "--output-dir",
+        type=Path,
+        default=None,
+        help="결과 저장 폴더. 생략하면 experiments/vlm/<model>/<split>-<run-name>입니다.",
+    )
     parser.add_argument("--resume", action="store_true")
     parser.add_argument(
         "--prompt-set",
@@ -183,10 +189,16 @@ def main() -> None:
         df = df.head(args.limit)
 
     schema = json.loads(prompt_set["schema"].read_text(encoding="utf-8"))
-    results_dir = PROJECT_ROOT / "results"
-    results_dir.mkdir(parents=True, exist_ok=True)
     model_file_name = args.model.rsplit("/", maxsplit=1)[-1]
-    output_path = results_dir / f"{model_file_name}_{args.split}_predictions_{args.run_name}.csv"
+    results_dir = args.output_dir or (
+        PROJECT_ROOT
+        / "experiments"
+        / "vlm"
+        / model_file_name
+        / f"{args.split}-{args.run_name}"
+    )
+    results_dir.mkdir(parents=True, exist_ok=True)
+    output_path = results_dir / "predictions.csv"
 
     results = []
     if args.resume and output_path.exists():
