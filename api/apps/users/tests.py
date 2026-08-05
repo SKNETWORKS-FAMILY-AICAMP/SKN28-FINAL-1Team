@@ -619,3 +619,67 @@ class BodyPhotoTransactionTests(TestCase):
         mock_sleep.assert_called_once_with(body_inference.FAKE_DELAY_SECONDS)
         tx.refresh_from_db()
         self.assertEqual(tx.status, BodyPhotoTransaction.Status.FAILED)
+class BudgetViewTests(TestCase):
+    def setUp(self):
+        self.client = APIClient()
+        self.user = User.objects.create(username="kakao_budget")
+        self.url = reverse("users:budget")
+
+    def test_budget_requires_auth(self):
+        response = self.client.get(self.url)
+        self.assertEqual(response.status_code, 401)
+
+    def test_budget_returns_null_when_not_set(self):
+        self.client.force_authenticate(self.user)
+        response = self.client.get(self.url)
+        self.assertEqual(response.status_code, 200)
+        self.assertIsNone(response.data["monthly_budget"])
+
+    def test_budget_can_be_set(self):
+        self.client.force_authenticate(self.user)
+        response = self.client.put(
+            self.url, {"monthly_budget": 100_000}, format="json"
+        )
+        self.assertEqual(response.status_code, 200)
+        self.user.refresh_from_db()
+        self.assertEqual(self.user.monthly_budget, 100_000)
+
+    def test_budget_can_be_cleared(self):
+        self.user.monthly_budget = 100_000
+        self.user.save(update_fields=["monthly_budget"])
+        self.client.force_authenticate(self.user)
+        response = self.client.put(
+            self.url, {"monthly_budget": None}, format="json"
+        )
+        self.assertEqual(response.status_code, 200)
+        self.user.refresh_from_db()
+        self.assertIsNone(self.user.monthly_budget)
+
+    def test_budget_rejects_non_ten_thousand_unit(self):
+        self.client.force_authenticate(self.user)
+        response = self.client.put(
+            self.url, {"monthly_budget": 105_000}, format="json"
+        )
+        self.assertEqual(response.status_code, 400)
+
+    def test_budget_rejects_too_small_amount(self):
+        self.client.force_authenticate(self.user)
+        response = self.client.put(
+            self.url, {"monthly_budget": 0}, format="json"
+        )
+        self.assertEqual(response.status_code, 400)
+
+    def test_budget_rejects_missing_field(self):
+        self.client.force_authenticate(self.user)
+        response = self.client.put(self.url, {}, format="json")
+        self.assertEqual(response.status_code, 400)
+
+    def test_budget_is_isolated_per_user(self):
+        other_user = User.objects.create(
+            username="kakao_other",
+            monthly_budget=500_000,
+        )
+        self.client.force_authenticate(self.user)
+        self.client.put(self.url, {"monthly_budget": 100_000}, format="json")
+        other_user.refresh_from_db()
+        self.assertEqual(other_user.monthly_budget, 500_000)

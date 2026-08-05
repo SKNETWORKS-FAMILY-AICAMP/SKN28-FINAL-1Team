@@ -1,5 +1,3 @@
-import { router } from 'expo-router';
-
 import { Icon } from '@/components/icon';
 import { LoadingState, SmartImage, useToast } from '@/components/ui';
 import { goBack } from '@/lib/goBack';
@@ -7,17 +5,17 @@ import { useEffect, useRef, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-import { Fonts } from '@/constants/theme';
+import { Editorial, ink, Fonts } from '@/constants/theme';
 import { FITTING_RESULT_IMAGE } from '@/constants/look-images';
 import { TODAY_LOOK } from '@/constants/today-look';
+import { useBottomTabInset } from '@/hooks/use-bottom-tab-inset';
 import { useBreakpoint } from '@/hooks/use-breakpoint';
 import { DetailTwoPane } from '@/components/detail-two-pane';
 
-const INK = '#1c1917';
-const BONE = '#eae0d3';
+const INK = Editorial.ink;
+const BONE = Editorial.bone;
 /** 생성 캔버스 배경 — 기존 BONE(진한 베이지)이 무거워, 훨씬 연한 크림으로 둔다. */
 const CANVAS = '#f5f1ea';
-const ink = (a: number) => `rgba(28,25,23,${a})`;
 
 // 구성 아이템 = 오늘의 룩 단일 출처(룩상세와 공유).
 const PIECES = TODAY_LOOK.pieces;
@@ -25,6 +23,7 @@ const PIECES = TODAY_LOOK.pieces;
 // C5 가상 피팅 — 내 체형에 룩을 입혀 생성 (프로토타입: 타이머로 생성 과정 시뮬레이션)
 export default function Fitting() {
   const { contentStyle, width } = useBreakpoint();
+  const tabInset = useBottomTabInset();
   const maxW = width >= 1280 ? 960 : 720;
   const [phase, setPhase] = useState<'loading' | 'done'>('loading');
   const toast = useToast();
@@ -51,8 +50,8 @@ export default function Fitting() {
     <View style={styles.container}>
       <SafeAreaView edges={['top']} style={styles.headerSafe}>
         <View style={[styles.header, contentStyle(maxW)]}>
-          {/* 뒤로가기는 룩상세로 고정(여기로 들어온 출처). */}
-          <Pressable hitSlop={12} onPress={() => router.replace('/look-detail')}>
+          {/* 룩 상세에서 들어온다. ⚠️ router.replace 직접 호출 금지 — 웹에서 무시돼 먹통이 된다(lib/goBack.ts). */}
+          <Pressable hitSlop={12} onPress={() => goBack('/look-detail')}>
             <Icon name="chevron.left" tintColor={INK} size={20} />
           </Pressable>
           <Text style={styles.headerTitle}>가상 피팅</Text>
@@ -115,7 +114,7 @@ export default function Fitting() {
 
       {/* 하단 바 */}
       <View style={styles.bottomDivider} />
-      <SafeAreaView edges={['bottom']} style={[styles.bottomBar, contentStyle(maxW)]}>
+      <View style={[styles.bottomBar, { paddingBottom: tabInset }, contentStyle(maxW)]}>
         <Pressable
           style={[styles.altBtn, phase === 'loading' && styles.btnDisabled]}
           disabled={phase === 'loading'}
@@ -133,14 +132,14 @@ export default function Fitting() {
           <Icon name="bookmark.fill" tintColor="#fff" size={15} />
           <Text style={styles.saveText}>룩북에 저장</Text>
         </Pressable>
-      </SafeAreaView>
+      </View>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#ffffff' },
-  headerSafe: { backgroundColor: '#ffffff' },
+  container: { flex: 1, backgroundColor: Editorial.page },
+  headerSafe: { backgroundColor: Editorial.page },
   header: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -159,12 +158,13 @@ const styles = StyleSheet.create({
     marginHorizontal: 20,
     borderRadius: 20,
     backgroundColor: CANVAS,
+    borderWidth: 1, borderColor: Editorial.line,
     alignItems: 'center',
     justifyContent: 'center',
     gap: 8,
     overflow: 'hidden',
   },
-  canvasLabel: { fontSize: 13, color: ink(0.4), letterSpacing: 0.5, marginTop: 4 },
+  canvasLabel: { fontSize: 13, color: Editorial.textCaption, letterSpacing: 0.5, marginTop: 4 },
   canvasBadge: {
     position: 'absolute',
     bottom: 16,
@@ -181,32 +181,33 @@ const styles = StyleSheet.create({
 
   body: { paddingHorizontal: 20, paddingTop: 22 },
   title: { fontFamily: Fonts.serif, fontSize: 24, color: INK },
-  subtitle: { fontSize: 13, color: ink(0.45), marginTop: 6 },
+  subtitle: { fontSize: 13, color: Editorial.textCaption, marginTop: 6 },
 
   sizeCard: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 10,
     marginTop: 18,
-    backgroundColor: '#fcffff',
+    backgroundColor: Editorial.surfaceSoft,
+    borderWidth: 1, borderColor: Editorial.line,
     borderRadius: 14,
     paddingHorizontal: 16,
     paddingVertical: 14,
   },
-  sizeText: { flex: 1, fontSize: 14, color: ink(0.7), lineHeight: 20 },
+  sizeText: { flex: 1, fontSize: 14, color: Editorial.textSoft, lineHeight: 20 },
   sizeStrong: { fontWeight: '700', color: INK },
 
   sectionTitle: { fontSize: 13, fontWeight: '600', color: INK, marginTop: 26, marginBottom: 12 },
   thumbRow: { flexDirection: 'row', gap: 10 },
   thumbCol: { flex: 1, alignItems: 'center', gap: 6 },
   thumb: { width: '100%', height: 72, borderRadius: 12, backgroundColor: BONE },
-  thumbLabel: { fontSize: 12, color: ink(0.5) },
+  thumbLabel: { fontSize: 12, color: Editorial.textCaption },
 
   bottomDivider: { height: 1, backgroundColor: ink(0.08) },
   bottomBar: {
     flexDirection: 'row',
     gap: 10,
-    backgroundColor: '#fff',
+    backgroundColor: Editorial.page,
     paddingHorizontal: 20,
     paddingTop: 12,
   },
@@ -222,14 +223,14 @@ const styles = StyleSheet.create({
     borderColor: ink(0.14),
     justifyContent: 'center',
   },
-  altText: { fontSize: 14, color: ink(0.6), fontWeight: '500' },
+  altText: { fontSize: 14, color: Editorial.textCaption, fontWeight: '500' },
   saveBtn: {
     flex: 1,
     flexDirection: 'row',
     gap: 8,
     height: 50,
     borderRadius: 999,
-    backgroundColor: INK,
+    backgroundColor: Editorial.cta,
     alignItems: 'center',
     justifyContent: 'center',
   },

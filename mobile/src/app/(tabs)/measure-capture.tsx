@@ -5,13 +5,14 @@ import { useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-import { Fonts , ContentMax} from '@/constants/theme';
+import { Editorial, ink, Fonts , ContentMax} from '@/constants/theme';
+import { useBottomTabInset } from '@/hooks/use-bottom-tab-inset';
 import { useBreakpoint } from '@/hooks/use-breakpoint';
+import { pickBodyPhoto } from '@/lib/pickItemPhoto';
 import { measureStore } from '@/state/measure';
 
-const INK = '#1c1917';
-const BONE = '#eae0d3';
-const ink = (a: number) => `rgba(28,25,23,${a})`;
+const INK = Editorial.ink;
+const BONE = Editorial.bone;
 
 function Steps({ active }: { active: number }) {
   return (
@@ -33,6 +34,7 @@ const GUIDE: { icon: IconName; text: string }[] = [
 // G2 정면·측면 촬영 — 촬영 가이드 + 2컷 업로드
 export default function MeasureCapture() {
   const { contentStyle } = useBreakpoint();
+  const tabInset = useBottomTabInset();
   const { returnTo } = useLocalSearchParams<{ returnTo?: string }>();
   const [shots, setShots] = useState<{ front: boolean; side: boolean }>({
     front: false,
@@ -42,7 +44,7 @@ export default function MeasureCapture() {
 
   return (
     <View style={styles.container}>
-      <SafeAreaView edges={['top', 'bottom']} style={styles.safe}>
+      <SafeAreaView edges={['top']} style={styles.safe}>
         <View style={styles.top}>
           <Pressable hitSlop={12} onPress={() => goBack('/(tabs)/my')}>
             <Icon name="chevron.left" tintColor={INK} size={20} />
@@ -63,10 +65,12 @@ export default function MeasureCapture() {
                 <Pressable
                   key={k}
                   style={styles.slot}
-                  onPress={() => {
+                  onPress={async () => {
+                    // 앨범에서 전신 사진 1장 선택 (웹은 파일 선택 창). 취소하면 무시.
+                    const uri = await pickBodyPhoto();
+                    if (!uri) return;
                     setShots((s) => ({ ...s, [k]: true }));
-                    // 실제 카메라 연동 전까지 mock URI 를 스토어에 기록
-                    measureStore.setPhoto(k, `mock://photo/${k}`);
+                    measureStore.setPhoto(k, uri);
                   }}>
                   <View style={styles.silhouette}>
                     <Icon
@@ -77,7 +81,7 @@ export default function MeasureCapture() {
                   </View>
                   <Text style={styles.slotLabel}>{k === 'front' ? '정면' : '측면'}</Text>
                   <Text style={[styles.slotState, done && styles.slotStateDone]}>
-                    {done ? '촬영 완료' : '탭하여 촬영'}
+                    {done ? '첨부 완료' : '탭하여 첨부'}
                   </Text>
                 </Pressable>
               );
@@ -119,12 +123,12 @@ export default function MeasureCapture() {
           </Pressable>
         </ScrollView>
 
-        <View style={[styles.bottomBar, contentStyle(ContentMax.narrow)]}>
+        <View style={[styles.bottomBar, { paddingBottom: tabInset }, contentStyle(ContentMax.narrow)]}>
           <Pressable
             style={[styles.cta, !both && styles.ctaDisabled]}
             disabled={!both}
             onPress={() => {
-              measureStore.estimate(); // 추정 시작(비동기) — STEP3 가 결과를 구독
+              measureStore.startPhotoMeasurement(); // 사진 업로드→폴링 시작 — STEP3 가 결과를 구독
               router.push({
                 pathname: '/measure-result',
                 params: returnTo ? { returnTo } : undefined,
@@ -141,18 +145,18 @@ export default function MeasureCapture() {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#ffffff' },
+  container: { flex: 1, backgroundColor: Editorial.page },
   safe: { flex: 1 },
   top: { paddingHorizontal: 20, paddingTop: 8 },
   content: { paddingHorizontal: 24, paddingTop: 8, paddingBottom: 24 },
 
   steps: { flexDirection: 'row', gap: 6, marginBottom: 24 },
   step: { flex: 1, height: 3, borderRadius: 2, backgroundColor: ink(0.1) },
-  stepOn: { backgroundColor: INK },
+  stepOn: { backgroundColor: Editorial.selected },
 
-  eyebrow: { fontSize: 11, letterSpacing: 1.5, color: ink(0.4), fontWeight: '600' },
+  eyebrow: { fontSize: 11, letterSpacing: 1.5, color: Editorial.textCaption, fontWeight: '600' },
   title: { fontFamily: Fonts.serif, fontSize: 28, color: INK, marginTop: 10, lineHeight: 34 },
-  lead: { fontSize: 14, color: ink(0.5), marginTop: 12 },
+  lead: { fontSize: 14, color: Editorial.textCaption, marginTop: 12 },
 
   slots: { flexDirection: 'row', gap: 12, marginTop: 26 },
   slot: {
@@ -174,21 +178,21 @@ const styles = StyleSheet.create({
     marginBottom: 4,
   },
   slotLabel: { fontSize: 15, fontWeight: '600', color: INK },
-  slotState: { fontSize: 12, color: ink(0.4) },
+  slotState: { fontSize: 12, color: Editorial.textCaption },
   slotStateDone: { color: INK, fontWeight: '500' },
 
   sectionTitle: { fontSize: 13, fontWeight: '600', color: INK, marginTop: 30, marginBottom: 12 },
-  guideCard: { backgroundColor: '#fcffff', borderRadius: 16, padding: 8 },
+  guideCard: { backgroundColor: Editorial.surfaceSoft, borderWidth: 1, borderColor: Editorial.line, borderRadius: 16, padding: 8 },
   guideRow: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingHorizontal: 8, paddingVertical: 10 },
   guideIcon: {
     width: 32,
     height: 32,
     borderRadius: 10,
-    backgroundColor: '#fff',
+    backgroundColor: Editorial.surface,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  guideText: { flex: 1, fontSize: 13.5, color: ink(0.7) },
+  guideText: { flex: 1, fontSize: 13.5, color: Editorial.textSoft },
 
   privacy: {
     flexDirection: 'row',
@@ -197,7 +201,7 @@ const styles = StyleSheet.create({
     marginTop: 20,
     paddingHorizontal: 4,
   },
-  privacyText: { flex: 1, fontSize: 12, color: ink(0.45), lineHeight: 18 },
+  privacyText: { flex: 1, fontSize: 12, color: Editorial.textCaption, lineHeight: 18 },
 
   bottomBar: {
     paddingHorizontal: 24,
@@ -210,12 +214,12 @@ const styles = StyleSheet.create({
   cta: {
     height: 52,
     borderRadius: 999,
-    backgroundColor: INK,
+    backgroundColor: Editorial.cta,
     alignItems: 'center',
     justifyContent: 'center',
   },
   ctaDisabled: { backgroundColor: ink(0.22) },
   ctaText: { color: '#fff', fontSize: 15, fontWeight: '500' },
 
-  skipText: { fontSize: 14, color: ink(0.5), fontWeight: '500', textDecorationLine: 'underline' },
+  skipText: { fontSize: 14, color: Editorial.textCaption, fontWeight: '500', textDecorationLine: 'underline' },
 });

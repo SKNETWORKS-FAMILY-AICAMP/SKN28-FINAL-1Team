@@ -10,12 +10,20 @@ export type LookPost = {
   image: string;
   tags: AllowedHashtag[];
   price?: string;
+  /**
+   * 누르면 열리는 룩 상세(constants/today-look.ts LOOK_VARIANTS 의 id).
+   *
+   * 피드 6개가 룩 3종을 나눠 가리키고 있어 **일부는 겹친다.** 룩 API 가 붙으면
+   * 게시물마다 자기 룩을 들고 오므로 이 필드가 그대로 그 값이 된다.
+   */
+  variantId?: string;
   createdAt: number;
 };
 
 const SEED_LOOKS: LookPost[] = [
   {
     id: '1',
+    variantId: 'daily',
     image: 'https://i.pinimg.com/736x/c1/ae/c8/c1aec88282cee841eca0f6e0da5d1174.jpg',
     tags: ['출근', '미니멀'],
     price: '₩189,000',
@@ -23,6 +31,7 @@ const SEED_LOOKS: LookPost[] = [
   },
   {
     id: '2',
+    variantId: 'date',
     image: 'https://i.pinimg.com/736x/55/26/0d/55260de328aec1e50740655fd4b5fdc5.jpg',
     tags: ['데이트', '캐주얼'],
     price: '₩97,000',
@@ -30,6 +39,7 @@ const SEED_LOOKS: LookPost[] = [
   },
   {
     id: '3',
+    variantId: 'daily',
     image: 'https://i.pinimg.com/736x/32/7a/f3/327af326d108881015d4eea726f1cb51.jpg',
     tags: ['출근'],
     price: '₩245,000',
@@ -37,6 +47,7 @@ const SEED_LOOKS: LookPost[] = [
   },
   {
     id: '4',
+    variantId: 'outdoor',
     image: 'https://i.pinimg.com/736x/b4/cd/22/b4cd22015add333e10cd2ba06067406b.jpg',
     tags: ['나들이', '캐주얼'],
     price: '₩132,000',
@@ -44,6 +55,7 @@ const SEED_LOOKS: LookPost[] = [
   },
   {
     id: '5',
+    variantId: 'outdoor',
     image: 'https://i.pinimg.com/736x/ec/96/f3/ec96f39eb800d19290736c17f0253ed9.jpg',
     tags: ['여행', '캐주얼'],
     price: '₩88,000',
@@ -51,6 +63,7 @@ const SEED_LOOKS: LookPost[] = [
   },
   {
     id: '6',
+    variantId: 'date',
     image: 'https://i.pinimg.com/736x/91/06/91/910691d6e2034af20a8667c7d8781f24.jpg',
     tags: ['데이트'],
     price: '₩156,000',
@@ -71,12 +84,13 @@ export function isAllowedHashtag(value: string): value is AllowedHashtag {
 
 export const lookbookStore = {
   getLooks: () => looks,
-  addLook(input: { image: string; tags: AllowedHashtag[]; price?: string }) {
+  addLook(input: { image: string; tags: AllowedHashtag[]; price?: string; variantId?: string }) {
     const post: LookPost = {
       id: String(Date.now()),
       image: input.image,
       tags: input.tags,
       price: input.price,
+      variantId: input.variantId,
       createdAt: Date.now(),
     };
     looks = [post, ...looks];

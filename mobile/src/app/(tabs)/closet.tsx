@@ -8,12 +8,15 @@ import {
   SharedSpaceOnboarding,
   type SharedSpace,
 } from '@/components/closet/shared-space-flow';
-import { CategoryEditSheet, EmptyState, InlineDropdown, SearchFilterBar, SmartImage, useToast } from '@/components/ui';
+import { PhotoSourceSheet } from '@/components/closet/photo-source-sheet';
+import { CategoryEditSheet, EmptyState, ErrorState, LoadingState, LoginGate, SearchFilterBar, SegmentedToggle, SmartImage, useToast } from '@/components/ui';
 import { useMultiSelectFilter } from '@/hooks/useMultiSelectFilter';
 import { router } from 'expo-router';
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
+  ActivityIndicator,
   Pressable,
+  RefreshControl,
   ScrollView,
   StyleSheet,
   Text,
@@ -21,134 +24,57 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-import { BottomTabInset, GridCard, gridCardImageHeight, gridCardWidth , ContentMax} from '@/constants/theme';
+import { Editorial, ink, GridCard, gridCardImageHeight, gridCardWidth , ContentMax} from '@/constants/theme';
+import { SHARED_CLOSET_ITEMS } from '@/constants/wardrobe';
+import { WARDROBE_FILTER_OPTIONS } from '@/constants/wardrobe-taxonomy';
+import { useBottomTabInset } from '@/hooks/use-bottom-tab-inset';
 import { useBreakpoint } from '@/hooks/use-breakpoint';
+import { useRefresh } from '@/hooks/use-refresh';
+import { useWardrobeItems } from '@/hooks/use-wardrobe';
+import { itemDisplayName } from '@/lib/wardrobeApi';
 import { Icon } from '@/components/icon';
+import { useAuth } from '@/state/auth';
+import { uploadJobs, useUploadCompleted, useUploadJobs } from '@/state/upload-jobs';
 
-const INK = '#1c1917';
-const ink = (a: number) => `rgba(28,25,23,${a})`;
+const INK = Editorial.ink;
 
 /* 카드 크기는 창 폭에서 파생되므로 모듈 최상단이 아니라 컴포넌트 안에서 useBreakpoint() 로 구한다.
    (모듈 최상단에서 읽으면 리사이즈에 반응하지 않는다) */
 const PAD = GridCard.pad;
 
-const DEFAULT_CATEGORIES = ['전체', '상의', '하의', '아우터', '신발', '가방', '액세서리'];
+/* 카테고리는 백엔드 taxonomy(대분류 8종)를 따른다 — 프론트가 임의 목록을 쓰면 필터가 서버와 어긋난다. */
+const DEFAULT_CATEGORIES = WARDROBE_FILTER_OPTIONS;
 
-type Item = {
+/** 그리드 카드가 쓰는 최소 형태 — 내 옷장(API)과 공유 옷장(목업)을 한 모양으로 맞춘다. */
+type Card = {
   id: string;
   name: string;
   category: string;
-  tone: number;
-  owner?: string;
   image?: string;
+  owner?: string;
 };
 
-const MY_ITEMS: Item[] = [
-  {
-    id: '1',
-    name: '연두 나시',
-    category: '상의',
-    tone: 0.05,
-    image: 'https://i.pinimg.com/1200x/3e/04/ea/3e04eaa53146fd9bf93736707fffcb4f.jpg',
-  },
-  {
-    id: '2',
-    name: '연노랑 반팔 가디건',
-    category: '아우터',
-    tone: 0.22,
-    image: 'https://i.pinimg.com/736x/a5/22/df/a522dfff1a759163fae0616ec0cab583.jpg',
-  },
-  {
-    id: '3',
-    name: '버뮤다 팬츠',
-    category: '하의',
-    tone: 0.16,
-    image: 'https://i.pinimg.com/1200x/14/64/d4/1464d4e315aa8e7df53bb6c74fc31e59.jpg',
-  },
-  {
-    id: '4',
-    name: '아디다스 스니커즈',
-    category: '신발',
-    tone: 0.24,
-    image: 'https://i.pinimg.com/736x/6e/ce/fa/6ecefa13347d6487fc30c0fda287d4dd.jpg',
-  },
-  {
-    id: '5',
-    name: '모자',
-    category: '하의',
-    tone: 0.08,
-    image: 'https://i.pinimg.com/736x/ef/fa/96/effa960f41d4e20b7a0e31253732d75e.jpg',
-  },
-  {
-    id: '6',
-    name: '체크 가방',
-    category: '가방',
-    tone: 0.3,
-    image: 'https://i.pinimg.com/1200x/39/32/c4/3932c44dead7e38ad916ef2e8cc2902f.jpg',
-  },
-];
+/* 공유 옷장은 아직 백엔드가 없어 목업을 그대로 쓴다. */
+const SHARED_ITEMS: Card[] = SHARED_CLOSET_ITEMS.map((i) => ({
+  id: i.id,
+  name: i.name,
+  category: i.category,
+  image: i.image,
+  owner: i.owner,
+}));
 
-const SHARED_ITEMS: Item[] = [
-  {
-    id: 's1',
-    name: '카멜 오버 코트',
-    category: '아우터',
-    tone: 0.12,
-    owner: '지민',
-    image: 'https://images.unsplash.com/photo-1596755094514-f87e34085b2c?w=400&h=500&fit=crop',
-  },
-  {
-    id: 's2',
-    name: '플리츠 미디 스커트',
-    category: '하의',
-    tone: 0.07,
-    owner: '서연',
-    image: 'https://images.unsplash.com/photo-1591195853828-11db59a44f6b?w=400&h=500&fit=crop',
-  },
-  {
-    id: 's3',
-    name: '체크 오버 셔츠',
-    category: '상의',
-    tone: 0.18,
-    owner: '민준',
-    image: 'https://images.unsplash.com/photo-1602810318383-e386cc2a3ccf?w=400&h=500&fit=crop',
-  },
-  {
-    id: 's4',
-    name: '스웨이드 첼시 부츠',
-    category: '신발',
-    tone: 0.26,
-    owner: '지민',
-    image: 'https://images.unsplash.com/photo-1549298916-b41d501d3772?w=400&h=500&fit=crop',
-  },
-  {
-    id: 's5',
-    name: '베이지 트렌치 코트',
-    category: '아우터',
-    tone: 0.1,
-    owner: '서연',
-    image: 'https://images.unsplash.com/photo-1539533018447-63fcce2678e3?w=400&h=500&fit=crop',
-  },
-  {
-    id: 's6',
-    name: '실버 체인 목걸이',
-    category: '액세서리',
-    tone: 0.14,
-    owner: '민준',
-    image: 'https://images.unsplash.com/photo-1515562141207-7a88fb7ce338?w=400&h=500&fit=crop',
-  },
-];
-
-function matchesQuery(item: Item, query: string): boolean {
+function matchesQuery(item: Card, query: string): boolean {
   const q = query.trim();
   if (!q) return true;
   return item.name.includes(q) || item.category.includes(q);
 }
 
 export default function ClosetScreen() {
+  const { isLoggedIn } = useAuth();
   const { frameWidth, contentStyle } = useBreakpoint();
   const cardW = gridCardWidth(frameWidth);
   const cardH = gridCardImageHeight(cardW);
+  const tabInset = useBottomTabInset();
 
   const toast = useToast();
   const [tab, setTab] = useState<'mine' | 'shared'>('mine');
@@ -156,13 +82,48 @@ export default function ClosetScreen() {
   const [sharedSpace, setSharedSpace] = useState<SharedSpace | null>(null);
   const [inviteOpen, setInviteOpen] = useState(false);
   const [joinOpen, setJoinOpen] = useState(false);
-  const [categories, setCategories] = useState(DEFAULT_CATEGORIES);
+  const [categories, setCategories] = useState<string[]>(DEFAULT_CATEGORIES);
   const [editOpen, setEditOpen] = useState(false);
+  const [sourceOpen, setSourceOpen] = useState(false);
   const { toggle, reset, prune, isActive, matches, label } = useMultiSelectFilter();
 
-  const sharedSource =
-    sharedSpace && sharedSpace.members.length > 1 ? SHARED_ITEMS : [];
-  const source = tab === 'mine' ? MY_ITEMS : sharedSource;
+  /* 내 옷장은 서버가 출처. 카테고리 필터는 여러 개를 고를 수 있어(멀티) 서버 파라미터로
+     넘기지 않고 전체를 받아 프론트에서 걸러낸다 — 서버는 단일 category_large 만 받는다.
+
+     확정 여부로 거르지 않는다. 예전엔 confirmed=true 만 받았는데, 그러면 백엔드에서
+     직접 넣은 옷처럼 확인 단계를 거치지 않은 아이템이 옷장에 영영 안 보인다.
+     대신 미확인 아이템에는 배지를 달아 구분한다. */
+  const { items: apiItems, loading, error, reload } = useWardrobeItems({}, isLoggedIn);
+  const { refreshing, onRefresh } = useRefresh(reload);
+
+  /* 등록은 이 화면을 떠나도 계속 돈다(state/upload-jobs.ts). 진행 중인 것을 위에 보여주고,
+     하나 끝날 때마다 목록을 다시 불러와 새 옷이 바로 보이게 한다. */
+  const jobs = useUploadJobs();
+  const completed = useUploadCompleted();
+  const running = jobs.filter((j) => j.phase !== 'failed');
+  const failed = jobs.filter((j) => j.phase === 'failed');
+
+  const seenCompleted = useRef(completed);
+  useEffect(() => {
+    if (completed === seenCompleted.current) return;
+    seenCompleted.current = completed;
+    reload();
+    toast('옷장에 추가됐어요', { variant: 'success' });
+  }, [completed, reload, toast]);
+
+  const myItems = useMemo<Card[]>(
+    () =>
+      apiItems.map((i) => ({
+        id: i.id,
+        name: itemDisplayName(i),
+        category: i.category_large,
+        image: i.image_url,
+      })),
+    [apiItems],
+  );
+
+  const sharedSource = sharedSpace && sharedSpace.members.length > 1 ? SHARED_ITEMS : [];
+  const source = tab === 'mine' ? myItems : sharedSource;
   const items = useMemo(
     () => source.filter((i) => matches(i.category) && matchesQuery(i, query)),
     [source, matches, query],
@@ -208,9 +169,8 @@ export default function ClosetScreen() {
     prune(next.slice(1));
   };
 
-  const wardrobeDropdown = (
-    <InlineDropdown
-      compact
+  const wardrobeToggle = (
+    <SegmentedToggle
       value={tab}
       options={[
         { value: 'mine', label: '내 옷장' },
@@ -222,12 +182,22 @@ export default function ClosetScreen() {
 
   const showAddFab = tab === 'mine';
 
+  // 옷장은 내 데이터라 비회원에게 보여줄 것이 없다. (훅 순서 유지를 위해 전부 호출한 뒤 분기)
+  if (!isLoggedIn) {
+    return (
+      <LoginGate
+        title="옷장은 로그인하고 쓸 수 있어요"
+        body="내 옷을 등록해 두면 가진 옷 안에서 추천을 만들어요."
+      />
+    );
+  }
+
   return (
     <View style={styles.container}>
       <SafeAreaView edges={['top']} style={styles.safe}>
         <View style={styles.filterArea}>
           <SearchFilterBar
-            trailing={wardrobeDropdown}
+            trailing={wardrobeToggle}
             showFilters={!(tab === 'shared' && !sharedSpace)}
             query={query}
             onQueryChange={setQuery}
@@ -238,6 +208,29 @@ export default function ClosetScreen() {
             onEditCategories={() => setEditOpen(true)}
           />
         </View>
+
+        {/* 등록 진행 — 화면을 닫아도 계속 도는 작업의 상태 */}
+        {tab === 'mine' && running.length > 0 ? (
+          <View style={[styles.jobStrip, contentStyle(ContentMax.wide)]}>
+            <ActivityIndicator color={INK} size="small" />
+            <Text style={styles.jobText}>
+              옷 등록 중 · {running.length}장
+            </Text>
+          </View>
+        ) : null}
+        {tab === 'mine'
+          ? failed.map((j) => (
+              <View key={j.key} style={[styles.jobStrip, styles.jobStripFail, contentStyle(ContentMax.wide)]}>
+                <Icon name="exclamationmark.triangle" tintColor={Editorial.danger} size={15} />
+                <Text style={[styles.jobText, styles.jobTextFail]} numberOfLines={2}>
+                  {j.error}
+                </Text>
+                <Pressable hitSlop={10} onPress={() => uploadJobs.dismiss(j.key)} accessibilityLabel="닫기">
+                  <Icon name="xmark" tintColor={ink(0.45)} size={14} />
+                </Pressable>
+              </View>
+            ))
+          : null}
 
         {tab === 'shared' && sharedSpace ? (
           <>
@@ -259,8 +252,24 @@ export default function ClosetScreen() {
           <ScrollView
             style={styles.gridScroll}
             showsVerticalScrollIndicator={false}
-            contentContainerStyle={[styles.grid, contentStyle(ContentMax.wide)]}>
-            {items.length === 0 ? (
+            /* 공유 옷장은 아직 목업이라 다시 불러올 것이 없다 — 내 옷장에서만 당길 수 있게 둔다. */
+            refreshControl={
+              tab === 'mine' && isLoggedIn ? (
+                <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={INK} />
+              ) : undefined
+            }
+            contentContainerStyle={[styles.grid, { paddingBottom: tabInset + 24 }, contentStyle(ContentMax.wide)]}>
+            {/* 내 옷장만 서버에서 온다 — 공유 옷장은 아직 목업이라 로딩·에러가 없다. */}
+            {tab === 'mine' && loading ? (
+              <LoadingState message="옷장을 불러오는 중…" style={styles.empty} />
+            ) : tab === 'mine' && error ? (
+              <ErrorState
+                title="옷장을 불러오지 못했어요"
+                description={error}
+                onRetry={reload}
+                style={styles.empty}
+              />
+            ) : items.length === 0 ? (
               <EmptyState
                 icon={tab === 'shared' ? 'person' : 'tshirt'}
                 title={emptyTitle}
@@ -274,7 +283,7 @@ export default function ClosetScreen() {
                 }
                 onAction={
                   tab === 'mine' && !query.trim() && label === '전체'
-                    ? () => router.push('/item-add-source')
+                    ? () => setSourceOpen(true)
                     : tab === 'shared' && sharedSpace && !query.trim() && label === '전체'
                       ? () => setInviteOpen(true)
                       : undefined
@@ -286,7 +295,9 @@ export default function ClosetScreen() {
                 <Pressable
                   key={it.id}
                   style={[styles.card, { width: cardW }]}
-                  onPress={() => router.push('/item-detail')}>
+                  onPress={() =>
+                    router.push({ pathname: '/item-detail', params: { id: it.id } })
+                  }>
                   <View style={[styles.cardImage, { height: cardH }]}>
                     <SmartImage
                       uri={it.image}
@@ -323,6 +334,8 @@ export default function ClosetScreen() {
           onClose={() => setJoinOpen(false)}
           onJoin={handleJoinSpace}
         />
+        <PhotoSourceSheet visible={sourceOpen} onClose={() => setSourceOpen(false)} />
+
         <CategoryEditSheet
           visible={editOpen}
           title="카테고리 관리"
@@ -333,8 +346,8 @@ export default function ClosetScreen() {
 
         {showAddFab ? (
           <Pressable
-            style={styles.addFab}
-            onPress={() => router.push('/item-add-source')}
+            style={[styles.addFab, { bottom: tabInset + 12 }]}
+            onPress={() => setSourceOpen(true)}
             accessibilityLabel="아이템 추가">
             <Icon name="plus" tintColor={INK} size={22} />
           </Pressable>
@@ -345,10 +358,27 @@ export default function ClosetScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#ffffff' },
+  container: { flex: 1, backgroundColor: Editorial.page },
   safe: { flex: 1 },
 
   filterArea: { marginTop: 30 },
+
+  jobStrip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    marginHorizontal: PAD,
+    marginBottom: 8,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    borderRadius: 12,
+    backgroundColor: Editorial.control,
+    borderWidth: 1,
+    borderColor: Editorial.line,
+  },
+  jobStripFail: { backgroundColor: Editorial.surface },
+  jobText: { flex: 1, fontSize: 13, color: Editorial.textCaption, fontWeight: '500' },
+  jobTextFail: { color: Editorial.ink },
 
   gridScroll: { flex: 1, marginTop: 8 },
   onboardingWrap: { flex: 1, paddingHorizontal: PAD, paddingTop: 8 },
@@ -360,7 +390,6 @@ const styles = StyleSheet.create({
     justifyContent: 'flex-start',
     columnGap: GridCard.gap,
     paddingHorizontal: PAD,
-    paddingBottom: BottomTabInset + 24,
   },
   // width/height 는 창 폭에서 파생되므로 컴포넌트에서 인라인으로 덧붙인다.
   card: { marginBottom: 16 },
@@ -389,19 +418,18 @@ const styles = StyleSheet.create({
     marginTop: 8,
   },
   // flex:1 이면 이름이 남는 폭을 다 차지해 분류를 끝으로 밀어낸다 → 글자 길이만큼만.
-  cardName: { flexShrink: 1, fontSize: 14, fontWeight: '500', color: ink(0.9) },
-  cardCat: { fontSize: 12, color: ink(0.4), flexShrink: 0 },
+  cardName: { flexShrink: 1, fontSize: 14, fontWeight: '500', color: Editorial.ink },
+  cardCat: { fontSize: 12, color: Editorial.textCaption, flexShrink: 0 },
 
   empty: { width: '100%', paddingTop: 40 },
 
   addFab: {
     position: 'absolute',
     right: PAD,
-    bottom: BottomTabInset + 12,
     width: 52,
     height: 52,
     borderRadius: 26,
-    backgroundColor: '#ffffff',
+    backgroundColor: Editorial.surface,
     borderWidth: 1.5,
     borderColor: ink(0.16),
     alignItems: 'center',

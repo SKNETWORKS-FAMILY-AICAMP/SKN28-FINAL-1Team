@@ -1,5 +1,5 @@
 import { router } from 'expo-router';
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   Animated,
   KeyboardAvoidingView,
@@ -14,36 +14,23 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { Icon } from '@/components/icon';
-import { useToast } from '@/components/ui';
+import { SmartImage, useToast } from '@/components/ui';
 import { ContentMax, Editorial, Fonts, ink } from '@/constants/theme';
 import { useBreakpoint } from '@/hooks/use-breakpoint';
+import { pickOutfitPhoto } from '@/lib/pickItemPhoto';
+import { chatStore, nextMessageId, useChatSession, type ChatMessage } from '@/state/chat';
 
 const INK = Editorial.ink;
+
+/* 사진에서 읽어낸 무드 후보 — 이미지 분석 API 가 붙기 전까지 쓰는 고정값.
+   어떤 사진을 넣어도 같은 태그가 나오므로 시연 때는 이 점을 말해야 한다. */
+const MOOD_GUESS = ['#미니멀', '#톤다운', '#오버핏'];
 const BONE = Editorial.bone;
 
 const QUICK = ['더 캐주얼하게', '다른 색으로', '아우터 추천', '신발만 바꿔줘'];
 
-type Msg =
-  | { id: string; role: 'ai' | 'user'; kind: 'text'; text: string }
-  | { id: string; role: 'user'; kind: 'image' }
-  | { id: string; role: 'ai'; kind: 'rec'; title: string; tags: string[] }
-  | { id: string; role: 'ai'; kind: 'typing' };
-
-/** 대화 화면(/chat-room)에서 쓰는 예시 대화 */
-const SEED: Msg[] = [
-  {
-    id: 'a1',
-    role: 'ai',
-    kind: 'text',
-    text: '안녕하세요 코지님! 오늘 서울은 8도로 쌀쌀해요.\n미니멀한 무드로 따뜻한 코디 골라봤어요.',
-  },
-  { id: 'u1', role: 'user', kind: 'text', text: '출근할 때 입을 거예요' },
-  { id: 'a2', role: 'ai', kind: 'text', text: '그럼 단정하면서 포근한 룩은 어떠세요? 니트에 슬랙스를 매치했어요.' },
-  { id: 'a3', role: 'ai', kind: 'rec', title: '포근한 니트 오피스룩', tags: ['니트', '슬랙스', '로퍼'] },
-];
-
 /** 사이드 패널에서 쓰는 시작 인사 — 넓은 화면에선 옷장을 보며 바로 물어보는 흐름이다. */
-const PANEL_SEED: Msg[] = [
+const PANEL_SEED: ChatMessage[] = [
   {
     id: 'p1',
     role: 'ai',
@@ -54,11 +41,11 @@ const PANEL_SEED: Msg[] = [
 
 // 타이핑 표시 — 점 3개가 순차로 밝아지는 애니메이션
 function TypingDots() {
-  const dots = [
-    useRef(new Animated.Value(0.3)).current,
-    useRef(new Animated.Value(0.3)).current,
-    useRef(new Animated.Value(0.3)).current,
-  ];
+  /* ref 세 개가 아니라 useMemo 하나로 — ref 값을 렌더 중에 읽으면 안 된다(react-hooks/refs). */
+  const dots = useMemo(
+    () => [new Animated.Value(0.3), new Animated.Value(0.3), new Animated.Value(0.3)],
+    [],
+  );
   useEffect(() => {
     const anims = dots.map((d, i) =>
       Animated.loop(
@@ -72,8 +59,7 @@ function TypingDots() {
     );
     anims.forEach((a) => a.start());
     return () => anims.forEach((a) => a.stop());
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [dots]);
 
   return (
     <View style={styles.typing}>
@@ -88,23 +74,32 @@ function TypingDots() {
  * 대화 본문(메시지 · 빠른 프롬프트 · 입력창).
  *
  * 두 곳에서 쓴다:
- *   - variant="screen" : /chat-room 화면. 헤더는 화면 쪽이 그린다.
- *   - variant="panel"  : 넓은 화면(≥1280)에서 우측에 상주하는 패널.
+ *   - variant="screen" : /chat-room 화면. 헤더는 화면 쪽이 그린다. sessionId 로 세션에 붙는다.
+ *   - variant="panel"  : 넓은 화면(≥1280)에서 우측에 상주하는 패널. 세션에 속하지 않는
+ *                        즉석 문답이라 대화를 지역 상태로만 들고 있다.
  *
  * 패널은 폭이 이미 고정이라 본문 최대 폭을 걸지 않고, 하단 SafeArea 여백도 쓰지 않는다.
  */
-export function ChatConversation({ variant = 'screen' }: { variant?: 'screen' | 'panel' }) {
+export function ChatConversation({
+  variant = 'screen',
+  sessionId,
+}: {
+  variant?: 'screen' | 'panel';
+  sessionId?: string;
+}) {
   const isPanel = variant === 'panel';
   const { contentStyle } = useBreakpoint();
   // 패널은 자체 폭이 고정이라 최대 폭 제한이 필요 없다.
   const widthStyle = isPanel ? null : contentStyle(ContentMax.narrow);
 
   const [text, setText] = useState('');
-  const [messages, setMessages] = useState<Msg[]>(isPanel ? PANEL_SEED : SEED);
+  const session = useChatSession(sessionId);
+  const [panelMessages, setPanelMessages] = useState<ChatMessage[]>(PANEL_SEED);
+  const messages = session?.messages ?? panelMessages;
+  /* 타이핑 표시는 답변을 기다리는 '지금'만의 상태라 저장하지 않는다 (state/chat.ts 참고). */
+  const [typing, setTyping] = useState(false);
   const toast = useToast();
 
-  const idRef = useRef(100);
-  const nextId = () => `m${++idRef.current}`;
   const scrollRef = useRef<ScrollView>(null);
   const timers = useRef<ReturnType<typeof setTimeout>[]>([]);
 
@@ -115,26 +110,28 @@ export function ChatConversation({ variant = 'screen' }: { variant?: 'screen' | 
 
   useEffect(() => () => timers.current.forEach(clearTimeout), []);
 
+  /* 스토어는 외부 상태라 setState 의 함수형 갱신을 쓸 수 없다 → 쓸 때마다 현재 값을 읽는다. */
+  const append = (...added: ChatMessage[]) => {
+    if (sessionId) {
+      const current = chatStore.getSession(sessionId)?.messages ?? [];
+      chatStore.setMessages(sessionId, [...current, ...added]);
+    } else {
+      setPanelMessages((m) => [...m, ...added]);
+    }
+  };
+
   // 유저 메시지 → 타이핑 표시 → AI 답변 (프로토타입: 정해진 답변)
-  const simulateReply = (fromImage: boolean) => {
-    const typingId = nextId();
-    setMessages((m) => [...m, { id: typingId, role: 'ai', kind: 'typing' }]);
+  const simulateReply = () => {
+    setTyping(true);
     scrollToEnd();
     const t = setTimeout(() => {
-      const reply: Msg = fromImage
-        ? {
-            id: nextId(),
-            role: 'ai',
-            kind: 'text',
-            text: '사진 잘 받았어요! 이 무드를 추구미로 기억해둘게요.\n비슷한 분위기로 코디를 찾아볼까요?',
-          }
-        : {
-            id: nextId(),
-            role: 'ai',
-            kind: 'text',
-            text: '좋아요, 말씀하신 방향으로 다시 골라볼게요. 잠시만요…',
-          };
-      setMessages((m) => m.filter((x) => x.id !== typingId).concat(reply));
+      setTyping(false);
+      append({
+        id: nextMessageId(),
+        role: 'ai',
+        kind: 'text',
+        text: '좋아요, 말씀하신 방향으로 다시 골라볼게요. 잠시만요…',
+      });
       scrollToEnd();
     }, 1500);
     timers.current.push(t);
@@ -143,18 +140,84 @@ export function ChatConversation({ variant = 'screen' }: { variant?: 'screen' | 
   const send = () => {
     const t = text.trim();
     if (!t) return;
-    setMessages((m) => [...m, { id: nextId(), role: 'user', kind: 'text', text: t }]);
+    append({ id: nextMessageId(), role: 'user', kind: 'text', text: t });
+    if (sessionId) chatStore.nameFromFirstMessage(sessionId, t);
     setText('');
     scrollToEnd();
-    simulateReply(false);
+    simulateReply();
   };
 
-  // 사진 넣기 — 이 앱은 카메라/피커 없이 목업(예시 데이터)으로 첨부
-  const attachPhoto = () => {
-    setMessages((m) => [...m, { id: nextId(), role: 'user', kind: 'image' }]);
-    toast('사진을 첨부했어요');
+  /**
+   * 사진 넣기 — 갤러리에서 고른 **진짜 사진**을 올린다.
+   * (예전엔 사진을 고르지 않고 아이콘 말풍선만 띄웠다)
+   *
+   * 올린 뒤엔 그 사진의 무드를 추구미로 삼을지 되묻는다. 되묻는 이유 —
+   * 인플루언서 사진 한 장이 곧 취향이라고 단정하면, 그냥 참고로 보여준 사진까지
+   * 추천 기준이 되어버린다.
+   *
+   * ⚠️ 무드를 **읽어내는 것은 아직 서버가 없다.** 지금은 고정 후보를 보여주고,
+   *    이미지 분석 API 가 붙으면 이 함수의 태그만 응답으로 바뀐다.
+   */
+  const attachPhoto = async () => {
+    let uri: string | null = null;
+    try {
+      uri = await pickOutfitPhoto();
+    } catch {
+      toast('사진을 불러오지 못했어요', { variant: 'error' });
+      return;
+    }
+    if (!uri) return; // 고르다 취소 — 아무 일도 일어나지 않는다
+    append({ id: nextMessageId(), role: 'user', kind: 'image', uri });
     scrollToEnd();
-    simulateReply(true);
+
+    setTyping(true);
+    const t = setTimeout(() => {
+      setTyping(false);
+      append({ id: nextMessageId(), role: 'ai', kind: 'mood', tags: MOOD_GUESS });
+      scrollToEnd();
+    }, 1200);
+    timers.current.push(t);
+  };
+
+  /** "이걸로 추천받기" — 무드를 확정하고 비슷한 룩을 찾는다. */
+  const acceptMood = (tags: string[]) => {
+    append({
+      id: nextMessageId(),
+      role: 'user',
+      kind: 'text',
+      text: `내 추구미는 이거야 — ${tags.join(' ')}`,
+    });
+    scrollToEnd();
+    setTyping(true);
+    const t = setTimeout(() => {
+      setTyping(false);
+      append({
+        id: nextMessageId(),
+        role: 'ai',
+        kind: 'text',
+        text: '기억해 둘게요. 이 무드에 가까운 룩으로 골라봤어요.',
+      });
+      append({
+        id: nextMessageId(),
+        role: 'ai',
+        kind: 'rec',
+        title: '부드러운 데이트 룩',
+        tags,
+      });
+      scrollToEnd();
+    }, 1500);
+    timers.current.push(t);
+  };
+
+  /** "아니에요" — 무드를 기억하지 않고 원하는 것을 직접 듣는다. */
+  const rejectMood = () => {
+    append({
+      id: nextMessageId(),
+      role: 'ai',
+      kind: 'text',
+      text: '알겠어요. 어떤 느낌을 찾고 계신지 말씀해 주시면 그 방향으로 찾아볼게요.',
+    });
+    scrollToEnd();
   };
 
   return (
@@ -173,7 +236,17 @@ export function ChatConversation({ variant = 'screen' }: { variant?: 'screen' | 
               <View key={m.id} style={styles.userRow}>
                 {m.kind === 'image' ? (
                   <View style={styles.userImage}>
-                    <Icon name="photo" tintColor={ink(0.3)} size={30} />
+                    {m.uri ? (
+                      <SmartImage
+                        uri={m.uri}
+                        width="100%"
+                        radius={0}
+                        contentFit="cover"
+                        style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0 }}
+                      />
+                    ) : (
+                      <Icon name="photo" tintColor={ink(0.3)} size={30} />
+                    )}
                   </View>
                 ) : (
                   <View style={styles.userBubble}>
@@ -189,11 +262,7 @@ export function ChatConversation({ variant = 'screen' }: { variant?: 'screen' | 
                 <Text style={styles.avatarMark}>c</Text>
               </View>
               <View style={styles.aiCol}>
-                {m.kind === 'typing' ? (
-                  <View style={[styles.aiBubble, styles.typingBubble]}>
-                    <TypingDots />
-                  </View>
-                ) : m.kind === 'rec' ? (
+                {m.kind === 'rec' ? (
                   <Pressable style={styles.recCard} onPress={() => router.push('/look-detail')}>
                     <View style={styles.recImage}>
                       <Text style={styles.recImageLabel}>LOOK</Text>
@@ -213,6 +282,25 @@ export function ChatConversation({ variant = 'screen' }: { variant?: 'screen' | 
                       </View>
                     </View>
                   </Pressable>
+                ) : m.kind === 'mood' ? (
+                  <View style={styles.moodCard}>
+                    <Text style={styles.moodLead}>사진에서 이런 무드가 보여요</Text>
+                    <View style={styles.recTags}>
+                      {m.tags.map((t) => (
+                        <View key={t} style={styles.recTag}>
+                          <Text style={styles.recTagText}>{t}</Text>
+                        </View>
+                      ))}
+                    </View>
+                    <View style={styles.moodBtns}>
+                      <Pressable style={styles.moodPrimary} onPress={() => acceptMood(m.tags)}>
+                        <Text style={styles.moodPrimaryText}>이걸로 추천받기</Text>
+                      </Pressable>
+                      <Pressable style={styles.moodGhost} onPress={rejectMood}>
+                        <Text style={styles.moodGhostText}>아니에요</Text>
+                      </Pressable>
+                    </View>
+                  </View>
                 ) : (
                   <View style={styles.aiBubble}>
                     <Text style={styles.aiText}>{m.text}</Text>
@@ -222,6 +310,19 @@ export function ChatConversation({ variant = 'screen' }: { variant?: 'screen' | 
             </View>
           );
         })}
+
+        {typing ? (
+          <View style={styles.aiRow}>
+            <View style={styles.avatar}>
+              <Text style={styles.avatarMark}>c</Text>
+            </View>
+            <View style={styles.aiCol}>
+              <View style={[styles.aiBubble, styles.typingBubble]}>
+                <TypingDots />
+              </View>
+            </View>
+          </View>
+        ) : null}
       </ScrollView>
 
       {/* 빠른 프롬프트 */}
@@ -290,12 +391,13 @@ const styles = StyleSheet.create({
     flexShrink: 1,
     alignSelf: 'flex-start',
     backgroundColor: Editorial.surface,
+    borderWidth: 1, borderColor: Editorial.line,
     borderRadius: 18,
     borderTopLeftRadius: 6,
     paddingHorizontal: 14,
     paddingVertical: 11,
   },
-  aiText: { fontSize: 14, color: ink(0.9), lineHeight: 21 },
+  aiText: { fontSize: 14, color: Editorial.ink, lineHeight: 21 },
   typingBubble: { paddingVertical: 15 },
   typing: { flexDirection: 'row', gap: 5, alignItems: 'center' },
   typingDot: { width: 7, height: 7, borderRadius: 3.5, backgroundColor: ink(0.45) },
@@ -317,6 +419,8 @@ const styles = StyleSheet.create({
     backgroundColor: BONE,
     alignItems: 'center',
     justifyContent: 'center',
+    /* 사진이 모서리 밖으로 넘치지 않게 — 말풍선 모양이 사진에도 그대로 적용돼야 한다. */
+    overflow: 'hidden',
   },
 
   // 추천 카드
@@ -326,7 +430,7 @@ const styles = StyleSheet.create({
     borderColor: ink(0.1),
     borderRadius: 18,
     overflow: 'hidden',
-    backgroundColor: '#fff',
+    backgroundColor: Editorial.surface,
   },
   recImage: {
     height: 150,
@@ -335,18 +439,47 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  recImageLabel: { fontFamily: Fonts.serif, fontSize: 16, letterSpacing: 3, color: ink(0.25) },
+  recImageLabel: { fontFamily: Fonts.serif, fontSize: 16, letterSpacing: 3, color: Editorial.textMuted },
   recBody: { padding: 14, gap: 10 },
   recTitle: { fontSize: 14, fontWeight: '600', color: INK },
   recTags: { flexDirection: 'row', gap: 6 },
   recTag: {
-    backgroundColor: Editorial.surface,
+    backgroundColor: Editorial.control,
     borderRadius: 999,
     paddingHorizontal: 10,
     paddingVertical: 4,
   },
-  recTagText: { fontSize: 11, color: ink(0.6), fontWeight: '500' },
+  recTagText: { fontSize: 11, color: Editorial.textCaption, fontWeight: '500' },
   recCta: { flexDirection: 'row', alignItems: 'center', gap: 5, marginTop: 2 },
+  moodCard: {
+    borderWidth: 1,
+    borderColor: ink(0.12),
+    borderRadius: 16,
+    padding: 14,
+    gap: 10,
+    backgroundColor: Editorial.surface,
+  },
+  moodLead: { fontSize: 13, color: Editorial.textSoft },
+  moodBtns: { flexDirection: 'row', gap: 8, marginTop: 2 },
+  moodPrimary: {
+    height: 36,
+    paddingHorizontal: 14,
+    borderRadius: 999,
+    backgroundColor: Editorial.cta,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  moodPrimaryText: { fontSize: 12.5, fontWeight: '600', color: '#fff' },
+  moodGhost: {
+    height: 36,
+    paddingHorizontal: 14,
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: ink(0.14),
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  moodGhostText: { fontSize: 12.5, color: Editorial.textCaption },
   recCtaText: { fontSize: 13, fontWeight: '600', color: INK },
 
   // 빠른 프롬프트
@@ -360,10 +493,10 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: ink(0.14),
   },
-  quickText: { fontSize: 13, lineHeight: 16, color: ink(0.6), fontWeight: '500' },
+  quickText: { fontSize: 13, lineHeight: 16, color: Editorial.textCaption, fontWeight: '500' },
 
   // 입력 바
-  inputSafe: { backgroundColor: '#fff', borderTopWidth: 1, borderTopColor: ink(0.08) },
+  inputSafe: { backgroundColor: Editorial.surface, borderTopWidth: 1, borderTopColor: ink(0.08) },
   inputBar: {
     flexDirection: 'row',
     alignItems: 'flex-end',
@@ -384,20 +517,24 @@ const styles = StyleSheet.create({
     minHeight: 42,
     maxHeight: 120,
     backgroundColor: Editorial.surface,
+    borderWidth: 1, borderColor: Editorial.line,
     borderRadius: 21,
     paddingHorizontal: 16,
     paddingTop: 11,
     paddingBottom: 11,
     fontSize: 14,
-    color: ink(0.9),
+    color: Editorial.ink,
   },
   sendBtn: {
     width: 42,
     height: 42,
     borderRadius: 21,
-    backgroundColor: '#e9e7e2',
+    // 보낼 내용이 없을 땐 면이 아니라 테두리로만 존재한다. 채워지는 건 활성일 때뿐.
+    backgroundColor: Editorial.surface,
+    borderWidth: 1,
+    borderColor: Editorial.line,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  sendBtnOn: { backgroundColor: INK },
+  sendBtnOn: { backgroundColor: Editorial.cta },
 });

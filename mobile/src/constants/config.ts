@@ -11,8 +11,23 @@
 export const API_BASE_URL =
   process.env.EXPO_PUBLIC_API_URL ?? 'http://localhost:8000';
 
-/** 백엔드가 지원하는 소셜 제공자. ⚠️ 애플은 아직 백엔드 미지원(naver/kakao/google만). */
+/** 백엔드가 지원하는 소셜 제공자. ⚠️ 애플은 아래 APPLE_LOGIN_ENABLED 참고. */
 export type SocialProvider = 'kakao' | 'naver' | 'google';
+
+/**
+ * 애플 로그인 노출 여부. **지금은 끈다.**
+ *
+ * 백엔드가 애플에 **code 방식만** 열어 두었고(`authenticate_with_token` 은 애플 미지원),
+ * code 방식은 `redirect_uri` 를 필수로 받는다. 그런데 네이티브 Apple Sign In 에는
+ * 리디렉트 주소라는 게 없어서 앱이 채울 값이 없다 → 누르면 반드시 실패한다.
+ * 반드시 실패하는 버튼을 띄워 두느니 감춘다.
+ *
+ * ⚠️ App Store 정책(4.8)상 다른 소셜 로그인을 제공하면 Sign in with Apple 이 필요하다.
+ *    **심사 제출 전에는 백엔드가 네이티브(bundle id 클라이언트·redirect_uri 없음)를
+ *    받아주도록 고치고 이 값을 다시 true 로 되돌려야 한다.**
+ * 앱 쪽 구현(loginWithApple)은 그대로 두었으므로 이 한 줄만 바꾸면 다시 나온다.
+ */
+export const APPLE_LOGIN_ENABLED = false;
 
 /**
  * 카카오 네이티브 앱 키 — 네이티브 SDK 초기화(initializeKakaoSDK)에 사용.
@@ -78,3 +93,60 @@ export const AuthEndpoints = {
  *   - JWT 필요.
  */
 export const HomeEndpoint = '/api/v1/home/';
+
+/**
+ * 착장 사진 분석. 인증 없이 호출할 수 있고, JWT가 있으면 개인화 정보를 반영한다.
+ * POST multipart { image, lat?, lon? } → { status, evaluation, context }
+ */
+export const OutfitAnalysisEndpoint = '/api/v1/outfits/analyze/';
+
+/**
+ * 신체치수 (api/apps/users/urls.py 기준). 전부 JWT 필요.
+ *   GET   /api/v1/users/me/body/         → 전체 치수 (미입력 필드는 null)
+ *   PUT   /api/v1/users/me/body/basic/   { height, weight }  (둘 다 필수)
+ *   PATCH /api/v1/users/me/body/detail/  { chest,waist,hip,thigh,calf,arm,shoulder }  (전부 선택)
+ *   POST  /api/v1/users/me/body/photos/  multipart front_image/side_image → 202 { transaction_id, status }
+ *   GET   /api/v1/users/me/body/photos/{id}/  → { status: in_progress|succeeded|failed } (폴링)
+ *   ※ 수치는 Decimal 소수 1자리(1~999.9). 사진 접수 후 백엔드가 상세치수를 채우면 GET body 로 읽는다.
+ */
+export const BodyEndpoints = {
+  me: '/api/v1/users/me/body/',
+  basic: '/api/v1/users/me/body/basic/',
+  detail: '/api/v1/users/me/body/detail/',
+  photos: '/api/v1/users/me/body/photos/',
+  photo: (transactionId: string) => `/api/v1/users/me/body/photos/${transactionId}/`,
+} as const;
+
+/**
+ * 추구미·선호도 (api/apps/users/urls.py 기준). JWT 필요.
+ *   GET /api/v1/users/me/pursuit/  → { preferred:{카테고리키:[code]}, avoided:{카테고리키:[code]} }
+ *   PUT /api/v1/users/me/pursuit/  같은 형식으로 통째로 저장(upsert, 전체 교체)
+ *   ⚠️ PUT 은 카테고리 키가 백엔드 PREFERENCE_CATEGORIES(11개)와 정확히 일치해야 통과한다.
+ *   ※ 옵션 목록(GET /api/v1/preference-options/)은 로컬 pursuit-options.ts 를 그대로 쓴다(프론트 기준).
+ */
+export const PursuitEndpoint = '/api/v1/users/me/pursuit/';
+
+/**
+ * 옷장 (api/apps/wardrobe/urls.py 기준). 전부 JWT 필요.
+ *
+ * 등록은 **비동기**다 — 사진을 올리면 202 로 job_id 만 받고, 이미지 프로세서가
+ * 누끼·분류를 끝내면 콜백으로 아이템이 채워진다. 프론트는 job 을 폴링해야 한다.
+ * 사진 1장에서 아이템이 **여러 개** 나올 수 있다(세그멘테이션).
+ *
+ *   POST  /api/v1/wardrobe/uploads/           multipart { image } → 202 { job_id, status }
+ *   GET   /api/v1/wardrobe/uploads/{job_id}/  → { id, status, error_message, created_at, finished_at, items[] }
+ *         status: PENDING | PROCESSING | DONE | FAILED
+ *   GET   /api/v1/wardrobe/items/             → WardrobeApiItem[]  (?category_large=&confirmed=true|false)
+ *   PATCH /api/v1/wardrobe/items/{id}/        태그 수정 + confirmed → 수정된 아이템
+ *   DELETE /api/v1/wardrobe/items/{id}/       → 204
+ *
+ * ⚠️ 새로 만들어진 아이템은 confirmed=false(사용자 확인 대기)이고 추천 검색에서 제외된다.
+ *    사용자가 태그를 확인·수정한 뒤 PATCH 로 confirmed=true 를 보내야 옷장에 정식 편입된다.
+ * ⚠️ 업로드 제한: 15MB 이하, jpeg/png/webp/heic.
+ */
+export const WardrobeEndpoints = {
+  uploads: '/api/v1/wardrobe/uploads/',
+  uploadJob: (jobId: string) => `/api/v1/wardrobe/uploads/${jobId}/`,
+  items: '/api/v1/wardrobe/items/',
+  item: (itemId: string) => `/api/v1/wardrobe/items/${itemId}/`,
+} as const;

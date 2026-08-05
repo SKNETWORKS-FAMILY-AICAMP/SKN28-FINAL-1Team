@@ -48,6 +48,69 @@ INSTALLED_APPS = [
     "apps.style_calendar",
 ]
 
+# ------------------------------------------------------------
+# 로깅
+#
+# 설정이 없으면 Django 기본 LOGGING이 적용되는데, 그 console 핸들러에는
+# require_debug_true 필터가 걸려 있어 DEBUG=False(prod)에서는 아무것도
+# 출력되지 않는다. 또 apps.* 로거는 핸들러 없는 root로 떨어져
+# logging.lastResort(WARNING 이상, 포맷 없음)만 stderr로 나간다.
+# → 여기서 명시적으로 stdout 핸들러를 붙여 DEBUG 여부와 무관하게 남긴다.
+#
+# 요청 단위 액세스 로그는 Django가 아니라 gunicorn이 담당한다
+# (docker-compose.yml / Dockerfile의 --access-logfile -).
+# ------------------------------------------------------------
+LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO").upper()
+
+LOGGING = {
+    "version": 1,
+    # Django/서드파티가 이미 만들어 둔 로거를 죽이지 않는다.
+    "disable_existing_loggers": False,
+    "formatters": {
+        "standard": {
+            "format": "%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+            "datefmt": "%Y-%m-%d %H:%M:%S",
+        },
+    },
+    "handlers": {
+        "console": {
+            "class": "logging.StreamHandler",
+            "formatter": "standard",
+            # gunicorn --capture-output이 stdout/stderr를 에러 로그로 모은다.
+            "stream": "ext://sys.stdout",
+        },
+    },
+    "root": {
+        "handlers": ["console"],
+        "level": LOG_LEVEL,
+    },
+    "loggers": {
+        # 애플리케이션 코드 (apps.users, apps.recommend, ...)
+        "apps": {
+            "handlers": ["console"],
+            "level": LOG_LEVEL,
+            "propagate": False,
+        },
+        "django": {
+            "handlers": ["console"],
+            "level": os.getenv("DJANGO_LOG_LEVEL", "INFO").upper(),
+            "propagate": False,
+        },
+        # 4xx/5xx 응답과 처리되지 않은 예외. 기본은 ERROR라 400/404가 안 보인다.
+        "django.request": {
+            "handlers": ["console"],
+            "level": os.getenv("DJANGO_REQUEST_LOG_LEVEL", "WARNING").upper(),
+            "propagate": False,
+        },
+        # SQL 쿼리 로그. 기본은 끔 — 필요할 때 DJANGO_DB_LOG_LEVEL=DEBUG.
+        "django.db.backends": {
+            "handlers": ["console"],
+            "level": os.getenv("DJANGO_DB_LOG_LEVEL", "WARNING").upper(),
+            "propagate": False,
+        },
+    },
+}
+
 MIDDLEWARE = [
     "django.middleware.security.SecurityMiddleware",
     # CORS: 응답을 생성할 수 있는 미들웨어(CommonMiddleware 등)보다 위에 있어야
@@ -169,6 +232,17 @@ OAUTH_PROVIDERS = {
         # token 방식 로그인(네이티브 앱 SDK) 검증용. aud(발급 대상 client_id)를 대조한다.
         "token_info_url": "https://www.googleapis.com/oauth2/v3/tokeninfo",
         "profile_url": "https://www.googleapis.com/oauth2/v3/userinfo",
+        # 네이티브 앱 SDK가 받아오는 토큰의 aud는 웹이 아니라 그 플랫폼의 클라이언트 ID다.
+        # 웹 하나만 대조하면 앱 로그인이 전부 막히므로, 같은 프로젝트의 클라이언트를 모두 허용한다.
+        "allowed_client_ids": [
+            client_id
+            for client_id in (
+                os.getenv("GOOGLE_OAUTH_CLIENT_ID", ""),
+                os.getenv("GOOGLE_OAUTH_IOS_CLIENT_ID", ""),
+                os.getenv("GOOGLE_OAUTH_ANDROID_CLIENT_ID", ""),
+            )
+            if client_id
+        ],
     },
     # 애플은 client_secret을 정적 문자열이 아닌 ES256 JWT로 동적 생성한다.
     # profile_url 없음 — 사용자 정보는 id_token(JWT) 디코딩으로 획득한다.
@@ -216,3 +290,11 @@ QDRANT_TIMEOUT = int(os.getenv("QDRANT_TIMEOUT", "10"))
 # 임베딩 모델 차원 (FashionSigLIP=768, BGE-M3=1024). 모델 교체 시에만 변경.
 QDRANT_IMAGE_VECTOR_DIM = int(os.getenv("QDRANT_IMAGE_VECTOR_DIM", "768"))
 QDRANT_TEXT_VECTOR_DIM = int(os.getenv("QDRANT_TEXT_VECTOR_DIM", "1024"))
+
+# Gemini 기반 코디 사진 평가
+GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
+GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-3.5-flash")
+GEMINI_API_BASE_URL = os.getenv(
+    "GEMINI_API_BASE_URL", "https://generativelanguage.googleapis.com"
+).rstrip("/")
+GEMINI_TIMEOUT_SECONDS = int(os.getenv("GEMINI_TIMEOUT_SECONDS", "30"))

@@ -4,11 +4,11 @@ import { useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Switch, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-import { Fonts , ContentMax} from '@/constants/theme';
+import { Editorial, ink, Fonts , ContentMax} from '@/constants/theme';
+import { useBottomTabInset } from '@/hooks/use-bottom-tab-inset';
 import { useBreakpoint } from '@/hooks/use-breakpoint';
 
-const INK = '#1c1917';
-const ink = (a: number) => `rgba(28,25,23,${a})`;
+const INK = Editorial.ink;
 
 type Key = 'location' | 'photo' | 'notification';
 const PERMS: {
@@ -48,6 +48,7 @@ const PERMS: {
 // A6 권한 동의 — 항목별 동의 → 스타일 온보딩(A7)
 export default function Permissions() {
   const { contentStyle } = useBreakpoint();
+  const tabInset = useBottomTabInset();
   const [granted, setGranted] = useState<Record<Key, boolean>>({
     location: true,
     photo: true,
@@ -58,7 +59,7 @@ export default function Permissions() {
 
   return (
     <View style={styles.container}>
-      <SafeAreaView edges={['top', 'bottom']} style={styles.safe}>
+      <SafeAreaView edges={['top']} style={styles.safe}>
         <ScrollView
           contentContainerStyle={[styles.content, contentStyle(ContentMax.narrow)]}
           showsVerticalScrollIndicator={false}>
@@ -106,7 +107,7 @@ export default function Permissions() {
           </Text>
         </ScrollView>
 
-        <View style={[styles.bottomBar, contentStyle(ContentMax.narrow)]}>
+        <View style={[styles.bottomBar, { paddingBottom: tabInset }, contentStyle(ContentMax.narrow)]}>
           <Pressable
             style={[styles.cta, !requiredOk && styles.ctaDisabled]}
             disabled={!requiredOk}
@@ -122,13 +123,13 @@ export default function Permissions() {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#ffffff' },
+  container: { flex: 1, backgroundColor: Editorial.page },
   safe: { flex: 1 },
   content: { paddingHorizontal: 24, paddingTop: 20, paddingBottom: 24 },
 
-  eyebrow: { fontSize: 11, letterSpacing: 1.5, color: ink(0.4), fontWeight: '600' },
+  eyebrow: { fontSize: 11, letterSpacing: 1.5, color: Editorial.textCaption, fontWeight: '600' },
   title: { fontFamily: Fonts.serif, fontSize: 28, color: INK, marginTop: 10 },
-  lead: { fontSize: 14, color: ink(0.5), lineHeight: 21, marginTop: 12 },
+  lead: { fontSize: 14, color: Editorial.textCaption, lineHeight: 21, marginTop: 12 },
 
   list: { marginTop: 26, gap: 12 },
   card: {
@@ -143,20 +144,20 @@ const styles = StyleSheet.create({
     width: 40,
     height: 40,
     borderRadius: 12,
-    backgroundColor: '#faf6f0',
+    backgroundColor: Editorial.surface,
     alignItems: 'center',
     justifyContent: 'center',
   },
   cardTitleWrap: { flex: 1 },
   cardTitle: { fontSize: 15, fontWeight: '600', color: INK },
-  req: { fontSize: 11, fontWeight: '500', color: '#5E2B2F' },
-  opt: { fontSize: 11, fontWeight: '500', color: ink(0.35) },
-  purpose: { fontSize: 13, color: ink(0.55), lineHeight: 19 },
+  req: { fontSize: 11, fontWeight: '500', color: Editorial.wine },
+  opt: { fontSize: 11, fontWeight: '500', color: Editorial.textCaption },
+  purpose: { fontSize: 13, color: Editorial.textCaption, lineHeight: 19 },
   keepRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
   keepDot: { width: 4, height: 4, borderRadius: 2, backgroundColor: ink(0.3) },
-  keep: { fontSize: 11.5, color: ink(0.4) },
+  keep: { fontSize: 11.5, color: Editorial.textCaption },
 
-  foot: { fontSize: 12, color: ink(0.38), lineHeight: 18, marginTop: 20, textAlign: 'center' },
+  foot: { fontSize: 12, color: Editorial.textCaption, lineHeight: 18, marginTop: 20, textAlign: 'center' },
 
   bottomBar: {
     paddingHorizontal: 24,
@@ -167,7 +168,7 @@ const styles = StyleSheet.create({
   cta: {
     height: 52,
     borderRadius: 999,
-    backgroundColor: INK,
+    backgroundColor: Editorial.cta,
     alignItems: 'center',
     justifyContent: 'center',
   },

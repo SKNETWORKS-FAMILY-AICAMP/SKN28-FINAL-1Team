@@ -62,6 +62,24 @@ class SocialAccountSerializer(serializers.ModelSerializer):
         fields = ["provider", "email", "connected_at"]
 
 
+class BudgetSerializer(serializers.ModelSerializer):
+    monthly_budget = serializers.IntegerField(
+        min_value=10_000,
+        max_value=2_147_480_000,
+        allow_null=True,
+        required=True,
+    )
+
+    class Meta:
+        model = User
+        fields = ["monthly_budget"]
+
+    def validate_monthly_budget(self, value: int | None) -> int | None:
+        if value is not None and value % 10_000 != 0:
+            raise serializers.ValidationError("예산은 1만원 단위로 입력해주세요.")
+        return value
+
+
 class UserSerializer(serializers.ModelSerializer):
     social_accounts = SocialAccountSerializer(many=True, read_only=True)
 

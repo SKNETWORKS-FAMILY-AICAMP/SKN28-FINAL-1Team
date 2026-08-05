@@ -11,13 +11,14 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-import { ErrorState, LoadingState } from '@/components/ui';
-import { Fonts , ContentMax} from '@/constants/theme';
+import { ErrorState, LoadingState, useToast } from '@/components/ui';
+import { Editorial, ink, Fonts , ContentMax} from '@/constants/theme';
+import { useBottomTabInset } from '@/hooks/use-bottom-tab-inset';
 import { useBreakpoint } from '@/hooks/use-breakpoint';
+import { ApiError } from '@/lib/apiClient';
 import { measureStore, useMeasure } from '@/state/measure';
 
-const INK = '#1c1917';
-const ink = (a: number) => `rgba(28,25,23,${a})`;
+const INK = Editorial.ink;
 
 function Steps({ active }: { active: number }) {
   return (
@@ -40,8 +41,11 @@ const MEASURE_ROWS = [
 // G3 치수 결과·사이즈 매칭 — measureStore 결과를 구독. 완료 시 측정 플로우 닫기
 export default function MeasureResult() {
   const { contentStyle } = useBreakpoint();
+  const tabInset = useBottomTabInset();
   const { returnTo } = useLocalSearchParams<{ returnTo?: string }>();
   const { status, result, input, photos, error } = useMeasure();
+  const toast = useToast();
+  const [savingDone, setSavingDone] = useState(false);
 
   /* 키·몸무게도 사진도 없으면 추정 자체가 불가능하다 — 재시도해도 결과가 달라지지 않으므로
      STEP1 로 돌아가 입력하도록 안내한다. */
@@ -93,7 +97,11 @@ export default function MeasureResult() {
               />
             ) : (
               <LoadingState
-                message="입력 정보로 치수를 추정하고 있어요…"
+                message={
+                  photos.front && photos.side
+                    ? '사진으로 치수를 측정하고 있어요… (최대 1분)'
+                    : '입력 정보로 치수를 추정하고 있어요…'
+                }
                 style={styles.stateFill}
               />
             )}
@@ -103,28 +111,40 @@ export default function MeasureResult() {
     );
   }
 
-  // 완료 — 수정한 값을 스토어에 반영하고 플로우 닫기
-  const onDone = () => {
+  // 완료 — 수정한 값을 서버에 저장(PATCH detail)하고 플로우 닫기
+  const onDone = async () => {
     const num = (k: keyof typeof result.measures) => {
       const v = parseFloat(values[k]);
       return Number.isFinite(v) ? v : result.measures[k];
     };
-    measureStore.updateMeasures({
+    const measures = {
       shoulder: num('shoulder'),
       chest: num('chest'),
       waist: num('waist'),
       hip: num('hip'),
-    });
-    if (returnTo === 'my') {
-      router.replace('/(tabs)/my');
-    } else {
-      router.replace('/(tabs)/home');
+    };
+    setSavingDone(true);
+    try {
+      await measureStore.saveDetail(measures);
+    } catch (e) {
+      // 저장 실패해도 로컬 결과엔 반영됨 — 알리고 화면은 닫는다.
+      toast(
+        e instanceof ApiError ? e.message : '치수 저장에 실패했어요. 임시로 진행할게요.',
+        { variant: 'error' },
+      );
+    } finally {
+      setSavingDone(false);
+      if (returnTo === 'my') {
+        router.replace('/(tabs)/my');
+      } else {
+        router.replace('/(tabs)/home');
+      }
     }
   };
 
   return (
     <View style={styles.container}>
-      <SafeAreaView edges={['top', 'bottom']} style={styles.safe}>
+      <SafeAreaView edges={['top']} style={styles.safe}>
         <ScrollView contentContainerStyle={[styles.content, contentStyle(ContentMax.narrow)]} showsVerticalScrollIndicator={false}>
           <Steps active={2} />
 
@@ -203,9 +223,9 @@ export default function MeasureResult() {
           </Pressable>
         </ScrollView>
 
-        <View style={[styles.bottomBar, contentStyle(ContentMax.narrow)]}>
-          <Pressable style={styles.cta} onPress={onDone}>
-            <Text style={styles.ctaText}>완료</Text>
+        <View style={[styles.bottomBar, { paddingBottom: tabInset }, contentStyle(ContentMax.narrow)]}>
+          <Pressable style={styles.cta} onPress={onDone} disabled={savingDone}>
+            <Text style={styles.ctaText}>{savingDone ? '저장 중…' : '완료'}</Text>
           </Pressable>
         </View>
       </SafeAreaView>
@@ -214,7 +234,7 @@ export default function MeasureResult() {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#ffffff' },
+  container: { flex: 1, backgroundColor: Editorial.page },
   safe: { flex: 1 },
   content: { paddingHorizontal: 24, paddingTop: 12, paddingBottom: 24 },
   stateWrap: { flex: 1, paddingHorizontal: 24, paddingTop: 12 },
@@ -222,7 +242,7 @@ const styles = StyleSheet.create({
 
   steps: { flexDirection: 'row', gap: 6, marginBottom: 28 },
   step: { flex: 1, height: 3, borderRadius: 2, backgroundColor: ink(0.1) },
-  stepOn: { backgroundColor: INK },
+  stepOn: { backgroundColor: Editorial.selected },
 
   hero: { alignItems: 'center', gap: 8 },
   mark: {
@@ -235,7 +255,7 @@ const styles = StyleSheet.create({
     marginBottom: 6,
   },
   title: { fontFamily: Fonts.serif, fontSize: 26, color: INK },
-  lead: { fontSize: 14, color: ink(0.5) },
+  lead: { fontSize: 14, color: Editorial.textCaption },
 
   sectionTitle: { fontSize: 16, fontWeight: '600', color: INK, marginTop: 30, marginBottom: 12 },
   sectionHead: {
@@ -246,7 +266,7 @@ const styles = StyleSheet.create({
     marginBottom: 12,
   },
   sectionTitlePlain: { fontSize: 16, fontWeight: '600', color: INK },
-  editHint: { fontSize: 12, color: ink(0.4) },
+  editHint: { fontSize: 12, color: Editorial.textCaption },
   measureGrid: {
     flexDirection: 'row',
     flexWrap: 'wrap',
@@ -256,7 +276,7 @@ const styles = StyleSheet.create({
     overflow: 'hidden',
   },
   measureTile: { width: '50%', paddingHorizontal: 18, paddingVertical: 16, gap: 6 },
-  measureLabel: { fontSize: 12, color: ink(0.45) },
+  measureLabel: { fontSize: 12, color: Editorial.textCaption },
   measureValueRow: { flexDirection: 'row', alignItems: 'flex-end', gap: 4 },
   measureInput: {
     fontFamily: Fonts.serif,
@@ -269,7 +289,7 @@ const styles = StyleSheet.create({
     borderBottomColor: ink(0.18),
     paddingBottom: 2,
   },
-  measureUnit: { fontSize: 12, color: ink(0.4), marginBottom: 3 },
+  measureUnit: { fontSize: 12, color: Editorial.textCaption, marginBottom: 3 },
 
   sizeCard: { borderWidth: 1, borderColor: ink(0.09), borderRadius: 16, paddingHorizontal: 16 },
   sizeRow: {
@@ -278,7 +298,7 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     paddingVertical: 16,
   },
-  sizeBrand: { fontSize: 14.5, color: ink(0.9), fontWeight: '500' },
+  sizeBrand: { fontSize: 14.5, color: Editorial.ink, fontWeight: '500' },
   sizeRight: { flexDirection: 'row', alignItems: 'center', gap: 10 },
   sizeBadge: {
     minWidth: 34,
@@ -290,10 +310,10 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   sizeBadgeText: { fontSize: 13, color: '#fff', fontWeight: '700' },
-  sizeFit: { fontSize: 12, color: ink(0.45), width: 58, textAlign: 'right' },
+  sizeFit: { fontSize: 12, color: Editorial.textCaption, width: 58, textAlign: 'right' },
   sizeLine: { height: 1, backgroundColor: ink(0.07) },
 
-  note: { fontSize: 11.5, color: ink(0.4), lineHeight: 18, marginTop: 16 },
+  note: { fontSize: 11.5, color: Editorial.textCaption, lineHeight: 18, marginTop: 16 },
   remeasure: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -302,7 +322,7 @@ const styles = StyleSheet.create({
     marginTop: 22,
     paddingVertical: 6,
   },
-  remeasureText: { fontSize: 13, color: ink(0.5) },
+  remeasureText: { fontSize: 13, color: Editorial.textCaption },
 
   bottomBar: {
     paddingHorizontal: 24,
@@ -313,7 +333,7 @@ const styles = StyleSheet.create({
   cta: {
     height: 52,
     borderRadius: 999,
-    backgroundColor: INK,
+    backgroundColor: Editorial.cta,
     alignItems: 'center',
     justifyContent: 'center',
   },

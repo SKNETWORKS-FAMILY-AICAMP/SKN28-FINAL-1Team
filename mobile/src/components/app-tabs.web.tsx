@@ -1,21 +1,16 @@
+import { useState } from 'react';
 import { router, usePathname } from 'expo-router';
 import { Tabs, TabList, TabTrigger, TabSlot, TabTriggerSlotProps } from 'expo-router/ui';
 import { Pressable, View, Text, StyleSheet } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import { Editorial, Fonts, ink } from '@/constants/theme';
+import { ChatPanelWidth, Editorial, Fonts, ink, SidebarWidth } from '@/constants/theme';
 import { useBreakpoint } from '@/hooks/use-breakpoint';
 
 import { ChatConversation } from './chat/chat-conversation';
 import { Icon, type IconName } from './icon';
 
 const INK = Editorial.ink;
-
-/** 데스크톱 사이드바 폭 */
-const SIDEBAR_W = 232;
-
-/** 우측 채팅 패널 폭 — 대화는 폭이 넓을수록 읽기 어려워 고정한다. */
-const CHAT_PANEL_W = 400;
 
 // 채팅은 탭이 아니라 + 버튼에서 시작한다.
 const TABS = [
@@ -28,6 +23,9 @@ const TABS = [
 /* 하단 탭바에는 넣지 않지만 라우트로는 등록해야 하는 화면들.
    TabTrigger 가 트리에 없으면 expo-router 가 라우트를 인식하지 못해 다른 탭이 열린다.
    그래서 모바일 바에서도 숨긴 채로 등록해 둔다. */
+/* 사이드바 첫 항목은 '채팅'(지난 대화 목록)이다. 목록 안에 '새 채팅' 버튼이 있어
+   목록·새 대화 양쪽으로 갈 수 있다 — 반대로 새 대화로 바로 보내면 지난 대화를 열 길이 없다. */
+const CHAT_TAB = { name: 'chat', href: '/chat', icon: 'bubble.left', label: '채팅' } as const;
 const NEW_CHAT_TAB = { name: 'chat-mode', href: '/chat-mode', icon: 'bubble.left', label: '새 채팅' } as const;
 const CALENDAR_TAB = { name: 'calendar', href: '/calendar', icon: 'calendar', label: '캘린더' } as const;
 /* 사이드바 항목으로는 안 보이지만 (tabs) 안에 있어야 좌측 사이드바가 유지되는 상세·설정 화면들.
@@ -39,14 +37,31 @@ const HIDDEN_ROUTES = [
   { name: 'fitting', href: '/fitting', icon: 'sparkles', label: '가상 피팅' },
   { name: 'item-detail', href: '/item-detail', icon: 'tshirt', label: '아이템' },
   { name: 'saved-look', href: '/saved-look', icon: 'book', label: '저장 룩' },
+  { name: 'wishlist', href: '/wishlist', icon: 'heart', label: '위시리스트' },
   { name: 'budget', href: '/budget', icon: 'person', label: '예산' },
   { name: 'personal-color', href: '/personal-color', icon: 'person', label: '퍼스널컬러' },
   { name: 'style-onboarding', href: '/style-onboarding', icon: 'person', label: '추구미' },
   { name: 'permissions', href: '/permissions', icon: 'person', label: '권한' },
+  { name: 'notifications', href: '/notifications', icon: 'bell', label: '알림' },
+  { name: 'support', href: '/support', icon: 'questionmark.circle', label: '도움말' },
+  { name: 'terms', href: '/terms', icon: 'book', label: '약관' },
+  { name: 'account', href: '/account', icon: 'person', label: '계정 관리' },
   { name: 'measure-input', href: '/measure-input', icon: 'ruler', label: '체형측정' },
   { name: 'measure-capture', href: '/measure-capture', icon: 'ruler', label: '체형촬영' },
   { name: 'measure-result', href: '/measure-result', icon: 'ruler', label: '체형결과' },
 ] as const satisfies readonly { name: string; href: string; icon: IconName; label: string }[];
+
+/* 자체 하단 CTA(다음/저장 등)를 가진 전체화면 화면들. position:absolute 로 떠 있는
+   하단 탭바가 이 CTA를 가리므로, 본문(TabSlot) 아래에 탭바 높이만큼 여백을 줘서
+   CTA가 바 '위'로 올라오게 한다(탭바는 그대로 보인다). */
+const CTA_ROUTES = [
+  '/measure-input',
+  '/measure-capture',
+  '/measure-result',
+  '/style-onboarding',
+  '/personal-color',
+  '/budget',
+];
 
 /**
  * 탭 내비게이션 (웹).
@@ -59,19 +74,28 @@ const HIDDEN_ROUTES = [
 export default function AppTabs() {
   const { isDesktop, isWide } = useBreakpoint();
   const pathname = usePathname();
+  // 하단 CTA가 있는 화면에선 본문 아래에 탭바 높이만큼 여백을 줘 CTA를 바 위로 올린다.
+  const [barHeight, setBarHeight] = useState(0);
+  const liftCta = !isDesktop && CTA_ROUTES.includes(pathname);
   /* 채팅 패널을 띄우지 않는 화면:
-     - 채팅 화면 자체(chat-room/chat-mode): 같은 대화가 두 벌로 보이게 된다.
-     - 상세 화면(추천룩/가상피팅/아이템상세): 이 화면들은 그 자리를 아이템 2단 배치에 쓴다. */
+     - 채팅 화면 자체(chat/chat-room/chat-mode): 대화를 고르는 자리 옆에 또 다른 대화가
+       열려 있으면 어느 쪽에 말하는지 알 수 없다.
+     - 상세 화면(추천룩/가상피팅/아이템상세): 이 화면들은 그 자리를 아이템 2단 배치에 쓴다.
+     - 캘린더: 7열 그리드 + 선택일 상세로 앱에서 폭을 가장 많이 쓴다. 패널까지 얹으면
+       날짜 칸이 세로로 길쭉해진다. 코디 추천은 화면 안의 '코디 추천받기'로 간다. */
   const showChatPanel =
-    isWide && !['/chat-room', '/chat-mode', '/look-detail', '/fitting', '/item-detail'].includes(pathname);
+    isWide &&
+    !['/chat', '/chat-room', '/chat-mode', '/calendar', '/look-detail', '/fitting', '/item-detail'].includes(
+      pathname,
+    );
 
   return (
     <Tabs style={[styles.root, isDesktop && styles.rootDesktop]}>
       <TabList asChild>
         {isDesktop ? (
           <Sidebar>
-            <TabTrigger name={NEW_CHAT_TAB.name} href={NEW_CHAT_TAB.href} asChild>
-              <SidebarItem icon={NEW_CHAT_TAB.icon} label={NEW_CHAT_TAB.label} />
+            <TabTrigger name={CHAT_TAB.name} href={CHAT_TAB.href} asChild>
+              <SidebarItem icon={CHAT_TAB.icon} label={CHAT_TAB.label} />
             </TabTrigger>
             {TABS.map((t) => (
               <TabTrigger key={t.name} name={t.name} href={t.href} asChild>
@@ -82,14 +106,14 @@ export default function AppTabs() {
               <SidebarItem icon={CALENDAR_TAB.icon} label={CALENDAR_TAB.label} />
             </TabTrigger>
             {/* 라우트 등록용 — 사이드바 항목으로는 보이지 않는다. */}
-            {HIDDEN_ROUTES.map((t) => (
+            {[NEW_CHAT_TAB, ...HIDDEN_ROUTES].map((t) => (
               <TabTrigger key={t.name} name={t.name} href={t.href} asChild>
                 <SidebarItem icon={t.icon} label={t.label} hidden />
               </TabTrigger>
             ))}
           </Sidebar>
         ) : (
-          <BottomBar>
+          <BottomBar onLayout={(e) => setBarHeight(e.nativeEvent.layout.height)}>
             {TABS.slice(0, 2).map((t) => (
               <TabTrigger key={t.name} name={t.name} href={t.href} asChild>
                 <TabItem icon={t.icon} label={t.label} />
@@ -102,7 +126,7 @@ export default function AppTabs() {
               </TabTrigger>
             ))}
             {/* 라우트 등록용 — 하단 바에는 자리를 차지하지 않게 숨긴다. */}
-            {[CALENDAR_TAB, NEW_CHAT_TAB, ...HIDDEN_ROUTES].map((t) => (
+            {[CALENDAR_TAB, CHAT_TAB, NEW_CHAT_TAB, ...HIDDEN_ROUTES].map((t) => (
               <TabTrigger key={t.name} name={t.name} href={t.href} asChild>
                 <TabItem icon={t.icon} label={t.label} hidden />
               </TabTrigger>
@@ -110,7 +134,9 @@ export default function AppTabs() {
           </BottomBar>
         )}
       </TabList>
-      <TabSlot style={styles.slot} />
+      <TabSlot
+        style={[styles.slot, liftCta && barHeight > 0 ? { paddingBottom: barHeight } : null]}
+      />
       {showChatPanel ? <ChatPanel /> : null}
     </Tabs>
   );
@@ -159,11 +185,12 @@ function SidebarItem({
   hidden,
   ...props
 }: TabTriggerSlotProps & { icon: IconName; label: string; hidden?: boolean }) {
-  const color = isFocused ? INK : ink(0.5);
+  /* 선택 표시는 글자·아이콘의 색과 굵기가 전부 맡는다. 면도 테두리도 쓰지 않는다. */
+  const color = isFocused ? INK : Editorial.textCaption;
   return (
     <Pressable
       {...props}
-      style={[styles.sidebarItem, isFocused && styles.sidebarItemOn, hidden && styles.hiddenTrigger]}>
+      style={[styles.sidebarItem, hidden && styles.hiddenTrigger]}>
       <Icon name={icon} tintColor={color} size={20} />
       <Text style={[styles.sidebarLabel, { color, fontWeight: isFocused ? '600' : '500' }]}>
         {label}
@@ -216,17 +243,17 @@ function AskButton() {
 }
 
 const styles = StyleSheet.create({
-  root: { flex: 1, backgroundColor: Editorial.white },
+  root: { flex: 1, backgroundColor: Editorial.page },
   rootDesktop: { flexDirection: 'row' },
   slot: { flex: 1, minWidth: 0 },
   hiddenTrigger: { display: 'none' },
 
   // 우측 채팅 패널 (≥1280)
   chatPanel: {
-    width: CHAT_PANEL_W,
+    width: ChatPanelWidth,
     borderLeftWidth: 1,
     borderLeftColor: ink(0.08),
-    backgroundColor: Editorial.white,
+    backgroundColor: Editorial.page,
   },
   chatPanelHeader: {
     flexDirection: 'row',
@@ -240,10 +267,10 @@ const styles = StyleSheet.create({
 
   // 데스크톱 사이드바
   sidebar: {
-    width: SIDEBAR_W,
+    width: SidebarWidth,
     borderRightWidth: 1,
     borderRightColor: ink(0.08),
-    backgroundColor: Editorial.white,
+    backgroundColor: Editorial.page,
     paddingHorizontal: 16,
     paddingTop: 28,
     gap: 8,
@@ -264,7 +291,6 @@ const styles = StyleSheet.create({
     paddingHorizontal: 10,
     borderRadius: 10,
   },
-  sidebarItemOn: { backgroundColor: Editorial.surfaceSoft },
   sidebarLabel: { fontSize: 14, letterSpacing: -0.1 },
 
   // 모바일 하단 탭바 — 콘텐츠 위에 떠 있는 글래스 바 (backdrop-filter 는 global.css #cozy-tabbar)

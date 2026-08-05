@@ -31,10 +31,12 @@ export default function RootLayout() {
             <Stack.Screen name="(tabs)" />
             {/* 위에서 올라오는 모달 화면들 */}
             <Stack.Screen name="look-add" options={{ presentation: 'modal' }} />
-            <Stack.Screen name="item-add-source" options={{ presentation: 'modal' }} />
             <Stack.Screen name="item-add" options={{ presentation: 'modal' }} />
             <Stack.Screen name="item-add-library" options={{ presentation: 'modal' }} />
             <Stack.Screen name="import" options={{ presentation: 'modal' }} />
+            <Stack.Screen name="calendar-entry" options={{ presentation: 'modal' }} />
+            <Stack.Screen name="outfit-review" options={{ presentation: 'modal' }} />
+            <Stack.Screen name="edit-profile" options={{ presentation: 'modal' }} />
           </Stack>
           {/* 개발 전용: 어디서든 스플래시로 돌아가는 단축 버튼 (배포 빌드엔 안 뜸) */}
           <DevReset />

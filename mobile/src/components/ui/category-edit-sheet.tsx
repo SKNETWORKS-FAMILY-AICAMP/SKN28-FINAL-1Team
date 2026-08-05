@@ -1,3 +1,4 @@
+import { Editorial, ink } from '@/constants/theme';
 import { Icon } from '@/components/icon';
 import { useEffect, useState } from 'react';
 import {
@@ -10,8 +11,7 @@ import {
   View,
 } from 'react-native';
 
-const INK = '#1c1917';
-const ink = (a: number) => `rgba(28,25,23,${a})`;
+const INK = Editorial.ink;
 
 type CategoryEditSheetProps = {
   visible: boolean;
@@ -124,7 +124,7 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(28,25,23,0.35)',
   },
   sheet: {
-    backgroundColor: '#fff',
+    backgroundColor: Editorial.surface,
     borderTopLeftRadius: 20,
     borderTopRightRadius: 20,
     paddingHorizontal: 20,
@@ -141,7 +141,7 @@ const styles = StyleSheet.create({
     marginBottom: 16,
   },
   title: { fontSize: 17, fontWeight: '700', color: INK },
-  hint: { fontSize: 12, color: ink(0.45), marginTop: 6, marginBottom: 16 },
+  hint: { fontSize: 12, color: Editorial.textCaption, marginTop: 6, marginBottom: 16 },
   list: { flexGrow: 0, maxHeight: 280 },
   fixedRow: {
     flexDirection: 'row',
@@ -151,12 +151,12 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     borderBottomColor: ink(0.08),
   },
-  fixedLabel: { fontSize: 15, fontWeight: '600', color: ink(0.5) },
+  fixedLabel: { fontSize: 15, fontWeight: '600', color: Editorial.textCaption },
   fixedBadge: {
     fontSize: 11,
     fontWeight: '600',
-    color: ink(0.4),
-    backgroundColor: '#faf6f0',
+    color: Editorial.textCaption,
+    backgroundColor: Editorial.surface,
     paddingHorizontal: 8,
     paddingVertical: 3,
     borderRadius: 6,
@@ -177,7 +177,8 @@ const styles = StyleSheet.create({
     height: 44,
     paddingHorizontal: 14,
     borderRadius: 12,
-    backgroundColor: '#faf6f0',
+    backgroundColor: Editorial.surface,
+    borderWidth: 1, borderColor: Editorial.line,
     fontSize: 14,
     color: INK,
   },
@@ -185,7 +186,7 @@ const styles = StyleSheet.create({
     width: 44,
     height: 44,
     borderRadius: 12,
-    backgroundColor: INK,
+    backgroundColor: Editorial.cta,
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -200,12 +201,12 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  cancelText: { fontSize: 15, fontWeight: '600', color: ink(0.55) },
+  cancelText: { fontSize: 15, fontWeight: '600', color: Editorial.textCaption },
   saveBtn: {
     flex: 1,
     height: 48,
     borderRadius: 12,
-    backgroundColor: INK,
+    backgroundColor: Editorial.cta,
     alignItems: 'center',
     justifyContent: 'center',
   },

@@ -190,12 +190,17 @@ export async function loginWithApple(): Promise<SocialLoginResult> {
         .join(' ')
     : '';
 
+  /* 백엔드 계약(SocialLoginSerializer)에 맞춘 이름으로 보낸다.
+     예전엔 identity_token/authorization_code/full_name 을 보내
+     "code 또는 access_token 중 하나가 필요합니다" 로 400 이 났다.
+
+     ⚠️ 그래도 애플은 아직 성공하지 못한다 — 백엔드가 애플에 **code 방식만** 열어 두고
+        (`authenticate_with_token` 은 애플 미지원), code 방식엔 `redirect_uri` 를 필수로 받는데
+        네이티브 Apple Sign In 에는 리디렉트 주소라는 게 없다.
+        백엔드가 네이티브(bundle id 클라이언트, redirect_uri 없음)를 받아줘야 열린다. */
   const body: Record<string, string> = {
-    identity_token: credential.identityToken,
-    ...(credential.authorizationCode
-      ? { authorization_code: credential.authorizationCode }
-      : {}),
-    ...(fullName ? { full_name: fullName } : {}),
+    ...(credential.authorizationCode ? { code: credential.authorizationCode } : {}),
+    ...(fullName ? { user_name: fullName } : {}),
   };
 
   return finishLogin('/api/v1/auth/apple/login/', body);
