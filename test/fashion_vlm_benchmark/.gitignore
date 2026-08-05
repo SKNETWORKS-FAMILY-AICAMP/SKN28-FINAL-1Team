@@ -2,4 +2,6 @@ images/*
 !images/.gitkeep
 results/*
 !results/.gitkeep
+!results/published/
+!results/published/**
 prompts.jsonl
