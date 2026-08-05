@@ -8,14 +8,16 @@
 ```text
 body_measurement/
 ├── data/
-│   ├── sizekorea_measurements_clean.csv   ← SizeKorea 정제본 (실제 사용)
+│   ├── processed/
+│   │   └── sizekorea_measurements_clean.csv   ← SizeKorea 정제본 (실제 사용)
 │   └── raw/
 │       └── sizekorea_8th.xlsx            ← SizeKorea 8차 원본 (재정제용)
 ├── src/
 │   ├── benchmark.py                       ← 메인 벤치마크 CLI
 │   ├── compare_all_models.py              ← 7모델 비교 리포트 생성
-│   ├── manual_test.py                     ← S3 원본 → CSV 정제
-│   ├── model_test.py                      ← 초기 모델 검증
+│   ├── benchmark_vlm.py                   ← VLM 벤치마크
+│   ├── benchmark_openrouter_two_view.py   ← OpenRouter 2-view 벤치마크
+│   ├── inference.py                       ← API 서빙용 추론 헬퍼
 │   └── huggingface_benchmark.ipynb        ← Colab GPU에서 HF 모델 실행
 ├── artifacts/models/                      ← API 서빙용 joblib 모델
 ├── experiments/                           ← 모델별·실행별 평가 결과
@@ -66,6 +68,11 @@ gender,height,weight,chest,waist,hip,thigh,calf,arm,shoulder
 - 실제 평가에서는 동일 조사 대상이 train/test에 중복되지 않도록 전처리
   단계에서 subject 기준 split 컬럼을 추가하는 방향으로 확장한다.
 
+VLM 이미지 평가용 SizeKorea 요약 CSV는
+`data/raw_test_data/summary_raw_test_data.csv`에 있다. 이 파일은
+개별 `*_profile.csv` 원본을 하나로 묶은 결과이며
+`chest/waist/hip/thigh/calf/arm/shoulder` 7개 실측값을 보존한다.
+
 ## 설치
 
 ```powershell
@@ -94,17 +101,17 @@ python src\benchmark.py benchmark --demo
 
 ## 실제 CSV 비교 (정제본 사용)
 
-정제본은 `data/sizekorea_measurements_clean.csv` 에 있다.
+정제본은 `data/processed/sizekorea_measurements_clean.csv` 에 있다.
 
 ```powershell
-python src\benchmark.py benchmark --data data\sizekorea_measurements_clean.csv
+python src\benchmark.py benchmark --data data\processed\sizekorea_measurements_clean.csv
 ```
 
 모델을 명시할 수도 있다.
 
 ```powershell
 python src\benchmark.py benchmark `
-  --data data\sizekorea_measurements_clean.csv `
+  --data data\processed\sizekorea_measurements_clean.csv `
   --models baseline random_forest hist_gradient_boosting knn
 ```
 
@@ -113,7 +120,7 @@ python src\benchmark.py benchmark `
 
 ```powershell
 python src\benchmark.py benchmark `
-  --data data\sizekorea_measurements_clean.csv `
+  --data data\processed\sizekorea_measurements_clean.csv `
   --models hist_gradient_boosting `
   --artifact-dir experiments\tabular\hist_gradient_boosting\sizekorea-1000-v2
 ```
@@ -207,12 +214,15 @@ python src\compare_all_models.py
 - `reports/model_comparison.png` — R2/MAE/RMSE 차트
 - `reports/model_comparison_report.md` — 사람이 보는 종합 분석 (직접 작성)
 
-## 데이터 정제 재생성
+## 데이터 정제 기준
 
-S3 원본을 다시 받아 `data/sizekorea_measurements_clean.csv`를 재생성한다.
+`data/processed/sizekorea_measurements_clean.csv`는 SizeKorea 원본에서
+아래 기준으로 만든 정제본이다. `benchmark.py`는 같은 기준으로 S3/Excel 원본을
+읽어 벤치마크할 수 있다.
 
 ```powershell
-python src\manual_test.py
+python src\benchmark.py benchmark `
+  --models baseline random_forest hist_gradient_boosting knn
 ```
 
 정제 파이프라인:
@@ -221,7 +231,7 @@ python src\manual_test.py
 2. 측정 컬럼 추출
 3. mm → cm 단위 변환
 4. 정상 범위 외 값은 결측 처리
-5. 결측 행 제거 후 `data/sizekorea_measurements_clean.csv`로 저장
+5. 결측 행 제거 후 `data/processed/sizekorea_measurements_clean.csv`로 저장
 
 ## Hugging Face 후보 (Colab GPU)
 
@@ -269,7 +279,7 @@ pip install "autogluon.tabular[tabpfnmix]"
 
 ```powershell
 python src\benchmark.py benchmark `
-  --data data\sizekorea_measurements_clean.csv `
+  --data data\processed\sizekorea_measurements_clean.csv `
   --test-data experiments\tabular\_datasets\sizekorea-1000-v1\test_set.csv `
   --models tabpfn_v2 nori tabpfn_mix `
   --gender F `
@@ -295,7 +305,7 @@ python src\benchmark.py benchmark `
 ```powershell
 # 추천 워크플로
 cd ml\body_measurement
-python src\benchmark.py benchmark --data data\sizekorea_measurements_clean.csv
+python src\benchmark.py benchmark --data data\processed\sizekorea_measurements_clean.csv
 python src\compare_all_models.py --run-name sizekorea-1000-v1
 # Colab에서 HF 모델 결과를 experiments/tabular/{model}/sizekorea-1000-v1/에 추가
 # → reports/model_comparison_report.md 직접 작성/갱신

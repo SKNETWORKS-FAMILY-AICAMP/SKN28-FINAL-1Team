@@ -183,7 +183,7 @@ reports/model_comparison.png                 (4번 섹션 지표별 차트)
 
 ```powershell
 cd ml\body_measurement
-python src\benchmark.py benchmark --data data\sizekorea_measurements_clean.csv --models baseline random_forest hist_gradient_boosting knn --artifact-dir artifacts
+python src\benchmark.py benchmark --data data\processed\sizekorea_measurements_clean.csv --models baseline random_forest hist_gradient_boosting knn --artifact-dir artifacts
 python src\compare_all_models.py
 python src\plot_model_ranking.py
 python src\plot_test_predictions.py

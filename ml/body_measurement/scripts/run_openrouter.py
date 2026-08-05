@@ -19,10 +19,9 @@ REPO_ROOT = PROJECT_ROOT.parent.parent
 DATA_DIR = PROJECT_ROOT / "data" / "splits"
 PROMPTS_DIR = PROJECT_ROOT / "prompts"
 
-# 정답값이 있어 오차를 계산할 수 있는 부위. 응답에 없으면 실패로 본다.
+# 모델 선정 벤치마크 기준 부위. 응답에 없으면 실패로 본다.
 CORE_TARGETS = ["chest", "waist", "hip"]
-# 서빙에서 실제로 쓰는 7개. 뒤 4개는 정답 데이터가 없어 채점은 못 하고
-# 모델이 값을 주는지(coverage)만 확인할 수 있다.
+# 서빙에서 실제로 쓰는 7개. SizeKorea 라벨이 있는 행은 7개 모두 채점할 수 있다.
 FULL_TARGETS = [*CORE_TARGETS, "thigh", "calf", "arm", "shoulder"]
 
 # core: 모델 선정 벤치마크에 쓴 3개짜리. MODEL_EVALUATION_SUMMARY.md의 MAE를
@@ -56,8 +55,8 @@ def measurement_columns() -> list[str]:
     return [
         "subject_id",
         *[f"predicted_{target}_cm" for target in FULL_TARGETS],
-        *CORE_TARGETS,
-        *[f"{target}_absolute_error_cm" for target in CORE_TARGETS],
+        *FULL_TARGETS,
+        *[f"{target}_absolute_error_cm" for target in FULL_TARGETS],
     ]
 
 
@@ -275,13 +274,13 @@ def main() -> None:
 
     print(f"\n결과 저장 완료: {output_path}")
 
-    # 정답이 없는 부위(허벅지·종아리·팔뚝·어깨)는 채점을 못 하므로,
-    # 모델이 값을 주기는 했는지만 여기서 알려준다.
+    # 여기서는 호출 직후 응답률만 보여준다. 정확도는 evaluate_results.py가
+    # 라벨 CSV와 병합해서 계산한다.
     extra_targets = [t for t in targets if t not in CORE_TARGETS]
     if extra_targets:
         frame = pd.DataFrame(results)
         success = frame[frame["status"] == "success"]
-        print(f"\n채점 불가 부위 응답률 (성공 {len(success)}건 기준):")
+        print(f"\n추가 부위 응답률 (성공 {len(success)}건 기준):")
         for target in extra_targets:
             filled = success[f"predicted_{target}_cm"].notna().sum()
             print(f"  {target:9s} {filled}/{len(success)}")

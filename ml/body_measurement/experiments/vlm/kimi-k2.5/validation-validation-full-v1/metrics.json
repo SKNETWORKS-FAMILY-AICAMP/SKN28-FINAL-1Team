@@ -2,14 +2,12 @@
   "total_count": 39,
   "success_count": 39,
   "success_rate": 1.0,
+  "mean_latency_seconds": 9.614,
   "chest_mae_cm": 3.49,
   "waist_mae_cm": 3.205,
   "hip_mae_cm": 2.377,
-  "mean_latency_seconds": 9.614,
-  "extra_target_coverage_no_ground_truth": {
-    "thigh": 1.0,
-    "calf": 1.0,
-    "arm": 1.0,
-    "shoulder": 1.0
-  }
+  "thigh_mae_cm": 3.819,
+  "calf_mae_cm": 1.397,
+  "arm_mae_cm": 1.817,
+  "shoulder_mae_cm": 3.164
 }

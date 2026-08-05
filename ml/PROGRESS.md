@@ -97,7 +97,7 @@ test_set.csv
 ```text
 ml/body_measurement/src/benchmark.py
 ml/body_measurement/src/huggingface_benchmark.ipynb
-ml/body_measurement/data/sizekorea_measurements_clean.csv
+ml/body_measurement/data/processed/sizekorea_measurements_clean.csv
 ml/body_measurement/artifacts/classic/test_set.csv
 ```
 
@@ -241,14 +241,16 @@ POST 껍데기는 동기(200)/비동기(202)라 같게 만들 수 없어 **결�
 ### 3. 7개 vs 3개 갭 해결
 
 - 무사진 모델(hist_gradient_boosting)은 7개를 전부 예측한다.
-- 사진 모델(VLM)은 가슴·허리·엉덩이 3개만 예측한다. `vlm_*_set.csv`에 나머지 4개
-  정답이 없어 사진 기반 정확도를 한 번도 측정한 적이 없기 때문이다.
+- 사진 모델(VLM)은 초기 모델 성능 비교에서는 비용을 아끼려고 가슴·허리·엉덩이
+  3개만 예측했다.
 - **결정(2026-08-04 갱신)**: 사진 VLM에게도 **7개를 전부** 물어본다. 3개만 물었던 건
   모델 선정 벤치마크에서 비용을 아끼려던 조치였고 제품 요구사항이 아니었다.
   기본 정보 추정으로 7개를 먼저 채운 뒤 VLM 응답으로 덮어쓴다 (VLM이 일부를
   빠뜨려도 빈칸이 생기지 않는다).
-- ⚠️ 다만 **정확도가 측정된 부위는 여전히 가슴·허리·엉덩이 3개뿐**이다.
-  나머지 4개는 정답 데이터가 없어 오차를 계산할 수 없다.
+- **2026-08-05 복구**: SizeKorea 개별 `*_profile.csv` 원본에는
+  `thigh/calf/arm/shoulder` 정답이 있었으므로 `summary_raw_test_data.csv`,
+  `multimodal_test_subjects.csv`, `vlm_*_set.csv`에 7개 정답을 복구했다.
+  Kimi K2.5 full 테스트/검증 결과도 7개 부위 MAE를 다시 계산했다.
 - 서빙 프롬프트는 `body_measurement_prompt_full.j2`(7개), 벤치마크 프롬프트는
   기존 `body_measurement_prompt.j2`(3개)로 분리했다. 기록된 MAE를 재현할 수 있게
   벤치마크 쪽은 건드리지 않았다.
