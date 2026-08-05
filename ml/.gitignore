@@ -33,3 +33,14 @@ ml/body_measurement/artifacts/csv/make_*.py
 # ml/body_measurement/data/samples_10_front/
 # ml/body_measurement/data/external_samples/
 # ml/body_measurement/data/test_subject_*.jpg
+
+# ============================================================
+# 모델 파일 — 서빙(API)에 직접 쓰이는 hist_gradient_boosting 만 추적
+# knn / baseline / random_forest 는 학습·벤치마크용이라 추적 제외
+# (루트 .gitignore에도 동일 규칙이 있으나, ml 폴더 규칙을 한곳에 모으기 위해 명시)
+# ============================================================
+*.joblib
+!ml/body_measurement/artifacts/models/hist_gradient_boosting.joblib
+ml/body_measurement/artifacts/models/knn.joblib
+ml/body_measurement/artifacts/models/baseline.joblib
+ml/body_measurement/artifacts/models/random_forest.joblib
