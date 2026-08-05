@@ -8,6 +8,7 @@
 from __future__ import annotations
 
 import os
+from collections.abc import Iterable
 from functools import lru_cache
 
 import boto3
@@ -44,3 +45,15 @@ def presigned_get(key: str, ttl: int = PRESIGNED_GET_TTL) -> str:
     return _client().generate_presigned_url(
         "get_object", Params={"Bucket": BUCKET, "Key": key}, ExpiresIn=ttl
     )
+
+
+def delete_objects(keys: Iterable[str]) -> None:
+    """DB 저장 실패 시 명시된 옷장 S3 객체만 정리한다."""
+
+    unique_keys = list(dict.fromkeys(key for key in keys if key))
+    for offset in range(0, len(unique_keys), 1000):
+        batch = unique_keys[offset : offset + 1000]
+        _client().delete_objects(
+            Bucket=BUCKET,
+            Delete={"Objects": [{"Key": key} for key in batch], "Quiet": True},
+        )

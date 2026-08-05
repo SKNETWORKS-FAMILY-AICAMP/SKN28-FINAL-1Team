@@ -9,7 +9,6 @@ from rest_framework.test import APIClient
 from apps.style_calendar.contracts import CalendarSourceType, CalendarStatus
 from apps.style_calendar.models import (
     CalendarEntry,
-    CalendarItem,
     CalendarWardrobeItem,
 )
 from apps.users.models import User
@@ -113,13 +112,11 @@ class CalendarWardrobeCreateApiTests(TestCase):
             self.bottom.s3_key,
         )
         self.assertEqual(links[1].snapshot["tags"]["season"], ["여름"])
-        self.assertEqual(CalendarItem.objects.filter(calendar=entry).count(), 0)
-
         self.assertEqual(
             [item["wardrobe_item_id"] for item in response.data["wardrobe_items"]],
             [str(self.bottom.pk), str(self.top.pk)],
         )
-        self.assertEqual(response.data["items"], [])
+        self.assertNotIn("items", response.data)
         self.assertEqual(
             response.data["image_url"],
             f"https://calendar.example/{entry.image_s3_key}",

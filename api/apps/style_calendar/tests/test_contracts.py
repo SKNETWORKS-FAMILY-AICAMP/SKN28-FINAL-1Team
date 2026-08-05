@@ -1,12 +1,6 @@
 from unittest import TestCase
 
-from apps.style_calendar.contracts import (
-    CALENDAR_CALLBACK_SCHEMA_VERSION,
-    CALENDAR_JOB_SCHEMA_VERSION,
-    CALENDAR_RESULT_SCHEMA_VERSION,
-    CalendarItemInternalStatus,
-    CalendarStatus,
-)
+from apps.style_calendar.contracts import CalendarSourceType, CalendarStatus
 
 
 class CalendarContractTests(TestCase):
@@ -16,13 +10,8 @@ class CalendarContractTests(TestCase):
             {"REGISTERED", "PROCESSING", "COMPLETED", "FAILED"},
         )
 
-    def test_calendar_item_status_excludes_matching_states(self) -> None:
+    def test_source_types_only_describe_registration_path(self) -> None:
         self.assertEqual(
-            {status.value for status in CalendarItemInternalStatus},
-            {"EXTRACTED", "FAILED"},
+            {source.value for source in CalendarSourceType},
+            {"PHOTO_UPLOAD", "WARDROBE_SELECTED"},
         )
-
-    def test_contract_schema_versions_are_calendar_specific(self) -> None:
-        self.assertEqual(CALENDAR_JOB_SCHEMA_VERSION, "calendar-job.v1")
-        self.assertEqual(CALENDAR_CALLBACK_SCHEMA_VERSION, "calendar-callback.v1")
-        self.assertEqual(CALENDAR_RESULT_SCHEMA_VERSION, "calendar-result.v1")

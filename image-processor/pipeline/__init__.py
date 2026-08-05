@@ -86,24 +86,20 @@ class WardrobePipeline:
 
 
 # ── factory ──────────────────────────────────────────────
-def _build_gemini_edit_with(embedder: Embedder | None) -> WardrobePipeline:
+def _build_gemini_edit() -> WardrobePipeline:
     from .gemini.editor import GeminiImageEditor
     from .gemini.enumerator import GeminiEnumerator
     from .gemini.tagger import GeminiTagger
 
+    embedder: Embedder = (
+        SigLIPBgeEmbedder() if config.EMBED_ENABLED else NullEmbedder()
+    )
     return WardrobePipeline(
         enumerator=GeminiEnumerator(),
         generator=GeminiImageEditor(),
         tagger=GeminiTagger(),
         embedder=embedder,
     )
-
-
-def _build_gemini_edit() -> WardrobePipeline:
-    embedder: Embedder = (
-        SigLIPBgeEmbedder() if config.EMBED_ENABLED else NullEmbedder()
-    )
-    return _build_gemini_edit_with(embedder)
 
 
 # 새 구현은 여기 등록: {"sam3-crop": _build_sam3_crop, ...}
@@ -119,15 +115,3 @@ def build_pipeline(name: str | None = None) -> WardrobePipeline:
             f"알 수 없는 파이프라인: {key!r} (등록된 구현: {sorted(_REGISTRY)})"
         )
     return _REGISTRY[key]()
-
-
-def build_calendar_pipeline(name: str | None = None) -> WardrobePipeline:
-    """임베딩을 구성하거나 호출하지 않는 캘린더 이미지 파이프라인."""
-
-    key = name or config.PIPELINE_IMPL
-    if key != "gemini-edit":
-        raise ValueError(
-            f"알 수 없는 캘린더 파이프라인: {key!r} "
-            "(등록된 구현: ['gemini-edit'])"
-        )
-    return _build_gemini_edit_with(embedder=None)

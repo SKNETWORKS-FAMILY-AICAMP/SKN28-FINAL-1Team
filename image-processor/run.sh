@@ -4,8 +4,7 @@
 #        NO_BUILD=1 ./run.sh # 재빌드 생략
 #
 # 필요 환경변수는 저장소 루트 .env에서 로드한다:
-#   GEMINI_API_KEY, REDIS_URL, WARDROBE_JOB_QUEUE,
-#   CALENDAR_JOB_QUEUE, CALENDAR_PROCESSING_QUEUE, WARDROBE_INTERNAL_TOKEN,
+#   GEMINI_API_KEY, REDIS_URL, WARDROBE_JOB_QUEUE, WARDROBE_INTERNAL_TOKEN,
 #   WARDROBE_CALLBACK_URL, AWS_* (S3 자격증명)
 set -euo pipefail
 cd "$(dirname "$0")"

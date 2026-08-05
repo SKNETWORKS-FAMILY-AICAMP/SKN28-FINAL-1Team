@@ -3,65 +3,45 @@ from datetime import date
 from django.db import IntegrityError, models, transaction
 from django.test import SimpleTestCase, TestCase
 
-from apps.style_calendar.contracts import (
-    CalendarItemInternalStatus,
-    CalendarSourceType,
-    CalendarStatus,
-)
-from apps.style_calendar.models import (
-    CalendarEntry,
-    CalendarItem,
-    CalendarWardrobeItem,
-)
+from apps.style_calendar.contracts import CalendarSourceType, CalendarStatus
+from apps.style_calendar.models import CalendarEntry, CalendarWardrobeItem
 from apps.users.models import User
-from apps.wardrobe.models import WardrobeItem
+from apps.wardrobe.models import WardrobeItem, WardrobeUploadJob
 
 
 class CalendarModelMetadataTests(SimpleTestCase):
     def test_explicit_table_names_and_comments(self) -> None:
-        self.assertEqual(CalendarEntry._meta.db_table, "calendar_entry")
-        self.assertEqual(CalendarItem._meta.db_table, "calendar_item")
-        self.assertEqual(
-            CalendarWardrobeItem._meta.db_table,
-            "calendar_wardrobe_item",
-        )
-        self.assertTrue(CalendarEntry._meta.db_table_comment)
-        self.assertTrue(CalendarItem._meta.db_table_comment)
-        self.assertTrue(CalendarWardrobeItem._meta.db_table_comment)
+        for model, table_name in (
+            (CalendarEntry, "calendar_entry"),
+            (CalendarWardrobeItem, "calendar_wardrobe_item"),
+        ):
+            with self.subTest(model=model.__name__):
+                self.assertEqual(model._meta.db_table, table_name)
+                self.assertTrue(model._meta.db_table_comment)
 
     def test_every_database_field_has_comment(self) -> None:
-        for model in (CalendarEntry, CalendarItem, CalendarWardrobeItem):
+        for model in (CalendarEntry, CalendarWardrobeItem):
             for field in model._meta.local_fields:
                 with self.subTest(model=model.__name__, field=field.name):
                     self.assertTrue(field.db_comment)
 
-    def test_calendar_and_wardrobe_item_have_explicit_many_to_many_relation(
-        self,
-    ) -> None:
+    def test_calendar_uses_explicit_many_to_many_relation(self) -> None:
         field = CalendarEntry._meta.get_field("wardrobe_items")
 
         self.assertTrue(field.many_to_many)
         self.assertIs(field.remote_field.through, CalendarWardrobeItem)
 
-    def test_calendar_wardrobe_link_requires_both_sides(self) -> None:
-        calendar_field = CalendarWardrobeItem._meta.get_field("calendar")
-        wardrobe_field = CalendarWardrobeItem._meta.get_field("wardrobe_item")
+    def test_upload_job_relation_is_nullable_one_to_one(self) -> None:
+        field = CalendarEntry._meta.get_field("wardrobe_upload_job")
 
-        self.assertFalse(calendar_field.null)
-        self.assertFalse(wardrobe_field.null)
-        self.assertIs(calendar_field.remote_field.on_delete, models.CASCADE)
-        self.assertIs(wardrobe_field.remote_field.on_delete, models.CASCADE)
+        self.assertTrue(field.one_to_one)
+        self.assertTrue(field.null)
+        self.assertIs(field.remote_field.on_delete, models.SET_NULL)
 
-    def test_processor_item_has_no_wardrobe_relation(self) -> None:
-        field_names = {field.name for field in CalendarItem._meta.local_fields}
-
-        self.assertNotIn("wardrobe_item", field_names)
-        self.assertNotIn("source_type", field_names)
-
-    def test_calendar_schema_has_no_embedding_or_matching_fields(self) -> None:
+    def test_calendar_schema_has_no_matching_or_processor_item_fields(self) -> None:
         field_names = {
             field.name
-            for model in (CalendarEntry, CalendarItem, CalendarWardrobeItem)
+            for model in (CalendarEntry, CalendarWardrobeItem)
             for field in model._meta.local_fields
         }
 
@@ -74,32 +54,25 @@ class CalendarModelMetadataTests(SimpleTestCase):
                 "match_score",
                 "matched",
                 "unmatched",
+                "processor_item_id",
             }
         )
 
     def test_expected_database_constraints_are_declared(self) -> None:
-        entry_constraints = {
-            constraint.name for constraint in CalendarEntry._meta.constraints
-        }
-        item_constraints = {
-            constraint.name for constraint in CalendarItem._meta.constraints
-        }
-        link_constraints = {
-            constraint.name
-            for constraint in CalendarWardrobeItem._meta.constraints
-        }
-
-        self.assertEqual(entry_constraints, {"uq_calendar_user_date"})
         self.assertEqual(
-            item_constraints,
-            {"uq_cal_item_processor"},
+            {constraint.name for constraint in CalendarEntry._meta.constraints},
+            {"uq_calendar_user_date"},
         )
-        self.assertEqual(link_constraints, {"uq_cal_wardrobe_link"})
+        self.assertEqual(
+            {
+                constraint.name
+                for constraint in CalendarWardrobeItem._meta.constraints
+            },
+            {"uq_cal_wardrobe_link"},
+        )
 
 
 class CalendarModelConstraintTests(TestCase):
-    """마이그레이션으로 적용된 캘린더 고유 제약의 실제 DB 동작."""
-
     def setUp(self) -> None:
         self.user = User.objects.create(username="calendar-model-user")
         self.other_user = User.objects.create(username="calendar-model-other")
@@ -116,40 +89,28 @@ class CalendarModelConstraintTests(TestCase):
         )
 
     def test_user_can_have_only_one_calendar_per_date(self) -> None:
-        with (
-            self.assertRaises(IntegrityError),
-            transaction.atomic(),
-        ):
+        with self.assertRaises(IntegrityError), transaction.atomic():
             self.create_entry(self.user, self.entry.date)
 
-        # 같은 날짜라도 사용자가 다르면 허용한다.
         other_entry = self.create_entry(self.other_user, self.entry.date)
         self.assertEqual(other_entry.date, self.entry.date)
 
-    def test_processor_item_id_is_unique_only_within_calendar(self) -> None:
-        CalendarItem.objects.create(
-            calendar=self.entry,
-            internal_status=CalendarItemInternalStatus.EXTRACTED.value,
-            processor_item_id="processor-item-0",
+    def test_one_upload_job_can_belong_to_only_one_calendar(self) -> None:
+        job = WardrobeUploadJob.objects.create(
+            user=self.user,
+            source_s3_key="wardrobe/model/job/original.jpg",
         )
+        self.entry.wardrobe_upload_job = job
+        self.entry.save(update_fields=["wardrobe_upload_job"])
 
-        with (
-            self.assertRaises(IntegrityError),
-            transaction.atomic(),
-        ):
-            CalendarItem.objects.create(
-                calendar=self.entry,
-                internal_status=CalendarItemInternalStatus.FAILED.value,
-                processor_item_id="processor-item-0",
+        with self.assertRaises(IntegrityError), transaction.atomic():
+            CalendarEntry.objects.create(
+                user=self.user,
+                wardrobe_upload_job=job,
+                date=date(2026, 8, 5),
+                source_type=CalendarSourceType.PHOTO_UPLOAD.value,
+                image_s3_key="calendar/model/second/original.jpg",
             )
-
-        another_entry = self.create_entry(self.user, date(2026, 8, 5))
-        another_item = CalendarItem.objects.create(
-            calendar=another_entry,
-            internal_status=CalendarItemInternalStatus.EXTRACTED.value,
-            processor_item_id="processor-item-0",
-        )
-        self.assertEqual(another_item.processor_item_id, "processor-item-0")
 
     def test_wardrobe_link_is_unique_per_calendar_but_reusable(self) -> None:
         wardrobe_item = WardrobeItem.objects.create(
@@ -164,10 +125,7 @@ class CalendarModelConstraintTests(TestCase):
             wardrobe_item=wardrobe_item,
         )
 
-        with (
-            self.assertRaises(IntegrityError),
-            transaction.atomic(),
-        ):
+        with self.assertRaises(IntegrityError), transaction.atomic():
             CalendarWardrobeItem.objects.create(
                 calendar=self.entry,
                 wardrobe_item=wardrobe_item,

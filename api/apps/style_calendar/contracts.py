@@ -19,37 +19,9 @@ class CalendarSourceType(StrEnum):
     WARDROBE_SELECTED = "WARDROBE_SELECTED"
 
 
-class CalendarItemInternalStatus(StrEnum):
-    """사용자 화면에 노출하지 않는 캘린더 아이템 내부 상태."""
-
-    EXTRACTED = "EXTRACTED"
-    FAILED = "FAILED"
-
-
-class CalendarCallbackStatus(StrEnum):
-    """이미지 프로세서 callback wire 상태."""
-
-    PROCESSING = "processing"
-    COMPLETED = "completed"
-    FAILED = "failed"
-
-
-class CalendarCallbackItemStatus(StrEnum):
-    """이미지 프로세서 callback 아이템 wire 상태."""
-
-    EXTRACTED = "extracted"
-    FAILED = "failed"
-
-
 class CalendarProcessingErrorCode(StrEnum):
     """캘린더 이미지 처리의 표준 전체 실패 코드."""
 
     QUEUE_ENQUEUE_FAILED = "QUEUE_ENQUEUE_FAILED"
     NO_ITEM_EXTRACTED = "NO_ITEM_EXTRACTED"
     IMAGE_PROCESSING_FAILED = "IMAGE_PROCESSING_FAILED"
-
-
-CALENDAR_JOB_SCHEMA_VERSION = "calendar-job.v1"
-CALENDAR_JOB_TASK_TYPE = "calendar_image_extraction"
-CALENDAR_CALLBACK_SCHEMA_VERSION = "calendar-callback.v1"
-CALENDAR_RESULT_SCHEMA_VERSION = "calendar-result.v1"

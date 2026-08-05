@@ -14,7 +14,7 @@ from apps.style_calendar.contracts import CalendarSourceType, CalendarStatus
 from apps.style_calendar.models import CalendarEntry
 from apps.style_calendar.serializers import MAX_CALENDAR_UPLOAD_MB
 from apps.users.models import User
-from apps.wardrobe.models import WardrobeItem
+from apps.wardrobe.models import WardrobeItem, WardrobeUploadJob
 
 
 def make_image_file(
@@ -38,24 +38,36 @@ class CalendarPhotoCreateApiTests(TestCase):
         copy_patcher = patch(
             "apps.style_calendar.services.calendar_service.storage.copy_wardrobe_item"
         )
+        copy_original_patcher = patch(
+            "apps.style_calendar.services.calendar_service.storage."
+            "copy_calendar_original_to_wardrobe"
+        )
         delete_patcher = patch(
             "apps.style_calendar.services.calendar_service.storage.delete_objects"
+        )
+        wardrobe_delete_patcher = patch(
+            "apps.style_calendar.services.calendar_service.wardrobe_storage."
+            "delete_objects"
         )
         presigned_patcher = patch(
             "apps.style_calendar.serializers.storage.presigned_get",
             side_effect=lambda key: f"https://calendar.example/{key}" if key else "",
         )
-        enqueue_patcher = patch("apps.style_calendar.views.calendar_queue.enqueue")
+        enqueue_patcher = patch("apps.style_calendar.views.wardrobe_jobs.enqueue")
         logger_patcher = patch("apps.style_calendar.views.logger.exception")
         self.mock_upload_fileobj = upload_patcher.start()
         self.mock_copy_wardrobe_item = copy_patcher.start()
+        self.mock_copy_calendar_original = copy_original_patcher.start()
         self.mock_delete_objects = delete_patcher.start()
+        self.mock_delete_wardrobe_objects = wardrobe_delete_patcher.start()
         self.mock_presigned_get = presigned_patcher.start()
         self.mock_enqueue = enqueue_patcher.start()
         self.mock_logger_exception = logger_patcher.start()
         self.addCleanup(upload_patcher.stop)
         self.addCleanup(copy_patcher.stop)
+        self.addCleanup(copy_original_patcher.stop)
         self.addCleanup(delete_patcher.stop)
+        self.addCleanup(wardrobe_delete_patcher.stop)
         self.addCleanup(presigned_patcher.stop)
         self.addCleanup(enqueue_patcher.stop)
         self.addCleanup(logger_patcher.stop)
@@ -105,6 +117,7 @@ class CalendarPhotoCreateApiTests(TestCase):
 
         def assert_database_row_is_not_created_before_upload(*_args) -> None:
             self.assertFalse(CalendarEntry.objects.filter(user=self.user).exists())
+            self.assertFalse(WardrobeUploadJob.objects.filter(user=self.user).exists())
 
         self.mock_upload_fileobj.side_effect = assert_database_row_is_not_created_before_upload
         response = self.client.post(
@@ -119,6 +132,7 @@ class CalendarPhotoCreateApiTests(TestCase):
         self.assertEqual(entry.date, date(2026, 8, 8))
         self.assertEqual(entry.source_type, CalendarSourceType.PHOTO_UPLOAD.value)
         self.assertEqual(entry.status, CalendarStatus.REGISTERED.value)
+        self.assertIsNotNone(entry.wardrobe_upload_job_id)
         self.assertEqual(
             entry.image_s3_key,
             f"calendar/{self.user.pk}/{entry.pk}/original.jpg",
@@ -134,12 +148,21 @@ class CalendarPhotoCreateApiTests(TestCase):
         self.assertEqual(uploaded_key, entry.image_s3_key)
         self.assertEqual(uploaded_type, "image/jpeg")
         self.mock_copy_wardrobe_item.assert_not_called()
+        job = entry.wardrobe_upload_job
+        self.assertEqual(
+            job.source_s3_key,
+            f"wardrobe/{self.user.pk}/{job.pk}/original.jpg",
+        )
+        self.mock_copy_calendar_original.assert_called_once_with(
+            entry.image_s3_key,
+            job.source_s3_key,
+        )
         self.assertEqual(
             response.data["image_url"],
             f"https://calendar.example/{entry.image_s3_key}",
         )
         self.assertEqual(self.mock_enqueue.call_count, 1)
-        self.assertEqual(self.mock_enqueue.call_args.args[0].pk, entry.pk)
+        self.assertEqual(self.mock_enqueue.call_args.args[0].pk, job.pk)
 
     def test_user_photo_remains_representative_with_selected_wardrobe_items(self) -> None:
         payload = self._payload()
@@ -181,6 +204,7 @@ class CalendarPhotoCreateApiTests(TestCase):
         self.assertEqual(missing_response.status_code, 400)
         self.mock_upload_fileobj.assert_not_called()
         self.assertFalse(CalendarEntry.objects.filter(user=self.user).exists())
+        self.assertFalse(WardrobeUploadJob.objects.filter(user=self.user).exists())
 
     def test_photo_upload_returns_conflict_before_s3(self) -> None:
         CalendarEntry.objects.create(
@@ -206,6 +230,18 @@ class CalendarPhotoCreateApiTests(TestCase):
         self.assertEqual(response.status_code, 503)
         self.assertFalse(CalendarEntry.objects.filter(user=self.user).exists())
         self.mock_delete_objects.assert_not_called()
+        self.mock_delete_wardrobe_objects.assert_not_called()
+
+    def test_wardrobe_original_copy_failure_cleans_calendar_original(self) -> None:
+        self.mock_copy_calendar_original.side_effect = RuntimeError("copy failed")
+
+        response = self.client.post(self.url, self._payload(), format="multipart")
+
+        self.assertEqual(response.status_code, 503)
+        self.assertFalse(CalendarEntry.objects.filter(user=self.user).exists())
+        self.assertFalse(WardrobeUploadJob.objects.filter(user=self.user).exists())
+        self.mock_delete_objects.assert_called_once()
+        self.mock_delete_wardrobe_objects.assert_not_called()
 
     def test_selected_item_copy_failure_cleans_uploaded_objects(self) -> None:
         payload = self._payload()
@@ -216,11 +252,17 @@ class CalendarPhotoCreateApiTests(TestCase):
 
         self.assertEqual(response.status_code, 503)
         self.assertFalse(CalendarEntry.objects.filter(user=self.user).exists())
+        self.assertFalse(WardrobeUploadJob.objects.filter(user=self.user).exists())
         self.mock_delete_objects.assert_called_once()
         deleted_keys = self.mock_delete_objects.call_args.args[0]
         self.assertEqual(len(deleted_keys), 2)
         self.assertTrue(deleted_keys[0].endswith("/original.jpg"))
         self.assertIn("/selected/", deleted_keys[1])
+        self.mock_delete_wardrobe_objects.assert_called_once()
+        self.assertEqual(
+            len(self.mock_delete_wardrobe_objects.call_args.args[0]),
+            1,
+        )
         self.mock_enqueue.assert_not_called()
 
     def test_queue_failure_marks_calendar_failed_and_keeps_s3_objects(self) -> None:
@@ -234,10 +276,14 @@ class CalendarPhotoCreateApiTests(TestCase):
         self.assertEqual(entry.processing_error_code, "QUEUE_ENQUEUE_FAILED")
         self.assertEqual(
             entry.processing_error_message,
-            "캘린더 이미지 처리 큐 적재 실패",
+            "옷장 이미지 처리 큐 적재 실패",
         )
         self.assertIsNotNone(entry.processing_completed_at)
         self.assertTrue(entry.image_s3_key.endswith("/original.jpg"))
+        self.assertEqual(
+            entry.wardrobe_upload_job.status,
+            WardrobeUploadJob.Status.FAILED,
+        )
         self.mock_delete_objects.assert_not_called()
         self.mock_logger_exception.assert_called_once()
 

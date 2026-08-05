@@ -1,7 +1,6 @@
 from django.urls import path
 
 from apps.style_calendar.views import (
-    CalendarCallbackView,
     CalendarEntryByDateView,
     CalendarEntryDetailView,
     CalendarEntryListView,
@@ -13,11 +12,6 @@ from apps.style_calendar.views import (
 app_name = "style_calendar"
 
 urlpatterns = [
-    path(
-        "internal/calendars/<uuid:calendar_id>/callback/",
-        CalendarCallbackView.as_view(),
-        name="calendar-callback",
-    ),
     path(
         "calendars/photo/",
         CalendarPhotoCreateView.as_view(),

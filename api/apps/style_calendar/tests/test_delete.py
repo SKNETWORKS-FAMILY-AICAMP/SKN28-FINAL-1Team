@@ -7,14 +7,9 @@ from django.test import TestCase
 from django.urls import reverse
 from rest_framework.test import APIClient
 
-from apps.style_calendar.contracts import (
-    CalendarItemInternalStatus,
-    CalendarSourceType,
-    CalendarStatus,
-)
+from apps.style_calendar.contracts import CalendarSourceType, CalendarStatus
 from apps.style_calendar.models import (
     CalendarEntry,
-    CalendarItem,
     CalendarWardrobeItem,
 )
 from apps.users.models import User
@@ -76,20 +71,12 @@ class CalendarDeleteApiTests(TestCase):
             calendar=entry,
             wardrobe_item=wardrobe_item,
         )
-        item = CalendarItem.objects.create(
-            calendar=entry,
-            internal_status=CalendarItemInternalStatus.EXTRACTED.value,
-            processor_item_id="item-0",
-            image_s3_key=f"calendar/{self.user.pk}/{entry.pk}/item_000.png",
-        )
-
         with self.captureOnCommitCallbacks(execute=True):
             response = self.client.delete(self.url_for(entry))
 
         self.assertEqual(response.status_code, 204)
         self.assertFalse(CalendarEntry.objects.filter(pk=calendar_id).exists())
         self.assertFalse(CalendarWardrobeItem.objects.filter(pk=link.pk).exists())
-        self.assertFalse(CalendarItem.objects.filter(pk=item.pk).exists())
         self.assertTrue(WardrobeItem.objects.filter(pk=wardrobe_item.pk).exists())
         self.mock_delete_s3.assert_called_once_with(self.user.pk, calendar_id)
 

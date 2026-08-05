@@ -34,62 +34,12 @@ class CalendarStorageKeyTests(SimpleTestCase):
             ),
             f"calendar/7/{self.calendar_id}/selected/{self.link_id}.png",
         )
-        self.assertEqual(
-            storage.manifest_key(7, self.calendar_id),
-            f"calendar/7/{self.calendar_id}/manifest.json",
-        )
-        self.assertEqual(
-            storage.temp_prefix(7, self.calendar_id),
-            f"calendar/7/{self.calendar_id}/temp/",
-        )
-
-    def test_processed_item_key_sanitizes_processor_identifier(self) -> None:
-        key = storage.processed_item_key(
-            7,
-            self.calendar_id,
-            "../../item/1",
-            "webp",
-        )
-
-        self.assertEqual(
-            key,
-            f"calendar/7/{self.calendar_id}/items/item_1.webp",
-        )
-        unsafe_extension_key = storage.processed_item_key(
-            7,
-            self.calendar_id,
-            "item-2",
-            "../../jpg",
-        )
-        self.assertEqual(
-            unsafe_extension_key,
-            f"calendar/7/{self.calendar_id}/items/item-2.png",
-        )
 
     def test_calendar_prefix_rejects_unsafe_path_segments(self) -> None:
         with self.assertRaises(ValueError):
             storage.calendar_prefix("../other-user", self.calendar_id)
         with self.assertRaises(ValueError):
             storage.calendar_prefix(7, "../other-calendar")
-
-    def test_owns_key_accepts_only_calendar_prefix(self) -> None:
-        own_key = storage.manifest_key(7, self.calendar_id)
-
-        self.assertTrue(
-            storage.owns_key(
-                own_key,
-                user_id=7,
-                calendar_id=self.calendar_id,
-            )
-        )
-        self.assertFalse(
-            storage.owns_key(
-                "calendar/8/11111111-1111-1111-1111-111111111111/manifest.json",
-                user_id=7,
-                calendar_id=self.calendar_id,
-            )
-        )
-
 
 class CalendarStorageOperationTests(SimpleTestCase):
     def setUp(self) -> None:
@@ -130,6 +80,21 @@ class CalendarStorageOperationTests(SimpleTestCase):
             CopySource={"Bucket": "wardrobe-bucket", "Key": "wardrobe/1/item.png"},
             Bucket="calendar-bucket",
             Key="calendar/1/id/selected/link.png",
+        )
+
+    def test_copy_calendar_original_to_wardrobe_uses_server_side_copy(self) -> None:
+        storage.copy_calendar_original_to_wardrobe(
+            "calendar/1/id/original.jpg",
+            "wardrobe/1/job/original.jpg",
+        )
+
+        self.client.copy_object.assert_called_once_with(
+            CopySource={
+                "Bucket": "calendar-bucket",
+                "Key": "calendar/1/id/original.jpg",
+            },
+            Bucket="wardrobe-bucket",
+            Key="wardrobe/1/job/original.jpg",
         )
 
     def test_presigned_get_uses_configured_ttl(self) -> None:

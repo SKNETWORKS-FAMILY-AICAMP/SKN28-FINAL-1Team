@@ -5,14 +5,9 @@ from django.test import TestCase
 from django.urls import reverse
 from rest_framework.test import APIClient
 
-from apps.style_calendar.contracts import (
-    CalendarItemInternalStatus,
-    CalendarSourceType,
-    CalendarStatus,
-)
+from apps.style_calendar.contracts import CalendarSourceType, CalendarStatus
 from apps.style_calendar.models import (
     CalendarEntry,
-    CalendarItem,
     CalendarWardrobeItem,
 )
 from apps.users.models import User
@@ -71,15 +66,6 @@ class CalendarApiTests(TestCase):
             sort_order=0,
             snapshot={"item_name": "흰색 반팔", "s3_key": wardrobe_item.s3_key},
         )
-        self.processed_item = CalendarItem.objects.create(
-            calendar=self.entry,
-            internal_status=CalendarItemInternalStatus.EXTRACTED.value,
-            processor_item_id="item-1",
-            image_s3_key="calendar/user/entry/items/item-1.png",
-            category="top",
-            tags=["반팔", "화이트"],
-            bbox={"x": 1, "y": 2, "width": 3, "height": 4},
-        )
 
     def test_read_endpoints_require_authentication(self) -> None:
         client = APIClient()
@@ -136,7 +122,7 @@ class CalendarApiTests(TestCase):
         self.assertEqual(reversed_period.status_code, 400)
         self.assertEqual(invalid.status_code, 400)
 
-    def test_by_date_returns_calendar_with_nested_items(self) -> None:
+    def test_by_date_returns_calendar_with_linked_wardrobe_items(self) -> None:
         response = self.client.get(
             reverse("style_calendar:calendar-by-date"),
             {"date": "2026-08-04"},
@@ -152,12 +138,7 @@ class CalendarApiTests(TestCase):
             response.data["wardrobe_items"][0]["wardrobe_item_id"],
             str(self.wardrobe_link.wardrobe_item_id),
         )
-        self.assertEqual(
-            response.data["items"][0]["id"],
-            str(self.processed_item.pk),
-        )
-        self.assertNotIn("internal_status", response.data["items"][0])
-        self.assertNotIn("processor_item_id", response.data["items"][0])
+        self.assertNotIn("items", response.data)
 
     def test_by_date_returns_404_for_missing_or_other_users_entry(self) -> None:
         missing = self.client.get(

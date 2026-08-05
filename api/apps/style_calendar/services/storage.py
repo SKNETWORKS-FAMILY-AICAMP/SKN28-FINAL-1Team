@@ -23,7 +23,6 @@ WARDROBE_BUCKET = os.getenv("WARDROBE_S3_BUCKET", "").strip()
 REGION = os.getenv("AWS_REGION", "ap-northeast-2").strip() or "ap-northeast-2"
 PRESIGNED_GET_TTL = int(os.getenv("CALENDAR_PRESIGNED_GET_TTL", "3600"))
 
-_SAFE_TOKEN_PATTERN = re.compile(r"[^A-Za-z0-9._-]")
 _SAFE_PATH_SEGMENT_PATTERN = re.compile(r"[A-Za-z0-9_-]+")
 _IMAGE_CONTENT_TYPE_EXTENSIONS = {
     "image/jpeg": ".jpg",
@@ -58,11 +57,6 @@ def _extension(filename_or_key: str, *, default: str) -> str:
     if not suffix or len(suffix) > 10:
         return default
     return suffix
-
-
-def _safe_token(value: str) -> str:
-    token = _SAFE_TOKEN_PATTERN.sub("_", value).strip("._")
-    return token or "item"
 
 
 def _path_segment(value: int | str | UUID, *, name: str) -> str:
@@ -100,37 +94,6 @@ def selected_item_key(
     return f"{calendar_prefix(user_id, calendar_id)}selected/{link_id}{extension}"
 
 
-def processed_item_key(
-    user_id: int | str,
-    calendar_id: UUID | str,
-    processor_item_id: str,
-    extension: str = ".png",
-) -> str:
-    extension_candidate = extension if extension.startswith(".") else f".{extension}"
-    normalized_extension = _extension(f"item{extension_candidate}", default=".png")
-    token = _safe_token(processor_item_id)
-    return f"{calendar_prefix(user_id, calendar_id)}items/{token}{normalized_extension}"
-
-
-def manifest_key(user_id: int | str, calendar_id: UUID | str) -> str:
-    return f"{calendar_prefix(user_id, calendar_id)}manifest.json"
-
-
-def temp_prefix(user_id: int | str, calendar_id: UUID | str) -> str:
-    return f"{calendar_prefix(user_id, calendar_id)}temp/"
-
-
-def owns_key(
-    key: str,
-    *,
-    user_id: int | str,
-    calendar_id: UUID | str,
-) -> bool:
-    """callback 등에서 받은 key가 해당 캘린더 경로에 속하는지 확인한다."""
-
-    return bool(key) and key.startswith(calendar_prefix(user_id, calendar_id))
-
-
 def upload_fileobj(fileobj, key: str, content_type: str | None = None) -> None:
     bucket = _require_bucket(BUCKET, "CALENDAR_S3_BUCKET")
     extra_args = {"ContentType": content_type} if content_type else {}
@@ -142,6 +105,21 @@ def copy_wardrobe_item(source_key: str, destination_key: str) -> None:
 
     source_bucket = _require_bucket(WARDROBE_BUCKET, "WARDROBE_S3_BUCKET")
     destination_bucket = _require_bucket(BUCKET, "CALENDAR_S3_BUCKET")
+    _client().copy_object(
+        CopySource={"Bucket": source_bucket, "Key": source_key},
+        Bucket=destination_bucket,
+        Key=destination_key,
+    )
+
+
+def copy_calendar_original_to_wardrobe(
+    source_key: str,
+    destination_key: str,
+) -> None:
+    """캘린더 원본을 기존 옷장 worker 입력 경로로 서버 측 복사한다."""
+
+    source_bucket = _require_bucket(BUCKET, "CALENDAR_S3_BUCKET")
+    destination_bucket = _require_bucket(WARDROBE_BUCKET, "WARDROBE_S3_BUCKET")
     _client().copy_object(
         CopySource={"Bucket": source_bucket, "Key": source_key},
         Bucket=destination_bucket,

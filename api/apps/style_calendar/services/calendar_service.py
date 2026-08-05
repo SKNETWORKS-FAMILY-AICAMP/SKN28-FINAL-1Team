@@ -9,22 +9,21 @@ from typing import TYPE_CHECKING
 from uuid import UUID
 
 from django.db import IntegrityError, transaction
-from django.db.models import Count, Prefetch, Q, QuerySet
+from django.db.models import Count, F, IntegerField, Prefetch, Q, QuerySet, Value
 from django.utils import timezone
 
 from apps.style_calendar.contracts import (
-    CalendarItemInternalStatus,
     CalendarProcessingErrorCode,
     CalendarSourceType,
     CalendarStatus,
 )
 from apps.style_calendar.models import (
     CalendarEntry,
-    CalendarItem,
     CalendarWardrobeItem,
 )
 from apps.style_calendar.services import storage
-from apps.wardrobe.models import WardrobeItem
+from apps.wardrobe.models import WardrobeItem, WardrobeUploadJob
+from apps.wardrobe.services import storage as wardrobe_storage
 
 if TYPE_CHECKING:
     from django.core.files.uploadedfile import UploadedFile
@@ -61,14 +60,14 @@ class CalendarDeletionConflictError(Exception):
 def entries_for_user(*, user) -> QuerySet[CalendarEntry]:
     """사용자 소유 캘린더와 조회 응답에 필요한 하위 데이터를 반환한다."""
 
-    return CalendarEntry.objects.filter(user=user).prefetch_related(
+    return CalendarEntry.objects.filter(user=user).select_related(
+        "wardrobe_upload_job"
+    ).prefetch_related(
         Prefetch(
             "wardrobe_links",
-            queryset=CalendarWardrobeItem.objects.order_by("sort_order", "created_at"),
-        ),
-        Prefetch(
-            "items",
-            queryset=CalendarItem.objects.order_by("sort_order", "created_at"),
+            queryset=CalendarWardrobeItem.objects.select_related(
+                "wardrobe_item"
+            ).order_by("sort_order", "created_at"),
         ),
     )
 
@@ -91,17 +90,21 @@ def processing_statuses_for_user(*, user) -> QuerySet[CalendarEntry]:
     """처리 상태 응답에 필요한 아이템 집계를 포함한 사용자 캘린더 QuerySet."""
 
     return CalendarEntry.objects.filter(user=user).annotate(
-        total_item_count=Count("items"),
-        extracted_item_count=Count(
-            "items",
+        total_item_count=Count(
+            "wardrobe_links",
             filter=Q(
-                items__internal_status=CalendarItemInternalStatus.EXTRACTED.value
+                wardrobe_links__wardrobe_item__job=F("wardrobe_upload_job")
             ),
+            distinct=True,
         ),
-        failed_item_count=Count(
-            "items",
-            filter=Q(items__internal_status=CalendarItemInternalStatus.FAILED.value),
+        extracted_item_count=Count(
+            "wardrobe_links",
+            filter=Q(
+                wardrobe_links__wardrobe_item__job=F("wardrobe_upload_job")
+            ),
+            distinct=True,
         ),
+        failed_item_count=Value(0, output_field=IntegerField()),
     )
 
 
@@ -190,6 +193,15 @@ def _cleanup_s3_objects(keys: Sequence[str]) -> None:
         logger.exception("캘린더 S3 객체 정리 실패: object_count=%s", len(keys))
 
 
+def _cleanup_wardrobe_s3_objects(keys: Sequence[str]) -> None:
+    if not keys:
+        return
+    try:
+        wardrobe_storage.delete_objects(keys)
+    except Exception:
+        logger.exception("옷장 S3 객체 정리 실패: object_count=%s", len(keys))
+
+
 def _owned_wardrobe_items(
     *,
     user: User,
@@ -209,10 +221,12 @@ def _prepare_wardrobe_links(
     *,
     entry: CalendarEntry,
     ordered_items: Sequence[WardrobeItem],
+    start_sort_order: int = 0,
 ) -> tuple[list[CalendarWardrobeItem], list[str]]:
     links: list[CalendarWardrobeItem] = []
     destination_keys: list[str] = []
-    for sort_order, item in enumerate(ordered_items):
+    for item_offset, item in enumerate(ordered_items):
+        sort_order = start_sort_order + item_offset
         link = CalendarWardrobeItem(
             calendar=entry,
             wardrobe_item=item,
@@ -249,13 +263,18 @@ def _save_entry_with_links(
     entry: CalendarEntry,
     links: Sequence[CalendarWardrobeItem],
     stored_keys: Sequence[str],
+    upload_job: WardrobeUploadJob | None = None,
+    wardrobe_stored_keys: Sequence[str] = (),
 ) -> None:
     try:
         with transaction.atomic():
+            if upload_job is not None:
+                upload_job.save(force_insert=True)
             entry.save(force_insert=True)
             CalendarWardrobeItem.objects.bulk_create(links)
     except IntegrityError as exc:
         _cleanup_s3_objects(stored_keys)
+        _cleanup_wardrobe_s3_objects(wardrobe_stored_keys)
         cause = getattr(exc, "__cause__", None)
         diag = getattr(cause, "diag", None)
         if getattr(diag, "constraint_name", None) == "uq_calendar_user_date":
@@ -263,6 +282,7 @@ def _save_entry_with_links(
         raise
     except Exception:
         _cleanup_s3_objects(stored_keys)
+        _cleanup_wardrobe_s3_objects(wardrobe_stored_keys)
         raise
 
 
@@ -336,8 +356,10 @@ def create_from_photo(
         user=user,
         wardrobe_item_ids=wardrobe_item_ids,
     )
+    upload_job = WardrobeUploadJob(user=user)
     entry = CalendarEntry(
         user=user,
+        wardrobe_upload_job=upload_job,
         date=entry_date,
         source_type=CalendarSourceType.PHOTO_UPLOAD.value,
         image_s3_key="",
@@ -353,15 +375,27 @@ def create_from_photo(
         image.content_type,
     )
     entry.image_s3_key = original_s3_key
+    wardrobe_original_s3_key = wardrobe_storage.original_key(
+        user.pk,
+        upload_job.pk,
+        image.name,
+    )
+    upload_job.source_s3_key = wardrobe_original_s3_key
     links, destination_keys = _prepare_wardrobe_links(
         entry=entry,
         ordered_items=ordered_items,
     )
 
     stored_keys: list[str] = []
+    wardrobe_stored_keys: list[str] = []
     try:
         storage.upload_fileobj(image, original_s3_key, image.content_type)
         stored_keys.append(original_s3_key)
+        storage.copy_calendar_original_to_wardrobe(
+            original_s3_key,
+            wardrobe_original_s3_key,
+        )
+        wardrobe_stored_keys.append(wardrobe_original_s3_key)
         _copy_wardrobe_images(
             ordered_items=ordered_items,
             destination_keys=destination_keys,
@@ -369,9 +403,16 @@ def create_from_photo(
         )
     except Exception as exc:
         _cleanup_s3_objects(stored_keys)
+        _cleanup_wardrobe_s3_objects(wardrobe_stored_keys)
         raise CalendarStorageError from exc
 
-    _save_entry_with_links(entry=entry, links=links, stored_keys=stored_keys)
+    _save_entry_with_links(
+        entry=entry,
+        links=links,
+        stored_keys=stored_keys,
+        upload_job=upload_job,
+        wardrobe_stored_keys=wardrobe_stored_keys,
+    )
 
     return entries_for_user(user=user).get(pk=entry.pk)
 
@@ -380,16 +421,110 @@ def mark_queue_enqueue_failed(entry: CalendarEntry) -> None:
     """Redis 적재 실패를 PostgreSQL의 최종 실패 상태로 기록한다."""
 
     completed_at = timezone.now()
-    entry.status = CalendarStatus.FAILED.value
-    entry.processing_error_code = CalendarProcessingErrorCode.QUEUE_ENQUEUE_FAILED.value
-    entry.processing_error_message = "캘린더 이미지 처리 큐 적재 실패"
-    entry.processing_completed_at = completed_at
+    with transaction.atomic():
+        entry.status = CalendarStatus.FAILED.value
+        entry.processing_error_code = (
+            CalendarProcessingErrorCode.QUEUE_ENQUEUE_FAILED.value
+        )
+        entry.processing_error_message = "옷장 이미지 처리 큐 적재 실패"
+        entry.processing_completed_at = completed_at
+        entry.save(
+            update_fields=[
+                "status",
+                "processing_error_code",
+                "processing_error_message",
+                "processing_completed_at",
+                "updated_at",
+            ]
+        )
+        if entry.wardrobe_upload_job_id:
+            WardrobeUploadJob.objects.filter(pk=entry.wardrobe_upload_job_id).update(
+                status=WardrobeUploadJob.Status.FAILED,
+                error_message="처리 큐 적재 실패",
+                finished_at=completed_at,
+            )
+
+
+def apply_wardrobe_job_success(
+    *,
+    job: WardrobeUploadJob,
+    created_items: Sequence[WardrobeItem],
+) -> None:
+    """기존 옷장 callback 결과를 해당 사진 캘린더에 자동 연결한다."""
+
+    entry = (
+        CalendarEntry.objects.select_for_update()
+        .filter(wardrobe_upload_job=job)
+        .first()
+    )
+    if entry is None:
+        return
+
+    existing_item_ids = set(
+        entry.wardrobe_links.values_list("wardrobe_item_id", flat=True)
+    )
+    new_items = [item for item in created_items if item.pk not in existing_item_ids]
+    start_sort_order = entry.wardrobe_links.count()
+    links, destination_keys = _prepare_wardrobe_links(
+        entry=entry,
+        ordered_items=new_items,
+        start_sort_order=start_sort_order,
+    )
+
+    stored_keys: list[str] = []
+    try:
+        _copy_wardrobe_images(
+            ordered_items=new_items,
+            destination_keys=destination_keys,
+            stored_keys=stored_keys,
+        )
+        CalendarWardrobeItem.objects.bulk_create(links)
+    except Exception:
+        _cleanup_s3_objects(stored_keys)
+        raise
+
+    entry.status = CalendarStatus.COMPLETED.value
+    entry.processing_error_code = ""
+    entry.processing_error_message = ""
+    entry.processing_completed_at = job.finished_at or timezone.now()
+    entry.callback_applied_at = timezone.now()
     entry.save(
         update_fields=[
             "status",
             "processing_error_code",
             "processing_error_message",
             "processing_completed_at",
+            "callback_applied_at",
+            "updated_at",
+        ]
+    )
+
+
+def apply_wardrobe_job_failure(*, job: WardrobeUploadJob) -> None:
+    """기존 옷장 callback 실패 상태를 연결된 캘린더에 반영한다."""
+
+    entry = (
+        CalendarEntry.objects.select_for_update()
+        .filter(wardrobe_upload_job=job)
+        .first()
+    )
+    if entry is None:
+        return
+
+    entry.status = CalendarStatus.FAILED.value
+    entry.processing_error_code = (
+        CalendarProcessingErrorCode.IMAGE_PROCESSING_FAILED.value
+    )
+    entry.processing_error_message = job.error_message
+    entry.processing_completed_at = job.finished_at or timezone.now()
+    entry.callback_applied_at = timezone.now()
+    entry.save(
+        update_fields=[
+            "status",
+            "processing_error_code",
+            "processing_error_message",
+            "processing_completed_at",
+            "callback_applied_at",
             "updated_at",
         ]
     )

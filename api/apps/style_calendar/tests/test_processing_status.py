@@ -8,13 +8,13 @@ from django.utils import timezone
 from rest_framework.test import APIClient
 
 from apps.style_calendar.contracts import (
-    CalendarItemInternalStatus,
     CalendarProcessingErrorCode,
     CalendarSourceType,
     CalendarStatus,
 )
-from apps.style_calendar.models import CalendarEntry, CalendarItem
+from apps.style_calendar.models import CalendarEntry, CalendarWardrobeItem
 from apps.users.models import User
+from apps.wardrobe.models import WardrobeItem, WardrobeUploadJob
 
 
 class CalendarProcessingStatusApiTests(TestCase):
@@ -23,8 +23,13 @@ class CalendarProcessingStatusApiTests(TestCase):
         self.other_user = User.objects.create(username="status-other")
         self.client = APIClient()
         self.client.force_authenticate(self.user)
+        self.job = WardrobeUploadJob.objects.create(
+            user=self.user,
+            source_s3_key="wardrobe/status/job/original.jpg",
+        )
         self.entry = CalendarEntry.objects.create(
             user=self.user,
+            wardrobe_upload_job=self.job,
             date=date(2026, 8, 4),
             source_type=CalendarSourceType.PHOTO_UPLOAD.value,
             image_s3_key="calendar/status/original.jpg",
@@ -52,23 +57,30 @@ class CalendarProcessingStatusApiTests(TestCase):
             {"total": 0, "extracted": 0, "failed": 0},
         )
 
-    def test_completed_status_returns_extracted_and_failed_counts(self) -> None:
+    def test_completed_status_counts_only_items_created_by_its_job(self) -> None:
         self.entry.status = CalendarStatus.COMPLETED.value
-        self.entry.processing_started_at = timezone.now()
         self.entry.processing_completed_at = timezone.now()
         self.entry.save()
-        CalendarItem.objects.create(
+        extracted = WardrobeItem.objects.create(
+            user=self.user,
+            job=self.job,
+            s3_key="wardrobe/status/job/item_000.png",
+            category_large="상의",
+        )
+        manually_selected = WardrobeItem.objects.create(
+            user=self.user,
+            job=None,
+            s3_key="wardrobe/status/manual.png",
+            category_large="하의",
+        )
+        CalendarWardrobeItem.objects.create(
             calendar=self.entry,
-            internal_status=CalendarItemInternalStatus.EXTRACTED.value,
-            processor_item_id="item-0",
-            image_s3_key="calendar/status/item-0.png",
+            wardrobe_item=manually_selected,
             sort_order=0,
         )
-        CalendarItem.objects.create(
+        CalendarWardrobeItem.objects.create(
             calendar=self.entry,
-            internal_status=CalendarItemInternalStatus.FAILED.value,
-            processor_item_id="item-1",
-            processing_error="generation failed",
+            wardrobe_item=extracted,
             sort_order=1,
         )
 
@@ -79,9 +91,8 @@ class CalendarProcessingStatusApiTests(TestCase):
         self.assertTrue(response.data["result_available"])
         self.assertEqual(
             response.data["item_counts"],
-            {"total": 2, "extracted": 1, "failed": 1},
+            {"total": 1, "extracted": 1, "failed": 0},
         )
-        self.assertIsNone(response.data["failure"])
 
     def test_failed_status_returns_safe_public_failure(self) -> None:
         self.entry.status = CalendarStatus.FAILED.value
@@ -105,22 +116,6 @@ class CalendarProcessingStatusApiTests(TestCase):
             },
         )
         self.assertNotIn("private.internal", str(response.data))
-
-    def test_unknown_failure_code_uses_generic_message(self) -> None:
-        self.entry.status = CalendarStatus.FAILED.value
-        self.entry.processing_error_code = "UNEXPECTED_PROVIDER_ERROR"
-        self.entry.processing_error_message = "secret technical detail"
-        self.entry.save()
-
-        response = self.client.get(self.url_for(self.entry))
-
-        self.assertEqual(response.status_code, 200)
-        self.assertEqual(response.data["failure"]["code"], "UNEXPECTED_PROVIDER_ERROR")
-        self.assertEqual(
-            response.data["failure"]["message"],
-            "이미지 처리에 실패했습니다. 잠시 후 다시 시도해주세요.",
-        )
-        self.assertNotIn("secret technical detail", str(response.data))
 
     def test_direct_wardrobe_calendar_does_not_require_processing(self) -> None:
         direct_entry = CalendarEntry.objects.create(
