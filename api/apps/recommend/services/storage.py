@@ -61,6 +61,11 @@ def upload_fileobj(fileobj, key: str, content_type: str | None = None) -> None:
     _client().upload_fileobj(fileobj, bucket(), key, ExtraArgs=extra or {})
 
 
+def download(key: str) -> bytes:
+    """워커가 평가 대상 사진을 읽어온다. 실패 시 botocore 예외를 그대로 올린다."""
+    return _client().get_object(Bucket=bucket(), Key=key)["Body"].read()
+
+
 def presigned_get(key: str, ttl: int = PRESIGNED_GET_TTL) -> str:
     return _client().generate_presigned_url(
         "get_object", Params={"Bucket": bucket(), "Key": key}, ExpiresIn=ttl

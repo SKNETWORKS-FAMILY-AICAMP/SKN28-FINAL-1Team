@@ -88,26 +88,55 @@ docker compose --profile all up -d --build      # db + api + collector 2종
 
 ## 코디 평가 API (apps/recommend)
 
+Gemini 호출이 30초를 넘겨 gunicorn 워커를 붙잡던 문제 때문에 **접수와 분석을 분리**했다.
+설계: Confluence > 설계 > "코디 평가 비동기화 설계(접수·워커 분리 · 익명 폴링)".
+
+```
+[앱] --사진--> [api] --S3--> [DB: QUEUED] --> [Redis 큐] --202--> [앱]
+                                                  │
+                                            [outfit-worker]
+                                            축소 → Gemini → DB: SUCCEEDED
+                                                  │
+[앱] --2초마다 GET /outfits/analyses/{id}/ -------> 완료되면 결과
+```
+
 | 메서드 | 경로 | 설명 |
 | --- | --- | --- |
-| POST | `/api/v1/outfits/analyze/` | multipart `image`(+선택 `lat`/`lon`) → Gemini 평가. 비로그인 가능, JWT를 보내면 추구미·체형 반영 |
-| GET | `/api/v1/outfits/analyses/` | 내 평가 이력 목록 (`status`/`limit`/`offset`). 로그인 필요 |
-| GET | `/api/v1/outfits/analyses/{id}/` | 평가 상세 — 질의 스냅샷 + LLM 요청·응답 원본. 로그인 필요 |
+| POST | `/api/v1/outfits/analyze/` | multipart `image`(+선택 `lat`/`lon`) → **202** + `analysis_id`/`poll_url`. 비로그인 가능, JWT를 보내면 추구미·체형 반영 |
+| GET | `/api/v1/outfits/analyses/{id}/` | 진행 상태 겸 결과 (폴링용). 익명 접수 건은 토큰 없이, 로그인 접수 건은 본인만 |
+| GET | `/api/v1/outfits/analyses/` | 내 이력 목록 (`status`/`limit`/`offset`). 로그인 필요 |
 
 요청 1건은 `outfit_analysis` 테이블에 1행으로 남는다. **LLM 질의를 구성한 정보(날씨·체형·
 추구미 스냅샷)와 LLM 요청·응답 원본을 함께 보관**해 사후에 평가를 재현·비교할 수 있게 한다.
-프로필과 날씨는 계속 바뀌므로 FK 참조가 아니라 요청 시점 값을 복사해 둔다.
+컨텍스트는 **접수 시점에 굳어서**, 큐에서 대기하는 사이 날씨가 바뀌어도 사진을 올린 순간의
+조건으로 평가한다 (워커는 `analysis.llm_context()`를 쓰고 다시 만들지 않는다).
 
-- 상태: `PENDING`(접수) → `SUCCEEDED` / `FAILED`. 호출 실패도 사유와 함께 남는다.
+- 상태: `QUEUED` → `PROCESSING` → `SUCCEEDED` / `FAILED`
 - 원본 사진은 S3(`outfits/{user_id|anonymous}/{analysis_id}/original.<ext>`)에 두고 키만 저장.
-  버킷은 `OUTFIT_S3_BUCKET`, 없으면 `WARDROBE_S3_BUCKET`, 둘 다 없으면 업로드를 건너뛴다.
-- 기록 실패(DB·S3)는 평가 응답을 막지 않는다. 이 경우 응답의 `analysis_id`가 `null`이다.
-- 익명 요청도 `user=NULL`로 기록되며, 소유자를 특정할 수 없어 이력 조회 대상에서 제외된다.
+  LLM에는 1024px로 축소한 전송본만 보낸다(워커가 축소). `image_bytes`는 원본,
+  `llm_image_bytes`는 전송본 크기다.
+- **S3는 필수 경로다.** 워커가 사진을 S3에서만 읽으므로 버킷 미설정·업로드 실패는 접수를
+  503으로 거절한다. 버킷은 `OUTFIT_S3_BUCKET`, 없으면 `WARDROBE_S3_BUCKET`.
+- 익명 요청은 `user=NULL`로 기록되고 `analysis_id`(UUID4)를 아는 사람만 조회할 수 있다.
+  응답에서 사진 URL·체형·LLM 원본을 빼고, `OUTFIT_ANON_TTL_HOURS`(기본 24시간)이 지나면 닫힌다.
+
+### 워커 실행
 
 ```bash
-python manage.py migrate recommend       # outfit_analysis 테이블 생성
+python manage.py migrate recommend          # outfit_analysis 테이블
+python manage.py run_outfit_worker          # 평가 워커 (compose: outfit-worker)
+python manage.py run_outfit_worker --once   # 1건만 처리하고 종료 (디버깅)
+python manage.py sweep_stale_analyses --dry-run   # 방치된 작업 확인
 python manage.py test apps.recommend
 ```
+
+**워커는 1대만 띄운다.** 재시작 복구(`recover_stale`)가 processing 큐를 통째로 되돌리기
+때문에 2대 이상이면 다른 워커가 처리 중인 작업까지 회수한다. 늘리려면 processing 키를
+워커별로 분리해야 한다 (`apps/recommend/services/queue.py` 주석 참고).
+
+워커가 죽어 방치된 행은 프론트를 무한 폴링에 가두므로, 워커 루프가 60초마다
+`sweep_stale`을 돌려 `OUTFIT_STALE_AFTER_MINUTES`를 넘긴 작업을 `FAILED`로 정리한다.
+별도 크론은 필요 없고, 워커가 내려간 동안 쌓인 것만 `sweep_stale_analyses`로 손으로 치운다.
 
 ## 스키마 소유권 (collector 연동)
 

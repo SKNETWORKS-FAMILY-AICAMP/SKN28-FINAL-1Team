@@ -1,18 +1,22 @@
 import json
-from datetime import datetime, timezone as dt_timezone
-from io import BytesIO
+from datetime import datetime, timedelta, timezone as dt_timezone
+from io import BytesIO, StringIO
 from types import SimpleNamespace
 from unittest.mock import Mock, patch
 
+import redis
 from django.contrib.auth import get_user_model
 from django.contrib.auth.models import AnonymousUser
 from django.core.files.uploadedfile import SimpleUploadedFile
+from django.core.management import call_command
 from django.test import SimpleTestCase, TestCase, override_settings
 from django.urls import reverse
+from django.utils import timezone
 from PIL import Image
 from rest_framework.test import APIClient
 
 from apps.recommend.models import OutfitAnalysis
+from apps.recommend.services import analysis as analysis_service
 from apps.recommend.services import gemini, imaging
 from apps.recommend.services.outfit_context import build_analysis_context
 
@@ -90,11 +94,20 @@ def make_image_file(
     return SimpleUploadedFile(name, make_image_bytes(size), content_type="image/jpeg")
 
 
-class OutfitAnalysisViewTests(TestCase):
-    """평가 요청 → 응답 + DB 기록.
 
-    기록이 생기므로 SimpleTestCase가 아니라 DB를 쓰는 TestCase다.
-    S3는 버킷 미설정 상태(기본)라 업로드를 건너뛴다 — 별도 테스트에서 검증.
+def image_part_size(analysis: OutfitAnalysis) -> int:
+    """자리표시자에 박아 둔 바이트 수를 되읽어 전송 크기를 확인한다."""
+    data = analysis.request_payload["contents"][0]["parts"][1]["inlineData"]["data"]
+    return int(data.split(":")[1].strip().split(" ")[0])
+
+
+@patch("apps.recommend.services.analysis.storage.is_configured", return_value=True)
+@patch("apps.recommend.services.analysis.storage.upload_fileobj")
+@patch("apps.recommend.services.analysis.queue.enqueue")
+class OutfitAnalysisAcceptTests(TestCase):
+    """접수 API — 202만 돌려주고 Gemini는 부르지 않는다.
+
+    S3와 큐는 클래스 단위로 mock한다 (전부 필수 경로라 매번 정상 동작이 기본값).
     """
 
     def setUp(self) -> None:
@@ -102,17 +115,15 @@ class OutfitAnalysisViewTests(TestCase):
         self.url = reverse("recommend:outfit-analysis")
 
     @patch(
-        "apps.recommend.services.analysis.gemini.evaluate_outfit",
-        return_value=GEMINI_RESULT,
-    )
-    @patch(
         "apps.recommend.services.analysis.build_analysis_context",
         return_value=CONTEXT,
     )
-    def test_evaluates_image_without_authentication(
+    def test_accepts_without_authentication(
         self,
         mock_context: Mock,
-        mock_evaluate: Mock,
+        mock_enqueue: Mock,
+        mock_upload: Mock,
+        _mock_configured: Mock,
     ) -> None:
         response = self.client.post(
             self.url,
@@ -120,80 +131,86 @@ class OutfitAnalysisViewTests(TestCase):
             format="multipart",
         )
 
-        self.assertEqual(response.status_code, 200)
-        self.assertEqual(response.data["status"], "completed")
-        self.assertEqual(response.data["evaluation"]["overall_score"], 88)
-        self.assertFalse(response.data["context"]["personalized"])
-        self.assertFalse(response.data["context"]["used_pursuit"])
-        self.assertNotIn("body", response.data["context"])
+        self.assertEqual(response.status_code, 202)
+        analysis = OutfitAnalysis.objects.get()
+        self.assertEqual(response.data["analysis_id"], analysis.pk)
+        self.assertEqual(response.data["status"], OutfitAnalysis.Status.QUEUED)
+        self.assertEqual(
+            response.data["poll_url"], f"/api/v1/outfits/analyses/{analysis.pk}/"
+        )
+        self.assertEqual(response.data["poll_after_ms"], 2000)
+        self.assertEqual(response.data["estimated_seconds"], 30)
         mock_context.assert_called_once()
-        mock_evaluate.assert_called_once()
+        mock_upload.assert_called_once()
+        mock_enqueue.assert_called_once()
 
-    @patch(
-        "apps.recommend.services.analysis.gemini.evaluate_outfit",
-        return_value=GEMINI_RESULT,
-    )
+    @patch("apps.recommend.services.analysis.gemini.evaluate_outfit")
     @patch(
         "apps.recommend.services.analysis.build_analysis_context",
         return_value=CONTEXT,
     )
-    def test_persists_context_and_llm_payloads(
+    def test_does_not_call_llm_during_accept(
         self,
         _mock_context: Mock,
-        _mock_evaluate: Mock,
+        mock_evaluate: Mock,
+        _mock_enqueue: Mock,
+        _mock_upload: Mock,
+        _mock_configured: Mock,
     ) -> None:
-        response = self.client.post(
+        """비동기화의 핵심 — 요청 스레드가 Gemini를 기다리지 않는다."""
+        self.client.post(self.url, {"image": make_image_file()}, format="multipart")
+
+        mock_evaluate.assert_not_called()
+
+    @patch(
+        "apps.recommend.services.analysis.build_analysis_context",
+        return_value=CONTEXT,
+    )
+    def test_freezes_query_context_at_accept_time(
+        self,
+        _mock_context: Mock,
+        _mock_enqueue: Mock,
+        _mock_upload: Mock,
+        _mock_configured: Mock,
+    ) -> None:
+        """큐에서 대기하는 사이 날씨가 바뀌어도 되도록 스냅샷을 굳혀 둔다."""
+        self.client.post(
             self.url,
             {"image": make_image_file(), "lat": 37.5, "lon": 127.0},
             format="multipart",
         )
 
         analysis = OutfitAnalysis.objects.get()
-        self.assertEqual(analysis.pk, response.data["analysis_id"])
-        self.assertEqual(analysis.status, OutfitAnalysis.Status.SUCCEEDED)
-        self.assertIsNone(analysis.user)  # 익명 요청
-        # 질의 구성 정보 스냅샷
         self.assertEqual(analysis.weather, WEATHER)
         self.assertIsNone(analysis.body)
         self.assertIsNone(analysis.pursuit)
         self.assertFalse(analysis.personalized)
         self.assertEqual(analysis.requested_lat, 37.5)
         self.assertEqual(analysis.resolved_lat, 37.5)
-        # LLM 요청·응답 원본
-        self.assertEqual(analysis.evaluation, EVALUATION)
-        self.assertEqual(analysis.response_payload, RAW_RESPONSE)
-        self.assertEqual(analysis.llm_model, "gemini-3.5-flash")
-        self.assertEqual(analysis.latency_ms, 321)
-        self.assertIn("systemInstruction", analysis.request_payload)
-        self.assertIsNotNone(analysis.finished_at)
+        self.assertEqual(analysis.image_bytes, len(make_image_bytes()))
+        self.assertEqual(analysis.attempts, 0)
+        self.assertIsNone(analysis.started_at)
 
-    @patch(
-        "apps.recommend.services.analysis.gemini.evaluate_outfit",
-        return_value=GEMINI_RESULT,
-    )
     @patch(
         "apps.recommend.services.analysis.build_analysis_context",
         return_value=CONTEXT,
     )
-    def test_request_payload_does_not_store_image_base64(
+    def test_uploads_original_and_enqueues_its_key(
         self,
         _mock_context: Mock,
-        _mock_evaluate: Mock,
+        mock_enqueue: Mock,
+        mock_upload: Mock,
+        _mock_configured: Mock,
     ) -> None:
         self.client.post(self.url, {"image": make_image_file()}, format="multipart")
 
         analysis = OutfitAnalysis.objects.get()
-        image_part = analysis.request_payload["contents"][0]["parts"][1]["inlineData"]
-        # 원본은 S3에 있으므로 행에는 자리표시자만 남는다 (행 크기 폭증 방지)
-        self.assertTrue(image_part["data"].startswith("<image omitted"))
-        # image_bytes는 원본 크기, 자리표시자는 실제 전송 크기
-        self.assertEqual(analysis.image_bytes, len(make_image_bytes()))
-        self.assertGreater(image_part_size(analysis), 0)
+        self.assertEqual(
+            analysis.image_s3_key, f"outfits/anonymous/{analysis.pk}/original.jpg"
+        )
+        self.assertEqual(mock_upload.call_args.args[1], analysis.image_s3_key)
+        self.assertEqual(mock_enqueue.call_args.args[0].pk, analysis.pk)
 
-    @patch(
-        "apps.recommend.services.analysis.gemini.evaluate_outfit",
-        return_value=GEMINI_RESULT,
-    )
     @patch(
         "apps.recommend.services.analysis.build_analysis_context",
         return_value=CONTEXT,
@@ -201,22 +218,28 @@ class OutfitAnalysisViewTests(TestCase):
     def test_records_logged_in_user(
         self,
         _mock_context: Mock,
-        _mock_evaluate: Mock,
+        _mock_enqueue: Mock,
+        _mock_upload: Mock,
+        _mock_configured: Mock,
     ) -> None:
         user = get_user_model().objects.create(username="naver_1")
         self.client.force_authenticate(user=user)
 
         self.client.post(self.url, {"image": make_image_file()}, format="multipart")
 
-        self.assertEqual(OutfitAnalysis.objects.get().user, user)
+        analysis = OutfitAnalysis.objects.get()
+        self.assertEqual(analysis.user, user)
+        self.assertEqual(
+            analysis.image_s3_key, f"outfits/{user.pk}/{analysis.pk}/original.jpg"
+        )
 
-    def test_rejects_request_without_image(self) -> None:
+    def test_rejects_request_without_image(self, *_mocks: Mock) -> None:
         response = self.client.post(self.url, {}, format="multipart")
         self.assertEqual(response.status_code, 400)
         self.assertIn("image", response.data)
         self.assertEqual(OutfitAnalysis.objects.count(), 0)
 
-    def test_rejects_only_one_coordinate(self) -> None:
+    def test_rejects_only_one_coordinate(self, *_mocks: Mock) -> None:
         response = self.client.post(
             self.url,
             {"image": make_image_file(), "lat": 37.5},
@@ -225,7 +248,7 @@ class OutfitAnalysisViewTests(TestCase):
         self.assertEqual(response.status_code, 400)
         self.assertIn("non_field_errors", response.data)
 
-    def test_rejects_non_image_file(self) -> None:
+    def test_rejects_non_image_file(self, *_mocks: Mock) -> None:
         response = self.client.post(
             self.url,
             {
@@ -238,26 +261,69 @@ class OutfitAnalysisViewTests(TestCase):
         self.assertEqual(response.status_code, 400)
         self.assertIn("image", response.data)
 
-    def test_rejects_json_request(self) -> None:
+    def test_rejects_json_request(self, *_mocks: Mock) -> None:
         response = self.client.post(self.url, {"image": "value"}, format="json")
         self.assertEqual(response.status_code, 415)
 
+
+class OutfitAnalysisAcceptFailureTests(TestCase):
+    """S3와 큐는 이제 필수 경로다 — 실패하면 접수 자체를 거절한다."""
+
+    def setUp(self) -> None:
+        self.client = APIClient()
+        self.url = reverse("recommend:outfit-analysis")
+
+    @patch("apps.recommend.services.analysis.storage.is_configured", return_value=False)
+    def test_rejects_when_bucket_not_configured(self, _mock_configured: Mock) -> None:
+        """버킷이 없으면 워커가 사진을 못 읽는다 — 조용히 받아두면 영원히 분석 중이 된다."""
+        response = self.client.post(
+            self.url, {"image": make_image_file()}, format="multipart"
+        )
+
+        self.assertEqual(response.status_code, 503)
+        self.assertEqual(OutfitAnalysis.objects.count(), 0)
+
+    @patch("apps.recommend.services.analysis.storage.is_configured", return_value=True)
     @patch(
-        "apps.recommend.services.analysis.gemini.evaluate_outfit",
-        side_effect=gemini.GeminiServiceError(
-            "Gemini 코디 평가에 실패했습니다.",
-            response_payload={"error": {"code": 400}},
-        ),
+        "apps.recommend.services.analysis.storage.upload_fileobj",
+        side_effect=RuntimeError("S3 down"),
     )
     @patch(
         "apps.recommend.services.analysis.build_analysis_context",
         return_value=CONTEXT,
     )
-    def test_returns_503_and_records_failure_when_gemini_fails(
+    def test_s3_failure_rejects_and_leaves_no_row(
         self,
         _mock_context: Mock,
-        _mock_evaluate: Mock,
+        _mock_upload: Mock,
+        _mock_configured: Mock,
     ) -> None:
+        response = self.client.post(
+            self.url, {"image": make_image_file()}, format="multipart"
+        )
+
+        self.assertEqual(response.status_code, 503)
+        # 분석이 불가능한 기록을 남기지 않는다
+        self.assertEqual(OutfitAnalysis.objects.count(), 0)
+
+    @patch("apps.recommend.services.analysis.storage.is_configured", return_value=True)
+    @patch("apps.recommend.services.analysis.storage.upload_fileobj")
+    @patch(
+        "apps.recommend.services.analysis.queue.enqueue",
+        side_effect=redis.ConnectionError("redis down"),
+    )
+    @patch(
+        "apps.recommend.services.analysis.build_analysis_context",
+        return_value=CONTEXT,
+    )
+    def test_queue_failure_marks_row_failed(
+        self,
+        _mock_context: Mock,
+        _mock_enqueue: Mock,
+        _mock_upload: Mock,
+        _mock_configured: Mock,
+    ) -> None:
+        """사진은 이미 S3에 올라갔으므로 흔적을 남긴다 (wardrobe와 같은 처리)."""
         response = self.client.post(
             self.url, {"image": make_image_file()}, format="multipart"
         )
@@ -265,155 +331,132 @@ class OutfitAnalysisViewTests(TestCase):
         self.assertEqual(response.status_code, 503)
         analysis = OutfitAnalysis.objects.get()
         self.assertEqual(analysis.status, OutfitAnalysis.Status.FAILED)
-        self.assertIn("실패", analysis.error_message)
-        self.assertEqual(analysis.response_payload, {"error": {"code": 400}})
-        self.assertIsNone(analysis.evaluation)
-        # 실패해도 질의에 쓴 정보는 남아야 재현이 가능하다
-        self.assertEqual(analysis.weather, WEATHER)
-        self.assertIn("systemInstruction", analysis.request_payload)
+        self.assertIn("큐", analysis.error_message)
         self.assertIsNotNone(analysis.finished_at)
 
-    @patch(
-        "apps.recommend.services.analysis.gemini.evaluate_outfit",
-        return_value=GEMINI_RESULT,
-    )
-    @patch(
-        "apps.recommend.services.analysis.build_analysis_context",
-        return_value=CONTEXT,
-    )
-    @patch("apps.recommend.services.analysis.storage.is_configured", return_value=True)
-    @patch("apps.recommend.services.analysis.storage.upload_fileobj")
-    def test_uploads_original_image_to_s3(
-        self,
-        mock_upload: Mock,
-        _mock_configured: Mock,
-        _mock_context: Mock,
-        _mock_evaluate: Mock,
-    ) -> None:
-        self.client.post(self.url, {"image": make_image_file()}, format="multipart")
 
-        analysis = OutfitAnalysis.objects.get()
-        mock_upload.assert_called_once()
-        self.assertEqual(
-            analysis.image_s3_key,
-            f"outfits/anonymous/{analysis.pk}/original.jpg",
+class OutfitAnalysisPollTests(TestCase):
+    """조회 API — 폴링과 결과 수신을 겸한다."""
+
+    def setUp(self) -> None:
+        self.client = APIClient()
+        self.user = get_user_model().objects.create(username="naver_1")
+        self.other = get_user_model().objects.create(username="kakao_2")
+
+    def _url(self, analysis) -> str:
+        return reverse("recommend:outfit-analysis-detail", args=[analysis.pk])
+
+    def _anonymous(self, **kwargs) -> OutfitAnalysis:
+        return OutfitAnalysis.objects.create(user=None, weather=WEATHER, **kwargs)
+
+    def test_anonymous_can_poll_own_ticket(self) -> None:
+        analysis = self._anonymous(status=OutfitAnalysis.Status.PROCESSING)
+
+        response = self.client.get(self._url(analysis))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data["status"], "PROCESSING")
+        self.assertIsNone(response.data["evaluation"])
+        self.assertEqual(response.data["poll_after_ms"], 2000)
+
+    def test_anonymous_receives_result_when_done(self) -> None:
+        analysis = self._anonymous(
+            status=OutfitAnalysis.Status.SUCCEEDED, evaluation=EVALUATION
         )
 
-    @patch(
-        "apps.recommend.services.analysis.gemini.evaluate_outfit",
-        return_value=GEMINI_RESULT,
-    )
-    @patch(
-        "apps.recommend.services.analysis.build_analysis_context",
-        return_value=CONTEXT,
-    )
-    def test_sends_shrunk_image_but_records_original_size(
-        self,
-        _mock_context: Mock,
-        mock_evaluate: Mock,
-    ) -> None:
-        """큰 사진은 전송 전에 축소한다 (원본 그대로 보내면 Gemini가 타임아웃)."""
-        original = make_image_bytes((2000, 1500))
-        self.client.post(
-            self.url,
-            {
-                "image": SimpleUploadedFile(
-                    "big.jpg", original, content_type="image/jpeg"
-                )
-            },
-            format="multipart",
+        response = self.client.get(self._url(analysis))
+
+        self.assertEqual(response.data["evaluation"], EVALUATION)
+        self.assertEqual(response.data["context"]["weather"], WEATHER)
+        self.assertIsNone(response.data["poll_after_ms"])  # 폴링 중단 신호
+        self.assertIsNone(response.data["detail"])
+
+    def test_anonymous_response_hides_private_fields(self) -> None:
+        """UUID는 URL·로그로 샐 수 있다 — 사진과 체형은 익명 응답에 싣지 않는다."""
+        analysis = self._anonymous(
+            status=OutfitAnalysis.Status.SUCCEEDED,
+            evaluation=EVALUATION,
+            body={"gender": "female", "height": 165},
+            pursuit={"preferred": {"styles": ["minimal"]}},
+            request_payload={"systemInstruction": {}},
+            response_payload=RAW_RESPONSE,
+            image_s3_key="outfits/anonymous/x/original.jpg",
         )
 
-        sent_data = mock_evaluate.call_args.args[0]
-        self.assertLess(len(sent_data), len(original))
-        with Image.open(BytesIO(sent_data)) as sent_image:
-            self.assertLessEqual(max(sent_image.size), imaging.MAX_EDGE_PX)
+        response = self.client.get(self._url(analysis))
 
-        analysis = OutfitAnalysis.objects.get()
-        # DB의 image_bytes는 S3에 올린 원본 기준
-        self.assertEqual(analysis.image_bytes, len(original))
-        self.assertEqual(image_part_size(analysis), len(sent_data))
-
-    @patch(
-        "apps.recommend.services.analysis.build_analysis_context",
-        return_value=CONTEXT,
-    )
-    @patch("apps.recommend.services.analysis.storage.is_configured", return_value=True)
-    @patch(
-        "apps.recommend.services.analysis.storage.upload_fileobj",
-        side_effect=lambda fileobj, key, content_type=None: fileobj.close(),
-    )
-    @patch("apps.recommend.services.gemini.requests.post")
-    def test_s3_upload_closing_stream_does_not_break_llm_call(
-        self,
-        mock_post: Mock,
-        _mock_upload: Mock,
-        _mock_configured: Mock,
-        _mock_context: Mock,
-    ) -> None:
-        """회귀: boto3 upload_fileobj가 넘겨받은 파일을 닫아 Gemini 읽기가 죽었다.
-
-        업로드와 LLM 호출이 같은 업로드 파일을 차례로 쓰던 구조라
-        두 번째 읽기가 ValueError("I/O operation on closed file")로 500을 냈다.
-        """
-        api_response = Mock()
-        api_response.status_code = 200
-        api_response.raise_for_status.return_value = None
-        api_response.json.return_value = RAW_RESPONSE
-        mock_post.return_value = api_response
-
-        with override_settings(
-            GEMINI_API_KEY="test-api-key",
-            GEMINI_MODEL="gemini-3.5-flash",
-            GEMINI_API_BASE_URL="https://example.test",
-            GEMINI_TIMEOUT_SECONDS=10,
+        for hidden in (
+            "body",
+            "pursuit",
+            "request_payload",
+            "response_payload",
+            "image_url",
+            "error_message",
         ):
-            response = self.client.post(
-                self.url, {"image": make_image_file()}, format="multipart"
-            )
+            self.assertNotIn(hidden, response.data)
+        # 개인화가 걸렸는지 여부는 안내 문구용으로 남긴다
+        self.assertTrue(response.data["context"]["used_body"])
 
-        self.assertEqual(response.status_code, 200)
-        analysis = OutfitAnalysis.objects.get()
-        self.assertEqual(analysis.status, OutfitAnalysis.Status.SUCCEEDED)
-        self.assertTrue(analysis.image_s3_key)
-        # 실제로 이미지 base64가 실려 나갔는지 확인 (빈 바이트로 조용히 성공하면 안 된다)
-        sent_parts = mock_post.call_args.kwargs["json"]["contents"][0]["parts"]
-        self.assertTrue(len(sent_parts[1]["inlineData"]["data"]) > 100)
-
-    @patch(
-        "apps.recommend.services.analysis.gemini.evaluate_outfit",
-        return_value=GEMINI_RESULT,
-    )
-    @patch(
-        "apps.recommend.services.analysis.build_analysis_context",
-        return_value=CONTEXT,
-    )
-    @patch("apps.recommend.services.analysis.storage.is_configured", return_value=True)
-    @patch(
-        "apps.recommend.services.analysis.storage.upload_fileobj",
-        side_effect=RuntimeError("S3 down"),
-    )
-    def test_s3_failure_does_not_break_evaluation(
-        self,
-        _mock_upload: Mock,
-        _mock_configured: Mock,
-        _mock_context: Mock,
-        _mock_evaluate: Mock,
-    ) -> None:
-        response = self.client.post(
-            self.url, {"image": make_image_file()}, format="multipart"
+    def test_failed_analysis_returns_user_facing_message(self) -> None:
+        analysis = self._anonymous(
+            status=OutfitAnalysis.Status.FAILED,
+            error_message="GeminiServiceError: quota exceeded",
         )
 
-        self.assertEqual(response.status_code, 200)
-        analysis = OutfitAnalysis.objects.get()
-        self.assertEqual(analysis.status, OutfitAnalysis.Status.SUCCEEDED)
-        self.assertEqual(analysis.image_s3_key, "")
+        response = self.client.get(self._url(analysis))
 
+        self.assertEqual(response.data["status"], "FAILED")
+        self.assertIn("다시 시도", response.data["detail"])
+        # 내부 사유는 노출하지 않는다
+        self.assertNotIn("quota", json.dumps(response.data, default=str))
 
-def image_part_size(analysis: OutfitAnalysis) -> int:
-    """자리표시자에 박아 둔 바이트 수를 되읽어 image_bytes와 대조한다."""
-    data = analysis.request_payload["contents"][0]["parts"][1]["inlineData"]["data"]
-    return int(data.split(":")[1].strip().split(" ")[0])
+    @override_settings(OUTFIT_ANON_TTL_HOURS=24)
+    def test_anonymous_ticket_expires(self) -> None:
+        analysis = self._anonymous(status=OutfitAnalysis.Status.SUCCEEDED)
+        OutfitAnalysis.objects.filter(pk=analysis.pk).update(
+            created_at=timezone.now() - timedelta(hours=25)
+        )
+
+        response = self.client.get(self._url(analysis))
+
+        self.assertEqual(response.status_code, 404)
+
+    def test_logged_in_record_needs_token(self) -> None:
+        analysis = OutfitAnalysis.objects.create(user=self.user)
+
+        # UUID를 알아도 익명으로는 못 본다
+        self.assertEqual(self.client.get(self._url(analysis)).status_code, 404)
+
+        # 남의 토큰으로도 못 본다 (403이면 그 UUID의 존재를 알려주는 셈이라 404)
+        self.client.force_authenticate(user=self.other)
+        self.assertEqual(self.client.get(self._url(analysis)).status_code, 404)
+
+        self.client.force_authenticate(user=self.user)
+        self.assertEqual(self.client.get(self._url(analysis)).status_code, 200)
+
+    def test_owner_response_includes_internals(self) -> None:
+        analysis = OutfitAnalysis.objects.create(
+            user=self.user,
+            status=OutfitAnalysis.Status.SUCCEEDED,
+            evaluation=EVALUATION,
+            response_payload=RAW_RESPONSE,
+        )
+        self.client.force_authenticate(user=self.user)
+
+        response = self.client.get(self._url(analysis))
+
+        self.assertEqual(response.data["response_payload"], RAW_RESPONSE)
+        self.assertIn("attempts", response.data)
+        self.assertIn("llm_image_bytes", response.data)
+
+    def test_unknown_id_is_404(self) -> None:
+        response = self.client.get(
+            reverse(
+                "recommend:outfit-analysis-detail",
+                args=["6b2c1f3a-9d4e-4c8b-8a71-2f0e5d9c3b17"],
+            )
+        )
+        self.assertEqual(response.status_code, 404)
 
 
 class OutfitAnalysisHistoryTests(TestCase):
@@ -428,10 +471,10 @@ class OutfitAnalysisHistoryTests(TestCase):
             evaluation=EVALUATION,
             personalized=True,
         )
-        self.theirs = OutfitAnalysis.objects.create(
+        OutfitAnalysis.objects.create(
             user=self.other, status=OutfitAnalysis.Status.SUCCEEDED
         )
-        self.anonymous = OutfitAnalysis.objects.create(
+        OutfitAnalysis.objects.create(
             user=None, status=OutfitAnalysis.Status.SUCCEEDED
         )
 
@@ -464,28 +507,262 @@ class OutfitAnalysisHistoryTests(TestCase):
         self.assertEqual(response.data["count"], 1)
         self.assertEqual(response.data["results"][0]["status"], "FAILED")
 
-    def test_detail_returns_stored_context_and_payloads(self) -> None:
-        self.client.force_authenticate(user=self.user)
 
-        response = self.client.get(
-            reverse("recommend:outfit-analysis-detail", args=[self.mine.pk])
+@patch("apps.recommend.services.analysis.storage.download",
+        return_value=make_image_bytes((1600, 1200)),)
+class WorkerTests(TestCase):
+    """워커 서비스 계층 — claim 멱등성과 결과 기록."""
+
+    def setUp(self) -> None:
+        self.analysis = OutfitAnalysis.objects.create(
+            user=None,
+            status=OutfitAnalysis.Status.QUEUED,
+            weather=WEATHER,
+            image_s3_key="outfits/anonymous/x/original.jpg",
+            image_content_type="image/jpeg",
         )
 
-        self.assertEqual(response.status_code, 200)
-        self.assertEqual(response.data["weather"], WEATHER)
-        self.assertEqual(response.data["evaluation"], EVALUATION)
-        self.assertIn("request_payload", response.data)
-        self.assertIn("response_payload", response.data)
-        self.assertIsNone(response.data["image_url"])  # 버킷 미설정
+    def test_claim_marks_processing(self, _mock_download: Mock) -> None:
+        claimed = analysis_service.claim(str(self.analysis.pk))
 
-    def test_detail_hides_other_users_analysis(self) -> None:
-        self.client.force_authenticate(user=self.user)
+        self.assertIsNotNone(claimed)
+        self.assertEqual(claimed.status, OutfitAnalysis.Status.PROCESSING)
+        self.assertEqual(claimed.attempts, 1)
+        self.assertIsNotNone(claimed.started_at)
 
-        response = self.client.get(
-            reverse("recommend:outfit-analysis-detail", args=[self.theirs.pk])
+    def test_claim_skips_already_succeeded(self, _mock_download: Mock) -> None:
+        """중복 배달·재시도가 완료된 평가를 다시 돌리면 Gemini 비용이 두 번 나간다."""
+        self.analysis.status = OutfitAnalysis.Status.SUCCEEDED
+        self.analysis.save(update_fields=["status"])
+
+        self.assertIsNone(analysis_service.claim(str(self.analysis.pk)))
+
+    def test_claim_returns_none_for_missing_row(self, _mock_download: Mock) -> None:
+        self.assertIsNone(
+            analysis_service.claim("6b2c1f3a-9d4e-4c8b-8a71-2f0e5d9c3b17")
         )
 
-        self.assertEqual(response.status_code, 404)
+    def test_claim_retries_processing_row(self, _mock_download: Mock) -> None:
+        """워커가 죽어 PROCESSING에 남은 행은 다시 집을 수 있어야 한다."""
+        analysis_service.claim(str(self.analysis.pk))
+
+        claimed = analysis_service.claim(str(self.analysis.pk))
+
+        self.assertIsNotNone(claimed)
+        self.assertEqual(claimed.attempts, 2)
+
+    @patch(
+        "apps.recommend.services.analysis.gemini.evaluate_outfit",
+        return_value=GEMINI_RESULT,
+    )
+    def test_run_records_result_and_uses_frozen_context(
+        self, mock_evaluate: Mock, _mock_download: Mock
+    ) -> None:
+        self.analysis.pursuit = {"preferred": {"styles": ["minimal"]}}
+        self.analysis.save(update_fields=["pursuit"])
+        claimed = analysis_service.claim(str(self.analysis.pk))
+
+        analysis_service.run_analysis(claimed)
+
+        # 컨텍스트를 새로 만들지 않고 접수 시점 스냅샷을 쓴다
+        sent_context = mock_evaluate.call_args.kwargs["context"]
+        self.assertEqual(sent_context["weather"], WEATHER)
+        self.assertEqual(sent_context["pursuit"], {"preferred": {"styles": ["minimal"]}})
+
+        claimed.refresh_from_db()
+        self.assertEqual(claimed.status, OutfitAnalysis.Status.SUCCEEDED)
+        self.assertEqual(claimed.evaluation, EVALUATION)
+        self.assertEqual(claimed.response_payload, RAW_RESPONSE)
+        self.assertEqual(claimed.latency_ms, 321)
+        self.assertIsNotNone(claimed.llm_image_bytes)
+        self.assertIsNotNone(claimed.finished_at)
+
+    @patch(
+        "apps.recommend.services.analysis.gemini.evaluate_outfit",
+        side_effect=gemini.GeminiServiceError(
+            "타임아웃", response_payload={"error": {"code": 504}}
+        ),
+    )
+    def test_run_records_query_even_on_failure(
+        self, _mock_evaluate: Mock, _mock_download: Mock
+    ) -> None:
+        """재시도 판단과 사후 분석을 위해 무엇을 보냈는지는 남긴다."""
+        claimed = analysis_service.claim(str(self.analysis.pk))
+
+        with self.assertRaises(gemini.GeminiServiceError):
+            analysis_service.run_analysis(claimed)
+
+        claimed.refresh_from_db()
+        # 아직 FAILED가 아니다 — 재시도 여지가 있으므로 워커 커맨드가 결정한다
+        self.assertEqual(claimed.status, OutfitAnalysis.Status.PROCESSING)
+        self.assertIn("systemInstruction", claimed.request_payload)
+        self.assertEqual(claimed.response_payload, {"error": {"code": 504}})
+
+    def test_mark_failed(self, _mock_download: Mock) -> None:
+        analysis_service.mark_failed(self.analysis, "GeminiServiceError: 타임아웃")
+
+        self.analysis.refresh_from_db()
+        self.assertEqual(self.analysis.status, OutfitAnalysis.Status.FAILED)
+        self.assertIn("타임아웃", self.analysis.error_message)
+        self.assertIsNotNone(self.analysis.finished_at)
+
+
+class SweepStaleTests(TestCase):
+    """워커가 죽으면 프론트가 영원히 폴링한다 — 방치된 행을 실패로 정리한다."""
+
+    def _aged(self, status: str, *, minutes: int, started: bool) -> OutfitAnalysis:
+        analysis = OutfitAnalysis.objects.create(user=None, status=status)
+        moment = timezone.now() - timedelta(minutes=minutes)
+        OutfitAnalysis.objects.filter(pk=analysis.pk).update(
+            created_at=moment, started_at=moment if started else None
+        )
+        return analysis
+
+    def test_sweeps_stuck_processing_and_queued(self) -> None:
+        stuck_processing = self._aged(
+            OutfitAnalysis.Status.PROCESSING, minutes=10, started=True
+        )
+        forgotten_queued = self._aged(
+            OutfitAnalysis.Status.QUEUED, minutes=10, started=False
+        )
+        recent = self._aged(OutfitAnalysis.Status.QUEUED, minutes=1, started=False)
+        done = OutfitAnalysis.objects.create(
+            user=None, status=OutfitAnalysis.Status.SUCCEEDED
+        )
+
+        swept = analysis_service.sweep_stale(minutes=5)
+
+        self.assertEqual(swept, 2)
+        for analysis in (stuck_processing, forgotten_queued):
+            analysis.refresh_from_db()
+            self.assertEqual(analysis.status, OutfitAnalysis.Status.FAILED)
+            self.assertIsNotNone(analysis.finished_at)
+        recent.refresh_from_db()
+        self.assertEqual(recent.status, OutfitAnalysis.Status.QUEUED)
+        done.refresh_from_db()
+        self.assertEqual(done.status, OutfitAnalysis.Status.SUCCEEDED)
+
+    def test_command_dry_run_changes_nothing(self) -> None:
+        self._aged(OutfitAnalysis.Status.QUEUED, minutes=10, started=False)
+
+        call_command("sweep_stale_analyses", "--minutes", "5", "--dry-run", stdout=StringIO())
+
+        self.assertEqual(
+            OutfitAnalysis.objects.filter(
+                status=OutfitAnalysis.Status.QUEUED
+            ).count(),
+            1,
+        )
+
+    def test_command_sweeps(self) -> None:
+        self._aged(OutfitAnalysis.Status.QUEUED, minutes=10, started=False)
+
+        call_command("sweep_stale_analyses", "--minutes", "5", stdout=StringIO())
+
+        self.assertEqual(
+            OutfitAnalysis.objects.get().status, OutfitAnalysis.Status.FAILED
+        )
+
+
+class WorkerCommandTests(TestCase):
+    """run_outfit_worker — 큐 상호작용(ack / 재시도 / dead)."""
+
+    def setUp(self) -> None:
+        self.analysis = OutfitAnalysis.objects.create(
+            user=None,
+            status=OutfitAnalysis.Status.QUEUED,
+            weather=WEATHER,
+            image_s3_key="outfits/anonymous/x/original.jpg",
+            image_content_type="image/jpeg",
+        )
+        self.raw = json.dumps({"analysis_id": str(self.analysis.pk)})
+
+    def _run_once(self) -> None:
+        call_command("run_outfit_worker", "--once", stdout=StringIO())
+
+    @patch("apps.recommend.management.commands.run_outfit_worker.queue")
+    @patch("apps.recommend.services.analysis.storage.download",
+        return_value=make_image_bytes((1600, 1200)),)
+    @patch(
+        "apps.recommend.services.analysis.gemini.evaluate_outfit",
+        return_value=GEMINI_RESULT,
+    )
+    def test_processes_and_acks(
+        self, _mock_evaluate: Mock, _mock_download: Mock, mock_queue: Mock
+    ) -> None:
+        mock_queue.fetch.return_value = self.raw
+
+        self._run_once()
+
+        self.analysis.refresh_from_db()
+        self.assertEqual(self.analysis.status, OutfitAnalysis.Status.SUCCEEDED)
+        mock_queue.ack.assert_called_once()
+        mock_queue.retry_or_dead.assert_not_called()
+
+    @patch("apps.recommend.management.commands.run_outfit_worker.queue")
+    @patch("apps.recommend.services.analysis.storage.download",
+        return_value=make_image_bytes((1600, 1200)),)
+    @patch(
+        "apps.recommend.services.analysis.gemini.evaluate_outfit",
+        side_effect=gemini.GeminiServiceError("타임아웃"),
+    )
+    def test_retry_keeps_row_pending(
+        self, _mock_evaluate: Mock, _mock_download: Mock, mock_queue: Mock
+    ) -> None:
+        mock_queue.fetch.return_value = self.raw
+        mock_queue.retry_or_dead.return_value = False  # 아직 재시도 여지가 있다
+
+        self._run_once()
+
+        self.analysis.refresh_from_db()
+        self.assertEqual(self.analysis.status, OutfitAnalysis.Status.PROCESSING)
+        mock_queue.ack.assert_not_called()
+
+    @patch("apps.recommend.management.commands.run_outfit_worker.queue")
+    @patch("apps.recommend.services.analysis.storage.download",
+        return_value=make_image_bytes((1600, 1200)),)
+    @patch(
+        "apps.recommend.services.analysis.gemini.evaluate_outfit",
+        side_effect=gemini.GeminiServiceError("타임아웃"),
+    )
+    def test_dead_queue_marks_row_failed(
+        self, _mock_evaluate: Mock, _mock_download: Mock, mock_queue: Mock
+    ) -> None:
+        mock_queue.fetch.return_value = self.raw
+        mock_queue.retry_or_dead.return_value = True  # 재시도 한도 초과
+
+        self._run_once()
+
+        self.analysis.refresh_from_db()
+        self.assertEqual(self.analysis.status, OutfitAnalysis.Status.FAILED)
+        self.assertIn("GeminiServiceError", self.analysis.error_message)
+
+    @patch("apps.recommend.management.commands.run_outfit_worker.queue")
+    @patch(
+        "apps.recommend.services.analysis.gemini.evaluate_outfit",
+        return_value=GEMINI_RESULT,
+    )
+    def test_duplicate_delivery_is_acked_without_llm_call(
+        self, mock_evaluate: Mock, mock_queue: Mock
+    ) -> None:
+        self.analysis.status = OutfitAnalysis.Status.SUCCEEDED
+        self.analysis.save(update_fields=["status"])
+        mock_queue.fetch.return_value = self.raw
+
+        self._run_once()
+
+        mock_evaluate.assert_not_called()
+        mock_queue.ack.assert_called_once()
+
+    @patch("apps.recommend.management.commands.run_outfit_worker.queue")
+    def test_unparsable_payload_is_discarded(self, mock_queue: Mock) -> None:
+        """재시도해도 결과가 같은 페이로드로 큐를 막지 않는다."""
+        mock_queue.fetch.return_value = "{not json"
+
+        self._run_once()
+
+        mock_queue.ack.assert_called_once()
+        mock_queue.retry_or_dead.assert_not_called()
 
 
 @override_settings(

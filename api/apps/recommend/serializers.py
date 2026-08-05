@@ -1,4 +1,6 @@
+from django.conf import settings
 from django.core.files.uploadedfile import UploadedFile
+from drf_spectacular.utils import extend_schema_field
 from rest_framework import serializers
 
 from .models import OutfitAnalysis
@@ -67,15 +69,71 @@ class AnalysisContextSerializer(serializers.Serializer):
     used_body = serializers.BooleanField()
 
 
-class OutfitAnalysisResponseSerializer(serializers.Serializer):
-    status = serializers.ChoiceField(choices=["completed"])
-    # 기록 저장에 실패해도 평가는 반환하므로 null이 될 수 있다 (services/analysis.py 참고)
-    analysis_id = serializers.UUIDField(
-        allow_null=True,
-        help_text="저장된 평가 기록 ID. 이력 조회에 사용합니다. 기록 실패 시 null.",
+class OutfitAnalysisAcceptedSerializer(serializers.Serializer):
+    """202 접수 응답. 분석 결과는 poll_url로 따로 조회한다."""
+
+    analysis_id = serializers.UUIDField()
+    status = serializers.ChoiceField(choices=OutfitAnalysis.Status.choices)
+    poll_url = serializers.CharField(
+        help_text="결과 조회 경로. 이 URL을 poll_after_ms 간격으로 호출한다."
     )
-    evaluation = OutfitEvaluationSerializer()
-    context = AnalysisContextSerializer()
+    poll_after_ms = serializers.IntegerField(
+        help_text="다음 조회까지 기다릴 시간(ms). 프론트가 간격을 하드코딩하지 않게 서버가 준다."
+    )
+    estimated_seconds = serializers.IntegerField(
+        help_text="예상 소요 시간(초). 안내 문구용."
+    )
+
+
+class OutfitAnalysisPublicSerializer(serializers.ModelSerializer):
+    """익명 조회용 — UUID만 아는 사람에게 내려주는 축소 응답.
+
+    UUID는 URL·로그·Referer로 새어나갈 수 있다. 평가 문구가 노출되는 것과 본인 사진·
+    체형이 노출되는 것은 무게가 다르므로, 개인 스냅샷과 LLM 원본은 여기서 뺀다.
+    """
+
+    analysis_id = serializers.UUIDField(source="id", read_only=True)
+    evaluation = serializers.SerializerMethodField()
+    context = serializers.SerializerMethodField()
+    poll_after_ms = serializers.SerializerMethodField()
+    detail = serializers.SerializerMethodField()
+
+    class Meta:
+        model = OutfitAnalysis
+        fields = [
+            "analysis_id",
+            "status",
+            "evaluation",
+            "context",
+            "poll_after_ms",
+            "detail",
+            "created_at",
+            "finished_at",
+        ]
+
+    @extend_schema_field(OutfitEvaluationSerializer(allow_null=True))
+    def get_evaluation(self, obj: OutfitAnalysis) -> dict | None:
+        """완료 전에는 null. 프론트는 status로 판단하고 이 값은 참고만 한다."""
+        return obj.evaluation
+
+    @extend_schema_field(AnalysisContextSerializer)
+    def get_context(self, obj: OutfitAnalysis) -> dict:
+        # 개인화에 무엇이 쓰였는지는 알려주되(로그인 유도 안내에 쓴다) 값 자체는 주지 않는다
+        return {
+            "weather": obj.weather,
+            "personalized": obj.personalized,
+            "used_pursuit": obj.pursuit is not None,
+            "used_body": obj.body is not None,
+        }
+
+    def get_poll_after_ms(self, obj: OutfitAnalysis) -> int | None:
+        return settings.OUTFIT_POLL_AFTER_MS if obj.is_pending else None
+
+    def get_detail(self, obj: OutfitAnalysis) -> str | None:
+        """실패 사유(error_message)는 내부용이라 사용자 문구로 갈음한다."""
+        if obj.status != OutfitAnalysis.Status.FAILED:
+            return None
+        return "코디 평가를 완료하지 못했습니다. 다시 시도해주세요."
 
 
 class OutfitAnalysisListItemSerializer(serializers.ModelSerializer):
@@ -125,9 +183,12 @@ class OutfitAnalysisDetailSerializer(serializers.ModelSerializer):
             "request_payload",
             "response_payload",
             "evaluation",
+            "llm_image_bytes",
             "latency_ms",
+            "attempts",
             "error_message",
             "created_at",
+            "started_at",
             "finished_at",
         ]
 

@@ -10,6 +10,8 @@
   프롬프트·모델 교체 전후의 평가 품질을 비교할 수 있게 한다.
 - **이미지는 S3**: 원본 사진은 DB에 넣지 않고 S3 키만 저장한다 (wardrobe와 동일).
 - **익명 요청도 기록**: 이 API는 AllowAny라 user가 NULL인 행이 정상적으로 존재한다.
+  익명 행은 소유자를 특정할 수 없어 UUID를 아는 사람만 조회할 수 있고(뷰에서 제어),
+  일정 시간이 지나면 조회를 막는다.
 
 테이블·컬럼 comment는 db_table_comment/db_comment로 모델이 소유한다
 (새 필드 추가 시 반드시 db_comment 지정 — CLAUDE.md 5장).
@@ -27,9 +29,13 @@ class OutfitAnalysis(models.Model):
     """코디 사진 1장에 대한 LLM 평가 요청·결과 1건."""
 
     class Status(models.TextChoices):
-        PENDING = "PENDING", "평가 진행중"
+        QUEUED = "QUEUED", "대기중"
+        PROCESSING = "PROCESSING", "평가 진행중"
         SUCCEEDED = "SUCCEEDED", "평가 완료"
         FAILED = "FAILED", "평가 실패"
+
+    #: 아직 결과가 나오지 않아 클라이언트가 폴링을 계속해야 하는 상태
+    PENDING_STATUSES = (Status.QUEUED, Status.PROCESSING)
 
     id = models.UUIDField(
         primary_key=True,
@@ -50,8 +56,8 @@ class OutfitAnalysis(models.Model):
     status = models.CharField(
         max_length=16,
         choices=Status.choices,
-        default=Status.PENDING,
-        db_comment="평가 상태 (PENDING/SUCCEEDED/FAILED)",
+        default=Status.QUEUED,
+        db_comment="평가 상태 (QUEUED/PROCESSING/SUCCEEDED/FAILED)",
     )
 
     # ── 입력(사진·위치) ──
@@ -137,8 +143,16 @@ class OutfitAnalysis(models.Model):
         blank=True,
         db_comment="파싱된 평가 결과 JSON (API 응답의 evaluation 필드와 동일, 실패 시 NULL)",
     )
+    llm_image_bytes = models.PositiveIntegerField(
+        null=True,
+        blank=True,
+        db_comment="LLM에 실제 전송한 축소본 크기 (bytes, image_bytes는 원본 크기)",
+    )
     latency_ms = models.PositiveIntegerField(
         null=True, blank=True, db_comment="LLM 호출 소요 시간 (밀리초)"
+    )
+    attempts = models.PositiveSmallIntegerField(
+        default=0, db_comment="워커 처리 시도 횟수 (재시도 포함)"
     )
     error_message = models.TextField(
         blank=True, default="", db_comment="실패 시 오류 메시지"
@@ -146,6 +160,11 @@ class OutfitAnalysis(models.Model):
 
     created_at = models.DateTimeField(
         auto_now_add=True, db_comment="요청 접수 시각"
+    )
+    started_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        db_comment="워커가 처리를 시작한 시각 (큐 대기시간 측정·좀비 정리 기준)",
     )
     finished_at = models.DateTimeField(
         null=True,
@@ -172,3 +191,21 @@ class OutfitAnalysis(models.Model):
     def overall_score(self) -> int | None:
         """목록 응답에서 쓰는 요약 점수. 평가 실패 행이면 None."""
         return (self.evaluation or {}).get("overall_score")
+
+    @property
+    def is_pending(self) -> bool:
+        return self.status in self.PENDING_STATUSES
+
+    def llm_context(self) -> dict:
+        """LLM 질의에 넣을 컨텍스트를 접수 시점 스냅샷에서 복원한다.
+
+        워커는 이 값을 쓰고 컨텍스트를 다시 만들지 않는다. 큐에서 대기하는 사이
+        날씨가 바뀌거나 사용자가 추구미를 수정해도, 사용자가 사진을 올린 그 순간의
+        조건으로 평가해야 결과와 기록이 일치한다.
+        """
+        return {
+            "weather": self.weather or {},
+            "pursuit": self.pursuit,
+            "body": self.body,
+            "personalized": self.personalized,
+        }

@@ -295,3 +295,13 @@ GEMINI_API_BASE_URL = os.getenv(
 # 사진을 base64로 실어 보내므로 업로드 시간이 붙는다. 30s로는 큰 사진에서 타임아웃한다
 # (전송본은 apps/recommend/services/imaging.py가 1024px로 축소한다).
 GEMINI_TIMEOUT_SECONDS = int(os.getenv("GEMINI_TIMEOUT_SECONDS", "60"))
+
+# 코디 평가 비동기 처리 (접수 API ↔ outfit-worker)
+# 큐 키·재시도는 apps/recommend/services/queue.py가 환경변수로 직접 읽는다.
+# 비로그인 접수 건은 UUID를 아는 사람이 조회한다 — 무기한 열어두지 않는다.
+OUTFIT_ANON_TTL_HOURS = int(os.getenv("OUTFIT_ANON_TTL_HOURS", "24"))
+# 워커가 죽어 방치된 QUEUED/PROCESSING 행을 FAILED로 정리하는 기준 (프론트 무한 폴링 방지)
+OUTFIT_STALE_AFTER_MINUTES = int(os.getenv("OUTFIT_STALE_AFTER_MINUTES", "5"))
+# 프론트가 폴링 간격을 하드코딩하지 않도록 서버가 응답에 실어 보낸다
+OUTFIT_POLL_AFTER_MS = int(os.getenv("OUTFIT_POLL_AFTER_MS", "2000"))
+OUTFIT_ESTIMATED_SECONDS = int(os.getenv("OUTFIT_ESTIMATED_SECONDS", "30"))
