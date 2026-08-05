@@ -19,6 +19,13 @@ from apps.api_docs.serializers import (
     PreferenceOptionsResponseSerializer,
     SocialLoginResponseSerializer,
 )
+from apps.style_calendar.serializers import (
+    CalendarEntrySerializer,
+    CalendarMetadataUpdateSerializer,
+    CalendarPhotoCreateSerializer,
+    CalendarProcessingStatusSerializer,
+    CalendarWardrobeCreateSerializer,
+)
 from apps.users.serializers import (
     BodyBasicInputSerializer,
     BodyDetailInputSerializer,
@@ -750,3 +757,296 @@ class WardrobeItemDetailViewExtension(OpenApiViewExtension):
             pass
 
         return DocumentedWardrobeItemDetailView
+
+
+# =============================================================================
+# 캘린더 (다른 도메인과 분리된 Swagger 카테고리)
+# =============================================================================
+
+CALENDAR_TAG = "캘린더"
+
+CALENDAR_ID_PARAMETER = OpenApiParameter(
+    name="calendar_id",
+    type=OpenApiTypes.UUID,
+    location=OpenApiParameter.PATH,
+    required=True,
+    description="캘린더 등록 응답에서 받은 UUID",
+    examples=[
+        OpenApiExample(
+            name="캘린더 UUID",
+            value="aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee",
+        )
+    ],
+)
+
+CALENDAR_PHOTO_EXAMPLE = OpenApiExample(
+    name="사진 업로드 캘린더",
+    description=(
+        "image에는 로컬 이미지 파일을 선택합니다. 배열 필드는 Swagger UI에서 "
+        "항목을 추가해 하나씩 입력합니다."
+    ),
+    value={
+        "image": "(binary)",
+        "date": "2026-08-20",
+        "wardrobe_item_ids": [],
+        "schedule": "성수동 저녁 약속",
+        "tpo": ["데이트", "모임"],
+        "hashtags": ["여름", "캐주얼"],
+    },
+    media_type="multipart/form-data",
+    request_only=True,
+)
+
+CALENDAR_WARDROBE_EXAMPLE = OpenApiExample(
+    name="기존 옷장 아이템 직접 선택",
+    value={
+        "date": "2026-08-21",
+        "wardrobe_item_ids": [
+            "11111111-1111-1111-1111-111111111111",
+            "22222222-2222-2222-2222-222222222222",
+        ],
+        "schedule": "회사 출근 후 저녁 모임",
+        "tpo": ["출근", "모임"],
+        "hashtags": ["포멀", "여름"],
+    },
+    request_only=True,
+)
+
+CALENDAR_METADATA_EXAMPLES = [
+    OpenApiExample(
+        name="전체 메타데이터 수정",
+        value={
+            "schedule": "회사 회식으로 일정 변경",
+            "tpo": ["출근", "회식"],
+            "hashtags": ["포멀", "저녁"],
+        },
+        request_only=True,
+    ),
+    OpenApiExample(
+        name="일정만 부분 수정",
+        value={"schedule": "점심 약속"},
+        request_only=True,
+    ),
+]
+
+CALENDAR_START_DATE_PARAMETER = OpenApiParameter(
+    name="start_date",
+    type=OpenApiTypes.DATE,
+    location=OpenApiParameter.QUERY,
+    required=True,
+    description="조회 시작일(포함)",
+    examples=[OpenApiExample(name="2026년 8월 시작일", value="2026-08-01")],
+)
+
+CALENDAR_END_DATE_PARAMETER = OpenApiParameter(
+    name="end_date",
+    type=OpenApiTypes.DATE,
+    location=OpenApiParameter.QUERY,
+    required=True,
+    description="조회 종료일(포함)",
+    examples=[OpenApiExample(name="2026년 8월 종료일", value="2026-08-31")],
+)
+
+CALENDAR_DATE_PARAMETER = OpenApiParameter(
+    name="date",
+    type=OpenApiTypes.DATE,
+    location=OpenApiParameter.QUERY,
+    required=True,
+    description="조회할 캘린더 날짜",
+    examples=[OpenApiExample(name="조회 날짜", value="2026-08-20")],
+)
+
+
+class CalendarPhotoCreateViewExtension(OpenApiViewExtension):
+    target_class = "apps.style_calendar.views.CalendarPhotoCreateView"
+
+    def view_replacement(self):
+        @extend_schema_view(
+            post=extend_schema(
+                operation_id="calendar_photo_create",
+                tags=[CALENDAR_TAG],
+                summary="사진 업로드 캘린더 등록",
+                description=(
+                    "사용자 사진을 캘린더와 옷장 S3 경로에 저장하고 기존 "
+                    "`WardrobeUploadJob`을 `wardrobe:jobs`에 적재합니다. 응답 직후 "
+                    "상태는 REGISTERED이며, 기존 worker와 wardrobe callback이 "
+                    "생성한 옷장 아이템을 캘린더에 자동 연결합니다.\n\n"
+                    "제한: 사용자별 같은 날짜 한 건, jpeg/png/webp/heic, 15MB 이하."
+                ),
+                request=CalendarPhotoCreateSerializer,
+                examples=[CALENDAR_PHOTO_EXAMPLE],
+                responses={
+                    202: CalendarEntrySerializer,
+                    400: DetailResponseSerializer,
+                    401: DetailResponseSerializer,
+                    409: OpenApiResponse(description="해당 날짜 캘린더가 이미 존재"),
+                    503: DetailResponseSerializer,
+                },
+            )
+        )
+        class DocumentedCalendarPhotoCreateView(self.target_class):
+            pass
+
+        return DocumentedCalendarPhotoCreateView
+
+
+class CalendarWardrobeCreateViewExtension(OpenApiViewExtension):
+    target_class = "apps.style_calendar.views.CalendarWardrobeCreateView"
+
+    def view_replacement(self):
+        @extend_schema_view(
+            post=extend_schema(
+                operation_id="calendar_wardrobe_create",
+                tags=[CALENDAR_TAG],
+                summary="기존 옷장 아이템 직접 선택 캘린더 등록",
+                description=(
+                    "현재 사용자가 소유한 옷장 아이템 UUID를 한 개 이상 선택합니다. "
+                    "사진 처리 없이 즉시 COMPLETED로 등록되며 첫 번째 아이템 "
+                    "이미지가 대표 이미지가 됩니다."
+                ),
+                request=CalendarWardrobeCreateSerializer,
+                examples=[CALENDAR_WARDROBE_EXAMPLE],
+                responses={
+                    201: CalendarEntrySerializer,
+                    400: DetailResponseSerializer,
+                    401: DetailResponseSerializer,
+                    409: OpenApiResponse(description="해당 날짜 캘린더가 이미 존재"),
+                    503: DetailResponseSerializer,
+                },
+            )
+        )
+        class DocumentedCalendarWardrobeCreateView(self.target_class):
+            pass
+
+        return DocumentedCalendarWardrobeCreateView
+
+
+class CalendarEntryListViewExtension(OpenApiViewExtension):
+    target_class = "apps.style_calendar.views.CalendarEntryListView"
+
+    def view_replacement(self):
+        @extend_schema_view(
+            get=extend_schema(
+                operation_id="calendar_list",
+                tags=[CALENDAR_TAG],
+                summary="기간별 내 캘린더 목록",
+                description="start_date와 end_date를 모두 포함해 조회합니다.",
+                parameters=[
+                    CALENDAR_START_DATE_PARAMETER,
+                    CALENDAR_END_DATE_PARAMETER,
+                ],
+                responses={
+                    200: CalendarEntrySerializer(many=True),
+                    400: DetailResponseSerializer,
+                    401: DetailResponseSerializer,
+                },
+            )
+        )
+        class DocumentedCalendarEntryListView(self.target_class):
+            pass
+
+        return DocumentedCalendarEntryListView
+
+
+class CalendarEntryByDateViewExtension(OpenApiViewExtension):
+    target_class = "apps.style_calendar.views.CalendarEntryByDateView"
+
+    def view_replacement(self):
+        @extend_schema_view(
+            get=extend_schema(
+                operation_id="calendar_by_date",
+                tags=[CALENDAR_TAG],
+                summary="특정 날짜의 내 캘린더 조회",
+                parameters=[CALENDAR_DATE_PARAMETER],
+                responses={
+                    200: CalendarEntrySerializer,
+                    400: DetailResponseSerializer,
+                    401: DetailResponseSerializer,
+                    404: DetailResponseSerializer,
+                },
+            )
+        )
+        class DocumentedCalendarEntryByDateView(self.target_class):
+            pass
+
+        return DocumentedCalendarEntryByDateView
+
+
+class CalendarEntryDetailViewExtension(OpenApiViewExtension):
+    target_class = "apps.style_calendar.views.CalendarEntryDetailView"
+
+    def view_replacement(self):
+        @extend_schema_view(
+            get=extend_schema(
+                operation_id="calendar_detail",
+                tags=[CALENDAR_TAG],
+                summary="내 캘린더 상세 조회",
+                parameters=[CALENDAR_ID_PARAMETER],
+                responses={
+                    200: CalendarEntrySerializer,
+                    401: DetailResponseSerializer,
+                    404: DetailResponseSerializer,
+                },
+            ),
+            patch=extend_schema(
+                operation_id="calendar_metadata_update",
+                tags=[CALENDAR_TAG],
+                summary="캘린더 일정·TPO·해시태그 부분 수정",
+                parameters=[CALENDAR_ID_PARAMETER],
+                request=CalendarMetadataUpdateSerializer,
+                examples=CALENDAR_METADATA_EXAMPLES,
+                responses={
+                    200: CalendarEntrySerializer,
+                    400: DetailResponseSerializer,
+                    401: DetailResponseSerializer,
+                    404: DetailResponseSerializer,
+                },
+            ),
+            delete=extend_schema(
+                operation_id="calendar_delete",
+                tags=[CALENDAR_TAG],
+                summary="완료·실패 캘린더 삭제",
+                description=(
+                    "COMPLETED 또는 FAILED 상태만 삭제할 수 있습니다. 캘린더 연결과 "
+                    "캘린더 소유 S3 경로는 삭제하지만 실제 WardrobeItem은 유지합니다."
+                ),
+                parameters=[CALENDAR_ID_PARAMETER],
+                responses={
+                    204: OpenApiResponse(description="삭제 완료"),
+                    401: DetailResponseSerializer,
+                    404: DetailResponseSerializer,
+                    409: OpenApiResponse(description="이미지 처리가 종료되지 않음"),
+                },
+            ),
+        )
+        class DocumentedCalendarEntryDetailView(self.target_class):
+            pass
+
+        return DocumentedCalendarEntryDetailView
+
+
+class CalendarProcessingStatusViewExtension(OpenApiViewExtension):
+    target_class = "apps.style_calendar.views.CalendarProcessingStatusView"
+
+    def view_replacement(self):
+        @extend_schema_view(
+            get=extend_schema(
+                operation_id="calendar_processing_status",
+                tags=[CALENDAR_TAG],
+                summary="캘린더 사진 처리 상태 조회",
+                description=(
+                    "사진 캘린더의 REGISTERED/COMPLETED/FAILED 상태와 해당 옷장 "
+                    "job으로 생성·연결된 아이템 수를 반환합니다."
+                ),
+                parameters=[CALENDAR_ID_PARAMETER],
+                responses={
+                    200: CalendarProcessingStatusSerializer,
+                    401: DetailResponseSerializer,
+                    404: DetailResponseSerializer,
+                },
+            )
+        )
+        class DocumentedCalendarProcessingStatusView(self.target_class):
+            pass
+
+        return DocumentedCalendarProcessingStatusView
