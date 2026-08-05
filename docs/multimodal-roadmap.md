@@ -1,11 +1,13 @@
 # 멀티모달(이미지+메타데이터) 기반 신체치수 측정 모델 개발 계획 및 로드맵
 
-> **Session Metadata**
+> **상태: 완료 (2026-08-05)** — 아래 목표 3개는 모두 달성했다. 초기 계획을 남겨 두는
+> 이력 문서이며, 현재 설계와 성능은 [body-measurement-api-design.md](body-measurement-api-design.md)를 본다.
 >
-> * **Session (Conversation) ID**: `36bbd04f-de00-448f-be8c-44ba8bc431ce`
-> * **Transcript Log Path**: [transcript.jsonl](file:///Users/vosnuevo/.gemini/antigravity-cli/brain/36bbd04f-de00-448f-be8c-44ba8bc431ce/.system_generated/logs/transcript.jsonl)
-> * **Conversation DB Path**: `/Users/vosnuevo/.gemini/antigravity-cli/conversations/36bbd04f-de00-448f-be8c-44ba8bc431ce.db`
-> * **Artifact Directory**: [Artifacts Folder](file:///Users/vosnuevo/.gemini/antigravity-cli/brain/36bbd04f-de00-448f-be8c-44ba8bc431ce)
+> | 목표 | 결과 |
+> |---|---|
+> | 사진 + 실측치수가 조인된 테스트셋 100~300개 구축 | SizeKorea 145명 |
+> | VLM 후보 탐색·비교 | 4개 비교 후 Kimi K2.5 선정 (Validation MAE 2.757cm) |
+> | 정형 모델과 A/B 정량 비교 | 143명 A/B 완료 — 가슴·허리는 사진 우세, 나머지 5개는 무사진 우세 |
 
 이 문서는 기존 **성별·키·몸무게** 기반의 신체치수 예측 모델에서 한 단계 나아가, **전신사진(이미지)**을 조합하여 가슴둘레, 허리둘레, 엉덩이둘레의 예측 정확도를 개선하기 위한 R&D 진행 계획입니다.
 

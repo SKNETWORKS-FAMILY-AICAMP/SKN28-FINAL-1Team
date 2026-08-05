@@ -183,6 +183,34 @@ f111은 같은 입력에서 MAE 1.17cm → 3.60cm로 벌어졌다. 단건 결과
 - API 모델은 제공자·시점에 따라 응답이 달라질 수 있으므로, 최종 후보는 10명 내외를 3회 반복 호출해 결과 흔들림도 확인하는 것이 좋음
 - 전체 평균만으로는 부족하므로, 최종 Test에서는 성별·출처별 MAE와 큰 오차 사례도 함께 보고해야 함
 
+## 6-1. ⚠️ 아직 없는 숫자 — 무사진 기준선 (2026-08-05 확인)
+
+**이 문서에는 "사진을 써서 3.15cm"라는 결과만 있고, 같은 사람들을 사진 없이
+성별·키·몸무게만으로 예측했을 때의 오차가 없다.** 그 숫자가 없으면 사진이 실제로
+도움이 됐는지 판단할 근거가 없다.
+
+- 1단계 tabular 보고서의 **1.915cm를 여기에 갖다 대면 안 된다.** 그건 SizeKorea 5,092명
+  모집단에서 나온 값이고, 여기 평가셋은 별도 촬영 데이터셋이다. 모집단·측정 프로토콜이
+  달라 차이가 사진 덕분인지 데이터가 쉬워서인지 구분되지 않는다
+  (근거: `docs/multimodal-model-selection.md` §0).
+- 판정식: **같은 split 행에서** `MAE(VLM, 사진 사용)` < `MAE(tabular, 사진 없음)`.
+- 산출 스크립트를 만들어 뒀다 — `src/no_photo_baseline.py`.
+
+```powershell
+cd ml\body_measurement
+
+# ① 컬럼 정의 확정 — split의 chest가 SizeKorea의 `가슴둘레`인지 `젖가슴둘레`인지 판정
+#    (두 항목은 평균 2.47cm 차이라 잘못 잡으면 모델 오차보다 큰 편향이 생긴다)
+python src\no_photo_baseline.py --drop-impossible match
+
+# ② 무사진 기준선 + 사진 有/無 비교
+#    ①에서 확정한 매핑을 no_photo_baseline.py의 CONFIRMED_MAPPING에 반영한 뒤 실행
+python src\no_photo_baseline.py --drop-impossible baseline
+```
+
+⚠️ **스크립트는 아직 한 번도 실행되지 않았다** (작성 세션에서 Python 실행이 권한으로
+차단됨). 문법·동작 검증 전이므로 첫 실행 시 오류가 날 수 있다.
+
 ## 7. 결론과 다음 순서
 
 - 1순위 운영 후보: **Qwen 3.7 Flash**
@@ -196,5 +224,21 @@ f111은 같은 입력에서 MAE 1.17cm → 3.60cm로 벌어졌다. 단건 결과
 - Gemini 3.5 Flash-Lite: 이번 Validation에서는 Qwen·Kimi보다 우선순위가 낮음
 - 다음 단계
 
+  - **무사진 기준선부터 산출한다 (§6-1).** 사진이 이득인지 확인되기 전에 모델을 확정하면,
+    더 정확한 tabular 경로를 두고 더 비싸고 느린 사진 경로를 고르는 결과가 될 수 있다
   - Qwen과 Kimi 중 최종 모델 1개 선택
   - 선택한 모델만 Test 154명에 실행하고, 예측 파일·평가 파일·지표 파일을 남김
+
+### 미해결 — 6모델 × 182명 배치 산출물 분실
+
+`reports/vlm_openrouter_182/run.log`를 보면 qwen3-vl-8b / gemma-3-12b /
+gemini-flash-lite / gemini-flash / kimi-k2.5 / grok-4.3 6개 모델이 각각 182/182
+완주했고, 마지막 줄에 요약 CSV 경로가 찍혀 있다.
+
+```text
+summary: ...\reports\vlm_openrouter_182\all_models_test_set_summary.csv
+```
+
+그런데 **해당 폴더에는 `run.log`와 `run-error.log`만 남아 있다.** 요약 CSV와 모델별
+예측 파일이 없다. `.gitignore`에도 걸려 있지 않으므로 별도로 삭제된 것으로 보인다.
+API 호출 비용이 이미 지출된 결과라, 재실행 전에 원본이 다른 경로에 남아 있는지 먼저 찾을 것.
