@@ -1,7 +1,7 @@
 # SKN28-FINAL-1Team — AI 개인화 패션 추천 서비스
 
 사용자의 옷장을 출발점으로 날씨·TPO·체형을 고려한 개인화 패션 추천을 제공하는 AI 서비스.
-서비스 기획·아키텍처는 [docs/프로젝트_소개.md](docs/프로젝트_소개.md), 개발 규칙은 [CLAUDE.md](CLAUDE.md) 참고.
+서비스 기획·아키텍처는 [docs/project-overview.md](docs/project-overview.md), 개발 규칙은 [CLAUDE.md](CLAUDE.md) 참고.
 
 > 이 문서는 **현재 구현된 범위**만 다룬다. 추천 엔진(RAG)·ml/ 모듈은 아직 개발 전이다.
 
@@ -62,7 +62,7 @@ docker compose --profile all up -d --build      # 전부
   ⚠️ `swagger_noauth`는 인증이 꺼지므로 운영 환경에 절대 설정 금지.
 - 호스트 5432 포트가 사용 중이면 `POSTGRES_HOST_PORT`로 db 공개 포트를 변경
 - 어떤 프로필이든 migrate가 api 이미지로 실행되므로 `DJANGO_SECRET_KEY`, `DJANGO_ALLOWED_HOSTS` 필요
-- 컨테이너는 루트 `.env` 파일에서 값을 읽으므로(compose `env_file`), `infisical run -- docker compose up`만으로는 시크릿이 컨테이너에 전달되지 않는다. 반드시 위처럼 `infisical export`로 `.env`를 먼저 생성한다. 원리는 [docs/guide/INFISICAL_GUIDE.md](docs/guide/INFISICAL_GUIDE.md)를 따른다.
+- 컨테이너는 루트 `.env` 파일에서 값을 읽으므로(compose `env_file`), `infisical run -- docker compose up`만으로는 시크릿이 컨테이너에 전달되지 않는다. 반드시 위처럼 `infisical export`로 `.env`를 먼저 생성한다. 원리는 [docs/infisical-guide.md](docs/infisical-guide.md)를 따른다.
 - `.env`는 `infisical export`로만 생성/갱신하고 손으로 편집하지 않는다. Infisical 값 변경 후에는 export를 다시 실행하고 `docker compose up -d --force-recreate`로 반영한다. 커밋 금지.
 
 ### GPU 서버 (RunPod / GPU EC2)

@@ -198,8 +198,7 @@ mobile/package-lock.json
 *.rej
 
 output
-# Local docs/artifacts
-docs/
+# Local artifacts
 main
 input
 nohup.out
