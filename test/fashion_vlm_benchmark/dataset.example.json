@@ -1,0 +1,77 @@
+{
+  "schema_version": 1,
+  "description": "HyperCLOVA와 Qwen의 1차 핵심 태그 비교용 10장 템플릿",
+  "samples": [
+    {
+      "id": "01_tshirt",
+      "file_name": "01_tshirt.jpg",
+      "product_name": "",
+      "expected": {"category_large": "", "color": "", "pattern": "", "fit": ""},
+      "notes": "티셔츠 이미지와 사람이 검수한 정답을 입력"
+    },
+    {
+      "id": "02_shirt",
+      "file_name": "02_shirt.jpg",
+      "product_name": "",
+      "expected": {"category_large": "", "color": "", "pattern": "", "fit": ""},
+      "notes": "셔츠/블라우스 이미지와 사람이 검수한 정답을 입력"
+    },
+    {
+      "id": "03_knit",
+      "file_name": "03_knit.jpg",
+      "product_name": "",
+      "expected": {"category_large": "", "color": "", "pattern": "", "fit": ""},
+      "notes": "니트/스웨터 이미지와 사람이 검수한 정답을 입력"
+    },
+    {
+      "id": "04_jacket",
+      "file_name": "04_jacket.jpg",
+      "product_name": "",
+      "expected": {"category_large": "", "color": "", "pattern": "", "fit": ""},
+      "notes": "자켓 이미지와 사람이 검수한 정답을 입력"
+    },
+    {
+      "id": "05_pants",
+      "file_name": "05_pants.jpg",
+      "product_name": "",
+      "expected": {"category_large": "", "color": "", "pattern": "", "fit": ""},
+      "notes": "바지 이미지와 사람이 검수한 정답을 입력"
+    },
+    {
+      "id": "06_skirt",
+      "file_name": "06_skirt.jpg",
+      "product_name": "",
+      "expected": {"category_large": "", "color": "", "pattern": "", "fit": ""},
+      "notes": "스커트 이미지와 사람이 검수한 정답을 입력"
+    },
+    {
+      "id": "07_dress",
+      "file_name": "07_dress.jpg",
+      "product_name": "",
+      "expected": {"category_large": "", "color": "", "pattern": "", "fit": ""},
+      "notes": "원피스 이미지와 사람이 검수한 정답을 입력"
+    },
+    {
+      "id": "08_shoes",
+      "file_name": "08_shoes.jpg",
+      "product_name": "",
+      "expected": {"category_large": "", "color": "", "pattern": "", "fit": null},
+      "notes": "신발은 fit 정답을 null로 유지"
+    },
+    {
+      "id": "09_bag",
+      "file_name": "09_bag.jpg",
+      "product_name": "",
+      "expected": {"category_large": "", "color": "", "pattern": "", "fit": null},
+      "notes": "가방은 fit 정답을 null로 유지"
+    },
+    {
+      "id": "10_patterned",
+      "file_name": "10_patterned.jpg",
+      "product_name": "",
+      "expected": {"category_large": "", "color": "", "pattern": "", "fit": ""},
+      "notes": "체크/스트라이프/도트 등 패턴이 명확한 의류 사용"
+    }
+  ]
+}
+

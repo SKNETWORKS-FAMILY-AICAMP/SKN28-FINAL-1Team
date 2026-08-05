@@ -1,0 +1,7 @@
+images/*
+!images/.gitkeep
+results/*
+!results/.gitkeep
+prompts.jsonl
+dataset.json
+

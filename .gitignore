@@ -195,7 +195,8 @@ mobile/package-lock.json
 
 output
 # Local docs/artifacts
-docs/
+docs/*
+!docs/wardrobe-product-import-investigation.md
 main
 input
 nohup.out
