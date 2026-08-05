@@ -38,6 +38,18 @@ class CalendarQueueTests(unittest.TestCase):
             "raw-job",
         )
 
+    @patch("services.calendar_queue._redis")
+    def test_ack_returns_false_when_processing_item_is_missing(
+        self,
+        redis_factory: Mock,
+    ) -> None:
+        client = redis_factory.return_value
+        client.lrem.return_value = 0
+
+        acknowledged = calendar_queue.ack("missing-job")
+
+        self.assertFalse(acknowledged)
+
     def test_rejects_wardrobe_queue_collision(self) -> None:
         with (
             patch.object(config, "CALENDAR_PENDING_KEY", config.PENDING_KEY),

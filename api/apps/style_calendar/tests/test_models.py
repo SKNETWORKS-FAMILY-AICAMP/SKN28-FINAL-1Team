@@ -1,11 +1,20 @@
-from django.db import models
-from django.test import SimpleTestCase
+from datetime import date
 
+from django.db import IntegrityError, models, transaction
+from django.test import SimpleTestCase, TestCase
+
+from apps.style_calendar.contracts import (
+    CalendarItemInternalStatus,
+    CalendarSourceType,
+    CalendarStatus,
+)
 from apps.style_calendar.models import (
     CalendarEntry,
     CalendarItem,
     CalendarWardrobeItem,
 )
+from apps.users.models import User
+from apps.wardrobe.models import WardrobeItem
 
 
 class CalendarModelMetadataTests(SimpleTestCase):
@@ -86,3 +95,87 @@ class CalendarModelMetadataTests(SimpleTestCase):
             {"uq_cal_item_processor"},
         )
         self.assertEqual(link_constraints, {"uq_cal_wardrobe_link"})
+
+
+class CalendarModelConstraintTests(TestCase):
+    """마이그레이션으로 적용된 캘린더 고유 제약의 실제 DB 동작."""
+
+    def setUp(self) -> None:
+        self.user = User.objects.create(username="calendar-model-user")
+        self.other_user = User.objects.create(username="calendar-model-other")
+        self.entry = self.create_entry(self.user, date(2026, 8, 4))
+
+    @staticmethod
+    def create_entry(user: User, entry_date: date) -> CalendarEntry:
+        return CalendarEntry.objects.create(
+            user=user,
+            date=entry_date,
+            source_type=CalendarSourceType.PHOTO_UPLOAD.value,
+            image_s3_key=f"calendar/{user.pk}/{entry_date}/original.jpg",
+            status=CalendarStatus.COMPLETED.value,
+        )
+
+    def test_user_can_have_only_one_calendar_per_date(self) -> None:
+        with (
+            self.assertRaises(IntegrityError),
+            transaction.atomic(),
+        ):
+            self.create_entry(self.user, self.entry.date)
+
+        # 같은 날짜라도 사용자가 다르면 허용한다.
+        other_entry = self.create_entry(self.other_user, self.entry.date)
+        self.assertEqual(other_entry.date, self.entry.date)
+
+    def test_processor_item_id_is_unique_only_within_calendar(self) -> None:
+        CalendarItem.objects.create(
+            calendar=self.entry,
+            internal_status=CalendarItemInternalStatus.EXTRACTED.value,
+            processor_item_id="processor-item-0",
+        )
+
+        with (
+            self.assertRaises(IntegrityError),
+            transaction.atomic(),
+        ):
+            CalendarItem.objects.create(
+                calendar=self.entry,
+                internal_status=CalendarItemInternalStatus.FAILED.value,
+                processor_item_id="processor-item-0",
+            )
+
+        another_entry = self.create_entry(self.user, date(2026, 8, 5))
+        another_item = CalendarItem.objects.create(
+            calendar=another_entry,
+            internal_status=CalendarItemInternalStatus.EXTRACTED.value,
+            processor_item_id="processor-item-0",
+        )
+        self.assertEqual(another_item.processor_item_id, "processor-item-0")
+
+    def test_wardrobe_link_is_unique_per_calendar_but_reusable(self) -> None:
+        wardrobe_item = WardrobeItem.objects.create(
+            user=self.user,
+            job=None,
+            s3_key="wardrobe/model/top.png",
+            item_name="테스트 상의",
+            category_large="상의",
+        )
+        CalendarWardrobeItem.objects.create(
+            calendar=self.entry,
+            wardrobe_item=wardrobe_item,
+        )
+
+        with (
+            self.assertRaises(IntegrityError),
+            transaction.atomic(),
+        ):
+            CalendarWardrobeItem.objects.create(
+                calendar=self.entry,
+                wardrobe_item=wardrobe_item,
+            )
+
+        another_entry = self.create_entry(self.user, date(2026, 8, 5))
+        reusable_link = CalendarWardrobeItem.objects.create(
+            calendar=another_entry,
+            wardrobe_item=wardrobe_item,
+        )
+        self.assertEqual(reusable_link.wardrobe_item, wardrobe_item)

@@ -23,18 +23,18 @@ from apps.style_calendar.services import storage
 if TYPE_CHECKING:
     from apps.style_calendar.models import CalendarEntry
 
-REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379/0")
+REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379/0").strip()
 REDIS_PASSWORD = os.getenv("REDIS_PASSWORD", "")
-QUEUE_KEY = os.getenv("CALENDAR_JOB_QUEUE", "calendar:jobs")
+QUEUE_KEY = os.getenv("CALENDAR_JOB_QUEUE", "calendar:jobs").strip()
 PROCESSING_QUEUE_KEY = os.getenv(
     "CALENDAR_PROCESSING_QUEUE",
     "calendar:jobs:processing",
-)
-WARDROBE_QUEUE_KEY = os.getenv("WARDROBE_JOB_QUEUE", "wardrobe:jobs")
+).strip()
+WARDROBE_QUEUE_KEY = os.getenv("WARDROBE_JOB_QUEUE", "wardrobe:jobs").strip()
 CALLBACK_BASE_URL = os.getenv(
     "CALENDAR_CALLBACK_BASE_URL",
-    "http://localhost:8000/api/v1/internal/calendars",
-).rstrip("/")
+    "",
+).strip().rstrip("/")
 
 
 class CalendarQueueConfigurationError(RuntimeError):
@@ -42,13 +42,25 @@ class CalendarQueueConfigurationError(RuntimeError):
 
 
 def validate_configuration() -> None:
-    if not QUEUE_KEY or not PROCESSING_QUEUE_KEY:
+    if not REDIS_URL:
+        raise CalendarQueueConfigurationError("REDIS_URL이 설정되지 않았습니다.")
+    if not QUEUE_KEY.strip() or not PROCESSING_QUEUE_KEY.strip():
         raise CalendarQueueConfigurationError("캘린더 Queue key가 비어 있습니다.")
+    if not WARDROBE_QUEUE_KEY.strip():
+        raise CalendarQueueConfigurationError(
+            "WARDROBE_JOB_QUEUE가 설정되지 않았습니다."
+        )
     if QUEUE_KEY == PROCESSING_QUEUE_KEY:
         raise CalendarQueueConfigurationError(
             "대기 Queue와 processing Queue는 서로 달라야 합니다."
         )
-    if WARDROBE_QUEUE_KEY in {QUEUE_KEY, PROCESSING_QUEUE_KEY}:
+    wardrobe_keys = {
+        WARDROBE_QUEUE_KEY,
+        f"{WARDROBE_QUEUE_KEY}:processing",
+        f"{WARDROBE_QUEUE_KEY}:dead",
+        f"{WARDROBE_QUEUE_KEY}:retries",
+    }
+    if {QUEUE_KEY, PROCESSING_QUEUE_KEY} & wardrobe_keys:
         raise CalendarQueueConfigurationError(
             "캘린더 Queue는 옷장 Queue와 다른 key를 사용해야 합니다."
         )

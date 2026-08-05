@@ -62,7 +62,7 @@ callback handler와 실행 프로세스가 연결되기 전에는 큐를 소비�
 | `WARDROBE_JOB_QUEUE` | wardrobe:jobs | pending 키 (processing/dead는 파생) |
 | `CALENDAR_JOB_QUEUE` | calendar:jobs | 캘린더 pending 키 |
 | `CALENDAR_PROCESSING_QUEUE` | calendar:jobs:processing | 캘린더 처리 중 작업 키 |
-| `WARDROBE_INTERNAL_TOKEN` | (필수) | 콜백 인증 — api와 동일 값 |
+| `WARDROBE_INTERNAL_TOKEN` | (필수) | 옷장·캘린더 콜백 공용 인증 — api와 동일 값 |
 | `WARDROBE_CALLBACK_URL` | | 페이로드에 callback_url 없을 때 폴백 |
 | `WORKER_PIPELINE` | gemini-edit | 파이프라인 구현 선택 |
 | `GEMINI_FLASH_IMAGE_MODEL` | gemini-3.1-flash-image | 상품 이미지 생성 모델 |

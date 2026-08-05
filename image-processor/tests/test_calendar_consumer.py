@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import unittest
+from pathlib import Path
 from unittest.mock import Mock, patch
 from uuid import uuid4
 
@@ -29,7 +30,30 @@ def valid_payload() -> dict:
     }
 
 
+def shared_producer_payload() -> dict:
+    fixture_path = (
+        Path(__file__).resolve().parents[2]
+        / "api"
+        / "apps"
+        / "style_calendar"
+        / "tests"
+        / "fixtures"
+        / "calendar_job_v1.json"
+    )
+    return json.loads(fixture_path.read_text(encoding="utf-8"))
+
+
 class CalendarJobTests(unittest.TestCase):
+    def test_accepts_shared_main_api_producer_fixture(self) -> None:
+        payload = shared_producer_payload()
+
+        job = CalendarJob.from_payload(payload)
+
+        self.assertEqual(job.calendar_id, payload["calendar_id"])
+        self.assertEqual(job.source.bucket, "calendar-bucket")
+        self.assertEqual(job.output_prefix, payload["output_prefix"])
+        self.assertEqual(job.callback_url, payload["callback_url"])
+
     def test_accepts_producer_contract(self) -> None:
         payload = valid_payload()
 
@@ -56,6 +80,17 @@ class CalendarJobTests(unittest.TestCase):
         with self.assertRaises(CalendarJobValidationError):
             CalendarJob.from_payload(payload)
 
+    def test_rejects_unknown_schema_and_invalid_callback_url(self) -> None:
+        unknown_schema = valid_payload()
+        unknown_schema["schema_version"] = "calendar-job.v2"
+        invalid_callback = valid_payload()
+        invalid_callback["callback_url"] = "not-a-url"
+
+        with self.assertRaises(CalendarJobValidationError):
+            CalendarJob.from_payload(unknown_schema)
+        with self.assertRaises(CalendarJobValidationError):
+            CalendarJob.from_payload(invalid_callback)
+
 
 class CalendarConsumerTests(unittest.TestCase):
     @patch("calendar_consumer.calendar_queue.ack", return_value=True)
@@ -81,6 +116,19 @@ class CalendarConsumerTests(unittest.TestCase):
 
         self.assertEqual(outcome, ConsumeOutcome.HELD)
         ack.assert_not_called()
+
+    @patch("calendar_consumer.calendar_queue.ack", return_value=False)
+    @patch("calendar_consumer.calendar_queue.fetch")
+    def test_ack_failure_stays_in_processing(self, fetch: Mock, ack: Mock) -> None:
+        raw = json.dumps(valid_payload())
+        fetch.return_value = raw
+        handler = Mock()
+
+        outcome = CalendarConsumer(handler).consume_once()
+
+        self.assertEqual(outcome, ConsumeOutcome.HELD)
+        handler.assert_called_once()
+        ack.assert_called_once_with(raw)
 
     @patch("calendar_consumer.calendar_queue.ack")
     @patch("calendar_consumer.calendar_queue.fetch", return_value="not-json")

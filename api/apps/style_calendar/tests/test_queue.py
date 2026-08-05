@@ -1,5 +1,6 @@
 import json
 from datetime import datetime, timezone
+from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 from uuid import UUID
@@ -47,7 +48,10 @@ class CalendarQueueProducerTests(SimpleTestCase):
         self.redis_client.lpush.assert_called_once()
         queue_key, raw_payload = self.redis_client.lpush.call_args.args
         payload = json.loads(raw_payload)
+        fixture_path = Path(__file__).parent / "fixtures" / "calendar_job_v1.json"
+        expected_payload = json.loads(fixture_path.read_text(encoding="utf-8"))
         self.assertEqual(queue_key, "calendar:jobs")
+        self.assertEqual(payload, expected_payload)
         self.assertEqual(payload["schema_version"], CALENDAR_JOB_SCHEMA_VERSION)
         self.assertEqual(payload["task_type"], CALENDAR_JOB_TASK_TYPE)
         self.assertEqual(payload["calendar_id"], str(self.calendar_id))

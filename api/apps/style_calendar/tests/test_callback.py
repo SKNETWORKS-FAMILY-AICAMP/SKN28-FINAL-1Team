@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from copy import deepcopy
 from datetime import date
 from unittest.mock import patch
 from uuid import uuid4
@@ -14,7 +15,9 @@ from apps.style_calendar.contracts import (
     CalendarSourceType,
     CalendarStatus,
 )
-from apps.style_calendar.models import CalendarEntry
+from apps.style_calendar.models import CalendarEntry, CalendarItem
+from apps.style_calendar.serializers import CalendarCallbackSerializer
+from apps.style_calendar.services import callback as calendar_callback
 from apps.users.models import User
 
 
@@ -242,3 +245,62 @@ class CalendarCallbackApiTests(TestCase):
         response = self.client.post(url, payload, format="json")
 
         self.assertEqual(response.status_code, 409)
+
+    def test_missing_calendar_returns_not_found(self) -> None:
+        missing_id = uuid4()
+        url = reverse(
+            "style_calendar:calendar-callback",
+            kwargs={"calendar_id": missing_id},
+        )
+        payload = self.processing_payload()
+        payload["calendar_id"] = str(missing_id)
+
+        response = self.client.post(url, payload, format="json")
+
+        self.assertEqual(response.status_code, 404)
+
+    def test_completed_callback_requires_extracted_item(self) -> None:
+        payload = self.completed_payload()
+        payload["items"] = [payload["items"][1]]
+
+        response = self.client.post(self.url, payload, format="json")
+
+        self.assertEqual(response.status_code, 400)
+        self.entry.refresh_from_db()
+        self.assertEqual(self.entry.status, CalendarStatus.REGISTERED.value)
+        self.assertEqual(self.entry.items.count(), 0)
+
+    def test_callback_rejects_duplicate_processor_item_id(self) -> None:
+        payload = self.completed_payload()
+        duplicate = deepcopy(payload["items"][0])
+        duplicate["sort_order"] = 2
+        duplicate["image_s3_key"] = (
+            f"calendar/{self.user.pk}/{self.entry.pk}/item_duplicate.png"
+        )
+        payload["items"].append(duplicate)
+
+        response = self.client.post(self.url, payload, format="json")
+
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(self.entry.items.count(), 0)
+
+    def test_callback_database_error_rolls_back_entry_and_items(self) -> None:
+        serializer = CalendarCallbackSerializer(data=self.completed_payload())
+        serializer.is_valid(raise_exception=True)
+
+        with (
+            patch.object(
+                CalendarItem.objects,
+                "bulk_create",
+                side_effect=RuntimeError("database write failed"),
+            ),
+            self.assertRaises(RuntimeError),
+        ):
+            calendar_callback.apply_callback(
+                calendar_id=self.entry.pk,
+                data=serializer.validated_data,
+            )
+
+        self.entry.refresh_from_db()
+        self.assertEqual(self.entry.status, CalendarStatus.REGISTERED.value)
+        self.assertEqual(self.entry.items.count(), 0)

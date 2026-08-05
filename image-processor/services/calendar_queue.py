@@ -14,6 +14,7 @@ from __future__ import annotations
 import logging
 
 import config
+
 from services.queue import _redis
 
 logger = logging.getLogger(__name__)
@@ -30,17 +31,22 @@ def validate_configuration() -> None:
         config.CALENDAR_PENDING_KEY,
         config.CALENDAR_PROCESSING_KEY,
     }
-    if "" in calendar_keys:
+    if any(not key.strip() for key in calendar_keys):
         raise CalendarQueueConfigurationError("캘린더 Queue key가 비어 있습니다.")
     if len(calendar_keys) != 2:
         raise CalendarQueueConfigurationError(
             "캘린더 대기 Queue와 processing Queue는 서로 달라야 합니다."
+        )
+    if not config.PENDING_KEY.strip():
+        raise CalendarQueueConfigurationError(
+            "WARDROBE_JOB_QUEUE가 설정되지 않았습니다."
         )
 
     wardrobe_keys = {
         config.PENDING_KEY,
         config.PROCESSING_KEY,
         config.DEAD_KEY,
+        config.RETRY_HASH,
     }
     duplicated = calendar_keys & wardrobe_keys
     if duplicated:

@@ -15,9 +15,12 @@ from uuid import UUID
 
 import boto3
 
-BUCKET = os.getenv("CALENDAR_S3_BUCKET") or os.getenv("WARDROBE_S3_BUCKET", "")
-WARDROBE_BUCKET = os.getenv("WARDROBE_S3_BUCKET", "")
-REGION = os.getenv("AWS_REGION", "ap-northeast-2")
+BUCKET = (
+    os.getenv("CALENDAR_S3_BUCKET", "").strip()
+    or os.getenv("WARDROBE_S3_BUCKET", "").strip()
+)
+WARDROBE_BUCKET = os.getenv("WARDROBE_S3_BUCKET", "").strip()
+REGION = os.getenv("AWS_REGION", "ap-northeast-2").strip() or "ap-northeast-2"
 PRESIGNED_GET_TTL = int(os.getenv("CALENDAR_PRESIGNED_GET_TTL", "3600"))
 
 _SAFE_TOKEN_PATTERN = re.compile(r"[^A-Za-z0-9._-]")
@@ -35,6 +38,7 @@ class CalendarStorageConfigurationError(RuntimeError):
 
 
 def _require_bucket(bucket: str, variable_name: str) -> str:
+    bucket = bucket.strip()
     if not bucket:
         raise CalendarStorageConfigurationError(
             f"{variable_name} 환경변수가 설정되지 않았습니다."

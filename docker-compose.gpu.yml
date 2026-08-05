@@ -89,7 +89,7 @@ services:
     container_name: skn28-image-processor
     restart: unless-stopped
     env_file:
-      - .env                  # GEMINI_*, REDIS_*, WARDROBE_*, WORKER_*, AWS_* 등
+      - .env                  # GEMINI_*, REDIS_*, WARDROBE_*, CALENDAR_*, WORKER_*, AWS_* 등
     environment:
       TZ: Asia/Seoul
       # Dockerfile에는 HF_HOME이 없어 기본값이 /root/.cache/huggingface다.
