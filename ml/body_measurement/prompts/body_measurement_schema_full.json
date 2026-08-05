@@ -1,0 +1,22 @@
+{
+  "type": "object",
+  "properties": {
+    "chest_cm": { "type": "number" },
+    "waist_cm": { "type": "number" },
+    "hip_cm": { "type": "number" },
+    "thigh_cm": { "type": "number" },
+    "calf_cm": { "type": "number" },
+    "arm_cm": { "type": "number" },
+    "shoulder_cm": { "type": "number" }
+  },
+  "required": [
+    "chest_cm",
+    "waist_cm",
+    "hip_cm",
+    "thigh_cm",
+    "calf_cm",
+    "arm_cm",
+    "shoulder_cm"
+  ],
+  "additionalProperties": false
+}

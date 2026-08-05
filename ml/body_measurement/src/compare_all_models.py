@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import argparse
 import json
 from pathlib import Path
 
@@ -12,16 +13,15 @@ plt.rcParams["font.family"] = "Malgun Gothic"
 plt.rcParams["axes.unicode_minus"] = False
 
 BASE_DIR = Path(__file__).resolve().parent.parent
-ARTIFACT_DIR = "artifacts/metrics"
-METRICS_FILENAME = {
-    "baseline": "metrics.json",
-    "random_forest": "metrics.json",
-    "hist_gradient_boosting": "metrics.json",
-    "knn": "metrics.json",
-    "tabpfn_v2": "metrics_tabpfn_v2.json",
-    "nori": "metrics_nori.json",
-    "tabpfn_mix": "metrics_tabpfn_mix.json",
-}
+MODELS = (
+    "baseline",
+    "random_forest",
+    "hist_gradient_boosting",
+    "knn",
+    "tabpfn_v2",
+    "nori",
+    "tabpfn_mix",
+)
 MODEL_GROUP = {
     "baseline": "기본",
     "random_forest": "기본",
@@ -35,14 +35,19 @@ REPORT_DIR = BASE_DIR / "reports"
 REPORT_DIR.mkdir(exist_ok=True)
 
 
-def load_detail() -> pd.DataFrame:
+def load_detail(run_name: str) -> pd.DataFrame:
     frames = []
-    records_by_file: dict[str, list[dict]] = {}
-    for model, filename in METRICS_FILENAME.items():
-        if filename not in records_by_file:
-            path = BASE_DIR / ARTIFACT_DIR / filename
-            records_by_file[filename] = json.loads(path.read_text(encoding="utf-8"))
-        frames.extend(r for r in records_by_file[filename] if r["model"] == model)
+    for model in MODELS:
+        path = (
+            BASE_DIR
+            / "experiments"
+            / "tabular"
+            / model
+            / run_name
+            / "metrics.json"
+        )
+        records = json.loads(path.read_text(encoding="utf-8-sig"))
+        frames.extend(record for record in records if record["model"] == model)
     return pd.DataFrame(frames)
 
 
@@ -101,7 +106,11 @@ def plot_summary(summary: pd.DataFrame) -> Path:
 
 
 def main() -> None:
-    detail_df = load_detail()
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--run-name", default="sizekorea-1000-v1")
+    args = parser.parse_args()
+
+    detail_df = load_detail(args.run_name)
     summary_df = summarize(detail_df)
 
     detail_df.to_csv(REPORT_DIR / "model_comparison_detail.csv", index=False)

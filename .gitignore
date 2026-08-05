@@ -91,6 +91,12 @@ test-results/
 *.tflite
 *.pkl
 *.joblib
+# 신체치수 추정 모델 중 서빙(API)에 직접 쓰이는 것은 hist_gradient_boosting 하나뿐.
+# knn/baseline/random_forest는 학습·벤치마크용이므로 추적 제외한다 (random_forest는 50MB로 저장소 비대화 방지).
+!ml/body_measurement/artifacts/models/hist_gradient_boosting.joblib
+ml/body_measurement/artifacts/models/knn.joblib
+ml/body_measurement/artifacts/models/baseline.joblib
+ml/body_measurement/artifacts/models/random_forest.joblib
 # Hugging Face / PyTorch 등이 만드는 로컬 모델 다운로드 캐시
 .cache/
 .huggingface/
@@ -194,11 +200,11 @@ mobile/package-lock.json
 *.rej
 
 output
-# Local docs/artifacts
-docs/
+# Local artifacts
 main
 input
 nohup.out
 
 collector/eleven/tests/test_category_mapping.py
 
+_parse_*.py

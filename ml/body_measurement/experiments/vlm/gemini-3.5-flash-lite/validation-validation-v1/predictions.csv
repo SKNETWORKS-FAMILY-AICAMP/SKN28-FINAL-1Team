@@ -1,0 +1,181 @@
+subject_id,predicted_chest_cm,predicted_waist_cm,predicted_hip_cm,latency_seconds,raw_response,front_image_path,side_image_path,model,run_name,status,error_message,created_at_utc
+sizkorea_f031,87.2,75.8,95.1,5.258,"{
+  ""chest_cm"": 87.2,
+  ""waist_cm"": 75.8,
+  ""hip_cm"": 95.1
+}",ml/body_measurement/data/people/sizkorea_f031_front.jpg,ml/body_measurement/data/people/sizkorea_f031_side.jpg,gemini-3.5-flash-lite,validation_v1,success,,2026-08-04T02:29:53.259078+00:00
+sizkorea_f063,83.2,70.5,91.8,7.089,"{
+  ""chest_cm"": 83.2,
+  ""waist_cm"": 70.5,
+  ""hip_cm"": 91.8
+}",ml/body_measurement/data/people/sizkorea_f063_front.jpg,ml/body_measurement/data/people/sizkorea_f063_side.jpg,gemini-3.5-flash-lite,validation_v1,success,,2026-08-04T02:29:58.517819+00:00
+sizkorea_f071,105.8,95.3,113.6,5.433,"{
+  ""chest_cm"": 105.8,
+  ""waist_cm"": 95.3,
+  ""hip_cm"": 113.6
+}",ml/body_measurement/data/people/sizkorea_f071_front.jpg,ml/body_measurement/data/people/sizkorea_f071_side.jpg,gemini-3.5-flash-lite,validation_v1,success,,2026-08-04T02:30:05.606958+00:00
+sizkorea_f073,86.4,79.5,95.8,7.574,"{
+  ""chest_cm"": 86.4,
+  ""waist_cm"": 79.5,
+  ""hip_cm"": 95.8
+}",ml/body_measurement/data/people/sizkorea_f073_front.jpg,ml/body_measurement/data/people/sizkorea_f073_side.jpg,gemini-3.5-flash-lite,validation_v1,success,,2026-08-04T02:30:11.040675+00:00
+sizkorea_f103,95.7,90.9,104.7,5.897,"{
+  ""chest_cm"": 95.7,
+  ""waist_cm"": 90.9,
+  ""hip_cm"": 104.7
+}",ml/body_measurement/data/people/sizkorea_f103_front.jpg,ml/body_measurement/data/people/sizkorea_f103_side.jpg,gemini-3.5-flash-lite,validation_v1,success,,2026-08-04T02:30:18.615017+00:00
+sizkorea_f145,91.5,82.3,97.4,5.618,"{
+  ""chest_cm"": 91.5,
+  ""waist_cm"": 82.3,
+  ""hip_cm"": 97.4
+}",ml/body_measurement/data/people/sizkorea_f145_front.jpg,ml/body_measurement/data/people/sizkorea_f145_side.jpg,gemini-3.5-flash-lite,validation_v1,success,,2026-08-04T02:30:24.512225+00:00
+sizkorea_f226,83.1,74.2,90.7,5.501,"{
+  ""chest_cm"": 83.1,
+  ""waist_cm"": 74.2,
+  ""hip_cm"": 90.7
+}",ml/body_measurement/data/people/sizkorea_f226_front.jpg,ml/body_measurement/data/people/sizkorea_f226_side.jpg,gemini-3.5-flash-lite,validation_v1,success,,2026-08-04T02:30:30.130562+00:00
+sizkorea_f233,95.2,87.1,97.5,5.971,"{
+  ""chest_cm"": 95.2,
+  ""waist_cm"": 87.1,
+  ""hip_cm"": 97.5
+}",ml/body_measurement/data/people/sizkorea_f233_front.jpg,ml/body_measurement/data/people/sizkorea_f233_side.jpg,gemini-3.5-flash-lite,validation_v1,success,,2026-08-04T02:30:35.632777+00:00
+sizkorea_f268,83.2,74.5,91.8,5.369,"{
+  ""chest_cm"": 83.2,
+  ""waist_cm"": 74.5,
+  ""hip_cm"": 91.8
+}",ml/body_measurement/data/people/sizkorea_f268_front.jpg,ml/body_measurement/data/people/sizkorea_f268_side.jpg,gemini-3.5-flash-lite,validation_v1,success,,2026-08-04T02:30:41.603949+00:00
+sizkorea_f269,83.2,66.8,91.5,5.717,"{
+  ""chest_cm"": 83.2,
+  ""waist_cm"": 66.8,
+  ""hip_cm"": 91.5
+}",ml/body_measurement/data/people/sizkorea_f269_front.jpg,ml/body_measurement/data/people/sizkorea_f269_side.jpg,gemini-3.5-flash-lite,validation_v1,success,,2026-08-04T02:30:46.973764+00:00
+sizkorea_f282,87.2,81.1,93.5,5.67,"{
+  ""chest_cm"": 87.2,
+  ""waist_cm"": 81.1,
+  ""hip_cm"": 93.5
+}",ml/body_measurement/data/people/sizkorea_f282_front.jpg,ml/body_measurement/data/people/sizkorea_f282_side.jpg,gemini-3.5-flash-lite,validation_v1,success,,2026-08-04T02:30:52.691669+00:00
+sizkorea_f319,83.7,74.5,88.2,5.666,"{
+  ""chest_cm"": 83.7,
+  ""waist_cm"": 74.5,
+  ""hip_cm"": 88.2
+}",ml/body_measurement/data/people/sizkorea_f319_front.jpg,ml/body_measurement/data/people/sizkorea_f319_side.jpg,gemini-3.5-flash-lite,validation_v1,success,,2026-08-04T02:30:58.362265+00:00
+sizkorea_f345,83.3,66.8,91.5,4.716,"{
+  ""chest_cm"": 83.3,
+  ""waist_cm"": 66.8,
+  ""hip_cm"": 91.5
+}",ml/body_measurement/data/people/sizkorea_f345_front.jpg,ml/body_measurement/data/people/sizkorea_f345_side.jpg,gemini-3.5-flash-lite,validation_v1,success,,2026-08-04T02:31:04.029039+00:00
+sizkorea_f355,78.4,64.2,86.8,7.016,"{
+  ""chest_cm"": 78.4,
+  ""waist_cm"": 64.2,
+  ""hip_cm"": 86.8
+}",ml/body_measurement/data/people/sizkorea_f355_front.jpg,ml/body_measurement/data/people/sizkorea_f355_side.jpg,gemini-3.5-flash-lite,validation_v1,success,,2026-08-04T02:31:08.745640+00:00
+sizkorea_f365,91.5,79.4,96.6,5.46,"{
+  ""chest_cm"": 91.5,
+  ""waist_cm"": 79.4,
+  ""hip_cm"": 96.6
+}",ml/body_measurement/data/people/sizkorea_f365_front.jpg,ml/body_measurement/data/people/sizkorea_f365_side.jpg,gemini-3.5-flash-lite,validation_v1,success,,2026-08-04T02:31:15.761870+00:00
+sizkorea_f374,84.5,74.2,91.8,5.968,"{
+  ""chest_cm"": 84.5,
+  ""waist_cm"": 74.2,
+  ""hip_cm"": 91.8
+}",ml/body_measurement/data/people/sizkorea_f374_front.jpg,ml/body_measurement/data/people/sizkorea_f374_side.jpg,gemini-3.5-flash-lite,validation_v1,success,,2026-08-04T02:31:21.223323+00:00
+sizkorea_f376,91.2,83.4,100.2,5.369,"{
+  ""chest_cm"": 91.2,
+  ""waist_cm"": 83.4,
+  ""hip_cm"": 100.2
+}",ml/body_measurement/data/people/sizkorea_f376_front.jpg,ml/body_measurement/data/people/sizkorea_f376_side.jpg,gemini-3.5-flash-lite,validation_v1,success,,2026-08-04T02:31:27.192931+00:00
+sizkorea_m021,90.1,80.2,86.4,7.431,"{
+  ""chest_cm"": 90.1,
+  ""waist_cm"": 80.2,
+  ""hip_cm"": 86.4
+}",ml/body_measurement/data/people/sizkorea_m021_front.jpg,ml/body_measurement/data/people/sizkorea_m021_side.jpg,gemini-3.5-flash-lite,validation_v1,success,,2026-08-04T02:31:32.561823+00:00
+sizkorea_m025,105.5,102.0,104.0,5.415,"{
+  ""chest_cm"": 105.5,
+  ""waist_cm"": 102.0,
+  ""hip_cm"": 104.0
+}",ml/body_measurement/data/people/sizkorea_m025_front.jpg,ml/body_measurement/data/people/sizkorea_m025_side.jpg,gemini-3.5-flash-lite,validation_v1,success,,2026-08-04T02:31:39.993894+00:00
+sizkorea_m030,97.5,89.2,99.4,7.354,"{
+  ""chest_cm"": 97.5,
+  ""waist_cm"": 89.2,
+  ""hip_cm"": 99.4
+}",ml/body_measurement/data/people/sizkorea_m030_front.jpg,ml/body_measurement/data/people/sizkorea_m030_side.jpg,gemini-3.5-flash-lite,validation_v1,success,,2026-08-04T02:31:45.409256+00:00
+sizkorea_m036,88.4,75.2,87.6,5.261,"{
+  ""chest_cm"": 88.4,
+  ""waist_cm"": 75.2,
+  ""hip_cm"": 87.6
+}",ml/body_measurement/data/people/sizkorea_m036_front.jpg,ml/body_measurement/data/people/sizkorea_m036_side.jpg,gemini-3.5-flash-lite,validation_v1,success,,2026-08-04T02:31:52.763688+00:00
+sizkorea_m043,83.2,68.4,86.9,4.729,"{
+  ""chest_cm"": 83.2,
+  ""waist_cm"": 68.4,
+  ""hip_cm"": 86.9
+}",ml/body_measurement/data/people/sizkorea_m043_front.jpg,ml/body_measurement/data/people/sizkorea_m043_side.jpg,gemini-3.5-flash-lite,validation_v1,success,,2026-08-04T02:31:58.025411+00:00
+sizkorea_m090,104.2,101.5,103.8,5.688,"{
+  ""chest_cm"": 104.2,
+  ""waist_cm"": 101.5,
+  ""hip_cm"": 103.8
+}",ml/body_measurement/data/people/sizkorea_m090_front.jpg,ml/body_measurement/data/people/sizkorea_m090_side.jpg,gemini-3.5-flash-lite,validation_v1,success,,2026-08-04T02:32:02.755307+00:00
+sizkorea_m116,102.3,91.5,98.4,5.177,"{
+  ""chest_cm"": 102.3,
+  ""waist_cm"": 91.5,
+  ""hip_cm"": 98.4
+}",ml/body_measurement/data/people/sizkorea_m116_front.jpg,ml/body_measurement/data/people/sizkorea_m116_side.jpg,gemini-3.5-flash-lite,validation_v1,success,,2026-08-04T02:32:08.443446+00:00
+sizkorea_m119,103.4,83.2,95.8,5.316,"{
+  ""chest_cm"": 103.4,
+  ""waist_cm"": 83.2,
+  ""hip_cm"": 95.8
+}",ml/body_measurement/data/people/sizkorea_m119_front.jpg,ml/body_measurement/data/people/sizkorea_m119_side.jpg,gemini-3.5-flash-lite,validation_v1,success,,2026-08-04T02:32:13.620956+00:00
+sizkorea_m120,104.5,100.8,103.2,6.344,"{
+  ""chest_cm"": 104.5,
+  ""waist_cm"": 100.8,
+  ""hip_cm"": 103.2
+}",ml/body_measurement/data/people/sizkorea_m120_front.jpg,ml/body_measurement/data/people/sizkorea_m120_side.jpg,gemini-3.5-flash-lite,validation_v1,success,,2026-08-04T02:32:18.936890+00:00
+sizkorea_m156,94.6,86.8,93.3,4.989,"{
+  ""chest_cm"": 94.6,
+  ""waist_cm"": 86.8,
+  ""hip_cm"": 93.3
+}",ml/body_measurement/data/people/sizkorea_m156_front.jpg,ml/body_measurement/data/people/sizkorea_m156_side.jpg,gemini-3.5-flash-lite,validation_v1,success,,2026-08-04T02:32:25.281378+00:00
+sizkorea_m242,100.8,95.4,99.1,5.302,"{
+  ""chest_cm"": 100.8,
+  ""waist_cm"": 95.4,
+  ""hip_cm"": 99.1
+}",ml/body_measurement/data/people/sizkorea_m242_front.jpg,ml/body_measurement/data/people/sizkorea_m242_side.jpg,gemini-3.5-flash-lite,validation_v1,success,,2026-08-04T02:32:30.270884+00:00
+sizkorea_m295,98.6,87.2,96.8,6.68,"{
+  ""chest_cm"": 98.6,
+  ""waist_cm"": 87.2,
+  ""hip_cm"": 96.8
+}",ml/body_measurement/data/people/sizkorea_m295_front.jpg,ml/body_measurement/data/people/sizkorea_m295_side.jpg,gemini-3.5-flash-lite,validation_v1,success,,2026-08-04T02:32:35.573016+00:00
+sizkorea_m300,88.6,74.5,88.2,8.469,"{
+  ""chest_cm"": 88.6,
+  ""waist_cm"": 74.5,
+  ""hip_cm"": 88.2
+}",ml/body_measurement/data/people/sizkorea_m300_front.jpg,ml/body_measurement/data/people/sizkorea_m300_side.jpg,gemini-3.5-flash-lite,validation_v1,success,,2026-08-04T02:32:42.254091+00:00
+sizkorea_m369,91.2,79.8,91.5,8.201,"{
+  ""chest_cm"": 91.2,
+  ""waist_cm"": 79.8,
+  ""hip_cm"": 91.5
+}",ml/body_measurement/data/people/sizkorea_m369_front.jpg,ml/body_measurement/data/people/sizkorea_m369_side.jpg,gemini-3.5-flash-lite,validation_v1,success,,2026-08-04T02:32:50.724497+00:00
+sizkorea_m419,96.5,91.2,95.8,5.861,"{
+  ""chest_cm"": 96.5,
+  ""waist_cm"": 91.2,
+  ""hip_cm"": 95.8
+}",ml/body_measurement/data/people/sizkorea_m419_front.jpg,ml/body_measurement/data/people/sizkorea_m419_side.jpg,gemini-3.5-flash-lite,validation_v1,success,,2026-08-04T02:32:58.925391+00:00
+sizkorea_m454,91.4,84.1,88.9,5.11,"{
+  ""chest_cm"": 91.4,
+  ""waist_cm"": 84.1,
+  ""hip_cm"": 88.9
+}",ml/body_measurement/data/people/sizkorea_m454_front.jpg,ml/body_measurement/data/people/sizkorea_m454_side.jpg,gemini-3.5-flash-lite,validation_v1,success,,2026-08-04T02:33:04.786556+00:00
+sizkorea_m460,95.2,84.1,93.4,6.12,"{
+  ""chest_cm"": 95.2,
+  ""waist_cm"": 84.1,
+  ""hip_cm"": 93.4
+}",ml/body_measurement/data/people/sizkorea_m460_front.jpg,ml/body_measurement/data/people/sizkorea_m460_side.jpg,gemini-3.5-flash-lite,validation_v1,success,,2026-08-04T02:33:09.897206+00:00
+sizkorea_m476,97.4,91.2,95.8,6.063,"{
+  ""chest_cm"": 97.4,
+  ""waist_cm"": 91.2,
+  ""hip_cm"": 95.8
+}",ml/body_measurement/data/people/sizkorea_m476_front.jpg,ml/body_measurement/data/people/sizkorea_m476_side.jpg,gemini-3.5-flash-lite,validation_v1,success,,2026-08-04T02:33:16.019144+00:00
+sizkorea_m497,98.5,94.2,96.1,8.923,"{
+  ""chest_cm"": 98.5,
+  ""waist_cm"": 94.2,
+  ""hip_cm"": 96.1
+}",ml/body_measurement/data/people/sizkorea_m497_front.jpg,ml/body_measurement/data/people/sizkorea_m497_side.jpg,gemini-3.5-flash-lite,validation_v1,success,,2026-08-04T02:33:22.083127+00:00

@@ -16,34 +16,52 @@ API_URL = "https://openrouter.ai/api/v1/chat/completions"
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 REPO_ROOT = PROJECT_ROOT.parent.parent
-DATA_DIR = PROJECT_ROOT / "data" / "splits"
-PROMPT_PATH = PROJECT_ROOT / "prompts" / "body_measurement_prompt.j2"
-SCHEMA_PATH = PROJECT_ROOT / "prompts" / "body_measurement_schema.json"
+DATA_DIR = PROJECT_ROOT / "data" / "splits" / "vlm"
+PROMPTS_DIR = PROJECT_ROOT / "prompts"
+
+# 모델 선정 벤치마크 기준 부위. 응답에 없으면 실패로 본다.
+CORE_TARGETS = ["chest", "waist", "hip"]
+# 서빙에서 실제로 쓰는 7개. SizeKorea 라벨이 있는 행은 7개 모두 채점할 수 있다.
+FULL_TARGETS = [*CORE_TARGETS, "thigh", "calf", "arm", "shoulder"]
+
+# core: 모델 선정 벤치마크에 쓴 3개짜리. MODEL_EVALUATION_SUMMARY.md의 MAE를
+#       재현하려면 이걸 써야 하므로 기본값으로 둔다.
+# full: 서빙과 동일한 7개짜리. 서빙 성능을 재려면 이걸 쓴다.
+PROMPT_SETS = {
+    "core": {
+        "targets": CORE_TARGETS,
+        "prompt": PROMPTS_DIR / "body_measurement_prompt.j2",
+        "schema": PROMPTS_DIR / "body_measurement_schema.json",
+    },
+    "full": {
+        "targets": FULL_TARGETS,
+        "prompt": PROMPTS_DIR / "body_measurement_prompt_full.j2",
+        "schema": PROMPTS_DIR / "body_measurement_schema_full.json",
+    },
+}
+
 TRAILING_METADATA_COLUMNS = [
     "front_image_path",
     "side_image_path",
     "model",
     "run_name",
+    "prompt_set",
     "status",
 ]
 
 
-MEASUREMENT_COLUMNS = [
-    "subject_id",
-    "predicted_chest_cm",
-    "predicted_waist_cm",
-    "predicted_hip_cm",
-    "chest",
-    "waist",
-    "hip",
-    "chest_absolute_error_cm",
-    "waist_absolute_error_cm",
-    "hip_absolute_error_cm",
-]
+def measurement_columns() -> list[str]:
+    """예측값 → 정답값 → 오차 순으로 보이도록 앞쪽 열 순서를 만든다."""
+    return [
+        "subject_id",
+        *[f"predicted_{target}_cm" for target in FULL_TARGETS],
+        *FULL_TARGETS,
+        *[f"{target}_absolute_error_cm" for target in FULL_TARGETS],
+    ]
 
 
 def order_result_columns(dataframe: pd.DataFrame) -> pd.DataFrame:
-    preferred = [column for column in MEASUREMENT_COLUMNS if column in dataframe.columns]
+    preferred = [column for column in measurement_columns() if column in dataframe.columns]
     trailing = [
         column for column in TRAILING_METADATA_COLUMNS if column in dataframe.columns
     ]
@@ -64,9 +82,9 @@ def load_image_part(image_path: Path) -> dict:
     }
 
 
-def render_prompt(row: pd.Series) -> str:
+def render_prompt(row: pd.Series, prompt_path: Path) -> str:
     template = Environment(undefined=StrictUndefined).from_string(
-        PROMPT_PATH.read_text(encoding="utf-8")
+        prompt_path.read_text(encoding="utf-8")
     )
     return template.render(
         gender=row["gender"],
@@ -75,17 +93,21 @@ def render_prompt(row: pd.Series) -> str:
     )
 
 
-def parse_prediction(content: str) -> dict:
+def parse_prediction(content: str, targets: list[str]) -> dict:
+    """응답 JSON에서 부위별 수치를 꺼낸다.
+
+    CORE_TARGETS는 채점에 쓰므로 없으면 실패 처리한다. 나머지 부위는 모델이
+    빠뜨려도 실패로 보지 않고 빈 값으로 남긴다 — 채점 대상이 아니기 때문이다.
+    """
     cleaned = re.sub(r"^```(?:json)?\s*", "", content.strip(), flags=re.IGNORECASE)
     cleaned = re.sub(r"\s*```$", "", cleaned)
     prediction = json.loads(cleaned)
 
-    required_keys = {"chest_cm", "waist_cm", "hip_cm"}
-    missing_keys = required_keys - set(prediction)
+    missing_keys = [f"{t}_cm" for t in CORE_TARGETS if f"{t}_cm" not in prediction]
     if missing_keys:
-        raise ValueError(f"응답에 필수 키가 없습니다: {sorted(missing_keys)}")
+        raise ValueError(f"응답에 필수 키가 없습니다: {missing_keys}")
 
-    return prediction
+    return {target: prediction.get(f"{target}_cm") for target in targets}
 
 
 def request_prediction(
@@ -133,8 +155,26 @@ def main() -> None:
     parser.add_argument("--split", choices=["validation", "test"], required=True)
     parser.add_argument("--limit", type=int, default=None)
     parser.add_argument("--run-name", required=True)
+    parser.add_argument(
+        "--output-dir",
+        type=Path,
+        default=None,
+        help="결과 저장 폴더. 생략하면 experiments/vlm/<model>/<split>-<run-name>입니다.",
+    )
     parser.add_argument("--resume", action="store_true")
+    parser.add_argument(
+        "--prompt-set",
+        choices=sorted(PROMPT_SETS),
+        default="core",
+        help=(
+            "core=가슴·허리·엉덩이 3개만 질문 (모델 선정 벤치마크 재현용, 기본값). "
+            "full=서빙과 동일하게 7개 전부 질문."
+        ),
+    )
     args = parser.parse_args()
+
+    prompt_set = PROMPT_SETS[args.prompt_set]
+    targets = prompt_set["targets"]
 
     api_key = os.environ.get("OPENROUTER_API_KEY")
     if not api_key:
@@ -142,16 +182,22 @@ def main() -> None:
             "OPENROUTER_API_KEY가 없습니다. Infisical 실행 여부를 확인하세요."
         )
 
-    dataset_path = DATA_DIR / f"vlm_{args.split}_set.csv"
+    dataset_path = DATA_DIR / f"{args.split}_set.csv"
     df = pd.read_csv(dataset_path)
     if args.limit:
         df = df.head(args.limit)
 
-    schema = json.loads(SCHEMA_PATH.read_text(encoding="utf-8"))
-    results_dir = PROJECT_ROOT / "results"
-    results_dir.mkdir(parents=True, exist_ok=True)
+    schema = json.loads(prompt_set["schema"].read_text(encoding="utf-8"))
     model_file_name = args.model.rsplit("/", maxsplit=1)[-1]
-    output_path = results_dir / f"{model_file_name}_{args.split}_predictions_{args.run_name}.csv"
+    results_dir = args.output_dir or (
+        PROJECT_ROOT
+        / "experiments"
+        / "vlm"
+        / model_file_name
+        / f"{args.split}-{args.run_name}"
+    )
+    results_dir.mkdir(parents=True, exist_ok=True)
+    output_path = results_dir / "predictions.csv"
 
     results = []
     if args.resume and output_path.exists():
@@ -175,10 +221,9 @@ def main() -> None:
             "side_image_path": row["side_image_path"],
             "model": args.model,
             "run_name": args.run_name,
+            "prompt_set": args.prompt_set,
             "status": "success",
-            "predicted_chest_cm": None,
-            "predicted_waist_cm": None,
-            "predicted_hip_cm": None,
+            **{f"predicted_{target}_cm": None for target in targets},
             "latency_seconds": None,
             "prompt_tokens": None,
             "completion_tokens": None,
@@ -190,7 +235,7 @@ def main() -> None:
         }
 
         try:
-            prompt = render_prompt(row)
+            prompt = render_prompt(row, prompt_set["prompt"])
             prompt += "\n\nRequired JSON schema:\n" + json.dumps(schema)
             front_path = REPO_ROOT / row["front_image_path"]
             side_path = REPO_ROOT / row["side_image_path"]
@@ -206,11 +251,10 @@ def main() -> None:
             if not content:
                 raise ValueError("모델이 최종 텍스트 응답을 반환하지 않았습니다.")
 
-            prediction = parse_prediction(content)
+            prediction = parse_prediction(content, targets)
             usage = response_data.get("usage", {})
-            record["predicted_chest_cm"] = prediction["chest_cm"]
-            record["predicted_waist_cm"] = prediction["waist_cm"]
-            record["predicted_hip_cm"] = prediction["hip_cm"]
+            for target in targets:
+                record[f"predicted_{target}_cm"] = prediction[target]
             record["prompt_tokens"] = usage.get("prompt_tokens")
             record["completion_tokens"] = usage.get("completion_tokens")
             record["total_tokens"] = usage.get("total_tokens")
@@ -229,6 +273,17 @@ def main() -> None:
         )
 
     print(f"\n결과 저장 완료: {output_path}")
+
+    # 여기서는 호출 직후 응답률만 보여준다. 정확도는 evaluate_results.py가
+    # 라벨 CSV와 병합해서 계산한다.
+    extra_targets = [t for t in targets if t not in CORE_TARGETS]
+    if extra_targets:
+        frame = pd.DataFrame(results)
+        success = frame[frame["status"] == "success"]
+        print(f"\n추가 부위 응답률 (성공 {len(success)}건 기준):")
+        for target in extra_targets:
+            filled = success[f"predicted_{target}_cm"].notna().sum()
+            print(f"  {target:9s} {filled}/{len(success)}")
 
 
 if __name__ == "__main__":

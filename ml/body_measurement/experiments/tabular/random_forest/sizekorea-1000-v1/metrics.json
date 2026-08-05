@@ -1,0 +1,72 @@
+[
+  {
+    "model": "random_forest",
+    "target": "chest",
+    "mae": 2.4053820128277947,
+    "rmse": 3.0855943429583688,
+    "r2": 0.8744393336996994,
+    "p90_absolute_error": 4.796241977651994,
+    "fit_seconds": 0.6403235998004675,
+    "predict_ms_per_row": 0.10374509985558689
+  },
+  {
+    "model": "random_forest",
+    "target": "waist",
+    "mae": 3.4315323253655334,
+    "rmse": 4.353442954414995,
+    "r2": 0.8158532513524079,
+    "p90_absolute_error": 6.823436990014383,
+    "fit_seconds": 0.6403235998004675,
+    "predict_ms_per_row": 0.10374509985558689
+  },
+  {
+    "model": "random_forest",
+    "target": "hip",
+    "mae": 2.0759350200838473,
+    "rmse": 2.660175167408837,
+    "r2": 0.8090951000618782,
+    "p90_absolute_error": 4.3616162349687135,
+    "fit_seconds": 0.6403235998004675,
+    "predict_ms_per_row": 0.10374509985558689
+  },
+  {
+    "model": "random_forest",
+    "target": "thigh",
+    "mae": 2.1990084491658988,
+    "rmse": 2.8295521554629586,
+    "r2": 0.6707809460284311,
+    "p90_absolute_error": 4.691258205868241,
+    "fit_seconds": 0.6403235998004675,
+    "predict_ms_per_row": 0.10374509985558689
+  },
+  {
+    "model": "random_forest",
+    "target": "calf",
+    "mae": 1.1731654424177882,
+    "rmse": 1.5032351959835428,
+    "r2": 0.7590510574396658,
+    "p90_absolute_error": 2.4328655892255826,
+    "fit_seconds": 0.6403235998004675,
+    "predict_ms_per_row": 0.10374509985558689
+  },
+  {
+    "model": "random_forest",
+    "target": "arm",
+    "mae": 1.1054643733678953,
+    "rmse": 1.4299708963277862,
+    "r2": 0.8209124628289565,
+    "p90_absolute_error": 2.1520054521404597,
+    "fit_seconds": 0.6403235998004675,
+    "predict_ms_per_row": 0.10374509985558689
+  },
+  {
+    "model": "random_forest",
+    "target": "shoulder",
+    "mae": 1.114591495794542,
+    "rmse": 1.4231557625091125,
+    "r2": 0.7453728448096354,
+    "p90_absolute_error": 2.367196556961563,
+    "fit_seconds": 0.6403235998004675,
+    "predict_ms_per_row": 0.10374509985558689
+  }
+]

@@ -20,8 +20,8 @@ from PIL import Image, ImageOps
 
 
 ROOT = Path(__file__).resolve().parents[3]
-DATA_PATH = ROOT / "ml/body_measurement/data/raw_test_data/summary_raw_test_data.csv"
-OUT_DIR = ROOT / "ml/body_measurement/reports/vlm_openrouter_182"
+DATA_PATH = ROOT / "ml/body_measurement/data/labels/sizekorea_vlm_182_labels.csv"
+EXPERIMENTS_DIR = ROOT / "ml/body_measurement/experiments/vlm"
 MODELS = {
     "qwen3-vl-8b": "qwen/qwen3-vl-8b-instruct",
     "gemma-3-12b": "google/gemma-3-12b-it",
@@ -120,12 +120,13 @@ def main() -> None:
         raise SystemExit("OPENROUTER_API_KEY가 필요합니다. infisical run으로 실행하세요.")
     with DATA_PATH.open(encoding="utf-8-sig", newline="") as handle:
         rows = list(csv.DictReader(handle))[: args.limit]
-    OUT_DIR.mkdir(parents=True, exist_ok=True)
     encoded = {row["subject_id"]: (image_url(ROOT / row["front_image_path"]), image_url(ROOT / row["side_image_path"])) for row in rows}
     selected = MODELS if args.model == "all" else {args.model: MODELS[args.model]}
     all_summaries = []
     for name, model in selected.items():
-        detail_path = OUT_DIR / f"{name}_test_set_results.csv"
+        run_dir = EXPERIMENTS_DIR / name / "openrouter-182-test"
+        run_dir.mkdir(parents=True, exist_ok=True)
+        detail_path = run_dir / "predictions.csv"
         completed = {}
         if detail_path.exists():
             with detail_path.open(encoding="utf-8-sig", newline="") as handle:
@@ -140,7 +141,9 @@ def main() -> None:
                     write_rows(detail_path, results)
                     print(f"{name}: {len(results)}/{len(rows)} saved", flush=True)
         all_summaries.append(summary(name, results, detail_path))
-    summary_path = OUT_DIR / "all_models_test_set_summary.csv"
+    summary_dir = EXPERIMENTS_DIR / "_summaries" / "openrouter-182-test"
+    summary_dir.mkdir(parents=True, exist_ok=True)
+    summary_path = summary_dir / "all_models_summary.csv"
     with summary_path.open("w", newline="", encoding="utf-8-sig") as handle:
         writer = csv.DictWriter(handle, fieldnames=sorted({key for item in all_summaries for key in item}))
         writer.writeheader()

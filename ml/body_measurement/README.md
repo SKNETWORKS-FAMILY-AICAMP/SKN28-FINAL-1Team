@@ -8,20 +8,29 @@
 ```text
 body_measurement/
 ├── data/
-│   ├── sizekorea_measurements_clean.csv   ← SizeKorea 정제본 (실제 사용)
+│   ├── labels/
+│   │   ├── sizekorea_vlm_182_labels.csv      ← 원본 profile CSV 182개 통합 정답표
+│   │   └── sizekorea_vlm_subjects.csv        ← 실제 이미지 평가 대상 181명
+│   ├── processed/
+│   │   └── sizekorea_measurements_clean.csv   ← SizeKorea 정제본 (실제 사용)
+│   ├── splits/
+│   │   └── vlm/
+│   │       ├── validation_set.csv            ← VLM 검증 세트 36명
+│   │       └── test_set.csv                  ← VLM 테스트 세트 145명
+│   ├── people/                               ← SizeKorea 정면/측면 이미지
 │   └── raw/
 │       └── sizekorea_8th.xlsx            ← SizeKorea 8차 원본 (재정제용)
 ├── src/
 │   ├── benchmark.py                       ← 메인 벤치마크 CLI
 │   ├── compare_all_models.py              ← 7모델 비교 리포트 생성
-│   ├── manual_test.py                     ← S3 원본 → CSV 정제
-│   ├── model_test.py                      ← 초기 모델 검증
+│   ├── benchmark_vlm.py                   ← VLM 벤치마크
+│   ├── benchmark_openrouter_two_view.py   ← OpenRouter 2-view 벤치마크
+│   ├── inference.py                       ← API 서빙용 추론 헬퍼
 │   └── huggingface_benchmark.ipynb        ← Colab GPU에서 HF 모델 실행
-├── artifacts/                             ← 모델 출력물 (형식별 폴더, 모델별 폴더 아님)
-│   ├── csv/                               ← test_set.csv, test_predictions_{model}.csv
-│   ├── models/                            ← 기본 모델 {model}.joblib (baseline/RF/HGB/KNN)
-│   └── metrics/                           ← metrics.json(기본 4개), metrics_{model}.json(HF 3개),
-│                                             run_manifest.json, sample_predictions.json
+├── artifacts/models/                      ← API 서빙용 joblib 모델
+├── experiments/                           ← 모델별·실행별 평가 결과
+│   ├── tabular/<model>/<run_name>/
+│   └── vlm/<model>/<run_name>/
 ├── reports/                               ← 비교 리포트
 │   ├── model_comparison_report.md         ← 사람이 보는 7모델 비교 보고서
 │   ├── model_comparison_summary.csv       ← 모델별 평균 지표
@@ -67,6 +76,13 @@ gender,height,weight,chest,waist,hip,thigh,calf,arm,shoulder
 - 실제 평가에서는 동일 조사 대상이 train/test에 중복되지 않도록 전처리
   단계에서 subject 기준 split 컬럼을 추가하는 방향으로 확장한다.
 
+VLM 이미지 평가용 SizeKorea 정답 CSV는 `data/labels/`에 있다.
+
+- `sizekorea_vlm_182_labels.csv`: 개별 `*_profile.csv` 원본 182개를 하나로 묶은 정답표
+- `sizekorea_vlm_subjects.csv`: 실제 이미지 평가에 쓰는 대상자 181명
+- `splits/vlm/validation_set.csv`: VLM 검증 세트 36명
+- `splits/vlm/test_set.csv`: VLM 테스트 세트 145명
+
 ## 설치
 
 ```powershell
@@ -95,38 +111,38 @@ python src\benchmark.py benchmark --demo
 
 ## 실제 CSV 비교 (정제본 사용)
 
-정제본은 `data/sizekorea_measurements_clean.csv` 에 있다.
+정제본은 `data/processed/sizekorea_measurements_clean.csv` 에 있다.
 
 ```powershell
-python src\benchmark.py benchmark --data data\sizekorea_measurements_clean.csv
+python src\benchmark.py benchmark --data data\processed\sizekorea_measurements_clean.csv
 ```
 
 모델을 명시할 수도 있다.
 
 ```powershell
 python src\benchmark.py benchmark `
-  --data data\sizekorea_measurements_clean.csv `
+  --data data\processed\sizekorea_measurements_clean.csv `
   --models baseline random_forest hist_gradient_boosting knn
 ```
 
-기본 `--artifact-dir`은 스크립트 기준 `artifacts` 이다.
-다른 위치에 저장하려면:
+기본 `--artifact-dir`은 스크립트 기준 `artifacts` 이다. 모델별 테스트 결과를
+구분하려면 모델 하나당 별도 실행 폴더를 지정한다.
 
 ```powershell
 python src\benchmark.py benchmark `
-  --data data\sizekorea_measurements_clean.csv `
-  --artifact-dir artifacts\my_run
+  --data data\processed\sizekorea_measurements_clean.csv `
+  --models hist_gradient_boosting `
+  --artifact-dir experiments\tabular\hist_gradient_boosting\sizekorea-1000-v2
 ```
 
-평가 결과 (artifact_dir 아래, 형식별 하위폴더에 저장된다):
+평가 결과 (`--artifact-dir` 아래):
 
 ```text
-artifacts/csv/test_set.csv
-artifacts/csv/test_predictions_{model_name}.csv
-artifacts/models/{model_name}.joblib
-artifacts/metrics/metrics.json
-artifacts/metrics/run_manifest.json
-artifacts/metrics/sample_predictions.json
+csv/test_set.csv
+csv/test_predictions_{model_name}.csv
+models/{model_name}.joblib
+metrics/metrics.json
+metrics/run_manifest.json
 ```
 
 각 target에 대해 다음을 기록한다.
@@ -195,8 +211,7 @@ python src\benchmark.py predict `
 ## 7모델 비교 리포트 생성
 
 기본 4개 + HF 3개, 총 7개 모델을 한 표로 비교한 리포트를 생성한다.
-`artifacts/metrics/metrics.json`(기본 4개)과 `artifacts/metrics/metrics_{model}.json`(HF 3개)을
-읽어 합친다.
+`experiments/tabular/<model>/sizekorea-1000-v1/metrics.json`을 읽어 합친다.
 
 ```powershell
 python src\compare_all_models.py
@@ -209,12 +224,15 @@ python src\compare_all_models.py
 - `reports/model_comparison.png` — R2/MAE/RMSE 차트
 - `reports/model_comparison_report.md` — 사람이 보는 종합 분석 (직접 작성)
 
-## 데이터 정제 재생성
+## 데이터 정제 기준
 
-S3 원본을 다시 받아 `data/sizekorea_measurements_clean.csv`를 재생성한다.
+`data/processed/sizekorea_measurements_clean.csv`는 SizeKorea 원본에서
+아래 기준으로 만든 정제본이다. `benchmark.py`는 같은 기준으로 S3/Excel 원본을
+읽어 벤치마크할 수 있다.
 
 ```powershell
-python src\manual_test.py
+python src\benchmark.py benchmark `
+  --models baseline random_forest hist_gradient_boosting knn
 ```
 
 정제 파이프라인:
@@ -223,7 +241,7 @@ python src\manual_test.py
 2. 측정 컬럼 추출
 3. mm → cm 단위 변환
 4. 정상 범위 외 값은 결측 처리
-5. 결측 행 제거 후 `data/sizekorea_measurements_clean.csv`로 저장
+5. 결측 행 제거 후 `data/processed/sizekorea_measurements_clean.csv`로 저장
 
 ## Hugging Face 후보 (Colab GPU)
 
@@ -247,15 +265,14 @@ src/huggingface_benchmark.ipynb
    - `csv/test_predictions_{model}.csv`: 모델별 1000개 예측값과 오차
      (`actual_{부위}`, `predicted_{부위}`, `error_{부위}` 순서)
    - `metrics/run_manifest.json`: 실행 조건과 산출물 경로
-6. 로컬로 가져올 때는 파일명에 모델명을 붙여서 넣는다. 로컬 `artifacts/`는
-   모델별 폴더가 아니라 형식별 폴더 하나이므로, 이름으로 모델을 구분해야 한다.
+6. 로컬로 가져올 때는 모델별 실행 폴더에 넣는다.
 
    ```text
-   colab_tabpfn_v2/metrics/metrics.json  → artifacts/metrics/metrics_tabpfn_v2.json
-   colab_nori/metrics/metrics.json       → artifacts/metrics/metrics_nori.json
-   colab_tabpfn_mix/metrics/metrics.json → artifacts/metrics/metrics_tabpfn_mix.json
+   colab_tabpfn_v2/metrics/metrics.json  → experiments/tabular/tabpfn_v2/sizekorea-1000-v1/metrics.json
+   colab_nori/metrics/metrics.json       → experiments/tabular/nori/sizekorea-1000-v1/metrics.json
+   colab_tabpfn_mix/metrics/metrics.json → experiments/tabular/tabpfn_mix/sizekorea-1000-v1/metrics.json
 
-   colab_{model}/csv/test_predictions_{model}.csv → artifacts/csv/test_predictions_{model}.csv
+   colab_{model}/csv/test_predictions_{model}.csv → experiments/tabular/{model}/sizekorea-1000-v1/predictions.csv
    ```
 7. 그러면 `compare_all_models.py`가 7모델을 합쳐서 비교한다.
 
@@ -272,8 +289,8 @@ pip install "autogluon.tabular[tabpfnmix]"
 
 ```powershell
 python src\benchmark.py benchmark `
-  --data data\sizekorea_measurements_clean.csv `
-  --test-data artifacts\csv\test_set.csv `
+  --data data\processed\sizekorea_measurements_clean.csv `
+  --test-data experiments\tabular\_datasets\sizekorea-1000-v1\test_set.csv `
   --models tabpfn_v2 nori tabpfn_mix `
   --gender F `
   --height 160 `
@@ -298,8 +315,8 @@ python src\benchmark.py benchmark `
 ```powershell
 # 추천 워크플로
 cd ml\body_measurement
-python src\benchmark.py benchmark --data data\sizekorea_measurements_clean.csv
-python src\compare_all_models.py
-# Colab에서 HF 모델 metrics.json을 artifacts/metrics/metrics_{model}.json 이름으로 추가
+python src\benchmark.py benchmark --data data\processed\sizekorea_measurements_clean.csv
+python src\compare_all_models.py --run-name sizekorea-1000-v1
+# Colab에서 HF 모델 결과를 experiments/tabular/{model}/sizekorea-1000-v1/에 추가
 # → reports/model_comparison_report.md 직접 작성/갱신
 ```

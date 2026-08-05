@@ -22,6 +22,8 @@ from apps.api_docs.serializers import (
 from apps.users.serializers import (
     BodyBasicInputSerializer,
     BodyDetailInputSerializer,
+    BodyEstimateInputSerializer,
+    BodyEstimationResultSerializer,
     BodyMeasurementSerializer,
     BodyPhotoTransactionSerializer,
     BodyPhotoUploadSerializer,
@@ -299,21 +301,26 @@ BODY_DETAIL_DESCRIPTION = """상세 둘레 수치를 저장합니다. **모든 �
 
 BODY_PHOTOS_DESCRIPTION = """정면/측면 전신 사진을 접수하고 **신체 측정을 비동기로 시작**합니다 (multipart/form-data).
 
-- 사진은 **서버에 저장하지 않습니다.** 요청 처리 후 임시 파일은 즉시 정리됩니다.
+- 사진은 **서버에 저장하지 않습니다.** 추론에만 쓰고 요청 처리 후 즉시 버립니다.
 - 접수 시 측정 트랜잭션이 `in_progress`로 생성되고, 202와 함께 `transaction_id`가 반환됩니다.
-- 측정이 끝나면 상태가 `succeeded`/`failed`로 바뀝니다. 상태 조회 API
-  (`GET /users/me/body/photos/{transaction_id}/`)로 폴링해 확인하세요.
-- 성공 시 **상세 둘레 수치만** 갱신되며, 키·몸무게는 변경되지 않습니다.
-- 이미 진행 중인 측정이 있으면 **400**이 반환됩니다.
+- 결과는 **결과 조회 API**(`GET /users/me/body/photos/{transaction_id}/`)를 폴링해서 받습니다.
+- 성공하면 상세 7개(가슴·허리·엉덩이·허벅지·종아리·팔뚝·어깨)가 **전부** 갱신됩니다.
+- `gender`/`height`/`weight`는 생략 가능합니다. 생략하면 저장된 기본 신체치수를 사용하며,
+  저장된 값도 없고 요청에도 없으면 **400**입니다.
+- 이미 진행 중인 측정이 있으면 **400**입니다. 단 10분이 지나도 끝나지 않은 측정은
+  자동으로 실패 처리되어 다시 올릴 수 있습니다.
 - 파일당 10MB 이하의 이미지 파일이어야 합니다.
-- ⚠️ 현재는 실제 추론 대신 mock 처리입니다: 접수 10초 뒤 성공으로 바뀌고
-  상세 수치가 고정값으로 저장됩니다.
 """
 
-BODY_PHOTO_TX_DESCRIPTION = """사진 접수 시 발급된 `transaction_id`로 측정 트랜잭션 상태를 조회합니다.
+BODY_PHOTO_TX_DESCRIPTION = """사진 접수 시 발급된 `transaction_id`로 측정 상태와 결과를 조회합니다.
 
 - `status`: `in_progress`(진행중) | `succeeded`(성공) | `failed`(실패)
-- `succeeded`가 되면 신체치수 조회 API(`GET /users/me/body/`)에서 갱신된 상세 수치를 확인할 수 있습니다.
+- 응답 형식은 사진 없이 추정하는 API(`POST /users/me/body/estimate/`)와 **동일**합니다.
+  사진 등록 여부와 무관하게 같은 파서로 처리할 수 있습니다.
+- ⚠️ **`status`를 반드시 확인하고 화면을 그리세요.** `in_progress`일 때도 `measurement`에는
+  값이 들어 있는데, 이건 **이전 추정 결과**입니다. `status`를 보지 않으면 옛 수치를
+  새 결과처럼 표시하게 됩니다.
+- `failed`면 `error_message`에 실패 사유가 들어갑니다.
 - 다른 사용자의 트랜잭션이거나 없는 ID면 404입니다.
 """
 
@@ -396,6 +403,43 @@ class BodyDetailViewExtension(OpenApiViewExtension):
         return DocumentedBodyDetailView
 
 
+class BodyEstimateViewExtension(OpenApiViewExtension):
+    target_class = "apps.users.views.BodyEstimateView"
+
+    def view_replacement(self):
+        @extend_schema_view(
+            post=extend_schema(
+                operation_id="estimate_body_measurement",
+                tags=["Body"],
+                summary="사진 없이 상세 신체치수 추정 (동기)",
+                description=(
+                    "성별·키·몸무게만으로 상세 7개(가슴·허리·엉덩이·허벅지·종아리·"
+                    "팔뚝·어깨)를 추정해 저장하고 결과를 반환합니다.\n\n"
+                    "- 세 값을 본문에 담지 않으면 이미 저장된 기본 신체치수를 사용합니다.\n"
+                    "- 저장된 값도 없고 요청에도 없으면 400입니다.\n"
+                    "- 추정값은 기존 상세 수치를 덮어씁니다. 이후 "
+                    "`PATCH /users/me/body/detail/`로 사용자가 직접 고칠 수 있습니다.\n"
+                    "- 성별·키·몸무게는 추정 모델이 만들어내지 않습니다. "
+                    "저장되는 값은 항상 사용자가 입력한 값입니다.\n"
+                    "- 응답 형식은 사진 측정 결과 조회 API와 동일합니다."
+                ),
+                request=BodyEstimateInputSerializer,
+                responses={
+                    200: BodyEstimationResultSerializer,
+                    400: OpenApiResponse(
+                        response=DetailResponseSerializer,
+                        description="요청값 오류 또는 기본 신체치수 미입력",
+                    ),
+                    401: DetailResponseSerializer,
+                },
+            )
+        )
+        class DocumentedBodyEstimateView(self.target_class):
+            pass
+
+        return DocumentedBodyEstimateView
+
+
 class BodyPhotoViewExtension(OpenApiViewExtension):
     target_class = "apps.users.views.BodyPhotoView"
 
@@ -431,10 +475,10 @@ class BodyPhotoTransactionViewExtension(OpenApiViewExtension):
             get=extend_schema(
                 operation_id="get_body_photo_transaction",
                 tags=["Body"],
-                summary="신체 측정 트랜잭션 상태 조회",
+                summary="신체 측정 트랜잭션 결과 조회",
                 description=BODY_PHOTO_TX_DESCRIPTION,
                 responses={
-                    200: BodyPhotoTransactionSerializer,
+                    200: BodyEstimationResultSerializer,
                     401: DetailResponseSerializer,
                     404: OpenApiResponse(
                         response=DetailResponseSerializer,

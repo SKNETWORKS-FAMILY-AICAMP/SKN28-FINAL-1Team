@@ -1,7 +1,7 @@
 # SKN28-FINAL-1Team — AI 개인화 패션 추천 서비스
 
 사용자의 옷장을 출발점으로 날씨·TPO·체형을 고려한 개인화 패션 추천을 제공하는 AI 서비스.
-서비스 기획·아키텍처는 [docs/프로젝트_소개.md](docs/프로젝트_소개.md), 개발 규칙은 [CLAUDE.md](CLAUDE.md) 참고.
+서비스 기획·아키텍처는 [docs/project-overview.md](docs/project-overview.md), 개발 규칙은 [CLAUDE.md](CLAUDE.md) 참고.
 
 > 이 문서는 **현재 구현된 범위**만 다룬다. 추천 엔진(RAG)·ml/ 모듈은 아직 개발 전이다.
 
@@ -62,7 +62,11 @@ docker compose --profile all up -d --build      # 전부
   ⚠️ `swagger_noauth`는 인증이 꺼지므로 운영 환경에 절대 설정 금지.
 - 호스트 5432 포트가 사용 중이면 `POSTGRES_HOST_PORT`로 db 공개 포트를 변경
 - 어떤 프로필이든 migrate가 api 이미지로 실행되므로 `DJANGO_SECRET_KEY`, `DJANGO_ALLOWED_HOSTS` 필요
-- 컨테이너는 루트 `.env` 파일에서 값을 읽으므로(compose `env_file`), `infisical run -- docker compose up`만으로는 시크릿이 컨테이너에 전달되지 않는다. 반드시 위처럼 `infisical export`로 `.env`를 먼저 생성한다. 원리는 [docs/guide/INFISICAL_GUIDE.md](docs/guide/INFISICAL_GUIDE.md)를 따른다.
+- compose가 값을 찾는 경로는 두 가지이고, 각각 동작이 다르다. 원리는 [docs/infisical-guide.md](docs/infisical-guide.md)를 따른다.
+  - **`env_file: .env`** — 컨테이너 안으로 파일째 주입된다. **파일에서만** 읽으므로 shell 환경변수는 무시된다. 즉 이 경로의 값은 `.env`가 있어야 한다.
+  - **`${VAR}` 보간** — compose 파일을 파싱할 때 **shell 환경변수를 먼저** 보고, 없으면 `.env`를 본다. 따라서 `infisical run`으로 감싸면 그대로 주입된다. 현재 `REDIS_PASSWORD`, `OPENROUTER_API_KEY`, `DJANGO_SETTINGS_MODULE` 등 9개가 이 방식이다.
+- `REDIS_PASSWORD`는 `${}` 보간으로 쓰이는데 `.env`에 없으면 `required variable REDIS_PASSWORD is missing a value`로 기동 자체가 실패한다. `infisical run --env=dev -- docker compose ...`로 감싸면 해결된다.
+- 시크릿을 파일에 남기지 않으려면 `infisical run`으로 감싸는 쪽이 낫다. `OPENROUTER_API_KEY`가 이 방식이며, compose에는 변수 이름만 있고 값은 실행 순간에만 주입된다.
 - `.env`는 `infisical export`로만 생성/갱신하고 손으로 편집하지 않는다. Infisical 값 변경 후에는 export를 다시 실행하고 `docker compose up -d --force-recreate`로 반영한다. 커밋 금지.
 
 ### GPU 서버 (RunPod / GPU EC2)

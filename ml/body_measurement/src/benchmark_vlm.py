@@ -127,7 +127,7 @@ def main():
     if args.dataset == "external":
         meta_path = "ml/body_measurement/data/external_samples/summary_external_samples.csv"
     else:
-        meta_path = "ml/body_measurement/data/raw_test_data/summary_raw_test_data.csv"
+        meta_path = "ml/body_measurement/data/labels/sizekorea_vlm_182_labels.csv"
 
     if not os.path.exists(meta_path):
         print(f"오류: 수집된 메타데이터를 찾을 수 없습니다 -> {meta_path}")

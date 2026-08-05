@@ -1,0 +1,9 @@
+{
+  "total_count": 36,
+  "success_count": 36,
+  "success_rate": 1.0,
+  "mean_latency_seconds": 6.048,
+  "chest_mae_cm": 4.394,
+  "waist_mae_cm": 4.967,
+  "hip_mae_cm": 2.728
+}

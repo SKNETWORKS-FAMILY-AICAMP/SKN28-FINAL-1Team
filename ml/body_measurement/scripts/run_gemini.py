@@ -15,7 +15,7 @@ MODEL_NAME = "gemini-3.5-flash-lite"
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 REPO_ROOT = PROJECT_ROOT.parent.parent
-DATA_DIR = PROJECT_ROOT / "data" / "splits"
+DATA_DIR = PROJECT_ROOT / "data" / "splits" / "vlm"
 PROMPT_PATH = PROJECT_ROOT / "prompts" / "body_measurement_prompt.j2"
 SCHEMA_PATH = PROJECT_ROOT / "prompts" / "body_measurement_schema.json"
 TRAILING_METADATA_COLUMNS = [
@@ -53,9 +53,6 @@ def order_result_columns(dataframe: pd.DataFrame) -> pd.DataFrame:
     ]
     return dataframe[preferred + middle + trailing]
 
-RESULTS_DIR = PROJECT_ROOT / "results"
-
-
 def load_image_part(image_path: Path) -> dict:
     return {
         "type": "image",
@@ -81,13 +78,19 @@ def main() -> None:
     parser.add_argument("--split", choices=["validation", "test"], required=True)
     parser.add_argument("--limit", type=int, default=None)
     parser.add_argument("--run-name", required=True)
+    parser.add_argument(
+        "--output-dir",
+        type=Path,
+        default=None,
+        help="결과 저장 폴더. 생략하면 experiments/vlm/<model>/<split>-<run-name>입니다.",
+    )
     args = parser.parse_args()
 
     api_key = os.environ.get("GEMINI_API_KEY")
     if not api_key:
         raise RuntimeError("GEMINI_API_KEY가 없습니다. Infisical 실행 여부를 확인하세요.")
 
-    dataset_path = DATA_DIR / f"vlm_{args.split}_set.csv"
+    dataset_path = DATA_DIR / f"{args.split}_set.csv"
     df = pd.read_csv(dataset_path)
 
     if args.limit:
@@ -96,7 +99,14 @@ def main() -> None:
     schema = json.loads(SCHEMA_PATH.read_text(encoding="utf-8"))
     client = genai.Client(api_key=api_key)
 
-    RESULTS_DIR.mkdir(parents=True, exist_ok=True)
+    results_dir = args.output_dir or (
+        PROJECT_ROOT
+        / "experiments"
+        / "vlm"
+        / MODEL_NAME
+        / f"{args.split}-{args.run_name}"
+    )
+    results_dir.mkdir(parents=True, exist_ok=True)
     results = []
 
     for _, row in df.iterrows():
@@ -153,7 +163,7 @@ def main() -> None:
             f'{record["status"]} ({record["latency_seconds"]}초)'
         )
 
-    output_path = RESULTS_DIR / f"{MODEL_NAME}_{args.split}_predictions_{args.run_name}.csv"
+    output_path = results_dir / "predictions.csv"
     order_result_columns(pd.DataFrame(results)).to_csv(output_path, index=False)
     print(f"\n결과 저장 완료: {output_path}")
 
