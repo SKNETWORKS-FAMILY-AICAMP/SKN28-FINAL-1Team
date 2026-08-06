@@ -14,6 +14,7 @@ from django.urls import reverse
 from django.utils import timezone
 from rest_framework.test import APIClient
 
+from apps.users.constants import category_keys
 from apps.users.models import (
     BodyMeasurement,
     BodyPhotoTransaction,
@@ -33,6 +34,72 @@ def make_profile(provider: str = "kakao", uid: str = "12345") -> SocialProfile:
         profile_image="https://example.com/p.jpg",
         raw={"id": uid},
     )
+
+
+class EmailAuthTests(TestCase):
+    def setUp(self):
+        self.client = APIClient()
+        self.signup_url = reverse("users:email-signup")
+        self.login_url = reverse("users:email-login")
+        self.body = {"email": "member@example.com", "password": "Cozy-test-2026!"}
+
+    def test_signup_creates_password_user_and_returns_jwt(self):
+        response = self.client.post(self.signup_url, self.body, format="json")
+
+        self.assertEqual(response.status_code, 201)
+        self.assertIn("access", response.data)
+        self.assertIn("refresh", response.data)
+        self.assertTrue(response.data["is_new_user"])
+        user = User.objects.get(email=self.body["email"])
+        self.assertTrue(user.check_password(self.body["password"]))
+
+    def test_signup_rejects_duplicate_email(self):
+        self.client.post(self.signup_url, self.body, format="json")
+        response = self.client.post(self.signup_url, self.body, format="json")
+
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("email", response.data)
+
+    def test_signup_rejects_weak_password(self):
+        response = self.client.post(
+            self.signup_url,
+            {"email": "weak@example.com", "password": "12345678"},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("password", response.data)
+
+    def test_login_returns_jwt(self):
+        self.client.post(self.signup_url, self.body, format="json")
+        response = self.client.post(self.login_url, self.body, format="json")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertIn("access", response.data)
+        self.assertFalse(response.data["is_new_user"])
+
+    def test_login_rejects_invalid_credentials(self):
+        self.client.post(self.signup_url, self.body, format="json")
+        response = self.client.post(
+            self.login_url,
+            {**self.body, "password": "wrong-password"},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 400)
+
+    def test_signup_token_can_save_pursuit(self):
+        signup = self.client.post(self.signup_url, self.body, format="json")
+        self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {signup.data['access']}")
+        empty_selections = {key: [] for key in category_keys()}
+
+        response = self.client.put(
+            reverse("users:pursuit"),
+            {"preferred": empty_selections, "avoided": empty_selections},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 200)
 
 
 class SocialLoginTests(TestCase):

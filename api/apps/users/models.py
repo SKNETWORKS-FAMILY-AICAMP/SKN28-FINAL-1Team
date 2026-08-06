@@ -1,7 +1,7 @@
 """사용자 및 소셜 계정 모델.
 
-소셜 로그인(naver/kakao/google) 전용 서비스를 전제로 한다.
-- User: 서비스 내부 식별/프로필. username은 "provider_고유ID" 형태로 자동 생성된다.
+이메일·비밀번호 및 소셜 로그인(naver/kakao/google)을 지원한다.
+- User: 서비스 내부 식별/프로필. username은 로그인 방식별 내부 식별자로 생성된다.
 - SocialAccount: 제공사별 계정 연결. 한 User가 여러 제공사를 연결할 수 있다.
 """
 
@@ -17,7 +17,7 @@ from django.utils.translation import gettext_lazy as _
 
 
 class User(AbstractUser):
-    # 소셜 로그인 전용이므로 password는 사용하지 않는다 (set_unusable_password).
+    # 이메일 계정은 password를 사용하고, 소셜 전용 계정은 unusable password를 저장한다.
     nickname = models.CharField(
         "닉네임", max_length=100, blank=True, db_comment="서비스 표시 닉네임 (소셜 프로필에서 초기화)"
     )
@@ -45,7 +45,7 @@ class User(AbstractUser):
 
     class Meta:
         db_table = "users"
-        db_table_comment = "서비스 사용자 (소셜 로그인 전용 — password는 사용하지 않음)"
+        db_table_comment = "서비스 사용자 (이메일·비밀번호 또는 소셜 로그인 계정)"
         verbose_name = "사용자"
         verbose_name_plural = "사용자"
 

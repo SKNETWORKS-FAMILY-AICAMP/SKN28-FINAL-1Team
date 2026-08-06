@@ -20,6 +20,7 @@ import { APPLE_LOGIN_ENABLED } from '@/constants/config';
 import { Editorial, ink, Fonts , ContentMax} from '@/constants/theme';
 import { useBreakpoint } from '@/hooks/use-breakpoint';
 import { useSocialLogin } from '@/hooks/use-social-login';
+import { emailAuthErrorMessage, loginWithEmail } from '@/lib/emailAuth';
 import type { SocialLoginResult } from '@/lib/socialLogin';
 import { authStore } from '@/state/auth';
 
@@ -33,20 +34,25 @@ export default function Login() {
   const [email, setEmail] = useState('');
   const [pw, setPw] = useState('');
   const [show, setShow] = useState(false);
+  const [emailPending, setEmailPending] = useState(false);
 
   const { kakao, naver, google, apple, pending } = useSocialLogin();
   const toast = useToast();
 
-  /* 백엔드에 이메일/비번 로그인 API 가 없어 데모 세션으로 진입한다.
-     둘러보기와 달리 '로그인한 사용자'(authed)로 들어가므로 홈·옷장·마이가 모두 열린다. */
-  const enter = () => {
+  const enter = async () => {
     if (!email.trim() || !pw) {
       toast('이메일과 비밀번호를 입력해 주세요');
       return;
     }
-    authStore.signInDemo();
-    toast('데모 계정으로 로그인했어요');
-    router.replace('/home');
+    setEmailPending(true);
+    try {
+      await loginWithEmail(email, pw);
+      router.replace('/home');
+    } catch (error) {
+      toast(emailAuthErrorMessage(error), { variant: 'error' });
+    } finally {
+      setEmailPending(false);
+    }
   };
 
   // 소셜 로그인 성공 시 홈으로. (is_new_user 로 온보딩 분기는 Phase 3에서)
@@ -109,8 +115,12 @@ export default function Login() {
           </Pressable>
 
           {/* 로그인 */}
-          <Pressable style={styles.loginBtn} onPress={enter}>
-            <Text style={styles.loginText}>로그인</Text>
+          <Pressable style={styles.loginBtn} onPress={enter} disabled={emailPending}>
+            {emailPending ? (
+              <ActivityIndicator color="#ffffff" />
+            ) : (
+              <Text style={styles.loginText}>로그인</Text>
+            )}
           </Pressable>
 
           {/* 가입 전에 핵심 경험을 먼저 제공한다. 옷장·마이는 로그인 후에 열린다. */}

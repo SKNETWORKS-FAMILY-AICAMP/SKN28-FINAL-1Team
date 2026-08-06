@@ -243,8 +243,8 @@ export default function StyleOnboarding() {
   const hasSelection = preferredCount + avoidedCount > 0;
 
   const goHome = () => {
-    if (returnTo === 'my') router.replace('/(tabs)/my');
-    else router.replace('/(tabs)/home');
+    if (returnTo === 'my') router.navigate('/my');
+    else router.navigate('/home');
   };
 
   /* "저장하고 시작하기" — 선호/기피 선택(11개 카테고리)을 통째로 저장(PUT)하고 이동한다.
