@@ -8,6 +8,7 @@ import { DevReset } from '@/components/dev-reset';
 import { ConfirmProvider, ToastProvider } from '@/components/ui';
 import { initSocialSDKs } from '@/lib/socialLogin';
 import { authStore } from '@/state/auth';
+import { outfitAnalysisStore } from '@/state/outfit-analysis';
 
 SplashScreen.preventAutoHideAsync();
 
@@ -18,6 +19,7 @@ export default function RootLayout() {
   useEffect(() => {
     initSocialSDKs();
     authStore.bootstrap();
+    outfitAnalysisStore.bootstrap();
   }, []);
   return (
     <ThemeProvider value={colorScheme === 'dark' ? DarkTheme : DefaultTheme}>

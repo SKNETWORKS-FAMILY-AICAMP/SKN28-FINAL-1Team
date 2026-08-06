@@ -8,9 +8,13 @@ GPU 서버가 내려가 있어도 job이 유실되지 않고, 서버리스 GPU �
 {
   "job_id": "...", "user_id": 1,
   "source": {"bucket": "...", "key": "wardrobe/1/<job>/original.jpg"},
+  "output": {"bucket": "...", "prefix": "wardrobe/1/<job>/"},
   "output_prefix": "wardrobe/1/<job>/",
   "callback_url": "https://api.../api/v1/internal/wardrobe/callback/"
 }
+
+원본은 옷장 업로드가 아닌 곳(코디 평가 사진)일 수도 있어 source와 output 버킷을
+따로 싣는다. 그래서 job.source_s3_key가 항상 옷장 버킷의 키인 것은 아니다.
 """
 from __future__ import annotations
 
@@ -39,13 +43,23 @@ def _redis():
     return redis.Redis.from_url(REDIS_URL, **kwargs)
 
 
-def enqueue(job) -> None:
-    """job을 처리 큐에 적재한다. 실패 시 redis.RedisError를 그대로 올린다."""
+def enqueue(job, *, source_bucket: str | None = None) -> None:
+    """job을 처리 큐에 적재한다. 실패 시 redis.RedisError를 그대로 올린다.
+
+    source_bucket: 원본이 옷장 버킷이 아닌 곳에 있을 때 지정한다. 코디 평가
+        (apps/recommend)가 이미 업로드해 둔 사진을 그대로 재사용하는 경로에서 쓴다
+        — 같은 사진을 두 번 올리면 S3 비용만 두 배가 된다.
+        결과물(아이템 크롭·manifest)은 항상 옷장 버킷에 쌓는다.
+    """
+    output_prefix = storage.output_prefix(job.user_id, job.id)
     payload = {
         "job_id": str(job.id),
         "user_id": job.user_id,
-        "source": {"bucket": storage.BUCKET, "key": job.source_s3_key},
-        "output_prefix": storage.output_prefix(job.user_id, job.id),
+        "source": {"bucket": source_bucket or storage.BUCKET, "key": job.source_s3_key},
+        # 원본과 출력 버킷이 다를 수 있으므로 출력을 명시한다. 프로세서는 output.bucket을
+        # 먼저 보고 없으면 source.bucket으로 떨어진다(image-processor/worker.py).
+        "output": {"bucket": storage.BUCKET, "prefix": output_prefix},
+        "output_prefix": output_prefix,
         "callback_url": CALLBACK_URL,
     }
     _redis().lpush(QUEUE_KEY, json.dumps(payload, ensure_ascii=False))

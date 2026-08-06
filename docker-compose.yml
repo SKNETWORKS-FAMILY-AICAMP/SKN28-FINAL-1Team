@@ -130,6 +130,33 @@ services:
     # (예전에 --workers 옵션이 적용되지 않던 원인).
     command: sh -c "python manage.py collectstatic --noinput && gunicorn config.wsgi:application"
 
+  # 코디 평가 워커 — api와 같은 이미지를 쓰고 DB를 ORM으로 직접 쓴다.
+  # (옷장 파이프라인의 image-processor는 GPU 별도 서버라 콜백을 쓰지만, 이 워커는
+  #  같은 코드·같은 네트워크라 콜백이라는 실패 지점을 둘 이유가 없다.)
+  #
+  # 주의: 이 서비스를 2대 이상으로 늘리지 말 것. 재시작 복구(recover_stale)가
+  # processing 큐를 통째로 되돌려서, 다른 워커가 처리 중인 작업까지 회수한다.
+  outfit-worker:
+    build:
+      context: ./api
+    container_name: skn28-outfit-worker
+    restart: unless-stopped
+    profiles: ["api", "all"]
+    depends_on:
+      db:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    env_file:
+      - .env
+    environment:
+      TZ: Asia/Seoul
+      POSTGRES_HOST: db
+      POSTGRES_PORT: 5432
+      REDIS_URL: redis://redis:6379/0  # 비밀번호는 REDIS_PASSWORD로 별도 주입
+      DJANGO_SETTINGS_MODULE: ${DJANGO_SETTINGS_MODULE:-config.settings.prod}
+    command: python manage.py run_outfit_worker
+
   weather-collector:
     build:
       context: ./collector/weather
