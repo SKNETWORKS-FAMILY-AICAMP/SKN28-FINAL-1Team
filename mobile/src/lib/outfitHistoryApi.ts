@@ -98,11 +98,74 @@ export function listOutfitAnalyses(
 }
 
 /**
- * 단건 조회. 토큰이 없어도 UUID만 맞으면 24시간 안에는 열린다.
+ * 단건 조회(익명·폴링용). 토큰이 없어도 UUID만 맞으면 24시간 안에는 열린다.
  * 없거나·남의 것이거나·기간이 지났으면 전부 404 로 온다(존재 여부를 흘리지 않으려는 백엔드 설계).
  */
 export function getOutfitAnalysis(analysisId: string): Promise<OutfitAnalysisDetail> {
   return api.get<OutfitAnalysisDetail>(OutfitHistoryEndpoints.detail(analysisId));
+}
+
+/** 옷장 등록 job 상태. 옷장 파이프라인(GPU→콜백) 쪽 값이라 평가 status 와 다른 체계다. */
+export type WardrobeLinkStatus = 'PENDING' | 'PROCESSING' | 'DONE' | 'FAILED';
+
+/** 사진에서 뽑아낸 옷 1벌. 전체 태그가 필요하면 옷장 API(GET /wardrobe/uploads/{job_id}/)를 본다. */
+export type WardrobeLinkedItem = {
+  id: string;
+  item_name: string;
+  category_large: string;
+  category_small: string;
+  color: string;
+  /** 배경 제거·크롭된 아이템 이미지 presigned URL. 발급 실패 시 null */
+  image_url: string | null;
+  /** false = 태깅 확인 대기. 추천 검색에서 제외된다. */
+  confirmed: boolean;
+};
+
+/**
+ * save_to_wardrobe 로 연계된 옷장 등록 job.
+ * 평가가 SUCCEEDED 여도 여기는 아직 PENDING/PROCESSING 일 수 있다 — 별도 파이프라인이라
+ * 진행이 따로 논다. `items` 는 **DONE 일 때만** 채워진다.
+ */
+export type WardrobeLink = {
+  job_id: string;
+  status: WardrobeLinkStatus;
+  /** FAILED 가 아니면 빈 문자열 */
+  error_message: string;
+  created_at: string;
+  finished_at: string | null;
+  items: WardrobeLinkedItem[];
+};
+
+/**
+ * 로그인 사용자가 **본인 기록**을 조회했을 때 오는 확장 응답.
+ * 같은 URL 이지만 익명 기록이면 축소 응답(OutfitAnalysisDetail)이 온다 — 서랍은 본인 기록만
+ * 나열하므로 여기서는 이 모양을 기대해도 된다.
+ */
+export type OutfitAnalysisOwnedDetail = {
+  id: string;
+  status: OutfitAnalysisStatus;
+  /** 원본 착장 사진 presigned URL (1시간 만료 — 캐시하지 말 것) */
+  image_url: string | null;
+  weather: AnalysisWeather;
+  personalized: boolean;
+  save_to_wardrobe: boolean;
+  /** 연계하지 않았으면 null */
+  wardrobe: WardrobeLink | null;
+  evaluation: OutfitEvaluation | null;
+  error_message: string;
+  created_at: string;
+  started_at: string | null;
+  finished_at: string | null;
+};
+
+/**
+ * 본인 기록 상세. **JWT 필수** — 토큰 없이 부르면 익명 축소 응답이 오거나 404 다.
+ *
+ * 옷장 등록 진행 상황도 여기 실려 오므로, 옷장 job 을 따로 폴링할 필요가 없다.
+ * `wardrobe.status` 가 PENDING/PROCESSING 이면 이 엔드포인트를 다시 부르면 된다.
+ */
+export function getOwnedOutfitAnalysis(analysisId: string): Promise<OutfitAnalysisOwnedDetail> {
+  return api.get<OutfitAnalysisOwnedDetail>(OutfitHistoryEndpoints.detail(analysisId));
 }
 
 /** 백엔드 services/claim.py SkipReason 과 같은 값. */

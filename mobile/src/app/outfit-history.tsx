@@ -9,7 +9,7 @@ import { useBottomTabInset } from '@/hooks/use-bottom-tab-inset';
 import { useBreakpoint } from '@/hooks/use-breakpoint';
 import { useOutfitHistory } from '@/hooks/use-outfit-history';
 import { useRefresh } from '@/hooks/use-refresh';
-import { goBack } from '@/lib/goBack';
+import { goBack, withReturn } from '@/lib/goBack';
 import type { AnalysisWeather, OutfitAnalysisListItem } from '@/lib/outfitHistoryApi';
 import { useAuth } from '@/state/auth';
 
@@ -97,7 +97,13 @@ export default function OutfitHistoryScreen() {
           <>
             <Text style={styles.count}>전체 {total}건</Text>
             {items.map((item) => (
-              <HistoryRow key={item.id} item={item} />
+              <HistoryRow
+                key={item.id}
+                item={item}
+                onPress={() =>
+                  router.push(withReturn(`/analysis-detail?id=${item.id}`, '/outfit-history'))
+                }
+              />
             ))}
             {hasMore ? (
               <Pressable style={styles.more} onPress={loadMore} disabled={loadingMore}>
@@ -116,13 +122,13 @@ export default function OutfitHistoryScreen() {
 }
 
 /** 기록 한 줄. 완료 전이거나 실패한 건도 그대로 보여준다 — 사라지면 사용자가 더 혼란스럽다. */
-function HistoryRow({ item }: { item: OutfitAnalysisListItem }) {
+function HistoryRow({ item, onPress }: { item: OutfitAnalysisListItem; onPress: () => void }) {
   const done = item.status === 'SUCCEEDED';
   const failed = item.status === 'FAILED';
   const weather = weatherLabel(item.weather);
 
   return (
-    <View style={styles.row}>
+    <Pressable style={styles.row} onPress={onPress}>
       <View style={styles.rowHead}>
         <Text style={styles.rowDate}>{dateLabel(item.created_at)}</Text>
         {done && item.overall_score != null ? (
@@ -145,7 +151,7 @@ function HistoryRow({ item }: { item: OutfitAnalysisListItem }) {
           {item.personalized ? <Text style={styles.metaTag}>취향 반영</Text> : null}
         </View>
       ) : null}
-    </View>
+    </Pressable>
   );
 }
 
