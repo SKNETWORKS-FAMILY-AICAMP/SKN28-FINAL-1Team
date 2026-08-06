@@ -154,7 +154,15 @@ services:
       POSTGRES_HOST: db
       POSTGRES_PORT: 5432
       REDIS_URL: redis://redis:6379/0  # 비밀번호는 REDIS_PASSWORD로 별도 주입
+      QDRANT_URL: http://qdrant:6333   # 컨테이너 네트워크 내부 주소
       DJANGO_SETTINGS_MODULE: ${DJANGO_SETTINGS_MODULE:-config.settings.prod}
+      OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
+    volumes:
+      # api와 같은 이미지·같은 urls.py를 로드하므로 동일하게 필요하다.
+      # Django system check가 config.urls → users.views → body_inference 를 import하고
+      # 그 안에서 `from body_measurement.src import inference` 가 실행되기 때문에,
+      # 이 마운트가 없으면 워커가 ModuleNotFoundError로 죽는다.
+      - ./ml:/ml:ro
     command: python manage.py run_outfit_worker
 
   weather-collector:
