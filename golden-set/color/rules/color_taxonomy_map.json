@@ -1,0 +1,73 @@
+{
+  "version": "1.0.0",
+  "purpose": "옷장·상품 아이템의 color 태그(한국어 17색) → v2 색 규칙 키(영문 17색) 변환표",
+  "why": "color_rules.json v2는 Pinterest 레퍼런스에서 유도한 영문 팔레트다. 실제 아이템에 붙는 태그는 taxonomy.py의 한국어 COLORS이므로, 이 표가 없으면 filter_rules가 color='레드'를 받고 대응 행을 찾지 못한다.",
+  "direction": "taxonomy(한국어) → v2(영문). 코드가 조회하는 방향과 같다.",
+  "sources": {
+    "taxonomy": "image-processor/pipeline/taxonomy.py::COLORS (17)",
+    "v2_palette": "golden-set/color/rules/color_rules.json::attributes (17)"
+  },
+  "fidelity_levels": {
+    "exact": "같은 색을 가리킨다. 손실 없음",
+    "close": "톤 차이는 있으나 같은 색 가족. 등급 판정에 영향 미미",
+    "lossy": "명도·채도가 뚜렷이 달라 등급이 바뀔 수 있다. 문서에 명시",
+    "unrepresented": "v2에 대응 색이 없다. fallback은 잠정값이며 팔레트 보강 필요"
+  },
+
+  "map": {
+    "화이트":     { "v2": "White",        "fidelity": "exact" },
+    "블랙":       { "v2": "Black",        "fidelity": "exact" },
+    "그레이":     { "v2": "Gray",         "fidelity": "exact" },
+    "네이비":     { "v2": "Navy",         "fidelity": "exact" },
+    "베이지":     { "v2": "Beige",        "fidelity": "exact" },
+    "브라운":     { "v2": "Brown",        "fidelity": "exact" },
+    "카키":       { "v2": "Olive",        "fidelity": "exact",
+                    "note": "v1 카키와 v2 Olive의 hex가 #6B6B45로 동일하다" },
+    "아이보리":   { "v2": "Cream",        "fidelity": "close" },
+    "스카이블루": { "v2": "Light Blue",   "fidelity": "close" },
+    "핑크":       { "v2": "Blush Pink",   "fidelity": "close" },
+    "그린":       { "v2": "Forest Green", "fidelity": "close",
+                    "note": "카키가 Olive를 이미 점유하므로 그린은 Forest Green으로 간다" },
+
+    "옐로우":     { "v2": "Mustard",      "fidelity": "lossy",
+                    "note": "Mustard는 톤다운 노랑이다. 밝은 원색 옐로우 아이템은 실제보다 낮은 chroma로 판정된다" },
+    "오렌지":     { "v2": "Rust",         "fidelity": "lossy",
+                    "note": "Rust는 어두운 적갈색 계열이다. 선명한 오렌지의 보색 충돌이 과소평가될 수 있다" },
+    "레드":       { "v2": "Burgundy",     "fidelity": "lossy",
+                    "note": "v2에 순수 레드가 없다. Burgundy(어두운 와인)와 Rust(적갈) 중 색상각이 가까운 Burgundy를 택했다. 선명한 레드 아이템은 실제보다 안전하게 판정된다" },
+    "퍼플":       { "v2": "Lavender",     "fidelity": "lossy",
+                    "note": "Lavender(#B57EDC)는 밝아서 visual_effect가 '확장'이다. 어두운 퍼플 아이템에 적용하면 체형 규칙(02번 문서)의 축소·확장 판단이 뒤집힌다" },
+
+    "블루":       { "v2": "Navy",         "fidelity": "unrepresented",
+                    "fallback": true,
+                    "note": "v2에 중간 명도의 파랑 accent가 없다. Navy는 role=neutral이라 이 fallback은 accent를 앵커로 바꿔 버린다. 데님이 여기 해당하므로 빈도가 높다 — v2 팔레트에 'Blue'(#2A5CAA 수준) 추가가 필요하다" },
+    "멀티":       { "v2": null,           "fidelity": "unrepresented",
+                    "fallback": false,
+                    "rule": "MULTI_ANCHOR",
+                    "note": "v1에는 멀티 전용 규칙(R0)이 있었으나 v2에서 빠졌다. 등급 조회 대신 아래 multi_rule을 적용한다" }
+  },
+
+  "multi_rule": {
+    "id": "MULTI_ANCHOR",
+    "applies_to": "color == '멀티'",
+    "grades": {
+      "against_neutral": "recommended",
+      "against_semi_neutral": "allowed",
+      "against_accent": "caution",
+      "against_multi": "avoid"
+    },
+    "reason": "멀티는 이미 내부에 여러 색을 갖고 있어, 상대가 유채색이면 룩의 색 수 한도를 넘긴다",
+    "role_lookup": "color_rules.json::attributes[v2].role"
+  },
+
+  "unused_v2_colors": {
+    "Charcoal": "대응하는 taxonomy 색이 없다. 아이템 태그로는 절대 등장하지 않는다 (그레이/블랙으로 태깅됨)",
+    "Teal": "대응하는 taxonomy 색이 없다. 블루·그린 중 하나로 태깅된다"
+  },
+
+  "action_required": [
+    "v2 팔레트에 'Blue'(중간 명도 파랑 accent) 추가 — 블루 태그의 fallback 제거용",
+    "'멀티'를 color_rules.json에 1급 항목으로 재도입할지, multi_rule로 남길지 결정",
+    "레드/오렌지/옐로우/퍼플의 lossy 판정이 실제 추천에서 문제를 일으키는지 평가 후 재검토"
+  ]
+}

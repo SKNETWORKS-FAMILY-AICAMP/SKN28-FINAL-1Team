@@ -1,0 +1,114 @@
+{
+  "version": "v4",
+  "philosophy": "실제 wardrobe 7가지 기본 바지 × 17 top. 퍼스널컬러는 다양성 참고용, 매칭 강제 아님.",
+  "common_pants": [
+    {
+      "name": "White",
+      "hex": "#FFFFFF",
+      "desc": "neutral cool/bright"
+    },
+    {
+      "name": "Black",
+      "hex": "#1E1E2E",
+      "desc": "neutral dark"
+    },
+    {
+      "name": "Navy",
+      "hex": "#1F2A44",
+      "desc": "cool dark"
+    },
+    {
+      "name": "Gray",
+      "hex": "#808080",
+      "desc": "neutral medium"
+    },
+    {
+      "name": "Brown",
+      "hex": "#6B4F3A",
+      "desc": "warm dark"
+    },
+    {
+      "name": "Ivory",
+      "hex": "#F2E8D5",
+      "desc": "neutral warm light"
+    },
+    {
+      "name": "Denim",
+      "hex": "#4A6FA5",
+      "desc": "cool medium (classic blue jean)"
+    }
+  ],
+  "tops": [
+    {
+      "name": "Black",
+      "hex": "#1E1E2E"
+    },
+    {
+      "name": "White",
+      "hex": "#FFFFFF"
+    },
+    {
+      "name": "Charcoal",
+      "hex": "#36454F"
+    },
+    {
+      "name": "Navy",
+      "hex": "#1B2444"
+    },
+    {
+      "name": "Beige",
+      "hex": "#D9C3A5"
+    },
+    {
+      "name": "Olive",
+      "hex": "#6B6B45"
+    },
+    {
+      "name": "Brown",
+      "hex": "#6B4F3A"
+    },
+    {
+      "name": "Burgundy",
+      "hex": "#7A1F4F"
+    },
+    {
+      "name": "Mustard",
+      "hex": "#D4A017"
+    },
+    {
+      "name": "Teal",
+      "hex": "#008080"
+    },
+    {
+      "name": "Gray",
+      "hex": "#808080"
+    },
+    {
+      "name": "Cream",
+      "hex": "#F5E6CC"
+    },
+    {
+      "name": "Rust",
+      "hex": "#B5523A"
+    },
+    {
+      "name": "Forest Green",
+      "hex": "#2E5E4E"
+    },
+    {
+      "name": "Lavender",
+      "hex": "#B57EDC"
+    },
+    {
+      "name": "Light Blue",
+      "hex": "#ADD8E6"
+    },
+    {
+      "name": "Blush Pink",
+      "hex": "#FFB6C1"
+    }
+  ],
+  "total_grids": 17,
+  "outfits_per_grid": 7,
+  "total_outfits": 119
+}

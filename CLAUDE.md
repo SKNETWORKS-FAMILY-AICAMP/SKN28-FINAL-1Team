@@ -56,7 +56,11 @@ SKN28-FINAL-1Team/
 ├── indexer/               # 임베딩 → Qdrant 적재 GPU worker (util/ 공용 · product_indexer/ 운영 · old/ 레거시)
 ├── ml/                    # 모델 학습·추론 코드 (예정)
 ├── scripts/               # 배포·데이터 처리 스크립트
-└── docs/                  # 설계·아키텍처 문서
+├── docs/                  # 설계·아키텍처 문서
+└── golden-set/            # 추천 판단의 기준 규칙 자산 (색상·체형)
+    ├── docs/              # 서술 문서 (판단하지 않음)
+    ├── color/             # 색상: rules(판단 원천) / tools / images
+    └── body/              # 체형: rules(판단 원천) / tools / images
 ```
 
 > **스키마 소유권**: 모든 테이블(collector가 쓰는 테이블 포함)의 DDL은 Django migration이 관리한다.

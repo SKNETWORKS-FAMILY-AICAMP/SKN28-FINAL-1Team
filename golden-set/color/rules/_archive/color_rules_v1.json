@@ -1,0 +1,879 @@
+{
+  "taxonomy_source": "image-processor/pipeline/taxonomy.py::COLORS",
+  "generated_by": "docs/golden-set/tools/derive_color_matrix.py",
+  "thresholds": {
+    "chroma_high": 45.0,
+    "lightness_contrast_min": 18.0,
+    "hue_similar_max": 35.0,
+    "hue_complement_min": 150.0
+  },
+  "rules": {
+    "R0": "멀티(다색 패턴)의 상대는 뉴트럴로 고정한다",
+    "R1": "뉴트럴 2색은 명도차 18 이상이면 권장, 미만이면 소재 대비로 보완",
+    "R2": "뉴트럴 앵커 1 + 포인트 1색이 기본형",
+    "R3": "고채도 2색 동시 대면적 금지, 보색이면 기피",
+    "R4": "유사색은 명도차 18 이상일 때만 권장",
+    "R5": "보색이라도 한쪽 채도가 낮으면 허용",
+    "R6": "웜·쿨 혼합은 뉴트럴을 사이에 넣어 분리"
+  },
+  "attributes": {
+    "화이트": {
+      "hex": "#FFFFFF",
+      "hue": 0.0,
+      "chroma": 0.0,
+      "hsl_saturation": 0.0,
+      "lightness": 100.0,
+      "role": "neutral",
+      "temperature": "neutral",
+      "visual_effect": "확장"
+    },
+    "아이보리": {
+      "hex": "#F2E8D5",
+      "hue": 39.3,
+      "chroma": 11.4,
+      "hsl_saturation": 52.7,
+      "lightness": 89.2,
+      "role": "neutral",
+      "temperature": "neutral",
+      "visual_effect": "확장"
+    },
+    "베이지": {
+      "hex": "#D9C3A5",
+      "hue": 34.6,
+      "chroma": 20.4,
+      "hsl_saturation": 40.6,
+      "lightness": 74.9,
+      "role": "neutral",
+      "temperature": "warm",
+      "visual_effect": "확장"
+    },
+    "그레이": {
+      "hex": "#9A9A9A",
+      "hue": 0.0,
+      "chroma": 0.0,
+      "hsl_saturation": 0.0,
+      "lightness": 60.4,
+      "role": "neutral",
+      "temperature": "neutral",
+      "visual_effect": "중립"
+    },
+    "블랙": {
+      "hex": "#1A1A1A",
+      "hue": 0.0,
+      "chroma": 0.0,
+      "hsl_saturation": 0.0,
+      "lightness": 10.2,
+      "role": "neutral",
+      "temperature": "neutral",
+      "visual_effect": "축소"
+    },
+    "네이비": {
+      "hex": "#1F2A44",
+      "hue": 222.2,
+      "chroma": 14.5,
+      "hsl_saturation": 37.4,
+      "lightness": 19.4,
+      "role": "neutral",
+      "temperature": "cool",
+      "visual_effect": "축소"
+    },
+    "블루": {
+      "hex": "#2A5CAA",
+      "hue": 216.6,
+      "chroma": 50.2,
+      "hsl_saturation": 60.4,
+      "lightness": 41.6,
+      "role": "accent",
+      "temperature": "cool",
+      "visual_effect": "중립"
+    },
+    "스카이블루": {
+      "hex": "#8FC5E8",
+      "hue": 203.6,
+      "chroma": 34.9,
+      "hsl_saturation": 65.9,
+      "lightness": 73.5,
+      "role": "accent",
+      "temperature": "cool",
+      "visual_effect": "확장"
+    },
+    "그린": {
+      "hex": "#3F7A45",
+      "hue": 126.1,
+      "chroma": 23.1,
+      "hsl_saturation": 31.9,
+      "lightness": 36.3,
+      "role": "accent",
+      "temperature": "neutral",
+      "visual_effect": "중립"
+    },
+    "카키": {
+      "hex": "#6B6B45",
+      "hue": 60.0,
+      "chroma": 14.9,
+      "hsl_saturation": 21.6,
+      "lightness": 34.5,
+      "role": "semi_neutral",
+      "temperature": "warm",
+      "visual_effect": "축소"
+    },
+    "브라운": {
+      "hex": "#6B4A2F",
+      "hue": 27.0,
+      "chroma": 23.5,
+      "hsl_saturation": 39.0,
+      "lightness": 30.2,
+      "role": "semi_neutral",
+      "temperature": "warm",
+      "visual_effect": "축소"
+    },
+    "레드": {
+      "hex": "#C62828",
+      "hue": 0.0,
+      "chroma": 62.0,
+      "hsl_saturation": 66.4,
+      "lightness": 46.7,
+      "role": "accent",
+      "temperature": "warm",
+      "visual_effect": "중립"
+    },
+    "핑크": {
+      "hex": "#F0A0B4",
+      "hue": 345.0,
+      "chroma": 31.4,
+      "hsl_saturation": 72.7,
+      "lightness": 78.4,
+      "role": "accent",
+      "temperature": "warm",
+      "visual_effect": "확장"
+    },
+    "오렌지": {
+      "hex": "#E8712F",
+      "hue": 21.4,
+      "chroma": 72.5,
+      "hsl_saturation": 80.1,
+      "lightness": 54.7,
+      "role": "accent",
+      "temperature": "warm",
+      "visual_effect": "중립"
+    },
+    "옐로우": {
+      "hex": "#F2C744",
+      "hue": 45.2,
+      "chroma": 68.2,
+      "hsl_saturation": 87.0,
+      "lightness": 60.8,
+      "role": "accent",
+      "temperature": "warm",
+      "visual_effect": "중립"
+    },
+    "퍼플": {
+      "hex": "#7A4A93",
+      "hue": 279.5,
+      "chroma": 28.6,
+      "hsl_saturation": 33.0,
+      "lightness": 43.3,
+      "role": "accent",
+      "temperature": "cool",
+      "visual_effect": "중립"
+    },
+    "멀티": {
+      "hex": null,
+      "hue": null,
+      "chroma": null,
+      "hsl_saturation": null,
+      "lightness": null,
+      "role": "accent",
+      "temperature": "unknown",
+      "visual_effect": "확장"
+    }
+  },
+  "pair_grades": {
+    "화이트|아이보리": {
+      "grade": "allowed",
+      "reason": "톤온톤, 명도차 11 — 소재로 차이를 준다",
+      "rule": "R1"
+    },
+    "화이트|베이지": {
+      "grade": "recommended",
+      "reason": "뉴트럴 조합, 명도차 25",
+      "rule": "R1"
+    },
+    "화이트|그레이": {
+      "grade": "recommended",
+      "reason": "뉴트럴 조합, 명도차 40",
+      "rule": "R1"
+    },
+    "화이트|블랙": {
+      "grade": "recommended",
+      "reason": "뉴트럴 조합, 명도차 90",
+      "rule": "R1"
+    },
+    "화이트|네이비": {
+      "grade": "recommended",
+      "reason": "뉴트럴 조합, 명도차 81",
+      "rule": "R1"
+    },
+    "화이트|블루": {
+      "grade": "recommended",
+      "reason": "뉴트럴 앵커 + 포인트 1색",
+      "rule": "R2"
+    },
+    "화이트|스카이블루": {
+      "grade": "recommended",
+      "reason": "뉴트럴 앵커 + 포인트 1색",
+      "rule": "R2"
+    },
+    "화이트|그린": {
+      "grade": "recommended",
+      "reason": "뉴트럴 앵커 + 포인트 1색",
+      "rule": "R2"
+    },
+    "화이트|카키": {
+      "grade": "recommended",
+      "reason": "뉴트럴 앵커 + 포인트 1색",
+      "rule": "R2"
+    },
+    "화이트|브라운": {
+      "grade": "recommended",
+      "reason": "뉴트럴 앵커 + 포인트 1색",
+      "rule": "R2"
+    },
+    "화이트|레드": {
+      "grade": "recommended",
+      "reason": "뉴트럴 앵커 + 포인트 1색",
+      "rule": "R2"
+    },
+    "화이트|핑크": {
+      "grade": "recommended",
+      "reason": "뉴트럴 앵커 + 포인트 1색",
+      "rule": "R2"
+    },
+    "화이트|오렌지": {
+      "grade": "recommended",
+      "reason": "뉴트럴 앵커 + 포인트 1색",
+      "rule": "R2"
+    },
+    "화이트|옐로우": {
+      "grade": "recommended",
+      "reason": "뉴트럴 앵커 + 포인트 1색",
+      "rule": "R2"
+    },
+    "화이트|퍼플": {
+      "grade": "recommended",
+      "reason": "뉴트럴 앵커 + 포인트 1색",
+      "rule": "R2"
+    },
+    "화이트|멀티": {
+      "grade": "recommended",
+      "reason": "멀티는 뉴트럴이 받아준다",
+      "rule": "R0"
+    },
+    "아이보리|베이지": {
+      "grade": "allowed",
+      "reason": "톤온톤, 명도차 14 — 소재로 차이를 준다",
+      "rule": "R1"
+    },
+    "아이보리|그레이": {
+      "grade": "recommended",
+      "reason": "뉴트럴 조합, 명도차 29",
+      "rule": "R1"
+    },
+    "아이보리|블랙": {
+      "grade": "recommended",
+      "reason": "뉴트럴 조합, 명도차 79",
+      "rule": "R1"
+    },
+    "아이보리|네이비": {
+      "grade": "recommended",
+      "reason": "뉴트럴 조합, 명도차 70",
+      "rule": "R1"
+    },
+    "아이보리|블루": {
+      "grade": "recommended",
+      "reason": "뉴트럴 앵커 + 포인트 1색",
+      "rule": "R2"
+    },
+    "아이보리|스카이블루": {
+      "grade": "recommended",
+      "reason": "뉴트럴 앵커 + 포인트 1색",
+      "rule": "R2"
+    },
+    "아이보리|그린": {
+      "grade": "recommended",
+      "reason": "뉴트럴 앵커 + 포인트 1색",
+      "rule": "R2"
+    },
+    "아이보리|카키": {
+      "grade": "recommended",
+      "reason": "뉴트럴 앵커 + 포인트 1색",
+      "rule": "R2"
+    },
+    "아이보리|브라운": {
+      "grade": "recommended",
+      "reason": "뉴트럴 앵커 + 포인트 1색",
+      "rule": "R2"
+    },
+    "아이보리|레드": {
+      "grade": "recommended",
+      "reason": "뉴트럴 앵커 + 포인트 1색",
+      "rule": "R2"
+    },
+    "아이보리|핑크": {
+      "grade": "recommended",
+      "reason": "뉴트럴 앵커 + 포인트 1색",
+      "rule": "R2"
+    },
+    "아이보리|오렌지": {
+      "grade": "recommended",
+      "reason": "뉴트럴 앵커 + 포인트 1색",
+      "rule": "R2"
+    },
+    "아이보리|옐로우": {
+      "grade": "recommended",
+      "reason": "뉴트럴 앵커 + 포인트 1색",
+      "rule": "R2"
+    },
+    "아이보리|퍼플": {
+      "grade": "recommended",
+      "reason": "뉴트럴 앵커 + 포인트 1색",
+      "rule": "R2"
+    },
+    "아이보리|멀티": {
+      "grade": "recommended",
+      "reason": "멀티는 뉴트럴이 받아준다",
+      "rule": "R0"
+    },
+    "베이지|그레이": {
+      "grade": "allowed",
+      "reason": "톤온톤, 명도차 15 — 소재로 차이를 준다",
+      "rule": "R1"
+    },
+    "베이지|블랙": {
+      "grade": "recommended",
+      "reason": "뉴트럴 조합, 명도차 65",
+      "rule": "R1"
+    },
+    "베이지|네이비": {
+      "grade": "recommended",
+      "reason": "뉴트럴 조합, 명도차 56",
+      "rule": "R1"
+    },
+    "베이지|블루": {
+      "grade": "recommended",
+      "reason": "뉴트럴 앵커 + 포인트 1색",
+      "rule": "R2"
+    },
+    "베이지|스카이블루": {
+      "grade": "recommended",
+      "reason": "뉴트럴 앵커 + 포인트 1색",
+      "rule": "R2"
+    },
+    "베이지|그린": {
+      "grade": "recommended",
+      "reason": "뉴트럴 앵커 + 포인트 1색",
+      "rule": "R2"
+    },
+    "베이지|카키": {
+      "grade": "recommended",
+      "reason": "뉴트럴 앵커 + 포인트 1색",
+      "rule": "R2"
+    },
+    "베이지|브라운": {
+      "grade": "recommended",
+      "reason": "뉴트럴 앵커 + 포인트 1색",
+      "rule": "R2"
+    },
+    "베이지|레드": {
+      "grade": "recommended",
+      "reason": "뉴트럴 앵커 + 포인트 1색",
+      "rule": "R2"
+    },
+    "베이지|핑크": {
+      "grade": "recommended",
+      "reason": "뉴트럴 앵커 + 포인트 1색",
+      "rule": "R2"
+    },
+    "베이지|오렌지": {
+      "grade": "recommended",
+      "reason": "뉴트럴 앵커 + 포인트 1색",
+      "rule": "R2"
+    },
+    "베이지|옐로우": {
+      "grade": "recommended",
+      "reason": "뉴트럴 앵커 + 포인트 1색",
+      "rule": "R2"
+    },
+    "베이지|퍼플": {
+      "grade": "recommended",
+      "reason": "뉴트럴 앵커 + 포인트 1색",
+      "rule": "R2"
+    },
+    "베이지|멀티": {
+      "grade": "recommended",
+      "reason": "멀티는 뉴트럴이 받아준다",
+      "rule": "R0"
+    },
+    "그레이|블랙": {
+      "grade": "recommended",
+      "reason": "뉴트럴 조합, 명도차 50",
+      "rule": "R1"
+    },
+    "그레이|네이비": {
+      "grade": "recommended",
+      "reason": "뉴트럴 조합, 명도차 41",
+      "rule": "R1"
+    },
+    "그레이|블루": {
+      "grade": "recommended",
+      "reason": "뉴트럴 앵커 + 포인트 1색",
+      "rule": "R2"
+    },
+    "그레이|스카이블루": {
+      "grade": "recommended",
+      "reason": "뉴트럴 앵커 + 포인트 1색",
+      "rule": "R2"
+    },
+    "그레이|그린": {
+      "grade": "recommended",
+      "reason": "뉴트럴 앵커 + 포인트 1색",
+      "rule": "R2"
+    },
+    "그레이|카키": {
+      "grade": "recommended",
+      "reason": "뉴트럴 앵커 + 포인트 1색",
+      "rule": "R2"
+    },
+    "그레이|브라운": {
+      "grade": "recommended",
+      "reason": "뉴트럴 앵커 + 포인트 1색",
+      "rule": "R2"
+    },
+    "그레이|레드": {
+      "grade": "recommended",
+      "reason": "뉴트럴 앵커 + 포인트 1색",
+      "rule": "R2"
+    },
+    "그레이|핑크": {
+      "grade": "recommended",
+      "reason": "뉴트럴 앵커 + 포인트 1색",
+      "rule": "R2"
+    },
+    "그레이|오렌지": {
+      "grade": "allowed",
+      "reason": "뉴트럴 앵커는 성립하나 명도가 붙어 경계가 약함",
+      "rule": "R2"
+    },
+    "그레이|옐로우": {
+      "grade": "allowed",
+      "reason": "뉴트럴 앵커는 성립하나 명도가 붙어 경계가 약함",
+      "rule": "R2"
+    },
+    "그레이|퍼플": {
+      "grade": "recommended",
+      "reason": "뉴트럴 앵커 + 포인트 1색",
+      "rule": "R2"
+    },
+    "그레이|멀티": {
+      "grade": "recommended",
+      "reason": "멀티는 뉴트럴이 받아준다",
+      "rule": "R0"
+    },
+    "블랙|네이비": {
+      "grade": "allowed",
+      "reason": "톤온톤, 명도차 9 — 소재로 차이를 준다",
+      "rule": "R1"
+    },
+    "블랙|블루": {
+      "grade": "recommended",
+      "reason": "뉴트럴 앵커 + 포인트 1색",
+      "rule": "R2"
+    },
+    "블랙|스카이블루": {
+      "grade": "recommended",
+      "reason": "뉴트럴 앵커 + 포인트 1색",
+      "rule": "R2"
+    },
+    "블랙|그린": {
+      "grade": "recommended",
+      "reason": "뉴트럴 앵커 + 포인트 1색",
+      "rule": "R2"
+    },
+    "블랙|카키": {
+      "grade": "recommended",
+      "reason": "뉴트럴 앵커 + 포인트 1색",
+      "rule": "R2"
+    },
+    "블랙|브라운": {
+      "grade": "recommended",
+      "reason": "뉴트럴 앵커 + 포인트 1색",
+      "rule": "R2"
+    },
+    "블랙|레드": {
+      "grade": "recommended",
+      "reason": "뉴트럴 앵커 + 포인트 1색",
+      "rule": "R2"
+    },
+    "블랙|핑크": {
+      "grade": "recommended",
+      "reason": "뉴트럴 앵커 + 포인트 1색",
+      "rule": "R2"
+    },
+    "블랙|오렌지": {
+      "grade": "recommended",
+      "reason": "뉴트럴 앵커 + 포인트 1색",
+      "rule": "R2"
+    },
+    "블랙|옐로우": {
+      "grade": "recommended",
+      "reason": "뉴트럴 앵커 + 포인트 1색",
+      "rule": "R2"
+    },
+    "블랙|퍼플": {
+      "grade": "recommended",
+      "reason": "뉴트럴 앵커 + 포인트 1색",
+      "rule": "R2"
+    },
+    "블랙|멀티": {
+      "grade": "recommended",
+      "reason": "멀티는 뉴트럴이 받아준다",
+      "rule": "R0"
+    },
+    "네이비|블루": {
+      "grade": "recommended",
+      "reason": "뉴트럴 앵커 + 포인트 1색",
+      "rule": "R2"
+    },
+    "네이비|스카이블루": {
+      "grade": "recommended",
+      "reason": "뉴트럴 앵커 + 포인트 1색",
+      "rule": "R2"
+    },
+    "네이비|그린": {
+      "grade": "recommended",
+      "reason": "뉴트럴 앵커 + 포인트 1색",
+      "rule": "R2"
+    },
+    "네이비|카키": {
+      "grade": "recommended",
+      "reason": "뉴트럴 앵커 + 포인트 1색",
+      "rule": "R2"
+    },
+    "네이비|브라운": {
+      "grade": "recommended",
+      "reason": "뉴트럴 앵커 + 포인트 1색",
+      "rule": "R2"
+    },
+    "네이비|레드": {
+      "grade": "recommended",
+      "reason": "뉴트럴 앵커 + 포인트 1색",
+      "rule": "R2"
+    },
+    "네이비|핑크": {
+      "grade": "recommended",
+      "reason": "뉴트럴 앵커 + 포인트 1색",
+      "rule": "R2"
+    },
+    "네이비|오렌지": {
+      "grade": "recommended",
+      "reason": "뉴트럴 앵커 + 포인트 1색",
+      "rule": "R2"
+    },
+    "네이비|옐로우": {
+      "grade": "recommended",
+      "reason": "뉴트럴 앵커 + 포인트 1색",
+      "rule": "R2"
+    },
+    "네이비|퍼플": {
+      "grade": "recommended",
+      "reason": "뉴트럴 앵커 + 포인트 1색",
+      "rule": "R2"
+    },
+    "네이비|멀티": {
+      "grade": "recommended",
+      "reason": "멀티는 뉴트럴이 받아준다",
+      "rule": "R0"
+    },
+    "블루|스카이블루": {
+      "grade": "recommended",
+      "reason": "유사색 톤 그라데이션(명도차 32)",
+      "rule": "R4"
+    },
+    "블루|그린": {
+      "grade": "allowed",
+      "reason": "중간 색상차 90°, 저채도라 안정",
+      "rule": "R6"
+    },
+    "블루|카키": {
+      "grade": "allowed",
+      "reason": "보색이지만 채도가 낮아 완충됨(색상차 157°)",
+      "rule": "R5"
+    },
+    "블루|브라운": {
+      "grade": "allowed",
+      "reason": "보색이지만 채도가 낮아 완충됨(색상차 170°)",
+      "rule": "R5"
+    },
+    "블루|레드": {
+      "grade": "caution",
+      "reason": "고채도 2색 — 한쪽을 소면적(액세서리)으로",
+      "rule": "R3"
+    },
+    "블루|핑크": {
+      "grade": "caution",
+      "reason": "웜·쿨 혼합 — 사이에 뉴트럴을 넣어 분리",
+      "rule": "R6"
+    },
+    "블루|오렌지": {
+      "grade": "avoid",
+      "reason": "고채도 보색(색상차 165°) — 대면적 동시 사용 금지",
+      "rule": "R3"
+    },
+    "블루|옐로우": {
+      "grade": "avoid",
+      "reason": "고채도 보색(색상차 171°) — 대면적 동시 사용 금지",
+      "rule": "R3"
+    },
+    "블루|퍼플": {
+      "grade": "allowed",
+      "reason": "중간 색상차 63°, 저채도라 안정",
+      "rule": "R6"
+    },
+    "블루|멀티": {
+      "grade": "caution",
+      "reason": "멀티 + 유채색 — 색 수 초과 위험",
+      "rule": "R0"
+    },
+    "스카이블루|그린": {
+      "grade": "allowed",
+      "reason": "중간 색상차 78°, 저채도라 안정",
+      "rule": "R6"
+    },
+    "스카이블루|카키": {
+      "grade": "caution",
+      "reason": "웜·쿨 혼합 — 사이에 뉴트럴을 넣어 분리",
+      "rule": "R6"
+    },
+    "스카이블루|브라운": {
+      "grade": "allowed",
+      "reason": "보색이지만 채도가 낮아 완충됨(색상차 177°)",
+      "rule": "R5"
+    },
+    "스카이블루|레드": {
+      "grade": "allowed",
+      "reason": "보색이지만 채도가 낮아 완충됨(색상차 156°)",
+      "rule": "R5"
+    },
+    "스카이블루|핑크": {
+      "grade": "caution",
+      "reason": "웜·쿨 혼합 — 사이에 뉴트럴을 넣어 분리",
+      "rule": "R6"
+    },
+    "스카이블루|오렌지": {
+      "grade": "allowed",
+      "reason": "보색이지만 채도가 낮아 완충됨(색상차 178°)",
+      "rule": "R5"
+    },
+    "스카이블루|옐로우": {
+      "grade": "allowed",
+      "reason": "보색이지만 채도가 낮아 완충됨(색상차 158°)",
+      "rule": "R5"
+    },
+    "스카이블루|퍼플": {
+      "grade": "allowed",
+      "reason": "중간 색상차 76°, 저채도라 안정",
+      "rule": "R6"
+    },
+    "스카이블루|멀티": {
+      "grade": "caution",
+      "reason": "멀티 + 유채색 — 색 수 초과 위험",
+      "rule": "R0"
+    },
+    "그린|카키": {
+      "grade": "allowed",
+      "reason": "중간 색상차 66°, 저채도라 안정",
+      "rule": "R6"
+    },
+    "그린|브라운": {
+      "grade": "allowed",
+      "reason": "중간 색상차 99°, 저채도라 안정",
+      "rule": "R6"
+    },
+    "그린|레드": {
+      "grade": "allowed",
+      "reason": "중간 색상차 126°, 저채도라 안정",
+      "rule": "R6"
+    },
+    "그린|핑크": {
+      "grade": "allowed",
+      "reason": "중간 색상차 141°, 저채도라 안정",
+      "rule": "R6"
+    },
+    "그린|오렌지": {
+      "grade": "allowed",
+      "reason": "중간 색상차 105°, 저채도라 안정",
+      "rule": "R6"
+    },
+    "그린|옐로우": {
+      "grade": "allowed",
+      "reason": "중간 색상차 81°, 저채도라 안정",
+      "rule": "R6"
+    },
+    "그린|퍼플": {
+      "grade": "allowed",
+      "reason": "보색이지만 채도가 낮아 완충됨(색상차 153°)",
+      "rule": "R5"
+    },
+    "그린|멀티": {
+      "grade": "caution",
+      "reason": "멀티 + 유채색 — 색 수 초과 위험",
+      "rule": "R0"
+    },
+    "카키|브라운": {
+      "grade": "caution",
+      "reason": "유사색인데 명도까지 붙어 뭉개짐",
+      "rule": "R4"
+    },
+    "카키|레드": {
+      "grade": "allowed",
+      "reason": "중간 색상차 60°, 저채도라 안정",
+      "rule": "R6"
+    },
+    "카키|핑크": {
+      "grade": "allowed",
+      "reason": "중간 색상차 75°, 저채도라 안정",
+      "rule": "R6"
+    },
+    "카키|오렌지": {
+      "grade": "allowed",
+      "reason": "중간 색상차 39°, 저채도라 안정",
+      "rule": "R6"
+    },
+    "카키|옐로우": {
+      "grade": "recommended",
+      "reason": "유사색 톤 그라데이션(명도차 26)",
+      "rule": "R4"
+    },
+    "카키|퍼플": {
+      "grade": "caution",
+      "reason": "웜·쿨 혼합 — 사이에 뉴트럴을 넣어 분리",
+      "rule": "R6"
+    },
+    "카키|멀티": {
+      "grade": "allowed",
+      "reason": "세미뉴트럴로 완충",
+      "rule": "R0"
+    },
+    "브라운|레드": {
+      "grade": "caution",
+      "reason": "유사색인데 명도까지 붙어 뭉개짐",
+      "rule": "R4"
+    },
+    "브라운|핑크": {
+      "grade": "allowed",
+      "reason": "중간 색상차 42°, 저채도라 안정",
+      "rule": "R6"
+    },
+    "브라운|오렌지": {
+      "grade": "recommended",
+      "reason": "유사색 톤 그라데이션(명도차 25)",
+      "rule": "R4"
+    },
+    "브라운|옐로우": {
+      "grade": "recommended",
+      "reason": "유사색 톤 그라데이션(명도차 31)",
+      "rule": "R4"
+    },
+    "브라운|퍼플": {
+      "grade": "caution",
+      "reason": "웜·쿨 혼합 — 사이에 뉴트럴을 넣어 분리",
+      "rule": "R6"
+    },
+    "브라운|멀티": {
+      "grade": "allowed",
+      "reason": "세미뉴트럴로 완충",
+      "rule": "R0"
+    },
+    "레드|핑크": {
+      "grade": "recommended",
+      "reason": "유사색 톤 그라데이션(명도차 32)",
+      "rule": "R4"
+    },
+    "레드|오렌지": {
+      "grade": "caution",
+      "reason": "고채도 2색 — 한쪽을 소면적(액세서리)으로",
+      "rule": "R3"
+    },
+    "레드|옐로우": {
+      "grade": "caution",
+      "reason": "고채도 2색 — 한쪽을 소면적(액세서리)으로",
+      "rule": "R3"
+    },
+    "레드|퍼플": {
+      "grade": "caution",
+      "reason": "웜·쿨 혼합 — 사이에 뉴트럴을 넣어 분리",
+      "rule": "R6"
+    },
+    "레드|멀티": {
+      "grade": "caution",
+      "reason": "멀티 + 유채색 — 색 수 초과 위험",
+      "rule": "R0"
+    },
+    "핑크|오렌지": {
+      "grade": "allowed",
+      "reason": "중간 색상차 36°, 저채도라 안정",
+      "rule": "R6"
+    },
+    "핑크|옐로우": {
+      "grade": "allowed",
+      "reason": "중간 색상차 60°, 저채도라 안정",
+      "rule": "R6"
+    },
+    "핑크|퍼플": {
+      "grade": "caution",
+      "reason": "웜·쿨 혼합 — 사이에 뉴트럴을 넣어 분리",
+      "rule": "R6"
+    },
+    "핑크|멀티": {
+      "grade": "caution",
+      "reason": "멀티 + 유채색 — 색 수 초과 위험",
+      "rule": "R0"
+    },
+    "오렌지|옐로우": {
+      "grade": "caution",
+      "reason": "고채도 2색 — 한쪽을 소면적(액세서리)으로",
+      "rule": "R3"
+    },
+    "오렌지|퍼플": {
+      "grade": "caution",
+      "reason": "웜·쿨 혼합 — 사이에 뉴트럴을 넣어 분리",
+      "rule": "R6"
+    },
+    "오렌지|멀티": {
+      "grade": "caution",
+      "reason": "멀티 + 유채색 — 색 수 초과 위험",
+      "rule": "R0"
+    },
+    "옐로우|퍼플": {
+      "grade": "caution",
+      "reason": "웜·쿨 혼합 — 사이에 뉴트럴을 넣어 분리",
+      "rule": "R6"
+    },
+    "옐로우|멀티": {
+      "grade": "caution",
+      "reason": "멀티 + 유채색 — 색 수 초과 위험",
+      "rule": "R0"
+    },
+    "퍼플|멀티": {
+      "grade": "caution",
+      "reason": "멀티 + 유채색 — 색 수 초과 위험",
+      "rule": "R0"
+    }
+  },
+  "grade_distribution": {
+    "allowed": 31,
+    "recommended": 80,
+    "caution": 23,
+    "avoid": 2
+  }
+}

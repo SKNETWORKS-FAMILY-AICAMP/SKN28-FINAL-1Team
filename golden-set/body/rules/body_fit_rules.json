@@ -1,0 +1,203 @@
+{
+  "version": "0.2.0",
+  "taxonomy_source": "image-processor/pipeline/taxonomy.py (FITS, LENGTHS)",
+  "threshold_source": "golden-set/body/rules/body_shape_thresholds.json",
+  "note": "축은 서로 독립이다. 최종 권장은 각 축의 권장을 교집합으로 합치고, 어느 한 축이라도 avoid면 avoid로 처리한다. 측정 불가 축은 default_when_unknown 값으로 두고 규칙을 적용하지 않는다.",
+
+  "axes": {
+    "width": {
+      "input": "shoulder, waist, hip (BodyMeasurement 기존 컬럼)",
+      "status": "measurable",
+      "values": ["inverted_triangle", "triangle", "hourglass", "rectangle", "round"],
+      "rules_key": "width_rules"
+    },
+    "torso_ratio": {
+      "label": "상체:하체 비율",
+      "input": "상체 길이 / 다리 길이 (미보유 — 신규 입력 필요)",
+      "status": "NOT_measurable_yet",
+      "values": ["long_torso", "balanced", "short_torso"],
+      "default_when_unknown": "balanced",
+      "blocker": "BodyMeasurement에 다리길이/앉은키 컬럼 없음, pose 파이프라인 없음",
+      "do_not_use": ["BodyMeasurement.waist", "BodyMeasurement.hip"],
+      "why_not": "둘레 비율과 길이 비율은 무관하다. waist/hip이나 BMI에서 유도하면 근사조차 되지 않는다",
+      "rules_key": "torso_ratio_rules"
+    },
+    "neck_length": {
+      "label": "목 길이",
+      "input": "목 길이 (미보유 — 신규 입력 필요)",
+      "status": "NOT_measurable_yet",
+      "values": ["long_neck", "balanced", "short_neck"],
+      "default_when_unknown": "balanced",
+      "blocker": "BodyMeasurement에 목 관련 컬럼이 아예 없음. 아이템 쪽에도 neckline 태그가 없어 처방을 실행할 수단이 없다",
+      "rules_key": "neck_length_rules"
+    },
+    "thigh_calf_ratio": {
+      "label": "허벅지:종아리 비율",
+      "input": "허벅지 길이 / 무릎-발목 길이 (미보유 — 신규 입력 필요)",
+      "status": "NOT_measurable_yet",
+      "values": ["thigh_dominant", "balanced", "calf_dominant"],
+      "default_when_unknown": "balanced",
+      "blocker": "BodyMeasurement에 다리 분절 길이 컬럼 없음, pose 파이프라인 없음",
+      "do_not_use": ["BodyMeasurement.thigh", "BodyMeasurement.calf"],
+      "why_not": "⚠️ 이 두 컬럼은 존재하지만 **둘레(cm)이지 길이가 아니다**. thigh/calf로 계산하면 에러 없이 무관한 값이 나오고, 그 값으로 실루엣 처방이 정해진다. 다른 축은 컬럼이 없어서 막히지만 이 축은 조용히 틀린 답을 낸다 — 가장 위험하다",
+      "rules_key": "thigh_calf_ratio_rules"
+    }
+  },
+
+  "width_rules": {
+    "inverted_triangle": {
+      "label": "역삼각형",
+      "signal": "shoulder/hip 상위 33퍼센타일",
+      "goal": "상체 폭을 줄이고 하체에 부피를 준다",
+      "top": { "fit_prefer": ["레귤러핏", "슬림핏"], "fit_avoid": ["오버핏"], "length_prefer": ["기본"] },
+      "bottom": { "fit_prefer": ["와이드핏", "레귤러핏"], "fit_avoid": ["슬림핏"] },
+      "outer": { "fit_avoid": ["오버핏"], "note": "어깨 패드·드롭숄더는 폭을 더 넓힌다" },
+      "color": { "top_visual_effect": "축소", "bottom_visual_effect": "확장" },
+      "reason": "어깨가 이미 넓으므로 상의 볼륨은 과잉, 하의 볼륨은 균형 회복에 기여한다"
+    },
+    "triangle": {
+      "label": "삼각형(하체 발달)",
+      "signal": "shoulder/hip 하위 33퍼센타일",
+      "goal": "상체에 부피를 주고 하체 라인은 정돈한다",
+      "top": { "fit_prefer": ["오버핏", "레귤러핏"], "fit_avoid": ["슬림핏"], "length_prefer": ["기본", "크롭"] },
+      "bottom": { "fit_prefer": ["레귤러핏"], "fit_avoid": ["와이드핏"], "note": "타이트도 부적합 — 실루엣이 그대로 드러난다" },
+      "outer": { "fit_prefer": ["오버핏"], "length_prefer": ["기본"] },
+      "color": { "top_visual_effect": "확장", "bottom_visual_effect": "축소" },
+      "reason": "역삼각형의 반대. 상의 볼륨과 밝은 색이 어깨선을 넓혀 보이게 한다"
+    },
+    "hourglass": {
+      "label": "모래시계형",
+      "signal": "waist/hip 하위 33퍼센타일 + 어깨·엉덩이 균형",
+      "goal": "허리선을 살린다",
+      "top": { "fit_prefer": ["레귤러핏", "슬림핏"], "length_prefer": ["크롭", "기본"], "fit_avoid": ["오버핏"] },
+      "bottom": { "fit_prefer": ["레귤러핏", "슬림핏", "와이드핏"] },
+      "outer": { "note": "오픈 착용 + 벨트로 허리 강조" },
+      "combo_avoid": [
+        { "top_fit": "오버핏", "bottom_fit": "와이드핏", "reason": "상하 동시 볼륨은 이 체형의 유일한 강점(허리)을 지운다" }
+      ],
+      "reason": "굴곡이 이미 있으므로 규칙의 목적이 '보정'이 아니라 '노출'이다"
+    },
+    "rectangle": {
+      "label": "직사각형",
+      "signal": "shoulder/hip·waist/hip 모두 중간 구간",
+      "goal": "레이어드와 색 분할로 허리 위치를 만들어 준다",
+      "top": { "fit_prefer": ["레귤러핏", "오버핏"], "length_prefer": ["크롭", "기본"] },
+      "bottom": { "fit_prefer": ["와이드핏", "레귤러핏"] },
+      "outer": { "fit_prefer": ["레귤러핏"], "note": "짧은 아우터 + 긴 이너로 층을 만든다" },
+      "color": { "note": "상하 명도차 18 이상 권장 — 색 경계가 곧 허리선이 된다" },
+      "reason": "보정할 과잉이 없는 대신 구분점이 없다. 대비를 인위적으로 만드는 것이 과제다"
+    },
+    "round": {
+      "label": "라운드형",
+      "signal": "waist/hip 상위 33퍼센타일",
+      "goal": "세로선을 만들고 허리 주변 시선을 분산한다",
+      "top": { "fit_prefer": ["레귤러핏"], "fit_avoid": ["슬림핏", "오버핏"], "length_prefer": ["기본"], "length_avoid": ["크롭"] },
+      "bottom": { "fit_prefer": ["레귤러핏", "와이드핏"], "fit_avoid": ["슬림핏"] },
+      "outer": { "length_prefer": ["롱"], "note": "오픈 착용 시 생기는 두 개의 세로선이 핵심" },
+      "color": { "top_visual_effect": "축소", "note": "상하 동일 계열로 세로 흐름을 끊지 않는다" },
+      "pattern_avoid": ["체크", "도트"],
+      "reason": "가로 분할(크롭 기장, 가로 패턴)이 폭을 강조한다. 반대로 세로 요소는 길이를 강조한다"
+    }
+  },
+
+  "torso_ratio_rules": {
+    "long_torso": {
+      "label": "상체가 김 (다리가 짧아 보이는 비율)",
+      "goal": "허리선을 실제보다 위로 올린다",
+      "top": { "length_prefer": ["크롭", "기본"], "length_avoid": ["롱"] },
+      "bottom": { "rise_prefer": ["하이웨스트"], "rise_avoid": ["로우라이즈"] },
+      "styling": ["상의 프론트 턱인", "벨트를 허리 최상단에", "하의와 신발 색 통일"],
+      "reason": "허리선(=색·기장이 바뀌는 지점)이 곧 다리 시작점으로 읽힌다. 이걸 올리면 하체 비중이 커진다"
+    },
+    "balanced": {
+      "label": "균형",
+      "goal": "제약 없음 — 가로축(체형) 규칙만 적용",
+      "top": {}, "bottom": {}, "styling": []
+    },
+    "short_torso": {
+      "label": "상체가 짧음 (다리가 긴 비율)",
+      "goal": "상체 길이를 벌어준다",
+      "top": { "length_prefer": ["기본", "롱"], "length_avoid": ["크롭"] },
+      "bottom": { "rise_prefer": ["레귤러라이즈", "로우라이즈"], "rise_avoid": ["하이웨스트"] },
+      "styling": ["상의를 빼서 입기", "롱 아우터로 상체 면적 확보"],
+      "reason": "크롭+하이웨스트는 허리선을 더 올려 이미 짧은 상체를 더 짧게 만든다 — long_torso 처방의 정반대"
+    }
+  },
+
+  "neck_length_rules": {
+    "long_neck": {
+      "label": "목이 김",
+      "goal": "제약 없음 — 높은 넥라인을 답답함 없이 소화한다",
+      "top": { "neckline_prefer": ["하이넥", "터틀넥", "크루넥"] },
+      "styling": ["높은 넥라인 단독 착용 가능"],
+      "reason": "목 노출을 줄여도 답답해 보이지 않는다"
+    },
+    "balanced": {
+      "label": "균형",
+      "goal": "제약 없음 — 모든 넥라인 가능",
+      "top": {}, "styling": []
+    },
+    "short_neck": {
+      "label": "목이 짧음",
+      "goal": "목 노출을 늘려 시각적 길이를 보완한다",
+      "top": { "neckline_prefer": ["V넥", "U넥", "오픈카라"], "neckline_avoid": ["하이넥", "터틀넥"] },
+      "styling": ["깊은 V넥", "민소매", "셔츠 상단 1단 오픈"],
+      "reason": "넥라인이 낮을수록 드러나는 목 면적이 늘어 길이가 보완된다. 하이넥은 반대로 목을 지운다"
+    }
+  },
+
+  "thigh_calf_ratio_rules": {
+    "thigh_dominant": {
+      "label": "허벅지가 김",
+      "goal": "무릎 위쪽으로 시선을 분산하고 다리 시작점을 올린다",
+      "bottom": { "fit_prefer": ["와이드핏", "부츠컷"], "fit_avoid": ["슬림핏"], "rise_prefer": ["하이웨스트"] },
+      "shoes": { "prefer": ["넓은 부츠", "미들 부츠"] },
+      "styling": ["벨트·셔츠 인으로 상단 강조"],
+      "reason": "무릎이 상대적으로 위에 있어 다리가 짧아 보인다. 위쪽 볼륨이 시작점을 끌어올린다"
+    },
+    "balanced": {
+      "label": "균형",
+      "goal": "제약 없음",
+      "bottom": {}, "shoes": {}, "styling": []
+    },
+    "calf_dominant": {
+      "label": "종아리가 김",
+      "goal": "무릎 아래로 시선을 분산하고 다리 끝점을 강조한다",
+      "bottom": { "fit_prefer": ["슬림핏", "레귤러핏"], "fit_avoid": ["와이드핏"], "rise_prefer": ["하이웨스트"] },
+      "shoes": { "prefer": ["슬림 부츠", "앵클부츠"] },
+      "styling": [],
+      "reason": "무릎 아래가 길어 다리가 길어 보인다. 와이드는 그 길이를 덮어 장점을 지운다"
+    }
+  },
+
+  "required_taxonomy_additions": [
+    {
+      "field": "rise",
+      "applies_to": "하의",
+      "values": ["하이웨스트", "레귤러라이즈", "로우라이즈"],
+      "why": "torso_ratio_rules와 thigh_calf_ratio_rules가 이 필드를 참조한다. 없으면 두 축 모두 실행 불가",
+      "where": "image-processor/pipeline/taxonomy.py, api/apps/wardrobe/taxonomy.py, test/test-llm2/common/taxonomy.py (3곳 동기화)"
+    },
+    {
+      "field": "neckline",
+      "applies_to": "상의, 원피스/세트",
+      "values": ["크루넥", "V넥", "U넥", "하이넥", "터틀넥", "오픈카라"],
+      "why": "neck_length_rules 전체가 이 필드를 참조한다. 현재 taxonomy에 넥라인 개념 자체가 없다",
+      "where": "위와 동일 3곳"
+    },
+    {
+      "field": "FITS 확장",
+      "applies_to": "하의",
+      "values": ["부츠컷 추가"],
+      "why": "thigh_dominant 처방이 부츠컷을 권장하는데 현재 FITS는 오버핏/레귤러핏/슬림핏/와이드핏 4종뿐이다",
+      "where": "위와 동일 3곳"
+    },
+    {
+      "field": "신발 소분류 세분화",
+      "applies_to": "신발",
+      "values": ["부츠 → 앵클부츠 / 미들부츠 / 롱부츠"],
+      "why": "thigh_calf_ratio_rules의 신발 처방이 부츠 길이를 구분하는데 현재 소분류는 '부츠' 하나뿐이다",
+      "where": "위와 동일 3곳"
+    }
+  ]
+}

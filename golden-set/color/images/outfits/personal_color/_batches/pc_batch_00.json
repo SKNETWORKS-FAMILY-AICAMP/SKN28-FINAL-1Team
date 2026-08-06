@@ -1,0 +1,38 @@
+[
+  {
+    "prompt": "Flat-lay fashion product photography grid on pure white background, arranged in 4 rows and 5 columns layout (total 20 cells, the last 3 cells in the bottom row are empty/blank). Each filled cell contains a folded crew-neck cotton t-shirt on the left side and a pair of folded cotton chinos pants on the right side, neatly arranged, top-down view. This is a Spring Warm (봄웜) personal color palette reference grid. The t-shirt color is the SAME in all 17 filled cells: Clear Coral (#FF6F61). The pants color VARIES by cell, in this exact order from top-left to bottom-right (reading left-to-right, top-to-bottom): cell 1: Clear Ivory (#FFF1D6), cell 2: Cream Yellow (#FFE4B5), cell 3: Butter Yellow (#F7D86A), cell 4: Peach (#F6B38A), cell 5: Light Coral (#FF8F7A), cell 6: Clear Coral (#FF6F61), cell 7: Warm Pink (#F7A6B8), cell 8: Golden Yellow (#F5C542), cell 9: Marigold (#F4A51C), cell 10: Honey Brown (#C68642), cell 11: Golden Camel (#C99A5B), cell 12: Grass Green (#54A24B), cell 13: Apple Green (#7CB342), cell 14: Fresh Mint (#9FD8B5), cell 15: Light Aqua (#68C7C1), cell 16: Warm Turquoise (#28B7A8), cell 17: Clear Sky Blue (#A8D8EA). Each outfit in each cell follows this order so that you see all 17 different pants colors paired with the same Clear Coral t-shirt. Style: Pinterest minimal fashion catalog, soft natural light, professional product photo, e-commerce look, no model, no text, no shadow, no watermark, no logo, no mannequin, clean centered composition, white borders between cells.",
+    "output_file_path": "C:\\Users\\Playdata\\Desktop\\SKN28-FINAL-1Team\\docs\\golden-set\\outfits\\personal_color\\outfit_pc_spring_clear_coral.png",
+    "input_file_paths": [
+      "C:\\Users\\Playdata\\Desktop\\SKN28-FINAL-1Team\\docs\\golden-set\\assets\\pinterest_ref.jpg"
+    ],
+    "aspect_ratio": "1:1",
+    "resolution": "1K"
+  },
+  {
+    "prompt": "Flat-lay fashion product photography grid on pure white background, arranged in 4 rows and 5 columns layout (total 20 cells, the last 3 cells in the bottom row are empty/blank). Each filled cell contains a folded crew-neck cotton t-shirt on the left side and a pair of folded cotton chinos pants on the right side, neatly arranged, top-down view. This is a Summer Cool (여름쿨) personal color palette reference grid. The t-shirt color is the SAME in all 17 filled cells: Dusty Rose (#C9869A). The pants color VARIES by cell, in this exact order from top-left to bottom-right (reading left-to-right, top-to-bottom): cell 1: Cool White (#F4F5F5), cell 2: Moonlight White (#EAEFF5), cell 3: Powder Pink (#E9B7C7), cell 4: Rosewater (#DFA0B6), cell 5: Dusty Rose (#C9869A), cell 6: Soft Rose (#C894A0), cell 7: Mauve (#B57B9A), cell 8: Cool Lavender (#B7A7D8), cell 9: Periwinkle (#8FA8D8), cell 10: Powder Blue (#9EC9E2), cell 11: Mist Blue (#9CB3C7), cell 12: Slate Blue (#667FA3), cell 13: Lavender Gray (#A99AC4), cell 14: Soft Teal (#6F9A9A), cell 15: Pine Green (#4F7C72), cell 16: Soft Plum (#6F4E73), cell 17: Rose Beige (#E8C8DC). Each outfit in each cell follows this order so that you see all 17 different pants colors paired with the same Dusty Rose t-shirt. Style: Pinterest minimal fashion catalog, soft natural light, professional product photo, e-commerce look, no model, no text, no shadow, no watermark, no logo, no mannequin, clean centered composition, white borders between cells.",
+    "output_file_path": "C:\\Users\\Playdata\\Desktop\\SKN28-FINAL-1Team\\docs\\golden-set\\outfits\\personal_color\\outfit_pc_summer_dusty_rose.png",
+    "input_file_paths": [
+      "C:\\Users\\Playdata\\Desktop\\SKN28-FINAL-1Team\\docs\\golden-set\\assets\\pinterest_ref.jpg"
+    ],
+    "aspect_ratio": "1:1",
+    "resolution": "1K"
+  },
+  {
+    "prompt": "Flat-lay fashion product photography grid on pure white background, arranged in 4 rows and 5 columns layout (total 20 cells, the last 3 cells in the bottom row are empty/blank). Each filled cell contains a folded crew-neck cotton t-shirt on the left side and a pair of folded cotton chinos pants on the right side, neatly arranged, top-down view. This is a Autumn Warm (가을웜) personal color palette reference grid. The t-shirt color is the SAME in all 17 filled cells: Terracotta (#C26B4E). The pants color VARIES by cell, in this exact order from top-left to bottom-right (reading left-to-right, top-to-bottom): cell 1: Warm Ivory (#E8D4B0), cell 2: Light Camel (#C19A6B), cell 3: Honey Gold (#D4A017), cell 4: Mustard (#D4B27B), cell 5: Pumpkin (#C2895C), cell 6: Burnt Orange (#D96C4F), cell 7: Terracotta (#C26B4E), cell 8: Rust (#B5523A), cell 9: Caramel Brown (#8D5A3F), cell 10: Dark Brown (#6B4F3A), cell 11: Tobacco Brown (#A78867), cell 12: Olive Green (#7A8E5C), cell 13: Moss Green (#8B956D), cell 14: Forest Green (#2E5E4E), cell 15: Wine Red (#7A2E2E), cell 16: Deep Burgundy (#7C2C2C), cell 17: Khaki (#7C7A4E). Each outfit in each cell follows this order so that you see all 17 different pants colors paired with the same Terracotta t-shirt. Style: Pinterest minimal fashion catalog, soft natural light, professional product photo, e-commerce look, no model, no text, no shadow, no watermark, no logo, no mannequin, clean centered composition, white borders between cells.",
+    "output_file_path": "C:\\Users\\Playdata\\Desktop\\SKN28-FINAL-1Team\\docs\\golden-set\\outfits\\personal_color\\outfit_pc_autumn_terracotta.png",
+    "input_file_paths": [
+      "C:\\Users\\Playdata\\Desktop\\SKN28-FINAL-1Team\\docs\\golden-set\\assets\\pinterest_ref.jpg"
+    ],
+    "aspect_ratio": "1:1",
+    "resolution": "1K"
+  },
+  {
+    "prompt": "Flat-lay fashion product photography grid on pure white background, arranged in 4 rows and 5 columns layout (total 20 cells, the last 3 cells in the bottom row are empty/blank). Each filled cell contains a folded crew-neck cotton t-shirt on the left side and a pair of folded cotton chinos pants on the right side, neatly arranged, top-down view. This is a Winter Cool (겨울쿨) personal color palette reference grid. The t-shirt color is the SAME in all 17 filled cells: True Red (#C71F37). The pants color VARIES by cell, in this exact order from top-left to bottom-right (reading left-to-right, top-to-bottom): cell 1: Pure White (#FFFFFF), cell 2: Black (#1E1E2E), cell 3: Charcoal (#36454F), cell 4: Cool Off-White (#F2F3F5), cell 5: Ice Blue (#46A0AC), cell 6: Royal Blue (#3F4F8B), cell 7: Sapphire (#1B3F88), cell 8: Cobalt (#2451B8), cell 9: Icy Pink (#E0BBE4), cell 10: Fuchsia (#C71F7E), cell 11: Magenta (#E63D63), cell 12: True Red (#C71F37), cell 13: Pure Red (#D81E3F), cell 14: Burgundy (#7A1F4F), cell 15: Emerald (#008F5C), cell 16: Forest Green (#1B5E20), cell 17: Violet (#5C3A88). Each outfit in each cell follows this order so that you see all 17 different pants colors paired with the same True Red t-shirt. Style: Pinterest minimal fashion catalog, soft natural light, professional product photo, e-commerce look, no model, no text, no shadow, no watermark, no logo, no mannequin, clean centered composition, white borders between cells.",
+    "output_file_path": "C:\\Users\\Playdata\\Desktop\\SKN28-FINAL-1Team\\docs\\golden-set\\outfits\\personal_color\\outfit_pc_winter_true_red.png",
+    "input_file_paths": [
+      "C:\\Users\\Playdata\\Desktop\\SKN28-FINAL-1Team\\docs\\golden-set\\assets\\pinterest_ref.jpg"
+    ],
+    "aspect_ratio": "1:1",
+    "resolution": "1K"
+  }
+]

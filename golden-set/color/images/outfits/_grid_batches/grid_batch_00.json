@@ -1,0 +1,92 @@
+[
+  {
+    "prompt": "Flat-lay fashion product photography grid on pure white background, arranged in 4 rows and 5 columns layout (total 20 cells, the last 3 cells in the bottom row are empty/blank). Each filled cell contains a folded crew-neck cotton t-shirt on the left side and a pair of folded cotton chinos pants on the right side, neatly arranged, top-down view. The t-shirt color is the SAME in all 17 filled cells: Black (#000000, true black, jet black). The pants color VARIES by cell, in this exact order from top-left to bottom-right (reading left-to-right, top-to-bottom): cell 1: Black (#000000), cell 2: White (#FFFFFF), cell 3: Charcoal (#36454F), cell 4: Navy (#1B2444), cell 5: Beige (#E8DCC4), cell 6: Olive (#6B6B45), cell 7: Brown (#6B4A2F), cell 8: Burgundy (#800020), cell 9: Mustard (#D4A017), cell 10: Teal (#008080), cell 11: Gray (#808080), cell 12: Cream (#F5E6CC), cell 13: Rust (#B7410E), cell 14: Forest Green (#228B22), cell 15: Lavender (#B57EDC), cell 16: Light Blue (#ADD8E6), cell 17: Blush Pink (#FFB6C1). Each outfit in each cell follows this order so that you see all 17 different pants colors paired with the same Black t-shirt. Style: Pinterest minimal fashion catalog, soft natural light, professional product photo, e-commerce look, no model, no text, no shadow, no watermark, no logo, no mannequin, clean centered composition, white borders between cells.",
+    "output_file_path": "C:\\Users\\Playdata\\Desktop\\SKN28-FINAL-1Team\\docs\\golden-set\\outfits\\outfit_grid_black.png",
+    "input_file_paths": [
+      "C:\\Users\\Playdata\\Desktop\\SKN28-FINAL-1Team\\docs\\golden-set\\assets\\pinterest_ref.jpg"
+    ],
+    "aspect_ratio": "1:1",
+    "resolution": "1K"
+  },
+  {
+    "prompt": "Flat-lay fashion product photography grid on pure white background, arranged in 4 rows and 5 columns layout (total 20 cells, the last 3 cells in the bottom row are empty/blank). Each filled cell contains a folded crew-neck cotton t-shirt on the left side and a pair of folded cotton chinos pants on the right side, neatly arranged, top-down view. The t-shirt color is the SAME in all 17 filled cells: White (#FFFFFF, pure white, snow white). The pants color VARIES by cell, in this exact order from top-left to bottom-right (reading left-to-right, top-to-bottom): cell 1: Black (#000000), cell 2: White (#FFFFFF), cell 3: Charcoal (#36454F), cell 4: Navy (#1B2444), cell 5: Beige (#E8DCC4), cell 6: Olive (#6B6B45), cell 7: Brown (#6B4A2F), cell 8: Burgundy (#800020), cell 9: Mustard (#D4A017), cell 10: Teal (#008080), cell 11: Gray (#808080), cell 12: Cream (#F5E6CC), cell 13: Rust (#B7410E), cell 14: Forest Green (#228B22), cell 15: Lavender (#B57EDC), cell 16: Light Blue (#ADD8E6), cell 17: Blush Pink (#FFB6C1). Each outfit in each cell follows this order so that you see all 17 different pants colors paired with the same White t-shirt. Style: Pinterest minimal fashion catalog, soft natural light, professional product photo, e-commerce look, no model, no text, no shadow, no watermark, no logo, no mannequin, clean centered composition, white borders between cells.",
+    "output_file_path": "C:\\Users\\Playdata\\Desktop\\SKN28-FINAL-1Team\\docs\\golden-set\\outfits\\outfit_grid_white.png",
+    "input_file_paths": [
+      "C:\\Users\\Playdata\\Desktop\\SKN28-FINAL-1Team\\docs\\golden-set\\assets\\pinterest_ref.jpg"
+    ],
+    "aspect_ratio": "1:1",
+    "resolution": "1K"
+  },
+  {
+    "prompt": "Flat-lay fashion product photography grid on pure white background, arranged in 4 rows and 5 columns layout (total 20 cells, the last 3 cells in the bottom row are empty/blank). Each filled cell contains a folded crew-neck cotton t-shirt on the left side and a pair of folded cotton chinos pants on the right side, neatly arranged, top-down view. The t-shirt color is the SAME in all 17 filled cells: Charcoal (#36454F, charcoal gray (very dark, slightly bluish gray)). The pants color VARIES by cell, in this exact order from top-left to bottom-right (reading left-to-right, top-to-bottom): cell 1: Black (#000000), cell 2: White (#FFFFFF), cell 3: Charcoal (#36454F), cell 4: Navy (#1B2444), cell 5: Beige (#E8DCC4), cell 6: Olive (#6B6B45), cell 7: Brown (#6B4A2F), cell 8: Burgundy (#800020), cell 9: Mustard (#D4A017), cell 10: Teal (#008080), cell 11: Gray (#808080), cell 12: Cream (#F5E6CC), cell 13: Rust (#B7410E), cell 14: Forest Green (#228B22), cell 15: Lavender (#B57EDC), cell 16: Light Blue (#ADD8E6), cell 17: Blush Pink (#FFB6C1). Each outfit in each cell follows this order so that you see all 17 different pants colors paired with the same Charcoal t-shirt. Style: Pinterest minimal fashion catalog, soft natural light, professional product photo, e-commerce look, no model, no text, no shadow, no watermark, no logo, no mannequin, clean centered composition, white borders between cells.",
+    "output_file_path": "C:\\Users\\Playdata\\Desktop\\SKN28-FINAL-1Team\\docs\\golden-set\\outfits\\outfit_grid_charcoal.png",
+    "input_file_paths": [
+      "C:\\Users\\Playdata\\Desktop\\SKN28-FINAL-1Team\\docs\\golden-set\\assets\\pinterest_ref.jpg"
+    ],
+    "aspect_ratio": "1:1",
+    "resolution": "1K"
+  },
+  {
+    "prompt": "Flat-lay fashion product photography grid on pure white background, arranged in 4 rows and 5 columns layout (total 20 cells, the last 3 cells in the bottom row are empty/blank). Each filled cell contains a folded crew-neck cotton t-shirt on the left side and a pair of folded cotton chinos pants on the right side, neatly arranged, top-down view. The t-shirt color is the SAME in all 17 filled cells: Navy (#1B2444, navy blue (very dark blue, almost black)). The pants color VARIES by cell, in this exact order from top-left to bottom-right (reading left-to-right, top-to-bottom): cell 1: Black (#000000), cell 2: White (#FFFFFF), cell 3: Charcoal (#36454F), cell 4: Navy (#1B2444), cell 5: Beige (#E8DCC4), cell 6: Olive (#6B6B45), cell 7: Brown (#6B4A2F), cell 8: Burgundy (#800020), cell 9: Mustard (#D4A017), cell 10: Teal (#008080), cell 11: Gray (#808080), cell 12: Cream (#F5E6CC), cell 13: Rust (#B7410E), cell 14: Forest Green (#228B22), cell 15: Lavender (#B57EDC), cell 16: Light Blue (#ADD8E6), cell 17: Blush Pink (#FFB6C1). Each outfit in each cell follows this order so that you see all 17 different pants colors paired with the same Navy t-shirt. Style: Pinterest minimal fashion catalog, soft natural light, professional product photo, e-commerce look, no model, no text, no shadow, no watermark, no logo, no mannequin, clean centered composition, white borders between cells.",
+    "output_file_path": "C:\\Users\\Playdata\\Desktop\\SKN28-FINAL-1Team\\docs\\golden-set\\outfits\\outfit_grid_navy.png",
+    "input_file_paths": [
+      "C:\\Users\\Playdata\\Desktop\\SKN28-FINAL-1Team\\docs\\golden-set\\assets\\pinterest_ref.jpg"
+    ],
+    "aspect_ratio": "1:1",
+    "resolution": "1K"
+  },
+  {
+    "prompt": "Flat-lay fashion product photography grid on pure white background, arranged in 4 rows and 5 columns layout (total 20 cells, the last 3 cells in the bottom row are empty/blank). Each filled cell contains a folded crew-neck cotton t-shirt on the left side and a pair of folded cotton chinos pants on the right side, neatly arranged, top-down view. The t-shirt color is the SAME in all 17 filled cells: Beige (#E8DCC4, beige (light warm tan)). The pants color VARIES by cell, in this exact order from top-left to bottom-right (reading left-to-right, top-to-bottom): cell 1: Black (#000000), cell 2: White (#FFFFFF), cell 3: Charcoal (#36454F), cell 4: Navy (#1B2444), cell 5: Beige (#E8DCC4), cell 6: Olive (#6B6B45), cell 7: Brown (#6B4A2F), cell 8: Burgundy (#800020), cell 9: Mustard (#D4A017), cell 10: Teal (#008080), cell 11: Gray (#808080), cell 12: Cream (#F5E6CC), cell 13: Rust (#B7410E), cell 14: Forest Green (#228B22), cell 15: Lavender (#B57EDC), cell 16: Light Blue (#ADD8E6), cell 17: Blush Pink (#FFB6C1). Each outfit in each cell follows this order so that you see all 17 different pants colors paired with the same Beige t-shirt. Style: Pinterest minimal fashion catalog, soft natural light, professional product photo, e-commerce look, no model, no text, no shadow, no watermark, no logo, no mannequin, clean centered composition, white borders between cells.",
+    "output_file_path": "C:\\Users\\Playdata\\Desktop\\SKN28-FINAL-1Team\\docs\\golden-set\\outfits\\outfit_grid_beige.png",
+    "input_file_paths": [
+      "C:\\Users\\Playdata\\Desktop\\SKN28-FINAL-1Team\\docs\\golden-set\\assets\\pinterest_ref.jpg"
+    ],
+    "aspect_ratio": "1:1",
+    "resolution": "1K"
+  },
+  {
+    "prompt": "Flat-lay fashion product photography grid on pure white background, arranged in 4 rows and 5 columns layout (total 20 cells, the last 3 cells in the bottom row are empty/blank). Each filled cell contains a folded crew-neck cotton t-shirt on the left side and a pair of folded cotton chinos pants on the right side, neatly arranged, top-down view. The t-shirt color is the SAME in all 17 filled cells: Olive (#6B6B45, olive green (dark yellowish green)). The pants color VARIES by cell, in this exact order from top-left to bottom-right (reading left-to-right, top-to-bottom): cell 1: Black (#000000), cell 2: White (#FFFFFF), cell 3: Charcoal (#36454F), cell 4: Navy (#1B2444), cell 5: Beige (#E8DCC4), cell 6: Olive (#6B6B45), cell 7: Brown (#6B4A2F), cell 8: Burgundy (#800020), cell 9: Mustard (#D4A017), cell 10: Teal (#008080), cell 11: Gray (#808080), cell 12: Cream (#F5E6CC), cell 13: Rust (#B7410E), cell 14: Forest Green (#228B22), cell 15: Lavender (#B57EDC), cell 16: Light Blue (#ADD8E6), cell 17: Blush Pink (#FFB6C1). Each outfit in each cell follows this order so that you see all 17 different pants colors paired with the same Olive t-shirt. Style: Pinterest minimal fashion catalog, soft natural light, professional product photo, e-commerce look, no model, no text, no shadow, no watermark, no logo, no mannequin, clean centered composition, white borders between cells.",
+    "output_file_path": "C:\\Users\\Playdata\\Desktop\\SKN28-FINAL-1Team\\docs\\golden-set\\outfits\\outfit_grid_olive.png",
+    "input_file_paths": [
+      "C:\\Users\\Playdata\\Desktop\\SKN28-FINAL-1Team\\docs\\golden-set\\assets\\pinterest_ref.jpg"
+    ],
+    "aspect_ratio": "1:1",
+    "resolution": "1K"
+  },
+  {
+    "prompt": "Flat-lay fashion product photography grid on pure white background, arranged in 4 rows and 5 columns layout (total 20 cells, the last 3 cells in the bottom row are empty/blank). Each filled cell contains a folded crew-neck cotton t-shirt on the left side and a pair of folded cotton chinos pants on the right side, neatly arranged, top-down view. The t-shirt color is the SAME in all 17 filled cells: Brown (#6B4A2F, brown (medium warm brown)). The pants color VARIES by cell, in this exact order from top-left to bottom-right (reading left-to-right, top-to-bottom): cell 1: Black (#000000), cell 2: White (#FFFFFF), cell 3: Charcoal (#36454F), cell 4: Navy (#1B2444), cell 5: Beige (#E8DCC4), cell 6: Olive (#6B6B45), cell 7: Brown (#6B4A2F), cell 8: Burgundy (#800020), cell 9: Mustard (#D4A017), cell 10: Teal (#008080), cell 11: Gray (#808080), cell 12: Cream (#F5E6CC), cell 13: Rust (#B7410E), cell 14: Forest Green (#228B22), cell 15: Lavender (#B57EDC), cell 16: Light Blue (#ADD8E6), cell 17: Blush Pink (#FFB6C1). Each outfit in each cell follows this order so that you see all 17 different pants colors paired with the same Brown t-shirt. Style: Pinterest minimal fashion catalog, soft natural light, professional product photo, e-commerce look, no model, no text, no shadow, no watermark, no logo, no mannequin, clean centered composition, white borders between cells.",
+    "output_file_path": "C:\\Users\\Playdata\\Desktop\\SKN28-FINAL-1Team\\docs\\golden-set\\outfits\\outfit_grid_brown.png",
+    "input_file_paths": [
+      "C:\\Users\\Playdata\\Desktop\\SKN28-FINAL-1Team\\docs\\golden-set\\assets\\pinterest_ref.jpg"
+    ],
+    "aspect_ratio": "1:1",
+    "resolution": "1K"
+  },
+  {
+    "prompt": "Flat-lay fashion product photography grid on pure white background, arranged in 4 rows and 5 columns layout (total 20 cells, the last 3 cells in the bottom row are empty/blank). Each filled cell contains a folded crew-neck cotton t-shirt on the left side and a pair of folded cotton chinos pants on the right side, neatly arranged, top-down view. The t-shirt color is the SAME in all 17 filled cells: Burgundy (#800020, burgundy (dark wine red, deep maroon)). The pants color VARIES by cell, in this exact order from top-left to bottom-right (reading left-to-right, top-to-bottom): cell 1: Black (#000000), cell 2: White (#FFFFFF), cell 3: Charcoal (#36454F), cell 4: Navy (#1B2444), cell 5: Beige (#E8DCC4), cell 6: Olive (#6B6B45), cell 7: Brown (#6B4A2F), cell 8: Burgundy (#800020), cell 9: Mustard (#D4A017), cell 10: Teal (#008080), cell 11: Gray (#808080), cell 12: Cream (#F5E6CC), cell 13: Rust (#B7410E), cell 14: Forest Green (#228B22), cell 15: Lavender (#B57EDC), cell 16: Light Blue (#ADD8E6), cell 17: Blush Pink (#FFB6C1). Each outfit in each cell follows this order so that you see all 17 different pants colors paired with the same Burgundy t-shirt. Style: Pinterest minimal fashion catalog, soft natural light, professional product photo, e-commerce look, no model, no text, no shadow, no watermark, no logo, no mannequin, clean centered composition, white borders between cells.",
+    "output_file_path": "C:\\Users\\Playdata\\Desktop\\SKN28-FINAL-1Team\\docs\\golden-set\\outfits\\outfit_grid_burgundy.png",
+    "input_file_paths": [
+      "C:\\Users\\Playdata\\Desktop\\SKN28-FINAL-1Team\\docs\\golden-set\\assets\\pinterest_ref.jpg"
+    ],
+    "aspect_ratio": "1:1",
+    "resolution": "1K"
+  },
+  {
+    "prompt": "Flat-lay fashion product photography grid on pure white background, arranged in 4 rows and 5 columns layout (total 20 cells, the last 3 cells in the bottom row are empty/blank). Each filled cell contains a folded crew-neck cotton t-shirt on the left side and a pair of folded cotton chinos pants on the right side, neatly arranged, top-down view. The t-shirt color is the SAME in all 17 filled cells: Mustard (#D4A017, mustard yellow (warm dark yellow)). The pants color VARIES by cell, in this exact order from top-left to bottom-right (reading left-to-right, top-to-bottom): cell 1: Black (#000000), cell 2: White (#FFFFFF), cell 3: Charcoal (#36454F), cell 4: Navy (#1B2444), cell 5: Beige (#E8DCC4), cell 6: Olive (#6B6B45), cell 7: Brown (#6B4A2F), cell 8: Burgundy (#800020), cell 9: Mustard (#D4A017), cell 10: Teal (#008080), cell 11: Gray (#808080), cell 12: Cream (#F5E6CC), cell 13: Rust (#B7410E), cell 14: Forest Green (#228B22), cell 15: Lavender (#B57EDC), cell 16: Light Blue (#ADD8E6), cell 17: Blush Pink (#FFB6C1). Each outfit in each cell follows this order so that you see all 17 different pants colors paired with the same Mustard t-shirt. Style: Pinterest minimal fashion catalog, soft natural light, professional product photo, e-commerce look, no model, no text, no shadow, no watermark, no logo, no mannequin, clean centered composition, white borders between cells.",
+    "output_file_path": "C:\\Users\\Playdata\\Desktop\\SKN28-FINAL-1Team\\docs\\golden-set\\outfits\\outfit_grid_mustard.png",
+    "input_file_paths": [
+      "C:\\Users\\Playdata\\Desktop\\SKN28-FINAL-1Team\\docs\\golden-set\\assets\\pinterest_ref.jpg"
+    ],
+    "aspect_ratio": "1:1",
+    "resolution": "1K"
+  },
+  {
+    "prompt": "Flat-lay fashion product photography grid on pure white background, arranged in 4 rows and 5 columns layout (total 20 cells, the last 3 cells in the bottom row are empty/blank). Each filled cell contains a folded crew-neck cotton t-shirt on the left side and a pair of folded cotton chinos pants on the right side, neatly arranged, top-down view. The t-shirt color is the SAME in all 17 filled cells: Teal (#008080, teal (dark cyan, blue-green)). The pants color VARIES by cell, in this exact order from top-left to bottom-right (reading left-to-right, top-to-bottom): cell 1: Black (#000000), cell 2: White (#FFFFFF), cell 3: Charcoal (#36454F), cell 4: Navy (#1B2444), cell 5: Beige (#E8DCC4), cell 6: Olive (#6B6B45), cell 7: Brown (#6B4A2F), cell 8: Burgundy (#800020), cell 9: Mustard (#D4A017), cell 10: Teal (#008080), cell 11: Gray (#808080), cell 12: Cream (#F5E6CC), cell 13: Rust (#B7410E), cell 14: Forest Green (#228B22), cell 15: Lavender (#B57EDC), cell 16: Light Blue (#ADD8E6), cell 17: Blush Pink (#FFB6C1). Each outfit in each cell follows this order so that you see all 17 different pants colors paired with the same Teal t-shirt. Style: Pinterest minimal fashion catalog, soft natural light, professional product photo, e-commerce look, no model, no text, no shadow, no watermark, no logo, no mannequin, clean centered composition, white borders between cells.",
+    "output_file_path": "C:\\Users\\Playdata\\Desktop\\SKN28-FINAL-1Team\\docs\\golden-set\\outfits\\outfit_grid_teal.png",
+    "input_file_paths": [
+      "C:\\Users\\Playdata\\Desktop\\SKN28-FINAL-1Team\\docs\\golden-set\\assets\\pinterest_ref.jpg"
+    ],
+    "aspect_ratio": "1:1",
+    "resolution": "1K"
+  }
+]

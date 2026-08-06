@@ -1,0 +1,65 @@
+[
+  {
+    "prompt": "Flat-lay fashion product photography grid on pure white background, arranged in 3 rows and 3 columns layout (total 9 cells, the last 3 cells in the bottom row are empty/blank). Each filled cell contains a folded crew-neck cotton t-shirt on the left side and a pair of folded cotton chinos pants on the right side, neatly arranged, top-down view. The t-shirt color is the SAME in all 6 filled cells: Gray (#808080). The pants color VARIES by cell, in this exact order from top-left to bottom-right (reading left-to-right, top-to-bottom): cell 1: Pure White (#FFFFFF), cell 2: Charcoal (#36454F), cell 3: Light Gray (#A9AEB4), cell 4: Mustard (#D4A017), cell 5: Burgundy (#7A1F4F), cell 6: Royal Blue (#3F4F8B). Each outfit in each cell follows this order so that you see 6 different pants colors carefully curated to match the Gray t-shirt. These 6 colors are specifically chosen for fashion color harmony with Gray, not random color combinations. Style: Pinterest minimal fashion catalog, soft natural light, professional product photo, e-commerce look, no model, no text, no shadow, no watermark, no logo, no mannequin, clean centered composition, white borders between cells.",
+    "output_file_path": "C:\\Users\\Playdata\\Desktop\\SKN28-FINAL-1Team\\docs\\golden-set\\outfits\\curated\\outfit_curated_gray.png",
+    "input_file_paths": [
+      "C:\\Users\\Playdata\\Desktop\\SKN28-FINAL-1Team\\docs\\golden-set\\assets\\pinterest_ref.jpg"
+    ],
+    "aspect_ratio": "1:1",
+    "resolution": "1K"
+  },
+  {
+    "prompt": "Flat-lay fashion product photography grid on pure white background, arranged in 3 rows and 3 columns layout (total 9 cells, the last 3 cells in the bottom row are empty/blank). Each filled cell contains a folded crew-neck cotton t-shirt on the left side and a pair of folded cotton chinos pants on the right side, neatly arranged, top-down view. The t-shirt color is the SAME in all 6 filled cells: Cream (#F2E8D5). The pants color VARIES by cell, in this exact order from top-left to bottom-right (reading left-to-right, top-to-bottom): cell 1: Soft Beige (#D9C3A5), cell 2: Light Camel (#C19A6B), cell 3: Sage (#9CB3A0), cell 4: Powder Blue (#9EC9E2), cell 5: Dusty Rose (#C9869A), cell 6: Caramel (#C68642). Each outfit in each cell follows this order so that you see 6 different pants colors carefully curated to match the Cream t-shirt. These 6 colors are specifically chosen for fashion color harmony with Cream, not random color combinations. Style: Pinterest minimal fashion catalog, soft natural light, professional product photo, e-commerce look, no model, no text, no shadow, no watermark, no logo, no mannequin, clean centered composition, white borders between cells.",
+    "output_file_path": "C:\\Users\\Playdata\\Desktop\\SKN28-FINAL-1Team\\docs\\golden-set\\outfits\\curated\\outfit_curated_cream.png",
+    "input_file_paths": [
+      "C:\\Users\\Playdata\\Desktop\\SKN28-FINAL-1Team\\docs\\golden-set\\assets\\pinterest_ref.jpg"
+    ],
+    "aspect_ratio": "1:1",
+    "resolution": "1K"
+  },
+  {
+    "prompt": "Flat-lay fashion product photography grid on pure white background, arranged in 3 rows and 3 columns layout (total 9 cells, the last 3 cells in the bottom row are empty/blank). Each filled cell contains a folded crew-neck cotton t-shirt on the left side and a pair of folded cotton chinos pants on the right side, neatly arranged, top-down view. The t-shirt color is the SAME in all 6 filled cells: Rust (#B5523A). The pants color VARIES by cell, in this exact order from top-left to bottom-right (reading left-to-right, top-to-bottom): cell 1: Cream (#F5E6CC), cell 2: Ivory (#F2E8D5), cell 3: Caramel (#C68642), cell 4: Mustard (#D4A017), cell 5: Brown (#6B4F3A), cell 6: Navy (#1F2A44). Each outfit in each cell follows this order so that you see 6 different pants colors carefully curated to match the Rust t-shirt. These 6 colors are specifically chosen for fashion color harmony with Rust, not random color combinations. Style: Pinterest minimal fashion catalog, soft natural light, professional product photo, e-commerce look, no model, no text, no shadow, no watermark, no logo, no mannequin, clean centered composition, white borders between cells.",
+    "output_file_path": "C:\\Users\\Playdata\\Desktop\\SKN28-FINAL-1Team\\docs\\golden-set\\outfits\\curated\\outfit_curated_rust.png",
+    "input_file_paths": [
+      "C:\\Users\\Playdata\\Desktop\\SKN28-FINAL-1Team\\docs\\golden-set\\assets\\pinterest_ref.jpg"
+    ],
+    "aspect_ratio": "1:1",
+    "resolution": "1K"
+  },
+  {
+    "prompt": "Flat-lay fashion product photography grid on pure white background, arranged in 3 rows and 3 columns layout (total 9 cells, the last 3 cells in the bottom row are empty/blank). Each filled cell contains a folded crew-neck cotton t-shirt on the left side and a pair of folded cotton chinos pants on the right side, neatly arranged, top-down view. The t-shirt color is the SAME in all 6 filled cells: Forest Green (#2E5E4E). The pants color VARIES by cell, in this exact order from top-left to bottom-right (reading left-to-right, top-to-bottom): cell 1: Cream (#F5E6CC), cell 2: Ivory (#F2E8D5), cell 3: Caramel (#C68642), cell 4: Mustard (#D4A017), cell 5: Burgundy (#7A1F4F), cell 6: Tobacco Brown (#A78867). Each outfit in each cell follows this order so that you see 6 different pants colors carefully curated to match the Forest Green t-shirt. These 6 colors are specifically chosen for fashion color harmony with Forest Green, not random color combinations. Style: Pinterest minimal fashion catalog, soft natural light, professional product photo, e-commerce look, no model, no text, no shadow, no watermark, no logo, no mannequin, clean centered composition, white borders between cells.",
+    "output_file_path": "C:\\Users\\Playdata\\Desktop\\SKN28-FINAL-1Team\\docs\\golden-set\\outfits\\curated\\outfit_curated_forest_green.png",
+    "input_file_paths": [
+      "C:\\Users\\Playdata\\Desktop\\SKN28-FINAL-1Team\\docs\\golden-set\\assets\\pinterest_ref.jpg"
+    ],
+    "aspect_ratio": "1:1",
+    "resolution": "1K"
+  },
+  {
+    "prompt": "Flat-lay fashion product photography grid on pure white background, arranged in 3 rows and 3 columns layout (total 9 cells, the last 3 cells in the bottom row are empty/blank). Each filled cell contains a folded crew-neck cotton t-shirt on the left side and a pair of folded cotton chinos pants on the right side, neatly arranged, top-down view. The t-shirt color is the SAME in all 6 filled cells: Lavender (#B57EDC). The pants color VARIES by cell, in this exact order from top-left to bottom-right (reading left-to-right, top-to-bottom): cell 1: Pure White (#FFFFFF), cell 2: Soft White (#F2F3F5), cell 3: Powder Pink (#E9B7C7), cell 4: Powder Blue (#9EC9E2), cell 5: Light Gray (#A9AEB4), cell 6: Sage (#9CB3A0). Each outfit in each cell follows this order so that you see 6 different pants colors carefully curated to match the Lavender t-shirt. These 6 colors are specifically chosen for fashion color harmony with Lavender, not random color combinations. Style: Pinterest minimal fashion catalog, soft natural light, professional product photo, e-commerce look, no model, no text, no shadow, no watermark, no logo, no mannequin, clean centered composition, white borders between cells.",
+    "output_file_path": "C:\\Users\\Playdata\\Desktop\\SKN28-FINAL-1Team\\docs\\golden-set\\outfits\\curated\\outfit_curated_lavender.png",
+    "input_file_paths": [
+      "C:\\Users\\Playdata\\Desktop\\SKN28-FINAL-1Team\\docs\\golden-set\\assets\\pinterest_ref.jpg"
+    ],
+    "aspect_ratio": "1:1",
+    "resolution": "1K"
+  },
+  {
+    "prompt": "Flat-lay fashion product photography grid on pure white background, arranged in 3 rows and 3 columns layout (total 9 cells, the last 3 cells in the bottom row are empty/blank). Each filled cell contains a folded crew-neck cotton t-shirt on the left side and a pair of folded cotton chinos pants on the right side, neatly arranged, top-down view. The t-shirt color is the SAME in all 6 filled cells: Light Blue (#ADD8E6). The pants color VARIES by cell, in this exact order from top-left to bottom-right (reading left-to-right, top-to-bottom): cell 1: Pure White (#FFFFFF), cell 2: Cream Yellow (#FFF1D6), cell 3: Soft Beige (#D9C3A5), cell 4: Powder Pink (#E9B7C7), cell 5: Light Gray (#A9AEB4), cell 6: Light Coral (#FF8F7A). Each outfit in each cell follows this order so that you see 6 different pants colors carefully curated to match the Light Blue t-shirt. These 6 colors are specifically chosen for fashion color harmony with Light Blue, not random color combinations. Style: Pinterest minimal fashion catalog, soft natural light, professional product photo, e-commerce look, no model, no text, no shadow, no watermark, no logo, no mannequin, clean centered composition, white borders between cells.",
+    "output_file_path": "C:\\Users\\Playdata\\Desktop\\SKN28-FINAL-1Team\\docs\\golden-set\\outfits\\curated\\outfit_curated_light_blue.png",
+    "input_file_paths": [
+      "C:\\Users\\Playdata\\Desktop\\SKN28-FINAL-1Team\\docs\\golden-set\\assets\\pinterest_ref.jpg"
+    ],
+    "aspect_ratio": "1:1",
+    "resolution": "1K"
+  },
+  {
+    "prompt": "Flat-lay fashion product photography grid on pure white background, arranged in 3 rows and 3 columns layout (total 9 cells, the last 3 cells in the bottom row are empty/blank). Each filled cell contains a folded crew-neck cotton t-shirt on the left side and a pair of folded cotton chinos pants on the right side, neatly arranged, top-down view. The t-shirt color is the SAME in all 6 filled cells: Blush Pink (#FFB6C1). The pants color VARIES by cell, in this exact order from top-left to bottom-right (reading left-to-right, top-to-bottom): cell 1: Pure White (#FFFFFF), cell 2: Soft White (#F2F3F5), cell 3: Light Gray (#A9AEB4), cell 4: Powder Blue (#9EC9E2), cell 5: Sage (#9CB3A0), cell 6: Soft Beige (#D9C3A5). Each outfit in each cell follows this order so that you see 6 different pants colors carefully curated to match the Blush Pink t-shirt. These 6 colors are specifically chosen for fashion color harmony with Blush Pink, not random color combinations. Style: Pinterest minimal fashion catalog, soft natural light, professional product photo, e-commerce look, no model, no text, no shadow, no watermark, no logo, no mannequin, clean centered composition, white borders between cells.",
+    "output_file_path": "C:\\Users\\Playdata\\Desktop\\SKN28-FINAL-1Team\\docs\\golden-set\\outfits\\curated\\outfit_curated_blush_pink.png",
+    "input_file_paths": [
+      "C:\\Users\\Playdata\\Desktop\\SKN28-FINAL-1Team\\docs\\golden-set\\assets\\pinterest_ref.jpg"
+    ],
+    "aspect_ratio": "1:1",
+    "resolution": "1K"
+  }
+]

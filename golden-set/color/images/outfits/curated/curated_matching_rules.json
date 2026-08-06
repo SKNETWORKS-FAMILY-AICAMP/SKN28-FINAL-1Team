@@ -1,0 +1,710 @@
+{
+  "role": "illustration_input, NOT a judgment source",
+  "warning": "이 파일은 예시 이미지(outfit_curated_*.png)를 '어떤 조합으로 그릴지' 고르기 위한 생성 입력이다. 추천 판단에 쓰면 rules/color_rules.json과 충돌한다 — 예를 들어 여기서는 Black의 짝을 6개로 한정하지만, color_rules의 R2는 Black이 모든 accent와 잘 맞는다고 판정한다.",
+  "judgment_source": "golden-set/color/rules/color_rules.json",
+  "palette_note": "103색 확장 풀은 4계절 퍼스널컬러 팔레트에서 왔다. v2 17색 팔레트와 별개 체계다",
+  "version": "v3",
+  "philosophy": "shade-aware curated matching: 각 top에 6 best bottoms, 색 family 내에서도 shade 차이 적용",
+  "tops": [
+    "Black",
+    "White",
+    "Charcoal",
+    "Navy",
+    "Beige",
+    "Olive",
+    "Brown",
+    "Burgundy",
+    "Mustard",
+    "Teal",
+    "Gray",
+    "Cream",
+    "Rust",
+    "Forest Green",
+    "Lavender",
+    "Light Blue",
+    "Blush Pink"
+  ],
+  "expanded_palette_size": 103,
+  "matches": {
+    "Black": {
+      "tops": [
+        {
+          "name": "Black",
+          "hex": "#1E1E2E"
+        }
+      ],
+      "bottoms": [
+        {
+          "name": "Charcoal",
+          "hex": "#36454F",
+          "season": "winter"
+        },
+        {
+          "name": "Pure White",
+          "hex": "#FFFFFF",
+          "season": "winter"
+        },
+        {
+          "name": "Soft White",
+          "hex": "#F2F3F5",
+          "season": "winter"
+        },
+        {
+          "name": "True Red",
+          "hex": "#C71F37",
+          "season": "winter"
+        },
+        {
+          "name": "Royal Blue",
+          "hex": "#3F4F8B",
+          "season": "winter"
+        },
+        {
+          "name": "Mustard",
+          "hex": "#D4A017",
+          "season": "autumn"
+        }
+      ]
+    },
+    "White": {
+      "tops": [
+        {
+          "name": "White",
+          "hex": "#FFFFFF"
+        }
+      ],
+      "bottoms": [
+        {
+          "name": "Cream Yellow",
+          "hex": "#FFF1D6",
+          "season": "spring"
+        },
+        {
+          "name": "Soft Beige",
+          "hex": "#D9C3A5",
+          "season": "spring"
+        },
+        {
+          "name": "Honey Brown",
+          "hex": "#C68642",
+          "season": "spring"
+        },
+        {
+          "name": "Powder Blue",
+          "hex": "#9EC9E2",
+          "season": "summer"
+        },
+        {
+          "name": "Light Coral",
+          "hex": "#FF8F7A",
+          "season": "spring"
+        },
+        {
+          "name": "Sage",
+          "hex": "#9CB3A0",
+          "season": "summer"
+        }
+      ]
+    },
+    "Charcoal": {
+      "tops": [
+        {
+          "name": "Charcoal",
+          "hex": "#36454F"
+        }
+      ],
+      "bottoms": [
+        {
+          "name": "Pure White",
+          "hex": "#FFFFFF",
+          "season": "winter"
+        },
+        {
+          "name": "Light Gray",
+          "hex": "#A9AEB4",
+          "season": "summer"
+        },
+        {
+          "name": "Soft Charcoal",
+          "hex": "#565B63",
+          "season": "summer"
+        },
+        {
+          "name": "Mustard",
+          "hex": "#D4A017",
+          "season": "autumn"
+        },
+        {
+          "name": "Deep Burgundy",
+          "hex": "#7C2C2C",
+          "season": "autumn"
+        },
+        {
+          "name": "Powder Blue",
+          "hex": "#9EC9E2",
+          "season": "summer"
+        }
+      ]
+    },
+    "Navy": {
+      "tops": [
+        {
+          "name": "Navy",
+          "hex": "#1B2444"
+        }
+      ],
+      "bottoms": [
+        {
+          "name": "Pure White",
+          "hex": "#FFFFFF",
+          "season": "winter"
+        },
+        {
+          "name": "Soft White",
+          "hex": "#F2F3F5",
+          "season": "winter"
+        },
+        {
+          "name": "Cream Yellow",
+          "hex": "#FFF1D6",
+          "season": "spring"
+        },
+        {
+          "name": "Light Camel",
+          "hex": "#C19A6B",
+          "season": "autumn"
+        },
+        {
+          "name": "Light Coral",
+          "hex": "#FF8F7A",
+          "season": "spring"
+        },
+        {
+          "name": "Mustard",
+          "hex": "#D4A017",
+          "season": "autumn"
+        }
+      ]
+    },
+    "Beige": {
+      "tops": [
+        {
+          "name": "Beige",
+          "hex": "#D9C3A5"
+        }
+      ],
+      "bottoms": [
+        {
+          "name": "Ivory",
+          "hex": "#F2E8D5",
+          "season": "spring"
+        },
+        {
+          "name": "Soft Beige",
+          "hex": "#D9C3A5",
+          "season": "spring"
+        },
+        {
+          "name": "Cream Yellow",
+          "hex": "#FFF1D6",
+          "season": "spring"
+        },
+        {
+          "name": "Light Coral",
+          "hex": "#FF8F7A",
+          "season": "spring"
+        },
+        {
+          "name": "Honey Brown",
+          "hex": "#C68642",
+          "season": "spring"
+        },
+        {
+          "name": "Fresh Mint",
+          "hex": "#9FD8B5",
+          "season": "spring"
+        }
+      ]
+    },
+    "Olive": {
+      "tops": [
+        {
+          "name": "Olive",
+          "hex": "#6B6B45"
+        }
+      ],
+      "bottoms": [
+        {
+          "name": "Cream",
+          "hex": "#F5E6CC",
+          "season": "spring"
+        },
+        {
+          "name": "Ivory",
+          "hex": "#F2E8D5",
+          "season": "spring"
+        },
+        {
+          "name": "Light Camel",
+          "hex": "#C19A6B",
+          "season": "autumn"
+        },
+        {
+          "name": "Light Brown",
+          "hex": "#8D5A3F",
+          "season": "autumn"
+        },
+        {
+          "name": "Caramel",
+          "hex": "#C68642",
+          "season": "spring"
+        },
+        {
+          "name": "Burgundy",
+          "hex": "#7A1F4F",
+          "season": "winter"
+        }
+      ]
+    },
+    "Brown": {
+      "tops": [
+        {
+          "name": "Brown",
+          "hex": "#6B4F3A"
+        }
+      ],
+      "bottoms": [
+        {
+          "name": "Caramel",
+          "hex": "#C68642",
+          "season": "spring"
+        },
+        {
+          "name": "Light Brown",
+          "hex": "#8D5A3F",
+          "season": "autumn"
+        },
+        {
+          "name": "Mustard",
+          "hex": "#D4A017",
+          "season": "autumn"
+        },
+        {
+          "name": "Ochre",
+          "hex": "#C2895C",
+          "season": "autumn"
+        },
+        {
+          "name": "Terracotta",
+          "hex": "#C26B4E",
+          "season": "autumn"
+        },
+        {
+          "name": "Cream",
+          "hex": "#F5E6CC",
+          "season": "spring"
+        }
+      ]
+    },
+    "Burgundy": {
+      "tops": [
+        {
+          "name": "Burgundy",
+          "hex": "#7A1F4F"
+        }
+      ],
+      "bottoms": [
+        {
+          "name": "Cream Yellow",
+          "hex": "#FFF1D6",
+          "season": "spring"
+        },
+        {
+          "name": "Ivory",
+          "hex": "#F2E8D5",
+          "season": "spring"
+        },
+        {
+          "name": "Soft Beige",
+          "hex": "#D9C3A5",
+          "season": "spring"
+        },
+        {
+          "name": "Mustard",
+          "hex": "#D4A017",
+          "season": "autumn"
+        },
+        {
+          "name": "Olive",
+          "hex": "#6B6B45",
+          "season": "autumn"
+        },
+        {
+          "name": "Teal",
+          "hex": "#008080",
+          "season": "winter"
+        }
+      ]
+    },
+    "Mustard": {
+      "tops": [
+        {
+          "name": "Mustard",
+          "hex": "#D4A017"
+        }
+      ],
+      "bottoms": [
+        {
+          "name": "Olive",
+          "hex": "#6B6B45",
+          "season": "autumn"
+        },
+        {
+          "name": "Light Olive",
+          "hex": "#8B956D",
+          "season": "autumn"
+        },
+        {
+          "name": "Caramel",
+          "hex": "#C68642",
+          "season": "spring"
+        },
+        {
+          "name": "Burgundy",
+          "hex": "#7A1F4F",
+          "season": "winter"
+        },
+        {
+          "name": "Cream",
+          "hex": "#F5E6CC",
+          "season": "spring"
+        },
+        {
+          "name": "Navy",
+          "hex": "#1F2A44",
+          "season": "winter"
+        }
+      ]
+    },
+    "Teal": {
+      "tops": [
+        {
+          "name": "Teal",
+          "hex": "#008080"
+        }
+      ],
+      "bottoms": [
+        {
+          "name": "Cream",
+          "hex": "#F5E6CC",
+          "season": "spring"
+        },
+        {
+          "name": "Ivory",
+          "hex": "#F2E8D5",
+          "season": "spring"
+        },
+        {
+          "name": "Terracotta",
+          "hex": "#C26B4E",
+          "season": "autumn"
+        },
+        {
+          "name": "Burnt Orange",
+          "hex": "#D96C4F",
+          "season": "autumn"
+        },
+        {
+          "name": "Mustard",
+          "hex": "#D4A017",
+          "season": "autumn"
+        },
+        {
+          "name": "Burgundy",
+          "hex": "#7A1F4F",
+          "season": "winter"
+        }
+      ]
+    },
+    "Gray": {
+      "tops": [
+        {
+          "name": "Gray",
+          "hex": "#808080"
+        }
+      ],
+      "bottoms": [
+        {
+          "name": "Pure White",
+          "hex": "#FFFFFF",
+          "season": "winter"
+        },
+        {
+          "name": "Charcoal",
+          "hex": "#36454F",
+          "season": "winter"
+        },
+        {
+          "name": "Light Gray",
+          "hex": "#A9AEB4",
+          "season": "summer"
+        },
+        {
+          "name": "Mustard",
+          "hex": "#D4A017",
+          "season": "autumn"
+        },
+        {
+          "name": "Burgundy",
+          "hex": "#7A1F4F",
+          "season": "winter"
+        },
+        {
+          "name": "Royal Blue",
+          "hex": "#3F4F8B",
+          "season": "winter"
+        }
+      ]
+    },
+    "Cream": {
+      "tops": [
+        {
+          "name": "Cream",
+          "hex": "#F2E8D5"
+        }
+      ],
+      "bottoms": [
+        {
+          "name": "Soft Beige",
+          "hex": "#D9C3A5",
+          "season": "spring"
+        },
+        {
+          "name": "Light Camel",
+          "hex": "#C19A6B",
+          "season": "autumn"
+        },
+        {
+          "name": "Sage",
+          "hex": "#9CB3A0",
+          "season": "summer"
+        },
+        {
+          "name": "Powder Blue",
+          "hex": "#9EC9E2",
+          "season": "summer"
+        },
+        {
+          "name": "Dusty Rose",
+          "hex": "#C9869A",
+          "season": "summer"
+        },
+        {
+          "name": "Caramel",
+          "hex": "#C68642",
+          "season": "spring"
+        }
+      ]
+    },
+    "Rust": {
+      "tops": [
+        {
+          "name": "Rust",
+          "hex": "#B5523A"
+        }
+      ],
+      "bottoms": [
+        {
+          "name": "Cream",
+          "hex": "#F5E6CC",
+          "season": "spring"
+        },
+        {
+          "name": "Ivory",
+          "hex": "#F2E8D5",
+          "season": "spring"
+        },
+        {
+          "name": "Caramel",
+          "hex": "#C68642",
+          "season": "spring"
+        },
+        {
+          "name": "Mustard",
+          "hex": "#D4A017",
+          "season": "autumn"
+        },
+        {
+          "name": "Brown",
+          "hex": "#6B4F3A",
+          "season": "autumn"
+        },
+        {
+          "name": "Navy",
+          "hex": "#1F2A44",
+          "season": "winter"
+        }
+      ]
+    },
+    "Forest Green": {
+      "tops": [
+        {
+          "name": "Forest Green",
+          "hex": "#2E5E4E"
+        }
+      ],
+      "bottoms": [
+        {
+          "name": "Cream",
+          "hex": "#F5E6CC",
+          "season": "spring"
+        },
+        {
+          "name": "Ivory",
+          "hex": "#F2E8D5",
+          "season": "spring"
+        },
+        {
+          "name": "Caramel",
+          "hex": "#C68642",
+          "season": "spring"
+        },
+        {
+          "name": "Mustard",
+          "hex": "#D4A017",
+          "season": "autumn"
+        },
+        {
+          "name": "Burgundy",
+          "hex": "#7A1F4F",
+          "season": "winter"
+        },
+        {
+          "name": "Tobacco Brown",
+          "hex": "#A78867",
+          "season": "autumn"
+        }
+      ]
+    },
+    "Lavender": {
+      "tops": [
+        {
+          "name": "Lavender",
+          "hex": "#B57EDC"
+        }
+      ],
+      "bottoms": [
+        {
+          "name": "Pure White",
+          "hex": "#FFFFFF",
+          "season": "winter"
+        },
+        {
+          "name": "Soft White",
+          "hex": "#F2F3F5",
+          "season": "winter"
+        },
+        {
+          "name": "Powder Pink",
+          "hex": "#E9B7C7",
+          "season": "summer"
+        },
+        {
+          "name": "Powder Blue",
+          "hex": "#9EC9E2",
+          "season": "summer"
+        },
+        {
+          "name": "Light Gray",
+          "hex": "#A9AEB4",
+          "season": "summer"
+        },
+        {
+          "name": "Sage",
+          "hex": "#9CB3A0",
+          "season": "summer"
+        }
+      ]
+    },
+    "Light Blue": {
+      "tops": [
+        {
+          "name": "Light Blue",
+          "hex": "#ADD8E6"
+        }
+      ],
+      "bottoms": [
+        {
+          "name": "Pure White",
+          "hex": "#FFFFFF",
+          "season": "winter"
+        },
+        {
+          "name": "Cream Yellow",
+          "hex": "#FFF1D6",
+          "season": "spring"
+        },
+        {
+          "name": "Soft Beige",
+          "hex": "#D9C3A5",
+          "season": "spring"
+        },
+        {
+          "name": "Powder Pink",
+          "hex": "#E9B7C7",
+          "season": "summer"
+        },
+        {
+          "name": "Light Gray",
+          "hex": "#A9AEB4",
+          "season": "summer"
+        },
+        {
+          "name": "Light Coral",
+          "hex": "#FF8F7A",
+          "season": "spring"
+        }
+      ]
+    },
+    "Blush Pink": {
+      "tops": [
+        {
+          "name": "Blush Pink",
+          "hex": "#FFB6C1"
+        }
+      ],
+      "bottoms": [
+        {
+          "name": "Pure White",
+          "hex": "#FFFFFF",
+          "season": "winter"
+        },
+        {
+          "name": "Soft White",
+          "hex": "#F2F3F5",
+          "season": "winter"
+        },
+        {
+          "name": "Light Gray",
+          "hex": "#A9AEB4",
+          "season": "summer"
+        },
+        {
+          "name": "Powder Blue",
+          "hex": "#9EC9E2",
+          "season": "summer"
+        },
+        {
+          "name": "Sage",
+          "hex": "#9CB3A0",
+          "season": "summer"
+        },
+        {
+          "name": "Soft Beige",
+          "hex": "#D9C3A5",
+          "season": "spring"
+        }
+      ]
+    }
+  }
+}

@@ -1,0 +1,3156 @@
+{
+  "palette_source": "코디 색조합 레퍼런스 이미지 (assets/pinterest_ref.jpg) — 17색 팔레트만 차용",
+  "grade_source": "이 스크립트의 규칙 R1~R6 계산값. 레퍼런스 등급표는 추출 실패로 미사용 (tools/crosscheck_grade_map.py)",
+  "item_tag_mapping": "rules/color_taxonomy_map.json — 아이템의 한국어 color 태그를 이 팔레트로 변환",
+  "generated_by": "golden-set/color/tools/build_color_rules.py",
+  "version": "v2",
+  "replaces_v1": "v1_backup/color_rules_v1.json (한국어 17색, taxonomy.py::COLORS 기반)",
+  "thresholds": {
+    "chroma_high": 45.0,
+    "lightness_contrast_min": 18.0,
+    "hue_similar_max": 35.0,
+    "hue_complement_min": 150.0
+  },
+  "rules": {
+    "R1": "뉴트럴 2색은 명도차 18 이상이면 권장, 미만이면 소재 대비로 보완",
+    "R2": "뉴트럴 앵커 1 + 포인트 1색이 기본형",
+    "R3": "고채도 2색 동시 대면적 금지, 보색이면 기피",
+    "R4": "유사색은 명도차 18 이상일 때만 권장",
+    "R5": "보색이라도 한쪽 채도가 낮으면 허용",
+    "R6": "웜·쿨 혼합은 뉴트럴을 사이에 넣어 분리"
+  },
+  "attributes": {
+    "Black": {
+      "hex": "#000000",
+      "role": "neutral",
+      "temperature": "neutral",
+      "visual_effect": "축소",
+      "hue": 0.0,
+      "chroma": 0.0,
+      "lightness": 0.0,
+      "hsl_hue": 0.0,
+      "hsl_saturation": 0.0,
+      "hsl_lightness": 0.0,
+      "rgb": [
+        0,
+        0,
+        0
+      ]
+    },
+    "White": {
+      "hex": "#FFFFFF",
+      "role": "neutral",
+      "temperature": "neutral",
+      "visual_effect": "확장",
+      "hue": 158.2,
+      "chroma": 0.0,
+      "lightness": 100.0,
+      "hsl_hue": 0.0,
+      "hsl_saturation": 0.0,
+      "hsl_lightness": 100.0,
+      "rgb": [
+        255,
+        255,
+        255
+      ]
+    },
+    "Charcoal": {
+      "hex": "#36454F",
+      "role": "neutral",
+      "temperature": "cool",
+      "visual_effect": "축소",
+      "hue": 247.8,
+      "chroma": 8.6,
+      "lightness": 28.4,
+      "hsl_hue": 204.0,
+      "hsl_saturation": 18.8,
+      "hsl_lightness": 26.1,
+      "rgb": [
+        54,
+        69,
+        79
+      ]
+    },
+    "Navy": {
+      "hex": "#1B2444",
+      "role": "neutral",
+      "temperature": "cool",
+      "visual_effect": "축소",
+      "hue": 288.5,
+      "chroma": 22.6,
+      "lightness": 15.0,
+      "hsl_hue": 226.8,
+      "hsl_saturation": 43.2,
+      "hsl_lightness": 18.6,
+      "rgb": [
+        27,
+        36,
+        68
+      ]
+    },
+    "Beige": {
+      "hex": "#E8DCC4",
+      "role": "neutral",
+      "temperature": "warm",
+      "visual_effect": "확장",
+      "hue": 89.2,
+      "chroma": 13.3,
+      "lightness": 88.1,
+      "hsl_hue": 40.0,
+      "hsl_saturation": 43.9,
+      "hsl_lightness": 83.9,
+      "rgb": [
+        232,
+        220,
+        196
+      ]
+    },
+    "Olive": {
+      "hex": "#6B6B45",
+      "role": "semi_neutral",
+      "temperature": "warm",
+      "visual_effect": "축소",
+      "hue": 106.9,
+      "chroma": 22.3,
+      "lightness": 44.3,
+      "hsl_hue": 60.0,
+      "hsl_saturation": 21.6,
+      "hsl_lightness": 34.5,
+      "rgb": [
+        107,
+        107,
+        69
+      ]
+    },
+    "Brown": {
+      "hex": "#6B4A2F",
+      "role": "semi_neutral",
+      "temperature": "warm",
+      "visual_effect": "축소",
+      "hue": 63.8,
+      "chroma": 24.1,
+      "lightness": 34.5,
+      "hsl_hue": 27.0,
+      "hsl_saturation": 39.0,
+      "hsl_lightness": 30.2,
+      "rgb": [
+        107,
+        74,
+        47
+      ]
+    },
+    "Burgundy": {
+      "hex": "#800020",
+      "role": "accent",
+      "temperature": "warm",
+      "visual_effect": "중립",
+      "hue": 23.5,
+      "chroma": 53.3,
+      "lightness": 25.8,
+      "hsl_hue": 345.0,
+      "hsl_saturation": 100.0,
+      "hsl_lightness": 25.1,
+      "rgb": [
+        128,
+        0,
+        32
+      ]
+    },
+    "Mustard": {
+      "hex": "#D4A017",
+      "role": "accent",
+      "temperature": "warm",
+      "visual_effect": "중립",
+      "hue": 83.1,
+      "chroma": 69.6,
+      "lightness": 68.9,
+      "hsl_hue": 43.5,
+      "hsl_saturation": 80.4,
+      "hsl_lightness": 46.1,
+      "rgb": [
+        212,
+        160,
+        23
+      ]
+    },
+    "Teal": {
+      "hex": "#008080",
+      "role": "accent",
+      "temperature": "cool",
+      "visual_effect": "중립",
+      "hue": 196.4,
+      "chroma": 30.1,
+      "lightness": 48.3,
+      "hsl_hue": 180.0,
+      "hsl_saturation": 100.0,
+      "hsl_lightness": 25.1,
+      "rgb": [
+        0,
+        128,
+        128
+      ]
+    },
+    "Gray": {
+      "hex": "#808080",
+      "role": "neutral",
+      "temperature": "neutral",
+      "visual_effect": "중립",
+      "hue": 158.2,
+      "chroma": 0.0,
+      "lightness": 53.6,
+      "hsl_hue": 0.0,
+      "hsl_saturation": 0.0,
+      "hsl_lightness": 50.2,
+      "rgb": [
+        128,
+        128,
+        128
+      ]
+    },
+    "Cream": {
+      "hex": "#F5E6CC",
+      "role": "neutral",
+      "temperature": "warm",
+      "visual_effect": "확장",
+      "hue": 86.3,
+      "chroma": 14.5,
+      "lightness": 91.8,
+      "hsl_hue": 38.0,
+      "hsl_saturation": 67.2,
+      "hsl_lightness": 88.0,
+      "rgb": [
+        245,
+        230,
+        204
+      ]
+    },
+    "Rust": {
+      "hex": "#B7410E",
+      "role": "accent",
+      "temperature": "warm",
+      "visual_effect": "중립",
+      "hue": 48.2,
+      "chroma": 68.6,
+      "lightness": 44.1,
+      "hsl_hue": 18.1,
+      "hsl_saturation": 85.8,
+      "hsl_lightness": 38.6,
+      "rgb": [
+        183,
+        65,
+        14
+      ]
+    },
+    "Forest Green": {
+      "hex": "#228B22",
+      "role": "accent",
+      "temperature": "cool",
+      "visual_effect": "중립",
+      "hue": 137.8,
+      "chroma": 67.0,
+      "lightness": 50.6,
+      "hsl_hue": 120.0,
+      "hsl_saturation": 60.7,
+      "hsl_lightness": 33.9,
+      "rgb": [
+        34,
+        139,
+        34
+      ]
+    },
+    "Lavender": {
+      "hex": "#B57EDC",
+      "role": "accent",
+      "temperature": "cool",
+      "visual_effect": "확장",
+      "hue": 313.9,
+      "chroma": 55.5,
+      "lightness": 61.6,
+      "hsl_hue": 275.1,
+      "hsl_saturation": 57.3,
+      "hsl_lightness": 67.8,
+      "rgb": [
+        181,
+        126,
+        220
+      ]
+    },
+    "Light Blue": {
+      "hex": "#ADD8E6",
+      "role": "accent",
+      "temperature": "cool",
+      "visual_effect": "확장",
+      "hue": 226.5,
+      "chroma": 15.8,
+      "lightness": 83.8,
+      "hsl_hue": 194.7,
+      "hsl_saturation": 53.3,
+      "hsl_lightness": 79.0,
+      "rgb": [
+        173,
+        216,
+        230
+      ]
+    },
+    "Blush Pink": {
+      "hex": "#FFB6C1",
+      "role": "accent",
+      "temperature": "warm",
+      "visual_effect": "확장",
+      "hue": 10.2,
+      "chroma": 28.4,
+      "lightness": 81.1,
+      "hsl_hue": 351.0,
+      "hsl_saturation": 100.0,
+      "hsl_lightness": 85.7,
+      "rgb": [
+        255,
+        182,
+        193
+      ]
+    }
+  },
+  "pair_grades": {
+    "Black|White": {
+      "grade": "recommended",
+      "reason": "뉴트럴 조합, 명도차 100",
+      "rule": "R1"
+    },
+    "White|Black": {
+      "grade": "recommended",
+      "reason": "뉴트럴 조합, 명도차 100",
+      "rule": "R1"
+    },
+    "Black|Charcoal": {
+      "grade": "recommended",
+      "reason": "뉴트럴 조합, 명도차 28",
+      "rule": "R1"
+    },
+    "Charcoal|Black": {
+      "grade": "recommended",
+      "reason": "뉴트럴 조합, 명도차 28",
+      "rule": "R1"
+    },
+    "Black|Navy": {
+      "grade": "allowed",
+      "reason": "톤온톤, 명도차 15 — 소재로 차이를 준다",
+      "rule": "R1"
+    },
+    "Navy|Black": {
+      "grade": "allowed",
+      "reason": "톤온톤, 명도차 15 — 소재로 차이를 준다",
+      "rule": "R1"
+    },
+    "Black|Beige": {
+      "grade": "recommended",
+      "reason": "뉴트럴 조합, 명도차 88",
+      "rule": "R1"
+    },
+    "Beige|Black": {
+      "grade": "recommended",
+      "reason": "뉴트럴 조합, 명도차 88",
+      "rule": "R1"
+    },
+    "Black|Olive": {
+      "grade": "recommended",
+      "reason": "뉴트럴 앵커 + 포인트 1색",
+      "rule": "R2"
+    },
+    "Olive|Black": {
+      "grade": "recommended",
+      "reason": "뉴트럴 앵커 + 포인트 1색",
+      "rule": "R2"
+    },
+    "Black|Brown": {
+      "grade": "recommended",
+      "reason": "뉴트럴 앵커 + 포인트 1색",
+      "rule": "R2"
+    },
+    "Brown|Black": {
+      "grade": "recommended",
+      "reason": "뉴트럴 앵커 + 포인트 1색",
+      "rule": "R2"
+    },
+    "Black|Burgundy": {
+      "grade": "recommended",
+      "reason": "뉴트럴 앵커 + 포인트 1색",
+      "rule": "R2"
+    },
+    "Burgundy|Black": {
+      "grade": "recommended",
+      "reason": "뉴트럴 앵커 + 포인트 1색",
+      "rule": "R2"
+    },
+    "Black|Mustard": {
+      "grade": "recommended",
+      "reason": "뉴트럴 앵커 + 포인트 1색",
+      "rule": "R2"
+    },
+    "Mustard|Black": {
+      "grade": "recommended",
+      "reason": "뉴트럴 앵커 + 포인트 1색",
+      "rule": "R2"
+    },
+    "Black|Teal": {
+      "grade": "recommended",
+      "reason": "뉴트럴 앵커 + 포인트 1색",
+      "rule": "R2"
+    },
+    "Teal|Black": {
+      "grade": "recommended",
+      "reason": "뉴트럴 앵커 + 포인트 1색",
+      "rule": "R2"
+    },
+    "Black|Gray": {
+      "grade": "recommended",
+      "reason": "뉴트럴 조합, 명도차 54",
+      "rule": "R1"
+    },
+    "Gray|Black": {
+      "grade": "recommended",
+      "reason": "뉴트럴 조합, 명도차 54",
+      "rule": "R1"
+    },
+    "Black|Cream": {
+      "grade": "recommended",
+      "reason": "뉴트럴 조합, 명도차 92",
+      "rule": "R1"
+    },
+    "Cream|Black": {
+      "grade": "recommended",
+      "reason": "뉴트럴 조합, 명도차 92",
+      "rule": "R1"
+    },
+    "Black|Rust": {
+      "grade": "recommended",
+      "reason": "뉴트럴 앵커 + 포인트 1색",
+      "rule": "R2"
+    },
+    "Rust|Black": {
+      "grade": "recommended",
+      "reason": "뉴트럴 앵커 + 포인트 1색",
+      "rule": "R2"
+    },
+    "Black|Forest Green": {
+      "grade": "recommended",
+      "reason": "뉴트럴 앵커 + 포인트 1색",
+      "rule": "R2"
+    },
+    "Forest Green|Black": {
+      "grade": "recommended",
+      "reason": "뉴트럴 앵커 + 포인트 1색",
+      "rule": "R2"
+    },
+    "Black|Lavender": {
+      "grade": "recommended",
+      "reason": "뉴트럴 앵커 + 포인트 1색",
+      "rule": "R2"
+    },
+    "Lavender|Black": {
+      "grade": "recommended",
+      "reason": "뉴트럴 앵커 + 포인트 1색",
+      "rule": "R2"
+    },
+    "Black|Light Blue": {
+      "grade": "recommended",
+      "reason": "뉴트럴 앵커 + 포인트 1색",
+      "rule": "R2"
+    },
+    "Light Blue|Black": {
+      "grade": "recommended",
+      "reason": "뉴트럴 앵커 + 포인트 1색",
+      "rule": "R2"
+    },
+    "Black|Blush Pink": {
+      "grade": "recommended",
+      "reason": "뉴트럴 앵커 + 포인트 1색",
+      "rule": "R2"
+    },
+    "Blush Pink|Black": {
+      "grade": "recommended",
+      "reason": "뉴트럴 앵커 + 포인트 1색",
+      "rule": "R2"
+    },
+    "White|Charcoal": {
+      "grade": "recommended",
+      "reason": "뉴트럴 조합, 명도차 72",
+      "rule": "R1"
+    },
+    "Charcoal|White": {
+      "grade": "recommended",
+      "reason": "뉴트럴 조합, 명도차 72",
+      "rule": "R1"
+    },
+    "White|Navy": {
+      "grade": "recommended",
+      "reason": "뉴트럴 조합, 명도차 85",
+      "rule": "R1"
+    },
+    "Navy|White": {
+      "grade": "recommended",
+      "reason": "뉴트럴 조합, 명도차 85",
+      "rule": "R1"
+    },
+    "White|Beige": {
+      "grade": "allowed",
+      "reason": "톤온톤, 명도차 12 — 소재로 차이를 준다",
+      "rule": "R1"
+    },
+    "Beige|White": {
+      "grade": "allowed",
+      "reason": "톤온톤, 명도차 12 — 소재로 차이를 준다",
+      "rule": "R1"
+    },
+    "White|Olive": {
+      "grade": "recommended",
+      "reason": "뉴트럴 앵커 + 포인트 1색",
+      "rule": "R2"
+    },
+    "Olive|White": {
+      "grade": "recommended",
+      "reason": "뉴트럴 앵커 + 포인트 1색",
+      "rule": "R2"
+    },
+    "White|Brown": {
+      "grade": "recommended",
+      "reason": "뉴트럴 앵커 + 포인트 1색",
+      "rule": "R2"
+    },
+    "Brown|White": {
+      "grade": "recommended",
+      "reason": "뉴트럴 앵커 + 포인트 1색",
+      "rule": "R2"
+    },
+    "White|Burgundy": {
+      "grade": "recommended",
+      "reason": "뉴트럴 앵커 + 포인트 1색",
+      "rule": "R2"
+    },
+    "Burgundy|White": {
+      "grade": "recommended",
+      "reason": "뉴트럴 앵커 + 포인트 1색",
+      "rule": "R2"
+    },
+    "White|Mustard": {
+      "grade": "recommended",
+      "reason": "뉴트럴 앵커 + 포인트 1색",
+      "rule": "R2"
+    },
+    "Mustard|White": {
+      "grade": "recommended",
+      "reason": "뉴트럴 앵커 + 포인트 1색",
+      "rule": "R2"
+    },
+    "White|Teal": {
+      "grade": "recommended",
+      "reason": "뉴트럴 앵커 + 포인트 1색",
+      "rule": "R2"
+    },
+    "Teal|White": {
+      "grade": "recommended",
+      "reason": "뉴트럴 앵커 + 포인트 1색",
+      "rule": "R2"
+    },
+    "White|Gray": {
+      "grade": "recommended",
+      "reason": "뉴트럴 조합, 명도차 46",
+      "rule": "R1"
+    },
+    "Gray|White": {
+      "grade": "recommended",
+      "reason": "뉴트럴 조합, 명도차 46",
+      "rule": "R1"
+    },
+    "White|Cream": {
+      "grade": "allowed",
+      "reason": "톤온톤, 명도차 8 — 소재로 차이를 준다",
+      "rule": "R1"
+    },
+    "Cream|White": {
+      "grade": "allowed",
+      "reason": "톤온톤, 명도차 8 — 소재로 차이를 준다",
+      "rule": "R1"
+    },
+    "White|Rust": {
+      "grade": "recommended",
+      "reason": "뉴트럴 앵커 + 포인트 1색",
+      "rule": "R2"
+    },
+    "Rust|White": {
+      "grade": "recommended",
+      "reason": "뉴트럴 앵커 + 포인트 1색",
+      "rule": "R2"
+    },
+    "White|Forest Green": {
+      "grade": "recommended",
+      "reason": "뉴트럴 앵커 + 포인트 1색",
+      "rule": "R2"
+    },
+    "Forest Green|White": {
+      "grade": "recommended",
+      "reason": "뉴트럴 앵커 + 포인트 1색",
+      "rule": "R2"
+    },
+    "White|Lavender": {
+      "grade": "recommended",
+      "reason": "뉴트럴 앵커 + 포인트 1색",
+      "rule": "R2"
+    },
+    "Lavender|White": {
+      "grade": "recommended",
+      "reason": "뉴트럴 앵커 + 포인트 1색",
+      "rule": "R2"
+    },
+    "White|Light Blue": {
+      "grade": "recommended",
+      "reason": "뉴트럴 앵커 + 포인트 1색",
+      "rule": "R2"
+    },
+    "Light Blue|White": {
+      "grade": "recommended",
+      "reason": "뉴트럴 앵커 + 포인트 1색",
+      "rule": "R2"
+    },
+    "White|Blush Pink": {
+      "grade": "recommended",
+      "reason": "뉴트럴 앵커 + 포인트 1색",
+      "rule": "R2"
+    },
+    "Blush Pink|White": {
+      "grade": "recommended",
+      "reason": "뉴트럴 앵커 + 포인트 1색",
+      "rule": "R2"
+    },
+    "Charcoal|Navy": {
+      "grade": "allowed",
+      "reason": "톤온톤, 명도차 13 — 소재로 차이를 준다",
+      "rule": "R1"
+    },
+    "Navy|Charcoal": {
+      "grade": "allowed",
+      "reason": "톤온톤, 명도차 13 — 소재로 차이를 준다",
+      "rule": "R1"
+    },
+    "Charcoal|Beige": {
+      "grade": "recommended",
+      "reason": "뉴트럴 조합, 명도차 60",
+      "rule": "R1"
+    },
+    "Beige|Charcoal": {
+      "grade": "recommended",
+      "reason": "뉴트럴 조합, 명도차 60",
+      "rule": "R1"
+    },
+    "Charcoal|Olive": {
+      "grade": "recommended",
+      "reason": "뉴트럴 앵커 + 포인트 1색",
+      "rule": "R2"
+    },
+    "Olive|Charcoal": {
+      "grade": "recommended",
+      "reason": "뉴트럴 앵커 + 포인트 1색",
+      "rule": "R2"
+    },
+    "Charcoal|Brown": {
+      "grade": "recommended",
+      "reason": "뉴트럴 앵커 + 포인트 1색",
+      "rule": "R2"
+    },
+    "Brown|Charcoal": {
+      "grade": "recommended",
+      "reason": "뉴트럴 앵커 + 포인트 1색",
+      "rule": "R2"
+    },
+    "Charcoal|Burgundy": {
+      "grade": "recommended",
+      "reason": "뉴트럴 앵커 + 포인트 1색",
+      "rule": "R2"
+    },
+    "Burgundy|Charcoal": {
+      "grade": "recommended",
+      "reason": "뉴트럴 앵커 + 포인트 1색",
+      "rule": "R2"
+    },
+    "Charcoal|Mustard": {
+      "grade": "recommended",
+      "reason": "뉴트럴 앵커 + 포인트 1색",
+      "rule": "R2"
+    },
+    "Mustard|Charcoal": {
+      "grade": "recommended",
+      "reason": "뉴트럴 앵커 + 포인트 1색",
+      "rule": "R2"
+    },
+    "Charcoal|Teal": {
+      "grade": "recommended",
+      "reason": "뉴트럴 앵커 + 포인트 1색",
+      "rule": "R2"
+    },
+    "Teal|Charcoal": {
+      "grade": "recommended",
+      "reason": "뉴트럴 앵커 + 포인트 1색",
+      "rule": "R2"
+    },
+    "Charcoal|Gray": {
+      "grade": "recommended",
+      "reason": "뉴트럴 조합, 명도차 25",
+      "rule": "R1"
+    },
+    "Gray|Charcoal": {
+      "grade": "recommended",
+      "reason": "뉴트럴 조합, 명도차 25",
+      "rule": "R1"
+    },
+    "Charcoal|Cream": {
+      "grade": "recommended",
+      "reason": "뉴트럴 조합, 명도차 63",
+      "rule": "R1"
+    },
+    "Cream|Charcoal": {
+      "grade": "recommended",
+      "reason": "뉴트럴 조합, 명도차 63",
+      "rule": "R1"
+    },
+    "Charcoal|Rust": {
+      "grade": "recommended",
+      "reason": "뉴트럴 앵커 + 포인트 1색",
+      "rule": "R2"
+    },
+    "Rust|Charcoal": {
+      "grade": "recommended",
+      "reason": "뉴트럴 앵커 + 포인트 1색",
+      "rule": "R2"
+    },
+    "Charcoal|Forest Green": {
+      "grade": "recommended",
+      "reason": "뉴트럴 앵커 + 포인트 1색",
+      "rule": "R2"
+    },
+    "Forest Green|Charcoal": {
+      "grade": "recommended",
+      "reason": "뉴트럴 앵커 + 포인트 1색",
+      "rule": "R2"
+    },
+    "Charcoal|Lavender": {
+      "grade": "recommended",
+      "reason": "뉴트럴 앵커 + 포인트 1색",
+      "rule": "R2"
+    },
+    "Lavender|Charcoal": {
+      "grade": "recommended",
+      "reason": "뉴트럴 앵커 + 포인트 1색",
+      "rule": "R2"
+    },
+    "Charcoal|Light Blue": {
+      "grade": "recommended",
+      "reason": "뉴트럴 앵커 + 포인트 1색",
+      "rule": "R2"
+    },
+    "Light Blue|Charcoal": {
+      "grade": "recommended",
+      "reason": "뉴트럴 앵커 + 포인트 1색",
+      "rule": "R2"
+    },
+    "Charcoal|Blush Pink": {
+      "grade": "recommended",
+      "reason": "뉴트럴 앵커 + 포인트 1색",
+      "rule": "R2"
+    },
+    "Blush Pink|Charcoal": {
+      "grade": "recommended",
+      "reason": "뉴트럴 앵커 + 포인트 1색",
+      "rule": "R2"
+    },
+    "Navy|Beige": {
+      "grade": "recommended",
+      "reason": "뉴트럴 조합, 명도차 73",
+      "rule": "R1"
+    },
+    "Beige|Navy": {
+      "grade": "recommended",
+      "reason": "뉴트럴 조합, 명도차 73",
+      "rule": "R1"
+    },
+    "Navy|Olive": {
+      "grade": "recommended",
+      "reason": "뉴트럴 앵커 + 포인트 1색",
+      "rule": "R2"
+    },
+    "Olive|Navy": {
+      "grade": "recommended",
+      "reason": "뉴트럴 앵커 + 포인트 1색",
+      "rule": "R2"
+    },
+    "Navy|Brown": {
+      "grade": "recommended",
+      "reason": "뉴트럴 앵커 + 포인트 1색",
+      "rule": "R2"
+    },
+    "Brown|Navy": {
+      "grade": "recommended",
+      "reason": "뉴트럴 앵커 + 포인트 1색",
+      "rule": "R2"
+    },
+    "Navy|Burgundy": {
+      "grade": "recommended",
+      "reason": "뉴트럴 앵커 + 포인트 1색",
+      "rule": "R2"
+    },
+    "Burgundy|Navy": {
+      "grade": "recommended",
+      "reason": "뉴트럴 앵커 + 포인트 1색",
+      "rule": "R2"
+    },
+    "Navy|Mustard": {
+      "grade": "recommended",
+      "reason": "뉴트럴 앵커 + 포인트 1색",
+      "rule": "R2"
+    },
+    "Mustard|Navy": {
+      "grade": "recommended",
+      "reason": "뉴트럴 앵커 + 포인트 1색",
+      "rule": "R2"
+    },
+    "Navy|Teal": {
+      "grade": "recommended",
+      "reason": "뉴트럴 앵커 + 포인트 1색",
+      "rule": "R2"
+    },
+    "Teal|Navy": {
+      "grade": "recommended",
+      "reason": "뉴트럴 앵커 + 포인트 1색",
+      "rule": "R2"
+    },
+    "Navy|Gray": {
+      "grade": "recommended",
+      "reason": "뉴트럴 조합, 명도차 39",
+      "rule": "R1"
+    },
+    "Gray|Navy": {
+      "grade": "recommended",
+      "reason": "뉴트럴 조합, 명도차 39",
+      "rule": "R1"
+    },
+    "Navy|Cream": {
+      "grade": "recommended",
+      "reason": "뉴트럴 조합, 명도차 77",
+      "rule": "R1"
+    },
+    "Cream|Navy": {
+      "grade": "recommended",
+      "reason": "뉴트럴 조합, 명도차 77",
+      "rule": "R1"
+    },
+    "Navy|Rust": {
+      "grade": "recommended",
+      "reason": "뉴트럴 앵커 + 포인트 1색",
+      "rule": "R2"
+    },
+    "Rust|Navy": {
+      "grade": "recommended",
+      "reason": "뉴트럴 앵커 + 포인트 1색",
+      "rule": "R2"
+    },
+    "Navy|Forest Green": {
+      "grade": "recommended",
+      "reason": "뉴트럴 앵커 + 포인트 1색",
+      "rule": "R2"
+    },
+    "Forest Green|Navy": {
+      "grade": "recommended",
+      "reason": "뉴트럴 앵커 + 포인트 1색",
+      "rule": "R2"
+    },
+    "Navy|Lavender": {
+      "grade": "recommended",
+      "reason": "뉴트럴 앵커 + 포인트 1색",
+      "rule": "R2"
+    },
+    "Lavender|Navy": {
+      "grade": "recommended",
+      "reason": "뉴트럴 앵커 + 포인트 1색",
+      "rule": "R2"
+    },
+    "Navy|Light Blue": {
+      "grade": "recommended",
+      "reason": "뉴트럴 앵커 + 포인트 1색",
+      "rule": "R2"
+    },
+    "Light Blue|Navy": {
+      "grade": "recommended",
+      "reason": "뉴트럴 앵커 + 포인트 1색",
+      "rule": "R2"
+    },
+    "Navy|Blush Pink": {
+      "grade": "recommended",
+      "reason": "뉴트럴 앵커 + 포인트 1색",
+      "rule": "R2"
+    },
+    "Blush Pink|Navy": {
+      "grade": "recommended",
+      "reason": "뉴트럴 앵커 + 포인트 1색",
+      "rule": "R2"
+    },
+    "Beige|Olive": {
+      "grade": "recommended",
+      "reason": "뉴트럴 앵커 + 포인트 1색",
+      "rule": "R2"
+    },
+    "Olive|Beige": {
+      "grade": "recommended",
+      "reason": "뉴트럴 앵커 + 포인트 1색",
+      "rule": "R2"
+    },
+    "Beige|Brown": {
+      "grade": "recommended",
+      "reason": "뉴트럴 앵커 + 포인트 1색",
+      "rule": "R2"
+    },
+    "Brown|Beige": {
+      "grade": "recommended",
+      "reason": "뉴트럴 앵커 + 포인트 1색",
+      "rule": "R2"
+    },
+    "Beige|Burgundy": {
+      "grade": "recommended",
+      "reason": "뉴트럴 앵커 + 포인트 1색",
+      "rule": "R2"
+    },
+    "Burgundy|Beige": {
+      "grade": "recommended",
+      "reason": "뉴트럴 앵커 + 포인트 1색",
+      "rule": "R2"
+    },
+    "Beige|Mustard": {
+      "grade": "recommended",
+      "reason": "뉴트럴 앵커 + 포인트 1색",
+      "rule": "R2"
+    },
+    "Mustard|Beige": {
+      "grade": "recommended",
+      "reason": "뉴트럴 앵커 + 포인트 1색",
+      "rule": "R2"
+    },
+    "Beige|Teal": {
+      "grade": "recommended",
+      "reason": "뉴트럴 앵커 + 포인트 1색",
+      "rule": "R2"
+    },
+    "Teal|Beige": {
+      "grade": "recommended",
+      "reason": "뉴트럴 앵커 + 포인트 1색",
+      "rule": "R2"
+    },
+    "Beige|Gray": {
+      "grade": "recommended",
+      "reason": "뉴트럴 조합, 명도차 34",
+      "rule": "R1"
+    },
+    "Gray|Beige": {
+      "grade": "recommended",
+      "reason": "뉴트럴 조합, 명도차 34",
+      "rule": "R1"
+    },
+    "Beige|Cream": {
+      "grade": "allowed",
+      "reason": "톤온톤, 명도차 4 — 소재로 차이를 준다",
+      "rule": "R1"
+    },
+    "Cream|Beige": {
+      "grade": "allowed",
+      "reason": "톤온톤, 명도차 4 — 소재로 차이를 준다",
+      "rule": "R1"
+    },
+    "Beige|Rust": {
+      "grade": "recommended",
+      "reason": "뉴트럴 앵커 + 포인트 1색",
+      "rule": "R2"
+    },
+    "Rust|Beige": {
+      "grade": "recommended",
+      "reason": "뉴트럴 앵커 + 포인트 1색",
+      "rule": "R2"
+    },
+    "Beige|Forest Green": {
+      "grade": "recommended",
+      "reason": "뉴트럴 앵커 + 포인트 1색",
+      "rule": "R2"
+    },
+    "Forest Green|Beige": {
+      "grade": "recommended",
+      "reason": "뉴트럴 앵커 + 포인트 1색",
+      "rule": "R2"
+    },
+    "Beige|Lavender": {
+      "grade": "recommended",
+      "reason": "뉴트럴 앵커 + 포인트 1색",
+      "rule": "R2"
+    },
+    "Lavender|Beige": {
+      "grade": "recommended",
+      "reason": "뉴트럴 앵커 + 포인트 1색",
+      "rule": "R2"
+    },
+    "Beige|Light Blue": {
+      "grade": "recommended",
+      "reason": "뉴트럴 앵커 + 포인트 1색",
+      "rule": "R2"
+    },
+    "Light Blue|Beige": {
+      "grade": "recommended",
+      "reason": "뉴트럴 앵커 + 포인트 1색",
+      "rule": "R2"
+    },
+    "Beige|Blush Pink": {
+      "grade": "recommended",
+      "reason": "뉴트럴 앵커 + 포인트 1색",
+      "rule": "R2"
+    },
+    "Blush Pink|Beige": {
+      "grade": "recommended",
+      "reason": "뉴트럴 앵커 + 포인트 1색",
+      "rule": "R2"
+    },
+    "Olive|Brown": {
+      "grade": "recommended",
+      "reason": "색상차 43°, 명도차 10",
+      "rule": "R2"
+    },
+    "Brown|Olive": {
+      "grade": "recommended",
+      "reason": "색상차 43°, 명도차 10",
+      "rule": "R2"
+    },
+    "Olive|Burgundy": {
+      "grade": "recommended",
+      "reason": "색상차 83°, 명도차 18",
+      "rule": "R2"
+    },
+    "Burgundy|Olive": {
+      "grade": "recommended",
+      "reason": "색상차 83°, 명도차 18",
+      "rule": "R2"
+    },
+    "Olive|Mustard": {
+      "grade": "recommended",
+      "reason": "색상차 24°, 명도차 25",
+      "rule": "R2"
+    },
+    "Mustard|Olive": {
+      "grade": "recommended",
+      "reason": "색상차 24°, 명도차 25",
+      "rule": "R2"
+    },
+    "Olive|Teal": {
+      "grade": "recommended",
+      "reason": "색상차 90°, 명도차 4",
+      "rule": "R2"
+    },
+    "Teal|Olive": {
+      "grade": "recommended",
+      "reason": "색상차 90°, 명도차 4",
+      "rule": "R2"
+    },
+    "Olive|Gray": {
+      "grade": "recommended",
+      "reason": "뉴트럴 앵커 + 포인트 1색",
+      "rule": "R2"
+    },
+    "Gray|Olive": {
+      "grade": "recommended",
+      "reason": "뉴트럴 앵커 + 포인트 1색",
+      "rule": "R2"
+    },
+    "Olive|Cream": {
+      "grade": "recommended",
+      "reason": "뉴트럴 앵커 + 포인트 1색",
+      "rule": "R2"
+    },
+    "Cream|Olive": {
+      "grade": "recommended",
+      "reason": "뉴트럴 앵커 + 포인트 1색",
+      "rule": "R2"
+    },
+    "Olive|Rust": {
+      "grade": "recommended",
+      "reason": "색상차 59°, 명도차 0",
+      "rule": "R2"
+    },
+    "Rust|Olive": {
+      "grade": "recommended",
+      "reason": "색상차 59°, 명도차 0",
+      "rule": "R2"
+    },
+    "Olive|Forest Green": {
+      "grade": "caution",
+      "reason": "유사색인데 명도까지 붙어 뭉개짐(색상차 31°)",
+      "rule": "R4"
+    },
+    "Forest Green|Olive": {
+      "grade": "caution",
+      "reason": "유사색인데 명도까지 붙어 뭉개짐(색상차 31°)",
+      "rule": "R4"
+    },
+    "Olive|Lavender": {
+      "grade": "recommended",
+      "reason": "색상차 153°, 명도차 17",
+      "rule": "R2"
+    },
+    "Lavender|Olive": {
+      "grade": "recommended",
+      "reason": "색상차 153°, 명도차 17",
+      "rule": "R2"
+    },
+    "Olive|Light Blue": {
+      "grade": "recommended",
+      "reason": "색상차 120°, 명도차 40",
+      "rule": "R2"
+    },
+    "Light Blue|Olive": {
+      "grade": "recommended",
+      "reason": "색상차 120°, 명도차 40",
+      "rule": "R2"
+    },
+    "Olive|Blush Pink": {
+      "grade": "recommended",
+      "reason": "색상차 97°, 명도차 37",
+      "rule": "R2"
+    },
+    "Blush Pink|Olive": {
+      "grade": "recommended",
+      "reason": "색상차 97°, 명도차 37",
+      "rule": "R2"
+    },
+    "Brown|Burgundy": {
+      "grade": "recommended",
+      "reason": "색상차 40°, 명도차 9",
+      "rule": "R2"
+    },
+    "Burgundy|Brown": {
+      "grade": "recommended",
+      "reason": "색상차 40°, 명도차 9",
+      "rule": "R2"
+    },
+    "Brown|Mustard": {
+      "grade": "recommended",
+      "reason": "색상차 19°, 명도차 34",
+      "rule": "R2"
+    },
+    "Mustard|Brown": {
+      "grade": "recommended",
+      "reason": "색상차 19°, 명도차 34",
+      "rule": "R2"
+    },
+    "Brown|Teal": {
+      "grade": "recommended",
+      "reason": "색상차 133°, 명도차 14",
+      "rule": "R2"
+    },
+    "Teal|Brown": {
+      "grade": "recommended",
+      "reason": "색상차 133°, 명도차 14",
+      "rule": "R2"
+    },
+    "Brown|Gray": {
+      "grade": "recommended",
+      "reason": "뉴트럴 앵커 + 포인트 1색",
+      "rule": "R2"
+    },
+    "Gray|Brown": {
+      "grade": "recommended",
+      "reason": "뉴트럴 앵커 + 포인트 1색",
+      "rule": "R2"
+    },
+    "Brown|Cream": {
+      "grade": "recommended",
+      "reason": "뉴트럴 앵커 + 포인트 1색",
+      "rule": "R2"
+    },
+    "Cream|Brown": {
+      "grade": "recommended",
+      "reason": "뉴트럴 앵커 + 포인트 1색",
+      "rule": "R2"
+    },
+    "Brown|Rust": {
+      "grade": "caution",
+      "reason": "유사색인데 명도까지 붙어 뭉개짐(색상차 16°)",
+      "rule": "R4"
+    },
+    "Rust|Brown": {
+      "grade": "caution",
+      "reason": "유사색인데 명도까지 붙어 뭉개짐(색상차 16°)",
+      "rule": "R4"
+    },
+    "Brown|Forest Green": {
+      "grade": "recommended",
+      "reason": "색상차 74°, 명도차 16",
+      "rule": "R2"
+    },
+    "Forest Green|Brown": {
+      "grade": "recommended",
+      "reason": "색상차 74°, 명도차 16",
+      "rule": "R2"
+    },
+    "Brown|Lavender": {
+      "grade": "recommended",
+      "reason": "색상차 110°, 명도차 27",
+      "rule": "R2"
+    },
+    "Lavender|Brown": {
+      "grade": "recommended",
+      "reason": "색상차 110°, 명도차 27",
+      "rule": "R2"
+    },
+    "Brown|Light Blue": {
+      "grade": "recommended",
+      "reason": "색상차 163°, 명도차 49",
+      "rule": "R2"
+    },
+    "Light Blue|Brown": {
+      "grade": "recommended",
+      "reason": "색상차 163°, 명도차 49",
+      "rule": "R2"
+    },
+    "Brown|Blush Pink": {
+      "grade": "recommended",
+      "reason": "색상차 54°, 명도차 47",
+      "rule": "R2"
+    },
+    "Blush Pink|Brown": {
+      "grade": "recommended",
+      "reason": "색상차 54°, 명도차 47",
+      "rule": "R2"
+    },
+    "Burgundy|Mustard": {
+      "grade": "recommended",
+      "reason": "색상차 60°, 명도차 43",
+      "rule": "R2"
+    },
+    "Mustard|Burgundy": {
+      "grade": "recommended",
+      "reason": "색상차 60°, 명도차 43",
+      "rule": "R2"
+    },
+    "Burgundy|Teal": {
+      "grade": "caution",
+      "reason": "보색(색상차 173°) — 한쪽을 소면적으로",
+      "rule": "R3"
+    },
+    "Teal|Burgundy": {
+      "grade": "caution",
+      "reason": "보색(색상차 173°) — 한쪽을 소면적으로",
+      "rule": "R3"
+    },
+    "Burgundy|Gray": {
+      "grade": "recommended",
+      "reason": "뉴트럴 앵커 + 포인트 1색",
+      "rule": "R2"
+    },
+    "Gray|Burgundy": {
+      "grade": "recommended",
+      "reason": "뉴트럴 앵커 + 포인트 1색",
+      "rule": "R2"
+    },
+    "Burgundy|Cream": {
+      "grade": "recommended",
+      "reason": "뉴트럴 앵커 + 포인트 1색",
+      "rule": "R2"
+    },
+    "Cream|Burgundy": {
+      "grade": "recommended",
+      "reason": "뉴트럴 앵커 + 포인트 1색",
+      "rule": "R2"
+    },
+    "Burgundy|Rust": {
+      "grade": "recommended",
+      "reason": "고채도 유사색(색상차 25°, 명도차 18)",
+      "rule": "R4"
+    },
+    "Rust|Burgundy": {
+      "grade": "recommended",
+      "reason": "고채도 유사색(색상차 25°, 명도차 18)",
+      "rule": "R4"
+    },
+    "Burgundy|Forest Green": {
+      "grade": "caution",
+      "reason": "웜·쿨 혼합 — 사이에 뉴트럴을 넣어 분리",
+      "rule": "R6"
+    },
+    "Forest Green|Burgundy": {
+      "grade": "caution",
+      "reason": "웜·쿨 혼합 — 사이에 뉴트럴을 넣어 분리",
+      "rule": "R6"
+    },
+    "Burgundy|Lavender": {
+      "grade": "caution",
+      "reason": "웜·쿨 혼합 — 사이에 뉴트럴을 넣어 분리",
+      "rule": "R6"
+    },
+    "Lavender|Burgundy": {
+      "grade": "caution",
+      "reason": "웜·쿨 혼합 — 사이에 뉴트럴을 넣어 분리",
+      "rule": "R6"
+    },
+    "Burgundy|Light Blue": {
+      "grade": "allowed",
+      "reason": "보색이지만 한쪽 채도가 낮아 완충됨(색상차 157°)",
+      "rule": "R5"
+    },
+    "Light Blue|Burgundy": {
+      "grade": "allowed",
+      "reason": "보색이지만 한쪽 채도가 낮아 완충됨(색상차 157°)",
+      "rule": "R5"
+    },
+    "Burgundy|Blush Pink": {
+      "grade": "recommended",
+      "reason": "색상차 13°, 명도차 55",
+      "rule": "R2"
+    },
+    "Blush Pink|Burgundy": {
+      "grade": "recommended",
+      "reason": "색상차 13°, 명도차 55",
+      "rule": "R2"
+    },
+    "Mustard|Teal": {
+      "grade": "caution",
+      "reason": "웜·쿨 혼합 — 사이에 뉴트럴을 넣어 분리",
+      "rule": "R6"
+    },
+    "Teal|Mustard": {
+      "grade": "caution",
+      "reason": "웜·쿨 혼합 — 사이에 뉴트럴을 넣어 분리",
+      "rule": "R6"
+    },
+    "Mustard|Gray": {
+      "grade": "recommended",
+      "reason": "뉴트럴 앵커 + 포인트 1색",
+      "rule": "R2"
+    },
+    "Gray|Mustard": {
+      "grade": "recommended",
+      "reason": "뉴트럴 앵커 + 포인트 1색",
+      "rule": "R2"
+    },
+    "Mustard|Cream": {
+      "grade": "recommended",
+      "reason": "뉴트럴 앵커 + 포인트 1색",
+      "rule": "R2"
+    },
+    "Cream|Mustard": {
+      "grade": "recommended",
+      "reason": "뉴트럴 앵커 + 포인트 1색",
+      "rule": "R2"
+    },
+    "Mustard|Rust": {
+      "grade": "recommended",
+      "reason": "고채도 유사색(색상차 35°, 명도차 25)",
+      "rule": "R4"
+    },
+    "Rust|Mustard": {
+      "grade": "recommended",
+      "reason": "고채도 유사색(색상차 35°, 명도차 25)",
+      "rule": "R4"
+    },
+    "Mustard|Forest Green": {
+      "grade": "caution",
+      "reason": "웜·쿨 혼합 — 사이에 뉴트럴을 넣어 분리",
+      "rule": "R6"
+    },
+    "Forest Green|Mustard": {
+      "grade": "caution",
+      "reason": "웜·쿨 혼합 — 사이에 뉴트럴을 넣어 분리",
+      "rule": "R6"
+    },
+    "Mustard|Lavender": {
+      "grade": "caution",
+      "reason": "웜·쿨 혼합 — 사이에 뉴트럴을 넣어 분리",
+      "rule": "R6"
+    },
+    "Lavender|Mustard": {
+      "grade": "caution",
+      "reason": "웜·쿨 혼합 — 사이에 뉴트럴을 넣어 분리",
+      "rule": "R6"
+    },
+    "Mustard|Light Blue": {
+      "grade": "caution",
+      "reason": "웜·쿨 혼합 — 사이에 뉴트럴을 넣어 분리",
+      "rule": "R6"
+    },
+    "Light Blue|Mustard": {
+      "grade": "caution",
+      "reason": "웜·쿨 혼합 — 사이에 뉴트럴을 넣어 분리",
+      "rule": "R6"
+    },
+    "Mustard|Blush Pink": {
+      "grade": "recommended",
+      "reason": "색상차 73°, 명도차 12",
+      "rule": "R2"
+    },
+    "Blush Pink|Mustard": {
+      "grade": "recommended",
+      "reason": "색상차 73°, 명도차 12",
+      "rule": "R2"
+    },
+    "Teal|Gray": {
+      "grade": "recommended",
+      "reason": "뉴트럴 앵커 + 포인트 1색",
+      "rule": "R2"
+    },
+    "Gray|Teal": {
+      "grade": "recommended",
+      "reason": "뉴트럴 앵커 + 포인트 1색",
+      "rule": "R2"
+    },
+    "Teal|Cream": {
+      "grade": "recommended",
+      "reason": "뉴트럴 앵커 + 포인트 1색",
+      "rule": "R2"
+    },
+    "Cream|Teal": {
+      "grade": "recommended",
+      "reason": "뉴트럴 앵커 + 포인트 1색",
+      "rule": "R2"
+    },
+    "Teal|Rust": {
+      "grade": "caution",
+      "reason": "웜·쿨 혼합 — 사이에 뉴트럴을 넣어 분리",
+      "rule": "R6"
+    },
+    "Rust|Teal": {
+      "grade": "caution",
+      "reason": "웜·쿨 혼합 — 사이에 뉴트럴을 넣어 분리",
+      "rule": "R6"
+    },
+    "Teal|Forest Green": {
+      "grade": "recommended",
+      "reason": "색상차 59°, 명도차 2",
+      "rule": "R2"
+    },
+    "Forest Green|Teal": {
+      "grade": "recommended",
+      "reason": "색상차 59°, 명도차 2",
+      "rule": "R2"
+    },
+    "Teal|Lavender": {
+      "grade": "recommended",
+      "reason": "색상차 117°, 명도차 13",
+      "rule": "R2"
+    },
+    "Lavender|Teal": {
+      "grade": "recommended",
+      "reason": "색상차 117°, 명도차 13",
+      "rule": "R2"
+    },
+    "Teal|Light Blue": {
+      "grade": "recommended",
+      "reason": "색상차 30°, 명도차 36",
+      "rule": "R2"
+    },
+    "Light Blue|Teal": {
+      "grade": "recommended",
+      "reason": "색상차 30°, 명도차 36",
+      "rule": "R2"
+    },
+    "Teal|Blush Pink": {
+      "grade": "caution",
+      "reason": "보색(색상차 174°) — 한쪽을 소면적으로",
+      "rule": "R3"
+    },
+    "Blush Pink|Teal": {
+      "grade": "caution",
+      "reason": "보색(색상차 174°) — 한쪽을 소면적으로",
+      "rule": "R3"
+    },
+    "Gray|Cream": {
+      "grade": "recommended",
+      "reason": "뉴트럴 조합, 명도차 38",
+      "rule": "R1"
+    },
+    "Cream|Gray": {
+      "grade": "recommended",
+      "reason": "뉴트럴 조합, 명도차 38",
+      "rule": "R1"
+    },
+    "Gray|Rust": {
+      "grade": "recommended",
+      "reason": "뉴트럴 앵커 + 포인트 1색",
+      "rule": "R2"
+    },
+    "Rust|Gray": {
+      "grade": "recommended",
+      "reason": "뉴트럴 앵커 + 포인트 1색",
+      "rule": "R2"
+    },
+    "Gray|Forest Green": {
+      "grade": "recommended",
+      "reason": "뉴트럴 앵커 + 포인트 1색",
+      "rule": "R2"
+    },
+    "Forest Green|Gray": {
+      "grade": "recommended",
+      "reason": "뉴트럴 앵커 + 포인트 1색",
+      "rule": "R2"
+    },
+    "Gray|Lavender": {
+      "grade": "recommended",
+      "reason": "뉴트럴 앵커 + 포인트 1색",
+      "rule": "R2"
+    },
+    "Lavender|Gray": {
+      "grade": "recommended",
+      "reason": "뉴트럴 앵커 + 포인트 1색",
+      "rule": "R2"
+    },
+    "Gray|Light Blue": {
+      "grade": "recommended",
+      "reason": "뉴트럴 앵커 + 포인트 1색",
+      "rule": "R2"
+    },
+    "Light Blue|Gray": {
+      "grade": "recommended",
+      "reason": "뉴트럴 앵커 + 포인트 1색",
+      "rule": "R2"
+    },
+    "Gray|Blush Pink": {
+      "grade": "recommended",
+      "reason": "뉴트럴 앵커 + 포인트 1색",
+      "rule": "R2"
+    },
+    "Blush Pink|Gray": {
+      "grade": "recommended",
+      "reason": "뉴트럴 앵커 + 포인트 1색",
+      "rule": "R2"
+    },
+    "Cream|Rust": {
+      "grade": "recommended",
+      "reason": "뉴트럴 앵커 + 포인트 1색",
+      "rule": "R2"
+    },
+    "Rust|Cream": {
+      "grade": "recommended",
+      "reason": "뉴트럴 앵커 + 포인트 1색",
+      "rule": "R2"
+    },
+    "Cream|Forest Green": {
+      "grade": "recommended",
+      "reason": "뉴트럴 앵커 + 포인트 1색",
+      "rule": "R2"
+    },
+    "Forest Green|Cream": {
+      "grade": "recommended",
+      "reason": "뉴트럴 앵커 + 포인트 1색",
+      "rule": "R2"
+    },
+    "Cream|Lavender": {
+      "grade": "recommended",
+      "reason": "뉴트럴 앵커 + 포인트 1색",
+      "rule": "R2"
+    },
+    "Lavender|Cream": {
+      "grade": "recommended",
+      "reason": "뉴트럴 앵커 + 포인트 1색",
+      "rule": "R2"
+    },
+    "Cream|Light Blue": {
+      "grade": "recommended",
+      "reason": "뉴트럴 앵커 + 포인트 1색",
+      "rule": "R2"
+    },
+    "Light Blue|Cream": {
+      "grade": "recommended",
+      "reason": "뉴트럴 앵커 + 포인트 1색",
+      "rule": "R2"
+    },
+    "Cream|Blush Pink": {
+      "grade": "recommended",
+      "reason": "뉴트럴 앵커 + 포인트 1색",
+      "rule": "R2"
+    },
+    "Blush Pink|Cream": {
+      "grade": "recommended",
+      "reason": "뉴트럴 앵커 + 포인트 1색",
+      "rule": "R2"
+    },
+    "Rust|Forest Green": {
+      "grade": "caution",
+      "reason": "웜·쿨 혼합 — 사이에 뉴트럴을 넣어 분리",
+      "rule": "R6"
+    },
+    "Forest Green|Rust": {
+      "grade": "caution",
+      "reason": "웜·쿨 혼합 — 사이에 뉴트럴을 넣어 분리",
+      "rule": "R6"
+    },
+    "Rust|Lavender": {
+      "grade": "caution",
+      "reason": "웜·쿨 혼합 — 사이에 뉴트럴을 넣어 분리",
+      "rule": "R6"
+    },
+    "Lavender|Rust": {
+      "grade": "caution",
+      "reason": "웜·쿨 혼합 — 사이에 뉴트럴을 넣어 분리",
+      "rule": "R6"
+    },
+    "Rust|Light Blue": {
+      "grade": "allowed",
+      "reason": "보색이지만 한쪽 채도가 낮아 완충됨(색상차 178°)",
+      "rule": "R5"
+    },
+    "Light Blue|Rust": {
+      "grade": "allowed",
+      "reason": "보색이지만 한쪽 채도가 낮아 완충됨(색상차 178°)",
+      "rule": "R5"
+    },
+    "Rust|Blush Pink": {
+      "grade": "recommended",
+      "reason": "색상차 38°, 명도차 37",
+      "rule": "R2"
+    },
+    "Blush Pink|Rust": {
+      "grade": "recommended",
+      "reason": "색상차 38°, 명도차 37",
+      "rule": "R2"
+    },
+    "Forest Green|Lavender": {
+      "grade": "avoid",
+      "reason": "고채도 보색(색상차 176°) — 대면적 동시 사용 금지",
+      "rule": "R3"
+    },
+    "Lavender|Forest Green": {
+      "grade": "avoid",
+      "reason": "고채도 보색(색상차 176°) — 대면적 동시 사용 금지",
+      "rule": "R3"
+    },
+    "Forest Green|Light Blue": {
+      "grade": "recommended",
+      "reason": "색상차 89°, 명도차 33",
+      "rule": "R2"
+    },
+    "Light Blue|Forest Green": {
+      "grade": "recommended",
+      "reason": "색상차 89°, 명도차 33",
+      "rule": "R2"
+    },
+    "Forest Green|Blush Pink": {
+      "grade": "caution",
+      "reason": "웜·쿨 혼합 — 사이에 뉴트럴을 넣어 분리",
+      "rule": "R6"
+    },
+    "Blush Pink|Forest Green": {
+      "grade": "caution",
+      "reason": "웜·쿨 혼합 — 사이에 뉴트럴을 넣어 분리",
+      "rule": "R6"
+    },
+    "Lavender|Light Blue": {
+      "grade": "recommended",
+      "reason": "색상차 87°, 명도차 22",
+      "rule": "R2"
+    },
+    "Light Blue|Lavender": {
+      "grade": "recommended",
+      "reason": "색상차 87°, 명도차 22",
+      "rule": "R2"
+    },
+    "Lavender|Blush Pink": {
+      "grade": "caution",
+      "reason": "웜·쿨 혼합 — 사이에 뉴트럴을 넣어 분리",
+      "rule": "R6"
+    },
+    "Blush Pink|Lavender": {
+      "grade": "caution",
+      "reason": "웜·쿨 혼합 — 사이에 뉴트럴을 넣어 분리",
+      "rule": "R6"
+    },
+    "Light Blue|Blush Pink": {
+      "grade": "caution",
+      "reason": "웜·쿨 혼합 — 사이에 뉴트럴을 넣어 분리",
+      "rule": "R6"
+    },
+    "Blush Pink|Light Blue": {
+      "grade": "caution",
+      "reason": "웜·쿨 혼합 — 사이에 뉴트럴을 넣어 분리",
+      "rule": "R6"
+    }
+  },
+  "matrix": {
+    "Black": {
+      "Black": {
+        "grade": "na",
+        "reason": "동일 색상 (모노톤)",
+        "rule": "—"
+      },
+      "White": {
+        "grade": "recommended",
+        "reason": "뉴트럴 조합, 명도차 100",
+        "rule": "R1"
+      },
+      "Charcoal": {
+        "grade": "recommended",
+        "reason": "뉴트럴 조합, 명도차 28",
+        "rule": "R1"
+      },
+      "Navy": {
+        "grade": "allowed",
+        "reason": "톤온톤, 명도차 15 — 소재로 차이를 준다",
+        "rule": "R1"
+      },
+      "Beige": {
+        "grade": "recommended",
+        "reason": "뉴트럴 조합, 명도차 88",
+        "rule": "R1"
+      },
+      "Olive": {
+        "grade": "recommended",
+        "reason": "뉴트럴 앵커 + 포인트 1색",
+        "rule": "R2"
+      },
+      "Brown": {
+        "grade": "recommended",
+        "reason": "뉴트럴 앵커 + 포인트 1색",
+        "rule": "R2"
+      },
+      "Burgundy": {
+        "grade": "recommended",
+        "reason": "뉴트럴 앵커 + 포인트 1색",
+        "rule": "R2"
+      },
+      "Mustard": {
+        "grade": "recommended",
+        "reason": "뉴트럴 앵커 + 포인트 1색",
+        "rule": "R2"
+      },
+      "Teal": {
+        "grade": "recommended",
+        "reason": "뉴트럴 앵커 + 포인트 1색",
+        "rule": "R2"
+      },
+      "Gray": {
+        "grade": "recommended",
+        "reason": "뉴트럴 조합, 명도차 54",
+        "rule": "R1"
+      },
+      "Cream": {
+        "grade": "recommended",
+        "reason": "뉴트럴 조합, 명도차 92",
+        "rule": "R1"
+      },
+      "Rust": {
+        "grade": "recommended",
+        "reason": "뉴트럴 앵커 + 포인트 1색",
+        "rule": "R2"
+      },
+      "Forest Green": {
+        "grade": "recommended",
+        "reason": "뉴트럴 앵커 + 포인트 1색",
+        "rule": "R2"
+      },
+      "Lavender": {
+        "grade": "recommended",
+        "reason": "뉴트럴 앵커 + 포인트 1색",
+        "rule": "R2"
+      },
+      "Light Blue": {
+        "grade": "recommended",
+        "reason": "뉴트럴 앵커 + 포인트 1색",
+        "rule": "R2"
+      },
+      "Blush Pink": {
+        "grade": "recommended",
+        "reason": "뉴트럴 앵커 + 포인트 1색",
+        "rule": "R2"
+      }
+    },
+    "White": {
+      "Black": {
+        "grade": "recommended",
+        "reason": "뉴트럴 조합, 명도차 100",
+        "rule": "R1"
+      },
+      "White": {
+        "grade": "na",
+        "reason": "동일 색상 (모노톤)",
+        "rule": "—"
+      },
+      "Charcoal": {
+        "grade": "recommended",
+        "reason": "뉴트럴 조합, 명도차 72",
+        "rule": "R1"
+      },
+      "Navy": {
+        "grade": "recommended",
+        "reason": "뉴트럴 조합, 명도차 85",
+        "rule": "R1"
+      },
+      "Beige": {
+        "grade": "allowed",
+        "reason": "톤온톤, 명도차 12 — 소재로 차이를 준다",
+        "rule": "R1"
+      },
+      "Olive": {
+        "grade": "recommended",
+        "reason": "뉴트럴 앵커 + 포인트 1색",
+        "rule": "R2"
+      },
+      "Brown": {
+        "grade": "recommended",
+        "reason": "뉴트럴 앵커 + 포인트 1색",
+        "rule": "R2"
+      },
+      "Burgundy": {
+        "grade": "recommended",
+        "reason": "뉴트럴 앵커 + 포인트 1색",
+        "rule": "R2"
+      },
+      "Mustard": {
+        "grade": "recommended",
+        "reason": "뉴트럴 앵커 + 포인트 1색",
+        "rule": "R2"
+      },
+      "Teal": {
+        "grade": "recommended",
+        "reason": "뉴트럴 앵커 + 포인트 1색",
+        "rule": "R2"
+      },
+      "Gray": {
+        "grade": "recommended",
+        "reason": "뉴트럴 조합, 명도차 46",
+        "rule": "R1"
+      },
+      "Cream": {
+        "grade": "allowed",
+        "reason": "톤온톤, 명도차 8 — 소재로 차이를 준다",
+        "rule": "R1"
+      },
+      "Rust": {
+        "grade": "recommended",
+        "reason": "뉴트럴 앵커 + 포인트 1색",
+        "rule": "R2"
+      },
+      "Forest Green": {
+        "grade": "recommended",
+        "reason": "뉴트럴 앵커 + 포인트 1색",
+        "rule": "R2"
+      },
+      "Lavender": {
+        "grade": "recommended",
+        "reason": "뉴트럴 앵커 + 포인트 1색",
+        "rule": "R2"
+      },
+      "Light Blue": {
+        "grade": "recommended",
+        "reason": "뉴트럴 앵커 + 포인트 1색",
+        "rule": "R2"
+      },
+      "Blush Pink": {
+        "grade": "recommended",
+        "reason": "뉴트럴 앵커 + 포인트 1색",
+        "rule": "R2"
+      }
+    },
+    "Charcoal": {
+      "Black": {
+        "grade": "recommended",
+        "reason": "뉴트럴 조합, 명도차 28",
+        "rule": "R1"
+      },
+      "White": {
+        "grade": "recommended",
+        "reason": "뉴트럴 조합, 명도차 72",
+        "rule": "R1"
+      },
+      "Charcoal": {
+        "grade": "na",
+        "reason": "동일 색상 (모노톤)",
+        "rule": "—"
+      },
+      "Navy": {
+        "grade": "allowed",
+        "reason": "톤온톤, 명도차 13 — 소재로 차이를 준다",
+        "rule": "R1"
+      },
+      "Beige": {
+        "grade": "recommended",
+        "reason": "뉴트럴 조합, 명도차 60",
+        "rule": "R1"
+      },
+      "Olive": {
+        "grade": "recommended",
+        "reason": "뉴트럴 앵커 + 포인트 1색",
+        "rule": "R2"
+      },
+      "Brown": {
+        "grade": "recommended",
+        "reason": "뉴트럴 앵커 + 포인트 1색",
+        "rule": "R2"
+      },
+      "Burgundy": {
+        "grade": "recommended",
+        "reason": "뉴트럴 앵커 + 포인트 1색",
+        "rule": "R2"
+      },
+      "Mustard": {
+        "grade": "recommended",
+        "reason": "뉴트럴 앵커 + 포인트 1색",
+        "rule": "R2"
+      },
+      "Teal": {
+        "grade": "recommended",
+        "reason": "뉴트럴 앵커 + 포인트 1색",
+        "rule": "R2"
+      },
+      "Gray": {
+        "grade": "recommended",
+        "reason": "뉴트럴 조합, 명도차 25",
+        "rule": "R1"
+      },
+      "Cream": {
+        "grade": "recommended",
+        "reason": "뉴트럴 조합, 명도차 63",
+        "rule": "R1"
+      },
+      "Rust": {
+        "grade": "recommended",
+        "reason": "뉴트럴 앵커 + 포인트 1색",
+        "rule": "R2"
+      },
+      "Forest Green": {
+        "grade": "recommended",
+        "reason": "뉴트럴 앵커 + 포인트 1색",
+        "rule": "R2"
+      },
+      "Lavender": {
+        "grade": "recommended",
+        "reason": "뉴트럴 앵커 + 포인트 1색",
+        "rule": "R2"
+      },
+      "Light Blue": {
+        "grade": "recommended",
+        "reason": "뉴트럴 앵커 + 포인트 1색",
+        "rule": "R2"
+      },
+      "Blush Pink": {
+        "grade": "recommended",
+        "reason": "뉴트럴 앵커 + 포인트 1색",
+        "rule": "R2"
+      }
+    },
+    "Navy": {
+      "Black": {
+        "grade": "allowed",
+        "reason": "톤온톤, 명도차 15 — 소재로 차이를 준다",
+        "rule": "R1"
+      },
+      "White": {
+        "grade": "recommended",
+        "reason": "뉴트럴 조합, 명도차 85",
+        "rule": "R1"
+      },
+      "Charcoal": {
+        "grade": "allowed",
+        "reason": "톤온톤, 명도차 13 — 소재로 차이를 준다",
+        "rule": "R1"
+      },
+      "Navy": {
+        "grade": "na",
+        "reason": "동일 색상 (모노톤)",
+        "rule": "—"
+      },
+      "Beige": {
+        "grade": "recommended",
+        "reason": "뉴트럴 조합, 명도차 73",
+        "rule": "R1"
+      },
+      "Olive": {
+        "grade": "recommended",
+        "reason": "뉴트럴 앵커 + 포인트 1색",
+        "rule": "R2"
+      },
+      "Brown": {
+        "grade": "recommended",
+        "reason": "뉴트럴 앵커 + 포인트 1색",
+        "rule": "R2"
+      },
+      "Burgundy": {
+        "grade": "recommended",
+        "reason": "뉴트럴 앵커 + 포인트 1색",
+        "rule": "R2"
+      },
+      "Mustard": {
+        "grade": "recommended",
+        "reason": "뉴트럴 앵커 + 포인트 1색",
+        "rule": "R2"
+      },
+      "Teal": {
+        "grade": "recommended",
+        "reason": "뉴트럴 앵커 + 포인트 1색",
+        "rule": "R2"
+      },
+      "Gray": {
+        "grade": "recommended",
+        "reason": "뉴트럴 조합, 명도차 39",
+        "rule": "R1"
+      },
+      "Cream": {
+        "grade": "recommended",
+        "reason": "뉴트럴 조합, 명도차 77",
+        "rule": "R1"
+      },
+      "Rust": {
+        "grade": "recommended",
+        "reason": "뉴트럴 앵커 + 포인트 1색",
+        "rule": "R2"
+      },
+      "Forest Green": {
+        "grade": "recommended",
+        "reason": "뉴트럴 앵커 + 포인트 1색",
+        "rule": "R2"
+      },
+      "Lavender": {
+        "grade": "recommended",
+        "reason": "뉴트럴 앵커 + 포인트 1색",
+        "rule": "R2"
+      },
+      "Light Blue": {
+        "grade": "recommended",
+        "reason": "뉴트럴 앵커 + 포인트 1색",
+        "rule": "R2"
+      },
+      "Blush Pink": {
+        "grade": "recommended",
+        "reason": "뉴트럴 앵커 + 포인트 1색",
+        "rule": "R2"
+      }
+    },
+    "Beige": {
+      "Black": {
+        "grade": "recommended",
+        "reason": "뉴트럴 조합, 명도차 88",
+        "rule": "R1"
+      },
+      "White": {
+        "grade": "allowed",
+        "reason": "톤온톤, 명도차 12 — 소재로 차이를 준다",
+        "rule": "R1"
+      },
+      "Charcoal": {
+        "grade": "recommended",
+        "reason": "뉴트럴 조합, 명도차 60",
+        "rule": "R1"
+      },
+      "Navy": {
+        "grade": "recommended",
+        "reason": "뉴트럴 조합, 명도차 73",
+        "rule": "R1"
+      },
+      "Beige": {
+        "grade": "na",
+        "reason": "동일 색상 (모노톤)",
+        "rule": "—"
+      },
+      "Olive": {
+        "grade": "recommended",
+        "reason": "뉴트럴 앵커 + 포인트 1색",
+        "rule": "R2"
+      },
+      "Brown": {
+        "grade": "recommended",
+        "reason": "뉴트럴 앵커 + 포인트 1색",
+        "rule": "R2"
+      },
+      "Burgundy": {
+        "grade": "recommended",
+        "reason": "뉴트럴 앵커 + 포인트 1색",
+        "rule": "R2"
+      },
+      "Mustard": {
+        "grade": "recommended",
+        "reason": "뉴트럴 앵커 + 포인트 1색",
+        "rule": "R2"
+      },
+      "Teal": {
+        "grade": "recommended",
+        "reason": "뉴트럴 앵커 + 포인트 1색",
+        "rule": "R2"
+      },
+      "Gray": {
+        "grade": "recommended",
+        "reason": "뉴트럴 조합, 명도차 34",
+        "rule": "R1"
+      },
+      "Cream": {
+        "grade": "allowed",
+        "reason": "톤온톤, 명도차 4 — 소재로 차이를 준다",
+        "rule": "R1"
+      },
+      "Rust": {
+        "grade": "recommended",
+        "reason": "뉴트럴 앵커 + 포인트 1색",
+        "rule": "R2"
+      },
+      "Forest Green": {
+        "grade": "recommended",
+        "reason": "뉴트럴 앵커 + 포인트 1색",
+        "rule": "R2"
+      },
+      "Lavender": {
+        "grade": "recommended",
+        "reason": "뉴트럴 앵커 + 포인트 1색",
+        "rule": "R2"
+      },
+      "Light Blue": {
+        "grade": "recommended",
+        "reason": "뉴트럴 앵커 + 포인트 1색",
+        "rule": "R2"
+      },
+      "Blush Pink": {
+        "grade": "recommended",
+        "reason": "뉴트럴 앵커 + 포인트 1색",
+        "rule": "R2"
+      }
+    },
+    "Olive": {
+      "Black": {
+        "grade": "recommended",
+        "reason": "뉴트럴 앵커 + 포인트 1색",
+        "rule": "R2"
+      },
+      "White": {
+        "grade": "recommended",
+        "reason": "뉴트럴 앵커 + 포인트 1색",
+        "rule": "R2"
+      },
+      "Charcoal": {
+        "grade": "recommended",
+        "reason": "뉴트럴 앵커 + 포인트 1색",
+        "rule": "R2"
+      },
+      "Navy": {
+        "grade": "recommended",
+        "reason": "뉴트럴 앵커 + 포인트 1색",
+        "rule": "R2"
+      },
+      "Beige": {
+        "grade": "recommended",
+        "reason": "뉴트럴 앵커 + 포인트 1색",
+        "rule": "R2"
+      },
+      "Olive": {
+        "grade": "na",
+        "reason": "동일 색상 (모노톤)",
+        "rule": "—"
+      },
+      "Brown": {
+        "grade": "recommended",
+        "reason": "색상차 43°, 명도차 10",
+        "rule": "R2"
+      },
+      "Burgundy": {
+        "grade": "recommended",
+        "reason": "색상차 83°, 명도차 18",
+        "rule": "R2"
+      },
+      "Mustard": {
+        "grade": "recommended",
+        "reason": "색상차 24°, 명도차 25",
+        "rule": "R2"
+      },
+      "Teal": {
+        "grade": "recommended",
+        "reason": "색상차 90°, 명도차 4",
+        "rule": "R2"
+      },
+      "Gray": {
+        "grade": "recommended",
+        "reason": "뉴트럴 앵커 + 포인트 1색",
+        "rule": "R2"
+      },
+      "Cream": {
+        "grade": "recommended",
+        "reason": "뉴트럴 앵커 + 포인트 1색",
+        "rule": "R2"
+      },
+      "Rust": {
+        "grade": "recommended",
+        "reason": "색상차 59°, 명도차 0",
+        "rule": "R2"
+      },
+      "Forest Green": {
+        "grade": "caution",
+        "reason": "유사색인데 명도까지 붙어 뭉개짐(색상차 31°)",
+        "rule": "R4"
+      },
+      "Lavender": {
+        "grade": "recommended",
+        "reason": "색상차 153°, 명도차 17",
+        "rule": "R2"
+      },
+      "Light Blue": {
+        "grade": "recommended",
+        "reason": "색상차 120°, 명도차 40",
+        "rule": "R2"
+      },
+      "Blush Pink": {
+        "grade": "recommended",
+        "reason": "색상차 97°, 명도차 37",
+        "rule": "R2"
+      }
+    },
+    "Brown": {
+      "Black": {
+        "grade": "recommended",
+        "reason": "뉴트럴 앵커 + 포인트 1색",
+        "rule": "R2"
+      },
+      "White": {
+        "grade": "recommended",
+        "reason": "뉴트럴 앵커 + 포인트 1색",
+        "rule": "R2"
+      },
+      "Charcoal": {
+        "grade": "recommended",
+        "reason": "뉴트럴 앵커 + 포인트 1색",
+        "rule": "R2"
+      },
+      "Navy": {
+        "grade": "recommended",
+        "reason": "뉴트럴 앵커 + 포인트 1색",
+        "rule": "R2"
+      },
+      "Beige": {
+        "grade": "recommended",
+        "reason": "뉴트럴 앵커 + 포인트 1색",
+        "rule": "R2"
+      },
+      "Olive": {
+        "grade": "recommended",
+        "reason": "색상차 43°, 명도차 10",
+        "rule": "R2"
+      },
+      "Brown": {
+        "grade": "na",
+        "reason": "동일 색상 (모노톤)",
+        "rule": "—"
+      },
+      "Burgundy": {
+        "grade": "recommended",
+        "reason": "색상차 40°, 명도차 9",
+        "rule": "R2"
+      },
+      "Mustard": {
+        "grade": "recommended",
+        "reason": "색상차 19°, 명도차 34",
+        "rule": "R2"
+      },
+      "Teal": {
+        "grade": "recommended",
+        "reason": "색상차 133°, 명도차 14",
+        "rule": "R2"
+      },
+      "Gray": {
+        "grade": "recommended",
+        "reason": "뉴트럴 앵커 + 포인트 1색",
+        "rule": "R2"
+      },
+      "Cream": {
+        "grade": "recommended",
+        "reason": "뉴트럴 앵커 + 포인트 1색",
+        "rule": "R2"
+      },
+      "Rust": {
+        "grade": "caution",
+        "reason": "유사색인데 명도까지 붙어 뭉개짐(색상차 16°)",
+        "rule": "R4"
+      },
+      "Forest Green": {
+        "grade": "recommended",
+        "reason": "색상차 74°, 명도차 16",
+        "rule": "R2"
+      },
+      "Lavender": {
+        "grade": "recommended",
+        "reason": "색상차 110°, 명도차 27",
+        "rule": "R2"
+      },
+      "Light Blue": {
+        "grade": "recommended",
+        "reason": "색상차 163°, 명도차 49",
+        "rule": "R2"
+      },
+      "Blush Pink": {
+        "grade": "recommended",
+        "reason": "색상차 54°, 명도차 47",
+        "rule": "R2"
+      }
+    },
+    "Burgundy": {
+      "Black": {
+        "grade": "recommended",
+        "reason": "뉴트럴 앵커 + 포인트 1색",
+        "rule": "R2"
+      },
+      "White": {
+        "grade": "recommended",
+        "reason": "뉴트럴 앵커 + 포인트 1색",
+        "rule": "R2"
+      },
+      "Charcoal": {
+        "grade": "recommended",
+        "reason": "뉴트럴 앵커 + 포인트 1색",
+        "rule": "R2"
+      },
+      "Navy": {
+        "grade": "recommended",
+        "reason": "뉴트럴 앵커 + 포인트 1색",
+        "rule": "R2"
+      },
+      "Beige": {
+        "grade": "recommended",
+        "reason": "뉴트럴 앵커 + 포인트 1색",
+        "rule": "R2"
+      },
+      "Olive": {
+        "grade": "recommended",
+        "reason": "색상차 83°, 명도차 18",
+        "rule": "R2"
+      },
+      "Brown": {
+        "grade": "recommended",
+        "reason": "색상차 40°, 명도차 9",
+        "rule": "R2"
+      },
+      "Burgundy": {
+        "grade": "na",
+        "reason": "동일 색상 (모노톤)",
+        "rule": "—"
+      },
+      "Mustard": {
+        "grade": "recommended",
+        "reason": "색상차 60°, 명도차 43",
+        "rule": "R2"
+      },
+      "Teal": {
+        "grade": "caution",
+        "reason": "보색(색상차 173°) — 한쪽을 소면적으로",
+        "rule": "R3"
+      },
+      "Gray": {
+        "grade": "recommended",
+        "reason": "뉴트럴 앵커 + 포인트 1색",
+        "rule": "R2"
+      },
+      "Cream": {
+        "grade": "recommended",
+        "reason": "뉴트럴 앵커 + 포인트 1색",
+        "rule": "R2"
+      },
+      "Rust": {
+        "grade": "recommended",
+        "reason": "고채도 유사색(색상차 25°, 명도차 18)",
+        "rule": "R4"
+      },
+      "Forest Green": {
+        "grade": "caution",
+        "reason": "웜·쿨 혼합 — 사이에 뉴트럴을 넣어 분리",
+        "rule": "R6"
+      },
+      "Lavender": {
+        "grade": "caution",
+        "reason": "웜·쿨 혼합 — 사이에 뉴트럴을 넣어 분리",
+        "rule": "R6"
+      },
+      "Light Blue": {
+        "grade": "allowed",
+        "reason": "보색이지만 한쪽 채도가 낮아 완충됨(색상차 157°)",
+        "rule": "R5"
+      },
+      "Blush Pink": {
+        "grade": "recommended",
+        "reason": "색상차 13°, 명도차 55",
+        "rule": "R2"
+      }
+    },
+    "Mustard": {
+      "Black": {
+        "grade": "recommended",
+        "reason": "뉴트럴 앵커 + 포인트 1색",
+        "rule": "R2"
+      },
+      "White": {
+        "grade": "recommended",
+        "reason": "뉴트럴 앵커 + 포인트 1색",
+        "rule": "R2"
+      },
+      "Charcoal": {
+        "grade": "recommended",
+        "reason": "뉴트럴 앵커 + 포인트 1색",
+        "rule": "R2"
+      },
+      "Navy": {
+        "grade": "recommended",
+        "reason": "뉴트럴 앵커 + 포인트 1색",
+        "rule": "R2"
+      },
+      "Beige": {
+        "grade": "recommended",
+        "reason": "뉴트럴 앵커 + 포인트 1색",
+        "rule": "R2"
+      },
+      "Olive": {
+        "grade": "recommended",
+        "reason": "색상차 24°, 명도차 25",
+        "rule": "R2"
+      },
+      "Brown": {
+        "grade": "recommended",
+        "reason": "색상차 19°, 명도차 34",
+        "rule": "R2"
+      },
+      "Burgundy": {
+        "grade": "recommended",
+        "reason": "색상차 60°, 명도차 43",
+        "rule": "R2"
+      },
+      "Mustard": {
+        "grade": "na",
+        "reason": "동일 색상 (모노톤)",
+        "rule": "—"
+      },
+      "Teal": {
+        "grade": "caution",
+        "reason": "웜·쿨 혼합 — 사이에 뉴트럴을 넣어 분리",
+        "rule": "R6"
+      },
+      "Gray": {
+        "grade": "recommended",
+        "reason": "뉴트럴 앵커 + 포인트 1색",
+        "rule": "R2"
+      },
+      "Cream": {
+        "grade": "recommended",
+        "reason": "뉴트럴 앵커 + 포인트 1색",
+        "rule": "R2"
+      },
+      "Rust": {
+        "grade": "recommended",
+        "reason": "고채도 유사색(색상차 35°, 명도차 25)",
+        "rule": "R4"
+      },
+      "Forest Green": {
+        "grade": "caution",
+        "reason": "웜·쿨 혼합 — 사이에 뉴트럴을 넣어 분리",
+        "rule": "R6"
+      },
+      "Lavender": {
+        "grade": "caution",
+        "reason": "웜·쿨 혼합 — 사이에 뉴트럴을 넣어 분리",
+        "rule": "R6"
+      },
+      "Light Blue": {
+        "grade": "caution",
+        "reason": "웜·쿨 혼합 — 사이에 뉴트럴을 넣어 분리",
+        "rule": "R6"
+      },
+      "Blush Pink": {
+        "grade": "recommended",
+        "reason": "색상차 73°, 명도차 12",
+        "rule": "R2"
+      }
+    },
+    "Teal": {
+      "Black": {
+        "grade": "recommended",
+        "reason": "뉴트럴 앵커 + 포인트 1색",
+        "rule": "R2"
+      },
+      "White": {
+        "grade": "recommended",
+        "reason": "뉴트럴 앵커 + 포인트 1색",
+        "rule": "R2"
+      },
+      "Charcoal": {
+        "grade": "recommended",
+        "reason": "뉴트럴 앵커 + 포인트 1색",
+        "rule": "R2"
+      },
+      "Navy": {
+        "grade": "recommended",
+        "reason": "뉴트럴 앵커 + 포인트 1색",
+        "rule": "R2"
+      },
+      "Beige": {
+        "grade": "recommended",
+        "reason": "뉴트럴 앵커 + 포인트 1색",
+        "rule": "R2"
+      },
+      "Olive": {
+        "grade": "recommended",
+        "reason": "색상차 90°, 명도차 4",
+        "rule": "R2"
+      },
+      "Brown": {
+        "grade": "recommended",
+        "reason": "색상차 133°, 명도차 14",
+        "rule": "R2"
+      },
+      "Burgundy": {
+        "grade": "caution",
+        "reason": "보색(색상차 173°) — 한쪽을 소면적으로",
+        "rule": "R3"
+      },
+      "Mustard": {
+        "grade": "caution",
+        "reason": "웜·쿨 혼합 — 사이에 뉴트럴을 넣어 분리",
+        "rule": "R6"
+      },
+      "Teal": {
+        "grade": "na",
+        "reason": "동일 색상 (모노톤)",
+        "rule": "—"
+      },
+      "Gray": {
+        "grade": "recommended",
+        "reason": "뉴트럴 앵커 + 포인트 1색",
+        "rule": "R2"
+      },
+      "Cream": {
+        "grade": "recommended",
+        "reason": "뉴트럴 앵커 + 포인트 1색",
+        "rule": "R2"
+      },
+      "Rust": {
+        "grade": "caution",
+        "reason": "웜·쿨 혼합 — 사이에 뉴트럴을 넣어 분리",
+        "rule": "R6"
+      },
+      "Forest Green": {
+        "grade": "recommended",
+        "reason": "색상차 59°, 명도차 2",
+        "rule": "R2"
+      },
+      "Lavender": {
+        "grade": "recommended",
+        "reason": "색상차 117°, 명도차 13",
+        "rule": "R2"
+      },
+      "Light Blue": {
+        "grade": "recommended",
+        "reason": "색상차 30°, 명도차 36",
+        "rule": "R2"
+      },
+      "Blush Pink": {
+        "grade": "caution",
+        "reason": "보색(색상차 174°) — 한쪽을 소면적으로",
+        "rule": "R3"
+      }
+    },
+    "Gray": {
+      "Black": {
+        "grade": "recommended",
+        "reason": "뉴트럴 조합, 명도차 54",
+        "rule": "R1"
+      },
+      "White": {
+        "grade": "recommended",
+        "reason": "뉴트럴 조합, 명도차 46",
+        "rule": "R1"
+      },
+      "Charcoal": {
+        "grade": "recommended",
+        "reason": "뉴트럴 조합, 명도차 25",
+        "rule": "R1"
+      },
+      "Navy": {
+        "grade": "recommended",
+        "reason": "뉴트럴 조합, 명도차 39",
+        "rule": "R1"
+      },
+      "Beige": {
+        "grade": "recommended",
+        "reason": "뉴트럴 조합, 명도차 34",
+        "rule": "R1"
+      },
+      "Olive": {
+        "grade": "recommended",
+        "reason": "뉴트럴 앵커 + 포인트 1색",
+        "rule": "R2"
+      },
+      "Brown": {
+        "grade": "recommended",
+        "reason": "뉴트럴 앵커 + 포인트 1색",
+        "rule": "R2"
+      },
+      "Burgundy": {
+        "grade": "recommended",
+        "reason": "뉴트럴 앵커 + 포인트 1색",
+        "rule": "R2"
+      },
+      "Mustard": {
+        "grade": "recommended",
+        "reason": "뉴트럴 앵커 + 포인트 1색",
+        "rule": "R2"
+      },
+      "Teal": {
+        "grade": "recommended",
+        "reason": "뉴트럴 앵커 + 포인트 1색",
+        "rule": "R2"
+      },
+      "Gray": {
+        "grade": "na",
+        "reason": "동일 색상 (모노톤)",
+        "rule": "—"
+      },
+      "Cream": {
+        "grade": "recommended",
+        "reason": "뉴트럴 조합, 명도차 38",
+        "rule": "R1"
+      },
+      "Rust": {
+        "grade": "recommended",
+        "reason": "뉴트럴 앵커 + 포인트 1색",
+        "rule": "R2"
+      },
+      "Forest Green": {
+        "grade": "recommended",
+        "reason": "뉴트럴 앵커 + 포인트 1색",
+        "rule": "R2"
+      },
+      "Lavender": {
+        "grade": "recommended",
+        "reason": "뉴트럴 앵커 + 포인트 1색",
+        "rule": "R2"
+      },
+      "Light Blue": {
+        "grade": "recommended",
+        "reason": "뉴트럴 앵커 + 포인트 1색",
+        "rule": "R2"
+      },
+      "Blush Pink": {
+        "grade": "recommended",
+        "reason": "뉴트럴 앵커 + 포인트 1색",
+        "rule": "R2"
+      }
+    },
+    "Cream": {
+      "Black": {
+        "grade": "recommended",
+        "reason": "뉴트럴 조합, 명도차 92",
+        "rule": "R1"
+      },
+      "White": {
+        "grade": "allowed",
+        "reason": "톤온톤, 명도차 8 — 소재로 차이를 준다",
+        "rule": "R1"
+      },
+      "Charcoal": {
+        "grade": "recommended",
+        "reason": "뉴트럴 조합, 명도차 63",
+        "rule": "R1"
+      },
+      "Navy": {
+        "grade": "recommended",
+        "reason": "뉴트럴 조합, 명도차 77",
+        "rule": "R1"
+      },
+      "Beige": {
+        "grade": "allowed",
+        "reason": "톤온톤, 명도차 4 — 소재로 차이를 준다",
+        "rule": "R1"
+      },
+      "Olive": {
+        "grade": "recommended",
+        "reason": "뉴트럴 앵커 + 포인트 1색",
+        "rule": "R2"
+      },
+      "Brown": {
+        "grade": "recommended",
+        "reason": "뉴트럴 앵커 + 포인트 1색",
+        "rule": "R2"
+      },
+      "Burgundy": {
+        "grade": "recommended",
+        "reason": "뉴트럴 앵커 + 포인트 1색",
+        "rule": "R2"
+      },
+      "Mustard": {
+        "grade": "recommended",
+        "reason": "뉴트럴 앵커 + 포인트 1색",
+        "rule": "R2"
+      },
+      "Teal": {
+        "grade": "recommended",
+        "reason": "뉴트럴 앵커 + 포인트 1색",
+        "rule": "R2"
+      },
+      "Gray": {
+        "grade": "recommended",
+        "reason": "뉴트럴 조합, 명도차 38",
+        "rule": "R1"
+      },
+      "Cream": {
+        "grade": "na",
+        "reason": "동일 색상 (모노톤)",
+        "rule": "—"
+      },
+      "Rust": {
+        "grade": "recommended",
+        "reason": "뉴트럴 앵커 + 포인트 1색",
+        "rule": "R2"
+      },
+      "Forest Green": {
+        "grade": "recommended",
+        "reason": "뉴트럴 앵커 + 포인트 1색",
+        "rule": "R2"
+      },
+      "Lavender": {
+        "grade": "recommended",
+        "reason": "뉴트럴 앵커 + 포인트 1색",
+        "rule": "R2"
+      },
+      "Light Blue": {
+        "grade": "recommended",
+        "reason": "뉴트럴 앵커 + 포인트 1색",
+        "rule": "R2"
+      },
+      "Blush Pink": {
+        "grade": "recommended",
+        "reason": "뉴트럴 앵커 + 포인트 1색",
+        "rule": "R2"
+      }
+    },
+    "Rust": {
+      "Black": {
+        "grade": "recommended",
+        "reason": "뉴트럴 앵커 + 포인트 1색",
+        "rule": "R2"
+      },
+      "White": {
+        "grade": "recommended",
+        "reason": "뉴트럴 앵커 + 포인트 1색",
+        "rule": "R2"
+      },
+      "Charcoal": {
+        "grade": "recommended",
+        "reason": "뉴트럴 앵커 + 포인트 1색",
+        "rule": "R2"
+      },
+      "Navy": {
+        "grade": "recommended",
+        "reason": "뉴트럴 앵커 + 포인트 1색",
+        "rule": "R2"
+      },
+      "Beige": {
+        "grade": "recommended",
+        "reason": "뉴트럴 앵커 + 포인트 1색",
+        "rule": "R2"
+      },
+      "Olive": {
+        "grade": "recommended",
+        "reason": "색상차 59°, 명도차 0",
+        "rule": "R2"
+      },
+      "Brown": {
+        "grade": "caution",
+        "reason": "유사색인데 명도까지 붙어 뭉개짐(색상차 16°)",
+        "rule": "R4"
+      },
+      "Burgundy": {
+        "grade": "recommended",
+        "reason": "고채도 유사색(색상차 25°, 명도차 18)",
+        "rule": "R4"
+      },
+      "Mustard": {
+        "grade": "recommended",
+        "reason": "고채도 유사색(색상차 35°, 명도차 25)",
+        "rule": "R4"
+      },
+      "Teal": {
+        "grade": "caution",
+        "reason": "웜·쿨 혼합 — 사이에 뉴트럴을 넣어 분리",
+        "rule": "R6"
+      },
+      "Gray": {
+        "grade": "recommended",
+        "reason": "뉴트럴 앵커 + 포인트 1색",
+        "rule": "R2"
+      },
+      "Cream": {
+        "grade": "recommended",
+        "reason": "뉴트럴 앵커 + 포인트 1색",
+        "rule": "R2"
+      },
+      "Rust": {
+        "grade": "na",
+        "reason": "동일 색상 (모노톤)",
+        "rule": "—"
+      },
+      "Forest Green": {
+        "grade": "caution",
+        "reason": "웜·쿨 혼합 — 사이에 뉴트럴을 넣어 분리",
+        "rule": "R6"
+      },
+      "Lavender": {
+        "grade": "caution",
+        "reason": "웜·쿨 혼합 — 사이에 뉴트럴을 넣어 분리",
+        "rule": "R6"
+      },
+      "Light Blue": {
+        "grade": "allowed",
+        "reason": "보색이지만 한쪽 채도가 낮아 완충됨(색상차 178°)",
+        "rule": "R5"
+      },
+      "Blush Pink": {
+        "grade": "recommended",
+        "reason": "색상차 38°, 명도차 37",
+        "rule": "R2"
+      }
+    },
+    "Forest Green": {
+      "Black": {
+        "grade": "recommended",
+        "reason": "뉴트럴 앵커 + 포인트 1색",
+        "rule": "R2"
+      },
+      "White": {
+        "grade": "recommended",
+        "reason": "뉴트럴 앵커 + 포인트 1색",
+        "rule": "R2"
+      },
+      "Charcoal": {
+        "grade": "recommended",
+        "reason": "뉴트럴 앵커 + 포인트 1색",
+        "rule": "R2"
+      },
+      "Navy": {
+        "grade": "recommended",
+        "reason": "뉴트럴 앵커 + 포인트 1색",
+        "rule": "R2"
+      },
+      "Beige": {
+        "grade": "recommended",
+        "reason": "뉴트럴 앵커 + 포인트 1색",
+        "rule": "R2"
+      },
+      "Olive": {
+        "grade": "caution",
+        "reason": "유사색인데 명도까지 붙어 뭉개짐(색상차 31°)",
+        "rule": "R4"
+      },
+      "Brown": {
+        "grade": "recommended",
+        "reason": "색상차 74°, 명도차 16",
+        "rule": "R2"
+      },
+      "Burgundy": {
+        "grade": "caution",
+        "reason": "웜·쿨 혼합 — 사이에 뉴트럴을 넣어 분리",
+        "rule": "R6"
+      },
+      "Mustard": {
+        "grade": "caution",
+        "reason": "웜·쿨 혼합 — 사이에 뉴트럴을 넣어 분리",
+        "rule": "R6"
+      },
+      "Teal": {
+        "grade": "recommended",
+        "reason": "색상차 59°, 명도차 2",
+        "rule": "R2"
+      },
+      "Gray": {
+        "grade": "recommended",
+        "reason": "뉴트럴 앵커 + 포인트 1색",
+        "rule": "R2"
+      },
+      "Cream": {
+        "grade": "recommended",
+        "reason": "뉴트럴 앵커 + 포인트 1색",
+        "rule": "R2"
+      },
+      "Rust": {
+        "grade": "caution",
+        "reason": "웜·쿨 혼합 — 사이에 뉴트럴을 넣어 분리",
+        "rule": "R6"
+      },
+      "Forest Green": {
+        "grade": "na",
+        "reason": "동일 색상 (모노톤)",
+        "rule": "—"
+      },
+      "Lavender": {
+        "grade": "avoid",
+        "reason": "고채도 보색(색상차 176°) — 대면적 동시 사용 금지",
+        "rule": "R3"
+      },
+      "Light Blue": {
+        "grade": "recommended",
+        "reason": "색상차 89°, 명도차 33",
+        "rule": "R2"
+      },
+      "Blush Pink": {
+        "grade": "caution",
+        "reason": "웜·쿨 혼합 — 사이에 뉴트럴을 넣어 분리",
+        "rule": "R6"
+      }
+    },
+    "Lavender": {
+      "Black": {
+        "grade": "recommended",
+        "reason": "뉴트럴 앵커 + 포인트 1색",
+        "rule": "R2"
+      },
+      "White": {
+        "grade": "recommended",
+        "reason": "뉴트럴 앵커 + 포인트 1색",
+        "rule": "R2"
+      },
+      "Charcoal": {
+        "grade": "recommended",
+        "reason": "뉴트럴 앵커 + 포인트 1색",
+        "rule": "R2"
+      },
+      "Navy": {
+        "grade": "recommended",
+        "reason": "뉴트럴 앵커 + 포인트 1색",
+        "rule": "R2"
+      },
+      "Beige": {
+        "grade": "recommended",
+        "reason": "뉴트럴 앵커 + 포인트 1색",
+        "rule": "R2"
+      },
+      "Olive": {
+        "grade": "recommended",
+        "reason": "색상차 153°, 명도차 17",
+        "rule": "R2"
+      },
+      "Brown": {
+        "grade": "recommended",
+        "reason": "색상차 110°, 명도차 27",
+        "rule": "R2"
+      },
+      "Burgundy": {
+        "grade": "caution",
+        "reason": "웜·쿨 혼합 — 사이에 뉴트럴을 넣어 분리",
+        "rule": "R6"
+      },
+      "Mustard": {
+        "grade": "caution",
+        "reason": "웜·쿨 혼합 — 사이에 뉴트럴을 넣어 분리",
+        "rule": "R6"
+      },
+      "Teal": {
+        "grade": "recommended",
+        "reason": "색상차 117°, 명도차 13",
+        "rule": "R2"
+      },
+      "Gray": {
+        "grade": "recommended",
+        "reason": "뉴트럴 앵커 + 포인트 1색",
+        "rule": "R2"
+      },
+      "Cream": {
+        "grade": "recommended",
+        "reason": "뉴트럴 앵커 + 포인트 1색",
+        "rule": "R2"
+      },
+      "Rust": {
+        "grade": "caution",
+        "reason": "웜·쿨 혼합 — 사이에 뉴트럴을 넣어 분리",
+        "rule": "R6"
+      },
+      "Forest Green": {
+        "grade": "avoid",
+        "reason": "고채도 보색(색상차 176°) — 대면적 동시 사용 금지",
+        "rule": "R3"
+      },
+      "Lavender": {
+        "grade": "na",
+        "reason": "동일 색상 (모노톤)",
+        "rule": "—"
+      },
+      "Light Blue": {
+        "grade": "recommended",
+        "reason": "색상차 87°, 명도차 22",
+        "rule": "R2"
+      },
+      "Blush Pink": {
+        "grade": "caution",
+        "reason": "웜·쿨 혼합 — 사이에 뉴트럴을 넣어 분리",
+        "rule": "R6"
+      }
+    },
+    "Light Blue": {
+      "Black": {
+        "grade": "recommended",
+        "reason": "뉴트럴 앵커 + 포인트 1색",
+        "rule": "R2"
+      },
+      "White": {
+        "grade": "recommended",
+        "reason": "뉴트럴 앵커 + 포인트 1색",
+        "rule": "R2"
+      },
+      "Charcoal": {
+        "grade": "recommended",
+        "reason": "뉴트럴 앵커 + 포인트 1색",
+        "rule": "R2"
+      },
+      "Navy": {
+        "grade": "recommended",
+        "reason": "뉴트럴 앵커 + 포인트 1색",
+        "rule": "R2"
+      },
+      "Beige": {
+        "grade": "recommended",
+        "reason": "뉴트럴 앵커 + 포인트 1색",
+        "rule": "R2"
+      },
+      "Olive": {
+        "grade": "recommended",
+        "reason": "색상차 120°, 명도차 40",
+        "rule": "R2"
+      },
+      "Brown": {
+        "grade": "recommended",
+        "reason": "색상차 163°, 명도차 49",
+        "rule": "R2"
+      },
+      "Burgundy": {
+        "grade": "allowed",
+        "reason": "보색이지만 한쪽 채도가 낮아 완충됨(색상차 157°)",
+        "rule": "R5"
+      },
+      "Mustard": {
+        "grade": "caution",
+        "reason": "웜·쿨 혼합 — 사이에 뉴트럴을 넣어 분리",
+        "rule": "R6"
+      },
+      "Teal": {
+        "grade": "recommended",
+        "reason": "색상차 30°, 명도차 36",
+        "rule": "R2"
+      },
+      "Gray": {
+        "grade": "recommended",
+        "reason": "뉴트럴 앵커 + 포인트 1색",
+        "rule": "R2"
+      },
+      "Cream": {
+        "grade": "recommended",
+        "reason": "뉴트럴 앵커 + 포인트 1색",
+        "rule": "R2"
+      },
+      "Rust": {
+        "grade": "allowed",
+        "reason": "보색이지만 한쪽 채도가 낮아 완충됨(색상차 178°)",
+        "rule": "R5"
+      },
+      "Forest Green": {
+        "grade": "recommended",
+        "reason": "색상차 89°, 명도차 33",
+        "rule": "R2"
+      },
+      "Lavender": {
+        "grade": "recommended",
+        "reason": "색상차 87°, 명도차 22",
+        "rule": "R2"
+      },
+      "Light Blue": {
+        "grade": "na",
+        "reason": "동일 색상 (모노톤)",
+        "rule": "—"
+      },
+      "Blush Pink": {
+        "grade": "caution",
+        "reason": "웜·쿨 혼합 — 사이에 뉴트럴을 넣어 분리",
+        "rule": "R6"
+      }
+    },
+    "Blush Pink": {
+      "Black": {
+        "grade": "recommended",
+        "reason": "뉴트럴 앵커 + 포인트 1색",
+        "rule": "R2"
+      },
+      "White": {
+        "grade": "recommended",
+        "reason": "뉴트럴 앵커 + 포인트 1색",
+        "rule": "R2"
+      },
+      "Charcoal": {
+        "grade": "recommended",
+        "reason": "뉴트럴 앵커 + 포인트 1색",
+        "rule": "R2"
+      },
+      "Navy": {
+        "grade": "recommended",
+        "reason": "뉴트럴 앵커 + 포인트 1색",
+        "rule": "R2"
+      },
+      "Beige": {
+        "grade": "recommended",
+        "reason": "뉴트럴 앵커 + 포인트 1색",
+        "rule": "R2"
+      },
+      "Olive": {
+        "grade": "recommended",
+        "reason": "색상차 97°, 명도차 37",
+        "rule": "R2"
+      },
+      "Brown": {
+        "grade": "recommended",
+        "reason": "색상차 54°, 명도차 47",
+        "rule": "R2"
+      },
+      "Burgundy": {
+        "grade": "recommended",
+        "reason": "색상차 13°, 명도차 55",
+        "rule": "R2"
+      },
+      "Mustard": {
+        "grade": "recommended",
+        "reason": "색상차 73°, 명도차 12",
+        "rule": "R2"
+      },
+      "Teal": {
+        "grade": "caution",
+        "reason": "보색(색상차 174°) — 한쪽을 소면적으로",
+        "rule": "R3"
+      },
+      "Gray": {
+        "grade": "recommended",
+        "reason": "뉴트럴 앵커 + 포인트 1색",
+        "rule": "R2"
+      },
+      "Cream": {
+        "grade": "recommended",
+        "reason": "뉴트럴 앵커 + 포인트 1색",
+        "rule": "R2"
+      },
+      "Rust": {
+        "grade": "recommended",
+        "reason": "색상차 38°, 명도차 37",
+        "rule": "R2"
+      },
+      "Forest Green": {
+        "grade": "caution",
+        "reason": "웜·쿨 혼합 — 사이에 뉴트럴을 넣어 분리",
+        "rule": "R6"
+      },
+      "Lavender": {
+        "grade": "caution",
+        "reason": "웜·쿨 혼합 — 사이에 뉴트럴을 넣어 분리",
+        "rule": "R6"
+      },
+      "Light Blue": {
+        "grade": "caution",
+        "reason": "웜·쿨 혼합 — 사이에 뉴트럴을 넣어 분리",
+        "rule": "R6"
+      },
+      "Blush Pink": {
+        "grade": "na",
+        "reason": "동일 색상 (모노톤)",
+        "rule": "—"
+      }
+    }
+  }
+}

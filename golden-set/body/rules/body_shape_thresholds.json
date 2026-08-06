@@ -1,0 +1,61 @@
+{
+  "source": "ml/body_measurement/data/labels/sizekorea_vlm_182_labels.csv",
+  "sample_size": {
+    "F": 83,
+    "M": 98
+  },
+  "method": "성별 내 tertile(p33/p67). 임계값은 절대 기준이 아니라 표본 상대 위치다.",
+  "ratios": {
+    "shoulder_hip": "shoulder/hip",
+    "waist_hip": "waist/hip"
+  },
+  "priority": [
+    "round",
+    "inverted_triangle",
+    "triangle",
+    "hourglass",
+    "rectangle"
+  ],
+  "thresholds": {
+    "F": {
+      "shoulder_hip": {
+        "p33": 0.3585,
+        "p50": 0.3665,
+        "p67": 0.3789
+      },
+      "waist_hip": {
+        "p33": 0.7521,
+        "p50": 0.771,
+        "p67": 0.7929
+      }
+    },
+    "M": {
+      "shoulder_hip": {
+        "p33": 0.4135,
+        "p50": 0.4273,
+        "p67": 0.4368
+      },
+      "waist_hip": {
+        "p33": 0.8363,
+        "p50": 0.8609,
+        "p67": 0.8962
+      }
+    }
+  },
+  "distribution": {
+    "F": {
+      "round": 28,
+      "inverted_triangle": 19,
+      "triangle": 16,
+      "rectangle": 10,
+      "hourglass": 10
+    },
+    "M": {
+      "round": 33,
+      "inverted_triangle": 26,
+      "triangle": 17,
+      "rectangle": 13,
+      "hourglass": 9
+    }
+  }
+}

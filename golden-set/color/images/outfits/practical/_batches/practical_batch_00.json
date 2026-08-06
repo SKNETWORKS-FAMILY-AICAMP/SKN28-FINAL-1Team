@@ -1,0 +1,92 @@
+[
+  {
+    "prompt": "Flat-lay fashion product photography grid on pure white background, arranged in 3 rows and 3 columns layout (total 9 cells, the last 2 cells in the bottom row are empty/blank). Each filled cell contains a folded crew-neck cotton t-shirt on the left side and a pair of folded cotton chinos pants on the right side, neatly arranged, top-down view. The t-shirt color is the SAME in all 7 filled cells: Black (#1E1E2E). The pants color VARIES by cell, showing 7 common wardrobe basics in this exact order from top-left to bottom-right (reading left-to-right, top-to-bottom): cell 1: White (#FFFFFF, neutral cool/bright), cell 2: Black (#1E1E2E, neutral dark), cell 3: Navy (#1F2A44, cool dark), cell 4: Gray (#808080, neutral medium), cell 5: Brown (#6B4F3A, warm dark), cell 6: Ivory (#F2E8D5, neutral warm light), cell 7: Denim (#4A6FA5, cool medium (classic blue jean)). Each outfit in each cell follows this order so that you see 7 different pants colors paired with the same Black t-shirt. These 7 pants represent the realistic basic wardrobe (white, black, navy, gray, brown, ivory, blue jeans) that most people actually own. The user wants to see which of these 7 basics harmonize well with the Black t-shirt. Style: Pinterest minimal fashion catalog, soft natural light, professional product photo, e-commerce look, no model, no text, no shadow, no watermark, no logo, no mannequin, clean centered composition, white borders between cells.",
+    "output_file_path": "C:\\Users\\Playdata\\Desktop\\SKN28-FINAL-1Team\\docs\\golden-set\\outfits\\practical\\outfit_practical_black.png",
+    "input_file_paths": [
+      "C:\\Users\\Playdata\\Desktop\\SKN28-FINAL-1Team\\docs\\golden-set\\assets\\pinterest_ref.jpg"
+    ],
+    "aspect_ratio": "1:1",
+    "resolution": "1K"
+  },
+  {
+    "prompt": "Flat-lay fashion product photography grid on pure white background, arranged in 3 rows and 3 columns layout (total 9 cells, the last 2 cells in the bottom row are empty/blank). Each filled cell contains a folded crew-neck cotton t-shirt on the left side and a pair of folded cotton chinos pants on the right side, neatly arranged, top-down view. The t-shirt color is the SAME in all 7 filled cells: White (#FFFFFF). The pants color VARIES by cell, showing 7 common wardrobe basics in this exact order from top-left to bottom-right (reading left-to-right, top-to-bottom): cell 1: White (#FFFFFF, neutral cool/bright), cell 2: Black (#1E1E2E, neutral dark), cell 3: Navy (#1F2A44, cool dark), cell 4: Gray (#808080, neutral medium), cell 5: Brown (#6B4F3A, warm dark), cell 6: Ivory (#F2E8D5, neutral warm light), cell 7: Denim (#4A6FA5, cool medium (classic blue jean)). Each outfit in each cell follows this order so that you see 7 different pants colors paired with the same White t-shirt. These 7 pants represent the realistic basic wardrobe (white, black, navy, gray, brown, ivory, blue jeans) that most people actually own. The user wants to see which of these 7 basics harmonize well with the White t-shirt. Style: Pinterest minimal fashion catalog, soft natural light, professional product photo, e-commerce look, no model, no text, no shadow, no watermark, no logo, no mannequin, clean centered composition, white borders between cells.",
+    "output_file_path": "C:\\Users\\Playdata\\Desktop\\SKN28-FINAL-1Team\\docs\\golden-set\\outfits\\practical\\outfit_practical_white.png",
+    "input_file_paths": [
+      "C:\\Users\\Playdata\\Desktop\\SKN28-FINAL-1Team\\docs\\golden-set\\assets\\pinterest_ref.jpg"
+    ],
+    "aspect_ratio": "1:1",
+    "resolution": "1K"
+  },
+  {
+    "prompt": "Flat-lay fashion product photography grid on pure white background, arranged in 3 rows and 3 columns layout (total 9 cells, the last 2 cells in the bottom row are empty/blank). Each filled cell contains a folded crew-neck cotton t-shirt on the left side and a pair of folded cotton chinos pants on the right side, neatly arranged, top-down view. The t-shirt color is the SAME in all 7 filled cells: Charcoal (#36454F). The pants color VARIES by cell, showing 7 common wardrobe basics in this exact order from top-left to bottom-right (reading left-to-right, top-to-bottom): cell 1: White (#FFFFFF, neutral cool/bright), cell 2: Black (#1E1E2E, neutral dark), cell 3: Navy (#1F2A44, cool dark), cell 4: Gray (#808080, neutral medium), cell 5: Brown (#6B4F3A, warm dark), cell 6: Ivory (#F2E8D5, neutral warm light), cell 7: Denim (#4A6FA5, cool medium (classic blue jean)). Each outfit in each cell follows this order so that you see 7 different pants colors paired with the same Charcoal t-shirt. These 7 pants represent the realistic basic wardrobe (white, black, navy, gray, brown, ivory, blue jeans) that most people actually own. The user wants to see which of these 7 basics harmonize well with the Charcoal t-shirt. Style: Pinterest minimal fashion catalog, soft natural light, professional product photo, e-commerce look, no model, no text, no shadow, no watermark, no logo, no mannequin, clean centered composition, white borders between cells.",
+    "output_file_path": "C:\\Users\\Playdata\\Desktop\\SKN28-FINAL-1Team\\docs\\golden-set\\outfits\\practical\\outfit_practical_charcoal.png",
+    "input_file_paths": [
+      "C:\\Users\\Playdata\\Desktop\\SKN28-FINAL-1Team\\docs\\golden-set\\assets\\pinterest_ref.jpg"
+    ],
+    "aspect_ratio": "1:1",
+    "resolution": "1K"
+  },
+  {
+    "prompt": "Flat-lay fashion product photography grid on pure white background, arranged in 3 rows and 3 columns layout (total 9 cells, the last 2 cells in the bottom row are empty/blank). Each filled cell contains a folded crew-neck cotton t-shirt on the left side and a pair of folded cotton chinos pants on the right side, neatly arranged, top-down view. The t-shirt color is the SAME in all 7 filled cells: Navy (#1B2444). The pants color VARIES by cell, showing 7 common wardrobe basics in this exact order from top-left to bottom-right (reading left-to-right, top-to-bottom): cell 1: White (#FFFFFF, neutral cool/bright), cell 2: Black (#1E1E2E, neutral dark), cell 3: Navy (#1F2A44, cool dark), cell 4: Gray (#808080, neutral medium), cell 5: Brown (#6B4F3A, warm dark), cell 6: Ivory (#F2E8D5, neutral warm light), cell 7: Denim (#4A6FA5, cool medium (classic blue jean)). Each outfit in each cell follows this order so that you see 7 different pants colors paired with the same Navy t-shirt. These 7 pants represent the realistic basic wardrobe (white, black, navy, gray, brown, ivory, blue jeans) that most people actually own. The user wants to see which of these 7 basics harmonize well with the Navy t-shirt. Style: Pinterest minimal fashion catalog, soft natural light, professional product photo, e-commerce look, no model, no text, no shadow, no watermark, no logo, no mannequin, clean centered composition, white borders between cells.",
+    "output_file_path": "C:\\Users\\Playdata\\Desktop\\SKN28-FINAL-1Team\\docs\\golden-set\\outfits\\practical\\outfit_practical_navy.png",
+    "input_file_paths": [
+      "C:\\Users\\Playdata\\Desktop\\SKN28-FINAL-1Team\\docs\\golden-set\\assets\\pinterest_ref.jpg"
+    ],
+    "aspect_ratio": "1:1",
+    "resolution": "1K"
+  },
+  {
+    "prompt": "Flat-lay fashion product photography grid on pure white background, arranged in 3 rows and 3 columns layout (total 9 cells, the last 2 cells in the bottom row are empty/blank). Each filled cell contains a folded crew-neck cotton t-shirt on the left side and a pair of folded cotton chinos pants on the right side, neatly arranged, top-down view. The t-shirt color is the SAME in all 7 filled cells: Beige (#D9C3A5). The pants color VARIES by cell, showing 7 common wardrobe basics in this exact order from top-left to bottom-right (reading left-to-right, top-to-bottom): cell 1: White (#FFFFFF, neutral cool/bright), cell 2: Black (#1E1E2E, neutral dark), cell 3: Navy (#1F2A44, cool dark), cell 4: Gray (#808080, neutral medium), cell 5: Brown (#6B4F3A, warm dark), cell 6: Ivory (#F2E8D5, neutral warm light), cell 7: Denim (#4A6FA5, cool medium (classic blue jean)). Each outfit in each cell follows this order so that you see 7 different pants colors paired with the same Beige t-shirt. These 7 pants represent the realistic basic wardrobe (white, black, navy, gray, brown, ivory, blue jeans) that most people actually own. The user wants to see which of these 7 basics harmonize well with the Beige t-shirt. Style: Pinterest minimal fashion catalog, soft natural light, professional product photo, e-commerce look, no model, no text, no shadow, no watermark, no logo, no mannequin, clean centered composition, white borders between cells.",
+    "output_file_path": "C:\\Users\\Playdata\\Desktop\\SKN28-FINAL-1Team\\docs\\golden-set\\outfits\\practical\\outfit_practical_beige.png",
+    "input_file_paths": [
+      "C:\\Users\\Playdata\\Desktop\\SKN28-FINAL-1Team\\docs\\golden-set\\assets\\pinterest_ref.jpg"
+    ],
+    "aspect_ratio": "1:1",
+    "resolution": "1K"
+  },
+  {
+    "prompt": "Flat-lay fashion product photography grid on pure white background, arranged in 3 rows and 3 columns layout (total 9 cells, the last 2 cells in the bottom row are empty/blank). Each filled cell contains a folded crew-neck cotton t-shirt on the left side and a pair of folded cotton chinos pants on the right side, neatly arranged, top-down view. The t-shirt color is the SAME in all 7 filled cells: Olive (#6B6B45). The pants color VARIES by cell, showing 7 common wardrobe basics in this exact order from top-left to bottom-right (reading left-to-right, top-to-bottom): cell 1: White (#FFFFFF, neutral cool/bright), cell 2: Black (#1E1E2E, neutral dark), cell 3: Navy (#1F2A44, cool dark), cell 4: Gray (#808080, neutral medium), cell 5: Brown (#6B4F3A, warm dark), cell 6: Ivory (#F2E8D5, neutral warm light), cell 7: Denim (#4A6FA5, cool medium (classic blue jean)). Each outfit in each cell follows this order so that you see 7 different pants colors paired with the same Olive t-shirt. These 7 pants represent the realistic basic wardrobe (white, black, navy, gray, brown, ivory, blue jeans) that most people actually own. The user wants to see which of these 7 basics harmonize well with the Olive t-shirt. Style: Pinterest minimal fashion catalog, soft natural light, professional product photo, e-commerce look, no model, no text, no shadow, no watermark, no logo, no mannequin, clean centered composition, white borders between cells.",
+    "output_file_path": "C:\\Users\\Playdata\\Desktop\\SKN28-FINAL-1Team\\docs\\golden-set\\outfits\\practical\\outfit_practical_olive.png",
+    "input_file_paths": [
+      "C:\\Users\\Playdata\\Desktop\\SKN28-FINAL-1Team\\docs\\golden-set\\assets\\pinterest_ref.jpg"
+    ],
+    "aspect_ratio": "1:1",
+    "resolution": "1K"
+  },
+  {
+    "prompt": "Flat-lay fashion product photography grid on pure white background, arranged in 3 rows and 3 columns layout (total 9 cells, the last 2 cells in the bottom row are empty/blank). Each filled cell contains a folded crew-neck cotton t-shirt on the left side and a pair of folded cotton chinos pants on the right side, neatly arranged, top-down view. The t-shirt color is the SAME in all 7 filled cells: Brown (#6B4F3A). The pants color VARIES by cell, showing 7 common wardrobe basics in this exact order from top-left to bottom-right (reading left-to-right, top-to-bottom): cell 1: White (#FFFFFF, neutral cool/bright), cell 2: Black (#1E1E2E, neutral dark), cell 3: Navy (#1F2A44, cool dark), cell 4: Gray (#808080, neutral medium), cell 5: Brown (#6B4F3A, warm dark), cell 6: Ivory (#F2E8D5, neutral warm light), cell 7: Denim (#4A6FA5, cool medium (classic blue jean)). Each outfit in each cell follows this order so that you see 7 different pants colors paired with the same Brown t-shirt. These 7 pants represent the realistic basic wardrobe (white, black, navy, gray, brown, ivory, blue jeans) that most people actually own. The user wants to see which of these 7 basics harmonize well with the Brown t-shirt. Style: Pinterest minimal fashion catalog, soft natural light, professional product photo, e-commerce look, no model, no text, no shadow, no watermark, no logo, no mannequin, clean centered composition, white borders between cells.",
+    "output_file_path": "C:\\Users\\Playdata\\Desktop\\SKN28-FINAL-1Team\\docs\\golden-set\\outfits\\practical\\outfit_practical_brown.png",
+    "input_file_paths": [
+      "C:\\Users\\Playdata\\Desktop\\SKN28-FINAL-1Team\\docs\\golden-set\\assets\\pinterest_ref.jpg"
+    ],
+    "aspect_ratio": "1:1",
+    "resolution": "1K"
+  },
+  {
+    "prompt": "Flat-lay fashion product photography grid on pure white background, arranged in 3 rows and 3 columns layout (total 9 cells, the last 2 cells in the bottom row are empty/blank). Each filled cell contains a folded crew-neck cotton t-shirt on the left side and a pair of folded cotton chinos pants on the right side, neatly arranged, top-down view. The t-shirt color is the SAME in all 7 filled cells: Burgundy (#7A1F4F). The pants color VARIES by cell, showing 7 common wardrobe basics in this exact order from top-left to bottom-right (reading left-to-right, top-to-bottom): cell 1: White (#FFFFFF, neutral cool/bright), cell 2: Black (#1E1E2E, neutral dark), cell 3: Navy (#1F2A44, cool dark), cell 4: Gray (#808080, neutral medium), cell 5: Brown (#6B4F3A, warm dark), cell 6: Ivory (#F2E8D5, neutral warm light), cell 7: Denim (#4A6FA5, cool medium (classic blue jean)). Each outfit in each cell follows this order so that you see 7 different pants colors paired with the same Burgundy t-shirt. These 7 pants represent the realistic basic wardrobe (white, black, navy, gray, brown, ivory, blue jeans) that most people actually own. The user wants to see which of these 7 basics harmonize well with the Burgundy t-shirt. Style: Pinterest minimal fashion catalog, soft natural light, professional product photo, e-commerce look, no model, no text, no shadow, no watermark, no logo, no mannequin, clean centered composition, white borders between cells.",
+    "output_file_path": "C:\\Users\\Playdata\\Desktop\\SKN28-FINAL-1Team\\docs\\golden-set\\outfits\\practical\\outfit_practical_burgundy.png",
+    "input_file_paths": [
+      "C:\\Users\\Playdata\\Desktop\\SKN28-FINAL-1Team\\docs\\golden-set\\assets\\pinterest_ref.jpg"
+    ],
+    "aspect_ratio": "1:1",
+    "resolution": "1K"
+  },
+  {
+    "prompt": "Flat-lay fashion product photography grid on pure white background, arranged in 3 rows and 3 columns layout (total 9 cells, the last 2 cells in the bottom row are empty/blank). Each filled cell contains a folded crew-neck cotton t-shirt on the left side and a pair of folded cotton chinos pants on the right side, neatly arranged, top-down view. The t-shirt color is the SAME in all 7 filled cells: Mustard (#D4A017). The pants color VARIES by cell, showing 7 common wardrobe basics in this exact order from top-left to bottom-right (reading left-to-right, top-to-bottom): cell 1: White (#FFFFFF, neutral cool/bright), cell 2: Black (#1E1E2E, neutral dark), cell 3: Navy (#1F2A44, cool dark), cell 4: Gray (#808080, neutral medium), cell 5: Brown (#6B4F3A, warm dark), cell 6: Ivory (#F2E8D5, neutral warm light), cell 7: Denim (#4A6FA5, cool medium (classic blue jean)). Each outfit in each cell follows this order so that you see 7 different pants colors paired with the same Mustard t-shirt. These 7 pants represent the realistic basic wardrobe (white, black, navy, gray, brown, ivory, blue jeans) that most people actually own. The user wants to see which of these 7 basics harmonize well with the Mustard t-shirt. Style: Pinterest minimal fashion catalog, soft natural light, professional product photo, e-commerce look, no model, no text, no shadow, no watermark, no logo, no mannequin, clean centered composition, white borders between cells.",
+    "output_file_path": "C:\\Users\\Playdata\\Desktop\\SKN28-FINAL-1Team\\docs\\golden-set\\outfits\\practical\\outfit_practical_mustard.png",
+    "input_file_paths": [
+      "C:\\Users\\Playdata\\Desktop\\SKN28-FINAL-1Team\\docs\\golden-set\\assets\\pinterest_ref.jpg"
+    ],
+    "aspect_ratio": "1:1",
+    "resolution": "1K"
+  },
+  {
+    "prompt": "Flat-lay fashion product photography grid on pure white background, arranged in 3 rows and 3 columns layout (total 9 cells, the last 2 cells in the bottom row are empty/blank). Each filled cell contains a folded crew-neck cotton t-shirt on the left side and a pair of folded cotton chinos pants on the right side, neatly arranged, top-down view. The t-shirt color is the SAME in all 7 filled cells: Teal (#008080). The pants color VARIES by cell, showing 7 common wardrobe basics in this exact order from top-left to bottom-right (reading left-to-right, top-to-bottom): cell 1: White (#FFFFFF, neutral cool/bright), cell 2: Black (#1E1E2E, neutral dark), cell 3: Navy (#1F2A44, cool dark), cell 4: Gray (#808080, neutral medium), cell 5: Brown (#6B4F3A, warm dark), cell 6: Ivory (#F2E8D5, neutral warm light), cell 7: Denim (#4A6FA5, cool medium (classic blue jean)). Each outfit in each cell follows this order so that you see 7 different pants colors paired with the same Teal t-shirt. These 7 pants represent the realistic basic wardrobe (white, black, navy, gray, brown, ivory, blue jeans) that most people actually own. The user wants to see which of these 7 basics harmonize well with the Teal t-shirt. Style: Pinterest minimal fashion catalog, soft natural light, professional product photo, e-commerce look, no model, no text, no shadow, no watermark, no logo, no mannequin, clean centered composition, white borders between cells.",
+    "output_file_path": "C:\\Users\\Playdata\\Desktop\\SKN28-FINAL-1Team\\docs\\golden-set\\outfits\\practical\\outfit_practical_teal.png",
+    "input_file_paths": [
+      "C:\\Users\\Playdata\\Desktop\\SKN28-FINAL-1Team\\docs\\golden-set\\assets\\pinterest_ref.jpg"
+    ],
+    "aspect_ratio": "1:1",
+    "resolution": "1K"
+  }
+]
