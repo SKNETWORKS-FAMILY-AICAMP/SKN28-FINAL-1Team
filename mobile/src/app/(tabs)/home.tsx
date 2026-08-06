@@ -4,6 +4,7 @@ import { useMemo, useState } from 'react';
 import { Pressable, RefreshControl, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import { HomeStatusSlot } from '@/components/home/home-status-slot';
 import { Avatar, ErrorState, LoadingState, SmartImage, useToast } from '@/components/ui';
 import { DEMO_HOME } from '@/constants/demo';
 import { Editorial, ink, Fonts , ContentMax} from '@/constants/theme';
@@ -75,12 +76,17 @@ export default function HomeScreen() {
             ) : undefined
           }
           contentContainerStyle={[styles.content, { paddingBottom: tabInset + 24 }, contentStyle(ContentMax.card)]}>
-          {/* 헤더: 인사말 + 캘린더/프로필 (한 줄) */}
+          {/* 헤더: 인사말 + 기록/캘린더/프로필 (한 줄) */}
           <View style={styles.header}>
             <Text style={styles.greeting} numberOfLines={1}>
               안녕하세요 {nickname}님
             </Text>
             <View style={styles.headerRight}>
+              {/* 분석 기록은 늘 열 수 있어야 하는 진입점이라 본문이 아니라 헤더에 둔다.
+                  본문에 두면 상시로 세로 공간을 먹어 오늘의 룩 카드가 밀린다. */}
+              <Pressable hitSlop={10} onPress={() => router.push('/outfit-history')}>
+                <Icon name="archivebox" tintColor={INK} size={24} />
+              </Pressable>
               <Pressable hitSlop={10} onPress={() => router.push('/calendar')}>
                 <Icon name="calendar" tintColor={INK} size={24} />
               </Pressable>
@@ -90,6 +96,10 @@ export default function HomeScreen() {
               </Pressable>
             </View>
           </View>
+
+          {/* 상태 카드는 홈이 어느 분기를 그리든 보여야 한다 — 분기 안에 넣으면
+              옷장에 옷이 있는 회원은 진행 중인 분석을 볼 데가 없어진다. */}
+          <HomeStatusSlot />
 
           {status === 'loading' ? (
             <LoadingState message="홈을 준비하는 중…" />
