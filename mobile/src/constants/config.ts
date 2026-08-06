@@ -147,6 +147,8 @@ export const PursuitEndpoint = '/api/v1/users/me/pursuit/';
 export const WardrobeEndpoints = {
   uploads: '/api/v1/wardrobe/uploads/',
   uploadJob: (jobId: string) => `/api/v1/wardrobe/uploads/${jobId}/`,
+  batches: '/api/v1/wardrobe/batches/',
+  batch: (batchId: string) => `/api/v1/wardrobe/batches/${batchId}/`,
   items: '/api/v1/wardrobe/items/',
   item: (itemId: string) => `/api/v1/wardrobe/items/${itemId}/`,
 } as const;

@@ -116,6 +116,35 @@ services:
               count: all
               capabilities: [gpu]
 
+  wardrobe-item-tagger:
+    build:
+      context: ./image-processor
+    image: skn28-image-processor
+    container_name: skn28-wardrobe-item-tagger
+    restart: unless-stopped
+    env_file: [.env]
+    environment:
+      TZ: Asia/Seoul
+      HF_HOME: /app/.cache/huggingface
+      WARDROBE_JOB_QUEUE: ${WARDROBE_ITEM_JOB_QUEUE:-wardrobe:item-jobs}
+      WORKER_PIPELINE: qwen-tag
+      WORKER_PIPELINE_VERSION: qwen-tag-v1
+    volumes:
+      - hf_cache:/app/.cache/huggingface
+    healthcheck:
+      test: [CMD-SHELL, 'python -c "import services.queue as q; q._redis().ping()"']
+      interval: 60s
+      timeout: 15s
+      retries: 3
+      start_period: 300s
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+
 volumes:
   # 두 서비스가 같은 임베딩 모델(FashionSigLIP / bge-m3)을 쓰므로 캐시를 공유한다.
   hf_cache:

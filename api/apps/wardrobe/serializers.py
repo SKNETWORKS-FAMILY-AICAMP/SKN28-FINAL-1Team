@@ -5,6 +5,8 @@
 """
 from __future__ import annotations
 
+import os
+
 from rest_framework import serializers
 
 from . import taxonomy as T
@@ -13,6 +15,8 @@ from .services import storage
 
 MAX_UPLOAD_MB = 15
 ALLOWED_CONTENT_TYPES = {"image/jpeg", "image/png", "image/webp", "image/heic"}
+MAX_BATCH_ITEMS = int(os.getenv("WARDROBE_BATCH_MAX_ITEMS", "30"))
+MAX_BATCH_TOTAL_MB = int(os.getenv("WARDROBE_BATCH_MAX_TOTAL_MB", "100"))
 
 
 # ── 업로드 ────────────────────────────────────────────────
@@ -29,6 +33,35 @@ class WardrobeUploadSerializer(serializers.Serializer):
                 "지원하지 않는 이미지 형식입니다 (jpeg/png/webp/heic)."
             )
         return image
+
+
+class WardrobeBatchCreateSerializer(serializers.Serializer):
+    images = serializers.ListField(
+        child=serializers.FileField(), allow_empty=False, max_length=MAX_BATCH_ITEMS,
+    )
+    source = serializers.RegexField(
+        r"^[a-z][a-z0-9_-]{0,19}$", required=False, default="onboarding",
+    )
+
+    def validate_images(self, images):
+        for image in images:
+            if image.size > MAX_UPLOAD_MB * 1024 * 1024:
+                raise serializers.ValidationError(f"이미지는 장당 {MAX_UPLOAD_MB}MB 이하여야 합니다.")
+            if image.content_type not in ALLOWED_CONTENT_TYPES:
+                raise serializers.ValidationError("지원하지 않는 이미지 형식입니다. (jpeg/png/webp/heic)")
+            header = image.read(16)
+            image.seek(0)
+            valid = {
+                "image/jpeg": header.startswith(b"\xff\xd8\xff"),
+                "image/png": header.startswith(b"\x89PNG\r\n\x1a\n"),
+                "image/webp": header.startswith(b"RIFF") and header[8:12] == b"WEBP",
+                "image/heic": header[4:8] == b"ftyp" and header[8:12] in {b"heic", b"heix", b"hevc", b"hevx", b"mif1"},
+            }[image.content_type]
+            if not valid:
+                raise serializers.ValidationError("파일 내용이 이미지 형식과 일치하지 않습니다.")
+        if sum(image.size for image in images) > MAX_BATCH_TOTAL_MB * 1024 * 1024:
+            raise serializers.ValidationError(f"이미지 합계는 {MAX_BATCH_TOTAL_MB}MB 이하여야 합니다.")
+        return images
 
 
 # ── 아이템 조회/수정 ──────────────────────────────────────
@@ -74,11 +107,14 @@ class WardrobeItemUpdateSerializer(serializers.ModelSerializer):
 
 # ── job 상태 조회 ─────────────────────────────────────────
 class WardrobeJobSerializer(serializers.ModelSerializer):
+    job_id = serializers.UUIDField(source="id", read_only=True)
+    file_name = serializers.CharField(source="original_file_name", read_only=True)
     items = WardrobeItemSerializer(many=True, read_only=True)
 
     class Meta:
         model = WardrobeUploadJob
-        fields = ["id", "status", "error_message", "created_at", "finished_at", "items"]
+        fields = ["id", "job_id", "file_name", "status", "error_message",
+                  "created_at", "finished_at", "items"]
 
 
 # ── 이미지 프로세서 콜백 ──────────────────────────────────

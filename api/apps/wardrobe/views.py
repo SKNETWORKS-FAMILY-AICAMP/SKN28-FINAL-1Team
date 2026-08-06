@@ -8,6 +8,8 @@
 from __future__ import annotations
 
 import logging
+import os
+from datetime import timedelta
 
 import redis as redis_lib
 from django.db import transaction
@@ -18,10 +20,11 @@ from rest_framework.parsers import FormParser, MultiPartParser
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from .models import WardrobeItem, WardrobeUploadJob
+from .models import WardrobeItem, WardrobeItemBatch, WardrobeUploadJob
 from .permissions import HasInternalToken
 from .serializers import (
     CallbackSerializer,
+    WardrobeBatchCreateSerializer,
     WardrobeItemSerializer,
     WardrobeItemUpdateSerializer,
     WardrobeJobSerializer,
@@ -30,6 +33,104 @@ from .serializers import (
 from .services import jobs, storage, vectors
 
 logger = logging.getLogger(__name__)
+
+
+def _batch_data(batch: WardrobeItemBatch) -> dict:
+    pending = max(batch.total_count - batch.done_count - batch.failed_count, 0)
+    terminal = batch.status in {batch.Status.DONE, batch.Status.PARTIAL, batch.Status.FAILED}
+    return {
+        "batch_id": str(batch.pk), "status": batch.status, "source": batch.source,
+        "counts": {"total": batch.total_count, "pending": pending,
+                   "done": batch.done_count, "failed": batch.failed_count},
+        "progress": round((batch.done_count + batch.failed_count) / batch.total_count, 2),
+        "poll_after_ms": None if terminal else int(os.getenv("WARDROBE_BATCH_POLL_AFTER_MS", "3000")),
+        "created_at": batch.created_at, "finished_at": batch.finished_at,
+        "jobs": WardrobeJobSerializer(batch.jobs.all(), many=True).data,
+    }
+
+
+class WardrobeBatchView(APIView):
+    parser_classes = [MultiPartParser, FormParser]
+
+    def get(self, request):
+        queryset = WardrobeItemBatch.objects.filter(user=request.user).prefetch_related("jobs__items")
+        if request.query_params.get("status"):
+            queryset = queryset.filter(status=request.query_params["status"].upper())
+        try:
+            limit = min(max(int(request.query_params.get("limit", 20)), 1), 100)
+            offset = max(int(request.query_params.get("offset", 0)), 0)
+        except ValueError:
+            return Response({"detail": "limit과 offset은 정수여야 합니다."}, status=400)
+        return Response([_batch_data(batch) for batch in queryset[offset:offset + limit]])
+
+    def post(self, request):
+        serializer = WardrobeBatchCreateSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        if not storage.BUCKET:
+            return Response({"detail": "이미지 저장소가 설정되지 않았습니다."}, status=503)
+
+        images = serializer.validated_data["images"]
+        batch = WardrobeItemBatch.objects.create(
+            user=request.user, source=serializer.validated_data["source"], total_count=len(images),
+        )
+        accepted, rejected, uploaded = [], [], []
+        for image in images:
+            job = WardrobeUploadJob(user=request.user, batch=batch, pipeline="qwen-tag",
+                                    original_file_name=image.name)
+            key = storage.original_key(request.user.pk, job.pk, image.name)
+            try:
+                storage.upload_fileobj(image, key, image.content_type)
+                uploaded.append(key)
+            except Exception:  # noqa: BLE001
+                job.status, job.error_message, job.finished_at = "FAILED", "upload_failed", timezone.now()
+                job.source_s3_key = key
+                job.save()
+                rejected.append({"file_name": image.name, "reason": "upload_failed"})
+                continue
+            job.source_s3_key = key
+            job.save()
+            try:
+                jobs.enqueue_item(job)
+                accepted.append({"job_id": str(job.pk), "file_name": image.name})
+            except redis_lib.RedisError:
+                job.status, job.error_message, job.finished_at = "FAILED", "enqueue_failed", timezone.now()
+                job.save(update_fields=["status", "error_message", "finished_at"])
+                rejected.append({"file_name": image.name, "reason": "enqueue_failed"})
+
+        if not accepted:
+            batch.delete()
+            for key in uploaded:
+                try:
+                    storage.delete_object(key)
+                except Exception:  # noqa: BLE001
+                    logger.exception("배치 롤백 S3 정리 실패: %s", key)
+            return Response({"detail": "일괄 등록을 시작하지 못했습니다."}, status=503)
+
+        batch.refresh_status()
+        poll_ms = int(os.getenv("WARDROBE_BATCH_POLL_AFTER_MS", "3000"))
+        return Response({
+            "batch_id": str(batch.pk), "status": batch.status, "total_count": batch.total_count,
+            "accepted": accepted, "rejected": rejected,
+            "poll_url": f"/api/v1/wardrobe/batches/{batch.pk}/", "poll_after_ms": poll_ms,
+            "estimated_seconds": batch.total_count * int(os.getenv("WARDROBE_BATCH_SECONDS_PER_ITEM", "8")),
+        }, status=202)
+
+
+class WardrobeBatchDetailView(APIView):
+    def get(self, request, batch_id):
+        batch = get_object_or_404(
+            WardrobeItemBatch.objects.prefetch_related("jobs__items"), pk=batch_id, user=request.user,
+        )
+        # ponytail: 폴링 중에만 만료시킨다. 백그라운드 정리가 필요해지면 ECS 스케줄로 분리.
+        timeout = max(int(os.getenv("WARDROBE_BATCH_STALE_AFTER_MINUTES", "30")) * 60,
+                      batch.total_count * int(os.getenv("WARDROBE_BATCH_SECONDS_PER_ITEM", "8")) * 3)
+        changed = batch.jobs.filter(status="PENDING", created_at__lte=timezone.now() - timedelta(seconds=timeout)).update(
+            status="FAILED", error_message="stale_timeout", finished_at=timezone.now(),
+        )
+        if changed:
+            batch.refresh_status()
+            batch = WardrobeItemBatch.objects.prefetch_related("jobs__items").get(pk=batch.pk)
+        return Response(_batch_data(batch))
 
 
 class WardrobeUploadView(APIView):
@@ -107,7 +208,10 @@ class WardrobeCallbackView(APIView):
         serializer.is_valid(raise_exception=True)
         data = serializer.validated_data
 
+        batch_id = WardrobeUploadJob.objects.filter(pk=data["job_id"]).values_list("batch_id", flat=True).first()
         with transaction.atomic():
+            batch = (WardrobeItemBatch.objects.select_for_update().get(pk=batch_id)
+                     if batch_id else None)
             job = (
                 WardrobeUploadJob.objects.select_for_update()
                 .filter(pk=data["job_id"])
@@ -130,6 +234,8 @@ class WardrobeCallbackView(APIView):
                 job.error_message = data.get("error", "")
                 job.finished_at = timezone.now()
                 job.save(update_fields=["status", "error_message", "finished_at"])
+                if batch:
+                    batch.refresh_status()
                 return Response({"job_id": str(job.pk), "status": job.status})
 
             created: list[tuple[WardrobeItem, list, list]] = []
@@ -147,6 +253,8 @@ class WardrobeCallbackView(APIView):
             job.status = WardrobeUploadJob.Status.DONE
             job.finished_at = timezone.now()
             job.save(update_fields=["status", "finished_at"])
+            if batch:
+                batch.refresh_status()
 
         # DB 커밋 후 파생 저장소 반영 (실패해도 embedding_version으로 재색인 가능)
         for item, image_vec, text_vec in created:

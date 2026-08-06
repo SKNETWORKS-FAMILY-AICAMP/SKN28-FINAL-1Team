@@ -26,6 +26,7 @@ REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379/0")
 # requirepass 비밀번호 (Infisical: REDIS_PASSWORD). URL에 내장하지 않고 별도 주입한다.
 REDIS_PASSWORD = os.getenv("REDIS_PASSWORD", "")
 QUEUE_KEY = os.getenv("WARDROBE_JOB_QUEUE", "wardrobe:jobs")
+ITEM_QUEUE_KEY = os.getenv("WARDROBE_ITEM_JOB_QUEUE", "wardrobe:item-jobs")
 CALLBACK_URL = os.getenv("WARDROBE_CALLBACK_URL", "")
 
 
@@ -49,3 +50,16 @@ def enqueue(job) -> None:
         "callback_url": CALLBACK_URL,
     }
     _redis().lpush(QUEUE_KEY, json.dumps(payload, ensure_ascii=False))
+
+
+def enqueue_item(job) -> None:
+    payload = {
+        "job_id": str(job.id),
+        "batch_id": str(job.batch_id),
+        "user_id": job.user_id,
+        "source": {"bucket": storage.BUCKET, "key": job.source_s3_key},
+        "output_prefix": storage.output_prefix(job.user_id, job.id),
+        "input_mode": "photo",
+        "callback_url": CALLBACK_URL,
+    }
+    _redis().lpush(ITEM_QUEUE_KEY, json.dumps(payload, ensure_ascii=False))

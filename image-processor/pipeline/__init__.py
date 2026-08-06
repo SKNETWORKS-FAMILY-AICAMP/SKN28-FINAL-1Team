@@ -20,6 +20,7 @@ from .base import (  # noqa: F401 — 패키지 공개 API
     ItemTagger,
     ProcessedItem,
     ProductImageGenerator,
+    RetryablePipelineError,
 )
 from .embedding import NullEmbedder, SigLIPBgeEmbedder, caption_from_tags
 from .taxonomy import missing_required
@@ -73,6 +74,8 @@ class WardrobePipeline:
                 item.timings["embed"] = round(time.perf_counter() - t, 3)
 
                 item.tags["_missing_required"] = missing_required(item.tags)
+            except RetryablePipelineError:
+                raise
             except Exception as e:  # noqa: BLE001 — 아이템 단위 격리
                 logger.exception("아이템 %d(%s) 처리 실패", i, enum_item.label_ko)
                 item.error = f"{type(e).__name__}: {e}"
@@ -97,9 +100,19 @@ def _build_gemini_edit() -> WardrobePipeline:
     )
 
 
+def _build_qwen_tag() -> WardrobePipeline:
+    from .qwen import NormalizeGenerator, QwenVLTagger, SingleItemEnumerator
+
+    return WardrobePipeline(
+        SingleItemEnumerator(), NormalizeGenerator(), QwenVLTagger(),
+        SigLIPBgeEmbedder() if config.EMBED_ENABLED else NullEmbedder(),
+    )
+
+
 # 새 구현은 여기 등록: {"sam3-crop": _build_sam3_crop, ...}
 _REGISTRY = {
     "gemini-edit": _build_gemini_edit,
+    "qwen-tag": _build_qwen_tag,
 }
 
 

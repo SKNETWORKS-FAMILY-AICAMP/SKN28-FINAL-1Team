@@ -1,6 +1,8 @@
 from django.urls import path
 
 from apps.wardrobe.views import (
+    WardrobeBatchDetailView,
+    WardrobeBatchView,
     WardrobeCallbackView,
     WardrobeItemDetailView,
     WardrobeItemListView,
@@ -11,6 +13,8 @@ from apps.wardrobe.views import (
 app_name = "wardrobe"
 
 urlpatterns = [
+    path("wardrobe/batches/", WardrobeBatchView.as_view(), name="batch-list-create"),
+    path("wardrobe/batches/<uuid:batch_id>/", WardrobeBatchDetailView.as_view(), name="batch-detail"),
     # 옷장 아이템 등록 (비동기)
     path("wardrobe/uploads/", WardrobeUploadView.as_view(), name="upload"),
     path("wardrobe/uploads/<uuid:job_id>/", WardrobeUploadJobView.as_view(), name="upload-job"),

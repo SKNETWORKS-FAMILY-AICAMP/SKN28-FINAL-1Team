@@ -1,6 +1,7 @@
 import { useSyncExternalStore } from 'react';
 
-import { getUploadJob, uploadWardrobePhoto } from '@/lib/wardrobeApi';
+import { getUploadJob, getWardrobeBatch, uploadWardrobeBatch, uploadWardrobePhoto } from '@/lib/wardrobeApi';
+import type { SelectedItemPhoto } from '@/lib/pickItemPhoto';
 
 /**
  * 옷 등록 진행 상황 — 화면이 아니라 여기서 돌린다.
@@ -17,6 +18,7 @@ export type UploadJobState = {
   key: string;
   phase: UploadPhase;
   error?: string;
+  progress?: string;
 };
 
 /** 폴링 간격·한도 — 누끼+캡셔닝이 GPU 큐를 타므로 즉시 끝나지 않는다. */
@@ -101,6 +103,49 @@ export const uploadJobs = {
         }
       };
       setTimeout(poll, POLL_INTERVAL_MS);
+    })();
+  },
+
+  startBatch(photos: SelectedItemPhoto[]) {
+    const key = `b${++seq}`;
+    jobs = [...jobs, { key, phase: 'uploading', progress: `0/${photos.length}장` }];
+    notify();
+
+    (async () => {
+      let batchId: string;
+      let interval = 3000;
+      try {
+        const batch = await uploadWardrobeBatch(photos);
+        batchId = batch.batch_id;
+        interval = batch.poll_after_ms;
+        update(key, { phase: 'processing' });
+      } catch (e) {
+        update(key, { phase: 'failed', error: e instanceof Error ? e.message : '일괄 등록에 실패했어요' });
+        return;
+      }
+
+      const poll = async () => {
+        try {
+          const batch = await getWardrobeBatch(batchId);
+          update(key, { progress: `${batch.counts.done + batch.counts.failed}/${batch.counts.total}장` });
+          if (batch.status === 'DONE') {
+            drop(key); completed += 1; notify(); return;
+          }
+          if (batch.status === 'PARTIAL') {
+            completed += 1;
+            update(key, { phase: 'failed', error: `${batch.counts.done}장은 등록했고 ${batch.counts.failed}장은 실패했어요.` });
+            return;
+          }
+          if (batch.status === 'FAILED') {
+            update(key, { phase: 'failed', error: '선택한 사진을 처리하지 못했어요.' });
+            return;
+          }
+          setTimeout(poll, batch.poll_after_ms ?? interval);
+        } catch (e) {
+          update(key, { phase: 'failed', error: e instanceof Error ? e.message : '처리 상태를 확인하지 못했어요' });
+        }
+      };
+      setTimeout(poll, interval);
     })();
   },
 

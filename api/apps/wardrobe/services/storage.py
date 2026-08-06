@@ -40,6 +40,10 @@ def upload_fileobj(fileobj, key: str, content_type: str | None = None) -> None:
     )
 
 
+def delete_object(key: str) -> None:
+    _client().delete_object(Bucket=BUCKET, Key=key)
+
+
 def presigned_get(key: str, ttl: int = PRESIGNED_GET_TTL) -> str:
     return _client().generate_presigned_url(
         "get_object", Params={"Bucket": BUCKET, "Key": key}, ExpiresIn=ttl
