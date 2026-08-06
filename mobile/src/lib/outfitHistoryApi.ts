@@ -105,7 +105,13 @@ export function getOutfitAnalysis(analysisId: string): Promise<OutfitAnalysisDet
   return api.get<OutfitAnalysisDetail>(OutfitHistoryEndpoints.detail(analysisId));
 }
 
-export type ClaimSkipReason = 'invalid' | 'expired' | 'not_found' | 'already_owned' | string;
+/** 백엔드 services/claim.py SkipReason 과 같은 값. */
+export type ClaimSkipReason =
+  | 'invalid_token'
+  | 'expired'
+  | 'not_found'
+  | 'already_owned'
+  | (string & {});
 
 export type OutfitAnalysisClaimResponse = {
   claimed: string[];
