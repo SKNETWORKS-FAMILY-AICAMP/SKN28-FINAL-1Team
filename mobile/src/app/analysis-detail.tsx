@@ -39,15 +39,18 @@ function stampLabel(iso: string): string {
  * 훅이 그동안 이 화면에서만 다시 조회한다(화면을 나가면 멈춘다 — 서버 작업은 계속된다).
  */
 export default function AnalysisDetailScreen() {
-  const { isLoggedIn } = useAuth();
+  const { isLoggedIn, isDemo } = useAuth();
   const { contentStyle } = useBreakpoint();
   const tabInset = useBottomTabInset();
   const { id, from } = useLocalSearchParams<{ id?: string; from?: string }>();
 
-  /* 훅 순서를 지키려고 비회원이어도 전부 호출한 뒤 분기한다. */
-  const { analysis, loading, error, reload } = useOutfitAnalysisDetail(isLoggedIn ? id : undefined);
+  /* 데모 세션은 토큰이 없어 본인 기록 조회가 401 이다 — 로그인으로 보지 않는다. */
+  const canRead = isLoggedIn && !isDemo;
 
-  if (!isLoggedIn) {
+  /* 훅 순서를 지키려고 비회원이어도 전부 호출한 뒤 분기한다. */
+  const { analysis, loading, error, reload } = useOutfitAnalysisDetail(canRead ? id : undefined);
+
+  if (!canRead) {
     return (
       <LoginGate
         title="분석 기록은 로그인하고 볼 수 있어요"

@@ -42,16 +42,19 @@ function weatherLabel(w: AnalysisWeather | null | undefined): string | null {
  * 백엔드가 목록에 image_url 을 실어주면 카드 왼쪽에 붙이면 된다.
  */
 export default function OutfitHistoryScreen() {
-  const { isLoggedIn } = useAuth();
+  const { isLoggedIn, isDemo } = useAuth();
   const { contentStyle } = useBreakpoint();
   const tabInset = useBottomTabInset();
 
+  /* 데모 세션은 status='authed' 지만 토큰이 없어 목록 API 가 401 이다 — 로그인으로 보지 않는다. */
+  const canRead = isLoggedIn && !isDemo;
+
   /* 훅 순서를 지키려고 비회원이어도 훅은 전부 호출한 뒤 분기한다(호출만 막는다). */
   const { items, total, hasMore, loading, loadingMore, error, reload, loadMore } =
-    useOutfitHistory(isLoggedIn);
+    useOutfitHistory(canRead);
   const { refreshing, onRefresh } = useRefresh(reload);
 
-  if (!isLoggedIn) {
+  if (!canRead) {
     return (
       <LoginGate
         title="분석 기록은 로그인하고 볼 수 있어요"
