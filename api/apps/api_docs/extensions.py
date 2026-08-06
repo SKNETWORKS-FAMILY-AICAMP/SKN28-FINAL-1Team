@@ -34,6 +34,7 @@ from apps.users.serializers import (
     BodyMeasurementSerializer,
     BodyPhotoTransactionSerializer,
     BodyPhotoUploadSerializer,
+    BudgetSerializer,
     PursuitPayloadInputSerializer,
     PursuitPayloadResponseSerializer,
     SocialLoginSerializer,
@@ -598,6 +599,85 @@ class PursuitViewExtension(OpenApiViewExtension):
             pass
 
         return DocumentedPursuitView
+
+
+BUDGET_DESCRIPTION = """내 월 의류 구매 예산을 조회·설정합니다.
+
+- 금액은 **1만원 단위**입니다. 10,000으로 나누어떨어지지 않으면 400입니다.
+- 범위는 10,000 이상 2,147,480,000 이하입니다.
+- 설정한 적 없으면 GET은 `monthly_budget: null`을 반환합니다 (404 아님).
+- PUT은 전체 교체라 `monthly_budget` 키가 **반드시** 있어야 합니다.
+  예산을 지우려면 키를 생략하는 게 아니라 명시적으로 `null`을 보내세요.
+"""
+
+BUDGET_REQUEST_EXAMPLES = [
+    OpenApiExample(
+        name="예산 설정 (월 30만원)",
+        value={"monthly_budget": 300000},
+        request_only=True,
+    ),
+    OpenApiExample(
+        name="예산 해제 (null)",
+        description="키를 빼면 400이다 — 해제는 반드시 명시적인 null로 보낸다.",
+        value={"monthly_budget": None},
+        request_only=True,
+    ),
+]
+
+BUDGET_RESPONSE_EXAMPLES = [
+    OpenApiExample(
+        name="설정됨",
+        value={"monthly_budget": 300000},
+        response_only=True,
+    ),
+    OpenApiExample(
+        name="미설정",
+        value={"monthly_budget": None},
+        response_only=True,
+    ),
+]
+
+
+class BudgetViewExtension(OpenApiViewExtension):
+    """예산 API는 평범한 APIView라 serializer를 추론할 근거가 없다.
+
+    선언해 주지 않으면 drf-spectacular가 PUT의 request body를 빈 것으로 내보내,
+    Swagger UI에서 뭐를 보내야 하는지 알 수 없게 된다.
+    """
+
+    target_class = "apps.users.views.BudgetView"
+
+    def view_replacement(self):
+        @extend_schema_view(
+            get=extend_schema(
+                operation_id="get_budget",
+                tags=["Users"],
+                summary="내 월 의류 구매 예산 조회",
+                description=BUDGET_DESCRIPTION,
+                responses={
+                    200: BudgetSerializer,
+                    401: DetailResponseSerializer,
+                },
+                examples=BUDGET_RESPONSE_EXAMPLES,
+            ),
+            put=extend_schema(
+                operation_id="update_budget",
+                tags=["Users"],
+                summary="내 월 의류 구매 예산 설정 (전체 교체)",
+                description=BUDGET_DESCRIPTION,
+                request=BudgetSerializer,
+                responses={
+                    200: BudgetSerializer,
+                    400: DetailResponseSerializer,
+                    401: DetailResponseSerializer,
+                },
+                examples=BUDGET_REQUEST_EXAMPLES + BUDGET_RESPONSE_EXAMPLES,
+            ),
+        )
+        class DocumentedBudgetView(self.target_class):
+            pass
+
+        return DocumentedBudgetView
 
 
 # =============================================================================

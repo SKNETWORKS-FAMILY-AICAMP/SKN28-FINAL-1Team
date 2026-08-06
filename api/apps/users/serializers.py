@@ -63,11 +63,23 @@ class SocialAccountSerializer(serializers.ModelSerializer):
 
 
 class BudgetSerializer(serializers.ModelSerializer):
+    """GET/PUT /users/me/budget/ — 월 의류 구매 예산.
+
+    PUT은 전체 교체라 `monthly_budget` 키가 반드시 있어야 하며(required),
+    예산을 지우려면 키를 빼는 게 아니라 **명시적으로 null**을 보낸다.
+    메타 상한(2,147,480,000)은 PositiveIntegerField의 21억대 상한을
+    1만원 단위로 내림 값이다 — 저장 직전에 DB가 터지지 않게 하려는 방어막.
+    """
+
     monthly_budget = serializers.IntegerField(
         min_value=10_000,
         max_value=2_147_480_000,
         allow_null=True,
         required=True,
+        help_text=(
+            "월 의류 구매 예산(원). **1만원 단위**로 10,000 이상 2,147,480,000 이하. "
+            "`null`을 보내면 설정해 둔 예산을 지우고, 조회 시 미설정이면 `null`이 내려갑니다."
+        ),
     )
 
     class Meta:
