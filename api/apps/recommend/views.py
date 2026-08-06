@@ -197,7 +197,12 @@ class OutfitAnalysisDetailView(APIView):
             "비로그인 접수 건은 토큰 없이 조회할 수 있으며 접수 후 일정 시간이 지나면 닫힙니다"
             " (OUTFIT_ANON_TTL_HOURS, 기본 24시간). "
             "로그인 상태로 접수한 건은 본인 토큰이 있어야 하고, 이 경우 질의에 쓴 "
-            "체형·추구미 스냅샷과 LLM 요청·응답 원본까지 함께 내려갑니다."
+            "체형·추구미 스냅샷과 LLM 요청·응답 원본까지 함께 내려갑니다.\n\n"
+            "`save_to_wardrobe=true`로 접수한 건은 본인 조회 응답에 `wardrobe` 객체가 함께 옵니다 "
+            "(연계하지 않았으면 null). 옷장 등록은 별도 파이프라인이라 평가가 SUCCEEDED가 된 뒤에도 "
+            "`wardrobe.status`는 아직 PENDING/PROCESSING일 수 있으며, **DONE이 되면** "
+            "`wardrobe.items`에 생성된 아이템 요약(이름·분류·색상·이미지 URL·확정 여부)이 채워집니다. "
+            "전체 태그가 필요하면 GET /api/v1/wardrobe/uploads/{job_id}/ 를 쓰세요."
         ),
         responses={
             200: OutfitAnalysisPublicSerializer,
@@ -205,7 +210,14 @@ class OutfitAnalysisDetailView(APIView):
         },
     )
     def get(self, request: Request, analysis_id) -> Response:
-        analysis = OutfitAnalysis.objects.filter(pk=analysis_id).first()
+        # 상세 응답은 옷장 연계 job과 그 아이템까지 싣는다 — 미리 당기지 않으면 직렬화에서 쿼리가 더 난다.
+        # 익명 응답에는 옷장이 없지만, 익명은 애초에 wardrobe_job이 NULL이라 빈 join 1번이 전부다.
+        analysis = (
+            OutfitAnalysis.objects.select_related("wardrobe_job")
+            .prefetch_related("wardrobe_job__items")
+            .filter(pk=analysis_id)
+            .first()
+        )
         if analysis is None:
             raise NotFound("평가 기록을 찾을 수 없습니다.")
 
