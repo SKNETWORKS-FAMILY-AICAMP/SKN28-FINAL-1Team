@@ -4,7 +4,13 @@ from datetime import timedelta
 from django.conf import settings
 from django.urls import reverse
 from django.utils import timezone
-from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, extend_schema
+from drf_spectacular.utils import (
+    OpenApiExample,
+    OpenApiParameter,
+    OpenApiResponse,
+    PolymorphicProxySerializer,
+    extend_schema,
+)
 from rest_framework import status
 from rest_framework.exceptions import NotFound
 from rest_framework.parsers import FormParser, MultiPartParser
@@ -39,6 +45,188 @@ def _positive_int(raw: str | None, *, default: int) -> int:
     except (TypeError, ValueError):
         return default
     return value if value >= 0 else default
+
+
+# ──────────────────────────────────────────────────────────────
+# 조회 응답 예시 (Swagger)
+#
+# 이 엔드포인트는 인증 여부에 따라 응답 모양이 둘로 갈린다. 스키마에 한쪽만
+# 적어두면 나머지 한쪽의 필드(사진 URL·체형 스냅샷·옷장 연계)가 문서에 아예
+# 드러나지 않으므로 oneOf로 둘 다 노출하고, 예시로 구분한다.
+# ──────────────────────────────────────────────────────────────
+
+_EVALUATION_EXAMPLE = {
+    "overall_score": 88,
+    "summary": "색상 조화가 안정적이고 계절감에 맞는 코디입니다.",
+    "strengths": ["상하의 명도 대비가 좋습니다.", "실루엣이 깔끔합니다."],
+    "weather_comment": "현재 기온 24도에 적당한 두께입니다.",
+    "personalization_comment": "선호하시는 미니멀 무드와 잘 맞습니다.",
+    "styling_tips": ["밝은 색 가방을 더하면 포인트가 생깁니다."],
+}
+_WEATHER_EXAMPLE = {
+    "region": "서울특별시 종로구",
+    "temperature": 24.0,
+    "sky_state": "맑음",
+    "is_stale": False,
+    "observed_at": "2026-08-06T14:00:00+09:00",
+}
+
+ANONYMOUS_RESULT_EXAMPLE = OpenApiExample(
+    name="비로그인 조회 (축소 응답)",
+    description=(
+        "UUID만 알면 볼 수 있는 응답이라 사진 URL·체형 스냅샷·LLM 원본은 빠진다. "
+        "옷장은 사용자 소유 데이터라 `wardrobe` 키 자체가 없다."
+    ),
+    value={
+        "analysis_id": "9f1c2d3e-4a5b-4c6d-8e7f-0a1b2c3d4e5f",
+        "status": "SUCCEEDED",
+        "evaluation": _EVALUATION_EXAMPLE,
+        "context": {
+            "weather": _WEATHER_EXAMPLE,
+            "personalized": False,
+            "used_pursuit": False,
+            "used_body": False,
+        },
+        "poll_after_ms": None,
+        "detail": None,
+        "created_at": "2026-08-06T14:58:02+09:00",
+        "finished_at": "2026-08-06T14:58:29+09:00",
+    },
+    response_only=True,
+)
+
+OWNER_WARDROBE_DONE_EXAMPLE = OpenApiExample(
+    name="본인 조회 · 옷장 등록까지 완료(DONE)",
+    description=(
+        "`save_to_wardrobe=true`로 접수한 건을 본인 토큰으로 조회한 경우. "
+        "`wardrobe.status`가 DONE이라 `wardrobe.items`에 생성된 아이템 요약이 채워진다."
+    ),
+    value={
+        "id": "9f1c2d3e-4a5b-4c6d-8e7f-0a1b2c3d4e5f",
+        "status": "SUCCEEDED",
+        "image_url": "https://s3.ap-northeast-2.amazonaws.com/…/original.jpg?X-Amz-Signature=…",
+        "image_content_type": "image/jpeg",
+        "image_bytes": 2481920,
+        "requested_lat": 37.5729,
+        "requested_lon": 126.9794,
+        "resolved_lat": 37.5729,
+        "resolved_lon": 126.9794,
+        "weather": _WEATHER_EXAMPLE,
+        "body": {"gender": "female", "height": 165, "weight": 52},
+        "pursuit": {
+            "preferred": {"styles": ["미니멀", "캐주얼"]},
+            "avoided": {"styles": ["스포티"]},
+        },
+        "personalized": True,
+        "save_to_wardrobe": True,
+        "wardrobe_job": "3f2a7c81-2b44-4a90-9c1e-77d0f5a1b2c3",
+        "wardrobe": {
+            "job_id": "3f2a7c81-2b44-4a90-9c1e-77d0f5a1b2c3",
+            "status": "DONE",
+            "error_message": "",
+            "created_at": "2026-08-06T14:58:03+09:00",
+            "finished_at": "2026-08-06T14:59:41+09:00",
+            "items": [
+                {
+                    "id": "11111111-1111-1111-1111-111111111111",
+                    "item_name": "화이트 옥스포드 셔츠",
+                    "category_large": "상의",
+                    "category_small": "셔츠",
+                    "color": "화이트",
+                    "image_url": "https://s3.ap-northeast-2.amazonaws.com/…/item_01.png?X-Amz-Signature=…",
+                    "confirmed": False,
+                },
+                {
+                    "id": "22222222-2222-2222-2222-222222222222",
+                    "item_name": "연청 슬림 진",
+                    "category_large": "하의",
+                    "category_small": "청바지",
+                    "color": "블루",
+                    "image_url": "https://s3.ap-northeast-2.amazonaws.com/…/item_02.png?X-Amz-Signature=…",
+                    "confirmed": False,
+                },
+            ],
+        },
+        "llm_model": "gemini-3.5-flash",
+        "request_payload": {
+            "systemInstruction": {"parts": [{"text": "당신은 패션 스타일리스트입니다…"}]},
+            "contents": [
+                {
+                    "parts": [
+                        {"text": "날씨: 서울특별시 종로구 24도 맑음…"},
+                        {
+                            "inlineData": {
+                                "mimeType": "image/jpeg",
+                                "data": "<image omitted: 184320 bytes>",
+                            }
+                        },
+                    ]
+                }
+            ],
+        },
+        "response_payload": {
+            "candidates": [{"content": {"parts": [{"text": "{\"overall_score\": 88, …}"}]}}],
+            "usageMetadata": {"totalTokenCount": 1234},
+        },
+        "evaluation": _EVALUATION_EXAMPLE,
+        "llm_image_bytes": 184320,
+        "latency_ms": 8452,
+        "attempts": 1,
+        "error_message": "",
+        "created_at": "2026-08-06T14:58:02+09:00",
+        "started_at": "2026-08-06T14:58:05+09:00",
+        "finished_at": "2026-08-06T14:58:29+09:00",
+    },
+    response_only=True,
+)
+
+OWNER_WARDROBE_PENDING_EXAMPLE = OpenApiExample(
+    name="본인 조회 · 평가는 끝났지만 옷장은 진행 중",
+    description=(
+        "**프론트가 가장 주의해야 할 상태.** 옷장 등록은 GPU 서버 → 콜백이라 "
+        "평가가 SUCCEEDED가 된 뒤에도 진행 중일 수 있다. `evaluation`만 보고 폴링을 "
+        "멈추면 옷장 아이템을 끝내 받지 못한다 — `wardrobe.status`가 DONE/FAILED가 "
+        "될 때까지 이어가야 한다. 지면 관계상 일부 필드는 생략했다."
+    ),
+    value={
+        "id": "9f1c2d3e-4a5b-4c6d-8e7f-0a1b2c3d4e5f",
+        "status": "SUCCEEDED",
+        "personalized": True,
+        "save_to_wardrobe": True,
+        "wardrobe_job": "3f2a7c81-2b44-4a90-9c1e-77d0f5a1b2c3",
+        "wardrobe": {
+            "job_id": "3f2a7c81-2b44-4a90-9c1e-77d0f5a1b2c3",
+            "status": "PROCESSING",
+            "error_message": "",
+            "created_at": "2026-08-06T14:58:03+09:00",
+            "finished_at": None,
+            "items": [],
+        },
+        "evaluation": _EVALUATION_EXAMPLE,
+        "error_message": "",
+        "created_at": "2026-08-06T14:58:02+09:00",
+        "finished_at": "2026-08-06T14:58:29+09:00",
+    },
+    response_only=True,
+)
+
+OWNER_NO_WARDROBE_EXAMPLE = OpenApiExample(
+    name="본인 조회 · 옷장 미연계",
+    description="`save_to_wardrobe`를 요청하지 않으면 `wardrobe`는 null이다. 일부 필드 생략.",
+    value={
+        "id": "9f1c2d3e-4a5b-4c6d-8e7f-0a1b2c3d4e5f",
+        "status": "SUCCEEDED",
+        "personalized": True,
+        "save_to_wardrobe": False,
+        "wardrobe_job": None,
+        "wardrobe": None,
+        "evaluation": _EVALUATION_EXAMPLE,
+        "error_message": "",
+        "created_at": "2026-08-06T14:58:02+09:00",
+        "finished_at": "2026-08-06T14:58:29+09:00",
+    },
+    response_only=True,
+)
 
 
 class OutfitAnalysisView(APIView):
@@ -202,12 +390,28 @@ class OutfitAnalysisDetailView(APIView):
             "(연계하지 않았으면 null). 옷장 등록은 별도 파이프라인이라 평가가 SUCCEEDED가 된 뒤에도 "
             "`wardrobe.status`는 아직 PENDING/PROCESSING일 수 있으며, **DONE이 되면** "
             "`wardrobe.items`에 생성된 아이템 요약(이름·분류·색상·이미지 URL·확정 여부)이 채워집니다. "
-            "전체 태그가 필요하면 GET /api/v1/wardrobe/uploads/{job_id}/ 를 쓰세요."
+            "전체 태그가 필요하면 GET /api/v1/wardrobe/uploads/{job_id}/ 를 쓰세요.\n\n"
+            "아래 **Example** 드롭다운에서 비로그인·본인 응답과 옷장 상태별 샘플을 골라 볼 수 있습니다."
         ),
         responses={
-            200: OutfitAnalysisPublicSerializer,
+            # 인증 여부에 따라 모양이 달라지므로 둘 다 싣는다. Public만 적어두면
+            # 사진 URL·체형 스냅샷·wardrobe 같은 소유자 전용 필드가 문서에 안 나온다.
+            200: PolymorphicProxySerializer(
+                component_name="OutfitAnalysisResult",
+                serializers=[
+                    OutfitAnalysisPublicSerializer,
+                    OutfitAnalysisDetailSerializer,
+                ],
+                resource_type_field_name=None,
+            ),
             404: OpenApiResponse(description="존재하지 않거나, 본인 기록이 아니거나, 조회 기간이 지남"),
         },
+        examples=[
+            OWNER_WARDROBE_DONE_EXAMPLE,
+            OWNER_WARDROBE_PENDING_EXAMPLE,
+            OWNER_NO_WARDROBE_EXAMPLE,
+            ANONYMOUS_RESULT_EXAMPLE,
+        ],
     )
     def get(self, request: Request, analysis_id) -> Response:
         # 상세 응답은 옷장 연계 job과 그 아이템까지 싣는다 — 미리 당기지 않으면 직렬화에서 쿼리가 더 난다.

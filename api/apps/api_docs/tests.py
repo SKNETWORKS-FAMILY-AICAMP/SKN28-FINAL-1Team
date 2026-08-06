@@ -30,6 +30,66 @@ class SwaggerEndpointTests(SimpleTestCase):
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, reverse("api-schema"))
 
+    def test_outfit_analysis_detail_documents_wardrobe(self) -> None:
+        """조회 응답은 인증 여부로 모양이 갈린다 — 둘 다 문서에 남아 있어야 한다.
+
+        Public만 선언하면 소유자 전용 필드(wardrobe 등)가 Swagger에 아예 안 나온다.
+        """
+        response = self.client.get(
+            reverse("api-schema"),
+            headers={"accept": "application/json"},
+        )
+        self.assertEqual(response.status_code, 200)
+        schema = json.loads(response.content)
+
+        detail = schema["paths"]["/api/v1/outfits/analyses/{analysis_id}/"]["get"]
+        content = detail["responses"]["200"]["content"]["application/json"]
+        components = schema["components"]["schemas"]
+
+        # 비로그인·본인 응답이 oneOf로 둘 다 연결돼 있는가
+        self.assertEqual(
+            content["schema"], {"$ref": "#/components/schemas/OutfitAnalysisResult"}
+        )
+        self.assertEqual(
+            {ref["$ref"] for ref in components["OutfitAnalysisResult"]["oneOf"]},
+            {
+                "#/components/schemas/OutfitAnalysisPublic",
+                "#/components/schemas/OutfitAnalysisDetail",
+            },
+        )
+
+        # 옷장 연계 필드와 아이템 요약 스키마
+        self.assertIn("wardrobe", components["OutfitAnalysisDetail"]["properties"])
+        self.assertEqual(
+            set(components["WardrobeLinkedItem"]["properties"]),
+            {
+                "id",
+                "item_name",
+                "category_large",
+                "category_small",
+                "color",
+                "image_url",
+                "confirmed",
+            },
+        )
+
+        # 예시 드롭다운 (이름은 drf-spectacular가 공백을 지워 생성한다)
+        self.assertEqual(
+            set(content["examples"]),
+            {
+                "본인조회·옷장등록까지완료(DONE)",
+                "본인조회·평가는끝났지만옷장은진행중",
+                "본인조회·옷장미연계",
+                "비로그인조회(축소응답)",
+            },
+        )
+        done = content["examples"]["본인조회·옷장등록까지완료(DONE)"]["value"]
+        self.assertEqual(done["wardrobe"]["status"], "DONE")
+        self.assertTrue(done["wardrobe"]["items"])
+
+        pending = content["examples"]["본인조회·평가는끝났지만옷장은진행중"]["value"]
+        self.assertEqual(pending["wardrobe"]["items"], [])
+
     def test_calendar_schema_is_executable_with_examples(self) -> None:
         response = self.client.get(
             reverse("api-schema"),
