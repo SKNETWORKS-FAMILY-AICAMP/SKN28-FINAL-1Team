@@ -95,6 +95,10 @@ export async function startOutfitAnalysis(
       fieldName: 'image',
       mimeType,
       parameters,
+      /* iOS 기본값(background)은 백그라운드 URLSession 을 쓰는데 여기서 사유 없이 실패한다
+         (UnableToUploadException). 앱이 백그라운드로 가도 이어지는 이점이 있지만, JS 인스턴스가
+         앱 종료 시 복구되지 않아 어차피 쓰지 못하는 이점이라 포그라운드로 보낸다. */
+      sessionType: 'foreground',
       headers: {
         Accept: 'application/json',
         ...(token ? { Authorization: `Bearer ${token}` } : {}),
