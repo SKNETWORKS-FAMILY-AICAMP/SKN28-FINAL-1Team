@@ -44,6 +44,7 @@ const MAP = {
   'link': 'link-outline',
   'square.and.arrow.up': 'share-outline',
   'bookmark': 'bookmark-outline',
+  'archivebox': 'archive-outline',
   'bookmark.fill': 'bookmark',
   'arrow.up.right.square': 'open-outline',
   'bell': 'notifications-outline',
