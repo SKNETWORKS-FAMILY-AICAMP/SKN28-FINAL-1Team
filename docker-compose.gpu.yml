@@ -95,6 +95,9 @@ services:
       # Dockerfile에는 HF_HOME이 없어 기본값이 /root/.cache/huggingface다.
       # product-indexer와 캐시를 공유하려고 여기서 고정한다.
       HF_HOME: /app/.cache/huggingface
+      WARDROBE_JOB_QUEUE: ${WARDROBE_JOB_QUEUE:-wardrobe:jobs}
+      WORKER_PIPELINE: gemini-edit
+      WORKER_PIPELINE_VERSION: gemini-edit-v1
     volumes:
       - hf_cache:/app/.cache/huggingface
     healthcheck:
@@ -119,7 +122,8 @@ services:
   wardrobe-item-tagger:
     build:
       context: ./image-processor
-    image: skn28-image-processor
+      dockerfile: Dockerfile.qwen
+    image: skn28-wardrobe-item-tagger
     container_name: skn28-wardrobe-item-tagger
     restart: unless-stopped
     env_file: [.env]
