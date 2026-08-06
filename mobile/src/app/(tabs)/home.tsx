@@ -49,7 +49,7 @@ export default function HomeScreen() {
   /* 비회원은 부를 것이 없어(토큰도, 옷장도 없다) 온보딩 전용 홈을 즉시 보여준다.
      데모 세션도 부른다 — 토큰이 없을 뿐 요청은 통과한다(dev 서버가 무토큰 요청을 허용).
      그래야 발표에서 진짜 날씨가 뜬다. 예전엔 여기서 막아 두어 고정 목업만 보였다. */
-  const { data: apiData, error, loading, reload } = useHome(undefined, status === 'authed');
+  const { data: apiData, loading, reload } = useHome(undefined, status === 'authed');
   const { refreshing, onRefresh } = useRefresh(reload);
   /* 실패하면 데모 세션만 목업으로 물러난다 — 인증이 켜지면 401 이 나는데,
      체험용 링크에서 홈이 통째로 에러 화면이 되는 것보다 낫다. */
@@ -107,7 +107,9 @@ export default function HomeScreen() {
             <EmptyClosetStart />
           ) : loading || closetLoading ? (
             <LoadingState message="오늘의 추천을 불러오는 중…" />
-          ) : error || !data ? (
+          ) : !data ? (
+            /* 에러가 나도 데모 세션은 위에서 DEMO_HOME 으로 물러나 있다 —
+               error 를 함께 보면 그 폴백이 무효가 되어 체험용 링크가 통째로 에러 화면이 된다. */
             <ErrorState onRetry={reload} />
           ) : closetItems.length === 0 ? (
             <EmptyClosetStart />
