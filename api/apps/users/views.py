@@ -18,16 +18,57 @@ from apps.users.serializers import (
     BodyMeasurementSerializer,
     BodyPhotoTransactionSerializer,
     BodyPhotoUploadSerializer,
+    BudgetSerializer,
+    EmailLoginSerializer,
+    EmailSignupSerializer,
     PreferenceCategorySerializer,
     PursuitPayloadInputSerializer,
     PursuitPayloadResponseSerializer,
     SocialLoginSerializer,
     UserSerializer,
-    BudgetSerializer,
 )
 from apps.users.services import accounts, body_inference, oauth, pursuit
 
 logger = logging.getLogger(__name__)
+
+
+def _token_response(user, *, created: bool) -> Response:
+    refresh = RefreshToken.for_user(user)
+    update_last_login(None, user)
+    return Response(
+        {
+            "access": str(refresh.access_token),
+            "refresh": str(refresh),
+            "user": UserSerializer(user).data,
+            "is_new_user": created,
+        },
+        status=status.HTTP_201_CREATED if created else status.HTTP_200_OK,
+    )
+
+
+class EmailSignupView(APIView):
+    """POST /api/v1/auth/signup/ — 이메일·비밀번호 계정 생성 및 JWT 발급."""
+
+    permission_classes = [AllowAny]
+    authentication_classes: list = []
+
+    def post(self, request):
+        serializer = EmailSignupSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        user = serializer.save()
+        return _token_response(user, created=True)
+
+
+class EmailLoginView(APIView):
+    """POST /api/v1/auth/login/ — 이메일·비밀번호 확인 및 JWT 발급."""
+
+    permission_classes = [AllowAny]
+    authentication_classes: list = []
+
+    def post(self, request):
+        serializer = EmailLoginSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        return _token_response(serializer.validated_data["user"], created=False)
 
 
 class SocialLoginView(APIView):
@@ -92,18 +133,7 @@ class SocialLoginView(APIView):
             )
 
         user, created = accounts.get_or_create_user(profile)
-        refresh = RefreshToken.for_user(user)
-        update_last_login(None, user)
-
-        return Response(
-            {
-                "access": str(refresh.access_token),
-                "refresh": str(refresh),
-                "user": UserSerializer(user).data,
-                "is_new_user": created,
-            },
-            status=status.HTTP_201_CREATED if created else status.HTTP_200_OK,
-        )
+        return _token_response(user, created=created)
 
 
 class MeView(APIView):

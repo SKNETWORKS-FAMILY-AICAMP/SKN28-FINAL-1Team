@@ -2,6 +2,7 @@ import { router } from 'expo-router';
 import { goBack } from '@/lib/goBack';
 import { useState } from 'react';
 import {
+  ActivityIndicator,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -11,9 +12,11 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import { useToast } from '@/components/ui';
 import { APPLE_LOGIN_ENABLED } from '@/constants/config';
 import { Editorial, ink, Fonts , ContentMax} from '@/constants/theme';
 import { useBreakpoint } from '@/hooks/use-breakpoint';
+import { emailAuthErrorMessage, signupWithEmail } from '@/lib/emailAuth';
 
 const INK = Editorial.ink;
 const KAKAO = Editorial.kakao;
@@ -37,7 +40,9 @@ export default function Signup() {
   const [pw, setPw] = useState('');
   const [pw2, setPw2] = useState('');
   const [show, setShow] = useState(false);
+  const [saving, setSaving] = useState(false);
   const [agreed, setAgreed] = useState<Set<TermKey>>(new Set());
+  const toast = useToast();
 
   const allChecked = agreed.size === TERMS.length;
   const requiredDone = TERMS.filter((t) => t.required).every((t) => agreed.has(t.key));
@@ -45,7 +50,8 @@ export default function Signup() {
   const toggle = (key: TermKey) =>
     setAgreed((prev) => {
       const next = new Set(prev);
-      next.has(key) ? next.delete(key) : next.add(key);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
       return next;
     });
 
@@ -68,10 +74,18 @@ export default function Signup() {
       : null;
   const pw2Error = pw2 !== pw ? '비밀번호가 일치하지 않아요' : null;
 
-  const create = () => {
+  const create = async () => {
     setSubmitted(true);
     if (emailError || pwError || pw2Error) return;
-    router.replace('/permissions');
+    setSaving(true);
+    try {
+      await signupWithEmail(email, pw);
+      router.replace('/permissions');
+    } catch (error) {
+      toast(emailAuthErrorMessage(error), { variant: 'error' });
+    } finally {
+      setSaving(false);
+    }
   };
 
   /* 소셜 가입은 이메일·비밀번호를 받지 않으므로 폼 검증을 태우지 않는다. */
@@ -176,10 +190,14 @@ export default function Signup() {
 
           {/* 회원가입 */}
           <Pressable
-            style={[styles.cta, !requiredDone && styles.ctaDisabled]}
-            disabled={!requiredDone}
+            style={[styles.cta, (!requiredDone || saving) && styles.ctaDisabled]}
+            disabled={!requiredDone || saving}
             onPress={create}>
-            <Text style={styles.ctaText}>회원가입</Text>
+            {saving ? (
+              <ActivityIndicator color="#ffffff" />
+            ) : (
+              <Text style={styles.ctaText}>회원가입</Text>
+            )}
           </Pressable>
 
           {/* 또는 */}

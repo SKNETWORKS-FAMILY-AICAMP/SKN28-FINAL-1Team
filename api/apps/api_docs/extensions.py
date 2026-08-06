@@ -34,6 +34,8 @@ from apps.users.serializers import (
     BodyMeasurementSerializer,
     BodyPhotoTransactionSerializer,
     BodyPhotoUploadSerializer,
+    EmailLoginSerializer,
+    EmailSignupSerializer,
     PursuitPayloadInputSerializer,
     PursuitPayloadResponseSerializer,
     SocialLoginSerializer,
@@ -66,7 +68,7 @@ class JWTAuthenticationExtension(OpenApiAuthenticationExtension):
             "scheme": "bearer",
             "bearerFormat": "JWT",
             "description": (
-                "소셜 로그인(`POST /api/v1/auth/{provider}/login/`)이 발급한 "
+                "이메일 또는 소셜 로그인 API가 발급한 "
                 "**access 토큰**을 `Authorization: Bearer <access>` 헤더로 전달합니다.\n\n"
                 "- access 토큰 만료 시 401이 반환되며, "
                 "`POST /api/v1/auth/token/refresh/`로 재발급합니다.\n"
@@ -100,6 +102,52 @@ class TokenRefreshViewExtension(OpenApiViewExtension):
             pass
 
         return DocumentedTokenRefreshView
+
+
+class EmailSignupViewExtension(OpenApiViewExtension):
+    target_class = "apps.users.views.EmailSignupView"
+
+    def view_replacement(self):
+        @extend_schema_view(
+            post=extend_schema(
+                operation_id="email_signup",
+                tags=["Authentication"],
+                summary="이메일 회원가입",
+                description="이메일·비밀번호 계정을 생성하고 서비스 JWT를 발급합니다.",
+                request=EmailSignupSerializer,
+                responses={
+                    201: SocialLoginResponseSerializer,
+                    400: OpenApiResponse(description="이메일 중복 또는 비밀번호 정책 오류"),
+                },
+            )
+        )
+        class DocumentedEmailSignupView(self.target_class):
+            pass
+
+        return DocumentedEmailSignupView
+
+
+class EmailLoginViewExtension(OpenApiViewExtension):
+    target_class = "apps.users.views.EmailLoginView"
+
+    def view_replacement(self):
+        @extend_schema_view(
+            post=extend_schema(
+                operation_id="email_login",
+                tags=["Authentication"],
+                summary="이메일 로그인",
+                description="이메일과 비밀번호를 확인하고 서비스 JWT를 발급합니다.",
+                request=EmailLoginSerializer,
+                responses={
+                    200: SocialLoginResponseSerializer,
+                    400: OpenApiResponse(description="이메일 또는 비밀번호 불일치"),
+                },
+            )
+        )
+        class DocumentedEmailLoginView(self.target_class):
+            pass
+
+        return DocumentedEmailLoginView
 
 
 # apple은 백엔드 코드는 있으나 서비스 구현 보류 상태라 문서에서 제외한다.

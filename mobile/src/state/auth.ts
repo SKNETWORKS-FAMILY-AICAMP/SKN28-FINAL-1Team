@@ -41,7 +41,7 @@ type Status = 'loading' | 'authed' | 'guest';
 type AuthState = {
   status: Status;
   user: AuthUser | null;
-  /** 토큰 없는 체험 세션(이메일/비번 로그인 API 부재로 인한 임시 진입). 화면은 목업 데이터를 쓴다. */
+  /** 과거 버전에서 저장된 토큰 없는 데모 세션의 호환 상태. */
   isDemo: boolean;
 };
 
@@ -94,8 +94,7 @@ export const authStore = {
   },
 
   /**
-   * 데모 로그인: 토큰 없이 '로그인한 사용자' 상태로만 진입한다.
-   * 백엔드에 이메일/비번 로그인이 생기면 signIn 으로 대체하고 이 메서드는 삭제한다.
+   * 레거시 데모 로그인. 신규 화면에서는 사용하지 않으며 기존 저장 세션 복구만 유지한다.
    */
   async signInDemo(): Promise<void> {
     setState({ status: 'authed', user: DEMO_USER, isDemo: true });

@@ -17,10 +17,10 @@ api/
 └── apps/
     ├── catalog/               # naver_product / naver_product_size (collector/naver가 사용)
     ├── weather/               # weather_* 6개 테이블 (collector/weather가 사용)
-    └── users/                 # 사용자 + 소셜 로그인
+    └── users/                 # 사용자 + 이메일/소셜 인증
         ├── models.py          # User(커스텀), SocialAccount
         ├── serializers.py
-        ├── views.py           # SocialLoginView, MeView
+        ├── views.py           # EmailSignup/LoginView, SocialLoginView, MeView
         ├── urls.py
         ├── services/
         │   ├── oauth.py       # naver/kakao/google code→token→profile
@@ -73,10 +73,12 @@ docker compose --profile all up -d --build      # db + api + collector 2종
 로컬 http 테스트 시 `.env`에 `DJANGO_SECURE_SSL_REDIRECT=false`
 (또는 `DJANGO_SETTINGS_MODULE=config.settings.dev`)를 설정한다.
 
-## 소셜 로그인 API
+## 인증 API
 
 | 메서드 | 경로 | 설명 |
 | --- | --- | --- |
+| POST | `/api/v1/auth/signup/` | body `{email, password}` → 이메일 계정 생성 + JWT(access/refresh) + user |
+| POST | `/api/v1/auth/login/` | body `{email, password}` → JWT(access/refresh) + user |
 | POST | `/api/v1/auth/{naver\|kakao\|google}/login/` | body `{code, redirect_uri, state}` → JWT(access/refresh) + user. kakao/google은 `redirect_uri` 필수, naver는 `state` 필수 |
 | POST | `/api/v1/auth/token/refresh/` | body `{refresh}` → 새 access |
 | GET/PATCH | `/api/v1/users/me/` | 내 정보 조회/수정 (Bearer 토큰 필요) |

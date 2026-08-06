@@ -81,6 +81,8 @@ export const isGoogleConfigured = (): boolean =>
  * ※ simplejwt(stateless)라 서버 로그아웃 엔드포인트는 없다 → 로그아웃은 클라이언트 토큰 폐기.
  */
 export const AuthEndpoints = {
+  signup: '/api/v1/auth/signup/',
+  login: '/api/v1/auth/login/',
   socialLogin: (provider: SocialProvider) => `/api/v1/auth/${provider}/login/`,
   refresh: '/api/v1/auth/token/refresh/',
   me: '/api/v1/users/me/',
