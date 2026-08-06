@@ -4,6 +4,7 @@ import { useMemo, useState } from 'react';
 import { ActivityIndicator, Pressable, RefreshControl, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import { HomeStatusSlot } from '@/components/home/home-status-slot';
 import { Avatar, ErrorState, LoadingState, SmartImage, useToast } from '@/components/ui';
 import { DEMO_HOME } from '@/constants/demo';
 import { Editorial, ink, Fonts , ContentMax} from '@/constants/theme';
@@ -49,7 +50,7 @@ export default function HomeScreen() {
   /* 비회원은 부를 것이 없어(토큰도, 옷장도 없다) 온보딩 전용 홈을 즉시 보여준다.
      데모 세션도 부른다 — 토큰이 없을 뿐 요청은 통과한다(dev 서버가 무토큰 요청을 허용).
      그래야 발표에서 진짜 날씨가 뜬다. 예전엔 여기서 막아 두어 고정 목업만 보였다. */
-  const { data: apiData, error, loading, reload } = useHome(undefined, status === 'authed');
+  const { data: apiData, loading, reload } = useHome(undefined, status === 'authed');
   const { refreshing, onRefresh } = useRefresh(reload);
   /* 실패하면 데모 세션만 목업으로 물러난다 — 인증이 켜지면 401 이 나는데,
      체험용 링크에서 홈이 통째로 에러 화면이 되는 것보다 낫다. */
@@ -76,12 +77,17 @@ export default function HomeScreen() {
             ) : undefined
           }
           contentContainerStyle={[styles.content, { paddingBottom: tabInset + 24 }, contentStyle(ContentMax.card)]}>
-          {/* 헤더: 인사말 + 캘린더/프로필 (한 줄) */}
+          {/* 헤더: 인사말 + 기록/캘린더/프로필 (한 줄) */}
           <View style={styles.header}>
             <Text style={styles.greeting} numberOfLines={1}>
               안녕하세요 {nickname}님
             </Text>
             <View style={styles.headerRight}>
+              {/* 분석 기록은 늘 열 수 있어야 하는 진입점이라 본문이 아니라 헤더에 둔다.
+                  본문에 두면 상시로 세로 공간을 먹어 오늘의 룩 카드가 밀린다. */}
+              <Pressable hitSlop={10} onPress={() => router.push('/outfit-history')}>
+                <Icon name="archivebox" tintColor={INK} size={24} />
+              </Pressable>
               <Pressable hitSlop={10} onPress={() => router.push('/calendar')}>
                 <Icon name="calendar" tintColor={INK} size={24} />
               </Pressable>
@@ -92,13 +98,19 @@ export default function HomeScreen() {
             </View>
           </View>
 
+          {/* 상태 카드는 홈이 어느 분기를 그리든 보여야 한다 — 분기 안에 넣으면
+              옷장에 옷이 있는 회원은 진행 중인 분석을 볼 데가 없어진다. */}
+          <HomeStatusSlot />
+
           {status === 'loading' ? (
             <LoadingState message="홈을 준비하는 중…" />
           ) : status === 'guest' ? (
             <EmptyClosetStart />
           ) : loading || closetLoading ? (
             <LoadingState message="오늘의 추천을 불러오는 중…" />
-          ) : error || !data ? (
+          ) : !data ? (
+            /* 에러가 나도 데모 세션은 위에서 DEMO_HOME 으로 물러나 있다 —
+               error 를 함께 보면 그 폴백이 무효가 되어 체험용 링크가 통째로 에러 화면이 된다. */
             <ErrorState onRetry={reload} />
           ) : closetItems.length === 0 ? (
             <EmptyClosetStart />
