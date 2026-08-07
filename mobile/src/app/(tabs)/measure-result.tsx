@@ -43,13 +43,9 @@ export default function MeasureResult() {
   const { contentStyle } = useBreakpoint();
   const tabInset = useBottomTabInset();
   const { returnTo } = useLocalSearchParams<{ returnTo?: string }>();
-  const { status, result, input, photos, error } = useMeasure();
+  const { status, result, photos, error, needsInput } = useMeasure();
   const toast = useToast();
   const [savingDone, setSavingDone] = useState(false);
-
-  /* 키·몸무게도 사진도 없으면 추정 자체가 불가능하다 — 재시도해도 결과가 달라지지 않으므로
-     STEP1 로 돌아가 입력하도록 안내한다. */
-  const hasData = Boolean(input) || Boolean(photos.front || photos.side);
 
   // 플로우를 거치지 않고 직접 진입했으면(status idle) 추정을 시작한다.
   useEffect(() => {
@@ -83,7 +79,9 @@ export default function MeasureResult() {
         <SafeAreaView edges={['top', 'bottom']} style={styles.safe}>
           <View style={styles.stateWrap}>
             <Steps active={2} />
-            {status === 'error' && !hasData ? (
+            {/* 입력이 없어서 못 한 것과 그 밖의 실패(로그인 만료·서버 장애)는 갈 곳이 다르다 —
+                전자만 STEP1 로 돌려보내고, 나머지는 그 자리에서 다시 시도하게 한다. */}
+            {status === 'error' && needsInput ? (
               <ErrorState
                 title="추정할 정보가 없어요"
                 description={error ?? '키·몸무게를 입력하거나 사진을 등록해 주세요.'}

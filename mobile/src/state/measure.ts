@@ -12,8 +12,8 @@ import { ApiError, api } from '@/lib/apiClient';
  *
  * 백엔드 연동(팀레포 main, users/body):
  *   - STEP1  "다음"  → PUT   /users/me/body/basic/  { gender, height, weight }  (saveBasic)
- *   - 결과 진입      → GET   /users/me/body/  로 저장된 상세치수를 불러오고,
- *                      없으면 키·몸무게 기반 제안값(mock)을 초기값으로 보여준다 (estimate)
+ *   - 사진 없이 진행 → POST  /users/me/body/estimate/  { gender?, height?, weight? }
+ *                      서버가 학습 모델로 상세 7개를 추정·저장하고 응답에 실어 준다 (estimate)
  *   - STEP2  "측정 시작하기" → POST /body/photos/(multipart) → 트랜잭션 폴링 →
  *              폴링 응답에 담겨 오는 추론 치수를 그대로 사용 (startPhotoMeasurement)
  *   - STEP3  "완료"  → PATCH /users/me/body/detail/  로 수정한 둘레를 저장 (saveDetail)
@@ -48,6 +48,10 @@ type MeasureState = {
   status: EstimateStatus;
   result: MeasureResult | null;
   error: string | null;
+  /* 실패 원인이 "추정할 기본 정보가 없다"인지. 화면이 안내를 갈라 쓴다
+     (입력하러 보내기 vs 다시 시도). 로그인 만료·서버 장애를 "정보가 없어요"로
+     보여주면 사용자가 엉뚱한 곳으로 간다. */
+  needsInput: boolean;
 };
 
 const EMPTY: MeasureState = {
@@ -56,6 +60,7 @@ const EMPTY: MeasureState = {
   status: 'idle',
   result: null,
   error: null,
+  needsInput: false,
 };
 
 let state: MeasureState = EMPTY;
@@ -269,7 +274,7 @@ export const measureStore = {
    * 화면이 언마운트돼도 이 스토어에 결과가 남으므로, 나갔다 돌아와도 결과가 유지된다.
    */
   async estimate(): Promise<void> {
-    setState({ status: 'loading', error: null, result: null });
+    setState({ status: 'loading', error: null, result: null, needsInput: false });
     try {
       /* 이번 플로우에서 받은 입력이 있으면 그 값으로 추정한다(저장도 함께 된다).
          없으면 본문을 비워 서버가 저장해 둔 기본 정보를 쓰게 한다 —
@@ -286,7 +291,11 @@ export const measureStore = {
          그걸 보고 usedPhotos 를 켜면 사진으로 잰 적 없는 값이 "사진 기반 결과"로 표시된다. */
       const result = toResult(outcome, false);
       if (!result) {
-        setState({ status: 'error', error: '치수를 받지 못했어요. 다시 시도해주세요.' });
+        setState({
+          status: 'error',
+          error: '치수를 받지 못했어요. 다시 시도해주세요.',
+          needsInput: false,
+        });
         return;
       }
       setState({ status: 'success', result });
@@ -314,10 +323,15 @@ export const measureStore = {
   async startPhotoMeasurement(): Promise<void> {
     const { front, side } = state.photos;
     if (!front || !side) {
-      setState({ status: 'error', result: null, error: '정면·측면 사진이 모두 필요해요.' });
+      setState({
+        status: 'error',
+        result: null,
+        error: '정면·측면 사진이 모두 필요해요.',
+        needsInput: true,
+      });
       return;
     }
-    setState({ status: 'loading', error: null, result: null });
+    setState({ status: 'loading', error: null, result: null, needsInput: false });
     try {
       // 앞선 시도가 상한만 넘긴 거라면 그 트랜잭션을 이어서 기다린다.
       const transactionId =
@@ -346,7 +360,11 @@ export const measureStore = {
          그 GET 이 실패하면 mock 값이 "사진으로 측정한 결과"로 둔갑했었다. */
       const result = toResult(outcome, true);
       if (!result) {
-        setState({ status: 'error', error: '치수를 받지 못했어요. 다시 시도해주세요.' });
+        setState({
+          status: 'error',
+          error: '치수를 받지 못했어요. 다시 시도해주세요.',
+          needsInput: false,
+        });
         return;
       }
       setState({ status: 'success', result });
