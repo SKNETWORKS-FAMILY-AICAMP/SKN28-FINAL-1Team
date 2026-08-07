@@ -28,8 +28,15 @@ export type OutfitAnalysisAccepted = {
   wardrobe_job_id: string | null;
 };
 
+/**
+ * 진행 상태 조회(폴링) 응답.
+ *
+ * `analysis_id` 는 일부러 두지 않는다 — 실제 응답에 실려 오지도 않고(2026-08-07 실측),
+ * 분석 id 는 접수 응답에서 한 번 정해진 뒤 바뀌지 않으므로 폴링이 다시 정할 것이 아니다.
+ * 예전엔 여기 필수 필드로 적혀 있어서 `analysisId: response.analysis_id` 대입이 타입검사를
+ * 통과했고, 첫 폴링에 id 가 null 로 지워져 결과 화면이 옷장 상태를 영영 못 읽었다.
+ */
 export type OutfitAnalysisResult = {
-  analysis_id: string;
   status: OutfitAnalysisStatus;
   evaluation: OutfitEvaluation | null;
   context: Record<string, unknown> | null;
@@ -95,6 +102,10 @@ export async function startOutfitAnalysis(
       fieldName: 'image',
       mimeType,
       parameters,
+      /* iOS 기본값(background)은 백그라운드 URLSession 을 쓰는데 여기서 사유 없이 실패한다
+         (UnableToUploadException). 앱이 백그라운드로 가도 이어지는 이점이 있지만, JS 인스턴스가
+         앱 종료 시 복구되지 않아 어차피 쓰지 못하는 이점이라 포그라운드로 보낸다. */
+      sessionType: 'foreground',
       headers: {
         Accept: 'application/json',
         ...(token ? { Authorization: `Bearer ${token}` } : {}),
