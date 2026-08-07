@@ -61,7 +61,11 @@ export function LookComposer({ date }: { date?: string }) {
   const twoCol = primaryWidth >= 560;
 
   const [photo, setPhoto] = useState<string | undefined>(existing?.photo);
-  const [items, setItems] = useState<EntryItem[]>(existing?.items ?? []);
+  /* 인사이트에서 옷을 눌러 들어오면 그 옷이 담긴 채로 시작한다.
+     기존 기록을 여는 경우엔 그쪽이 먼저다 — 수정하러 왔는데 다른 옷이 끼면 안 된다. */
+  const [items, setItems] = useState<EntryItem[]>(
+    () => existing?.items ?? calendarStore.takeSeededItems() ?? [],
+  );
   const [note, setNote] = useState(existing?.note ?? '');
   const [tags, setTags] = useState<AllowedHashtag[]>(existing?.tags ?? []);
   const [shared, setShared] = useState(existing?.shared ?? false);

@@ -12,7 +12,12 @@ import { ShareLookSheet } from '@/components/calendar/share-look-sheet';
 import { LoginGate, SmartImage } from '@/components/ui';
 import { ContentMax, Editorial, Fonts, ink, Type } from '@/constants/theme';
 import { useBreakpoint } from '@/hooks/use-breakpoint';
-import { useCalendarMonth } from '@/hooks/use-calendar';
+import {
+  FREQUENT_MIN_RECORDS,
+  useCalendarMonth,
+  useFrequentItems,
+  type FrequentItem,
+} from '@/hooks/use-calendar';
 import { useAuth } from '@/state/auth';
 import { calendarStore, toDateKey, todayKey } from '@/state/calendar';
 import { useSavedLooks } from '@/state/saved';
@@ -63,6 +68,9 @@ export default function Calendar() {
   }, [view, selectedDay]);
 
   const entry = entries[selectedKey];
+  /* 오늘은 아직 입는 중이라 '지난 날'로 보지 않는다 — 채워 넣기보다 고르기가 먼저다. */
+  const isPast = selectedKey < TODAY;
+  const { items: frequentItems, recordCount: frequentCount } = useFrequentItems(isLoggedIn);
   /* 이 기록과 같이 만들어진 룩북 룩. 룩북에서 지웠으면 못 찾으니 그때는 연결을 감춘다. */
   const linkedLook = savedLooks.find((l) => l.id === entry?.lookId);
 
@@ -92,6 +100,15 @@ export default function Calendar() {
   };
 
   const openEntry = (dateKey: string) => router.push(`/calendar-entry?date=${dateKey}`);
+
+  /* 자주 입은 옷을 눌러 들어가면 그 옷이 담긴 채로 기록 화면이 열린다 —
+     인사이트를 읽을거리가 아니라 입력을 줄이는 지름길로 쓰는 게 목적이다. */
+  const fillWith = (item: FrequentItem) => {
+    calendarStore.seedItems([
+      { id: item.id, source: 'closet', name: item.name, image: item.image },
+    ]);
+    openEntry(selectedKey);
+  };
 
   // 착장 기록은 내 데이터라 비회원에게 보여줄 것이 없다. (훅 순서 유지를 위해 전부 호출한 뒤 분기)
   if (!isLoggedIn) {
@@ -274,13 +291,35 @@ export default function Calendar() {
                 <Icon name="tshirt" tintColor={ink(0.3)} size={26} />
               </View>
               <Text style={styles.emptyText}>이 날은 기록된 착장이 없어요</Text>
-              <Pressable style={styles.addBtn} onPress={() => openEntry(selectedKey)}>
-                <Icon name="plus" tintColor="#fff" size={18} />
-                <Text style={styles.addText}>이 날 착장 기록하기</Text>
-              </Pressable>
-              <Pressable onPress={() => router.push('/chat-mode')}>
-                <Text style={styles.subLink}>코디 추천받기</Text>
-              </Pressable>
+
+              {/* 지난 날은 채워 넣는 게 먼저고, 오늘·앞으로는 무엇을 입을지가 먼저다.
+                  같은 두 버튼이라도 순서만 바꾸면 그 날짜에 맞는 행동이 앞에 온다. */}
+              {isPast ? (
+                <>
+                  <FrequentShortcut
+                    items={frequentItems}
+                    recordCount={frequentCount}
+                    onPick={fillWith}
+                  />
+                  <Pressable style={styles.addBtn} onPress={() => openEntry(selectedKey)}>
+                    <Icon name="plus" tintColor="#fff" size={18} />
+                    <Text style={styles.addText}>이 날 착장 기록하기</Text>
+                  </Pressable>
+                  <Pressable onPress={() => router.push('/chat-mode')}>
+                    <Text style={styles.subLink}>코디 추천받기</Text>
+                  </Pressable>
+                </>
+              ) : (
+                <>
+                  <Pressable style={styles.addBtn} onPress={() => router.push('/chat-mode')}>
+                    <Icon name="sparkles" tintColor="#fff" size={18} />
+                    <Text style={styles.addText}>코디 추천받기</Text>
+                  </Pressable>
+                  <Pressable onPress={() => openEntry(selectedKey)}>
+                    <Text style={styles.subLink}>이 날 착장 기록하기</Text>
+                  </Pressable>
+                </>
+              )}
             </View>
           )}
         </View>
@@ -311,6 +350,53 @@ export default function Calendar() {
   );
 }
 
+/**
+ * 지난 빈 날에 보여주는 지름길 — 자주 입은 옷을 눌러 바로 기록을 시작한다.
+ *
+ * 기록이 얼마 없으면 감춘다. 한 번 입은 옷을 "자주"라고 부르면 사용자가 아는 사실과
+ * 어긋나서, 다음부터 이 자리를 믿지 않게 된다.
+ */
+function FrequentShortcut({
+  items,
+  recordCount,
+  onPick,
+}: {
+  items: FrequentItem[];
+  recordCount: number;
+  onPick: (item: FrequentItem) => void;
+}) {
+  if (recordCount < FREQUENT_MIN_RECORDS || items.length === 0) {
+    return (
+      <Text style={styles.frequentHint}>
+        기록이 쌓이면 자주 입는 옷을 알려드릴게요
+      </Text>
+    );
+  }
+
+  return (
+    <View style={styles.frequentBox}>
+      <Text style={styles.frequentTitle}>자주 입은 옷</Text>
+      <View style={styles.frequentRow}>
+        {items.map((item) => (
+          <Pressable key={item.id} style={styles.frequentItem} onPress={() => onPick(item)}>
+            {item.image ? (
+              <SmartImage uri={item.image} width="100%" radius={10} style={styles.frequentThumb} />
+            ) : (
+              <View style={[styles.frequentThumb, styles.frequentThumbEmpty]}>
+                <Icon name="tshirt" tintColor={ink(0.3)} size={18} />
+              </View>
+            )}
+            <Text style={styles.frequentName} numberOfLines={1}>
+              {item.name}
+            </Text>
+            <Text style={styles.frequentCount}>{item.count}번</Text>
+          </Pressable>
+        ))}
+      </View>
+    </View>
+  );
+}
+
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: Editorial.page },
   headerSafe: { backgroundColor: Editorial.page },
@@ -324,6 +410,22 @@ const styles = StyleSheet.create({
   },
   monthText: { fontFamily: Fonts.serif, fontSize: 19, color: INK },
 
+  frequentHint: { marginTop: 4, fontSize: 12, color: Editorial.textCaption, textAlign: 'center' },
+  frequentBox: { alignSelf: 'stretch', marginTop: 4, marginBottom: 4, gap: 8 },
+  frequentTitle: { fontSize: 12, fontWeight: '600', color: Editorial.textCaption, textAlign: 'center' },
+  frequentRow: { flexDirection: 'row', gap: 8 },
+  frequentItem: { flex: 1, alignItems: 'center', gap: 4 },
+  frequentThumb: { aspectRatio: 1, backgroundColor: Editorial.surface },
+  frequentThumbEmpty: {
+    width: '100%',
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: Editorial.line,
+  },
+  frequentName: { fontSize: 11, color: INK, textAlign: 'center' },
+  frequentCount: { fontSize: 10, color: Editorial.textCaption },
   loadNote: {
     flexDirection: 'row',
     alignItems: 'center',

@@ -119,6 +119,9 @@ type Overlay = {
 
 let entries: Record<string, CalendarEntry> = {};
 const overlays: Record<string, Overlay> = {};
+/* 빈 날 인사이트에서 옷을 눌러 기록 화면을 열 때 그 옷을 실어 보내는 자리.
+   URL 파라미터로 옷 전체를 넘기면 이름·사진까지 붙어 지저분해진다(draft-item.ts 와 같은 방식). */
+let seededItems: EntryItem[] | null = null;
 
 const listeners = new Set<() => void>();
 
@@ -235,6 +238,18 @@ export const calendarStore = {
     delete entries[date];
     delete overlays[date];
     notify();
+  },
+
+  /** 기록 화면을 열면서 미리 담아둘 옷을 넘긴다. */
+  seedItems(items: EntryItem[]) {
+    seededItems = items;
+  },
+
+  /** 담아둔 옷을 꺼낸다. 한 번 쓰면 비운다 — 다음에 빈손으로 열었을 때 남아 있으면 안 된다. */
+  takeSeededItems(): EntryItem[] | null {
+    const taken = seededItems;
+    seededItems = null;
+    return taken;
   },
 
   /** 친구 공개 여부 — 서버에 자리가 없어 로컬에만 남는다. */
