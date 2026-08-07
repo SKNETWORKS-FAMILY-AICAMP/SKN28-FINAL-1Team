@@ -4,7 +4,7 @@ from drf_spectacular.utils import extend_schema_field
 from rest_framework import serializers
 
 from .models import OutfitAnalysis
-from .services import storage
+from .services import storage, wardrobe_link
 
 
 MAX_OUTFIT_IMAGE_SIZE_MB = 15
@@ -183,10 +183,51 @@ class OutfitAnalysisListItemSerializer(serializers.ModelSerializer):
         return (obj.evaluation or {}).get("summary", "")
 
 
+class WardrobeLinkedItemSerializer(serializers.Serializer):
+    """옷장 등록이 끝난 뒤 생성된 아이템 1건의 요약.
+
+    전체 태그(season/style/pattern/fit/material/sleeve/length/usage/layer_*/seg_meta)는
+    옷장 API에서 본다 — GET /api/v1/wardrobe/items/ 또는
+    GET /api/v1/wardrobe/uploads/{job_id}/.
+    """
+
+    id = serializers.UUIDField(help_text="옷장 아이템 UUID")
+    item_name = serializers.CharField(allow_blank=True, help_text="아이템 표시 이름")
+    category_large = serializers.CharField(help_text="대분류 (상의/하의/아우터 등)")
+    category_small = serializers.CharField(allow_blank=True, help_text="소분류")
+    color = serializers.CharField(allow_blank=True, help_text="색상 태그")
+    image_url = serializers.CharField(
+        allow_null=True,
+        help_text="배경 제거·크롭된 아이템 이미지 presigned URL (발급 실패 시 null)",
+    )
+    confirmed = serializers.BooleanField(
+        help_text="사용자 확정 여부. false면 태깅 확인 대기 상태다(추천 검색 제외)."
+    )
+
+
+class WardrobeLinkSerializer(serializers.Serializer):
+    """save_to_wardrobe로 연계된 옷장 등록 job의 진행 상황과 결과."""
+
+    job_id = serializers.UUIDField(help_text="옷장 등록 job UUID")
+    status = serializers.CharField(help_text="등록 상태 (PENDING/PROCESSING/DONE/FAILED)")
+    error_message = serializers.CharField(
+        allow_blank=True, help_text="등록 실패 사유 (FAILED가 아니면 빈 문자열)"
+    )
+    created_at = serializers.DateTimeField(help_text="job 생성 시각")
+    finished_at = serializers.DateTimeField(
+        allow_null=True, help_text="등록 종료 시각 (진행 중이면 null)"
+    )
+    items = WardrobeLinkedItemSerializer(
+        many=True,
+        help_text="생성된 옷장 아이템 요약. **status가 DONE일 때만** 채워진다.",
+    )
+
+
 class OutfitAnalysisDetailSerializer(serializers.ModelSerializer):
     """이력 상세. 질의에 쓴 스냅샷과 LLM 요청·응답 원본을 그대로 노출한다."""
 
     image_url = serializers.SerializerMethodField()
+    wardrobe = serializers.SerializerMethodField()
 
     class Meta:
         model = OutfitAnalysis
@@ -206,6 +247,7 @@ class OutfitAnalysisDetailSerializer(serializers.ModelSerializer):
             "personalized",
             "save_to_wardrobe",
             "wardrobe_job",
+            "wardrobe",
             "llm_model",
             "request_payload",
             "response_payload",
@@ -227,6 +269,14 @@ class OutfitAnalysisDetailSerializer(serializers.ModelSerializer):
             return storage.presigned_get(obj.image_s3_key)
         except Exception:  # noqa: BLE001 — URL 발급 실패가 조회를 막지 않는다
             return None
+
+    @extend_schema_field(WardrobeLinkSerializer(allow_null=True))
+    def get_wardrobe(self, obj: OutfitAnalysis) -> dict | None:
+        """옷장 연계 job의 상태와(완료시) 생성된 아이템 요약.
+
+        옷장 모델 접근은 services/wardrobe_link.py가 전담한다 (두 도메인을 섞지 않기 위해).
+        """
+        return wardrobe_link.job_summary(obj)
 
 
 class OutfitAnalysisListResponseSerializer(serializers.Serializer):

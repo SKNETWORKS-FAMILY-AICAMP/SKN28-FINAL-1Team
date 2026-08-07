@@ -18,7 +18,7 @@ from rest_framework.test import APIClient
 from apps.recommend.models import OutfitAnalysis
 from apps.recommend.services import analysis as analysis_service
 from apps.recommend.services import claim as claim_service
-from apps.wardrobe.models import WardrobeUploadJob
+from apps.wardrobe.models import WardrobeItem, WardrobeUploadJob
 from apps.recommend.services import gemini, imaging
 from apps.recommend.services.outfit_context import build_analysis_context
 
@@ -581,6 +581,157 @@ class OutfitAnalysisPollTests(TestCase):
             )
         )
         self.assertEqual(response.status_code, 404)
+
+
+@patch(
+    "apps.recommend.services.wardrobe_link.wardrobe_storage.BUCKET",
+    "test-wardrobe-bucket",
+)
+@patch(
+    "apps.recommend.services.wardrobe_link.wardrobe_storage.presigned_get",
+    return_value="https://s3.example/item_01.png",
+)
+class OutfitAnalysisWardrobeLinkTests(TestCase):
+    """상세 응답의 `wardrobe` 필드 — 옷장 등록이 끝나면 아이템 요약까지 같이 내려준다.
+
+    옷장 파이프라인은 GPU 서버 → 콜백이라 평가가 끝나도 job은 아직 진행 중일 수 있다.
+    그래서 "상태는 항상 / 아이템은 DONE일 때만"이 이 필드의 계약이다.
+    """
+
+    def setUp(self) -> None:
+        self.client = APIClient()
+        self.user = get_user_model().objects.create(username="naver_1")
+        self.client.force_authenticate(user=self.user)
+
+    def _analysis(self, job=None) -> OutfitAnalysis:
+        return OutfitAnalysis.objects.create(
+            user=self.user,
+            status=OutfitAnalysis.Status.SUCCEEDED,
+            evaluation=EVALUATION,
+            weather=WEATHER,
+            save_to_wardrobe=job is not None,
+            wardrobe_job=job,
+        )
+
+    def _job(self, status=WardrobeUploadJob.Status.DONE, **kwargs) -> WardrobeUploadJob:
+        return WardrobeUploadJob.objects.create(
+            user=self.user,
+            source_s3_key="outfits/1/abc/original.jpg",
+            status=status,
+            **kwargs,
+        )
+
+    def _item(self, job, **kwargs) -> WardrobeItem:
+        fields = {
+            "s3_key": "wardrobe/1/abc/item_01.png",
+            "item_name": "화이트 옥스포드 셔츠",
+            "category_large": "상의",
+            "category_small": "셔츠",
+            "color": "화이트",
+            "season": ["봄", "가을"],
+            "style": ["캐주얼"],
+            "seg_meta": {"raw_label": "shirt", "score": 0.94},
+            **kwargs,
+        }
+        return WardrobeItem.objects.create(user=self.user, job=job, **fields)
+
+    def _get(self, analysis):
+        return self.client.get(
+            reverse("recommend:outfit-analysis-detail", args=[analysis.pk])
+        )
+
+    def test_done_job_includes_item_summaries(self, _presigned: Mock) -> None:
+        job = self._job(finished_at=timezone.now())
+        self._item(job)
+        self._item(job, item_name="연청 슬림 진", category_large="하의", color="블루")
+
+        response = self._get(self._analysis(job))
+
+        self.assertEqual(response.status_code, 200)
+        wardrobe = response.data["wardrobe"]
+        self.assertEqual(wardrobe["job_id"], job.pk)
+        self.assertEqual(wardrobe["status"], "DONE")
+        self.assertEqual(len(wardrobe["items"]), 2)
+
+        names = {item["item_name"] for item in wardrobe["items"]}
+        self.assertEqual(names, {"화이트 옥스포드 셔츠", "연청 슬림 진"})
+        self.assertEqual(
+            wardrobe["items"][0]["image_url"], "https://s3.example/item_01.png"
+        )
+
+    def test_item_payload_is_summary_only(self, _presigned: Mock) -> None:
+        """전체 태그는 옷장 API의 일이다 — 여기서 늘어나면 계약이 조용히 번진다."""
+        job = self._job()
+        self._item(job)
+
+        item = self._get(self._analysis(job)).data["wardrobe"]["items"][0]
+
+        self.assertEqual(
+            set(item),
+            {
+                "id",
+                "item_name",
+                "category_large",
+                "category_small",
+                "color",
+                "image_url",
+                "confirmed",
+            },
+        )
+
+    def test_pending_job_reports_status_without_items(self, _presigned: Mock) -> None:
+        job = self._job(status=WardrobeUploadJob.Status.PROCESSING)
+        # 콜백 전이라도 행이 먼저 생길 수 있다 — 상태가 DONE이 아니면 내보내지 않는다
+        self._item(job)
+
+        wardrobe = self._get(self._analysis(job)).data["wardrobe"]
+
+        self.assertEqual(wardrobe["status"], "PROCESSING")
+        self.assertEqual(wardrobe["items"], [])
+        self.assertIsNone(wardrobe["finished_at"])
+
+    def test_failed_job_exposes_error_message(self, _presigned: Mock) -> None:
+        job = self._job(
+            status=WardrobeUploadJob.Status.FAILED,
+            error_message="처리 큐 적재 실패",
+            finished_at=timezone.now(),
+        )
+
+        wardrobe = self._get(self._analysis(job)).data["wardrobe"]
+
+        self.assertEqual(wardrobe["status"], "FAILED")
+        self.assertEqual(wardrobe["error_message"], "처리 큐 적재 실패")
+        self.assertEqual(wardrobe["items"], [])
+
+    def test_unlinked_analysis_returns_null(self, _presigned: Mock) -> None:
+        response = self._get(self._analysis())
+
+        self.assertIsNone(response.data["wardrobe"])
+
+    def test_presigned_failure_degrades_to_null_url(self, presigned: Mock) -> None:
+        """URL 발급 장애가 평가 조회 자체를 막으면 안 된다."""
+        presigned.side_effect = RuntimeError("s3 down")
+        job = self._job()
+        self._item(job)
+
+        response = self._get(self._analysis(job))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertIsNone(response.data["wardrobe"]["items"][0]["image_url"])
+
+    def test_anonymous_response_omits_wardrobe(self, _presigned: Mock) -> None:
+        """옷장은 사용자 소유 데이터라 익명 축소 응답에는 아예 들어가지 않는다."""
+        analysis = OutfitAnalysis.objects.create(
+            user=None, status=OutfitAnalysis.Status.SUCCEEDED, weather=WEATHER
+        )
+        client = APIClient()  # 인증 없이
+
+        response = client.get(
+            reverse("recommend:outfit-analysis-detail", args=[analysis.pk])
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertNotIn("wardrobe", response.data)
 
 
 class OutfitAnalysisHistoryTests(TestCase):

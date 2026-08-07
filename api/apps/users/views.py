@@ -352,8 +352,14 @@ class PursuitView(APIView):
             PursuitPayloadResponseSerializer(obj.payload).data,
             status=status.HTTP_200_OK,
         )
+
+
 class BudgetView(APIView):
-    """GET/PUT /api/v1/users/me/budget/ — 월 의류 구매 예산 조회/설정."""
+    """GET/PUT /api/v1/users/me/budget/ — 월 의류 구매 예산 조회/설정.
+
+    Swagger 문서(operation_id·request/response 스키마·예시)는 다른 users 뷰와
+    마찬가지로 api_docs/extensions.py의 BudgetViewExtension이 담당한다.
+    """
 
     def get(self, request):
         return Response(BudgetSerializer(request.user).data)
