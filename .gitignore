@@ -1,212 +1,92 @@
-local/
-# ============================================================
-# 환경 변수 / 시크릿
-# ============================================================
-.env
-*.env
-.env.*
-!.env.example
-!.env.gpu.example
+# 기존 .gitignore 내용 + 임시 부산물 차단
 
-# Apple Sign In 개인키 (.p8 다운로드 파일)
-*.p8
-# 기타 인증서·키 파일
-*.pem
-*.key
-*.crt
-*.cer
-*.pfx
-*.p12
+# 임시 작업 파일 (언더스코어 prefix)
+_*.py
+_*.txt
+_*.json
+_*.md
 
-# ============================================================
+# image_synthesize 임시 폴더 (루트만, docs/golden-set은 정식 위치)
+/golden-set/
+
 # Python
-# ============================================================
 __pycache__/
 *.py[cod]
-*.pyo
-*.pyd
+*$py.class
+*.so
 .Python
-
-# 빌드 / 배포 산출물
+*.egg
+*.egg-info/
 dist/
 build/
-*.egg-info/
-*.egg
 .eggs/
-wheels/
-sdist/
+*.whl
 
-# ============================================================
-# 가상환경
-# ============================================================
+# Virtual environments
 .venv/
 venv/
 env/
 ENV/
 
-# ============================================================
+# 환경 변수 / 시크릿
+.env
+.env.local
+.env.*.local
+*.pem
+*.key
+
 # Django
-# ============================================================
+*.log
+local_settings.py
 db.sqlite3
-staticfiles/
-static/
+db.sqlite3-journal
 media/
+staticfiles/
 
-# ============================================================
-# 테스트 / 커버리지
-# ============================================================
-.pytest_cache/
-.coverage
-.coverage.*
-coverage.xml
-htmlcov/
-.tox/
-nosetests.xml
-test-results/
-
-# ============================================================
-# 타입 체크 / 린터 캐시
-# ============================================================
-.mypy_cache/
-.ruff_cache/
-.dmypy.json
-
-# ============================================================
-# Jupyter
-# ============================================================
-.ipynb_checkpoints/
-*.ipynb_checkpoints
-
-# ============================================================
-# ML / 모델 가중치 (S3에 저장, Git 금지)
-# ============================================================
-*.pt
-*.pth
-*.ckpt
-*.safetensors
-*.bin
-*.h5
-*.onnx
-*.gguf
-*.tflite
-*.pkl
-*.joblib
-# 신체치수 추정 모델 중 서빙(API)에 직접 쓰이는 것은 hist_gradient_boosting 하나뿐.
-# knn/baseline/random_forest는 학습·벤치마크용이므로 추적 제외한다 (random_forest는 50MB로 저장소 비대화 방지).
-!ml/body_measurement/artifacts/models/hist_gradient_boosting.joblib
-ml/body_measurement/artifacts/models/knn.joblib
-ml/body_measurement/artifacts/models/baseline.joblib
-ml/body_measurement/artifacts/models/random_forest.joblib
-# Hugging Face / PyTorch 등이 만드는 로컬 모델 다운로드 캐시
-.cache/
-.huggingface/
-# 학습 로그 / 실험 결과
-runs/
-outputs/
-checkpoints/
-wandb/
-mlruns/
-
-# ============================================================
-# 데이터 파일
-# ============================================================
-# data/는 루트만 무시. 하위 디렉토리(예: ml/body_measurement/data/)는
-# 각 모듈의 .gitignore에서 별도로 관리한다.
-/data/
-/datasets/
-
-# 테스트 산출물 - 출력 폴더
-collector/output/
-
-# 테스트 산출물 - 파일
-collector/weather_output_file.json
-collector/weather_output_file.xml
-
-# 테스트용 스크립트 (CSV 추출용)
-collector/weather_grid_all_to_csv.py
-
-# ============================================================
-# Docker
-# ============================================================
-# 로컬 전용 오버라이드 (포트·볼륨 개인 설정)
-docker-compose.override.yml
-docker-compose.local.yml
-
-# ============================================================
-# AWS
-# ============================================================
-# 자격증명 파일 (절대 커밋 금지)
-.aws/
-aws-credentials
-credentials
-
-# ============================================================
-# Redis
-# ============================================================
-dump.rdb
-
-# ============================================================
-# Celery (향후 사용 대비)
-# ============================================================
-celerybeat-schedule
-celerybeat.pid
-
-# ============================================================
-# Claude Code 로컬 설정 (팀원마다 다른 퍼미션 설정, 커밋 불필요)
-# ============================================================
-.claude/
-
-# ============================================================
-# IDE
-# ============================================================
+# IDE / Editor
 .vscode/
 .idea/
 *.swp
 *.swo
-*.sublime-project
-*.sublime-workspace
-
-# ============================================================
-# OS
-# ============================================================
 .DS_Store
-.DS_Store?
-._*
-.Spotlight-V100
-.Trashes
 Thumbs.db
-ehthumbs.db
+
+# OS
+.DS_Store
 desktop.ini
 
-# ============================================================
-# 로그 / 임시 파일
-# ============================================================
-*.log
-logs/
+# Jupyter
+.ipynb_checkpoints/
+
+# pytest / coverage
+.pytest_cache/
+.coverage
+htmlcov/
+.tox/
+
+# mypy
+.mypy_cache/
+
+# 모델 가중치 (대용량)
+*.pt
+*.pth
+*.pkl
+*.joblib
+*.h5
+*.onnx
+
+# 대용량 데이터
+*.csv.gz
+*.parquet
+data/raw/
+data/processed/
+
+# 임시 / 캐시
+tmp/
+temp/
+.cache/
 *.tmp
-*.bak
 
-# Codex 작업 복구용 로컬 백업
-codex_backup_*/
-
-# PowerShell에서 따옴표 없는 pip 버전 조건이 만든 루트 임시 파일
-/=[0-9]*
-
-feature/front
-
-mobile/package-lock.json
-
-*.orig
-*.rej
-
-output
-# Local docs/artifacts
-docs/*
-!docs/wardrobe-product-import-investigation.md
-main
-input
-nohup.out
-
-collector/eleven/tests/test_category_mapping.py
-
-_parse_*.py
+# 로그
+logs/
+*.log
