@@ -4,13 +4,19 @@ import { getOwnedOutfitAnalysis, type OutfitAnalysisOwnedDetail } from '@/lib/ou
 
 /** 옷장 등록은 GPU 파이프라인이라 몇 분이 걸린다 — 평가 폴링(3초)보다 느슨하게 본다. */
 const WARDROBE_POLL_MS = 5_000;
-/** 무한 폴링 방지. 옷장 처리 예상(약 5분)에 여유를 둔 상한이다. */
-const MAX_POLL_MS = 8 * 60 * 1000;
+/**
+ * 무한 폴링 방지 상한. 처음엔 회의록의 "약 5분" 추정으로 8분을 잡았는데 실측이 그보다 길어
+ * 폴링이 먼저 끊겼다 — 그러면 화면은 영영 "처리 중"으로 남는다. 상한은 넉넉히 두고,
+ * 걸렸을 때는 stalled 로 알려 사용자가 직접 새로고침할 수 있게 한다.
+ */
+const MAX_POLL_MS = 15 * 60 * 1000;
 
 type Result = {
   analysis: OutfitAnalysisOwnedDetail | null;
   loading: boolean;
   error: string | null;
+  /** 옷장 등록이 안 끝났는데 폴링 상한에 걸렸다 — 화면은 무한 스피너 대신 새로고침을 권해야 한다. */
+  stalled: boolean;
   reload: () => Promise<void>;
 };
 
@@ -30,6 +36,7 @@ export function useOutfitAnalysisDetail(analysisId: string | undefined): Result 
   const [analysis, setAnalysis] = useState<OutfitAnalysisOwnedDetail | null>(null);
   const [loading, setLoading] = useState(Boolean(analysisId));
   const [error, setError] = useState<string | null>(null);
+  const [stalled, setStalled] = useState(false);
 
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const startedAtRef = useRef(0);
@@ -40,6 +47,8 @@ export function useOutfitAnalysisDetail(analysisId: string | undefined): Result 
     if (!analysisId) return;
     setLoading(true);
     setError(null);
+    setStalled(false);
+    startedAtRef.current = Date.now();
     try {
       const res = await getOwnedOutfitAnalysis(analysisId);
       if (!aliveRef.current) return;
@@ -66,7 +75,11 @@ export function useOutfitAnalysisDetail(analysisId: string | undefined): Result 
   // 옷장 등록이 끝날 때까지만 다시 부른다
   useEffect(() => {
     if (!wardrobePending(analysis)) return;
-    if (Date.now() - startedAtRef.current > MAX_POLL_MS) return;
+    if (Date.now() - startedAtRef.current > MAX_POLL_MS) {
+      // 여기서 그냥 멈추면 화면은 계속 "처리 중"으로 보인다 — 멈췄다는 걸 알린다.
+      setStalled(true);
+      return;
+    }
 
     timerRef.current = setTimeout(() => {
       if (!aliveRef.current || !analysisId) return;
@@ -74,7 +87,7 @@ export function useOutfitAnalysisDetail(analysisId: string | undefined): Result 
         .then((res) => {
           if (aliveRef.current) setAnalysis(res);
         })
-        // 일시적인 실패로 화면을 에러로 바꾸지 않는다 — 다음 회차에 복구된다
+        // 일시적인 실패로 화면을 에러로 바꾸지 않는다 — 다음 회차에 복구된다.
         .catch(() => {});
     }, WARDROBE_POLL_MS);
 
@@ -83,5 +96,5 @@ export function useOutfitAnalysisDetail(analysisId: string | undefined): Result 
     };
   }, [analysis, analysisId]);
 
-  return { analysis, loading, error, reload: load };
+  return { analysis, loading, error, stalled, reload: load };
 }

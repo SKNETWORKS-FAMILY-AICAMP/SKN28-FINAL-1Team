@@ -26,7 +26,11 @@ export default function OutfitReviewScreen() {
 
   /* 옷장 등록은 평가와 다른 파이프라인이라 평가가 끝난 뒤에도 진행 중이다.
      상세 화면과 같은 훅으로 이 화면에서도 끝날 때까지 지켜본다 — 완료되면 실제 아이템이 채워진다. */
-  const { analysis } = useOutfitAnalysisDetail(job?.wardrobeJobId ? (job.analysisId ?? undefined) : undefined);
+  const {
+    analysis,
+    stalled: wardrobeStalled,
+    reload: reloadWardrobe,
+  } = useOutfitAnalysisDetail(job?.wardrobeJobId ? (job.analysisId ?? undefined) : undefined);
   const wardrobe = analysis?.wardrobe ?? null;
 
   const pending = outfitAnalysisStore.isPending(job);
@@ -84,7 +88,9 @@ export default function OutfitReviewScreen() {
                 <Text style={styles.tipText}>{result.styling_tips.map((item) => `• ${item}`).join('\n')}</Text>
               </View>
 
-              {job?.wardrobeJobId ? <FoundItems link={wardrobe} /> : null}
+              {job?.wardrobeJobId ? (
+                <FoundItems link={wardrobe} stalled={wardrobeStalled} onRefresh={reloadWardrobe} />
+              ) : null}
 
               <Pressable style={styles.secondaryButton} onPress={startNewAnalysis}>
                 <Text style={styles.secondaryButtonText}>새 사진 분석하기</Text>
@@ -152,17 +158,36 @@ export default function OutfitReviewScreen() {
  * 옷장 파이프라인은 평가보다 오래 걸려서, 이 화면이 처음 뜰 때는 아직 처리 중일 수 있다.
  * 그래서 상태를 그대로 보여주고 끝나면 아이템으로 바뀐다(훅이 완료까지 다시 조회한다).
  */
-function FoundItems({ link }: { link: WardrobeLink | null }) {
+function FoundItems({
+  link,
+  stalled,
+  onRefresh,
+}: {
+  link: WardrobeLink | null;
+  /** 폴링 상한에 걸려 더 이상 지켜보지 않는 상태 */
+  stalled: boolean;
+  onRefresh: () => void;
+}) {
   const working = !link || link.status === 'PENDING' || link.status === 'PROCESSING';
 
   return (
     <View style={styles.wardrobeNote}>
       <View style={styles.wardrobeHead}>
         <Text style={styles.wardrobeNoteTitle}>이 사진에서 찾은 옷</Text>
-        {working ? <ActivityIndicator size="small" color={Editorial.textCaption} /> : null}
+        {working && !stalled ? <ActivityIndicator size="small" color={Editorial.textCaption} /> : null}
       </View>
 
-      {working ? (
+      {working && stalled ? (
+        /* 지켜보기를 멈춘 상태. 스피너를 계속 돌리면 영영 처리 중인 것처럼 보인다. */
+        <>
+          <Text style={styles.wardrobeNoteBody}>
+            생각보다 오래 걸리고 있어요. 다 됐는지 눌러서 확인해 보세요.
+          </Text>
+          <Pressable style={styles.secondaryButton} onPress={onRefresh}>
+            <Text style={styles.secondaryButtonText}>다시 확인하기</Text>
+          </Pressable>
+        </>
+      ) : working ? (
         <Text style={styles.wardrobeNoteBody}>옷을 하나씩 분리하고 있어요. 몇 분 걸릴 수 있어요.</Text>
       ) : link.status === 'FAILED' ? (
         <Text style={styles.errorText}>{link.error_message || '옷을 옷장에 등록하지 못했어요.'}</Text>

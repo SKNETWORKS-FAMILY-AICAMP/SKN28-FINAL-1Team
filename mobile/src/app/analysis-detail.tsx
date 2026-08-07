@@ -48,7 +48,7 @@ export default function AnalysisDetailScreen() {
   const canRead = isLoggedIn && !isDemo;
 
   /* 훅 순서를 지키려고 비회원이어도 전부 호출한 뒤 분기한다. */
-  const { analysis, loading, error, reload } = useOutfitAnalysisDetail(canRead ? id : undefined);
+  const { analysis, loading, error, stalled, reload } = useOutfitAnalysisDetail(canRead ? id : undefined);
 
   if (!canRead) {
     return (
@@ -127,7 +127,9 @@ export default function AnalysisDetailScreen() {
               </>
             )}
 
-            {analysis.wardrobe ? <WardrobeSection link={analysis.wardrobe} /> : null}
+            {analysis.wardrobe ? (
+              <WardrobeSection link={analysis.wardrobe} stalled={stalled} onRefresh={reload} />
+            ) : null}
           </>
         )}
       </ScrollView>
@@ -162,17 +164,34 @@ function Note({ label, text }: { label: string; text: string }) {
  * 옷장 등록 섹션. 평가와 다른 파이프라인이라 상태를 그대로 보여준다 —
  * 처리 중인데 아무 말도 없으면 사용자는 등록이 안 된 것으로 읽는다.
  */
-function WardrobeSection({ link }: { link: WardrobeLink }) {
+function WardrobeSection({
+  link,
+  stalled,
+  onRefresh,
+}: {
+  link: WardrobeLink;
+  /** 폴링 상한에 걸려 더 이상 지켜보지 않는 상태 */
+  stalled: boolean;
+  onRefresh: () => void;
+}) {
   const pending = link.status === 'PENDING' || link.status === 'PROCESSING';
 
   return (
     <View style={styles.wardrobe}>
       <View style={styles.wardrobeHead}>
         <Text style={styles.wardrobeTitle}>이 사진에서 찾은 옷</Text>
-        {pending ? <ActivityIndicator size="small" color={Editorial.textCaption} /> : null}
+        {pending && !stalled ? <ActivityIndicator size="small" color={Editorial.textCaption} /> : null}
       </View>
 
-      {pending ? (
+      {pending && stalled ? (
+        /* 지켜보기를 멈춘 상태 — 스피너를 계속 돌리면 영영 처리 중인 것처럼 보인다. */
+        <>
+          <Text style={styles.body}>생각보다 오래 걸리고 있어요. 다 됐는지 눌러서 확인해 보세요.</Text>
+          <Pressable style={styles.wardrobeCta} onPress={onRefresh}>
+            <Text style={styles.wardrobeCtaText}>다시 확인하기</Text>
+          </Pressable>
+        </>
+      ) : pending ? (
         <Text style={styles.body}>옷을 하나씩 분리하고 있어요. 몇 분 걸릴 수 있어요.</Text>
       ) : link.status === 'FAILED' ? (
         <Text style={styles.failed}>
