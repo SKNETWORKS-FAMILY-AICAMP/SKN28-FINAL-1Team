@@ -194,10 +194,22 @@ async function appendImage(
 }
 
 /** 정면·측면 사진을 multipart 로 업로드 → 측정 트랜잭션 생성(202). */
-async function uploadBodyPhotos(frontUri: string, sideUri: string): Promise<PhotoTxResponse> {
+async function uploadBodyPhotos(
+  frontUri: string,
+  sideUri: string,
+  input: MeasureInput | null,
+): Promise<PhotoTxResponse> {
   const form = new FormData();
   await appendImage(form, 'front_image', frontUri, 'front.jpg');
   await appendImage(form, 'side_image', sideUri, 'side.jpg');
+  /* 기본 정보도 함께 보낸다(서버가 받아 준다). 생략하면 저장된 값을 쓰는데,
+     STEP1 의 PUT basic 이 실패했을 때 저장된 값이 없어 여기서 400 이 난다 —
+     "임시로 진행할게요" 라고 안내해 놓고 다음 단계에서 막히는 셈이었다. */
+  if (input && input.sex !== 'none') {
+    form.append('gender', input.sex);
+    form.append('height', String(input.height));
+    form.append('weight', String(input.weight));
+  }
   return api.post<PhotoTxResponse>(BodyEndpoints.photos, form);
 }
 
@@ -335,7 +347,7 @@ export const measureStore = {
     try {
       // 앞선 시도가 상한만 넘긴 거라면 그 트랜잭션을 이어서 기다린다.
       const transactionId =
-        pendingTransactionId ?? (await uploadBodyPhotos(front, side)).transaction_id;
+        pendingTransactionId ?? (await uploadBodyPhotos(front, side, state.input)).transaction_id;
       pendingTransactionId = transactionId;
 
       const outcome = await pollTransaction(transactionId);
