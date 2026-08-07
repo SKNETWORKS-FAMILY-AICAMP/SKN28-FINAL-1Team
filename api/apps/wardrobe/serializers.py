@@ -35,33 +35,48 @@ class WardrobeUploadSerializer(serializers.Serializer):
         return image
 
 
+class WardrobeBatchItemSerializer(serializers.Serializer):
+    image_link = serializers.URLField(max_length=2048)
+    item_name = serializers.CharField(max_length=120, required=False, allow_blank=True, default="")
+    category_large = serializers.ChoiceField(
+        choices=[""] + T.CATEGORY_LARGE, required=False, allow_blank=True, default="",
+    )
+    category_small = serializers.ChoiceField(
+        choices=[""] + T.ALL_SMALL, required=False, allow_blank=True, default="",
+    )
+    season = serializers.ListField(
+        child=serializers.ChoiceField(choices=T.SEASONS), required=False, default=list,
+    )
+    style = serializers.ListField(
+        child=serializers.ChoiceField(choices=T.STYLES), required=False, default=list,
+    )
+    color = serializers.ChoiceField(choices=[""] + T.COLORS, required=False, allow_blank=True, default="")
+    pattern = serializers.ChoiceField(choices=[""] + T.PATTERNS, required=False, allow_blank=True, default="")
+    fit = serializers.ChoiceField(choices=[""] + T.FITS, required=False, allow_blank=True, default="")
+    material = serializers.ChoiceField(choices=[""] + T.MATERIALS, required=False, allow_blank=True, default="")
+    sleeve = serializers.ChoiceField(choices=[""] + T.SLEEVES, required=False, allow_blank=True, default="")
+    length = serializers.ChoiceField(choices=[""] + T.LENGTHS, required=False, allow_blank=True, default="")
+    usage = serializers.ListField(child=serializers.CharField(max_length=20), required=False, default=list)
+    layer_role = serializers.ChoiceField(
+        choices=[""] + T.LAYER_ROLES, required=False, allow_blank=True, default="",
+    )
+    layer_order = serializers.IntegerField(required=False, allow_null=True, min_value=1, max_value=3)
+    confirmed = serializers.BooleanField(required=False, default=False)
+
+    def validate(self, attrs):
+        large, small = attrs.get("category_large", ""), attrs.get("category_small", "")
+        if small and (not large or not T.is_valid_pair(large, small)):
+            raise serializers.ValidationError({"category_small": "대분류와 맞지 않는 소분류입니다."})
+        return attrs
+
+
 class WardrobeBatchCreateSerializer(serializers.Serializer):
-    images = serializers.ListField(
-        child=serializers.FileField(), allow_empty=False, max_length=MAX_BATCH_ITEMS,
+    items = serializers.ListField(
+        child=WardrobeBatchItemSerializer(), allow_empty=False, max_length=MAX_BATCH_ITEMS,
     )
     source = serializers.RegexField(
-        r"^[a-z][a-z0-9_-]{0,19}$", required=False, default="onboarding",
+        r"^[a-z][a-z0-9_-]{0,19}$", required=False, default="in_app_browser",
     )
-
-    def validate_images(self, images):
-        for image in images:
-            if image.size > MAX_UPLOAD_MB * 1024 * 1024:
-                raise serializers.ValidationError(f"이미지는 장당 {MAX_UPLOAD_MB}MB 이하여야 합니다.")
-            if image.content_type not in ALLOWED_CONTENT_TYPES:
-                raise serializers.ValidationError("지원하지 않는 이미지 형식입니다. (jpeg/png/webp/heic)")
-            header = image.read(16)
-            image.seek(0)
-            valid = {
-                "image/jpeg": header.startswith(b"\xff\xd8\xff"),
-                "image/png": header.startswith(b"\x89PNG\r\n\x1a\n"),
-                "image/webp": header.startswith(b"RIFF") and header[8:12] == b"WEBP",
-                "image/heic": header[4:8] == b"ftyp" and header[8:12] in {b"heic", b"heix", b"hevc", b"hevx", b"mif1"},
-            }[image.content_type]
-            if not valid:
-                raise serializers.ValidationError("파일 내용이 이미지 형식과 일치하지 않습니다.")
-        if sum(image.size for image in images) > MAX_BATCH_TOTAL_MB * 1024 * 1024:
-            raise serializers.ValidationError(f"이미지 합계는 {MAX_BATCH_TOTAL_MB}MB 이하여야 합니다.")
-        return images
 
 
 # ── 아이템 조회/수정 ──────────────────────────────────────

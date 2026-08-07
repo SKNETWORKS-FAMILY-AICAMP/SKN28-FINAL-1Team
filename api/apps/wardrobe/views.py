@@ -10,13 +10,15 @@ from __future__ import annotations
 import logging
 import os
 from datetime import timedelta
+from pathlib import PurePosixPath
+from urllib.parse import unquote, urlparse
 
 import redis as redis_lib
 from django.db import transaction
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
 from rest_framework import status
-from rest_framework.parsers import FormParser, MultiPartParser
+from rest_framework.parsers import FormParser, JSONParser, MultiPartParser
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
@@ -24,6 +26,8 @@ from .models import WardrobeItem, WardrobeItemBatch, WardrobeUploadJob
 from .permissions import HasInternalToken
 from .serializers import (
     CallbackSerializer,
+    MAX_BATCH_TOTAL_MB,
+    MAX_UPLOAD_MB,
     WardrobeBatchCreateSerializer,
     WardrobeItemSerializer,
     WardrobeItemUpdateSerializer,
@@ -31,8 +35,33 @@ from .serializers import (
     WardrobeUploadSerializer,
 )
 from .services import jobs, storage, vectors
+from . import taxonomy as T
 
 logger = logging.getLogger(__name__)
+
+IMPORT_TAG_FIELDS = (
+    "item_name", "category_large", "category_small", "season", "style", "color",
+    "pattern", "fit", "material", "sleeve", "length", "usage", "layer_role",
+    "layer_order", "confirmed",
+)
+
+
+def _provided_metadata(item: dict) -> dict:
+    return {
+        key: item[key]
+        for key in IMPORT_TAG_FIELDS
+        if key in item and (item[key] not in ("", None, [], {}) or key == "confirmed")
+    }
+
+
+def _merge_metadata(generated: dict, provided: dict) -> dict:
+    merged = dict(generated)
+    merged.update({key: value for key, value in provided.items() if key in IMPORT_TAG_FIELDS})
+    if merged.get("category_small") and not T.is_valid_pair(
+        merged.get("category_large", ""), merged["category_small"]
+    ):
+        merged["category_small"] = ""
+    return merged
 
 
 def _batch_data(batch: WardrobeItemBatch) -> dict:
@@ -50,7 +79,7 @@ def _batch_data(batch: WardrobeItemBatch) -> dict:
 
 
 class WardrobeBatchView(APIView):
-    parser_classes = [MultiPartParser, FormParser]
+    parser_classes = [JSONParser]
 
     def get(self, request):
         queryset = WardrobeItemBatch.objects.filter(user=request.user).prefetch_related("jobs__items")
@@ -69,33 +98,55 @@ class WardrobeBatchView(APIView):
         if not storage.BUCKET:
             return Response({"detail": "이미지 저장소가 설정되지 않았습니다."}, status=503)
 
-        images = serializer.validated_data["images"]
+        items = serializer.validated_data["items"]
         batch = WardrobeItemBatch.objects.create(
-            user=request.user, source=serializer.validated_data["source"], total_count=len(images),
+            user=request.user, source=serializer.validated_data["source"], total_count=len(items),
         )
         accepted, rejected, uploaded = [], [], []
-        for image in images:
-            job = WardrobeUploadJob(user=request.user, batch=batch, pipeline="qwen-tag",
-                                    original_file_name=image.name)
-            key = storage.original_key(request.user.pk, job.pk, image.name)
+        total_bytes = 0
+        for index, item in enumerate(items):
+            image_link = item["image_link"]
+            original_name = unquote(PurePosixPath(urlparse(image_link).path).name)[:255]
+            job = WardrobeUploadJob(
+                user=request.user,
+                batch=batch,
+                pipeline="qwen-tag",
+                original_file_name=original_name or f"import-{index + 1}",
+                input_metadata=_provided_metadata(item),
+            )
+            key = ""
             try:
-                storage.upload_fileobj(image, key, image.content_type)
+                image, content_type, extension, size = storage.fetch_remote_image(
+                    image_link, MAX_UPLOAD_MB * 1024 * 1024,
+                )
+                if total_bytes + size > MAX_BATCH_TOTAL_MB * 1024 * 1024:
+                    raise storage.RemoteImageError("배치 이미지 합계 용량을 초과했습니다.")
+                key = storage.original_key(request.user.pk, job.pk, f"image{extension}")
+                storage.upload_fileobj(image, key, content_type)
+                total_bytes += size
                 uploaded.append(key)
+            except storage.RemoteImageError as exc:
+                job.status, job.error_message, job.finished_at = "FAILED", str(exc), timezone.now()
+                job.source_s3_key = key
+                job.save()
+                rejected.append({"image_link": image_link, "reason": "image_fetch_failed"})
+                continue
             except Exception:  # noqa: BLE001
+                logger.exception("외부 이미지 S3 저장 실패: %s", image_link)
                 job.status, job.error_message, job.finished_at = "FAILED", "upload_failed", timezone.now()
                 job.source_s3_key = key
                 job.save()
-                rejected.append({"file_name": image.name, "reason": "upload_failed"})
+                rejected.append({"image_link": image_link, "reason": "upload_failed"})
                 continue
             job.source_s3_key = key
             job.save()
             try:
                 jobs.enqueue_item(job)
-                accepted.append({"job_id": str(job.pk), "file_name": image.name})
+                accepted.append({"job_id": str(job.pk), "image_link": image_link})
             except redis_lib.RedisError:
                 job.status, job.error_message, job.finished_at = "FAILED", "enqueue_failed", timezone.now()
                 job.save(update_fields=["status", "error_message", "finished_at"])
-                rejected.append({"file_name": image.name, "reason": "enqueue_failed"})
+                rejected.append({"image_link": image_link, "reason": "enqueue_failed"})
 
         if not accepted:
             batch.delete()
@@ -240,13 +291,15 @@ class WardrobeCallbackView(APIView):
 
             created: list[tuple[WardrobeItem, list, list]] = []
             for it in data["items"]:
-                image_vec = it.pop("image_vector", [])
-                text_vec = it.pop("text_vector", [])
+                item_data = dict(it)
+                image_vec = item_data.pop("image_vector", [])
+                text_vec = item_data.pop("text_vector", [])
+                item_data = _merge_metadata(item_data, job.input_metadata)
                 item = WardrobeItem.objects.create(
                     user_id=job.user_id,
                     job=job,
                     embedding_version=vectors.EMBEDDING_VERSION if image_vec else "",
-                    **it,
+                    **item_data,
                 )
                 created.append((item, image_vec, text_vec))
 

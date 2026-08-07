@@ -675,8 +675,12 @@ class WardrobeBatchViewExtension(OpenApiViewExtension):
             post=extend_schema(
                 operation_id="wardrobe_batch_create",
                 tags=["Wardrobe"],
-                summary="옷장 사진 여러 장 일괄 등록",
-                description="multipart/form-data로 images에 사진을 1~30장 첨부합니다.",
+                summary="외부 상품 여러 건 옷장 일괄 등록",
+                description=(
+                    "인앱 브라우저 등에서 수집한 items를 JSON으로 1~30건 전달합니다. "
+                    "각 item은 image_link와 알고 있는 옷장 태그를 포함하며, "
+                    "서버가 이미지를 S3에 저장하고 Qwen 태깅 큐에 등록합니다."
+                ),
                 request=WardrobeBatchCreateSerializer,
                 responses={
                     202: WardrobeBatchCreateResponseSerializer,

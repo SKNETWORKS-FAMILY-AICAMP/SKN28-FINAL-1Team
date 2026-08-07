@@ -93,6 +93,11 @@ class WardrobeUploadJob(models.Model):
                                 db_comment="처리 파이프라인 식별자 (gemini-edit/qwen-tag)")
     original_file_name = models.CharField(max_length=255, blank=True, default="",
                                           db_comment="업로드 원본 파일명")
+    input_metadata = models.JSONField(
+        default=dict,
+        blank=True,
+        db_comment="외부 수집 시 클라이언트가 제공한 옷장 부분 태그 JSON",
+    )
     source_s3_key = models.CharField(
         "원본 S3 키", max_length=512, db_comment="업로드 원본 이미지 S3 키"
     )
