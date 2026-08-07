@@ -1,7 +1,5 @@
 import * as ImagePicker from 'expo-image-picker';
 
-export type SelectedItemPhoto = { uri: string; fileName?: string; mimeType?: string };
-
 async function ensurePermission(kind: 'library' | 'camera'): Promise<boolean> {
   const request =
     kind === 'library'
@@ -22,17 +20,6 @@ export async function pickFromAlbum(): Promise<string | null> {
   });
   if (result.canceled || !result.assets[0]) return null;
   return result.assets[0].uri;
-}
-
-export async function pickManyFromAlbum(): Promise<SelectedItemPhoto[]> {
-  if (!(await ensurePermission('library'))) return [];
-  const result = await ImagePicker.launchImageLibraryAsync({
-    mediaTypes: ['images'], allowsMultipleSelection: true, selectionLimit: 30,
-    orderedSelection: true, quality: 0.9,
-  });
-  return result.canceled ? [] : result.assets.map(({ uri, fileName, mimeType }) => ({
-    uri, fileName: fileName ?? undefined, mimeType: mimeType ?? undefined,
-  }));
 }
 
 /** 체형측정용 전신 사진 1장 선택 (앨범). 크롭 없이 원본 비율 유지 — 전신이 잘리면 안 되므로. */

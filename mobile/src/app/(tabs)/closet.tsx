@@ -214,7 +214,7 @@ export default function ClosetScreen() {
           <View style={[styles.jobStrip, contentStyle(ContentMax.wide)]}>
             <ActivityIndicator color={INK} size="small" />
             <Text style={styles.jobText}>
-              옷 등록 중 · {running.map((job) => job.progress).filter(Boolean).join(', ') || `${running.length}장`}
+              옷 등록 중 · {running.length}장
             </Text>
           </View>
         ) : null}

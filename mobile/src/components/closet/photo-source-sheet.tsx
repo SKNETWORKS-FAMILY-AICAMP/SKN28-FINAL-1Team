@@ -14,19 +14,17 @@ import { Icon, type IconName } from '@/components/icon';
 import { useToast } from '@/components/ui';
 import { ContentMax, Editorial, ink, Type } from '@/constants/theme';
 import { useBreakpoint } from '@/hooks/use-breakpoint';
-import { pickFromAlbum, pickFromCamera, pickManyFromAlbum } from '@/lib/pickItemPhoto';
+import { pickFromAlbum, pickFromCamera } from '@/lib/pickItemPhoto';
 import { draftItem } from '@/state/draft-item';
-import { uploadJobs } from '@/state/upload-jobs';
 
 const INK = Editorial.ink;
 
-type SourceKey = 'batch' | 'album' | 'camera' | 'web' | 'library';
+type SourceKey = 'album' | 'camera' | 'web' | 'library';
 
 /* 앨범·카메라는 내 사진, Web 은 쇼핑몰에서 가져오기, 라이브러리는 준비된 옷에서 고르기.
    라이브러리를 넣은 이유 — 사진이 없어도 옷장을 채워볼 수 있는 유일한 길이다.
    (화면은 진작 있었는데 아무 데서도 열어주지 않아 닿을 수 없었다) */
 const ALL_SOURCES: { key: SourceKey; label: string; icon: IconName; hint: string }[] = [
-  { key: 'batch', label: '여러 장', icon: 'photo.on.rectangle', hint: '최대 30장 일괄 등록' },
   { key: 'album', label: '앨범', icon: 'photo.on.rectangle', hint: '갤러리에서 선택' },
   { key: 'camera', label: '카메라', icon: 'camera', hint: '직접 촬영' },
   { key: 'web', label: 'Web', icon: 'globe', hint: '쇼핑몰에서' },
@@ -72,14 +70,6 @@ export function PhotoSourceSheet({
 
     setLoading(true);
     try {
-      if (key === 'batch') {
-        const photos = await pickManyFromAlbum();
-        if (!photos.length) return;
-        uploadJobs.startBatch(photos);
-        toast(`${photos.length}장 등록을 시작했어요`);
-        onClose();
-        return;
-      }
       const uri = key === 'album' ? await pickFromAlbum() : await pickFromCamera();
       if (!uri) return;
       draftItem.setPhoto(uri);

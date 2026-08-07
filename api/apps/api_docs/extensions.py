@@ -34,6 +34,7 @@ from apps.users.serializers import (
 )
 from apps.wardrobe.serializers import (
     CallbackSerializer,
+    WardrobeBatchCreateSerializer,
     WardrobeItemSerializer,
     WardrobeItemUpdateSerializer,
     WardrobeJobSerializer,
@@ -600,6 +601,117 @@ class PursuitViewExtension(OpenApiViewExtension):
 from rest_framework import serializers as drf_serializers  # noqa: E402
 
 from apps.wardrobe import taxonomy as wardrobe_taxonomy  # noqa: E402
+
+BATCH_STATUSES = ["PENDING", "PROCESSING", "DONE", "PARTIAL", "FAILED"]
+
+class WardrobeBatchCountsSerializer(drf_serializers.Serializer):
+    total = drf_serializers.IntegerField()
+    pending = drf_serializers.IntegerField()
+    done = drf_serializers.IntegerField()
+    failed = drf_serializers.IntegerField()
+
+
+class WardrobeBatchResponseSerializer(drf_serializers.Serializer):
+    batch_id = drf_serializers.UUIDField()
+    status = drf_serializers.ChoiceField(choices=BATCH_STATUSES)
+    source = drf_serializers.CharField()
+    counts = WardrobeBatchCountsSerializer()
+    progress = drf_serializers.FloatField()
+    poll_after_ms = drf_serializers.IntegerField(allow_null=True)
+    created_at = drf_serializers.DateTimeField()
+    finished_at = drf_serializers.DateTimeField(allow_null=True)
+    jobs = WardrobeJobSerializer(many=True)
+
+
+class WardrobeBatchCreateResponseSerializer(drf_serializers.Serializer):
+    batch_id = drf_serializers.UUIDField()
+    status = drf_serializers.ChoiceField(choices=BATCH_STATUSES)
+    total_count = drf_serializers.IntegerField()
+    accepted = drf_serializers.ListField(child=drf_serializers.DictField())
+    rejected = drf_serializers.ListField(child=drf_serializers.DictField())
+    poll_url = drf_serializers.CharField()
+    poll_after_ms = drf_serializers.IntegerField()
+    estimated_seconds = drf_serializers.IntegerField()
+
+
+class WardrobeBatchViewExtension(OpenApiViewExtension):
+    target_class = "apps.wardrobe.views.WardrobeBatchView"
+
+    def view_replacement(self):
+        @extend_schema_view(
+            get=extend_schema(
+                operation_id="wardrobe_batches",
+                tags=["Wardrobe"],
+                summary="옷장 일괄 등록 목록",
+                parameters=[
+                    OpenApiParameter(
+                        name="status",
+                        type=OpenApiTypes.STR,
+                        location=OpenApiParameter.QUERY,
+                        required=False,
+                        enum=BATCH_STATUSES,
+                    ),
+                    OpenApiParameter(
+                        name="limit",
+                        type=OpenApiTypes.INT,
+                        location=OpenApiParameter.QUERY,
+                        required=False,
+                        default=20,
+                    ),
+                    OpenApiParameter(
+                        name="offset",
+                        type=OpenApiTypes.INT,
+                        location=OpenApiParameter.QUERY,
+                        required=False,
+                        default=0,
+                    ),
+                ],
+                responses={
+                    200: WardrobeBatchResponseSerializer(many=True),
+                    400: DetailResponseSerializer,
+                    401: DetailResponseSerializer,
+                },
+            ),
+            post=extend_schema(
+                operation_id="wardrobe_batch_create",
+                tags=["Wardrobe"],
+                summary="옷장 사진 여러 장 일괄 등록",
+                description="multipart/form-data로 images에 사진을 1~30장 첨부합니다.",
+                request=WardrobeBatchCreateSerializer,
+                responses={
+                    202: WardrobeBatchCreateResponseSerializer,
+                    400: DetailResponseSerializer,
+                    401: DetailResponseSerializer,
+                    503: DetailResponseSerializer,
+                },
+            ),
+        )
+        class DocumentedWardrobeBatchView(self.target_class):
+            pass
+
+        return DocumentedWardrobeBatchView
+
+
+class WardrobeBatchDetailViewExtension(OpenApiViewExtension):
+    target_class = "apps.wardrobe.views.WardrobeBatchDetailView"
+
+    def view_replacement(self):
+        @extend_schema_view(
+            get=extend_schema(
+                operation_id="wardrobe_batch_detail",
+                tags=["Wardrobe"],
+                summary="옷장 일괄 등록 상태 조회",
+                responses={
+                    200: WardrobeBatchResponseSerializer,
+                    401: DetailResponseSerializer,
+                    404: DetailResponseSerializer,
+                },
+            )
+        )
+        class DocumentedWardrobeBatchDetailView(self.target_class):
+            pass
+
+        return DocumentedWardrobeBatchDetailView
 
 WARDROBE_UPLOAD_DESCRIPTION = """사진 1장을 접수해 옷장 아이템 등록을 **비동기로** 시작합니다.
 

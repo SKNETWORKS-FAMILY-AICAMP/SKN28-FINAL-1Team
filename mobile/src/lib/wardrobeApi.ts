@@ -52,13 +52,6 @@ export type UploadJob = {
   items: WardrobeApiItem[];
 };
 
-export type WardrobeBatch = {
-  batch_id: string;
-  status: 'PENDING' | 'PROCESSING' | 'DONE' | 'PARTIAL' | 'FAILED';
-  counts: { total: number; pending: number; done: number; failed: number };
-  poll_after_ms: number | null;
-};
-
 /** PATCH 로 보낼 수 있는 필드 (WardrobeItemUpdateSerializer 와 일치) */
 export type WardrobeItemPatch = Partial<{
   item_name: string;
@@ -139,22 +132,6 @@ export async function uploadWardrobePhoto(
   }
 }
 
-export async function uploadWardrobeBatch(
-  photos: { uri: string; fileName?: string; mimeType?: string }[],
-): Promise<{ batch_id: string; total_count: number; poll_after_ms: number }> {
-  const form = new FormData();
-  form.append('source', 'closet');
-  for (const photo of photos) {
-    const name = photo.fileName ?? guessFileName(photo.uri);
-    if (Platform.OS === 'web') {
-      form.append('images', await fetch(photo.uri).then((response) => response.blob()), name);
-    } else {
-      form.append('images', new File(photo.uri) as unknown as Blob, name);
-    }
-  }
-  return apiFetch(WardrobeEndpoints.batches, { method: 'POST', body: form });
-}
-
 function isRemote(uri: string): boolean {
   return /^https?:/i.test(uri);
 }
@@ -206,10 +183,6 @@ function parseUploadResponse(res: {
 /** 처리 상태 조회 — DONE 이 되면 items 가 채워진다. */
 export function getUploadJob(jobId: string): Promise<UploadJob> {
   return api.get<UploadJob>(WardrobeEndpoints.uploadJob(jobId));
-}
-
-export function getWardrobeBatch(batchId: string): Promise<WardrobeBatch> {
-  return api.get(WardrobeEndpoints.batch(batchId));
 }
 
 export function listWardrobeItems(query: WardrobeItemQuery = {}): Promise<WardrobeApiItem[]> {
