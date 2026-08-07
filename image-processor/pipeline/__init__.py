@@ -33,10 +33,13 @@ class WardrobePipeline:
     아이템 단위 실패는 error에 기록하고 계속 진행한다 — 부분 성공 허용.
     """
 
-    def __init__(self, enumerator: ItemEnumerator,
-                 generator: ProductImageGenerator,
-                 tagger: ItemTagger,
-                 embedder: Embedder) -> None:
+    def __init__(
+        self,
+        enumerator: ItemEnumerator,
+        generator: ProductImageGenerator,
+        tagger: ItemTagger,
+        embedder: Embedder | None,
+    ) -> None:
         self.enumerator = enumerator
         self.generator = generator
         self.tagger = tagger
@@ -65,15 +68,17 @@ class WardrobePipeline:
                 item.tags = self.tagger.tag(item.image_png)
                 item.timings["tag"] = round(time.perf_counter() - t, 3)
 
-                t = time.perf_counter()
-                item.image_vector = self.embedder.embed_image(item.image_png)
-                item.text_vector = self.embedder.embed_text(
-                    caption_from_tags(item.tags)
-                )
-                item.timings["embed"] = round(time.perf_counter() - t, 3)
+                if self.embedder is not None:
+                    t = time.perf_counter()
+                    item.image_vector = self.embedder.embed_image(item.image_png)
+                    item.text_vector = self.embedder.embed_text(
+                        caption_from_tags(item.tags)
+                    )
+                    item.timings["embed"] = round(time.perf_counter() - t, 3)
 
                 item.tags["_missing_required"] = missing_required(item.tags)
-            except Exception as e:  # noqa: BLE001 — 아이템 단위 격리
+            # 한 아이템의 실패가 나머지 아이템 처리를 막지 않게 격리한다.
+            except Exception as e:
                 logger.exception("아이템 %d(%s) 처리 실패", i, enum_item.label_ko)
                 item.error = f"{type(e).__name__}: {e}"
             results.append(item)

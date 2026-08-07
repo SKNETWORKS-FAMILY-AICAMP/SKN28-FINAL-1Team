@@ -200,7 +200,9 @@ mobile/package-lock.json
 *.rej
 
 output
-# Local artifacts
+# Local docs/artifacts
+docs/*
+!docs/wardrobe-product-import-investigation.md
 main
 input
 nohup.out
