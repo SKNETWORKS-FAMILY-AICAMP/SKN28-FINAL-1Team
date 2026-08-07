@@ -5,20 +5,29 @@ import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { Icon } from '@/components/icon';
-import { ModalShell } from '@/components/ui';
+import { ModalShell, SmartImage } from '@/components/ui';
 import { ContentMax, Editorial, Fonts, ink } from '@/constants/theme';
+import { useOutfitAnalysisDetail } from '@/hooks/use-outfit-analysis-detail';
+import type { WardrobeLink } from '@/lib/outfitHistoryApi';
 import { pickOutfitPhoto, takeOutfitPhoto } from '@/lib/pickItemPhoto';
 import { useAuth } from '@/state/auth';
 import { outfitAnalysisStore, useOutfitAnalysis } from '@/state/outfit-analysis';
 
 const INK = Editorial.ink;
-const FOUND_ITEMS = ['오프화이트 니트 상의', '블랙 스트레이트 팬츠', '블랙 로퍼'];
 
 export default function OutfitReviewScreen() {
-  const { isLoggedIn } = useAuth();
+  const { isLoggedIn, isDemo } = useAuth();
   const { job } = useOutfitAnalysis();
   const [photo, setPhoto] = useState<string | null>(null);
-  const [selected, setSelected] = useState(() => new Set(FOUND_ITEMS));
+  /* 옷장은 사용자 소유 데이터라 백엔드가 비로그인 요청에서는 무시한다 — 선택지도 로그인 사용자에게만 준다.
+     데모 세션은 토큰이 없어 옷장 API 가 전부 401 이므로 켜봐야 등록되지 않는다. */
+  const canSaveToWardrobe = isLoggedIn && !isDemo;
+  const [saveToWardrobe, setSaveToWardrobe] = useState(true);
+
+  /* 옷장 등록은 평가와 다른 파이프라인이라 평가가 끝난 뒤에도 진행 중이다.
+     상세 화면과 같은 훅으로 이 화면에서도 끝날 때까지 지켜본다 — 완료되면 실제 아이템이 채워진다. */
+  const { analysis } = useOutfitAnalysisDetail(job?.wardrobeJobId ? (job.analysisId ?? undefined) : undefined);
+  const wardrobe = analysis?.wardrobe ?? null;
 
   const pending = outfitAnalysisStore.isPending(job);
   const result = job?.phase === 'SUCCEEDED' ? job.evaluation : null;
@@ -35,7 +44,7 @@ export default function OutfitReviewScreen() {
     const targetPhoto = photo ?? job?.photoUri;
     if (!targetPhoto) return;
     try {
-      await outfitAnalysisStore.start(targetPhoto);
+      await outfitAnalysisStore.start(targetPhoto, canSaveToWardrobe && saveToWardrobe);
       router.replace('/(tabs)/home');
     } catch {
       // 실패 메시지는 전역 작업 상태에 저장되어 같은 화면에서 보여준다.
@@ -45,15 +54,6 @@ export default function OutfitReviewScreen() {
   const startNewAnalysis = async () => {
     await outfitAnalysisStore.clear();
     setPhoto(null);
-  };
-
-  const toggleItem = (item: string) => {
-    setSelected((current) => {
-      const next = new Set(current);
-      if (next.has(item)) next.delete(item);
-      else next.add(item);
-      return next;
-    });
   };
 
   return (
@@ -84,25 +84,7 @@ export default function OutfitReviewScreen() {
                 <Text style={styles.tipText}>{result.styling_tips.map((item) => `• ${item}`).join('\n')}</Text>
               </View>
 
-              {isLoggedIn ? (
-                <>
-                  <Text style={styles.itemsTitle}>내 옷장에 추가할 아이템</Text>
-                  {FOUND_ITEMS.map((item) => {
-                    const checked = selected.has(item);
-                    return (
-                      <Pressable key={item} style={styles.itemRow} onPress={() => toggleItem(item)}>
-                        <View style={[styles.checkbox, checked && styles.checkboxOn]}>
-                          <Text style={styles.check}>{checked ? '✓' : ''}</Text>
-                        </View>
-                        <Text style={styles.itemText}>{item}</Text>
-                      </Pressable>
-                    );
-                  })}
-                  <Pressable style={styles.primary} onPress={() => router.push('/item-add' as Href)}>
-                    <Text style={styles.primaryText}>{selected.size}개 아이템 저장하기</Text>
-                  </Pressable>
-                </>
-              ) : null}
+              {job?.wardrobeJobId ? <FoundItems link={wardrobe} /> : null}
 
               <Pressable style={styles.secondaryButton} onPress={startNewAnalysis}>
                 <Text style={styles.secondaryButtonText}>새 사진 분석하기</Text>
@@ -133,6 +115,21 @@ export default function OutfitReviewScreen() {
                   <Text style={styles.photoActionText}>카메라로 촬영</Text>
                 </Pressable>
               </View>
+              {canSaveToWardrobe ? (
+                <Pressable
+                  style={styles.optionRow}
+                  onPress={() => setSaveToWardrobe((on) => !on)}
+                  accessibilityRole="checkbox"
+                  accessibilityState={{ checked: saveToWardrobe }}>
+                  <View style={[styles.checkbox, saveToWardrobe && styles.checkboxOn]}>
+                    <Text style={styles.check}>{saveToWardrobe ? '✓' : ''}</Text>
+                  </View>
+                  <View style={styles.optionText}>
+                    <Text style={styles.optionLabel}>이 사진 속 옷도 옷장에 등록하기</Text>
+                    <Text style={styles.optionHint}>옷을 하나씩 분리해 담아요. 몇 분 걸려요.</Text>
+                  </View>
+                </Pressable>
+              ) : null}
               {job?.phase === 'FAILED' && job.detail ? <Text style={styles.errorText}>{job.detail}</Text> : null}
               <Pressable
                 style={[styles.primary, !shownPhoto && styles.primaryDisabled]}
@@ -146,6 +143,51 @@ export default function OutfitReviewScreen() {
         </ScrollView>
       </View>
     </ModalShell>
+  );
+}
+
+/**
+ * 사진에서 뽑아낸 실제 옷. 예전엔 여기가 고정 문구 3개였다 — 어떤 사진을 올려도 같은 옷이 나왔다.
+ *
+ * 옷장 파이프라인은 평가보다 오래 걸려서, 이 화면이 처음 뜰 때는 아직 처리 중일 수 있다.
+ * 그래서 상태를 그대로 보여주고 끝나면 아이템으로 바뀐다(훅이 완료까지 다시 조회한다).
+ */
+function FoundItems({ link }: { link: WardrobeLink | null }) {
+  const working = !link || link.status === 'PENDING' || link.status === 'PROCESSING';
+
+  return (
+    <View style={styles.wardrobeNote}>
+      <View style={styles.wardrobeHead}>
+        <Text style={styles.wardrobeNoteTitle}>이 사진에서 찾은 옷</Text>
+        {working ? <ActivityIndicator size="small" color={Editorial.textCaption} /> : null}
+      </View>
+
+      {working ? (
+        <Text style={styles.wardrobeNoteBody}>옷을 하나씩 분리하고 있어요. 몇 분 걸릴 수 있어요.</Text>
+      ) : link.status === 'FAILED' ? (
+        <Text style={styles.errorText}>{link.error_message || '옷을 옷장에 등록하지 못했어요.'}</Text>
+      ) : link.items.length === 0 ? (
+        <Text style={styles.wardrobeNoteBody}>이 사진에서는 옷을 찾지 못했어요.</Text>
+      ) : (
+        link.items.map((item) => (
+          <View key={item.id} style={styles.foundRow}>
+            <SmartImage uri={item.image_url} width={48} height={48} radius={10} contentFit="contain" />
+            <View style={styles.foundText}>
+              <Text style={styles.foundName} numberOfLines={1}>
+                {item.item_name || '이름 없는 아이템'}
+              </Text>
+              <Text style={styles.foundMeta} numberOfLines={1}>
+                {[item.category_large, item.category_small, item.color].filter(Boolean).join(' · ')}
+              </Text>
+            </View>
+          </View>
+        ))
+      )}
+
+      <Pressable style={styles.secondaryButton} onPress={() => router.push('/(tabs)/closet' as Href)}>
+        <Text style={styles.secondaryButtonText}>옷장에서 확인하기</Text>
+      </Pressable>
+    </View>
   );
 }
 
@@ -196,12 +238,33 @@ const styles = StyleSheet.create({
   tipCard: { marginTop: 10, borderRadius: 16, borderWidth: 1, borderColor: ink(0.1), padding: 18 },
   tipTitle: { fontSize: 14, fontWeight: '700', color: INK },
   tipText: { marginTop: 10, fontSize: 15, lineHeight: 24, color: Editorial.textSoft },
-  itemsTitle: { marginTop: 27, fontSize: 15, fontWeight: '700', color: INK },
-  itemRow: { minHeight: 47, flexDirection: 'row', alignItems: 'center', gap: 11, borderBottomWidth: 1, borderBottomColor: ink(0.08) },
   checkbox: { width: 19, height: 19, borderRadius: 6, borderWidth: 1, borderColor: ink(0.25), alignItems: 'center', justifyContent: 'center' },
   checkboxOn: { borderColor: Editorial.selected, backgroundColor: Editorial.selected },
   check: { fontSize: 12, fontWeight: '700', color: '#ffffff' },
-  itemText: { fontSize: 13, color: Editorial.textSoft },
+
+  // 시작 화면의 "옷장에도 등록" 선택
+  optionRow: { marginTop: 20, flexDirection: 'row', alignItems: 'flex-start', gap: 11 },
+  optionText: { flex: 1, gap: 3 },
+  optionLabel: { fontSize: 14, fontWeight: '600', color: INK },
+  optionHint: { fontSize: 12, lineHeight: 18, color: Editorial.textCaption },
+
+  // 결과 화면의 옷장 등록 안내
+  wardrobeNote: {
+    marginTop: 24,
+    borderRadius: 18,
+    backgroundColor: Editorial.control,
+    paddingHorizontal: 18,
+    paddingTop: 16,
+    paddingBottom: 6,
+    gap: 6,
+  },
+  wardrobeHead: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+  wardrobeNoteTitle: { flex: 1, fontSize: 14, fontWeight: '700', color: INK },
+  wardrobeNoteBody: { fontSize: 13, lineHeight: 20, color: Editorial.textCaption },
+  foundRow: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 4 },
+  foundText: { flex: 1, gap: 2 },
+  foundName: { fontSize: 14, fontWeight: '600', color: INK },
+  foundMeta: { fontSize: 12, color: Editorial.textCaption },
   pendingCard: { marginTop: 24, padding: 24, alignItems: 'center', borderRadius: 18, backgroundColor: Editorial.surface, borderWidth: 1, borderColor: Editorial.line },
   pendingTitle: { marginTop: 14, fontSize: 17, fontWeight: '700', color: INK },
   pendingBody: { marginTop: 8, textAlign: 'center', fontSize: 13, lineHeight: 20, color: Editorial.textCaption },

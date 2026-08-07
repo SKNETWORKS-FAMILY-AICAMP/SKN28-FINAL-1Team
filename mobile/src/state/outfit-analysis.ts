@@ -23,6 +23,12 @@ export type OutfitAnalysisJob = {
   pollAfterMs: number;
   estimatedSeconds: number | null;
   claimToken: string | null;
+  /**
+   * 같은 사진을 옷장 등록에도 넘겼을 때 생기는 job id. 안 넘겼으면 null.
+   * 옷장 처리는 평가보다 훨씬 오래 걸려(수 분) 결과 화면에서 기다리지 않는다 —
+   * 진행 상황과 뽑아낸 아이템은 분석 기록 상세에서 본다.
+   */
+  wardrobeJobId: string | null;
   photoUri: string;
   evaluation: OutfitEvaluation | null;
   detail: string | null;
@@ -155,7 +161,11 @@ async function bootstrap(): Promise<void> {
   return bootstrapPromise;
 }
 
-async function start(photoUri: string): Promise<void> {
+/**
+ * 분석 접수. `saveToWardrobe` 를 켜면 같은 사진이 옷장 등록 파이프라인에도 들어간다.
+ * 옷장은 사용자 소유 데이터라 백엔드가 비로그인 요청에서는 이 값을 무시한다.
+ */
+async function start(photoUri: string, saveToWardrobe = false): Promise<void> {
   if (isPending(snapshot.job)) throw new Error('진행 중인 착장 분석이 있어요.');
   cancelPoll();
 
@@ -166,6 +176,7 @@ async function start(photoUri: string): Promise<void> {
     pollAfterMs: DEFAULT_POLL_MS,
     estimatedSeconds: null,
     claimToken: null,
+    wardrobeJobId: null,
     photoUri,
     evaluation: null,
     detail: null,
@@ -175,7 +186,7 @@ async function start(photoUri: string): Promise<void> {
   emit({ hydrated: true, job: submitting });
 
   try {
-    const accepted = await startOutfitAnalysis(photoUri, { saveToWardrobe: false });
+    const accepted = await startOutfitAnalysis(photoUri, { saveToWardrobe });
     const queued: OutfitAnalysisJob = {
       ...submitting,
       analysisId: accepted.analysis_id,
@@ -184,6 +195,7 @@ async function start(photoUri: string): Promise<void> {
       pollAfterMs: accepted.poll_after_ms || DEFAULT_POLL_MS,
       estimatedSeconds: accepted.estimated_seconds,
       claimToken: accepted.claim_token,
+      wardrobeJobId: accepted.wardrobe_job_id,
     };
     emit({ ...snapshot, job: queued });
     await persist(queued);
