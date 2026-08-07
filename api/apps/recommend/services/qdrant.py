@@ -20,6 +20,7 @@ from qdrant_client import models as qm
 
 IMAGE_VECTOR = "image"
 TEXT_VECTOR = "text"
+GOLDEN_OUTFIT_COLLECTION = "outfit_goldenset"
 
 # point ID 생성용 고정 네임스페이스. 같은 원본 키는 항상 같은 UUID가 되어
 # 재실행 시 upsert가 멱등하게 동작한다. 절대 변경하지 않는다.
@@ -34,7 +35,7 @@ def point_id(source_key: str) -> str:
 @dataclass(frozen=True)
 class CollectionSpec:
     name: str
-    vectors: dict[str, int]                      # named vector → 차원
+    vectors: dict[str, int]  # named vector → 차원
     payload_indexes: dict[str, str] = field(default_factory=dict)  # 필드 → 스키마
 
 
@@ -79,10 +80,37 @@ def collection_specs() -> list[CollectionSpec]:
             vectors={TEXT_VECTOR: _text_dim()},
             payload_indexes={
                 "knowledge_type": "keyword",
+                "dimension": "keyword",
+                "axis": "keyword",
+                "status": "keyword",
+                "knowledge_role": "keyword",
+                "principle_type": "keyword",
+                "eligible_for_scoring": "bool",
+                "source": "keyword",
+                "dataset_version": "keyword",
+                "style": "keyword",
                 "body_type": "keyword",
                 "skin_tone": "keyword",
                 "season": "keyword",
                 "occasion": "keyword",
+            },
+        ),
+        CollectionSpec(
+            name=GOLDEN_OUTFIT_COLLECTION,
+            vectors={IMAGE_VECTOR: _image_dim(), TEXT_VECTOR: _text_dim()},
+            payload_indexes={
+                "source": "keyword",
+                "dataset_version": "keyword",
+                "status": "keyword",
+                "split": "keyword",
+                "presentation_group": "keyword",
+                "style": "keyword",
+                "season": "keyword",
+                "occasion": "keyword",
+                "score_band": "keyword",
+                "human_score": "float",
+                "anchor_scope": "keyword",
+                "exposable": "bool",
             },
         ),
     ]
@@ -99,7 +127,7 @@ def get_client() -> QdrantClient:
 
 
 def ensure_collections(client: QdrantClient, *, recreate: bool = False) -> list[str]:
-    """스키마 정의대로 컬렉션을 생성한다. 이미 있으면 건드리지 않는다(멱등).
+    """스키마 정의대로 컬렉션과 누락된 payload 인덱스를 수렴시킨다.
 
     Returns: 이번 호출에서 새로 생성한 컬렉션 이름 목록.
     """
@@ -107,18 +135,26 @@ def ensure_collections(client: QdrantClient, *, recreate: bool = False) -> list[
     for spec in collection_specs():
         if recreate and client.collection_exists(spec.name):
             client.delete_collection(spec.name)
-        if client.collection_exists(spec.name):
-            continue
-        client.create_collection(
-            collection_name=spec.name,
-            vectors_config={
-                vec_name: qm.VectorParams(size=dim, distance=qm.Distance.COSINE)
-                for vec_name, dim in spec.vectors.items()
-            },
-        )
+        exists = client.collection_exists(spec.name)
+        if not exists:
+            client.create_collection(
+                collection_name=spec.name,
+                vectors_config={
+                    vec_name: qm.VectorParams(size=dim, distance=qm.Distance.COSINE)
+                    for vec_name, dim in spec.vectors.items()
+                },
+            )
+            created.append(spec.name)
+
+        # 컬렉션은 먼저 만들어졌지만 payload 인덱스가 뒤늦게 추가된 경우에도
+        # init_qdrant 재실행만으로 스키마를 수렴시킨다. 기존 구현의 즉시 continue는
+        # 이런 증분 변경을 영구히 놓쳤다.
+        info = client.get_collection(spec.name)
+        existing_indexes = set((info.payload_schema or {}).keys())
         for fld, schema in spec.payload_indexes.items():
+            if fld in existing_indexes:
+                continue
             client.create_payload_index(
                 collection_name=spec.name, field_name=fld, field_schema=schema
             )
-        created.append(spec.name)
     return created

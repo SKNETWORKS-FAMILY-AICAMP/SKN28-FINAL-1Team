@@ -1,5 +1,6 @@
 import json
-from datetime import datetime, timezone as dt_timezone
+from datetime import datetime
+from datetime import timezone as dt_timezone
 from io import BytesIO
 from types import SimpleNamespace
 from unittest.mock import Mock, patch
@@ -11,9 +12,8 @@ from django.urls import reverse
 from PIL import Image
 from rest_framework.test import APIClient
 
-from apps.recommend.services import gemini
+from apps.recommend.services import gemini, qdrant
 from apps.recommend.services.outfit_context import build_analysis_context
-
 
 EVALUATION = {
     "overall_score": 88,
@@ -223,3 +223,48 @@ class OutfitContextTests(SimpleTestCase):
         self.assertTrue(context["personalized"])
         self.assertEqual(context["body"]["gender"], "female")
         self.assertEqual(context["pursuit"]["preferred"]["styles"], ["minimal"])
+
+
+@override_settings(
+    QDRANT_IMAGE_VECTOR_DIM=768,
+    QDRANT_TEXT_VECTOR_DIM=1024,
+)
+class QdrantSchemaTests(SimpleTestCase):
+    def test_golden_collections_expose_role_and_scope_filters(self) -> None:
+        specs = {spec.name: spec for spec in qdrant.collection_specs()}
+
+        self.assertEqual(specs["knowledge"].vectors, {"text": 1024})
+        self.assertEqual(
+            specs["knowledge"].payload_indexes["knowledge_role"], "keyword"
+        )
+        self.assertEqual(
+            specs["knowledge"].payload_indexes["eligible_for_scoring"], "bool"
+        )
+        self.assertEqual(
+            specs["outfit_goldenset"].vectors,
+            {"image": 768, "text": 1024},
+        )
+        self.assertEqual(
+            specs["outfit_goldenset"].payload_indexes["anchor_scope"],
+            "keyword",
+        )
+
+    def test_existing_collection_receives_new_payload_indexes(self) -> None:
+        client = Mock()
+        client.collection_exists.return_value = True
+        client.get_collection.return_value = SimpleNamespace(payload_schema={})
+
+        created = qdrant.ensure_collections(client)
+
+        self.assertEqual(created, [])
+        client.create_collection.assert_not_called()
+        client.create_payload_index.assert_any_call(
+            collection_name="knowledge",
+            field_name="knowledge_role",
+            field_schema="keyword",
+        )
+        client.create_payload_index.assert_any_call(
+            collection_name="outfit_goldenset",
+            field_name="anchor_scope",
+            field_schema="keyword",
+        )
