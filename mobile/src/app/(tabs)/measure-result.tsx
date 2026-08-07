@@ -56,6 +56,12 @@ export default function MeasureResult() {
     if (status === 'idle') measureStore.estimate();
   }, [status]);
 
+  const usingPhotos = Boolean(photos.front && photos.side);
+  /* 실패한 것을 그대로 다시 한다 — 사진 측정이 실패했는데 estimate() 를 부르면
+     사진과 무관한 키·몸무게 추정값이 조용히 결과로 앉는다. */
+  const retry = () =>
+    usingPhotos ? measureStore.startPhotoMeasurement() : measureStore.estimate();
+
   // 사용자가 직접 수정하는 편집값(문자열) — 결과가 도착하면 초기화
   const [values, setValues] = useState<Record<string, string>>({});
   useEffect(() => {
@@ -92,14 +98,14 @@ export default function MeasureResult() {
               <ErrorState
                 title="치수 추정에 실패했어요"
                 description={error ?? undefined}
-                onRetry={() => measureStore.estimate()}
+                onRetry={retry}
                 style={styles.stateFill}
               />
             ) : (
               <LoadingState
                 message={
-                  photos.front && photos.side
-                    ? '사진으로 치수를 측정하고 있어요… (최대 1분)'
+                  usingPhotos
+                    ? '사진으로 치수를 측정하고 있어요… (몇 분 걸릴 수 있어요)'
                     : '입력 정보로 치수를 추정하고 있어요…'
                 }
                 style={styles.stateFill}
