@@ -97,9 +97,10 @@ async function pollNow(): Promise<void> {
   pollInFlight = true;
   try {
     const response = await getOutfitAnalysis(current.pollUrl);
+    /* analysisId·pollUrl·claimToken·wardrobeJobId 는 접수 때 정해진 뒤 바뀌지 않는다 —
+       폴링은 진행 상태만 갱신하고 신원은 ...current 로 그대로 물려받는다. */
     const next: OutfitAnalysisJob = {
       ...current,
-      analysisId: response.analysis_id,
       phase: response.status,
       evaluation: response.evaluation,
       detail: response.detail,

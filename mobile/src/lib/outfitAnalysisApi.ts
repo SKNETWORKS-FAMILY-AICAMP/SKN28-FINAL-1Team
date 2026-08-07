@@ -28,8 +28,15 @@ export type OutfitAnalysisAccepted = {
   wardrobe_job_id: string | null;
 };
 
+/**
+ * 진행 상태 조회(폴링) 응답.
+ *
+ * `analysis_id` 는 일부러 두지 않는다 — 실제 응답에 실려 오지도 않고(2026-08-07 실측),
+ * 분석 id 는 접수 응답에서 한 번 정해진 뒤 바뀌지 않으므로 폴링이 다시 정할 것이 아니다.
+ * 예전엔 여기 필수 필드로 적혀 있어서 `analysisId: response.analysis_id` 대입이 타입검사를
+ * 통과했고, 첫 폴링에 id 가 null 로 지워져 결과 화면이 옷장 상태를 영영 못 읽었다.
+ */
 export type OutfitAnalysisResult = {
-  analysis_id: string;
   status: OutfitAnalysisStatus;
   evaluation: OutfitEvaluation | null;
   context: Record<string, unknown> | null;
