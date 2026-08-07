@@ -48,8 +48,10 @@ export default function OutfitReviewScreen() {
     const targetPhoto = photo ?? job?.photoUri;
     if (!targetPhoto) return;
     try {
+      /* 접수 뒤 이 화면에 머문다 — 방금 시작한 일의 진행 상태는 시작한 자리에서 보이는 게 자연스럽다.
+         홈으로 보내면 사용자가 뭘 눌렀는지 잃어버린다. 다른 화면을 보고 싶으면 PendingView 의
+         '홈 둘러보기' 로 나가면 되고, 분석은 전역 스토어라 어디서든 계속된다. */
       await outfitAnalysisStore.start(targetPhoto, canSaveToWardrobe && saveToWardrobe);
-      router.replace('/(tabs)/home');
     } catch {
       // 실패 메시지는 전역 작업 상태에 저장되어 같은 화면에서 보여준다.
     }

@@ -4,7 +4,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { Icon } from '@/components/icon';
 import { ErrorState, LoadingState, LoginGate, SmartImage } from '@/components/ui';
-import { ContentMax, Editorial, Fonts, ink } from '@/constants/theme';
+import { ContentMax, Editorial, ink } from '@/constants/theme';
 import { useBottomTabInset } from '@/hooks/use-bottom-tab-inset';
 import { useBreakpoint } from '@/hooks/use-breakpoint';
 import { useOutfitAnalysisDetail } from '@/hooks/use-outfit-analysis-detail';
@@ -253,7 +253,8 @@ const styles = StyleSheet.create({
   content: { paddingHorizontal: 20, paddingTop: 12, gap: 14 },
   stampRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12 },
   stamp: { flexShrink: 1, fontSize: 13, color: Editorial.textCaption },
-  score: { fontFamily: Fonts.serif, fontSize: 22, color: INK },
+  /* 점수는 실측상 대부분 85 근처라 변별력이 크지 않다 — 평가 문구가 주인공이다. */
+  score: { fontSize: 14, fontWeight: '600', color: Editorial.textSoft },
   summary: { fontSize: 17, lineHeight: 26, color: INK },
   body: { fontSize: 14, lineHeight: 21, color: Editorial.textCaption },
   failed: { fontSize: 14, lineHeight: 21, color: Editorial.danger },

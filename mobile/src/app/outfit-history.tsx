@@ -4,7 +4,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { Icon } from '@/components/icon';
 import { EmptyState, ErrorState, LoadingState, LoginGate } from '@/components/ui';
-import { ContentMax, Editorial, Fonts, ink } from '@/constants/theme';
+import { ContentMax, Editorial, ink } from '@/constants/theme';
 import { useBottomTabInset } from '@/hooks/use-bottom-tab-inset';
 import { useBreakpoint } from '@/hooks/use-breakpoint';
 import { useOutfitHistory } from '@/hooks/use-outfit-history';
@@ -38,8 +38,8 @@ function weatherLabel(w: AnalysisWeather | null | undefined): string | null {
  * 익명 기록(user=NULL)은 조회 대상에서 빠진다. 비회원 분석은 로그인 시점에 claim 으로 계정에
  * 옮겨온 뒤에야 여기에 나타난다.
  *
- * 사진 썸네일은 아직 못 넣는다 — 목록·단건 어느 응답에도 이미지 URL 이 없다.
- * 백엔드가 목록에 image_url 을 실어주면 카드 왼쪽에 붙이면 된다.
+ * 목록에는 사진이 없어 썸네일을 못 붙인다. 사진은 상세(본인 기록)에만 image_url 로 온다 —
+ * 목록에서도 보여주려면 백엔드가 목록 응답에 실어줘야 한다.
  */
 export default function OutfitHistoryScreen() {
   const { isLoggedIn, isDemo } = useAuth();
@@ -186,7 +186,8 @@ const styles = StyleSheet.create({
   },
   rowHead: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12 },
   rowDate: { flexShrink: 1, fontSize: 13, color: Editorial.textCaption },
-  score: { fontFamily: Fonts.serif, fontSize: 20, color: INK },
+  /* 점수는 실측상 대부분 85 근처라 변별력이 크지 않다 — 요약보다 앞세우지 않는다. */
+  score: { fontSize: 13, fontWeight: '600', color: Editorial.textCaption },
   badge: { fontSize: 12, fontWeight: '600', color: Editorial.textSoft },
   badgeFailed: { color: Editorial.danger },
   summary: { fontSize: 15, lineHeight: 22, color: INK },
