@@ -11,6 +11,8 @@ const WARDROBE_POLL_MS = 5_000;
  */
 const MAX_POLL_MS = 15 * 60 * 1000;
 
+
+
 type Result = {
   analysis: OutfitAnalysisOwnedDetail | null;
   loading: boolean;
@@ -37,6 +39,8 @@ export function useOutfitAnalysisDetail(analysisId: string | undefined): Result 
   const [loading, setLoading] = useState(Boolean(analysisId));
   const [error, setError] = useState<string | null>(null);
   const [stalled, setStalled] = useState(false);
+  /* 폴링 회차. 응답이 실패하거나 내용이 같아도 이 값이 늘어 다음 회차가 예약된다. */
+  const [pollCount, setPollCount] = useState(0);
 
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const startedAtRef = useRef(0);
@@ -74,6 +78,7 @@ export function useOutfitAnalysisDetail(analysisId: string | undefined): Result 
 
   // 옷장 등록이 끝날 때까지만 다시 부른다
   useEffect(() => {
+    if (!analysisId) return;
     if (!wardrobePending(analysis)) return;
     if (Date.now() - startedAtRef.current > MAX_POLL_MS) {
       // 여기서 그냥 멈추면 화면은 계속 "처리 중"으로 보인다 — 멈췄다는 걸 알린다.
@@ -82,19 +87,26 @@ export function useOutfitAnalysisDetail(analysisId: string | undefined): Result 
     }
 
     timerRef.current = setTimeout(() => {
-      if (!aliveRef.current || !analysisId) return;
+      if (!aliveRef.current) return;
       getOwnedOutfitAnalysis(analysisId)
         .then((res) => {
           if (aliveRef.current) setAnalysis(res);
         })
         // 일시적인 실패로 화면을 에러로 바꾸지 않는다 — 다음 회차에 복구된다.
-        .catch(() => {});
+        .catch(() => {})
+        /* 성공이든 실패든 회차를 세어 다음 폴링을 반드시 예약한다.
+           예전엔 재예약이 analysis 가 바뀌는 것에만 달려 있어서, 응답이 실패하거나
+           내용이 그대로면 효과가 다시 돌지 않아 폴링이 조용히 죽었다 — 그러면 화면은
+           영영 "처리 중"이다. */
+        .finally(() => {
+          if (aliveRef.current) setPollCount((n) => n + 1);
+        });
     }, WARDROBE_POLL_MS);
 
     return () => {
       if (timerRef.current) clearTimeout(timerRef.current);
     };
-  }, [analysis, analysisId]);
+  }, [analysis, analysisId, pollCount]);
 
   return { analysis, loading, error, stalled, reload: load };
 }
