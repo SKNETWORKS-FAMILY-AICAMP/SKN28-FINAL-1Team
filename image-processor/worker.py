@@ -88,6 +88,11 @@ def callback_payload_from_manifest(manifest: dict) -> dict:
         if it.get("error") or not it.get("s3_key") or not it.get("tags"):
             continue
         tags = dict(it["tags"])
+        tags["usage"] = [
+            value.strip()
+            for value in (tags.get("usage") or [])
+            if isinstance(value, str) and value.strip()
+        ]
         missing = tags.pop("_missing_required", [])
         items.append({
             "s3_key": it["s3_key"],
@@ -159,10 +164,18 @@ def main() -> None:
         if raw is None:
             continue
         job_id = "?"
+        job = {}
         try:
             job = normalize_payload(json.loads(raw))
             job_id = job["job_id"]
             logger.info("job %s 시작 (%s/%s)", job_id, job["src_bucket"], job["src_key"])
+
+            try:
+                callback.post(job["callback_url"], {
+                    "job_id": job_id, "status": "processing", "error": "", "items": [],
+                })
+            except Exception:  # noqa: BLE001 — 시작 알림 실패로 GPU 작업을 버리지 않는다
+                logger.warning("job %s 처리 시작 콜백 실패", job_id, exc_info=True)
 
             manifest = process_job(job, pipeline)
             callback.post(job["callback_url"], callback_payload_from_manifest(manifest))
@@ -173,7 +186,14 @@ def main() -> None:
                         job_id, c["detected"], c["succeeded"], c["failed"])
         except Exception as e:  # noqa: BLE001 — job 단위 격리 후 재시도/dead 처리
             logger.exception("job %s 실패", job_id)
-            queue.retry_or_dead(raw, job_id, f"{type(e).__name__}: {e}")
+            error = f"{type(e).__name__}: {e}"
+            if queue.retry_or_dead(raw, job_id, error) and job_id != "?":
+                try:
+                    callback.post(job.get("callback_url", ""), {
+                        "job_id": job_id, "status": "failed", "error": error, "items": [],
+                    })
+                except Exception:  # noqa: BLE001 — dead queue 원본은 보존한다
+                    logger.exception("job %s 최종 실패 콜백 실패", job_id)
 
 
 if __name__ == "__main__":

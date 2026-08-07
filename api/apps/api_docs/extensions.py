@@ -705,6 +705,10 @@ class WardrobeBatchDetailViewExtension(OpenApiViewExtension):
                 operation_id="wardrobe_batch_detail",
                 tags=["Wardrobe"],
                 summary="옷장 일괄 등록 상태 조회",
+                description=(
+                    "각 job의 PENDING/PROCESSING/DONE/FAILED 상태와 error_message를 반환합니다. "
+                    "PENDING이 20분을 초과하면 FAILED(processing_timeout)로 종료합니다."
+                ),
                 responses={
                     200: WardrobeBatchResponseSerializer,
                     401: DetailResponseSerializer,
@@ -782,7 +786,8 @@ class WardrobeUploadJobViewExtension(OpenApiViewExtension):
                 description=(
                     "처리 상태(PENDING/PROCESSING/DONE/FAILED)를 반환합니다.\n\n"
                     "DONE이면 분리된 아이템 목록(presigned 이미지 URL 포함)이 "
-                    "`items`에 담깁니다."
+                    "`items`에 담깁니다. PENDING이 20분을 초과하면 "
+                    "FAILED(processing_timeout)로 종료합니다."
                 ),
                 responses={
                     200: WardrobeJobSerializer,
@@ -809,6 +814,7 @@ class WardrobeCallbackViewExtension(OpenApiViewExtension):
                 description=(
                     "이미지 프로세서 전용 내부 엔드포인트입니다 (프론트 사용 금지).\n\n"
                     "- 인증: `X-Internal-Token` 헤더 (JWT 아님)\n"
+                    "- `processing`: GPU 워커가 작업을 가져간 상태를 기록합니다.\n"
                     "- 멱등: 이미 DONE/FAILED인 job은 재처리 없이 200을 반환합니다.\n"
                     "- 벡터(`image_vector`/`text_vector`)는 DB가 아닌 Qdrant로 적재됩니다."
                 ),

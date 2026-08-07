@@ -63,3 +63,17 @@ def enqueue_item(job) -> None:
         "callback_url": CALLBACK_URL,
     }
     _redis().lpush(ITEM_QUEUE_KEY, json.dumps(payload, ensure_ascii=False))
+
+
+def cancel_pending(job) -> bool:
+    """아직 소비되지 않은 job을 해당 Redis 대기열에서 제거한다."""
+    queue_key = ITEM_QUEUE_KEY if job.pipeline == "qwen-tag" else QUEUE_KEY
+    redis_client = _redis()
+    for raw in redis_client.lrange(queue_key, 0, -1):
+        try:
+            queued_job_id = json.loads(raw).get("job_id")
+        except (json.JSONDecodeError, AttributeError):
+            continue
+        if queued_job_id == str(job.pk):
+            return bool(redis_client.lrem(queue_key, 1, raw))
+    return False

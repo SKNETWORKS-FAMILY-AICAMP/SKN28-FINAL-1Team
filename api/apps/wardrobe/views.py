@@ -64,6 +64,26 @@ def _merge_metadata(generated: dict, provided: dict) -> dict:
     return merged
 
 
+def _expire_stale_jobs(queryset) -> int:
+    cutoff = timezone.now() - timedelta(
+        minutes=int(os.getenv("WARDROBE_BATCH_STALE_AFTER_MINUTES", "20"))
+    )
+    stale_jobs = list(queryset.filter(
+        status=WardrobeUploadJob.Status.PENDING,
+        created_at__lte=cutoff,
+    ).only("pk", "pipeline"))
+    for job in stale_jobs:
+        try:
+            jobs.cancel_pending(job)
+        except redis_lib.RedisError:
+            logger.exception("만료 job Redis 제거 실패: %s", job.pk)
+    return WardrobeUploadJob.objects.filter(pk__in=[job.pk for job in stale_jobs]).update(
+        status=WardrobeUploadJob.Status.FAILED,
+        error_message="processing_timeout",
+        finished_at=timezone.now(),
+    )
+
+
 def _batch_data(batch: WardrobeItemBatch) -> dict:
     pending = max(batch.total_count - batch.done_count - batch.failed_count, 0)
     terminal = batch.status in {batch.Status.DONE, batch.Status.PARTIAL, batch.Status.FAILED}
@@ -172,12 +192,8 @@ class WardrobeBatchDetailView(APIView):
         batch = get_object_or_404(
             WardrobeItemBatch.objects.prefetch_related("jobs__items"), pk=batch_id, user=request.user,
         )
-        # ponytail: 폴링 중에만 만료시킨다. 백그라운드 정리가 필요해지면 ECS 스케줄로 분리.
-        timeout = max(int(os.getenv("WARDROBE_BATCH_STALE_AFTER_MINUTES", "30")) * 60,
-                      batch.total_count * int(os.getenv("WARDROBE_BATCH_SECONDS_PER_ITEM", "8")) * 3)
-        changed = batch.jobs.filter(status="PENDING", created_at__lte=timezone.now() - timedelta(seconds=timeout)).update(
-            status="FAILED", error_message="stale_timeout", finished_at=timezone.now(),
-        )
+        # ponytail: 폴링 중에만 만료시킨다. 무조회 자동 정리가 필요해지면 ECS 스케줄로 분리.
+        changed = _expire_stale_jobs(batch.jobs)
         if changed:
             batch.refresh_status()
             batch = WardrobeItemBatch.objects.prefetch_related("jobs__items").get(pk=batch.pk)
@@ -240,6 +256,8 @@ class WardrobeUploadJobView(APIView):
             WardrobeUploadJob.objects.prefetch_related("items"),
             pk=job_id, user=request.user,
         )
+        if _expire_stale_jobs(WardrobeUploadJob.objects.filter(pk=job.pk)):
+            job = WardrobeUploadJob.objects.prefetch_related("items").get(pk=job.pk)
         return Response(WardrobeJobSerializer(job).data)
 
 
@@ -279,6 +297,15 @@ class WardrobeCallbackView(APIView):
             ):
                 # 멱등: 중복 콜백은 무시
                 return Response({"detail": "이미 처리된 job입니다.", "job_id": str(job.pk)})
+
+            if data["status"] == "processing":
+                if job.status == WardrobeUploadJob.Status.PENDING:
+                    job.status = WardrobeUploadJob.Status.PROCESSING
+                    job.save(update_fields=["status"])
+                if batch and batch.status == WardrobeItemBatch.Status.PENDING:
+                    batch.status = WardrobeItemBatch.Status.PROCESSING
+                    batch.save(update_fields=["status"])
+                return Response({"job_id": str(job.pk), "status": job.status})
 
             if data["status"] == "failed":
                 job.status = WardrobeUploadJob.Status.FAILED

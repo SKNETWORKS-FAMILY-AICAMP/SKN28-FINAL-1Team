@@ -179,6 +179,6 @@ class CallbackItemSerializer(serializers.Serializer):
 
 class CallbackSerializer(serializers.Serializer):
     job_id = serializers.UUIDField()
-    status = serializers.ChoiceField(choices=["success", "failed"])
+    status = serializers.ChoiceField(choices=["processing", "success", "failed"])
     error = serializers.CharField(allow_blank=True, default="")
     items = CallbackItemSerializer(many=True, default=list)

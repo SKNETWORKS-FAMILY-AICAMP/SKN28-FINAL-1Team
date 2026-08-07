@@ -67,7 +67,11 @@ def normalize_tags(raw: dict[str, Any]) -> dict[str, Any]:
         "color": enum("color", tx.COLORS), "pattern": enum("pattern", tx.PATTERNS),
         "fit": enum("fit", tx.FITS), "material": enum("material", tx.MATERIALS),
         "sleeve": enum("sleeve", tx.SLEEVES), "length": enum("length", tx.LENGTHS),
-        "usage": [v for v in raw.get("usage", []) if isinstance(v, str)],
+        "usage": [
+            v.strip()
+            for v in (raw.get("usage") or [])
+            if isinstance(v, str) and v.strip()
+        ],
         "layer_role": enum("layer_role", tx.LAYER_ROLES),
         "layer_order": raw.get("layer_order") if raw.get("layer_order") in {1, 2, 3} else None,
     }

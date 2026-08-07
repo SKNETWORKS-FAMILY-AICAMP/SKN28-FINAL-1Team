@@ -1,14 +1,17 @@
 import io
+import os
+from datetime import timedelta
 from unittest.mock import patch
 
 from django.test import TestCase
 from django.urls import reverse
+from django.utils import timezone
 from rest_framework.test import APIClient
 
 from apps.users.models import User
 from . import taxonomy as T
 from .models import WardrobeItemBatch, WardrobeUploadJob
-from .services import storage
+from .services import jobs, storage
 from .views import _merge_metadata
 
 
@@ -72,6 +75,77 @@ class BatchSmokeTest(TestCase):
         )
         self.assertEqual((merged["item_name"], merged["color"], merged["confirmed"]),
                          ("구매 상품명", T.COLORS[1], False))
+
+    def test_pending_job_expires_when_polled_after_twenty_minutes(self):
+        batch = WardrobeItemBatch.objects.create(user=self.user, total_count=1)
+        job = WardrobeUploadJob.objects.create(
+            user=self.user, batch=batch, source_s3_key="stale.jpg", pipeline="qwen-tag",
+        )
+        WardrobeUploadJob.objects.filter(pk=job.pk).update(
+            created_at=timezone.now() - timedelta(minutes=21),
+        )
+
+        with (
+            patch.dict(os.environ, {"WARDROBE_BATCH_STALE_AFTER_MINUTES": "20"}),
+            patch("apps.wardrobe.views.jobs.cancel_pending") as cancel_pending,
+        ):
+            response = self.client.get(
+                reverse("wardrobe:batch-detail", kwargs={"batch_id": batch.pk})
+            )
+
+        self.assertEqual(response.status_code, 200)
+        cancel_pending.assert_called_once()
+        self.assertEqual(response.data["status"], "FAILED")
+        self.assertEqual(response.data["jobs"][0]["error_message"], "processing_timeout")
+
+    def test_worker_processing_and_failure_callbacks_are_visible(self):
+        batch = WardrobeItemBatch.objects.create(user=self.user, total_count=1)
+        job = WardrobeUploadJob.objects.create(
+            user=self.user, batch=batch, source_s3_key="failed.jpg", pipeline="qwen-tag",
+        )
+        url = reverse("wardrobe:callback")
+        headers = {"HTTP_X_INTERNAL_TOKEN": "test-token"}
+
+        with patch.dict(os.environ, {"WARDROBE_INTERNAL_TOKEN": "test-token"}):
+            processing = self.client.post(
+                url,
+                {"job_id": str(job.pk), "status": "processing", "items": []},
+                format="json",
+                **headers,
+            )
+            failed = self.client.post(
+                url,
+                {
+                    "job_id": str(job.pk),
+                    "status": "failed",
+                    "error": "RuntimeError: GPU failure",
+                    "items": [],
+                },
+                format="json",
+                **headers,
+            )
+
+        self.assertEqual((processing.status_code, processing.data["status"]), (200, "PROCESSING"))
+        self.assertEqual((failed.status_code, failed.data["status"]), (200, "FAILED"))
+        job.refresh_from_db()
+        self.assertEqual(job.error_message, "RuntimeError: GPU failure")
+
+    @patch("apps.wardrobe.services.jobs._redis")
+    def test_cancel_pending_removes_matching_item_queue_payload(self, redis_factory):
+        job = WardrobeUploadJob.objects.create(
+            user=self.user, source_s3_key="pending.jpg", pipeline="qwen-tag",
+        )
+        redis_client = redis_factory.return_value
+        redis_client.lrange.return_value = [
+            '{"job_id":"other"}',
+            f'{{"job_id":"{job.pk}"}}',
+        ]
+        redis_client.lrem.return_value = 1
+
+        self.assertTrue(jobs.cancel_pending(job))
+        redis_client.lrem.assert_called_once_with(
+            jobs.ITEM_QUEUE_KEY, 1, f'{{"job_id":"{job.pk}"}}'
+        )
 
 
 class RemoteImageSecurityTest(TestCase):
