@@ -28,6 +28,9 @@ export async function pickBodyPhoto(): Promise<string | null> {
   const result = await ImagePicker.launchImageLibraryAsync({
     mediaTypes: ['images'],
     quality: 0.8,
+    /* iOS 26 기본(automatic=시트)에서 피커가 선택 후 확정도 닫기도 안 되는 상태로 굳는다.
+       풀스크린으로 띄우면 정상적인 내비게이션 바(취소/추가)가 나온다. */
+    presentationStyle: ImagePicker.UIImagePickerPresentationStyle.FULL_SCREEN,
   });
   if (result.canceled || !result.assets[0]) return null;
   return result.assets[0].uri;
