@@ -1,11 +1,11 @@
 {
-  "version": "1.0.0",
-  "purpose": "옷장·상품 아이템의 color 태그(한국어 17색) → v2 색 규칙 키(영문 17색) 변환표",
-  "why": "color_rules.json v2는 Pinterest 레퍼런스에서 유도한 영문 팔레트다. 실제 아이템에 붙는 태그는 taxonomy.py의 한국어 COLORS이므로, 이 표가 없으면 filter_rules가 color='레드'를 받고 대응 행을 찾지 못한다.",
+  "version": "1.1.0",
+  "purpose": "옷장·상품 아이템의 color 태그(한국어 17색) → v2 색 규칙 키(영문 18색) 변환표",
+  "why": "color_rules.json v2는 Pinterest 레퍼런스에서 유도한 영문 팔레트다(2026-08-06 Blue 추가로 18색). 실제 아이템에 붙는 태그는 taxonomy.py의 한국어 COLORS이므로, 이 표가 없으면 filter_rules가 color='레드'를 받고 대응 행을 찾지 못한다.",
   "direction": "taxonomy(한국어) → v2(영문). 코드가 조회하는 방향과 같다.",
   "sources": {
     "taxonomy": "image-processor/pipeline/taxonomy.py::COLORS (17)",
-    "v2_palette": "golden-set/color/rules/color_rules.json::attributes (17)"
+    "v2_palette": "golden-set/color/rules/color_rules.json::attributes (18)"
   },
   "fidelity_levels": {
     "exact": "같은 색을 가리킨다. 손실 없음",
@@ -38,9 +38,8 @@
     "퍼플":       { "v2": "Lavender",     "fidelity": "lossy",
                     "note": "Lavender(#B57EDC)는 밝아서 visual_effect가 '확장'이다. 어두운 퍼플 아이템에 적용하면 체형 규칙(02번 문서)의 축소·확장 판단이 뒤집힌다" },
 
-    "블루":       { "v2": "Navy",         "fidelity": "unrepresented",
-                    "fallback": true,
-                    "note": "v2에 중간 명도의 파랑 accent가 없다. Navy는 role=neutral이라 이 fallback은 accent를 앵커로 바꿔 버린다. 데님이 여기 해당하므로 빈도가 높다 — v2 팔레트에 'Blue'(#2A5CAA 수준) 추가가 필요하다" },
+    "블루":       { "v2": "Blue",         "fidelity": "exact",
+                    "note": "v1.0.0까지는 v2에 중간 명도 파랑이 없어 Navy(neutral)로 폴백했다. 그 결과 accent가 앵커로 바뀌고 밝은 워싱 데님이 '축소'색으로 분류됐다. 팔레트에 Blue(#2A5CAA)를 추가해 해소했다" },
     "멀티":       { "v2": null,           "fidelity": "unrepresented",
                     "fallback": false,
                     "rule": "MULTI_ANCHOR",
@@ -66,8 +65,13 @@
   },
 
   "action_required": [
-    "v2 팔레트에 'Blue'(중간 명도 파랑 accent) 추가 — 블루 태그의 fallback 제거용",
     "'멀티'를 color_rules.json에 1급 항목으로 재도입할지, multi_rule로 남길지 결정",
-    "레드/오렌지/옐로우/퍼플의 lossy 판정이 실제 추천에서 문제를 일으키는지 평가 후 재검토"
+    "레드/오렌지/옐로우/퍼플의 lossy 판정이 실제 추천에서 문제를 일으키는지 평가 후 재검토",
+    "특히 '퍼플' → Lavender는 명도가 61.6이라 visual_effect가 '확장'이다. 어두운 퍼플 아이템에는 틀린 처방이므로, Blue와 같은 방식으로 중간 명도 퍼플 추가를 검토한다"
+  ],
+
+  "changelog": [
+    { "version": "1.1.0", "date": "2026-08-06", "change": "'블루' → Blue 매핑 신설 (unrepresented → exact). v2 팔레트에 Blue(#2A5CAA) 추가에 따름. 팔레트 17색 → 18색, 조합 136쌍 → 153쌍" },
+    { "version": "1.0.0", "date": "2026-08-06", "change": "최초 작성 (팔레트 17색, 조합 136쌍)" }
   ]
 }

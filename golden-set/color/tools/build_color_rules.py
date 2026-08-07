@@ -42,6 +42,10 @@ COLORS_V2: dict[str, dict] = {
     "Lavender":     {"hex": "#B57EDC", "role": "accent",       "temperature": "cool",    "visual_effect": "확장"},
     "Light Blue":   {"hex": "#ADD8E6", "role": "accent",       "temperature": "cool",    "visual_effect": "확장"},
     "Blush Pink":   {"hex": "#FFB6C1", "role": "accent",       "temperature": "warm",    "visual_effect": "확장"},
+    # 파랑 계열이 Navy(L*15)와 Light Blue(L*84)뿐이라 그 사이가 비어 있었다.
+    # 아이템 태그 '블루'(데님 포함)가 Navy로 폴백되면서 accent가 neutral 앵커로,
+    # 밝은 워싱 데님이 '축소'색으로 잘못 분류됐다. 중간 명도 파랑을 채워 해소한다.
+    "Blue":         {"hex": "#2A5CAA", "role": "accent",       "temperature": "cool",    "visual_effect": "중립"},
 }
 
 
