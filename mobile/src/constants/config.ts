@@ -121,14 +121,19 @@ export const OutfitHistoryEndpoints = {
  *   GET   /api/v1/users/me/body/         → 전체 치수 (미입력 필드는 null)
  *   PUT   /api/v1/users/me/body/basic/   { height, weight }  (둘 다 필수)
  *   PATCH /api/v1/users/me/body/detail/  { chest,waist,hip,thigh,calf,arm,shoulder }  (전부 선택)
+ *   POST  /api/v1/users/me/body/estimate/  { gender?, height?, weight? } → 상세 7개 추정·저장 (동기)
  *   POST  /api/v1/users/me/body/photos/  multipart front_image/side_image → 202 { transaction_id, status }
- *   GET   /api/v1/users/me/body/photos/{id}/  → { status: in_progress|succeeded|failed } (폴링)
- *   ※ 수치는 Decimal 소수 1자리(1~999.9). 사진 접수 후 백엔드가 상세치수를 채우면 GET body 로 읽는다.
+ *   GET   /api/v1/users/me/body/photos/{id}/  → 트랜잭션 조회 (폴링)
+ *   ※ 수치는 Decimal 소수 1자리(1~999.9).
+ *   ※ estimate 와 photos/{id} 는 같은 결과 형식을 준다 —
+ *     { status, source, transaction_id, measurement, error_message }. 추정 치수가 응답에 들어 있어
+ *     따로 GET body 를 부를 필요가 없다. estimate 는 본문을 비우면 저장된 기본 정보를 쓴다.
  */
 export const BodyEndpoints = {
   me: '/api/v1/users/me/body/',
   basic: '/api/v1/users/me/body/basic/',
   detail: '/api/v1/users/me/body/detail/',
+  estimate: '/api/v1/users/me/body/estimate/',
   photos: '/api/v1/users/me/body/photos/',
   photo: (transactionId: string) => `/api/v1/users/me/body/photos/${transactionId}/`,
 } as const;

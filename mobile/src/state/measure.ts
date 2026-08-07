@@ -58,9 +58,6 @@ const EMPTY: MeasureState = {
   error: null,
 };
 
-// 입력을 건너뛰고 결과로 직접 진입한 경우의 안전 기본값 (170cm/63kg).
-const DEFAULT_INPUT: MeasureInput = { height: 170, weight: 63, sex: 'none' };
-
 let state: MeasureState = EMPTY;
 const listeners = new Set<() => void>();
 
@@ -69,23 +66,7 @@ function setState(next: Partial<MeasureState>): void {
   listeners.forEach((l) => l());
 }
 
-const round1 = (n: number) => Math.round(n * 10) / 10;
-
-/**
- * mock 추정: 170cm/63kg 기준값에서 입력 편차만큼 보정한다.
- * 실제 값이 아니라 플로우 검증용 자리채움 (→ API 로 대체될 함수).
- */
-function mockEstimate(input: MeasureInput): Measurement {
-  const dh = input.height - 170;
-  const dw = input.weight - 63;
-  return {
-    shoulder: round1(41.2 + dh * 0.12 + dw * 0.05),
-    chest: round1(92.5 + dw * 0.7 + dh * 0.1),
-    waist: round1(78.0 + dw * 0.8 + dh * 0.05),
-    hip: round1(95.8 + dw * 0.6 + dh * 0.1),
-  };
-}
-
+/** TODO(backend): 브랜드 사이즈 매칭은 아직 API 가 없어 가슴둘레로 흉내 낸다. */
 function mockSizes(chest: number): SizeMatch[] {
   const tier = chest < 90 ? 'S' : chest < 98 ? 'M' : 'L';
   const up = tier === 'S' ? 'M' : tier === 'M' ? 'L' : 'XL';
@@ -128,25 +109,36 @@ async function fetchBody(): Promise<BodyDto> {
   return api.get<BodyDto>(BodyEndpoints.me);
 }
 
-/** 못 불러와도 플로우를 mock 으로 이어야 하는 자리 전용. 삼키되 원인은 로그로 남긴다. */
-async function fetchBodyOrNull(): Promise<BodyDto | null> {
-  try {
-    return await fetchBody();
-  } catch (e) {
-    console.warn('[measure] 저장된 신체치수를 불러오지 못했습니다', e);
-    return null;
-  }
+/**
+ * 응답 치수 → 화면이 쓰는 4개. 하나라도 비면 null 을 돌려 호출부가 실패로 처리한다.
+ * 서버는 추정에 성공하면 상세 7개를 모두 채워 주므로, 빈 칸은 "추정이 안 된 것"이다.
+ * 예전엔 빈 칸을 키·몸무게 공식으로 만든 값으로 메웠는데, 그러면 추정에 실패해도
+ * 그럴듯한 숫자가 결과로 앉아 사용자가 구분할 수 없었다.
+ */
+function toMeasurement(dto: BodyDto): Measurement | null {
+  const shoulder = toNum(dto.shoulder);
+  const chest = toNum(dto.chest);
+  const waist = toNum(dto.waist);
+  const hip = toNum(dto.hip);
+  if (shoulder === null || chest === null || waist === null || hip === null) return null;
+  return { shoulder, chest, waist, hip };
 }
 
-/** 저장된 상세치수를 mock 제안값 위에 덮어쓴다 (저장값 우선, 빈 칸은 mock 유지). */
-function mergeMeasures(dto: BodyDto | null, base: Measurement): Measurement {
-  if (!dto) return base;
-  return {
-    shoulder: toNum(dto.shoulder) ?? base.shoulder,
-    chest: toNum(dto.chest) ?? base.chest,
-    waist: toNum(dto.waist) ?? base.waist,
-    hip: toNum(dto.hip) ?? base.hip,
-  };
+/** 추정 결과 형식 — 무사진(POST estimate)과 사진(GET photos/{id})이 공유한다. */
+type BodyEstimationResult = {
+  status: 'in_progress' | 'succeeded' | 'failed';
+  source: 'basic_info' | 'photo';
+  transaction_id: string | null;
+  measurement: BodyDto;
+  /** 실패했을 때만 사유가 들어온다. */
+  error_message: string | null;
+};
+
+/** 추정 결과 → 스토어 결과. 치수가 덜 왔으면 null (호출부가 실패로 알린다). */
+function toResult(outcome: BodyEstimationResult, usedPhotos: boolean): MeasureResult | null {
+  const measures = toMeasurement(outcome.measurement);
+  if (!measures) return null;
+  return { measures, sizes: mockSizes(measures.chest), usedPhotos };
 }
 
 /**
@@ -164,16 +156,6 @@ export async function fetchBodyBasic(): Promise<{
 // ── 사진 기반 측정 (POST photos → 폴링) ─────────────────────────
 /** POST /body/photos/ 접수 응답 (202). */
 type PhotoTxResponse = { transaction_id: string; status: string };
-
-/** GET /body/photos/{id}/ 조회 응답 — 무사진 추정 응답과 같은 형식(BodyEstimationResultSerializer). */
-type BodyEstimationResult = {
-  status: 'in_progress' | 'succeeded' | 'failed';
-  source: 'basic_info' | 'photo';
-  transaction_id: string | null;
-  measurement: BodyDto;
-  /** 실패했을 때만 사유가 들어온다. */
-  error_message: string | null;
-};
 
 const delay = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -282,39 +264,44 @@ export const measureStore = {
   },
 
   /**
-   * 치수 추정 실행. STEP2 완료(또는 건너뛰기) 시 호출하고, 결과는 STEP3 가 구독한다.
+   * 사진 없이 치수 추정 — POST /body/estimate/ (서버가 학습 모델로 상세 7개를 채우고 저장한다).
+   * STEP2 "사진 없이 진행할게요" 와 결과 화면 직접 진입에서 호출하고, 결과는 STEP3 가 구독한다.
    * 화면이 언마운트돼도 이 스토어에 결과가 남으므로, 나갔다 돌아와도 결과가 유지된다.
    */
   async estimate(): Promise<void> {
-    /* 키·몸무게도 없고 사진도 없으면 추정할 근거가 하나도 없다.
-       기본값(170/63)으로 대신 계산하면 사용자가 준 적 없는 수치를 결과로 보여주게 된다. */
-    const hasPhotos = Boolean(state.photos.front || state.photos.side);
-    if (!state.input && !hasPhotos) {
-      setState({
-        status: 'error',
-        result: null,
-        error: '키·몸무게를 입력하거나 사진을 등록해야 치수를 추정할 수 있어요.',
-      });
-      return;
-    }
-
-    const input = state.input ?? DEFAULT_INPUT;
     setState({ status: 'loading', error: null, result: null });
     try {
-      // 사진 추론은 다음 단계. 서버에 저장된 상세치수가 있으면 그걸 초기값으로,
-      // 없으면 키·몸무게 기반 제안값(mock)을 보여준다. 사용자가 STEP3에서 수정하면
-      // saveDetail 로 PATCH 된다. GET 실패(오프라인 등)해도 mock 로 진행한다.
-      const measures = mergeMeasures(await fetchBodyOrNull(), mockEstimate(input));
-      setState({
-        status: 'success',
-        /* 이 경로는 사진을 쓰지 않는다. 촬영까지 갔다가 실패해 되돌아오면 photos 는 남아 있는데,
-           그걸 보고 usedPhotos 를 켜면 사진으로 잰 적 없는 값이 "사진 기반 결과"로 표시된다. */
-        result: { measures, sizes: mockSizes(measures.chest), usedPhotos: false },
-      });
+      /* 이번 플로우에서 받은 입력이 있으면 그 값으로 추정한다(저장도 함께 된다).
+         없으면 본문을 비워 서버가 저장해 둔 기본 정보를 쓰게 한다 —
+         그것마저 없으면 400 으로 "성별·키·몸무게가 필요하다"는 사유가 내려온다.
+         예전엔 여기서 170/63 기본값으로 계산해, 사용자가 준 적 없는 수치를 결과로 보여줬다. */
+      const input = state.input;
+      const body =
+        input && input.sex !== 'none'
+          ? { gender: input.sex, height: input.height, weight: input.weight }
+          : {};
+      const outcome = await api.post<BodyEstimationResult>(BodyEndpoints.estimate, body);
+
+      /* 사진을 쓰지 않는 경로다. 촬영까지 갔다가 실패해 되돌아오면 photos 는 남아 있는데,
+         그걸 보고 usedPhotos 를 켜면 사진으로 잰 적 없는 값이 "사진 기반 결과"로 표시된다. */
+      const result = toResult(outcome, false);
+      if (!result) {
+        setState({ status: 'error', error: '치수를 받지 못했어요. 다시 시도해주세요.' });
+        return;
+      }
+      setState({ status: 'success', result });
     } catch (e) {
+      /* 이 엔드포인트의 400 은 둘 중 하나다 — 추정할 기본 정보가 없거나, 값이 허용 범위 밖.
+         서버 문구에는 "PUT /api/v1/users/me/body/basic/ 으로…" 같은 개발자용 안내가 섞여 있어
+         그대로 보여주지 않는다. */
+      const needsInput = e instanceof ApiError && e.status === 400;
       setState({
         status: 'error',
-        error: e instanceof Error ? e.message : '치수 추정에 실패했어요.',
+        error: needsInput
+          ? '키·몸무게와 성별을 확인해주세요. 입력이 없거나 범위를 벗어났어요.'
+          : e instanceof ApiError
+            ? e.message
+            : '치수 추정에 실패했어요.',
       });
     }
   },
@@ -357,11 +344,12 @@ export const measureStore = {
       }
       /* 추론된 상세치수는 조회 응답에 함께 온다 — 따로 GET /body/ 를 부르지 않는다.
          그 GET 이 실패하면 mock 값이 "사진으로 측정한 결과"로 둔갑했었다. */
-      const measures = mergeMeasures(outcome.measurement, mockEstimate(state.input ?? DEFAULT_INPUT));
-      setState({
-        status: 'success',
-        result: { measures, sizes: mockSizes(measures.chest), usedPhotos: true },
-      });
+      const result = toResult(outcome, true);
+      if (!result) {
+        setState({ status: 'error', error: '치수를 받지 못했어요. 다시 시도해주세요.' });
+        return;
+      }
+      setState({ status: 'success', result });
     } catch (e) {
       // 이어서 기다릴 수 없는 상태(트랜잭션 없음·세션 만료 등)이므로 다음 시도는 새로 올린다.
       pendingTransactionId = null;
