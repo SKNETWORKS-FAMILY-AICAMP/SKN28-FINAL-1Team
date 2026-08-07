@@ -3,7 +3,7 @@ import { router } from 'expo-router';
 
 import { withReturn } from '@/lib/goBack';
 import { useMemo, useRef, useState } from 'react';
-import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { ItemMosaic } from '@/components/calendar/item-mosaic';
@@ -12,8 +12,9 @@ import { ShareLookSheet } from '@/components/calendar/share-look-sheet';
 import { LoginGate, SmartImage } from '@/components/ui';
 import { ContentMax, Editorial, Fonts, ink, Type } from '@/constants/theme';
 import { useBreakpoint } from '@/hooks/use-breakpoint';
+import { useCalendarMonth } from '@/hooks/use-calendar';
 import { useAuth } from '@/state/auth';
-import { calendarStore, toDateKey, todayKey, useCalendarEntries } from '@/state/calendar';
+import { calendarStore, toDateKey, todayKey } from '@/state/calendar';
 import { useSavedLooks } from '@/state/saved';
 
 const INK = Editorial.ink;
@@ -29,11 +30,12 @@ const TODAY = todayKey();
 export default function Calendar() {
   const { isLoggedIn } = useAuth();
   const { contentStyle, isDesktop, height } = useBreakpoint();
-  const entries = useCalendarEntries();
   const savedLooks = useSavedLooks();
 
   const now = useMemo(() => new Date(), []);
   const [view, setView] = useState({ year: now.getFullYear(), month: now.getMonth() + 1 });
+  /* 보고 있는 달만 서버에서 받는다 — 달을 넘기면 그 달을 다시 불러온다. */
+  const { entries, loading, error, reload } = useCalendarMonth(view.year, view.month, isLoggedIn);
   const [selectedDay, setSelectedDay] = useState(now.getDate());
   const [shareOpen, setShareOpen] = useState(false);
   const [pickerOpen, setPickerOpen] = useState(false);
@@ -130,6 +132,22 @@ export default function Calendar() {
             <Icon name="chevron.right" tintColor={ink(0.4)} size={16} />
           </Pressable>
         </View>
+
+        {/* 불러오기 상태 — 그리드를 가리지 않고 한 줄만 쓴다.
+            달을 넘길 때마다 달력이 통째로 사라지면 위치 감각을 잃는다. */}
+        {error ? (
+          <Pressable style={styles.loadNote} onPress={reload}>
+            <Text style={styles.loadNoteText} numberOfLines={1}>
+              {error}
+            </Text>
+            <Text style={styles.loadNoteAction}>다시 시도</Text>
+          </Pressable>
+        ) : loading ? (
+          <View style={styles.loadNote}>
+            <ActivityIndicator size="small" color={Editorial.textCaption} />
+            <Text style={styles.loadNoteText}>기록을 불러오는 중…</Text>
+          </View>
+        ) : null}
 
         {/* 요일 헤더 */}
         <View style={styles.weekHeader}>
@@ -306,6 +324,15 @@ const styles = StyleSheet.create({
   },
   monthText: { fontFamily: Fonts.serif, fontSize: 19, color: INK },
 
+  loadNote: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    paddingHorizontal: 4,
+    paddingBottom: 8,
+  },
+  loadNoteText: { flex: 1, fontSize: 12, color: Editorial.textCaption },
+  loadNoteAction: { fontSize: 12, fontWeight: '600', color: Editorial.selected },
   weekHeader: { flexDirection: 'row', paddingBottom: 6 },
   weekday: {
     flex: 1,
