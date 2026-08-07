@@ -1,8 +1,8 @@
 # 체형·비율 규칙
 
 - **작성일**: 2026-08-06
-- **판단 원천**: [`rules/body_shape_thresholds.json`](../body/rules/body_shape_thresholds.json)(계산값) · [`rules/body_fit_rules.json`](../body/rules/body_fit_rules.json)(수기)
-- **생성 스크립트**: [`tools/derive_body_thresholds.py`](../body/tools/derive_body_thresholds.py)
+- **판단 원천**: [`rules/body_shape_thresholds.json`](../rules/body_shape_thresholds.json)(계산값) · [`rules/body_fit_rules.json`](../rules/body_fit_rules.json)(수기)
+- **생성 스크립트**: [`tools/derive_body_thresholds.py`](../tools/derive_body_thresholds.py)
 
 ---
 
@@ -77,7 +77,7 @@
 
 ### 2-4. 체형별 처방
 
-전체 규칙은 [`rules/body_fit_rules.json`](../body/rules/body_fit_rules.json)에 있다. 요약:
+전체 규칙은 [`rules/body_fit_rules.json`](../rules/body_fit_rules.json)에 있다. 요약:
 
 | 체형 | 목표 | 상의 | 하의 |
 |---|---|---|---|
@@ -92,12 +92,12 @@
 
 > ⚠️ 이 처방들은 **수기 규칙**이라 실측 근거가 없다(선정 기준 C1 미충족).
 > 그래서 후보를 잘라내지 않고(`must_not` 금지) **`should` 가중치로만** 쓴다.
-> K-Fashion 공출현 통계로 근거가 채워지면 승격을 재심사한다. → [00번 문서 §4](00-selection-criteria.md)
+> K-Fashion 공출현 통계로 근거가 채워지면 승격을 재심사한다. → [00번 문서 §4](../../docs/00-selection-criteria.md)
 
 ### 2-5. 색은 이 축이 다루지 않는다
 
 **체형 축은 색을 처방하지 않는다.** 형태(핏·기장·밑위·넥라인·실루엣)만 답하고,
-색은 [색상 규칙](01-color-combination-rules.md)이 단독으로 판단한다.
+색은 [색상 규칙](../../color/docs/01-color-combination-rules.md)이 단독으로 판단한다.
 
 | | 담당 | 판단 원천 |
 |---|---|---|
@@ -129,14 +129,14 @@
 | **Oval** (Rounded Line) | **라운드형 (Sub-type B)** | 전신이 둥글게 발달한 유형으로 `waist/hip ≥ p67` 충족. 세로선 강조 처방 최우선. |
 
 * **라운드형의 sub-type 분화:** Apple형(어깨·허리 중심 발달)과 Oval형(전신 둥글)은 모두 `waist/hip ≥ p67` 조건에서 라운드형으로 분류되지만, 체형별 스타일링 가이드 및 이미지 생성 시 다른 볼륨감으로 세분화하여 다룰 수 있도록 `rules/body_shape_thresholds.json`에 `round_subtype`을 두어 분기할 예정이다.
-* **비율과 볼륨의 분리:** 동일한 비율 신호(예: 역삼각형 비율)를 가지더라도 BMI에 따라 실제 체적(볼륨)은 다르게 나타나며, 이에 따른 실루엣 비교를 위한 [여자 5체형 × Plus-Size 비교 차트](../body/images/comparison/female-5shapes-plus-size.png)를 구축하여 참조한다.
+* **비율과 볼륨의 분리:** 동일한 비율 신호(예: 역삼각형 비율)를 가지더라도 BMI에 따라 실제 체적(볼륨)은 다르게 나타나며, 이에 따른 실루엣 비교를 위한 [여자 5체형 × Plus-Size 비교 차트](../images/comparison/female-5shapes-plus-size.png)를 구축하여 참조한다.
 
 ---
 
 ## 3. 세로축 3종 — 규칙은 정의했다
 
 측정만 안 될 뿐 규칙 자체는 확정할 수 있다. 원천은
-[`rules/body_fit_rules.json`](../body/rules/body_fit_rules.json)의
+[`rules/body_fit_rules.json`](../rules/body_fit_rules.json)의
 `torso_ratio_rules` / `neck_length_rules` / `thigh_calf_ratio_rules`이다.
 
 ### 3-1. 상체:하체 (`torso_ratio`)

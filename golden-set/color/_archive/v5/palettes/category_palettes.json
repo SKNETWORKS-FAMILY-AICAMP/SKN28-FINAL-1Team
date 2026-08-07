@@ -1,0 +1,94 @@
+{
+  "version": "v6",
+  "philosophy": "v5 + 실사용 데이터 반영. 사용자 지정 8 필수 pants + 자주 쓰는 4 추가 (총 12 pants). Tops는 시즌별 분리.",
+  "philosophy": "Pinterest Michael 84 차트 기반. 4 카테고리(웜/쿨/뉴트럴/뮤트) × 각 카테고리별 메인컬러. 각 메인컬러마다 complementary 5 + muted/tonal 2 = 8가지 추천 조합.",
+  "reference_charts": [
+    "https://i.pinimg.com/736x/53/d3/95/53d395ee13ece9fbf85349da150470eb.jpg (Michael 84)",
+    "https://i.pinimg.com/736x/b0/49/8f/b0498f4017903dbc9614a9af4ca90dbe.jpg (Colorimetría)",
+    "https://i.pinimg.com/736x/90/62/57/906257e5bc7eca1b849db2ec89a0c4e3.jpg (Universal)"
+  ],
+  "required_pants": [
+    {"name": "Denim",  "hex": "#4A6FA5", "note": "청바지 필수, 60%+ jeans 시장"},
+    {"name": "White",   "hex": "#FFFFFF", "note": "15% 의류, 필수"},
+    {"name": "Black",   "hex": "#1E1E2E", "note": "32-38% 1위, 필수"},
+    {"name": "Beige",   "hex": "#D9C3A5", "note": "23% 지그재그 2위, 필수"},
+    {"name": "Ivory",   "hex": "#F2E8D5", "note": "Beige 변형, 필수"},
+    {"name": "Brown",   "hex": "#6B4F3A", "note": "Brown 패밀리, 필수"},
+    {"name": "Khaki",   "hex": "#8B7355", "note": "카고 팬츠, 필수"},
+    {"name": "Navy",    "hex": "#1B2444", "note": "남성 정장, 필수"}
+  ],
+  "categories": {
+    "warm": {
+      "name": "WARM (웜)",
+      "description": "봄웜 + 가을웜 계열. Yellow/orange 베이스. 선명하고 따뜻한 느낌.",
+      "undertone": "yellow/orange",
+      "season_affinity": ["spring", "autumn"],
+      "main_colors": [
+        {"name": "Coral",          "hex": "#FF6F61", "season": "spring"},
+        {"name": "Light Coral",    "hex": "#FF8F7A", "season": "spring"},
+        {"name": "Peach",          "hex": "#F6B38A", "season": "spring"},
+        {"name": "Marigold",       "hex": "#F4A51C", "season": "spring"},
+        {"name": "Mustard",        "hex": "#D4A017", "season": "autumn"},
+        {"name": "Burnt Orange",   "hex": "#D96C4F", "season": "autumn"},
+        {"name": "Terracotta",     "hex": "#C26B4E", "season": "autumn"},
+        {"name": "Rust",           "hex": "#B5523A", "season": "autumn"},
+        {"name": "Olive",          "hex": "#6B6B45", "season": "autumn"},
+        {"name": "Honey Brown",    "hex": "#C68642", "season": "autumn"}
+      ]
+    },
+    "cool": {
+      "name": "COOL (쿨)",
+      "description": "여름쿨 + 겨울쿨 계열. Blue/violet 베이스. 차갑고 시크한 느낌.",
+      "undertone": "blue/violet",
+      "season_affinity": ["summer", "winter"],
+      "main_colors": [
+        {"name": "Royal Blue",     "hex": "#3F4F8B", "season": "winter"},
+        {"name": "Cobalt",         "hex": "#2451B8", "season": "winter"},
+        {"name": "Sapphire",       "hex": "#1B3F88", "season": "winter"},
+        {"name": "Ice Blue",       "hex": "#46A0AC", "season": "winter"},
+        {"name": "Teal",           "hex": "#008080", "season": "winter"},
+        {"name": "Fuchsia",        "hex": "#C71F7E", "season": "winter"},
+        {"name": "Magenta",        "hex": "#E63D63", "season": "winter"},
+        {"name": "True Red",       "hex": "#C71F37", "season": "winter"},
+        {"name": "Emerald",        "hex": "#008F5C", "season": "winter"},
+        {"name": "Violet",         "hex": "#5C3A88", "season": "winter"}
+      ]
+    },
+    "neutral": {
+      "name": "NEUTRAL (뉴트럴)",
+      "description": "무채색 + 어스톤 베이스. 모든 시즌 공통 베이스. 다른 색의 앵커 역할. 실사용 데이터 62%+ (CJ Logistics 2021).",
+      "undertone": "neutral",
+      "season_affinity": ["all"],
+      "frequency_source": "CJ Logistics 2021 + 지그재그 2023",
+      "main_colors": [
+        {"name": "Black",          "hex": "#1E1E2E", "season": "all",      "frequency": "32-38%"},
+        {"name": "Charcoal",       "hex": "#36454F", "season": "winter",   "frequency": "5-10%"},
+        {"name": "Navy",           "hex": "#1B2444", "season": "all",      "frequency": "5-10%"},
+        {"name": "Medium Gray",    "hex": "#808080", "season": "summer/winter", "frequency": "9%"},
+        {"name": "Pure White",     "hex": "#FFFFFF", "season": "summer/winter", "frequency": "15-30%"},
+        {"name": "Ivory",          "hex": "#F2E8D5", "season": "spring/autumn", "frequency": "10-15%"},
+        {"name": "Beige",          "hex": "#D9C3A5", "season": "spring/autumn", "frequency": "23% (지그재그 2위)"},
+        {"name": "Brown",          "hex": "#6B4F3A", "season": "spring/autumn", "frequency": "5-10%"},
+        {"name": "Denim",          "hex": "#4A6FA5", "season": "all",      "frequency": "5% (의류 전체), 60%+ jeans"}
+      ]
+    },
+    "muted": {
+      "name": "MUTED (뮤트)",
+      "description": "저채도 + 그레이시드. 차분하고 부드러운 느낌. Soft Summer/Autumn 계열.",
+      "undertone": "neutral-cool, low chroma",
+      "season_affinity": ["soft summer", "soft autumn"],
+      "main_colors": [
+        {"name": "Dusty Rose",     "hex": "#C9869A", "season": "soft summer"},
+        {"name": "Mauve",          "hex": "#B57B9A", "season": "soft summer"},
+        {"name": "Soft Rose",      "hex": "#C894A0", "season": "soft summer"},
+        {"name": "Sage",           "hex": "#9CB3A0", "season": "soft summer"},
+        {"name": "Eucalyptus",     "hex": "#789486", "season": "soft summer"},
+        {"name": "Taupe",          "hex": "#8F8377", "season": "soft autumn"},
+        {"name": "Stone",          "hex": "#B8A99A", "season": "soft summer"},
+        {"name": "Mushroom",       "hex": "#B8A99A", "season": "soft summer"},
+        {"name": "Soft Plum",      "hex": "#6F4E73", "season": "soft summer"},
+        {"name": "Lavender Gray",  "hex": "#A99AC4", "season": "soft summer"}
+      ]
+    }
+  }
+}

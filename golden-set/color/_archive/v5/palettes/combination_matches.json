@@ -1,0 +1,65 @@
+{
+  "version": "v6",
+  "format": "Michael 84 차트 — 각 main color마다 5 complementary + 2 muted/tonal = 8",
+  "philosophy": "v5 매칭 + 실사용 데이터 반영. 8 필수 pants (Denim/White/Black/Beige/Ivory/Brown/Khaki/Navy) 보색 우선, 시즌별 undertone 분리 적용.",
+  "matches": {
+    "warm": {
+      "Coral":         {"complementary": ["White", "Black", "Beige", "Navy", "Gray"],     "muted_tonal": ["Dusty Rose", "Mauve"]},
+      "Light Coral":   {"complementary": ["White", "Black", "Beige", "Ivory", "Navy"],    "muted_tonal": ["Dusty Rose", "Soft Rose"]},
+      "Peach":         {"complementary": ["White", "Black", "Beige", "Ivory", "Navy"],     "muted_tonal": ["Dusty Rose", "Soft Rose"]},
+      "Marigold":      {"complementary": ["Black", "White", "Navy", "Beige", "Brown"],     "muted_tonal": ["Mustard", "Camel"]},
+      "Mustard":       {"complementary": ["Black", "White", "Navy", "Beige", "Denim"],     "muted_tonal": ["Camel", "Olive"]},
+      "Burnt Orange":  {"complementary": ["Black", "White", "Beige", "Brown", "Navy"],     "muted_tonal": ["Terracotta", "Rust"]},
+      "Terracotta":    {"complementary": ["White", "Black", "Beige", "Ivory", "Navy"],     "muted_tonal": ["Rust", "Brown"]},
+      "Rust":          {"complementary": ["White", "Black", "Beige", "Ivory", "Navy"],      "muted_tonal": ["Terracotta", "Brown"]},
+      "Olive":         {"complementary": ["White", "Black", "Beige", "Ivory", "Brown"],    "muted_tonal": ["Khaki", "Sage"]},
+      "Honey Brown":   {"complementary": ["White", "Black", "Beige", "Ivory", "Navy"],      "muted_tonal": ["Camel", "Khaki"]}
+    },
+    "cool": {
+      "Royal Blue":    {"complementary": ["White", "Black", "Beige", "Gray", "Ivory"],    "muted_tonal": ["Navy", "Denim"]},
+      "Cobalt":        {"complementary": ["White", "Black", "Beige", "Gray", "Ivory"],     "muted_tonal": ["Royal Blue", "Navy"]},
+      "Sapphire":      {"complementary": ["White", "Black", "Beige", "Gray", "Ivory"],     "muted_tonal": ["Royal Blue", "Navy"]},
+      "Ice Blue":      {"complementary": ["White", "Black", "Beige", "Ivory", "Gray"],     "muted_tonal": ["Light Blue", "Light Denim"]},
+      "Teal":          {"complementary": ["White", "Black", "Beige", "Ivory", "Coral"],   "muted_tonal": ["Ice Blue", "Denim"]},
+      "Fuchsia":       {"complementary": ["White", "Black", "Gray", "Beige", "Ivory"],     "muted_tonal": ["Magenta", "Dusty Rose"]},
+      "Magenta":       {"complementary": ["White", "Black", "Gray", "Beige", "Ivory"],     "muted_tonal": ["Fuchsia", "Blush Pink"]},
+      "True Red":      {"complementary": ["White", "Black", "Gray", "Beige", "Denim"],     "muted_tonal": ["Burgundy", "Navy"]},
+      "Emerald":       {"complementary": ["White", "Black", "Beige", "Ivory", "Gray"],     "muted_tonal": ["Forest Green", "Denim"]},
+      "Violet":        {"complementary": ["White", "Black", "Gray", "Beige", "Ivory"],     "muted_tonal": ["Lavender", "Navy"]}
+    },
+    "neutral": {
+      "Black":         {"complementary": ["White", "Gray", "Beige", "Ivory", "Coral"],     "muted_tonal": ["Charcoal", "Navy"]},
+      "Charcoal":      {"complementary": ["White", "Black", "Gray", "Beige", "Mustard"],    "muted_tonal": ["Black", "Navy"]},
+      "Navy":          {"complementary": ["White", "Beige", "Ivory", "Coral", "Mustard"],   "muted_tonal": ["Denim", "Charcoal"]},
+      "Medium Gray":   {"complementary": ["White", "Black", "Beige", "Ivory", "Coral"],     "muted_tonal": ["Charcoal", "Light Gray"]},
+      "Pure White":    {"complementary": ["Black", "Navy", "Beige", "Ivory", "Coral"],     "muted_tonal": ["Ivory", "Light Gray"]},
+      "Ivory":         {"complementary": ["Black", "Brown", "Navy", "Beige", "Coral"],      "muted_tonal": ["Cream", "Beige"]},
+      "Beige":         {"complementary": ["Black", "White", "Navy", "Brown", "Ivory"],      "muted_tonal": ["Khaki", "Camel"]},
+      "Brown":         {"complementary": ["White", "Black", "Beige", "Ivory", "Mustard"],   "muted_tonal": ["Camel", "Khaki"]},
+      "Cream":         {"complementary": ["Black", "Brown", "Navy", "Beige", "Coral"],      "muted_tonal": ["Ivory", "Beige"]},
+      "Denim":         {"complementary": ["White", "Black", "Beige", "Ivory", "Coral"],      "muted_tonal": ["Navy", "Light Denim"]}
+    },
+    "muted": {
+      "Dusty Rose":    {"complementary": ["White", "Black", "Beige", "Gray", "Ivory"],     "muted_tonal": ["Mauve", "Blush Pink"]},
+      "Mauve":         {"complementary": ["White", "Black", "Beige", "Gray", "Ivory"],      "muted_tonal": ["Dusty Rose", "Lavender"]},
+      "Soft Rose":     {"complementary": ["White", "Black", "Beige", "Ivory", "Gray"],      "muted_tonal": ["Dusty Rose", "Mauve"]},
+      "Sage":          {"complementary": ["White", "Black", "Beige", "Ivory", "Brown"],     "muted_tonal": ["Eucalyptus", "Olive"]},
+      "Eucalyptus":    {"complementary": ["White", "Black", "Beige", "Ivory", "Brown"],     "muted_tonal": ["Sage", "Khaki"]},
+      "Taupe":         {"complementary": ["White", "Black", "Beige", "Ivory", "Brown"],      "muted_tonal": ["Stone", "Mushroom"]},
+      "Stone":         {"complementary": ["White", "Black", "Beige", "Ivory", "Brown"],      "muted_tonal": ["Taupe", "Mushroom"]},
+      "Mushroom":      {"complementary": ["White", "Black", "Beige", "Ivory", "Brown"],      "muted_tonal": ["Taupe", "Stone"]},
+      "Soft Plum":     {"complementary": ["White", "Black", "Beige", "Gray", "Ivory"],      "muted_tonal": ["Mauve", "Lavender"]},
+      "Lavender Gray": {"complementary": ["White", "Black", "Beige", "Ivory", "Gray"],      "muted_tonal": ["Mauve", "Lavender"]}
+    }
+  },
+  "8_required_pants_emphasis": {
+    "Denim": "청바지 - 모든 메인의 보색 우선순위 (특히 spring/autumn 메인)",
+    "White": "White - 모든 카테고리 보색 1순위",
+    "Black": "Black - 모든 카테고리 보색 1순위",
+    "Beige": "Beige - warm/neutral 메인 보색 1순위",
+    "Ivory": "Ivory - spring/autumn 메인 보색 (White 대체)",
+    "Brown": "Brown - warm/autumn 메인 보색",
+    "Khaki": "Khaki - warm/autumn 메인 보색 (Olive/Camel 대용)",
+    "Navy": "Navy - cool/neutral 메인 보색"
+  }
+}

@@ -6,8 +6,12 @@ _*.txt
 _*.json
 _*.md
 
-# image_synthesize 임시 폴더 (루트만, docs/golden-set은 정식 위치)
-/golden-set/
+# golden-set은 2026-08-06부터 저장소 루트가 정식 위치다 (구: docs/golden-set).
+# 예전 규칙 `/golden-set/`은 루트의 image_synthesize 임시 폴더를 막으려던 것인데,
+# 폴더를 루트로 옮긴 뒤로는 정식 자산을 통째로 무시해 버려서 제거했다.
+# 생성 요청 임시 JSON만 골라서 제외한다 (스크립트로 재생성 가능).
+golden-set/**/_batches/
+golden-set/**/_grid_batches/
 
 # Python
 __pycache__/

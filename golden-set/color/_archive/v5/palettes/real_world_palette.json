@@ -1,0 +1,94 @@
+{
+  "version": "v6",
+  "philosophy": "사용자 지정 8 필수 + 실사용 데이터(주문/배송 기반) 기반 자주 쓰는 색. 70% 임계값은 실제 시장에선 비현실적 → 8 필수 + 10%+ 등장 색까지 포함.",
+  "research_sources": [
+    {
+      "name": "CJ Logistics 2021 Everyday Life Report",
+      "type": "배송 데이터",
+      "result": {"Black": 38, "White": 15, "Gray": 9, "sum_neutral": 62}
+    },
+    {
+      "name": "지그재그 2023 결산",
+      "type": "판매 데이터",
+      "result": {"Black": 32, "Beige": 23, "Gray": 7, "White": 7, "Blue": 5}
+    },
+    {
+      "name": "KS 표준 15색 선호도 조사",
+      "type": "선호도 설문",
+      "result": {"Blue": 36, "Black": 29, "Yellow": 28, "Green": 28}
+    },
+    {
+      "name": "아이스타일24 2024 무채색 트렌드",
+      "type": "판매 데이터",
+      "result": {"neutral_increase": "+43%", "black_tshirt_increase": "+103%"}
+    },
+    {
+      "name": "무신사 베스트 아이템",
+      "type": "랭킹 1위 아이템 색상",
+      "result": {"Deep One Tuck Sweat Pants [Grey]": "전체 1위", "Crop T-Shirt [Medium Gray]": "베스트"}
+    }
+  ],
+  "required_8_pants": {
+    "note": "사용자 지정 필수 8색 — 실사용 빈도 무관, 옷장 기본 베이스로 무조건 포함",
+    "colors": [
+      {"name": "Denim",  "hex": "#4A6FA5", "frequency": "high (전체 5%, 청바지 한정 60%+)"},
+      {"name": "White",   "hex": "#FFFFFF", "frequency": "15% (전체 의류)"},
+      {"name": "Black",   "hex": "#1E1E2E", "frequency": "32-38% (전체 1위)"},
+      {"name": "Beige",   "hex": "#D9C3A5", "frequency": "23% (지그재그 2위)"},
+      {"name": "Ivory",   "hex": "#F2E8D5", "frequency": "10-15% (Beige 변형)"},
+      {"name": "Brown",   "hex": "#6B4F3A", "frequency": "5-10% (Brown 패밀리)"},
+      {"name": "Khaki",   "hex": "#8B7355", "frequency": "5-10% (카고 팬츠 인기)"},
+      {"name": "Navy",    "hex": "#1B2444", "frequency": "5-10% (특히 남자 정장)"}
+    ]
+  },
+  "additional_pants": {
+    "note": "8 필수 외에 10% 이상 자주 등장하는 색 (선택 추가)",
+    "colors": [
+      {"name": "Gray",          "hex": "#808080", "frequency": "9% (전체 3위)", "reason": "무신사 베스트 1위 팬츠가 Gray"},
+      {"name": "Light Denim",   "hex": "#A0BCD8", "frequency": "청바지 30%는 라이트", "reason": "여름 청바지 인기"},
+      {"name": "Dark Denim",    "hex": "#2C3E50", "frequency": "청바지 30%는 다크", "reason": "겨울 청바지"},
+      {"name": "Olive",         "hex": "#6B6B45", "frequency": "5-10% (카고)", "reason": "Olive 545% 증가 (매경)"}
+    ]
+  },
+  "common_tops": {
+    "note": "상의는 사용자 지정 8과 별개로, 실사용 빈도 + 퍼스널컬러 분류로 선정. 시즌별로 다른 white/gray 처리.",
+    "all_season": [
+      {"name": "Black",        "hex": "#1E1E2E", "frequency": "32-38%", "season_affinity": "all",        "personal_color_note": "universal"},
+      {"name": "Pure White",   "hex": "#FFFFFF", "frequency": "15-30%",  "season_affinity": "summer/winter", "personal_color_note": "summer/winter 친화; spring/autumn엔 Ivory로"},
+      {"name": "Navy",         "hex": "#1B2444", "frequency": "5-10%",  "season_affinity": "all",        "personal_color_note": "universal"},
+      {"name": "Medium Gray",  "hex": "#808080", "frequency": "9%",      "season_affinity": "summer/winter", "personal_color_note": "summer/winter 친화; spring/autumn엔 Warm Gray/Taupe"}
+    ],
+    "spring_autumn": [
+      {"name": "Ivory",        "hex": "#F2E8D5", "frequency": "10-15%", "season_affinity": "spring/autumn", "personal_color_note": "warm off-white (spring/autumn의 white)"},
+      {"name": "Cream",        "hex": "#F5E6CC", "frequency": "10-15%", "season_affinity": "spring/autumn", "personal_color_note": "Ivory와 유사, 약간 더 cream"},
+      {"name": "Beige",        "hex": "#D9C3A5", "frequency": "23% (지그재그 2위)", "season_affinity": "spring/autumn", "personal_color_note": "베이지 자체가 봄웜/가을웜 톤"},
+      {"name": "Camel",        "hex": "#C19A6B", "frequency": "5-10%",  "season_affinity": "autumn",       "personal_color_note": "Beige 진한 버전"},
+      {"name": "Mustard",      "hex": "#D4A017", "frequency": "3-5%",   "season_affinity": "spring/autumn", "personal_color_note": "대표 웜 옐로우"},
+      {"name": "Olive",        "hex": "#6B6B45", "frequency": "5-10%",  "season_affinity": "autumn",       "personal_color_note": "545% 증가 (매경)"},
+      {"name": "Light Brown",  "hex": "#A78867", "frequency": "5-10%",  "season_affinity": "autumn",       "personal_color_note": "Tobacco/Caramel"},
+      {"name": "Olive",       "hex": "#7A8E5C", "frequency": "5-10%",  "season_affinity": "autumn",       "personal_color_note": "Olive green 변형"},
+      {"name": "Burgundy",     "hex": "#7A1F4F", "frequency": "3-5%",   "season_affinity": "autumn/winter", "personal_color_note": "다크 웜 레드"},
+      {"name": "Rust",         "hex": "#B5523A", "frequency": "3-5%",   "season_affinity": "autumn",       "personal_color_note": "다크 웜 오렌지"},
+      {"name": "Coral",        "hex": "#FF6F61", "frequency": "3-5%",   "season_affinity": "spring",       "personal_color_note": "봄웜 포인트"}
+    ],
+    "summer_winter": [
+      {"name": "Pure White",   "hex": "#FFFFFF", "frequency": "15-30%", "season_affinity": "summer/winter", "personal_color_note": "여름/겨울의 white"},
+      {"name": "Light Gray",   "hex": "#A9AEB4", "frequency": "5-10%",  "season_affinity": "summer",       "personal_color_note": "soft cool gray"},
+      {"name": "Charcoal",     "hex": "#36454F", "frequency": "5-10%",  "season_affinity": "winter",       "personal_color_note": "다크 쿨 그레이"},
+      {"name": "Light Blue",   "hex": "#A8D8EA", "frequency": "5-10%",  "season_affinity": "summer",       "personal_color_note": "soft sky blue"},
+      {"name": "Lavender",     "hex": "#B57EDC", "frequency": "3-5%",   "season_affinity": "summer",       "personal_color_note": "light cool purple"},
+      {"name": "Blush Pink",   "hex": "#FFB6C1", "frequency": "3-5%",   "season_affinity": "summer",       "personal_color_note": "pale warm pink (summer에도 OK)"},
+      {"name": "Cobalt",       "hex": "#2451B8", "frequency": "3-5%",   "season_affinity": "winter",       "personal_color_note": "다크 쿨 블루"},
+      {"name": "Royal Blue",   "hex": "#3F4F8B", "frequency": "3-5%",   "season_affinity": "winter",       "personal_color_note": "다크 쿨 블루"},
+      {"name": "Fuchsia",      "hex": "#C71F7E", "frequency": "2-3%",   "season_affinity": "winter",       "personal_color_note": "포인트"},
+      {"name": "Burgundy",     "hex": "#7A1F4F", "frequency": "3-5%",   "season_affinity": "winter",       "personal_color_note": "쿨 다크 레드"},
+      {"name": "Forest Green", "hex": "#2E5E4E", "frequency": "3-5%",   "season_affinity": "winter",       "personal_color_note": "다크 쿨 그린"},
+      {"name": "True Red",     "hex": "#C71F37", "frequency": "2-3%",   "season_affinity": "winter",       "personal_color_note": "포인트"}
+    ]
+  },
+  "thresholds": {
+    "user_70_percent": "70% (사용자 지정, 실제 시장엔 비현실적 — 8 필수 + 5% 이상 등장으로 완화 적용)",
+    "applied_pants_threshold": "5%+ 등장 또는 사용자 필수",
+    "applied_tops_threshold": "5%+ 등장 또는 퍼스널컬러 매핑"
+  }
+}

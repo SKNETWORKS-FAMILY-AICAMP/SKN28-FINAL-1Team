@@ -1,8 +1,16 @@
 {
-  "version": "0.2.0",
+  "version": "0.3.0",
   "taxonomy_source": "image-processor/pipeline/taxonomy.py (FITS, LENGTHS)",
   "threshold_source": "golden-set/body/rules/body_shape_thresholds.json",
   "note": "축은 서로 독립이다. 최종 권장은 각 축의 권장을 교집합으로 합치고, 어느 한 축이라도 avoid면 avoid로 처리한다. 측정 불가 축은 default_when_unknown 값으로 두고 규칙을 적용하지 않는다.",
+
+  "scope": {
+    "in_scope": ["fit", "length", "rise", "neckline", "실루엣", "신발 기장"],
+    "out_of_scope": ["색상", "색 조합", "명도 대비"],
+    "decision": "체형 축은 색을 처방하지 않는다 (2026-08-06 확정).",
+    "why": "체형과 색은 서로 다른 축이다. 체형은 '이 비율에 어떤 형태가 맞나'만 답하고, 색은 golden-set/color/rules/color_rules.json이 단독으로 판단한다. v0.2.0까지는 width_rules에 color 키(top/bottom visual_effect)가 있었으나 제거했다 — 두 축이 같은 대상을 판단하면 충돌하고, 실제로 어깨가 넓으면서 허리도 두꺼운 사용자(표본 181명 중 16명)에서 '하의 확장색' vs '상하 동일 계열'이 정면으로 부딪혔다.",
+    "consequence": "체형 판정이 색 후보를 제한하지 않는다. 두 축의 결과를 합칠 때 색은 color_rules만, 형태는 이 파일만 본다."
+  },
 
   "axes": {
     "width": {
@@ -52,7 +60,6 @@
       "top": { "fit_prefer": ["레귤러핏", "슬림핏"], "fit_avoid": ["오버핏"], "length_prefer": ["기본"] },
       "bottom": { "fit_prefer": ["와이드핏", "레귤러핏"], "fit_avoid": ["슬림핏"] },
       "outer": { "fit_avoid": ["오버핏"], "note": "어깨 패드·드롭숄더는 폭을 더 넓힌다" },
-      "color": { "top_visual_effect": "축소", "bottom_visual_effect": "확장" },
       "reason": "어깨가 이미 넓으므로 상의 볼륨은 과잉, 하의 볼륨은 균형 회복에 기여한다"
     },
     "triangle": {
@@ -62,7 +69,6 @@
       "top": { "fit_prefer": ["오버핏", "레귤러핏"], "fit_avoid": ["슬림핏"], "length_prefer": ["기본", "크롭"] },
       "bottom": { "fit_prefer": ["레귤러핏"], "fit_avoid": ["와이드핏"], "note": "타이트도 부적합 — 실루엣이 그대로 드러난다" },
       "outer": { "fit_prefer": ["오버핏"], "length_prefer": ["기본"] },
-      "color": { "top_visual_effect": "확장", "bottom_visual_effect": "축소" },
       "reason": "역삼각형의 반대. 상의 볼륨과 밝은 색이 어깨선을 넓혀 보이게 한다"
     },
     "hourglass": {
@@ -84,7 +90,6 @@
       "top": { "fit_prefer": ["레귤러핏", "오버핏"], "length_prefer": ["크롭", "기본"] },
       "bottom": { "fit_prefer": ["와이드핏", "레귤러핏"] },
       "outer": { "fit_prefer": ["레귤러핏"], "note": "짧은 아우터 + 긴 이너로 층을 만든다" },
-      "color": { "note": "상하 명도차 18 이상 권장 — 색 경계가 곧 허리선이 된다" },
       "reason": "보정할 과잉이 없는 대신 구분점이 없다. 대비를 인위적으로 만드는 것이 과제다"
     },
     "round": {
@@ -94,7 +99,6 @@
       "top": { "fit_prefer": ["레귤러핏"], "fit_avoid": ["슬림핏", "오버핏"], "length_prefer": ["기본"], "length_avoid": ["크롭"] },
       "bottom": { "fit_prefer": ["레귤러핏", "와이드핏"], "fit_avoid": ["슬림핏"] },
       "outer": { "length_prefer": ["롱"], "note": "오픈 착용 시 생기는 두 개의 세로선이 핵심" },
-      "color": { "top_visual_effect": "축소", "note": "상하 동일 계열로 세로 흐름을 끊지 않는다" },
       "pattern_avoid": ["체크", "도트"],
       "reason": "가로 분할(크롭 기장, 가로 패턴)이 폭을 강조한다. 반대로 세로 요소는 길이를 강조한다"
     }

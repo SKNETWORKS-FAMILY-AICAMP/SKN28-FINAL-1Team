@@ -81,7 +81,7 @@ knowledge 청크(설명용)로 강등한다.
 | 트리거 | 해야 할 일 |
 |---|---|
 | taxonomy COLORS/FITS/LENGTHS 변경 | `validate_color_map.py` 실행 → 매핑표 갱신 → 생성 스크립트 재실행 |
-| v2 팔레트 변경 (예: `Blue` 추가) | `build_color_rules.py` 재실행 + `validate_color_map.py`로 미사용 색 확인 |
+| 팔레트 변경 (예: `Blue` 추가) | `build_color_rules.py` 재실행 + `validate_color_map.py`로 미사용 색 확인 |
 | 사이즈코리아 표본 추가 | `derive_body_thresholds.py` 재실행 → 분류 분포에 빈 클래스 없는지 확인 |
 | Confluence 규칙 문서 갱신 | 충돌 시 **Confluence가 우선** (팀 합의 원본) |
 | 평가에서 기피 조합 노출률 > 0 | 규칙 누락이 아니라 **필터 미적용**을 먼저 의심 |

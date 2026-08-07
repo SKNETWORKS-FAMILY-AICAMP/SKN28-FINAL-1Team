@@ -1,0 +1,66 @@
+{
+  "version": "v6",
+  "philosophy": "같은 색이라도 시즌별로 다른 undertone 처리. White는 summer/winter은 순백, spring/autumn은 Ivory/Cream으로. Gray는 cool/warm gray 분리. Beige는 warm, summer/winter엔 Taupe/Mushroom.",
+  "mappings": {
+    "White": {
+      "all_season": false,
+      "summer_winter": {"name": "Pure White", "hex": "#FFFFFF", "undertone": "cool/bright"},
+      "spring_autumn": {"name": "Ivory", "hex": "#F2E8D5", "undertone": "warm/soft"}
+    },
+    "Gray": {
+      "all_season": false,
+      "summer_winter": {"name": "Light Gray / Charcoal", "hex_range": "#A9AEB4 - #36454F", "undertone": "cool/neutral"},
+      "spring_autumn": {"name": "Taupe / Mushroom / Warm Gray", "hex_range": "#8F8377 - #B8A99A", "undertone": "warm/neutral"}
+    },
+    "Beige": {
+      "all_season": false,
+      "summer_winter": {"name": "Taupe", "hex": "#8F8377", "undertone": "neutral-cool"},
+      "spring_autumn": {"name": "Beige", "hex": "#D9C3A5", "undertone": "warm"}
+    },
+    "Black": {
+      "all_season": true,
+      "all": {"name": "Black", "hex": "#1E1E2E"},
+      "note": "universal, winter에 가장 친화"
+    },
+    "Navy": {
+      "all_season": true,
+      "all": {"name": "Navy", "hex": "#1B2444"},
+      "note": "universal cool dark"
+    },
+    "Brown": {
+      "all_season": false,
+      "summer_winter": {"name": "Taupe", "hex": "#8F8377", "undertone": "neutral"},
+      "spring_autumn": {"name": "Brown / Camel", "hex_range": "#6B4F3A - #C19A6B", "undertone": "warm"}
+    },
+    "Cream": {
+      "all_season": false,
+      "spring_autumn": {"name": "Cream", "hex": "#F5E6CC", "undertone": "warm/soft"},
+      "summer_winter": {"name": "Soft White / Off-White", "hex": "#F2F3F5", "undertone": "cool/soft"}
+    },
+    "Light Blue": {
+      "all_season": false,
+      "summer_winter": {"name": "Light Blue", "hex": "#ADD8E6", "undertone": "cool/soft"},
+      "spring_autumn": {"name": "Light Sky", "hex": "#A8D8EA", "undertone": "warm-soft"}
+    },
+    "Pink": {
+      "all_season": false,
+      "summer_winter": {"name": "Blush Pink / Dusty Rose", "hex_range": "#FFB6C1 - #C9869A", "undertone": "cool-soft"},
+      "spring_autumn": {"name": "Coral / Warm Pink", "hex_range": "#FF6F61 - #F7A6B8", "undertone": "warm-soft"}
+    },
+    "Olive": {
+      "all_season": false,
+      "spring_autumn": {"name": "Olive", "hex": "#6B6B45", "undertone": "warm"},
+      "summer_winter": {"name": "Sage / Eucalyptus", "hex_range": "#9CB3A0 - #789486", "undertone": "cool-soft"}
+    },
+    "Burgundy": {
+      "all_season": false,
+      "autumn": {"name": "Burgundy / Wine Red", "hex_range": "#7A1F4F - #7A2E2E", "undertone": "warm dark"},
+      "winter": {"name": "Burgundy", "hex": "#7A1F4F", "undertone": "cool dark"}
+    }
+  },
+  "decision_tree": {
+    "rule_1_universal": "Black, Navy, Gray(medium), Beige(neutral)는 모든 시즌에 OK",
+    "rule_2_season_dependent": "White, Cream, Light Blue, Pink, Olive는 시즌별 undertone 분리",
+    "rule_3_season_specific": "Coral (Spring only), Burgundy (Autumn/Winter), Fuchsia (Winter), Olive (Spring/Autumn), Sage (Summer)"
+  }
+}

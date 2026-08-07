@@ -1,0 +1,139 @@
+{
+  "version": "v6",
+  "philosophy": "12 pants (8 필수 + 4 추가) × 17 tops outfit 그리드. Pinterest flat-lay + wardrobe basics.",
+  "tops": [
+    {
+      "name": "Black",
+      "hex": "#1E1E2E"
+    },
+    {
+      "name": "White",
+      "hex": "#FFFFFF"
+    },
+    {
+      "name": "Charcoal",
+      "hex": "#36454F"
+    },
+    {
+      "name": "Navy",
+      "hex": "#1B2444"
+    },
+    {
+      "name": "Beige",
+      "hex": "#D9C3A5"
+    },
+    {
+      "name": "Olive",
+      "hex": "#6B6B45"
+    },
+    {
+      "name": "Brown",
+      "hex": "#6B4F3A"
+    },
+    {
+      "name": "Burgundy",
+      "hex": "#7A1F4F"
+    },
+    {
+      "name": "Mustard",
+      "hex": "#D4A017"
+    },
+    {
+      "name": "Teal",
+      "hex": "#008080"
+    },
+    {
+      "name": "Gray",
+      "hex": "#808080"
+    },
+    {
+      "name": "Cream",
+      "hex": "#F5E6CC"
+    },
+    {
+      "name": "Rust",
+      "hex": "#B5523A"
+    },
+    {
+      "name": "Forest Green",
+      "hex": "#2E5E4E"
+    },
+    {
+      "name": "Lavender",
+      "hex": "#B57EDC"
+    },
+    {
+      "name": "Light Blue",
+      "hex": "#ADD8E6"
+    },
+    {
+      "name": "Blush Pink",
+      "hex": "#FFB6C1"
+    }
+  ],
+  "pants": [
+    {
+      "name": "Denim",
+      "hex": "#4A6FA5",
+      "desc": "medium blue jean"
+    },
+    {
+      "name": "White",
+      "hex": "#FFFFFF",
+      "desc": "pure white"
+    },
+    {
+      "name": "Black",
+      "hex": "#1E1E2E",
+      "desc": "true black"
+    },
+    {
+      "name": "Beige",
+      "hex": "#D9C3A5",
+      "desc": "light warm tan"
+    },
+    {
+      "name": "Ivory",
+      "hex": "#F2E8D5",
+      "desc": "warm off-white"
+    },
+    {
+      "name": "Brown",
+      "hex": "#6B4F3A",
+      "desc": "medium warm brown"
+    },
+    {
+      "name": "Khaki",
+      "hex": "#8B7355",
+      "desc": "khaki/tan"
+    },
+    {
+      "name": "Navy",
+      "hex": "#1B2444",
+      "desc": "dark navy"
+    },
+    {
+      "name": "Medium Gray",
+      "hex": "#808080",
+      "desc": "neutral medium gray"
+    },
+    {
+      "name": "Light Denim",
+      "hex": "#A0BCD8",
+      "desc": "light blue jean"
+    },
+    {
+      "name": "Dark Denim",
+      "hex": "#2C3E50",
+      "desc": "dark indigo jean"
+    },
+    {
+      "name": "Olive",
+      "hex": "#6B6B45",
+      "desc": "warm olive green"
+    }
+  ],
+  "total_grids": 17,
+  "outfits_per_grid": 12,
+  "total_outfits": 204
+}
