@@ -6,10 +6,12 @@ OAuth 제공사 호출은 mock 처리한다 (외부 네트워크 의존 금지).
 
 from datetime import timedelta
 from decimal import Decimal
+import re
 from unittest.mock import patch
 
 from django.core.files.uploadedfile import SimpleUploadedFile
-from django.test import TestCase
+from django.core import mail
+from django.test import TestCase, override_settings
 from django.urls import reverse
 from django.utils import timezone
 from rest_framework.test import APIClient
@@ -36,22 +38,45 @@ def make_profile(provider: str = "kakao", uid: str = "12345") -> SocialProfile:
     )
 
 
+@override_settings(EMAIL_BACKEND="django.core.mail.backends.locmem.EmailBackend")
 class EmailAuthTests(TestCase):
     def setUp(self):
         self.client = APIClient()
         self.signup_url = reverse("users:email-signup")
         self.login_url = reverse("users:email-login")
+        self.verify_url = reverse("users:email-verify")
+        self.resend_url = reverse("users:email-resend")
         self.body = {"email": "member@example.com", "password": "Cozy-test-2026!"}
 
-    def test_signup_creates_password_user_and_returns_jwt(self):
+    def _signup_and_code(self):
         response = self.client.post(self.signup_url, self.body, format="json")
+        code = re.search(r"\d{6}", mail.outbox[-1].body).group(0)
+        return response, code
+
+    def _verify(self):
+        _, code = self._signup_and_code()
+        return self.client.post(
+            self.verify_url,
+            {"email": self.body["email"], "code": code},
+            format="json",
+        )
+
+    def test_signup_creates_inactive_user_and_sends_verification(self):
+        response = self.client.post(self.signup_url, self.body, format="json")
+
+        self.assertEqual(response.status_code, 202)
+        self.assertTrue(response.data["verification_required"])
+        self.assertEqual(len(mail.outbox), 1)
+        user = User.objects.get(email=self.body["email"])
+        self.assertTrue(user.check_password(self.body["password"]))
+        self.assertFalse(user.is_active)
+
+    def test_verification_activates_user_and_returns_jwt(self):
+        response = self._verify()
 
         self.assertEqual(response.status_code, 201)
         self.assertIn("access", response.data)
-        self.assertIn("refresh", response.data)
-        self.assertTrue(response.data["is_new_user"])
-        user = User.objects.get(email=self.body["email"])
-        self.assertTrue(user.check_password(self.body["password"]))
+        self.assertTrue(User.objects.get(email=self.body["email"]).is_active)
 
     def test_signup_rejects_duplicate_email(self):
         self.client.post(self.signup_url, self.body, format="json")
@@ -71,7 +96,7 @@ class EmailAuthTests(TestCase):
         self.assertIn("password", response.data)
 
     def test_login_returns_jwt(self):
-        self.client.post(self.signup_url, self.body, format="json")
+        self._verify()
         response = self.client.post(self.login_url, self.body, format="json")
 
         self.assertEqual(response.status_code, 200)
@@ -79,7 +104,7 @@ class EmailAuthTests(TestCase):
         self.assertFalse(response.data["is_new_user"])
 
     def test_login_rejects_invalid_credentials(self):
-        self.client.post(self.signup_url, self.body, format="json")
+        self._verify()
         response = self.client.post(
             self.login_url,
             {**self.body, "password": "wrong-password"},
@@ -88,9 +113,9 @@ class EmailAuthTests(TestCase):
 
         self.assertEqual(response.status_code, 400)
 
-    def test_signup_token_can_save_pursuit(self):
-        signup = self.client.post(self.signup_url, self.body, format="json")
-        self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {signup.data['access']}")
+    def test_verified_token_can_save_pursuit(self):
+        verified = self._verify()
+        self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {verified.data['access']}")
         empty_selections = {key: [] for key in category_keys()}
 
         response = self.client.put(
@@ -100,6 +125,17 @@ class EmailAuthTests(TestCase):
         )
 
         self.assertEqual(response.status_code, 200)
+
+    def test_unverified_user_cannot_login(self):
+        self.client.post(self.signup_url, self.body, format="json")
+        response = self.client.post(self.login_url, self.body, format="json")
+        self.assertEqual(response.status_code, 400)
+
+    def test_resend_is_rate_limited(self):
+        self.client.post(self.signup_url, self.body, format="json")
+        response = self.client.post(self.resend_url, {"email": self.body["email"]}, format="json")
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("retry_after", response.data)
 
 
 class SocialLoginTests(TestCase):

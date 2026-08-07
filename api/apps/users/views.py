@@ -1,7 +1,7 @@
 import logging
 
 from django.contrib.auth.models import update_last_login
-from django.db import IntegrityError
+from django.db import IntegrityError, transaction
 from rest_framework import status
 from rest_framework.parsers import FormParser, MultiPartParser
 from rest_framework.permissions import AllowAny
@@ -21,13 +21,15 @@ from apps.users.serializers import (
     BudgetSerializer,
     EmailLoginSerializer,
     EmailSignupSerializer,
+    EmailVerificationResendSerializer,
+    EmailVerificationSerializer,
     PreferenceCategorySerializer,
     PursuitPayloadInputSerializer,
     PursuitPayloadResponseSerializer,
     SocialLoginSerializer,
     UserSerializer,
 )
-from apps.users.services import accounts, body_inference, oauth, pursuit
+from apps.users.services import accounts, body_inference, email_verification, oauth, pursuit
 
 logger = logging.getLogger(__name__)
 
@@ -55,8 +57,44 @@ class EmailSignupView(APIView):
     def post(self, request):
         serializer = EmailSignupSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
-        user = serializer.save()
+        with transaction.atomic():
+            user = serializer.save()
+            retry_after = email_verification.issue_code(user)
+        return Response(
+            {
+                "email": user.email,
+                "verification_required": True,
+                "retry_after": retry_after,
+            },
+            status=status.HTTP_202_ACCEPTED,
+        )
+
+
+class EmailVerificationView(APIView):
+    """POST /api/v1/auth/email/verify/ — 인증 코드 확인 후 계정 활성화 및 JWT 발급."""
+
+    permission_classes = [AllowAny]
+    authentication_classes: list = []
+
+    def post(self, request):
+        serializer = EmailVerificationSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        user = email_verification.verify_code(**serializer.validated_data)
         return _token_response(user, created=True)
+
+
+class EmailVerificationResendView(APIView):
+    """POST /api/v1/auth/email/resend/ — 만료 또는 미수신 인증 코드 재발송."""
+
+    permission_classes = [AllowAny]
+    authentication_classes: list = []
+
+    def post(self, request):
+        serializer = EmailVerificationResendSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        with transaction.atomic():
+            retry_after = email_verification.resend_code(serializer.validated_data["email"])
+        return Response({"retry_after": retry_after}, status=status.HTTP_200_OK)
 
 
 class EmailLoginView(APIView):

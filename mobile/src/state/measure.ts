@@ -148,7 +148,11 @@ export async function fetchBodyBasic(): Promise<{
 }
 
 // ── 사진 기반 측정 (POST photos → 폴링) ─────────────────────────
-type PhotoTxResponse = { transaction_id: string; status: string };
+type PhotoTxResponse = {
+  transaction_id: string;
+  status: string;
+  error_message?: string | null;
+};
 
 const delay = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -176,15 +180,27 @@ async function uploadBodyPhotos(frontUri: string, sideUri: string): Promise<Phot
   return api.post<PhotoTxResponse>(BodyEndpoints.photos, form);
 }
 
-/** 측정 트랜잭션을 성공/실패까지 2초 간격 폴링 (최대 ~60초). 타임아웃은 실패로 본다. */
-async function pollTransaction(transactionId: string): Promise<'succeeded' | 'failed'> {
+type PhotoPollResult =
+  | { status: 'succeeded' }
+  | { status: 'failed'; error: string };
+
+/** 측정 트랜잭션을 성공/실패까지 2초 간격 폴링 (최대 ~60초). */
+async function pollTransaction(transactionId: string): Promise<PhotoPollResult> {
   for (let i = 0; i < 30; i++) {
     const tx = await api.get<PhotoTxResponse>(BodyEndpoints.photo(transactionId));
-    if (tx.status === 'succeeded') return 'succeeded';
-    if (tx.status === 'failed') return 'failed';
+    if (tx.status === 'succeeded') return { status: 'succeeded' };
+    if (tx.status === 'failed') {
+      return {
+        status: 'failed',
+        error: tx.error_message || '사진 측정에 실패했어요. 다시 시도해주세요.',
+      };
+    }
     await delay(2000);
   }
-  return 'failed';
+  return {
+    status: 'failed',
+    error: '측정 시간이 길어지고 있어요. 잠시 후 다시 시도해주세요.',
+  };
 }
 
 export const measureStore = {
@@ -281,8 +297,8 @@ export const measureStore = {
     try {
       const tx = await uploadBodyPhotos(front, side);
       const outcome = await pollTransaction(tx.transaction_id);
-      if (outcome !== 'succeeded') {
-        setState({ status: 'error', error: '사진 측정에 실패했어요. 다시 시도해주세요.' });
+      if (outcome.status !== 'succeeded') {
+        setState({ status: 'error', error: outcome.error });
         return;
       }
       // 추론된 상세치수를 불러온다. 비어 있는 값은 키·몸무게 기반 제안값으로 보완.

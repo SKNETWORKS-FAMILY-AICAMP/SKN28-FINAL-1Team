@@ -83,6 +83,8 @@ export const isGoogleConfigured = (): boolean =>
 export const AuthEndpoints = {
   signup: '/api/v1/auth/signup/',
   login: '/api/v1/auth/login/',
+  verifyEmail: '/api/v1/auth/email/verify/',
+  resendEmail: '/api/v1/auth/email/resend/',
   socialLogin: (provider: SocialProvider) => `/api/v1/auth/${provider}/login/`,
   refresh: '/api/v1/auth/token/refresh/',
   me: '/api/v1/users/me/',

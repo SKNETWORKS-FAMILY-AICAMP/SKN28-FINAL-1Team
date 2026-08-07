@@ -77,7 +77,9 @@ docker compose --profile all up -d --build      # db + api + collector 2종
 
 | 메서드 | 경로 | 설명 |
 | --- | --- | --- |
-| POST | `/api/v1/auth/signup/` | body `{email, password}` → 이메일 계정 생성 + JWT(access/refresh) + user |
+| POST | `/api/v1/auth/signup/` | body `{email, password}` → 비활성 이메일 계정 생성 + 6자리 인증 코드 발송 |
+| POST | `/api/v1/auth/email/verify/` | body `{email, code}` → 이메일 인증 완료 + JWT(access/refresh) + user |
+| POST | `/api/v1/auth/email/resend/` | body `{email}` → 인증 코드 재발송 (기본 60초 제한) |
 | POST | `/api/v1/auth/login/` | body `{email, password}` → JWT(access/refresh) + user |
 | POST | `/api/v1/auth/{naver\|kakao\|google}/login/` | body `{code, redirect_uri, state}` → JWT(access/refresh) + user. kakao/google은 `redirect_uri` 필수, naver는 `state` 필수 |
 | POST | `/api/v1/auth/token/refresh/` | body `{refresh}` → 새 access |

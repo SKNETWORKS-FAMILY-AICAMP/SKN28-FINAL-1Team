@@ -50,6 +50,7 @@ export default function MeasureResult() {
   /* 키·몸무게도 사진도 없으면 추정 자체가 불가능하다 — 재시도해도 결과가 달라지지 않으므로
      STEP1 로 돌아가 입력하도록 안내한다. */
   const hasData = Boolean(input) || Boolean(photos.front || photos.side);
+  const hasBothPhotos = Boolean(photos.front && photos.side);
 
   // 플로우를 거치지 않고 직접 진입했으면(status idle) 추정을 시작한다.
   useEffect(() => {
@@ -61,6 +62,8 @@ export default function MeasureResult() {
   useEffect(() => {
     if (result) {
       // 소수점 1자리로 표기 (예: 78 → "78.0")
+      // 외부 measureStore의 비동기 결과를 편집 가능한 입력 상태로 복사한다.
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setValues({
         shoulder: result.measures.shoulder.toFixed(1),
         chest: result.measures.chest.toFixed(1),
@@ -92,7 +95,11 @@ export default function MeasureResult() {
               <ErrorState
                 title="치수 추정에 실패했어요"
                 description={error ?? undefined}
-                onRetry={() => measureStore.estimate()}
+                onRetry={() =>
+                  hasBothPhotos
+                    ? measureStore.startPhotoMeasurement()
+                    : measureStore.estimate()
+                }
                 style={styles.stateFill}
               />
             ) : (
@@ -126,19 +133,23 @@ export default function MeasureResult() {
     setSavingDone(true);
     try {
       await measureStore.saveDetail(measures);
+      if (returnTo === 'onboarding') {
+        router.navigate({ pathname: '/style-onboarding', params: { returnTo: 'onboarding' } });
+      } else if (returnTo === 'my') {
+        router.navigate('/my');
+      } else {
+        router.navigate('/home');
+      }
     } catch (e) {
-      // 저장 실패해도 로컬 결과엔 반영됨 — 알리고 화면은 닫는다.
       toast(
-        e instanceof ApiError ? e.message : '치수 저장에 실패했어요. 임시로 진행할게요.',
+        e instanceof ApiError ? e.message : '치수 저장에 실패했어요. 다시 시도해 주세요.',
         { variant: 'error' },
       );
+      if (returnTo !== 'onboarding') {
+        router.navigate(returnTo === 'my' ? '/my' : '/home');
+      }
     } finally {
       setSavingDone(false);
-      if (returnTo === 'my') {
-        router.replace('/(tabs)/my');
-      } else {
-        router.replace('/(tabs)/home');
-      }
     }
   };
 

@@ -79,8 +79,11 @@ export default function Signup() {
     if (emailError || pwError || pw2Error) return;
     setSaving(true);
     try {
-      await signupWithEmail(email, pw);
-      router.replace('/permissions');
+      const response = await signupWithEmail(email, pw);
+      router.replace({
+        pathname: '/email-verification',
+        params: { email: response.email, retryAfter: String(response.retry_after) },
+      });
     } catch (error) {
       toast(emailAuthErrorMessage(error), { variant: 'error' });
     } finally {
@@ -89,7 +92,7 @@ export default function Signup() {
   };
 
   /* 소셜 가입은 이메일·비밀번호를 받지 않으므로 폼 검증을 태우지 않는다. */
-  const createWithSocial = () => router.replace('/permissions');
+  const createWithSocial = () => router.replace({ pathname: '/permissions', params: { onboarding: '1' } });
 
   return (
     <View style={styles.container}>

@@ -84,7 +84,23 @@ class EmailSignupSerializer(serializers.Serializer):
             username=f"email_{uuid.uuid4().hex}",
             email=validated_data["email"],
             password=validated_data["password"],
+            is_active=False,
         )
+
+
+class EmailVerificationSerializer(serializers.Serializer):
+    email = serializers.EmailField()
+    code = serializers.RegexField(r"^\d{6}$", error_messages={"invalid": "6자리 숫자 인증 코드를 입력해 주세요."})
+
+    def validate_email(self, value: str) -> str:
+        return value.strip().lower()
+
+
+class EmailVerificationResendSerializer(serializers.Serializer):
+    email = serializers.EmailField()
+
+    def validate_email(self, value: str) -> str:
+        return value.strip().lower()
 
 
 class EmailLoginSerializer(serializers.Serializer):
@@ -95,13 +111,11 @@ class EmailLoginSerializer(serializers.Serializer):
 
     def validate(self, attrs):
         email = attrs["email"].strip().lower()
-        user = (
-            User.objects.filter(email__iexact=email, is_active=True)
-            .exclude(password__startswith="!")
-            .first()
-        )
+        user = User.objects.filter(email__iexact=email).exclude(password__startswith="!").first()
         if user is None or not user.check_password(attrs["password"]):
             raise serializers.ValidationError("이메일 또는 비밀번호가 올바르지 않습니다.")
+        if not user.is_active:
+            raise serializers.ValidationError("이메일 인증을 완료해 주세요.")
         attrs["user"] = user
         return attrs
 

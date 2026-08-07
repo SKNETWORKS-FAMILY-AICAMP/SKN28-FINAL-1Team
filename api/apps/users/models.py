@@ -53,6 +53,58 @@ class User(AbstractUser):
         return self.nickname or self.username
 
 
+class EmailVerification(models.Model):
+    """이메일 계정의 소유 확인 상태와 일회용 인증 코드 메타데이터."""
+
+    user = models.OneToOneField(
+        User,
+        on_delete=models.CASCADE,
+        related_name="email_verification",
+        db_comment="인증 대상 사용자 FK (users.id, 사용자당 1건)",
+    )
+    code_hash = models.CharField(
+        "인증 코드 해시",
+        max_length=64,
+        blank=True,
+        db_comment="6자리 이메일 인증 코드의 HMAC-SHA256 해시",
+    )
+    expires_at = models.DateTimeField(
+        "인증 코드 만료 시각",
+        null=True,
+        blank=True,
+        db_comment="현재 인증 코드 만료 시각 (기본 발송 후 10분)",
+    )
+    resend_available_at = models.DateTimeField(
+        "재발송 가능 시각",
+        null=True,
+        blank=True,
+        db_comment="인증 메일 재발송 제한 종료 시각 (기본 발송 후 60초)",
+    )
+    failed_attempts = models.PositiveSmallIntegerField(
+        "인증 실패 횟수",
+        default=0,
+        db_comment="현재 코드 검증 실패 횟수 (최대 5회)",
+    )
+    verified_at = models.DateTimeField(
+        "이메일 인증 완료 시각",
+        null=True,
+        blank=True,
+        db_comment="이메일 소유 확인 완료 시각 (미인증이면 NULL)",
+    )
+    created_at = models.DateTimeField(
+        "생성 시각", auto_now_add=True, db_comment="인증 레코드 최초 생성 시각"
+    )
+    updated_at = models.DateTimeField(
+        "수정 시각", auto_now=True, db_comment="인증 레코드 마지막 수정 시각"
+    )
+
+    class Meta:
+        db_table = "email_verifications"
+        db_table_comment = "이메일 계정 소유 확인용 일회성 코드와 인증 상태"
+        verbose_name = "이메일 인증"
+        verbose_name_plural = "이메일 인증"
+
+
 class SocialAccount(models.Model):
     class Provider(models.TextChoices):
         NAVER = "naver", "네이버"

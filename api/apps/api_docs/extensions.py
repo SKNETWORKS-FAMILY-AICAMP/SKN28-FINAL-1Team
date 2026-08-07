@@ -2,6 +2,7 @@ from drf_spectacular.extensions import (
     OpenApiAuthenticationExtension,
     OpenApiViewExtension,
 )
+from rest_framework import serializers
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import (
     OpenApiExample,
@@ -36,6 +37,8 @@ from apps.users.serializers import (
     BodyPhotoUploadSerializer,
     EmailLoginSerializer,
     EmailSignupSerializer,
+    EmailVerificationResendSerializer,
+    EmailVerificationSerializer,
     PursuitPayloadInputSerializer,
     PursuitPayloadResponseSerializer,
     SocialLoginSerializer,
@@ -113,10 +116,17 @@ class EmailSignupViewExtension(OpenApiViewExtension):
                 operation_id="email_signup",
                 tags=["Authentication"],
                 summary="이메일 회원가입",
-                description="이메일·비밀번호 계정을 생성하고 서비스 JWT를 발급합니다.",
+                description="비활성 이메일 계정을 생성하고 6자리 소유 확인 코드를 발송합니다.",
                 request=EmailSignupSerializer,
                 responses={
-                    201: SocialLoginResponseSerializer,
+                    202: inline_serializer(
+                        name="EmailSignupPendingResponse",
+                        fields={
+                            "email": serializers.EmailField(),
+                            "verification_required": serializers.BooleanField(),
+                            "retry_after": serializers.IntegerField(),
+                        },
+                    ),
                     400: OpenApiResponse(description="이메일 중복 또는 비밀번호 정책 오류"),
                 },
             )
@@ -125,6 +135,44 @@ class EmailSignupViewExtension(OpenApiViewExtension):
             pass
 
         return DocumentedEmailSignupView
+
+
+class EmailVerificationViewExtension(OpenApiViewExtension):
+    target_class = "apps.users.views.EmailVerificationView"
+
+    def view_replacement(self):
+        @extend_schema_view(
+            post=extend_schema(
+                operation_id="email_verify",
+                tags=["Authentication"],
+                summary="이메일 인증 코드 확인",
+                request=EmailVerificationSerializer,
+                responses={201: SocialLoginResponseSerializer, 400: OpenApiResponse(description="코드 오류·만료")},
+            )
+        )
+        class DocumentedEmailVerificationView(self.target_class):
+            pass
+
+        return DocumentedEmailVerificationView
+
+
+class EmailVerificationResendViewExtension(OpenApiViewExtension):
+    target_class = "apps.users.views.EmailVerificationResendView"
+
+    def view_replacement(self):
+        @extend_schema_view(
+            post=extend_schema(
+                operation_id="email_verification_resend",
+                tags=["Authentication"],
+                summary="이메일 인증 코드 재발송",
+                request=EmailVerificationResendSerializer,
+                responses={200: OpenApiResponse(description="재발송 완료"), 400: OpenApiResponse(description="재발송 대기 중")},
+            )
+        )
+        class DocumentedEmailVerificationResendView(self.target_class):
+            pass
+
+        return DocumentedEmailVerificationResendView
 
 
 class EmailLoginViewExtension(OpenApiViewExtension):
