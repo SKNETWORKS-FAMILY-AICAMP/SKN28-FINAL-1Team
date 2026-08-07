@@ -28,10 +28,11 @@ export default function OutfitReviewScreen() {
      상세 화면과 같은 훅으로 이 화면에서도 끝날 때까지 지켜본다 — 완료되면 실제 아이템이 채워진다. */
   const {
     analysis,
+    loading: wardrobeLoading,
+    error: wardrobeError,
     stalled: wardrobeStalled,
     reload: reloadWardrobe,
   } = useOutfitAnalysisDetail(job?.wardrobeJobId ? (job.analysisId ?? undefined) : undefined);
-  const wardrobe = analysis?.wardrobe ?? null;
 
   const pending = outfitAnalysisStore.isPending(job);
   const result = job?.phase === 'SUCCEEDED' ? job.evaluation : null;
@@ -91,7 +92,14 @@ export default function OutfitReviewScreen() {
               </View>
 
               {job?.wardrobeJobId ? (
-                <FoundItems link={wardrobe} stalled={wardrobeStalled} onRefresh={reloadWardrobe} />
+                <FoundItems
+                  link={analysis?.wardrobe ?? null}
+                  loaded={Boolean(analysis)}
+                  loading={wardrobeLoading}
+                  error={wardrobeError}
+                  stalled={wardrobeStalled}
+                  onRefresh={reloadWardrobe}
+                />
               ) : null}
 
               <Pressable style={styles.secondaryButton} onPress={startNewAnalysis}>
@@ -162,24 +170,45 @@ export default function OutfitReviewScreen() {
  */
 function FoundItems({
   link,
+  loaded,
+  loading,
+  error,
   stalled,
   onRefresh,
 }: {
   link: WardrobeLink | null;
+  /** 상세 조회가 한 번이라도 성공했는지. 이걸 안 보면 "못 불러옴"과 "처리 중"이 구분되지 않는다. */
+  loaded: boolean;
+  loading: boolean;
+  error: string | null;
   /** 폴링 상한에 걸려 더 이상 지켜보지 않는 상태 */
   stalled: boolean;
   onRefresh: () => void;
 }) {
-  const working = !link || link.status === 'PENDING' || link.status === 'PROCESSING';
+  const processing = link?.status === 'PENDING' || link?.status === 'PROCESSING';
+  /* 조회를 아직 못 했거나(loaded=false) 실패했으면 폴링도 안 걸린다 —
+     스피너를 돌려두면 영영 처리 중인 것처럼 보이므로 다시 시도할 길을 준다. */
+  const unreachable = !loading && (!loaded || Boolean(error));
 
   return (
     <View style={styles.wardrobeNote}>
       <View style={styles.wardrobeHead}>
         <Text style={styles.wardrobeNoteTitle}>이 사진에서 찾은 옷</Text>
-        {working && !stalled ? <ActivityIndicator size="small" color={Editorial.textCaption} /> : null}
+        {(loading || (processing && !stalled)) && !unreachable ? (
+          <ActivityIndicator size="small" color={Editorial.textCaption} />
+        ) : null}
       </View>
 
-      {working && stalled ? (
+      {unreachable ? (
+        <>
+          <Text style={styles.wardrobeNoteBody}>옷장 등록 상태를 불러오지 못했어요.</Text>
+          <Pressable style={styles.secondaryButton} onPress={onRefresh}>
+            <Text style={styles.secondaryButtonText}>다시 확인하기</Text>
+          </Pressable>
+        </>
+      ) : !link ? (
+        <Text style={styles.wardrobeNoteBody}>옷장 등록 상태를 확인하고 있어요.</Text>
+      ) : processing && stalled ? (
         /* 지켜보기를 멈춘 상태. 스피너를 계속 돌리면 영영 처리 중인 것처럼 보인다. */
         <>
           <Text style={styles.wardrobeNoteBody}>
@@ -189,7 +218,7 @@ function FoundItems({
             <Text style={styles.secondaryButtonText}>다시 확인하기</Text>
           </Pressable>
         </>
-      ) : working ? (
+      ) : processing ? (
         <Text style={styles.wardrobeNoteBody}>옷을 하나씩 분리하고 있어요. 몇 분 걸릴 수 있어요.</Text>
       ) : link.status === 'FAILED' ? (
         <Text style={styles.errorText}>{link.error_message || '옷을 옷장에 등록하지 못했어요.'}</Text>
