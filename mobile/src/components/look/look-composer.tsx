@@ -20,6 +20,7 @@ import { useBreakpoint } from '@/hooks/use-breakpoint';
 import { goBack } from '@/lib/goBack';
 import { pickFromAlbum, pickFromCamera } from '@/lib/pickItemPhoto';
 import {
+  calendarErrorMessage,
   calendarStore,
   entryItemKey,
   formatDateLabel,
@@ -158,7 +159,13 @@ export function LookComposer({ date }: { date?: string }) {
 
     if (mode === 'calendar' && date) {
       const lookId = linkOn && !alreadyLinked ? makeLook(date).id : undefined;
-      calendarStore.saveEntry({ date, photo, items, note, tags, shared, lookId });
+      /* 저장은 서버 왕복이라 끝난 뒤에 알린다 — 먼저 토스트를 띄우면 실패해도 성공처럼 보인다. */
+      try {
+        await calendarStore.saveEntry({ date, photo, items, note, tags, shared, lookId });
+      } catch (error) {
+        toast(calendarErrorMessage(error), { variant: 'error' });
+        return;
+      }
       toast(
         lookId
           ? '착장을 기록하고 룩북에도 올렸어요'
@@ -183,15 +190,24 @@ export function LookComposer({ date }: { date?: string }) {
 
     const look = makeLook(linkOn ? linkDate : undefined);
     if (linkOn) {
-      calendarStore.saveEntry({
-        date: linkDate,
-        photo,
-        items,
-        note,
-        tags,
-        shared,
-        lookId: look.id,
-      });
+      try {
+        await calendarStore.saveEntry({
+          date: linkDate,
+          photo,
+          items,
+          note,
+          tags,
+          shared,
+          lookId: look.id,
+        });
+      } catch (error) {
+        /* 룩북에는 이미 올라갔으니 그건 살리고 캘린더 실패만 알린다. */
+        toast(`룩북에 올렸어요. 캘린더 기록은 실패했어요 — ${calendarErrorMessage(error)}`, {
+          variant: 'error',
+        });
+        router.navigate('/(tabs)/lookbook?tab=saved');
+        return;
+      }
     }
     toast(linkOn ? '룩북에 올리고 캘린더에도 기록했어요' : '룩북에 올렸어요', {
       variant: 'success',
@@ -208,7 +224,12 @@ export function LookComposer({ date }: { date?: string }) {
       destructive: true,
     });
     if (!ok) return;
-    calendarStore.removeEntry(date);
+    try {
+      await calendarStore.removeEntry(date);
+    } catch (error) {
+      toast(calendarErrorMessage(error), { variant: 'error' });
+      return;
+    }
     toast('기록을 지웠어요');
     goBack('/(tabs)/calendar');
   };

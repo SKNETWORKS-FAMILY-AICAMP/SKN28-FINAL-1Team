@@ -2,11 +2,9 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 
 import {
   getCalendarProcessingStatus,
-  listCalendarEntries,
-  type CalendarEntryDto,
   type CalendarProcessingStatus,
 } from '@/lib/calendarApi';
-import { toDateKey } from '@/state/calendar';
+import { calendarStore, toDateKey, useCalendarEntries, type CalendarEntry } from '@/state/calendar';
 
 /**
  * 캘린더 데이터 훅. 전송은 lib/calendarApi.ts, 상태·폴링은 여기.
@@ -20,14 +18,10 @@ const MAX_PROCESSING_POLL_MS = 10 * 60 * 1000;
 
 type RangeResult = {
   /** 날짜('YYYY-MM-DD') → 기록. 하루에 하나뿐이라 맵으로 둔다. */
-  entries: Record<string, CalendarEntryDto>;
+  entries: Record<string, CalendarEntry>;
   loading: boolean;
   error: string | null;
   reload: () => Promise<void>;
-  /** 등록·수정 직후 서버 왕복 없이 화면부터 반영 */
-  upsertLocal: (entry: CalendarEntryDto) => void;
-  /** 삭제 직후 화면부터 반영 */
-  removeLocal: (date: string) => void;
 };
 
 /** 달의 1일과 말일을 'YYYY-MM-DD' 로 돌려준다. */
@@ -36,12 +30,18 @@ export function monthRange(year: number, month: number): { start: string; end: s
   return { start: toDateKey(year, month, 1), end: toDateKey(year, month, lastDay) };
 }
 
+/**
+ * 기간을 서버에서 받아 스토어에 채운다.
+ *
+ * 기록은 캘린더·날짜선택 시트·룩 작성기가 함께 보므로 데이터는 스토어가 들고,
+ * 이 훅은 "언제 불러올지"와 로딩·오류 표시만 맡는다.
+ */
 export function useCalendarRange(
   startDate: string,
   endDate: string,
   enabled = true,
 ): RangeResult {
-  const [entries, setEntries] = useState<Record<string, CalendarEntryDto>>({});
+  const entries = useCalendarEntries();
   // 끄고 시작하면 첫 화면이 로딩으로 깜빡이지 않는다(비회원 등).
   const [loading, setLoading] = useState(enabled);
   const [error, setError] = useState<string | null>(null);
@@ -49,11 +49,9 @@ export function useCalendarRange(
   const load = useCallback(async () => {
     if (!enabled) return;
     try {
-      const list = await listCalendarEntries(startDate, endDate);
-      setEntries(Object.fromEntries(list.map((entry) => [entry.date, entry])));
+      await calendarStore.loadRange(startDate, endDate);
       setError(null);
     } catch (e) {
-      setEntries({});
       setError(e instanceof Error ? e.message : '캘린더를 불러오지 못했어요');
     } finally {
       setLoading(false);
@@ -73,20 +71,7 @@ export function useCalendarRange(
     await load();
   }, [load, enabled]);
 
-  const upsertLocal = useCallback((entry: CalendarEntryDto) => {
-    setEntries((current) => ({ ...current, [entry.date]: entry }));
-  }, []);
-
-  const removeLocal = useCallback((date: string) => {
-    setEntries((current) => {
-      if (!(date in current)) return current;
-      const next = { ...current };
-      delete next[date];
-      return next;
-    });
-  }, []);
-
-  return { entries, loading, error, reload, upsertLocal, removeLocal };
+  return { entries, loading, error, reload };
 }
 
 /** 월 그리드용 — 그 달 1일부터 말일까지. */
