@@ -31,6 +31,14 @@ services/
 `WardrobeUploadJob`을 enqueue한다. worker와 옷장 callback은 기존과 동일하게
 옷장 아이템을 생성하며, API가 해당 job으로 생성된 아이템을 캘린더에 연결한다.
 
+룩북 API도 같은 job을 쓰되 페이로드에 **`exclude_categories`**(예: `["상의"]`)를
+싣는다. 사용자가 '입은 옷'으로 이미 지정한 부위라 다시 등록하면 옷장에 같은 옷이
+두 벌 생긴다. worker는 이 목록을 **열거 직후** 걸러 내므로 생성·태깅·임베딩 비용
+자체가 발생하지 않는다. 제외 결과는 manifest의 `counts.excluded` ·
+`excluded_categories` · `excluded_items`에 남는다. 전부 제외돼 남는 아이템이 없으면
+실패가 아니라 `status=success` + 빈 items로 콜백한다 — 사용자가 사진 속 부위를
+직접 다 지정한 정상 흐름이기 때문이다. 키가 없는 기존 페이로드는 동작이 같다.
+
 **구현 교체**: 새 컴포넌트로 `pipeline/base.py` 인터페이스를 구현하고
 `pipeline/__init__.py`의 `_REGISTRY`에 빌더를 등록한 뒤
 `WORKER_PIPELINE` 환경변수로 선택한다 (예정: `sam3-crop`).

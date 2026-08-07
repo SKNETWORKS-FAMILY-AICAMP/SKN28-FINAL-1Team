@@ -53,6 +53,7 @@ INSTALLED_APPS = [
     "apps.wardrobe",
     "apps.recommend",
     "apps.style_calendar",
+    "apps.lookbook",
 ]
 
 # ------------------------------------------------------------
@@ -284,6 +285,14 @@ CORS_ALLOWED_ORIGINS = [
 # 상세 값은 apps/style_calendar/services/storage.py에서 읽는다.
 # 필수: CALENDAR_S3_BUCKET(미설정 시 WARDROBE_S3_BUCKET 사용)
 # 사진 처리 큐와 callback은 기존 옷장 업로드 흐름을 그대로 사용한다.
+# ------------------------------------------------------------
+
+# ------------------------------------------------------------
+# 룩북 (lookbook) — S3
+# 상세 값은 apps/lookbook/services/storage.py에서 읽는다.
+# 선택: LOOKBOOK_S3_BUCKET (미설정 시 CALENDAR_S3_BUCKET → WARDROBE_S3_BUCKET)
+# 사진 처리 큐와 callback은 기존 옷장 업로드 흐름을 그대로 사용하며,
+# '입은 옷'과 겹치는 대분류는 큐 페이로드의 exclude_categories로 제외한다.
 # ------------------------------------------------------------
 
 # ------------------------------------------------------------
