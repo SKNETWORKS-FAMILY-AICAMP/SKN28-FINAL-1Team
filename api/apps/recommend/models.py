@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import uuid
 
+from django.contrib.postgres.fields import ArrayField
 from django.db import models
 
 #: 골든셋 전용 PostgreSQL 스키마. 다른 앱 테이블(public)과 섞이지 않게 격리한다.
@@ -230,6 +231,220 @@ class GoldenImage(models.Model):
     def __str__(self) -> str:
         return self.golden_id
 
+
+class GoldenOutfitItem(models.Model):
+    """골든 코디 사진에서 분리한 의상 아이템 1개.
+
+    태그 축은 apps.wardrobe.WardrobeItem과 의도적으로 같게 맞춘다. 골든 코디의
+    상의를 옷장 아이템이나 네이버 상품으로 교체하려면 세 저장소가 같은 필터
+    언어(category_large / layer_role / season / style ...)를 써야 하기 때문이다.
+
+    분리된 아이템 이미지는 S3에 두고, 벡터는 Qdrant(goldenset_items)에만 둔다.
+    """
+
+    class Status(models.TextChoices):
+        SUCCEEDED = "SUCCEEDED", "성공"
+        FAILED = "FAILED", "실패"
+
+    id = models.UUIDField(
+        primary_key=True,
+        default=uuid.uuid4,
+        editable=False,
+        db_comment="골든 코디 아이템 UUID",
+    )
+    image = models.ForeignKey(
+        GoldenImage,
+        on_delete=models.CASCADE,
+        related_name="items",
+        db_comment="아이템이 속한 골든 코디 이미지 FK (golden_image.id)",
+    )
+    item_index = models.PositiveSmallIntegerField(
+        db_comment="코디 안에서의 아이템 순번 (0부터, 파이프라인 산출 순서)",
+    )
+    item_key = models.CharField(
+        max_length=120,
+        db_comment="Qdrant point ID 재현용 안정 식별자 (golden_id#000 형식)",
+    )
+
+    # ── 분리 이미지 위치 ──
+    s3_bucket = models.CharField(
+        max_length=200,
+        blank=True,
+        default="",
+        db_comment="분리된 아이템 이미지 S3 버킷",
+    )
+    s3_key = models.CharField(
+        max_length=512,
+        blank=True,
+        default="",
+        db_comment="분리된 아이템 이미지 S3 키",
+    )
+
+    # ── 태그 (apps.wardrobe.taxonomy 라벨 체계와 동일) ──
+    item_name = models.CharField(
+        max_length=120,
+        blank=True,
+        default="",
+        db_comment="아이템 표시 이름",
+    )
+    category_large = models.CharField(
+        max_length=20,
+        blank=True,
+        default="",
+        db_comment="대분류 (상의/하의/아우터/신발/가방 등)",
+    )
+    category_small = models.CharField(
+        max_length=30,
+        blank=True,
+        default="",
+        db_comment="소분류 (티셔츠/데님 팬츠 등)",
+    )
+    season = ArrayField(
+        models.CharField(max_length=10),
+        default=list,
+        blank=True,
+        db_comment="계절 태그 배열",
+    )
+    style = ArrayField(
+        models.CharField(max_length=10),
+        default=list,
+        blank=True,
+        db_comment="스타일 태그 배열",
+    )
+    usage = ArrayField(
+        models.CharField(max_length=20),
+        default=list,
+        blank=True,
+        db_comment="용도(TPO) 태그 배열",
+    )
+    color = models.CharField(
+        max_length=10, blank=True, default="", db_comment="색상 태그"
+    )
+    pattern = models.CharField(
+        max_length=10, blank=True, default="", db_comment="패턴 태그"
+    )
+    fit = models.CharField(
+        max_length=10, blank=True, default="", db_comment="핏 태그"
+    )
+    material = models.CharField(
+        max_length=10, blank=True, default="", db_comment="소재 태그"
+    )
+    sleeve = models.CharField(
+        max_length=10, blank=True, default="", db_comment="소매 길이 태그"
+    )
+    length = models.CharField(
+        max_length=10, blank=True, default="", db_comment="기장 태그"
+    )
+    layer_role = models.CharField(
+        max_length=10,
+        blank=True,
+        default="",
+        db_comment="레이어링 역할 태그 (아이템 교체 질의의 핵심 축)",
+    )
+    layer_order = models.PositiveSmallIntegerField(
+        null=True,
+        blank=True,
+        db_comment="레이어링 착용 순서 (안쪽부터 1)",
+    )
+
+    # ── 열거 단계 메타 ──
+    label_ko = models.CharField(
+        max_length=120,
+        blank=True,
+        default="",
+        db_comment="열거 단계가 붙인 짧은 한국어 라벨",
+    )
+    descriptor_en = models.TextField(
+        blank=True,
+        default="",
+        db_comment="아이템을 특정하는 영어 서술 (분리 프롬프트 입력)",
+    )
+    view_angle = models.CharField(
+        max_length=16,
+        blank=True,
+        default="",
+        db_comment="원본에서 관측된 각도 (front/side/back/three-quarter)",
+    )
+    occluded_by = models.JSONField(
+        default=list,
+        blank=True,
+        db_comment="이 아이템을 가리는 요소 목록",
+    )
+    bbox = models.JSONField(
+        null=True,
+        blank=True,
+        db_comment="원본 좌표 [ymin, xmin, ymax, xmax] 0~1000 정규화",
+    )
+    missing_required = models.JSONField(
+        default=list,
+        blank=True,
+        db_comment="taxonomy 필수 태그 중 채워지지 않은 필드 목록",
+    )
+
+    # ── 파이프라인·임베딩 버전 ──
+    pipeline_key = models.CharField(
+        max_length=40,
+        blank=True,
+        default="",
+        db_comment="아이템을 만든 파이프라인 구현 키 (gemini-image-edit/sam3-crop 등)",
+    )
+    image_embedding_version = models.CharField(
+        max_length=80,
+        blank=True,
+        default="",
+        db_comment="아이템 이미지 임베딩 모델 버전",
+    )
+    text_embedding_version = models.CharField(
+        max_length=80,
+        blank=True,
+        default="",
+        db_comment="아이템 캡션 임베딩 모델 버전",
+    )
+    status = models.CharField(
+        max_length=16,
+        choices=Status.choices,
+        default=Status.SUCCEEDED,
+        db_comment="아이템 처리 상태 (SUCCEEDED/FAILED)",
+    )
+    error_message = models.TextField(
+        blank=True,
+        default="",
+        db_comment="아이템 처리 실패 사유",
+    )
+    created_at = models.DateTimeField(
+        auto_now_add=True,
+        db_comment="아이템 생성 시각",
+    )
+    updated_at = models.DateTimeField(
+        auto_now=True,
+        db_comment="아이템 수정 시각",
+    )
+
+    class Meta:
+        db_table = _table("golden_outfit_item")
+        db_table_comment = "골든 코디 사진에서 분리한 의상 아이템과 태그"
+        constraints = [
+            models.UniqueConstraint(
+                fields=["image", "item_index"],
+                name="uq_golden_outfit_item_index",
+            ),
+            models.UniqueConstraint(
+                fields=["image", "item_key"],
+                name="uq_golden_outfit_item_key",
+            ),
+        ]
+        indexes = [
+            models.Index(
+                fields=["category_large", "layer_role"],
+                name="idx_golden_item_cat_layer",
+            ),
+            models.Index(fields=["item_key"], name="idx_golden_item_key"),
+            models.Index(fields=["status"], name="idx_golden_item_status"),
+        ]
+        ordering = ["image", "item_index"]
+
+    def __str__(self) -> str:
+        return f"{self.item_key} {self.label_ko}".strip()
 
 class GoldenAnalysis(models.Model):
     """멀티모달 모델이 생성한 구조화 분석 스냅샷."""
