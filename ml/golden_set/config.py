@@ -61,6 +61,7 @@ class GoldenSettings:
     dataset_version: str
     item_pipeline: str
     anchor_exposable: bool
+    auto_index: bool
     scan_interval_seconds: int
     image_processor_path: Path
 
@@ -100,6 +101,8 @@ class GoldenSettings:
             or os.getenv("WORKER_PIPELINE", "gemini-edit"),
             # 골든 원본을 사용자 응답에 노출할지. 기본은 비노출(사용권 보수적).
             anchor_exposable=_bool("GOLDEN_ANCHOR_EXPOSABLE", "0"),
+            # 임베딩 후 Qdrant 적재까지 자동으로 이어갈지.
+            auto_index=_bool("GOLDEN_AUTO_INDEX", "1"),
             # 0이면 1회 처리 후 종료, 양수면 그 간격(초)으로 계속 스캔한다.
             scan_interval_seconds=_int("GOLDEN_SCAN_INTERVAL_SECONDS", "0"),
             image_processor_path=Path(
