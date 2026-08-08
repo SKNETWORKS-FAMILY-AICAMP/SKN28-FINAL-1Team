@@ -1,18 +1,28 @@
-"""골든 이미지 파일을 안정적인 manifest로 변환한다."""
+"""골든 코디 원본을 안정적인 manifest로 변환한다.
+
+원본의 소유자는 S3 버킷이다(`build_manifest_from_s3`). 로컬 디렉터리 입력
+(`build_manifest`)은 테스트와 오프라인 실험용으로만 남겨둔다.
+
+manifest의 `local_path`는 run 디렉터리 안의 캐시 사본을 가리키며, 재현에
+필요한 진짜 주소는 `source_bucket`/`source_key`다.
+"""
 
 from __future__ import annotations
 
 import csv
 import hashlib
+import io
 import re
 from pathlib import Path
 from typing import Any
 
 from PIL import Image, ImageOps
 
+from . import s3io
 from .artifacts import write_json, write_jsonl
+from .config import GoldenSettings
 
-IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp"}
+IMAGE_EXTENSIONS = s3io.IMAGE_EXTENSIONS
 
 
 def sha256_file(path: Path) -> str:
@@ -47,11 +57,7 @@ def _clean_id(value: str) -> str:
     return cleaned[:64] or "golden"
 
 
-def _read_metadata(path: Path | None) -> dict[str, dict[str, str]]:
-    if path is None:
-        return {}
-    with path.open("r", encoding="utf-8-sig", newline="") as handle:
-        rows = list(csv.DictReader(handle))
+def _parse_metadata_rows(rows: list[dict[str, str]]) -> dict[str, dict[str, str]]:
     result: dict[str, dict[str, str]] = {}
     for row in rows:
         key = (row.get("file_name") or row.get("golden_id") or "").strip()
@@ -61,41 +67,52 @@ def _read_metadata(path: Path | None) -> dict[str, dict[str, str]]:
     return result
 
 
+def _read_metadata(path: Path | None) -> dict[str, dict[str, str]]:
+    if path is None:
+        return {}
+    with path.open("r", encoding="utf-8-sig", newline="") as handle:
+        return _parse_metadata_rows(list(csv.DictReader(handle)))
+
+
+def read_metadata_from_s3(bucket: str, key: str) -> dict[str, dict[str, str]]:
+    """S3에 올려둔 metadata.csv를 읽는다. 없으면 빈 dict."""
+    if not key:
+        return {}
+    try:
+        body = s3io.get_bytes(bucket, key)
+    except Exception:  # noqa: BLE001 — 메타데이터는 선택 입력이라 없으면 진행한다
+        return {}
+    text = body.decode("utf-8-sig")
+    return _parse_metadata_rows(list(csv.DictReader(io.StringIO(text))))
+
+
 def _metadata_for(
-    path: Path,
+    name: str,
+    stem: str,
     metadata: dict[str, dict[str, str]],
 ) -> dict[str, str]:
-    return metadata.get(path.name) or metadata.get(path.stem) or {}
+    return metadata.get(name) or metadata.get(stem) or {}
 
 
-def build_manifest(
-    *,
-    input_dir: Path,
-    run_dir: Path,
-    dataset_name: str,
-    dataset_version: str,
-    metadata_csv: Path | None = None,
-    limit: int | None = None,
+def _split_values(value: str) -> list[str]:
+    return [item.strip() for item in re.split(r"[;,|]", value) if item.strip()]
+
+
+def _build_rows(
+    entries: list[tuple[Path, str, str]],
+    metadata: dict[str, dict[str, str]],
 ) -> list[dict[str, Any]]:
-    paths = sorted(
-        path
-        for path in input_dir.rglob("*")
-        if path.is_file() and path.suffix.lower() in IMAGE_EXTENSIONS
-    )
-    if limit is not None:
-        paths = paths[:limit]
-    if not paths:
-        raise ValueError(f"이미지를 찾을 수 없습니다: {input_dir}")
-
-    metadata = _read_metadata(metadata_csv)
+    """(로컬경로, 원본이름, 원본주소) 목록을 manifest 행으로 만든다."""
     used_ids: set[str] = set()
     exact_seen: dict[str, str] = {}
     perceptual_seen: list[tuple[str, str]] = []
     rows: list[dict[str, Any]] = []
 
-    for index, path in enumerate(paths, start=1):
-        meta = _metadata_for(path, metadata)
-        base_id = _clean_id(meta.get("golden_id") or path.stem)
+    for index, (path, source_name, source_uri) in enumerate(entries, start=1):
+        name = Path(source_name).name
+        stem = Path(source_name).stem
+        meta = _metadata_for(name, stem, metadata)
+        base_id = _clean_id(meta.get("golden_id") or stem)
         golden_id = base_id
         suffix = 2
         while golden_id in used_ids:
@@ -122,12 +139,11 @@ def build_manifest(
         exact_seen.setdefault(image_sha, golden_id)
         perceptual_seen.append((golden_id, perceptual))
 
-        source_uri = meta.get("source_uri") or str(path.resolve())
         rows.append(
             {
                 "golden_id": golden_id,
                 "local_path": str(path.resolve()),
-                "source_uri": source_uri,
+                "source_uri": meta.get("source_uri") or source_uri,
                 "source_name": meta.get("source", ""),
                 "usage_scope": meta.get("usage_scope", "UNKNOWN").upper(),
                 "original_exposable": meta.get("original_exposable", "").lower()
@@ -148,7 +164,17 @@ def build_manifest(
                 "order": index,
             }
         )
+    return rows
 
+
+def _write_manifest(
+    *,
+    run_dir: Path,
+    rows: list[dict[str, Any]],
+    dataset_name: str,
+    dataset_version: str,
+    source: dict[str, Any],
+) -> None:
     run_dir.mkdir(parents=True, exist_ok=True)
     write_jsonl(run_dir / "images.jsonl", rows)
     write_json(
@@ -163,10 +189,90 @@ def build_manifest(
                 row["duplicate_kind"] == "exact" for row in rows
             ),
             "num_near_duplicates": sum(row["duplicate_kind"] == "near" for row in rows),
+            "source": source,
         },
+    )
+
+
+def build_manifest(
+    *,
+    input_dir: Path,
+    run_dir: Path,
+    dataset_name: str,
+    dataset_version: str,
+    metadata_csv: Path | None = None,
+    limit: int | None = None,
+) -> list[dict[str, Any]]:
+    """로컬 디렉터리 입력 (테스트·오프라인 실험 전용)."""
+    paths = sorted(
+        path
+        for path in input_dir.rglob("*")
+        if path.is_file() and path.suffix.lower() in IMAGE_EXTENSIONS
+    )
+    if limit is not None:
+        paths = paths[:limit]
+    if not paths:
+        raise ValueError(f"이미지를 찾을 수 없습니다: {input_dir}")
+
+    entries = [(path, path.name, str(path.resolve())) for path in paths]
+    rows = _build_rows(entries, _read_metadata(metadata_csv))
+    _write_manifest(
+        run_dir=run_dir,
+        rows=rows,
+        dataset_name=dataset_name,
+        dataset_version=dataset_version,
+        source={"kind": "local", "input_dir": str(input_dir.resolve())},
     )
     return rows
 
 
-def _split_values(value: str) -> list[str]:
-    return [item.strip() for item in re.split(r"[;,|]", value) if item.strip()]
+def build_manifest_from_s3(
+    *,
+    settings: GoldenSettings,
+    run_dir: Path | None = None,
+    limit: int | None = None,
+) -> list[dict[str, Any]]:
+    """S3 prefix의 코디 원본을 run 디렉터리로 내려받고 manifest를 만든다.
+
+    같은 키를 다시 받지 않으려고 캐시 파일이 이미 있으면 다운로드를 건너뛴다.
+    S3 객체가 갱신되는 경우는 상정하지 않는다(골든 원본은 불변으로 다룬다).
+    """
+    bucket = settings.require_bucket()
+    prefix = settings.source_prefix()
+    run_dir = run_dir or settings.run_dir
+    keys = s3io.list_source_keys(bucket, prefix)
+    if limit is not None:
+        keys = keys[:limit]
+    if not keys:
+        raise ValueError(
+            f"S3에서 이미지를 찾을 수 없습니다: s3://{bucket}/{prefix}"
+        )
+
+    cache_dir = run_dir / "source"
+    entries: list[tuple[Path, str, str]] = []
+    for key in keys:
+        relative = key[len(prefix):] if prefix and key.startswith(prefix) else key
+        # prefix 아래 계층 구조를 파일명에 녹여 캐시 이름 충돌을 막는다.
+        local = cache_dir / relative.replace("/", "__")
+        if not local.exists():
+            s3io.download(bucket, key, local)
+        entries.append((local, relative, s3io.s3_uri(bucket, key)))
+
+    metadata = read_metadata_from_s3(bucket, settings.s3_metadata_key)
+    rows = _build_rows(entries, metadata)
+    for row, key in zip(rows, keys, strict=True):
+        row["source_bucket"] = bucket
+        row["source_key"] = key
+    _write_manifest(
+        run_dir=run_dir,
+        rows=rows,
+        dataset_name=settings.dataset_name,
+        dataset_version=settings.dataset_version,
+        source={
+            "kind": "s3",
+            "bucket": bucket,
+            "source_prefix": settings.s3_source_prefix,
+            "derived_prefix": settings.derived_prefix(),
+        },
+    )
+    return rows

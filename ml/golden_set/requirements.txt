@@ -8,3 +8,6 @@ Pillow>=10.0
 requests>=2.31
 qdrant-client>=1.12
 python-dotenv>=1.0
+
+# 골든셋 원본·파생물 S3 입출력
+boto3>=1.34

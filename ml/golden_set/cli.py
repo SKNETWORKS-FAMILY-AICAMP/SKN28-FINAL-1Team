@@ -11,7 +11,7 @@ from .artifacts import read_json, write_json
 from .clustering import cluster_embeddings
 from .config import GoldenSettings, load_project_env
 from .embedding import embed_manifest_images
-from .manifest import build_manifest
+from .manifest import build_manifest, build_manifest_from_s3
 from .principles import apply_principle_reviews, synthesize_principles
 from .qdrant_index import index_run
 from .review import collect_accepted_claims, create_review_templates
@@ -23,11 +23,16 @@ def main() -> None:
     )
     subparsers = parser.add_subparsers(dest="command", required=True)
 
-    prepare = subparsers.add_parser("prepare", help="manifest·임베딩·클러스터 생성")
-    prepare.add_argument("--input-dir", type=Path, required=True)
-    prepare.add_argument("--run-dir", type=Path, required=True)
-    prepare.add_argument("--dataset-name", required=True)
-    prepare.add_argument("--dataset-version", required=True)
+    prepare = subparsers.add_parser(
+        "prepare",
+        help="manifest·임베딩·클러스터 생성 (기본 입력은 S3 원본 prefix)",
+    )
+    # 기본은 GOLDEN_S3_* 환경변수. --input-dir을 주면 로컬 디렉터리로 대체한다
+    # (테스트·오프라인 실험용).
+    prepare.add_argument("--input-dir", type=Path)
+    prepare.add_argument("--run-dir", type=Path)
+    prepare.add_argument("--dataset-name")
+    prepare.add_argument("--dataset-version")
     prepare.add_argument("--metadata-csv", type=Path)
     prepare.add_argument("--limit", type=int)
     prepare.add_argument(
@@ -101,24 +106,32 @@ def main() -> None:
     settings = GoldenSettings.from_env()
 
     if args.command == "prepare":
-        build_manifest(
-            input_dir=args.input_dir,
-            run_dir=args.run_dir,
-            dataset_name=args.dataset_name,
-            dataset_version=args.dataset_version,
-            metadata_csv=args.metadata_csv,
-            limit=args.limit,
-        )
+        run_dir = args.run_dir or settings.run_dir
+        if args.input_dir is not None:
+            build_manifest(
+                input_dir=args.input_dir,
+                run_dir=run_dir,
+                dataset_name=args.dataset_name or settings.dataset_name,
+                dataset_version=args.dataset_version or settings.dataset_version,
+                metadata_csv=args.metadata_csv,
+                limit=args.limit,
+            )
+        else:
+            build_manifest_from_s3(
+                settings=settings,
+                run_dir=run_dir,
+                limit=args.limit,
+            )
         _, _, model_name = embed_manifest_images(
-            run_dir=args.run_dir,
+            run_dir=run_dir,
             settings=settings,
             backend_name=args.embedding_backend,
         )
-        cluster_embeddings(run_dir=args.run_dir, cluster_count=args.clusters)
-        manifest = read_json(args.run_dir / "run_manifest.json")
+        cluster_embeddings(run_dir=run_dir, cluster_count=args.clusters)
+        manifest = read_json(run_dir / "run_manifest.json")
         manifest.update({"image_embedding_version": model_name, "status": "CLUSTERED"})
-        write_json(args.run_dir / "run_manifest.json", manifest)
-        print(f"준비 완료: {args.run_dir}")
+        write_json(run_dir / "run_manifest.json", manifest)
+        print(f"준비 완료: {run_dir}")
     elif args.command == "analyze":
         results = analyze_run(
             run_dir=args.run_dir,
