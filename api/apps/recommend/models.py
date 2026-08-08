@@ -12,6 +12,20 @@ import uuid
 
 from django.db import models
 
+#: 골든셋 전용 PostgreSQL 스키마. 다른 앱 테이블(public)과 섞이지 않게 격리한다.
+#: 스키마 생성은 recommend/migrations/0001_initial.py의 첫 RunSQL이 담당한다.
+GOLDENSET_SCHEMA = "goldenset"
+
+
+def _table(name: str) -> str:
+    """스키마 한정 테이블명을 만든다.
+
+    Django의 quote_name은 이미 따옴표로 시작하지 않는 이름 전체를 한 번만
+    감싸므로, 가운데에 `"."`를 넣어두면 최종 SQL이 "goldenset"."golden_image"가
+    된다. Django에 스키마 지정 API가 없어 쓰는 표준 우회다.
+    """
+    return f'{GOLDENSET_SCHEMA}"."{name}'
+
 
 class GoldenDataset(models.Model):
     """서로 섞이면 안 되는 골든셋 버전 단위."""
@@ -63,7 +77,7 @@ class GoldenDataset(models.Model):
     )
 
     class Meta:
-        db_table = "golden_dataset"
+        db_table = _table("golden_dataset")
         db_table_comment = "패션 판단 지식 구축에 사용하는 골든셋 버전"
         constraints = [
             models.UniqueConstraint(
@@ -198,7 +212,7 @@ class GoldenImage(models.Model):
     )
 
     class Meta:
-        db_table = "golden_image"
+        db_table = _table("golden_image")
         db_table_comment = "골든셋 원본 이미지와 보조 점수 앵커 메타데이터"
         constraints = [
             models.UniqueConstraint(
@@ -275,7 +289,7 @@ class GoldenAnalysis(models.Model):
     )
 
     class Meta:
-        db_table = "golden_analysis"
+        db_table = _table("golden_analysis")
         db_table_comment = "모델·프롬프트 버전별 골든 이미지 구조화 분석"
         constraints = [
             models.UniqueConstraint(
@@ -357,7 +371,7 @@ class GoldenPrinciple(models.Model):
     )
 
     class Meta:
-        db_table = "golden_principle"
+        db_table = _table("golden_principle")
         db_table_comment = "골든 이미지 근거에서 추출한 조건부 패션 판단 원칙"
         constraints = [
             models.UniqueConstraint(
@@ -420,7 +434,7 @@ class GoldenPrincipleEvidence(models.Model):
     )
 
     class Meta:
-        db_table = "golden_principle_evidence"
+        db_table = _table("golden_principle_evidence")
         db_table_comment = "조건부 패션 원칙과 이미지 영역 claim의 연결"
         constraints = [
             models.UniqueConstraint(
@@ -494,7 +508,7 @@ class GoldenReview(models.Model):
     )
 
     class Meta:
-        db_table = "golden_review"
+        db_table = _table("golden_review")
         db_table_comment = "골든 이미지 분석·패션 원칙에 대한 사람 검수"
         indexes = [
             models.Index(fields=["dataset", "reviewer_label"]),
@@ -599,7 +613,7 @@ class GoldenPairwiseReview(models.Model):
     )
 
     class Meta:
-        db_table = "golden_pairwise_review"
+        db_table = _table("golden_pairwise_review")
         db_table_comment = "골든 이미지 두 장의 사람 상대 비교와 판단 근거"
         indexes = [
             models.Index(fields=["dataset", "comparison_axis"]),

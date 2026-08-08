@@ -13,6 +13,15 @@ class Migration(migrations.Migration):
     ]
 
     operations = [
+        # 골든셋 테이블은 전부 goldenset 스키마에 만든다 (models.GOLDENSET_SCHEMA).
+        # Django에 스키마 생성 연산이 없어 원시 SQL로 선행 생성한다.
+        # 마이그레이션 사용자에게 CREATE 권한이 필요하다.
+        migrations.RunSQL(
+            sql='CREATE SCHEMA IF NOT EXISTS goldenset;',
+            # RESTRICT라 스키마에 객체가 남아 있으면 실패한다 — 되돌리기가
+            # 실수로 데이터를 지우지 않게 하는 안전장치다.
+            reverse_sql='DROP SCHEMA IF EXISTS goldenset RESTRICT;',
+        ),
         migrations.CreateModel(
             name='GoldenDataset',
             fields=[
@@ -26,7 +35,7 @@ class Migration(migrations.Migration):
                 ('updated_at', models.DateTimeField(auto_now=True, db_comment='골든셋 버전 수정 시각')),
             ],
             options={
-                'db_table': 'golden_dataset',
+                'db_table': 'goldenset"."golden_dataset',
                 'db_table_comment': '패션 판단 지식 구축에 사용하는 골든셋 버전',
                 'ordering': ['-created_at'],
                 'constraints': [models.UniqueConstraint(fields=('name', 'version'), name='uq_golden_dataset_name_version')],
@@ -56,7 +65,7 @@ class Migration(migrations.Migration):
                 ('dataset', models.ForeignKey(db_comment='소속 골든셋 버전 FK (golden_dataset.id)', on_delete=django.db.models.deletion.CASCADE, related_name='images', to='recommend.goldendataset')),
             ],
             options={
-                'db_table': 'golden_image',
+                'db_table': 'goldenset"."golden_image',
                 'db_table_comment': '골든셋 원본 이미지와 보조 점수 앵커 메타데이터',
                 'ordering': ['golden_id'],
             },
@@ -76,7 +85,7 @@ class Migration(migrations.Migration):
                 ('image', models.ForeignKey(db_comment='분석 대상 골든 이미지 FK (golden_image.id)', on_delete=django.db.models.deletion.CASCADE, related_name='analyses', to='recommend.goldenimage')),
             ],
             options={
-                'db_table': 'golden_analysis',
+                'db_table': 'goldenset"."golden_analysis',
                 'db_table_comment': '모델·프롬프트 버전별 골든 이미지 구조화 분석',
                 'ordering': ['-created_at'],
             },
@@ -99,7 +108,7 @@ class Migration(migrations.Migration):
                 ('dataset', models.ForeignKey(db_comment='원칙을 생성한 골든셋 버전 FK (golden_dataset.id)', on_delete=django.db.models.deletion.CASCADE, related_name='principles', to='recommend.goldendataset')),
             ],
             options={
-                'db_table': 'golden_principle',
+                'db_table': 'goldenset"."golden_principle',
                 'db_table_comment': '골든 이미지 근거에서 추출한 조건부 패션 판단 원칙',
                 'ordering': ['dimension', 'principle_key'],
             },
@@ -116,7 +125,7 @@ class Migration(migrations.Migration):
                 ('principle', models.ForeignKey(db_comment='조건부 패션 원칙 FK (golden_principle.id)', on_delete=django.db.models.deletion.CASCADE, related_name='evidence_links', to='recommend.goldenprinciple')),
             ],
             options={
-                'db_table': 'golden_principle_evidence',
+                'db_table': 'goldenset"."golden_principle_evidence',
                 'db_table_comment': '조건부 패션 원칙과 이미지 영역 claim의 연결',
             },
         ),
@@ -135,7 +144,7 @@ class Migration(migrations.Migration):
                 ('principle', models.ForeignKey(blank=True, db_comment='패션 원칙 검수 대상 FK (없으면 null)', null=True, on_delete=django.db.models.deletion.CASCADE, related_name='reviews', to='recommend.goldenprinciple')),
             ],
             options={
-                'db_table': 'golden_review',
+                'db_table': 'goldenset"."golden_review',
                 'db_table_comment': '골든 이미지 분석·패션 원칙에 대한 사람 검수',
             },
         ),

@@ -36,7 +36,7 @@ class Migration(migrations.Migration):
                 ('right_image', models.ForeignKey(db_comment='검수 화면 오른쪽 골든 이미지 FK (golden_image.id)', on_delete=django.db.models.deletion.CASCADE, related_name='pairwise_reviews_as_right', to='recommend.goldenimage')),
             ],
             options={
-                'db_table': 'golden_pairwise_review',
+                'db_table': 'goldenset"."golden_pairwise_review',
                 'db_table_comment': '골든 이미지 두 장의 사람 상대 비교와 판단 근거',
                 'indexes': [models.Index(fields=['dataset', 'comparison_axis'], name='golden_pair_dataset_5cb2c3_idx'), models.Index(fields=['dataset', 'reviewer_label'], name='golden_pair_dataset_94e0f9_idx')],
                 'constraints': [models.UniqueConstraint(fields=('dataset', 'pair_key', 'reviewer_label'), name='uq_golden_pairwise_reviewer'), models.CheckConstraint(condition=models.Q(('left_image', models.F('right_image')), _negated=True), name='ck_golden_pairwise_distinct_images'), models.CheckConstraint(condition=models.Q(('confidence__isnull', True), models.Q(('confidence__gte', 1), ('confidence__lte', 3)), _connector='OR'), name='ck_golden_pairwise_confidence_1_3')],
