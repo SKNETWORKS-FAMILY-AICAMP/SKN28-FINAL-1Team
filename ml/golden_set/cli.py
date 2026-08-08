@@ -11,6 +11,7 @@ from .artifacts import read_json, write_json
 from .clustering import cluster_embeddings
 from .config import GoldenSettings, load_project_env
 from .embedding import embed_manifest_images
+from .items import extract_items
 from .manifest import build_manifest, build_manifest_from_s3
 from .principles import apply_principle_reviews, synthesize_principles
 from .qdrant_index import index_run
@@ -41,6 +42,17 @@ def main() -> None:
         default="fashion",
     )
     prepare.add_argument("--clusters", type=int)
+
+    items = subparsers.add_parser(
+        "extract-items",
+        help="코디에서 의상 아이템 분리·태깅·임베딩 (image-processor 파이프라인)",
+    )
+    items.add_argument("--run-dir", type=Path)
+    items.add_argument(
+        "--force",
+        action="store_true",
+        help="S3에 완료 manifest가 있어도 다시 처리한다",
+    )
 
     analyze = subparsers.add_parser("analyze", help="대표 이미지 통합 분석")
     analyze.add_argument("--run-dir", type=Path, required=True)
@@ -132,6 +144,13 @@ def main() -> None:
         manifest.update({"image_embedding_version": model_name, "status": "CLUSTERED"})
         write_json(run_dir / "run_manifest.json", manifest)
         print(f"준비 완료: {run_dir}")
+    elif args.command == "extract-items":
+        rows = extract_items(
+            run_dir=args.run_dir or settings.run_dir,
+            settings=settings,
+            force=args.force,
+        )
+        print(f"아이템: {len(rows)}건")
     elif args.command == "analyze":
         results = analyze_run(
             run_dir=args.run_dir,
