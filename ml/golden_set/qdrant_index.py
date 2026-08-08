@@ -141,7 +141,9 @@ def index_run(
         payload: dict[str, Any] = {
             "source": "team_golden_set",
             "dataset_version": version,
-            "status": run_manifest.get("status_label", "PILOT"),
+            # 데이터셋 운영 상태. 승격은 PG(GoldenDataset.status)가 관리하고
+            # 여기서는 파일럿 기본값을 박는다.
+            "status": str(run_manifest.get("dataset_status", "PILOT")),
             "split": image.get("split", "KNOWLEDGE"),
             "presentation_group": image.get("presentation_group", ""),
             "style": look_tags.get("style")

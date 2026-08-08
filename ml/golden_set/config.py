@@ -50,20 +50,22 @@ class GoldenSettings:
     embedding_batch_size: int
 
     # ── S3 원본·산출물 ──
-    s3_bucket: str
-    s3_source_prefix: str
-    s3_output_prefix: str
-    s3_metadata_key: str
+    # 아래는 전부 기본값을 둔다. from_env()가 항상 전부 채우지만, 테스트와
+    # 스크립트가 관심 있는 필드만 지정해 만들 수 있어야 한다.
+    s3_bucket: str = ""
+    s3_source_prefix: str = "goldenset/source"
+    s3_output_prefix: str = "goldenset/derived"
+    s3_metadata_key: str = ""
 
     # ── 실행 ──
-    run_root: Path
-    dataset_name: str
-    dataset_version: str
-    item_pipeline: str
-    anchor_exposable: bool
-    auto_index: bool
-    scan_interval_seconds: int
-    image_processor_path: Path
+    run_root: Path = REPO_ROOT / "local/golden-runs"
+    dataset_name: str = "team-golden"
+    dataset_version: str = "v1"
+    item_pipeline: str = "gemini-edit"
+    anchor_exposable: bool = False
+    auto_index: bool = True
+    scan_interval_seconds: int = 0
+    image_processor_path: Path = REPO_ROOT / "image-processor"
 
     @classmethod
     def from_env(cls) -> GoldenSettings:
