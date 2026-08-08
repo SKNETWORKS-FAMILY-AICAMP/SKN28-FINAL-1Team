@@ -686,6 +686,9 @@ class GoldenItemPipelineTests(unittest.TestCase):
                 )
                 self.assertEqual(rows[0]["layer_role"], "기본 상의")
                 self.assertEqual(rows[0]["item_key"], f"{rows[0]['golden_id']}#000")
+                # 라벨 미지정이면 파이프라인 임베더 값을 쓴다.
+                self.assertEqual(rows[0]["image_embedding_version"], "stub-embed-v1")
+                self.assertEqual(rows[0]["text_embedding_version"], "stub-embed-v1")
 
                 keys, image_vectors, text_vectors = items_module.load_item_vectors(
                     run_dir / "item_embeddings.npz"
@@ -725,6 +728,66 @@ class GoldenItemPipelineTests(unittest.TestCase):
                     s3io_module.put_bytes,
                     s3io_module.get_bytes,
                 ) = original
+
+    def test_golden_label_overrides_wardrobe_embedding_version(self) -> None:
+        """GOLDEN_EMBEDDING_VERSION이 있으면 옷장 이름표를 덮어써야 한다.
+
+        기본 폴백은 image-processor의 WARDROBE_EMBEDDING_VERSION이라, 두 모델이
+        갈라지는 순간 골든 아이템에 거짓 라벨이 남는다.
+        """
+        from ml.golden_set import items as items_module
+        from ml.golden_set import s3io as s3io_module
+
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            run_dir, settings = self._prepare_run(root)
+            settings = replace(settings, item_embedding_version="golden-siglip-v9")
+
+            fake = _FakeS3()
+            original = (
+                s3io_module.get_json,
+                s3io_module.put_json,
+                s3io_module.put_bytes,
+                s3io_module.get_bytes,
+            )
+            fake.install(s3io_module)
+            try:
+                rows = items_module.extract_items(
+                    run_dir=run_dir,
+                    settings=settings,
+                    pipeline=_StubPipeline(per_image=1),
+                )
+                self.assertTrue(rows)
+                for row in rows:
+                    self.assertEqual(
+                        row["image_embedding_version"], "golden-siglip-v9"
+                    )
+                    self.assertEqual(
+                        row["text_embedding_version"], "golden-siglip-v9"
+                    )
+                meta = json.loads(
+                    (run_dir / "items.meta.json").read_text(encoding="utf-8")
+                )
+                self.assertEqual(meta["embedding_version"], "golden-siglip-v9")
+            finally:
+                (
+                    s3io_module.get_json,
+                    s3io_module.put_json,
+                    s3io_module.put_bytes,
+                    s3io_module.get_bytes,
+                ) = original
+
+    def test_old_manifest_without_version_is_backfilled(self) -> None:
+        """구형 manifest 재사용 시 상단 값으로 행을 채운다 (재처리 없이)."""
+        from ml.golden_set import items as items_module
+
+        rows = items_module._backfill_embedding_version(  # noqa: SLF001
+            [{"item_key": "g1#000"}, {"item_key": "g1#001", "image_embedding_version": "keep"}],
+            "from-manifest",
+        )
+        self.assertEqual(rows[0]["image_embedding_version"], "from-manifest")
+        self.assertEqual(rows[0]["text_embedding_version"], "from-manifest")
+        self.assertEqual(rows[1]["image_embedding_version"], "keep")
 
     def test_point_ids_are_deterministic_and_share_django_namespace(self) -> None:
         from ml.golden_set.point_ids import POINT_NAMESPACE

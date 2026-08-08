@@ -62,6 +62,7 @@ class GoldenSettings:
     dataset_name: str = "team-golden"
     dataset_version: str = "v1"
     item_pipeline: str = "gemini-edit"
+    item_embedding_version: str = ""
     anchor_exposable: bool = False
     auto_index: bool = True
     scan_interval_seconds: int = 0
@@ -101,6 +102,11 @@ class GoldenSettings:
             # 코드 변경 없이 이 값만 바꿔 교체한다.
             item_pipeline=os.getenv("GOLDEN_ITEM_PIPELINE")
             or os.getenv("WORKER_PIPELINE", "gemini-edit"),
+            # 아이템 임베딩에 찍을 버전 라벨. 비우면 파이프라인 임베더의 값을
+            # 쓰는데, 그건 image-processor의 WARDROBE_EMBEDDING_VERSION이라
+            # 골든 아이템에 옷장 이름표가 찍힌다. 지금은 같은 모델이라 맞는
+            # 값이지만 갈라지는 순간 거짓말이 되므로 별도로 둔다.
+            item_embedding_version=os.getenv("GOLDEN_EMBEDDING_VERSION", "").strip(),
             # 골든 원본을 사용자 응답에 노출할지. 기본은 비노출(사용권 보수적).
             anchor_exposable=_bool("GOLDEN_ANCHOR_EXPOSABLE", "0"),
             # 임베딩 후 Qdrant 적재까지 자동으로 이어갈지.

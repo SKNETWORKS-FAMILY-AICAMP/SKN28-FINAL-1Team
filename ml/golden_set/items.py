@@ -93,6 +93,7 @@ def _item_row(
     bucket: str,
     s3_key: str,
     pipeline_key: str,
+    embedding_version: str,
 ) -> dict[str, Any]:
     tags = dict(processed.tags or {})
     missing = tags.pop("_missing_required", []) or []
@@ -110,6 +111,9 @@ def _item_row(
         "bbox": getattr(enum, "bbox", None),
         "missing_required": list(missing),
         "pipeline_key": pipeline_key,
+        # 아이템 이미지·캡션은 같은 임베더 쌍이 만들므로 라벨도 같다.
+        "image_embedding_version": embedding_version,
+        "text_embedding_version": embedding_version,
         "status": "SUCCEEDED" if processed.error is None else "FAILED",
         "error_message": processed.error or "",
         "layer_order": tags.get("layer_order"),
@@ -157,12 +161,25 @@ def _get_vectors(bucket: str, key: str) -> dict[str, dict[str, list[float]]]:
     }
 
 
+def _resolve_embedding_version(pipeline: Any, override: str) -> str:
+    """아이템 임베딩 버전 라벨.
+
+    override(GOLDEN_EMBEDDING_VERSION)가 있으면 그 값을, 없으면 파이프라인
+    임베더의 값을 쓴다. 후자는 image-processor의 WARDROBE_EMBEDDING_VERSION이라
+    골든 아이템에 옷장 이름표가 찍힌다 — 그래서 override를 권장한다.
+    """
+    if override:
+        return override
+    return getattr(getattr(pipeline, "embedder", None), "version", "") or ""
+
+
 def _process_one(
     *,
     image: dict[str, Any],
     bucket: str,
     derived: str,
     pipeline: Any,
+    embedding_version: str,
 ) -> tuple[dict[str, Any], dict[str, dict[str, list[float]]]]:
     golden_id = str(image["golden_id"])
     local = Path(str(image["local_path"]))
@@ -184,6 +201,7 @@ def _process_one(
             bucket=bucket,
             s3_key=s3_key,
             pipeline_key=pipeline.key,
+            embedding_version=embedding_version,
         )
         rows.append(row)
         if processed.image_vector and processed.text_vector:
@@ -192,7 +210,6 @@ def _process_one(
                 "text": list(processed.text_vector),
             }
 
-    embedder = getattr(pipeline, "embedder", None)
     manifest = {
         "golden_id": golden_id,
         # 원본 키를 남긴다. metadata CSV가 golden_id를 파일명과 다르게 지정하면
@@ -201,7 +218,7 @@ def _process_one(
         "image_sha256": str(image["image_sha256"]),
         "schema_version": ITEM_SCHEMA_VERSION,
         "pipeline_key": pipeline.key,
-        "embedding_version": getattr(embedder, "version", "") or "",
+        "embedding_version": embedding_version,
         "num_items": len(rows),
         "num_failed": sum(row["status"] == "FAILED" for row in rows),
         "latency_seconds": round(time.perf_counter() - started, 3),
@@ -219,6 +236,20 @@ def _process_one(
     # "완료"를 뜻하므로 중간에 죽으면 다음 실행이 다시 처리한다.
     s3io.put_json(bucket, s3io.item_manifest_key(derived, golden_id), manifest)
     return manifest, vectors
+
+
+def _backfill_embedding_version(
+    rows: list[dict[str, Any]], fallback: str
+) -> list[dict[str, Any]]:
+    """행에 임베딩 버전이 없으면 manifest 상단 값으로 채운다."""
+    filled = []
+    for row in rows:
+        entry = dict(row)
+        for field in ("image_embedding_version", "text_embedding_version"):
+            if not entry.get(field):
+                entry[field] = fallback
+        filled.append(entry)
+    return filled
 
 
 def extract_items(
@@ -246,6 +277,7 @@ def extract_items(
     vectors: dict[str, dict[str, list[float]]] = {}
     processed_count = 0
     reused_count = 0
+    embedding_version = settings.item_embedding_version
 
     for image in images:
         golden_id = str(image["golden_id"])
@@ -256,7 +288,14 @@ def extract_items(
             and cached.get("schema_version") == ITEM_SCHEMA_VERSION
             and cached.get("image_sha256") == str(image["image_sha256"])
         ):
-            rows.extend(cached.get("items", []))
+            # 구형 manifest는 행에 임베딩 버전이 없다. manifest 상단 값으로
+            # 채워 넣는다 — 이것 때문에 전량 재처리(아이템당 유료 호출)를
+            # 시키는 건 비용이 맞지 않는다.
+            rows.extend(
+                _backfill_embedding_version(
+                    cached.get("items", []), cached.get("embedding_version", "")
+                )
+            )
             vectors.update(
                 _get_vectors(
                     bucket,
@@ -268,11 +307,15 @@ def extract_items(
 
         if pipeline is None:
             pipeline = build_item_pipeline(settings)
+        embedding_version = _resolve_embedding_version(
+            pipeline, settings.item_embedding_version
+        )
         manifest, fresh = _process_one(
             image=image,
             bucket=bucket,
             derived=derived,
             pipeline=pipeline,
+            embedding_version=embedding_version,
         )
         rows.extend(manifest["items"])
         vectors.update(fresh)
@@ -302,6 +345,7 @@ def extract_items(
         {
             "schema_version": ITEM_SCHEMA_VERSION,
             "pipeline": settings.item_pipeline,
+            "embedding_version": embedding_version,
             "num_images": len(images),
             "num_items": len(rows),
             "num_items_with_vectors": len(keys),

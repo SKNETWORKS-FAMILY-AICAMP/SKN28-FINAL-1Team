@@ -211,9 +211,9 @@ class Command(BaseCommand):
                     "missing_required": list(row.get("missing_required") or []),
                     "pipeline_key": row.get("pipeline_key", ""),
                     "image_embedding_version": row.get("image_embedding_version", "")
-                    or str(meta.get("image_embedding_version", "")),
+                    or str(meta.get("embedding_version", "")),
                     "text_embedding_version": row.get("text_embedding_version", "")
-                    or str(meta.get("text_embedding_version", "")),
+                    or str(meta.get("embedding_version", "")),
                     "status": (
                         status
                         if status in valid_statuses

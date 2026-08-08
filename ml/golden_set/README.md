@@ -92,6 +92,7 @@ API는 같은 포트에서 함께 뜬다.
 | `DEVICE`, `GOLDEN_DEVICE` | `cpu` 고정 | 두 규약이 다르다. golden은 `auto`가 자동, image-processor는 **빈 값**이 자동이라 `auto`를 넘기면 `.to("auto")`로 죽는다 |
 | `WORKER_PIPELINE` | `GOLDEN_ITEM_PIPELINE` 값 | 아이템 파이프라인 선택의 단일 출처 |
 | `WORKER_EMBED_ENABLED` | `1` 고정 | 0이면 `goldenset_items`에 조용히 0건이 들어간다 |
+| `WARDROBE_EMBEDDING_VERSION` | (그대로) | 임베더의 버전 라벨. 골든 아이템에는 `GOLDEN_EMBEDDING_VERSION`이 우선 적용돼 옷장 이름표가 찍히지 않는다 |
 
 `REDIS_URL`·`WARDROBE_*`도 읽히지만 이 컨테이너는 `worker.py`를 실행하지 않아
 큐·콜백 경로를 타지 않는다.
