@@ -14,6 +14,7 @@ from apps.recommend.models import (
     GoldenAnalysis,
     GoldenDataset,
     GoldenImage,
+    GoldenOutfitItem,
     GoldenPairwiseReview,
     GoldenPrinciple,
     GoldenPrincipleEvidence,
@@ -51,6 +52,7 @@ class Command(BaseCommand):
                 },
             )
             image_map = self._import_images(dataset, run_dir)
+            self._import_items(image_map, run_dir)
             self._import_analyses(image_map, run_dir)
             principle_map = self._import_principles(dataset, image_map, run_dir)
             if options.get("image_reviews"):
@@ -155,6 +157,80 @@ class Command(BaseCommand):
             )
             result[golden_id] = image
         return result
+
+    def _import_items(
+        self,
+        image_map: dict[str, GoldenImage],
+        run_dir: Path,
+    ) -> None:
+        """items.jsonl(코디에서 분리한 의상 아이템)을 PG로 승격한다.
+
+        벡터는 넣지 않는다 — Qdrant(goldenset_items)가 소유하고 여기는 태그와
+        S3 위치, 버전만 보관한다(이미지·앵커와 같은 원칙).
+        """
+        items_path = run_dir / "items.jsonl"
+        if not items_path.exists():
+            return
+        meta = _read_json(run_dir / "items.meta.json") if (
+            run_dir / "items.meta.json"
+        ).exists() else {}
+        valid_statuses = {value for value, _ in GoldenOutfitItem.Status.choices}
+        seen: dict[str, set[int]] = {}
+        for row in _read_jsonl(items_path):
+            image = image_map.get(str(row["golden_id"]))
+            if image is None:
+                continue
+            status = str(row.get("status", GoldenOutfitItem.Status.SUCCEEDED)).upper()
+            index = int(row.get("item_index", 0))
+            GoldenOutfitItem.objects.update_or_create(
+                image=image,
+                item_index=index,
+                defaults={
+                    "item_key": row.get("item_key", ""),
+                    "s3_bucket": row.get("s3_bucket", ""),
+                    "s3_key": row.get("s3_key", ""),
+                    "item_name": row.get("item_name", ""),
+                    "category_large": row.get("category_large", ""),
+                    "category_small": row.get("category_small", ""),
+                    "season": list(row.get("season") or []),
+                    "style": list(row.get("style") or []),
+                    "usage": list(row.get("usage") or []),
+                    "color": row.get("color", ""),
+                    "pattern": row.get("pattern", ""),
+                    "fit": row.get("fit", ""),
+                    "material": row.get("material", ""),
+                    "sleeve": row.get("sleeve", ""),
+                    "length": row.get("length", ""),
+                    "layer_role": row.get("layer_role", ""),
+                    "layer_order": row.get("layer_order"),
+                    "label_ko": row.get("label_ko", ""),
+                    "descriptor_en": row.get("descriptor_en", ""),
+                    "view_angle": row.get("view_angle", ""),
+                    "occluded_by": list(row.get("occluded_by") or []),
+                    "bbox": row.get("bbox"),
+                    "missing_required": list(row.get("missing_required") or []),
+                    "pipeline_key": row.get("pipeline_key", ""),
+                    "image_embedding_version": row.get("image_embedding_version", "")
+                    or str(meta.get("image_embedding_version", "")),
+                    "text_embedding_version": row.get("text_embedding_version", "")
+                    or str(meta.get("text_embedding_version", "")),
+                    "status": (
+                        status
+                        if status in valid_statuses
+                        else GoldenOutfitItem.Status.FAILED
+                    ),
+                    "error_message": row.get("error_message", ""),
+                },
+            )
+            seen.setdefault(str(row["golden_id"]), set()).add(index)
+
+        # 재실행에서 아이템 수가 줄어든 코디의 잔재를 지운다 (파이프라인 교체 등).
+        for golden_id, indexes in seen.items():
+            image = image_map.get(golden_id)
+            if image is not None:
+                GoldenOutfitItem.objects.filter(image=image).exclude(
+                    item_index__in=indexes
+                ).delete()
 
     def _import_analyses(
         self,

@@ -10,6 +10,34 @@
       └→ 2인 쌍대 비교 → Q 보조 점수 앵커
 ```
 
+## 빠른 실행 (컨테이너)
+
+원본 코디 사진의 소유자는 S3 버킷이다. 컨테이너는 기동하자마자 지정 prefix를
+훑어 아직 처리되지 않은 사진을 찾고, 코디 임베딩 → 아이템 분리·태깅·임베딩 →
+Qdrant 적재까지 한 번에 진행한다.
+
+```bash
+docker compose -f docker-compose.gpu.yml up -d --build golden-set
+docker compose -f docker-compose.gpu.yml logs -f golden-set
+```
+
+`GOLDEN_SCAN_INTERVAL_SECONDS=0`(기본)이면 1회 처리 후 종료하므로 배치 잡처럼
+필요할 때만 올리면 되고, 양수로 두면 그 간격으로 상주 스캔한다.
+
+"미처리" 판단은 두 층이다.
+
+- 코디 임베딩: `image_embeddings.npz`의 sha 캐시 (로컬 run 볼륨)
+- 아이템: `{GOLDEN_S3_OUTPUT_PREFIX}/{version}/{golden_id}/manifest.json` (S3)
+
+로컬 run 볼륨이 날아가도 가장 비싼 단계(아이템별 이미지 편집 호출)는 다시 돌지
+않는다.
+
+리포에서 직접 돌릴 때는 아래와 같다.
+
+```bash
+python -m ml.golden_set.runner --once
+```
+
 ## 설계 경계
 
 - 한 이미지는 구조화 멀티모달 호출 한 번으로 관찰·영역·관계·최소 수정 가설을 함께 만든다.
@@ -58,10 +86,23 @@ conda activate final
 python -m pip install -r ml/golden_set/requirements.txt
 ```
 
-`.env.example`의 `GEMINI_API_KEY`, `GOLDEN_*`, `QDRANT_*`를 로컬 `.env`,
+`.env.example`의 `GEMINI_API_KEY`, `GOLDEN_*`, `QDRANT_*`, `AWS_*`를 로컬 `.env`,
 Infisical 또는 배포 시크릿으로 주입한다. 키를 CSV나 명령행에 적지 않는다.
 
-`metadata.example.csv`를 복사해 입력 메타데이터를 만든다.
+원본 위치는 환경변수가 정한다.
+
+| 변수 | 뜻 |
+|---|---|
+| `GOLDEN_S3_BUCKET` | 원본·파생물 버킷 (필수) |
+| `GOLDEN_S3_SOURCE_PREFIX` | 코디 원본 prefix |
+| `GOLDEN_S3_OUTPUT_PREFIX` | 아이템 이미지·완료 manifest가 쌓이는 prefix |
+| `GOLDEN_S3_METADATA_KEY` | 선택. 스타일·계절·TPO 메타데이터 CSV 키 |
+| `GOLDEN_DATASET_VERSION` | run 디렉터리와 파생 prefix를 가르는 버전 |
+| `GOLDEN_ITEM_PIPELINE` | 아이템 분리 구현 (image-processor 레지스트리 키) |
+
+`metadata.example.csv`를 복사해 입력 메타데이터를 만들고 `GOLDEN_S3_METADATA_KEY`
+위치에 올린다. 없으면 메타데이터 없이 진행하며, 이 경우 A3(TPO)·A4(계절)는
+보류로 처리된다.
 
 - `usage_scope`: `INTERNAL`, `EVALUATION`, `UNKNOWN`
 - `original_exposable`: 파일럿 기본값 `false`
@@ -76,17 +117,32 @@ Infisical 또는 배포 시크릿으로 주입한다. 키를 CSV나 명령행에
 ## 1. manifest·임베딩·클러스터 생성
 
 ```powershell
-python -m ml.golden_set prepare `
-  --input-dir E:\images `
-  --metadata-csv local/golden-pilot/metadata.csv `
-  --run-dir ml/golden_set/runs/pilot-v2 `
-  --dataset-name team-golden `
-  --dataset-version pilot-v2 `
-  --limit 10
+python -m ml.golden_set prepare --limit 10
 ```
+
+입력은 기본적으로 `GOLDEN_S3_*`가 가리키는 S3 prefix다. run 디렉터리·데이터셋
+이름도 환경변수에서 가져오며, 필요하면 `--run-dir`/`--dataset-version`으로
+덮어쓴다. 테스트나 오프라인 실험에서는 `--input-dir`로 로컬 디렉터리를 쓸 수
+있다.
+
+같은 sha의 코디는 다시 임베딩하지 않는다(모델 버전이 바뀌면 전량 재계산).
 
 GPU·모델 다운로드 없이 구조만 검사할 때는 `--embedding-backend deterministic`을
 사용한다. 이 벡터는 테스트 전용이므로 실제 Qdrant에 적재하지 않는다.
+
+## 1-1. 의상 아이템 분리·태깅·임베딩
+
+```powershell
+python -m ml.golden_set extract-items
+```
+
+image-processor의 `WardrobePipeline`을 그대로 호출한다(열거 → 아이템 이미지
+생성 → taxonomy 태깅 → 임베딩). 구현 선택은 `GOLDEN_ITEM_PIPELINE`이 하므로
+image-processor에 `sam3-crop`이 등록되면 값만 바꿔 교체된다.
+
+산출물은 `items.jsonl`, `item_embeddings.npz`, 그리고 코디별 S3 manifest다.
+아이템 태그 축은 `apps.wardrobe.WardrobeItem`과 동일하다 — 코디의 상의를 옷장
+아이템이나 네이버 상품으로 교체하려면 세 저장소가 같은 필터 언어를 써야 한다.
 
 ## 2. 이미지 통합 분석
 
@@ -208,8 +264,13 @@ python api/manage.py import_golden_run `
   --principle-reviews local/golden-pilot/principle_reviews.csv
 ```
 
-PostgreSQL이 원본 manifest·분석·사람 검수·원칙의 단일 진실 공급원이다. 쌍대 비교는
-좌우 이미지, 검수자, 컨텍스트, 결과, 확신도를 별도 테이블에 보존한다.
+PostgreSQL이 원본 manifest·아이템·분석·사람 검수·원칙의 단일 진실 공급원이다.
+쌍대 비교는 좌우 이미지, 검수자, 컨텍스트, 결과, 확신도를 별도 테이블에 보존한다.
+
+골든셋 테이블은 전부 `goldenset` 스키마에 만들어진다(`golden_dataset`,
+`golden_image`, `golden_outfit_item`, `golden_analysis`, `golden_principle`,
+`golden_principle_evidence`, `golden_review`, `golden_pairwise_review`).
+마이그레이션 사용자에게 `CREATE SCHEMA` 권한이 필요하다.
 
 ## 9. Qdrant 파생 적재
 
@@ -220,16 +281,30 @@ python -m ml.golden_set index `
   --dry-run
 ```
 
-계획을 확인한 뒤 `--dry-run`을 제거한다. 기본값은 승인 원칙만 `knowledge`에 넣고,
-보조 앵커는 `outfit_goldenset`에 `status=PILOT`, `exposable=false`로 넣는다.
-앵커 설명에는 모델 초안 전체가 아니라 사람이 승인한 claim만 포함한다.
-`--allow-draft`는 격리된 개발 Qdrant에서만 사용한다.
+계획을 확인한 뒤 `--dry-run`을 제거한다. 컬렉션은 셋이다.
+
+| 컬렉션 | 포인트 | 벡터 |
+|---|---|---|
+| `outfit_goldenset` | 코디 1장 | image + text |
+| `goldenset_items` | 분리된 의상 아이템 1개 | image + text |
+| `knowledge` | 승인된 조건부 원칙 | text |
+
+코디 payload의 `items[]`가 아이템 포인트(`point_id`)로 가는 다리이고, 아이템
+payload의 `outfit_point_id`가 그 역참조다. 아이템 태그 인덱스는
+`products`/`wardrobe`와 동일하므로 "이 코디의 상의를 옷장 아이템으로 교체"가
+같은 필터 언어로 성립한다.
+
+코디 포인트는 쌍대 비교 앵커가 없어도 만든다 — 앵커 점수는 있으면 얹는 선택
+정보다. 노출 여부는 `GOLDEN_ANCHOR_EXPOSABLE`와 이미지별 `original_exposable`을
+모두 만족할 때만 참이다. `--allow-draft`는 격리된 개발 Qdrant에서만 사용한다.
 
 ## 주요 산출물 계약
 
 ```text
-images.jsonl                              원본·권리·해시·split manifest
-image_embeddings.npz                      FashionSigLIP 파생 벡터
+images.jsonl                              원본·권리·해시·split manifest (S3 키 포함)
+image_embeddings.npz                      FashionSigLIP 파생 벡터 (ids/shas/vectors)
+items.jsonl                               분리된 의상 아이템과 taxonomy 태그
+item_embeddings.npz                       아이템 이미지·캡션 벡터
 clusters.jsonl                            클러스터·대표·경계 역할
 analyses.jsonl                            bbox 관찰·관계 claim·최소 수정 가설
 image_observation_reviews.csv             사람 관찰 검수와 선택적 Q 축 점수
