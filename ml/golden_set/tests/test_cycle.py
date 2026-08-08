@@ -801,3 +801,56 @@ class GoldenItemPipelineTests(unittest.TestCase):
         self.assertEqual(outfit_point_id("v1", "g1"), outfit_point_id("v1", "g1"))
         self.assertNotEqual(outfit_point_id("v1", "g1"), outfit_point_id("v2", "g1"))
         self.assertNotEqual(outfit_point_id("v1", "g1"), item_point_id("v1", "g1"))
+
+
+class _StubQdrant:
+    """collection_exists / get_collections 만 흉내내는 최소 스텁."""
+
+    def __init__(self, *, existing: set[str] | None = None, reachable: bool = True):
+        self.existing = existing if existing is not None else set()
+        self.reachable = reachable
+
+    def get_collections(self):
+        if not self.reachable:
+            raise ConnectionError("[Errno 101] Network is unreachable")
+        return object()
+
+    def collection_exists(self, name: str) -> bool:
+        return name in self.existing
+
+
+class GoldenPreflightTests(unittest.TestCase):
+    """비싼 단계 전에 적재 전제를 거르는지 확인한다.
+
+    실제 사고: GPU 호스트에서 QDRANT_URL로 경로가 없어 코디 전량의 Gemini
+    호출을 마친 뒤 마지막 줄에서 죽었다. 선검사는 그 낭비를 막는 장치다.
+    """
+
+    ALL = {"knowledge", "outfit_goldenset", "goldenset_items"}
+
+    def test_unreachable_qdrant_reports_url_and_cause(self) -> None:
+        from ml.golden_set.qdrant_index import preflight
+
+        with self.assertRaises(RuntimeError) as ctx:
+            preflight(_StubQdrant(reachable=False))
+        message = str(ctx.exception)
+        self.assertIn("접속할 수 없습니다", message)
+        self.assertIn("QDRANT_URL", message)
+        # 원인 예외 문구를 삼키면 사용자가 원인을 못 찾는다.
+        self.assertIn("Network is unreachable", message)
+
+    def test_missing_collections_are_listed_by_name(self) -> None:
+        from ml.golden_set.qdrant_index import preflight
+
+        with self.assertRaises(RuntimeError) as ctx:
+            preflight(_StubQdrant(existing={"knowledge"}))
+        message = str(ctx.exception)
+        self.assertIn("init_qdrant", message)
+        self.assertIn("outfit_goldenset", message)
+        self.assertIn("goldenset_items", message)
+        self.assertNotIn("knowledge", message.split("init_qdrant")[-1])
+
+    def test_ready_qdrant_passes_quietly(self) -> None:
+        from ml.golden_set.qdrant_index import preflight
+
+        preflight(_StubQdrant(existing=set(self.ALL)))

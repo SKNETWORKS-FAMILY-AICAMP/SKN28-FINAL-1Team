@@ -323,11 +323,7 @@ def index_run(
             "FashionSigLIP·BGE-M3로 prepare/index를 다시 실행하세요."
         )
 
-    qdrant = client or QdrantClient(
-        url=os.getenv("QDRANT_URL", "http://localhost:6333"),
-        api_key=os.getenv("QDRANT_API_KEY") or None,
-        timeout=int(os.getenv("QDRANT_TIMEOUT", "30")),
-    )
+    qdrant = client or build_client()
     _assert_collections(qdrant)
     for collection, points in (
         (KNOWLEDGE_COLLECTION, principle_points),
@@ -429,6 +425,34 @@ def _principle_styles(row: dict[str, Any]) -> list[str]:
                 if value.strip()
             )
     return values
+
+
+def build_client() -> QdrantClient:
+    """환경변수로 Qdrant 클라이언트를 만든다 (index_run과 preflight 공용)."""
+    return QdrantClient(
+        url=os.getenv("QDRANT_URL", "http://localhost:6333"),
+        api_key=os.getenv("QDRANT_API_KEY") or None,
+        timeout=int(os.getenv("QDRANT_TIMEOUT", "30")),
+    )
+
+
+def preflight(client: QdrantClient | None = None) -> None:
+    """적재 전제 조건을 미리 확인한다 — 비싼 단계를 태우기 전에 부른다.
+
+    아이템 분리는 코디 한 장당 Gemini를 여러 번 호출한다. 그 뒤에야 Qdrant를
+    처음 만지면, 접속이 막혀 있거나 컬렉션이 없을 때 수십 분과 API 비용을
+    전부 버리고 마지막 줄에서 죽는다. 실제로 그렇게 한 번 날렸다.
+    """
+    qdrant = client or build_client()
+    try:
+        qdrant.get_collections()
+    except Exception as exc:  # noqa: BLE001 — 원인을 사람이 읽을 문장으로 바꾼다
+        raise RuntimeError(
+            f"Qdrant에 접속할 수 없습니다 (QDRANT_URL={os.getenv('QDRANT_URL', '(미설정)')}). "
+            "GPU 호스트에서 그 주소로 실제 경로가 있는지 확인하세요 — "
+            f"컨테이너 네트워크 내부 이름(http://qdrant:6333)은 다른 호스트에서 닿지 않습니다: {exc}"
+        ) from exc
+    _assert_collections(qdrant)
 
 
 def _assert_collections(client: QdrantClient) -> None:

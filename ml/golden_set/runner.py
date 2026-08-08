@@ -29,7 +29,7 @@ from .config import GoldenSettings, load_project_env
 from .embedding import embed_manifest_images
 from .items import extract_items, pending_golden_ids
 from .manifest import build_manifest_from_s3
-from .qdrant_index import index_run
+from .qdrant_index import index_run, preflight
 from .web.service import publish_run_summary
 
 logger = logging.getLogger("golden_set.runner")
@@ -45,6 +45,13 @@ def run_once(
 ) -> dict[str, Any]:
     run_dir = settings.run_dir
     run_dir.mkdir(parents=True, exist_ok=True)
+
+    if do_index:
+        # 아이템 분리(코디 1장당 Gemini 여러 번)를 태우기 전에 적재 전제부터
+        # 확인한다. 순서를 바꾸기 전에는 접속 실패·컬렉션 부재가 마지막 줄에서
+        # 터져 그 앞의 비용을 통째로 버렸다.
+        preflight()
+        logger.info("Qdrant 선검사 통과")
 
     images = build_manifest_from_s3(settings=settings, run_dir=run_dir)
     logger.info("manifest: 코디 %d장", len(images))
@@ -86,14 +93,22 @@ def run_once(
         "image_embedding": embed_meta,
         "indexed": False,
     }
+    index_error: BaseException | None = None
     if do_index:
-        summary["index"] = index_run(
-            run_dir=run_dir,
-            settings=settings,
-            text_backend_name=text_backend,
-            dry_run=False,
-        )
-        summary["indexed"] = True
+        # 선검사를 통과해도 적재 도중에 끊길 수 있다. 그때도 요약은 남겨야
+        # 웹의 "마지막 실행" 카드가 비어 있지 않고 실패 사유가 보인다.
+        try:
+            summary["index"] = index_run(
+                run_dir=run_dir,
+                settings=settings,
+                text_backend_name=text_backend,
+                dry_run=False,
+            )
+            summary["indexed"] = True
+        except Exception as exc:  # noqa: BLE001 — 요약 발행 후 그대로 다시 던진다
+            index_error = exc
+            summary["index_error"] = f"{type(exc).__name__}: {exc}"
+            logger.exception("Qdrant 적재 실패")
 
     # 확인용 웹은 GPU 호스트의 run 디렉터리를 볼 수 없다. 임베딩 메타를 전달할
     # 유일한 통로가 이 S3 요약이라, 적재 실패와 무관하게 항상 남긴다.
@@ -102,6 +117,9 @@ def run_once(
         publish_run_summary(settings, summary)
     except Exception:  # noqa: BLE001 — 요약 발행 실패가 사이클을 되돌리면 안 된다
         logger.exception("run 요약 S3 발행 실패")
+
+    if index_error is not None:
+        raise index_error
 
     logger.info("완료: %s", summary)
     return summary
