@@ -34,4 +34,9 @@ ENV PYTHONPATH=/app:/app/image-processor \
     HF_HOME=/app/.cache/huggingface \
     PYTHONUNBUFFERED=1
 
+# 확인용 웹의 컨테이너 내부 포트. 호스트 매핑은 compose가 정한다.
+EXPOSE 8081
+
+# 기본은 배치 러너다. 확인용 웹은 compose에서 command를 덮어쓴다
+# (docker-compose.golden_set.yml의 golden-set-web).
 CMD ["python", "-m", "ml.golden_set.runner"]
