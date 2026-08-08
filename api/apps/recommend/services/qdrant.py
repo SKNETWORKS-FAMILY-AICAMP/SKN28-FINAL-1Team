@@ -21,9 +21,12 @@ from qdrant_client import models as qm
 IMAGE_VECTOR = "image"
 TEXT_VECTOR = "text"
 GOLDEN_OUTFIT_COLLECTION = "outfit_goldenset"
+GOLDEN_ITEM_COLLECTION = "goldenset_items"
 
 # point ID 생성용 고정 네임스페이스. 같은 원본 키는 항상 같은 UUID가 되어
 # 재실행 시 upsert가 멱등하게 동작한다. 절대 변경하지 않는다.
+# 오프라인 파이프라인(ml/golden_set/point_ids.py)이 같은 값을 복제해서 쓴다 —
+# Django 없이 도는 패키지라 이 모듈을 import할 수 없다. 한쪽만 바꾸면 안 된다.
 _POINT_NAMESPACE = uuid.UUID("6b2c1f3a-9d4e-4c8b-8a71-2f0e5d9c3b17")
 
 
@@ -95,6 +98,8 @@ def collection_specs() -> list[CollectionSpec]:
                 "occasion": "keyword",
             },
         ),
+        # 골든 코디 1장 = 포인트 1개. payload의 items[]가 아이템 포인트로 가는
+        # 다리다 (아이템 교체 질의는 여기서 goldenset_items로 넘어간다).
         CollectionSpec(
             name=GOLDEN_OUTFIT_COLLECTION,
             vectors={IMAGE_VECTOR: _image_dim(), TEXT_VECTOR: _text_dim()},
@@ -111,6 +116,28 @@ def collection_specs() -> list[CollectionSpec]:
                 "human_score": "float",
                 "anchor_scope": "keyword",
                 "exposable": "bool",
+                "golden_id": "keyword",
+                # 코디 단계에서 "상의가 있는 코디만" 같은 사전 필터를 걸 수 있게
+                # 소속 아이템의 역할·대분류를 코디 payload에도 인덱싱한다.
+                "item_layer_roles": "keyword",
+                "item_categories": "keyword",
+            },
+        ),
+        # 골든 코디에서 분리한 의상 아이템. 태그 인덱스를 products/wardrobe와
+        # 똑같이 맞춰야 "이 코디의 상의를 옷장/상품 아이템으로 교체"가 같은
+        # 필터 언어로 성립한다.
+        CollectionSpec(
+            name=GOLDEN_ITEM_COLLECTION,
+            vectors={IMAGE_VECTOR: _image_dim(), TEXT_VECTOR: _text_dim()},
+            payload_indexes={
+                **_ITEM_TAG_INDEXES,
+                "source": "keyword",
+                "dataset_version": "keyword",
+                "split": "keyword",
+                "exposable": "bool",
+                "item_key": "keyword",
+                "outfit_golden_id": "keyword",
+                "outfit_point_id": "keyword",
             },
         ),
     ]
