@@ -52,6 +52,7 @@ INSTALLED_APPS = [
     "apps.home",
     "apps.wardrobe",
     "apps.recommend",
+    "apps.goldenset",
     "apps.style_calendar",
 ]
 

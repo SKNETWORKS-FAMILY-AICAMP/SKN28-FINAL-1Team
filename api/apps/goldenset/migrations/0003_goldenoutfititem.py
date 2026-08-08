@@ -12,33 +12,10 @@ from django.db import migrations, models
 class Migration(migrations.Migration):
 
     dependencies = [
-        ('recommend', '0002_alter_goldenprinciple_applies_when_and_more'),
+        ('goldenset', '0002_alter_goldenprinciple_applies_when_and_more'),
     ]
 
     operations = [
-        # ── 이미 배포된 DB 보정 (멱등) ──
-        # 0001은 처음에 public에 테이블을 만들었고, goldenset 스키마 분리는 그
-        # 뒤에 0001 파일을 직접 수정해서 들어왔다. 이미 0001을 적용한 DB는
-        # django_migrations에 기록이 남아 그 수정을 다시 실행하지 않는다 —
-        # 스키마도 없고 테이블도 public에 남는다. 그 상태에서 아래 연산들이
-        # goldenset.* 를 건드리면 InvalidSchemaName으로 죽는다.
-        #
-        # 아래 SQL이 그 상태를 수렴시킨다. 새 DB에서는 0001이 이미 goldenset에
-        # 만들어 둔 뒤라 IF EXISTS 덕에 전부 no-op이다. SET SCHEMA는 데이터를
-        # 옮기지 않고 카탈로그만 바꾸며, 인덱스·제약·소유 시퀀스도 함께 따라온다.
-        migrations.RunSQL(
-            sql="""
-            CREATE SCHEMA IF NOT EXISTS goldenset;
-            ALTER TABLE IF EXISTS public.golden_dataset SET SCHEMA goldenset;
-            ALTER TABLE IF EXISTS public.golden_image SET SCHEMA goldenset;
-            ALTER TABLE IF EXISTS public.golden_analysis SET SCHEMA goldenset;
-            ALTER TABLE IF EXISTS public.golden_principle SET SCHEMA goldenset;
-            ALTER TABLE IF EXISTS public.golden_principle_evidence SET SCHEMA goldenset;
-            ALTER TABLE IF EXISTS public.golden_review SET SCHEMA goldenset;
-            ALTER TABLE IF EXISTS public.golden_pairwise_review SET SCHEMA goldenset;
-            """,
-            reverse_sql=migrations.RunSQL.noop,
-        ),
         migrations.CreateModel(
             name='GoldenOutfitItem',
             fields=[
@@ -74,7 +51,7 @@ class Migration(migrations.Migration):
                 ('error_message', models.TextField(blank=True, db_comment='아이템 처리 실패 사유', default='')),
                 ('created_at', models.DateTimeField(auto_now_add=True, db_comment='아이템 생성 시각')),
                 ('updated_at', models.DateTimeField(auto_now=True, db_comment='아이템 수정 시각')),
-                ('image', models.ForeignKey(db_comment='아이템이 속한 골든 코디 이미지 FK (golden_image.id)', on_delete=django.db.models.deletion.CASCADE, related_name='items', to='recommend.goldenimage')),
+                ('image', models.ForeignKey(db_comment='아이템이 속한 골든 코디 이미지 FK (golden_image.id)', on_delete=django.db.models.deletion.CASCADE, related_name='items', to='goldenset.goldenimage')),
             ],
             options={
                 'db_table': 'goldenset"."golden_outfit_item',

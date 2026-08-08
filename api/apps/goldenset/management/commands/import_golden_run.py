@@ -10,7 +10,7 @@ from typing import Any
 from django.core.management.base import BaseCommand, CommandError
 from django.db import transaction
 
-from apps.recommend.models import (
+from apps.goldenset.models import (
     GoldenAnalysis,
     GoldenDataset,
     GoldenImage,

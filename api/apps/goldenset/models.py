@@ -14,7 +14,8 @@ from django.contrib.postgres.fields import ArrayField
 from django.db import models
 
 #: 골든셋 전용 PostgreSQL 스키마. 다른 앱 테이블(public)과 섞이지 않게 격리한다.
-#: 스키마 생성은 recommend/migrations/0001_initial.py의 첫 RunSQL이 담당한다.
+#: 스키마 생성은 goldenset/migrations/0001_initial.py의 첫 RunSQL이 담당한다.
+#: app label도 'goldenset'이라 스키마 이름과 일치한다 (apps.py 참고).
 GOLDENSET_SCHEMA = "goldenset"
 
 

@@ -62,7 +62,7 @@ class Migration(migrations.Migration):
                 ('embedding_version', models.CharField(blank=True, db_comment='이미지 임베딩 모델·전처리 버전', default='', max_length=80)),
                 ('created_at', models.DateTimeField(auto_now_add=True, db_comment='골든 이미지 등록 시각')),
                 ('updated_at', models.DateTimeField(auto_now=True, db_comment='골든 이미지 수정 시각')),
-                ('dataset', models.ForeignKey(db_comment='소속 골든셋 버전 FK (golden_dataset.id)', on_delete=django.db.models.deletion.CASCADE, related_name='images', to='recommend.goldendataset')),
+                ('dataset', models.ForeignKey(db_comment='소속 골든셋 버전 FK (golden_dataset.id)', on_delete=django.db.models.deletion.CASCADE, related_name='images', to='goldenset.goldendataset')),
             ],
             options={
                 'db_table': 'goldenset"."golden_image',
@@ -82,7 +82,7 @@ class Migration(migrations.Migration):
                 ('error_message', models.TextField(blank=True, db_comment='분석 실패 사유', default='')),
                 ('latency_seconds', models.FloatField(blank=True, db_comment='멀티모달 분석 응답 시간(초)', null=True)),
                 ('created_at', models.DateTimeField(auto_now_add=True, db_comment='분석 실행 시각')),
-                ('image', models.ForeignKey(db_comment='분석 대상 골든 이미지 FK (golden_image.id)', on_delete=django.db.models.deletion.CASCADE, related_name='analyses', to='recommend.goldenimage')),
+                ('image', models.ForeignKey(db_comment='분석 대상 골든 이미지 FK (golden_image.id)', on_delete=django.db.models.deletion.CASCADE, related_name='analyses', to='goldenset.goldenimage')),
             ],
             options={
                 'db_table': 'goldenset"."golden_analysis',
@@ -105,7 +105,7 @@ class Migration(migrations.Migration):
                 ('metadata', models.JSONField(blank=True, db_comment='클러스터·생성 모델·검수 통계 등 원칙 메타데이터 JSON', default=dict)),
                 ('created_at', models.DateTimeField(auto_now_add=True, db_comment='원칙 생성 시각')),
                 ('updated_at', models.DateTimeField(auto_now=True, db_comment='원칙 수정 시각')),
-                ('dataset', models.ForeignKey(db_comment='원칙을 생성한 골든셋 버전 FK (golden_dataset.id)', on_delete=django.db.models.deletion.CASCADE, related_name='principles', to='recommend.goldendataset')),
+                ('dataset', models.ForeignKey(db_comment='원칙을 생성한 골든셋 버전 FK (golden_dataset.id)', on_delete=django.db.models.deletion.CASCADE, related_name='principles', to='goldenset.goldendataset')),
             ],
             options={
                 'db_table': 'goldenset"."golden_principle',
@@ -121,8 +121,8 @@ class Migration(migrations.Migration):
                 ('region_ids', models.JSONField(blank=True, db_comment='claim이 참조하는 이미지 영역 식별자 배열', default=list)),
                 ('polarity', models.CharField(choices=[('SUPPORT', '지지'), ('EXCEPTION', '예외'), ('COUNTEREXAMPLE', '반례')], db_comment='근거 관계 (SUPPORT/EXCEPTION/COUNTEREXAMPLE)', default='SUPPORT', max_length=16)),
                 ('confidence', models.FloatField(db_comment='해당 이미지 근거 연결 신뢰도 (0~1)', default=0.0)),
-                ('image', models.ForeignKey(db_comment='근거 골든 이미지 FK (golden_image.id)', on_delete=django.db.models.deletion.CASCADE, related_name='principle_evidence_links', to='recommend.goldenimage')),
-                ('principle', models.ForeignKey(db_comment='조건부 패션 원칙 FK (golden_principle.id)', on_delete=django.db.models.deletion.CASCADE, related_name='evidence_links', to='recommend.goldenprinciple')),
+                ('image', models.ForeignKey(db_comment='근거 골든 이미지 FK (golden_image.id)', on_delete=django.db.models.deletion.CASCADE, related_name='principle_evidence_links', to='goldenset.goldenimage')),
+                ('principle', models.ForeignKey(db_comment='조건부 패션 원칙 FK (golden_principle.id)', on_delete=django.db.models.deletion.CASCADE, related_name='evidence_links', to='goldenset.goldenprinciple')),
             ],
             options={
                 'db_table': 'goldenset"."golden_principle_evidence',
@@ -139,9 +139,9 @@ class Migration(migrations.Migration):
                 ('scores', models.JSONField(blank=True, db_comment='축별 점수·종합점수·확신도 등 사람 평가 JSON', default=dict)),
                 ('rationale', models.TextField(blank=True, db_comment='검수 사유와 수정 제안', default='')),
                 ('created_at', models.DateTimeField(auto_now_add=True, db_comment='검수 시각')),
-                ('dataset', models.ForeignKey(db_comment='검수 대상 골든셋 버전 FK (golden_dataset.id)', on_delete=django.db.models.deletion.CASCADE, related_name='reviews', to='recommend.goldendataset')),
-                ('image', models.ForeignKey(blank=True, db_comment='이미지 분석 검수 대상 FK (없으면 null)', null=True, on_delete=django.db.models.deletion.CASCADE, related_name='reviews', to='recommend.goldenimage')),
-                ('principle', models.ForeignKey(blank=True, db_comment='패션 원칙 검수 대상 FK (없으면 null)', null=True, on_delete=django.db.models.deletion.CASCADE, related_name='reviews', to='recommend.goldenprinciple')),
+                ('dataset', models.ForeignKey(db_comment='검수 대상 골든셋 버전 FK (golden_dataset.id)', on_delete=django.db.models.deletion.CASCADE, related_name='reviews', to='goldenset.goldendataset')),
+                ('image', models.ForeignKey(blank=True, db_comment='이미지 분석 검수 대상 FK (없으면 null)', null=True, on_delete=django.db.models.deletion.CASCADE, related_name='reviews', to='goldenset.goldenimage')),
+                ('principle', models.ForeignKey(blank=True, db_comment='패션 원칙 검수 대상 FK (없으면 null)', null=True, on_delete=django.db.models.deletion.CASCADE, related_name='reviews', to='goldenset.goldenprinciple')),
             ],
             options={
                 'db_table': 'goldenset"."golden_review',
