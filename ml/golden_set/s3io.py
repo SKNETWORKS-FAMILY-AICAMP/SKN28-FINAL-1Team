@@ -82,6 +82,31 @@ def get_json(bucket: str, key: str) -> Any | None:
     return json.loads(body)
 
 
+def presigned_url(bucket: str, key: str, *, expires_seconds: int = 600) -> str:
+    """브라우저가 직접 볼 수 있는 임시 URL. 확인용 웹 페이지가 쓴다.
+
+    버킷을 공개로 열지 않고도 원본·아이템 이미지를 미리 볼 수 있게 한다.
+    만료가 짧아 URL이 새어도 오래 쓸 수 없다.
+    """
+    return client().generate_presigned_url(
+        "get_object",
+        Params={"Bucket": bucket, "Key": key},
+        ExpiresIn=expires_seconds,
+    )
+
+
+def list_keys(bucket: str, prefix: str) -> list[str]:
+    """prefix 아래 모든 객체 키 (확장자 필터 없음)."""
+    keys: list[str] = []
+    for page in _paginate(bucket, prefix):
+        keys.extend(
+            str(item["Key"])
+            for item in page.get("Contents", [])
+            if not str(item["Key"]).endswith("/")
+        )
+    return keys
+
+
 def exists(bucket: str, key: str) -> bool:
     try:
         client().head_object(Bucket=bucket, Key=key)

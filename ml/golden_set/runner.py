@@ -19,6 +19,7 @@ import argparse
 import logging
 import os
 import time
+from datetime import datetime, timezone
 from typing import Any
 
 from .analysis import analyze_run
@@ -29,6 +30,7 @@ from .embedding import embed_manifest_images
 from .items import extract_items, pending_golden_ids
 from .manifest import build_manifest_from_s3
 from .qdrant_index import index_run
+from .web.service import publish_run_summary
 
 logger = logging.getLogger("golden_set.runner")
 
@@ -92,6 +94,15 @@ def run_once(
             dry_run=False,
         )
         summary["indexed"] = True
+
+    # 확인용 웹은 GPU 호스트의 run 디렉터리를 볼 수 없다. 임베딩 메타를 전달할
+    # 유일한 통로가 이 S3 요약이라, 적재 실패와 무관하게 항상 남긴다.
+    try:
+        summary["finished_at"] = datetime.now(timezone.utc).isoformat()
+        publish_run_summary(settings, summary)
+    except Exception:  # noqa: BLE001 — 요약 발행 실패가 사이클을 되돌리면 안 된다
+        logger.exception("run 요약 S3 발행 실패")
+
     logger.info("완료: %s", summary)
     return summary
 
