@@ -124,6 +124,11 @@ services:
   golden-set:
     build:
       # indexer/ image-processor/ ml/ 을 모두 쓰므로 컨텍스트는 리포 루트다.
+      #
+      # 주의: 이 이미지는 image-processor 사본을 구워서 갖는다(옷장 워커 이미지와
+      # 별개다). image-processor를 고치면 이 이미지도 --build로 다시 만들어야
+      # 반영된다 — 안 그러면 옷장은 새 파이프라인, 골든셋은 옛 파이프라인으로
+      # 조용히 갈라진다.
       context: .
       dockerfile: ml/golden_set/Dockerfile
     image: skn28-golden-set
@@ -136,6 +141,26 @@ services:
       TZ: Asia/Seoul
       HF_HOME: /app/.cache/huggingface
       GOLDEN_RUN_ROOT: /app/runs
+
+      # ── image-processor와 공유되는 무접두 변수 고정 ──
+      # 이 이미지는 아이템 분리를 위해 image-processor를 함께 담고 있고,
+      # image-processor의 config.py는 DEVICE·WORKER_* 를 접두사 없이 읽는다.
+      # 루트 .env를 옷장 워커와 공유하므로 그쪽 설정이 골든셋으로 새지 않게
+      # 컨테이너 안에서 못 박는다 (environment는 env_file보다 우선한다).
+      #
+      # GPU 스택이라 값은 '자동'이다. 다만 두 규약이 반대라는 점에 주의:
+      # golden은 GOLDEN_DEVICE=auto가 자동, image-processor는 DEVICE가 빈 값일
+      # 때 자동이고 값이 있으면 torch 디바이스 문자열로 그대로 쓴다.
+      GOLDEN_DEVICE: auto
+      DEVICE: ""
+      # 아이템 파이프라인 선택의 단일 출처. 옷장이 sam3-crop으로 전환해도
+      # 골든셋은 GOLDEN_ITEM_PIPELINE만 따른다.
+      WORKER_PIPELINE: ${GOLDEN_ITEM_PIPELINE:-gemini-edit}
+      # 0이면 goldenset_items에 조용히 0건이 들어간다 — 에러가 안 나서 늦게
+      # 발견된다. 옷장 튜닝으로 꺼두더라도 골든셋은 항상 켠다.
+      WORKER_EMBED_ENABLED: "1"
+      WORKER_IMAGE_EMBED_MODEL: ${GOLDEN_FASHION_EMBED_MODEL:-hf-hub:Marqo/marqo-fashionSigLIP}
+      WORKER_TEXT_EMBED_MODEL: ${GOLDEN_TEXT_EMBED_MODEL:-BAAI/bge-m3}
     volumes:
       - hf_cache:/app/.cache/huggingface
       # run 산출물(코디 임베딩 캐시 등)을 컨테이너 재생성 후에도 유지한다.
