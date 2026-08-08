@@ -164,16 +164,56 @@ class GoldenWebHandler(BaseHTTPRequestHandler):
         )
 
     # ── 보조 ──────────────────────────────────────────────
+    def _token_candidates(self, parsed) -> list[tuple[str, str]]:
+        """토큰이 실릴 수 있는 모든 자리. (출처 이름, 값)
+
+        하나라도 맞으면 통과시킨다. 앞의 자리가 채워졌다고 뒤를 건너뛰면
+        안 된다 — Cloudflare Access 같은 프록시가 자기 JWT를
+        `Authorization: Bearer`로 끼워 넣으면 쿼리 파라미터가 통째로
+        무시되어, 올바른 토큰을 줘도 401이 난다.
+        """
+        candidates: list[tuple[str, str]] = []
+        header = self.headers.get("Authorization", "")
+        if header.startswith("Bearer "):
+            candidates.append(("authorization", header[7:].strip()))
+        # 프록시가 Authorization을 점유한 환경을 위한 전용 헤더.
+        custom = self.headers.get("X-Golden-Token", "").strip()
+        if custom:
+            candidates.append(("x-golden-token", custom))
+        query = (parse_qs(parsed.query).get("token") or [""])[0]
+        if query:
+            candidates.append(("query", query))
+        return candidates
+
     def _authorized(self, parsed) -> bool:
         if not self.token:
             return True
-        header = self.headers.get("Authorization", "")
-        supplied = header[7:].strip() if header.startswith("Bearer ") else ""
-        if not supplied:
-            supplied = (parse_qs(parsed.query).get("token") or [""])[0]
-        if secrets.compare_digest(supplied, self.token):
-            return True
-        self._json(HTTPStatus.UNAUTHORIZED, {"detail": "invalid token"})
+        candidates = self._token_candidates(parsed)
+        for _, value in candidates:
+            try:
+                if secrets.compare_digest(value, self.token):
+                    return True
+            except TypeError:
+                # compare_digest는 비ASCII str을 거부한다. 토큰 오탈자로
+                # 500을 내지 않고 그냥 불일치로 처리한다.
+                continue
+        # 값은 절대 남기지 않고, 어느 자리에 무엇이 들어왔는지만 남긴다.
+        logger.warning(
+            "토큰 불일치: 확인한 자리=%s (기대 길이=%d)",
+            [name for name, _ in candidates] or ["없음"],
+            len(self.token),
+        )
+        self._json(
+            HTTPStatus.UNAUTHORIZED,
+            {
+                "detail": "invalid token",
+                "checked": [name for name, _ in candidates],
+                "hint": (
+                    "?token= 또는 X-Golden-Token 헤더로 전달하세요. "
+                    "토큰에 +, /, = 가 있으면 URL 인코딩이 필요합니다."
+                ),
+            },
+        )
         return False
 
     def _guarded(self, func) -> None:

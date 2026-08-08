@@ -294,6 +294,44 @@ class RoutingTests(unittest.TestCase):
         finally:
             httpd.shutdown()
 
+    def test_query_token_survives_a_proxy_injected_bearer(self) -> None:
+        """Cloudflare Access 등이 자기 JWT를 Authorization에 끼워 넣는 경우.
+
+        앞자리가 채워졌다고 쿼리 파라미터를 건너뛰면, 올바른 토큰을 줘도
+        401이 난다. 실제로 이 증상으로 접속이 막혔다.
+        """
+        httpd, base = self._serve(token="s3cr3t")
+        try:
+            self.assertEqual(
+                self._get(
+                    f"{base}/?token=s3cr3t",
+                    {"Authorization": "Bearer cloudflare-access-jwt"},
+                ),
+                200,
+            )
+            # 전용 헤더도 통해야 한다 (프록시가 Authorization을 점유한 환경).
+            self.assertEqual(
+                self._get(f"{base}/", {"X-Golden-Token": "s3cr3t"}), 200
+            )
+            # 어느 자리에도 맞는 값이 없으면 여전히 거부한다.
+            self.assertEqual(
+                self._get(
+                    f"{base}/?token=nope",
+                    {"Authorization": "Bearer also-nope"},
+                ),
+                401,
+            )
+        finally:
+            httpd.shutdown()
+
+    def test_non_ascii_token_is_rejected_not_crashed(self) -> None:
+        """compare_digest는 비ASCII str에 TypeError를 낸다 — 500이 아니라 401이어야."""
+        httpd, base = self._serve(token="s3cr3t")
+        try:
+            self.assertEqual(self._get(f"{base}/?token=%ED%95%9C%EA%B8%80"), 401)
+        finally:
+            httpd.shutdown()
+
     def test_scan_is_refused_unless_enabled(self) -> None:
         httpd, base = self._serve()
         try:

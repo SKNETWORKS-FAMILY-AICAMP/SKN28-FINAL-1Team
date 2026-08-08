@@ -71,7 +71,17 @@ API는 같은 포트에서 함께 뜬다.
 노출 관련 기본값 두 가지를 알아둘 것.
 
 - `GOLDEN_WEB_TOKEN`이 비어 있으면 **무인증**으로 뜬다(기동 로그에 경고).
-  사설망 밖에 둔다면 반드시 채우고 `?token=` 또는 `Authorization: Bearer`로 붙는다.
+  사설망 밖에 둔다면 반드시 채운다. 토큰은 세 자리 중 아무 데나 실으면 되고
+  하나라도 맞으면 통과한다: `?token=`, `Authorization: Bearer`,
+  `X-Golden-Token`.
+
+  리버스 프록시 뒤에 둘 때 주의. Cloudflare Access 같은 계층은 자기 JWT를
+  `Authorization: Bearer`에 끼워 넣는다. 그 자리만 보고 판정하면 올바른
+  `?token=`을 줘도 401이 나므로, 세 자리를 모두 확인하도록 되어 있다.
+  프록시가 `Authorization`을 점유하는 환경에서는 `X-Golden-Token`을 쓰면 된다.
+
+  토큰에 `+` `/` `=` 가 들어가면 URL 인코딩이 필요하다(쿼리에서 `+`는 공백으로
+  해석된다). `openssl rand -hex 24`처럼 16진수로 만들면 이 문제가 없다.
 - `POST /api/scan`은 `GOLDEN_WEB_ALLOW_SCAN=1`일 때만 동작한다. 이 스택은 GPU가
   없는 API 서버에 있어 기본은 읽기 전용이고, 실제 임베딩은 GPU 스택이 돈다.
   켜고 싶으면 `SCAN=1 ./run_goldenset.sh`로 1회 배치를 돌리는 편이 낫다.
