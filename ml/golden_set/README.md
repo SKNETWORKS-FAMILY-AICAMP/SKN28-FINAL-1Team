@@ -38,6 +38,64 @@ docker compose -f docker-compose.gpu.yml logs -f golden-set
 python -m ml.golden_set.runner --once
 ```
 
+## 진행 상황 확인 웹
+
+임베딩이 어디까지 갔는지 브라우저로 본다.
+
+```bash
+./run_goldenset.sh            # infisical(dev) → .env → 웹 기동
+open http://localhost:8081/
+```
+
+api 컨테이너와 같은 호스트에서 도는 것을 전제로 포트를 8081로 잡았다
+(8000 api, 8080 product-indexer와 겹치지 않게). 바꾸려면 `.env`의
+`GOLDEN_WEB_HOST_PORT`만 고치면 되고 컨테이너 내부 포트는 8081 고정이다.
+
+페이지가 보여주는 것.
+
+- 원본 처리 진행률 (S3 원본 수 대비 완료 수, 대기·구버전 스키마)
+- Qdrant 포인트 수 (코디 / 아이템 / 원칙, 데이터셋 버전 기준)
+- 마지막 실행 요약 (임베딩 신규·재사용, 모델, 아이템 수, 적재 여부)
+- 코디 목록과 아이템 상세 (원본·아이템 이미지 presigned 미리보기)
+
+API는 같은 포트에서 함께 뜬다.
+
+| 경로 | 내용 |
+|---|---|
+| `GET /health` | 헬스체크 (인증 없음) |
+| `GET /api/status` | 데이터셋·진행률·Qdrant·마지막 실행 |
+| `GET /api/outfits` | 코디 목록 (미처리 원본 포함) |
+| `GET /api/outfits/{golden_id}` | 아이템 상세 + 미리보기 URL |
+| `GET`·`POST /api/scan` | 스캔 상태 조회 / 1회 실행 |
+
+노출 관련 기본값 두 가지를 알아둘 것.
+
+- `GOLDEN_WEB_TOKEN`이 비어 있으면 **무인증**으로 뜬다(기동 로그에 경고).
+  사설망 밖에 둔다면 반드시 채우고 `?token=` 또는 `Authorization: Bearer`로 붙는다.
+- `POST /api/scan`은 `GOLDEN_WEB_ALLOW_SCAN=1`일 때만 동작한다. 이 스택은 GPU가
+  없는 API 서버에 있어 기본은 읽기 전용이고, 실제 임베딩은 GPU 스택이 돈다.
+  켜고 싶으면 `SCAN=1 ./run_goldenset.sh`로 1회 배치를 돌리는 편이 낫다.
+
+웹은 GPU 호스트의 run 디렉터리를 볼 수 없다. 그래서 상태를 **S3와 Qdrant에서만**
+읽는다. 임베딩 메타(모델·신규/재사용 건수)는 러너가 사이클 끝에 남기는
+`{GOLDEN_S3_OUTPUT_PREFIX}/{version}/run_summary.json`으로 전달된다.
+
+### 환경변수 충돌 주의
+
+이 이미지는 아이템 분리를 위해 image-processor를 함께 담고 있고, image-processor의
+`config.py`는 접두사 없는 `DEVICE`·`WORKER_*`를 읽는다. 루트 `.env` 하나를 옷장
+워커와 공유하므로 같은 이름이 다른 의미가 될 수 있다. `docker-compose.golden_set.yml`의
+`environment` 블록이 컨테이너 안에서 값을 못 박아 이를 끊는다.
+
+| 변수 | 골든셋 컨테이너에서 | 왜 |
+|---|---|---|
+| `DEVICE`, `GOLDEN_DEVICE` | `cpu` 고정 | 두 규약이 다르다. golden은 `auto`가 자동, image-processor는 **빈 값**이 자동이라 `auto`를 넘기면 `.to("auto")`로 죽는다 |
+| `WORKER_PIPELINE` | `GOLDEN_ITEM_PIPELINE` 값 | 아이템 파이프라인 선택의 단일 출처 |
+| `WORKER_EMBED_ENABLED` | `1` 고정 | 0이면 `goldenset_items`에 조용히 0건이 들어간다 |
+
+`REDIS_URL`·`WARDROBE_*`도 읽히지만 이 컨테이너는 `worker.py`를 실행하지 않아
+큐·콜백 경로를 타지 않는다.
+
 ## 설계 경계
 
 - 한 이미지는 구조화 멀티모달 호출 한 번으로 관찰·영역·관계·최소 수정 가설을 함께 만든다.

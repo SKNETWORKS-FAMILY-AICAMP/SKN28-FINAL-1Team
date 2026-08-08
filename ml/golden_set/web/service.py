@@ -91,6 +91,26 @@ def _load_manifests(settings: GoldenSettings) -> dict[str, dict[str, Any]]:
     return manifests
 
 
+def _pending_source_keys(
+    source_keys: list[str], manifests: dict[str, dict[str, Any]]
+) -> list[str]:
+    """아직 아이템 처리가 안 된 원본 키.
+
+    manifest의 `source_key`로 맞추는 게 정확하다. metadata CSV가 golden_id를
+    파일명과 다르게 지정하면 파일명(stem) 비교만으로는 이미 처리된 원본이
+    영영 "대기"로 보인다. 구형 manifest에는 source_key가 없어 stem으로 폴백한다.
+    """
+    claimed_keys = {
+        str(row.get("source_key")) for row in manifests.values() if row.get("source_key")
+    }
+    claimed_stems = set(manifests)
+    return [
+        key
+        for key in source_keys
+        if key not in claimed_keys and Path(key).stem not in claimed_stems
+    ]
+
+
 def source_progress(settings: GoldenSettings) -> dict[str, Any]:
     """S3 원본 수 대비 아이템 처리 완료 수."""
     bucket = settings.require_bucket()
@@ -108,7 +128,7 @@ def source_progress(settings: GoldenSettings) -> dict[str, Any]:
         "derived_prefix": settings.derived_prefix(),
         "source_count": len(source_keys),
         "processed_count": len(done),
-        "pending_count": max(0, len(source_keys) - len(done)),
+        "pending_count": len(_pending_source_keys(source_keys, manifests)),
         "stale_schema_count": len(stale),
         "item_schema_version": ITEM_SCHEMA_VERSION,
     }
@@ -206,14 +226,10 @@ def outfit_rows(settings: GoldenSettings) -> list[dict[str, Any]]:
         )
 
     # 아직 처리되지 않은 원본도 목록에 보여준다 — 진행 상황 확인이 목적이다.
-    processed = set(manifests)
-    for key in source_keys:
-        stem = Path(key).stem
-        if stem in processed:
-            continue
+    for key in _pending_source_keys(source_keys, manifests):
         rows.append(
             {
-                "golden_id": stem,
+                "golden_id": Path(key).stem,
                 "processed": False,
                 "source_key": key,
                 "item_count": 0,

@@ -195,6 +195,9 @@ def _process_one(
     embedder = getattr(pipeline, "embedder", None)
     manifest = {
         "golden_id": golden_id,
+        # 원본 키를 남긴다. metadata CSV가 golden_id를 파일명과 다르게 지정하면
+        # 파일명만으로는 "이 원본이 처리됐는지"를 판정할 수 없다.
+        "source_key": str(image.get("source_key", "")),
         "image_sha256": str(image["image_sha256"]),
         "schema_version": ITEM_SCHEMA_VERSION,
         "pipeline_key": pipeline.key,

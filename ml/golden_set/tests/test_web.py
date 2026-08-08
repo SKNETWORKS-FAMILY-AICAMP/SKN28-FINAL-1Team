@@ -182,6 +182,26 @@ class ServiceTests(unittest.TestCase):
         self.assertEqual(rows["look-a"]["layer_roles"], ["기본 상의"])
         self.assertFalse(rows["look-b"]["processed"])
 
+    def test_renamed_golden_id_is_not_reported_as_pending(self) -> None:
+        """metadata CSV가 golden_id를 파일명과 다르게 준 경우.
+
+        파일명(stem)만 비교하면 이미 처리된 원본이 영영 "대기"로 남고 목록에도
+        두 번 나온다. manifest의 source_key로 맞춰야 한다.
+        """
+        fake = _FakeS3()
+        fake.seed_source("look-a", "look-b")
+        renamed = _manifest("golden-001") | {
+            "source_key": "goldenset/source/look-a.jpg"
+        }
+        fake.seed_manifest(renamed)
+        with _S3Patch(fake):
+            progress = service.source_progress(_settings())
+            rows = {row["golden_id"]: row for row in service.outfit_rows(_settings())}
+        self.assertEqual(progress["pending_count"], 1)
+        self.assertTrue(rows["golden-001"]["processed"])
+        self.assertFalse(rows["look-b"]["processed"])
+        self.assertNotIn("look-a", rows)
+
     def test_outfit_detail_has_previews_and_point_ids(self) -> None:
         fake = _FakeS3()
         fake.seed_source("look-a")
