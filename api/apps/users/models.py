@@ -26,9 +26,10 @@ class User(AbstractUser):
     )
 
     monthly_budget = models.PositiveIntegerField(
-            "월 의류 구매 예산",
-            null=True,
-            blank=True
+        "월 의류 구매 예산",
+        null=True,
+        blank=True,
+        db_comment="월 의류 구매 예산(원). 1만원 단위, 미설정이면 NULL",
     )
 
     # PermissionsMixin의 필드를 재정의해 자동 M2M 테이블명(users_user_permissions)을

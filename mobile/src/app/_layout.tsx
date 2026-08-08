@@ -8,6 +8,8 @@ import { DevReset } from '@/components/dev-reset';
 import { ConfirmProvider, ToastProvider } from '@/components/ui';
 import { initSocialSDKs } from '@/lib/socialLogin';
 import { authStore } from '@/state/auth';
+import { outfitAnalysisStore } from '@/state/outfit-analysis';
+import { outfitClaimStore } from '@/state/outfit-claim';
 
 SplashScreen.preventAutoHideAsync();
 
@@ -18,6 +20,9 @@ export default function RootLayout() {
   useEffect(() => {
     initSocialSDKs();
     authStore.bootstrap();
+    outfitAnalysisStore.bootstrap();
+    /* 두 스토어를 구독하므로 뒤에 둔다 — 비로그인 분석의 claim 토큰을 모았다가 로그인 때 넘긴다. */
+    outfitClaimStore.bootstrap();
   }, []);
   return (
     <ThemeProvider value={colorScheme === 'dark' ? DarkTheme : DefaultTheme}>

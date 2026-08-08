@@ -54,6 +54,7 @@ INSTALLED_APPS = [
     "apps.recommend",
     "apps.goldenset",
     "apps.style_calendar",
+    "apps.lookbook",
 ]
 
 # ------------------------------------------------------------
@@ -288,6 +289,14 @@ CORS_ALLOWED_ORIGINS = [
 # ------------------------------------------------------------
 
 # ------------------------------------------------------------
+# 룩북 (lookbook) — S3
+# 상세 값은 apps/lookbook/services/storage.py에서 읽는다.
+# 선택: LOOKBOOK_S3_BUCKET (미설정 시 CALENDAR_S3_BUCKET → WARDROBE_S3_BUCKET)
+# 사진 처리 큐와 callback은 기존 옷장 업로드 흐름을 그대로 사용하며,
+# '입은 옷'과 겹치는 대분류는 큐 페이로드의 exclude_categories로 제외한다.
+# ------------------------------------------------------------
+
+# ------------------------------------------------------------
 # Qdrant 벡터 DB (apps.recommend)
 # 컬렉션 스키마는 apps/recommend/services/qdrant.py가 소유하고
 # `manage.py init_qdrant`로 생성한다.
@@ -299,10 +308,31 @@ QDRANT_TIMEOUT = int(os.getenv("QDRANT_TIMEOUT", "10"))
 QDRANT_IMAGE_VECTOR_DIM = int(os.getenv("QDRANT_IMAGE_VECTOR_DIM", "768"))
 QDRANT_TEXT_VECTOR_DIM = int(os.getenv("QDRANT_TEXT_VECTOR_DIM", "1024"))
 
-# Gemini 기반 코디 사진 평가
+# Gemini 기반 코디 사진 평가 (apps.recommend)
+# 요청/응답과 질의 컨텍스트는 outfit_analysis 테이블에 기록한다.
+# 원본 사진 버킷(OUTFIT_S3_BUCKET 또는 WARDROBE_S3_BUCKET)은
+# apps/recommend/services/storage.py에서 환경변수로 직접 읽는다.
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
 GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-3.5-flash")
 GEMINI_API_BASE_URL = os.getenv(
     "GEMINI_API_BASE_URL", "https://generativelanguage.googleapis.com"
 ).rstrip("/")
-GEMINI_TIMEOUT_SECONDS = int(os.getenv("GEMINI_TIMEOUT_SECONDS", "30"))
+# 사진을 base64로 실어 보내므로 업로드 시간이 붙는다. 30s로는 큰 사진에서 타임아웃한다
+# (전송본은 apps/recommend/services/imaging.py가 1024px로 축소한다).
+GEMINI_TIMEOUT_SECONDS = int(os.getenv("GEMINI_TIMEOUT_SECONDS", "60"))
+
+# 코디 평가 비동기 처리 (접수 API ↔ outfit-worker)
+# 큐 키·재시도는 apps/recommend/services/queue.py가 환경변수로 직접 읽는다.
+# 비로그인 접수 건은 UUID를 아는 사람이 조회한다 — 무기한 열어두지 않는다.
+OUTFIT_ANON_TTL_HOURS = int(os.getenv("OUTFIT_ANON_TTL_HOURS", "24"))
+# 익명 접수 건의 소유권 이전(claim) 허용 시간. 조회(24h)보다 훨씬 짧게 잡는다 —
+# claim은 읽기가 아니라 쓰기이고, 성공하면 사진·체형까지 열리는 권한 상승 경로다.
+# 로그인 유도는 평가 결과 직후에 일어나므로 1시간이면 충분하다.
+OUTFIT_CLAIM_TTL_MINUTES = int(os.getenv("OUTFIT_CLAIM_TTL_MINUTES", "60"))
+# 한 번의 claim 요청에서 처리할 최대 건수
+OUTFIT_CLAIM_MAX_ITEMS = int(os.getenv("OUTFIT_CLAIM_MAX_ITEMS", "20"))
+# 워커가 죽어 방치된 QUEUED/PROCESSING 행을 FAILED로 정리하는 기준 (프론트 무한 폴링 방지)
+OUTFIT_STALE_AFTER_MINUTES = int(os.getenv("OUTFIT_STALE_AFTER_MINUTES", "5"))
+# 프론트가 폴링 간격을 하드코딩하지 않도록 서버가 응답에 실어 보낸다
+OUTFIT_POLL_AFTER_MS = int(os.getenv("OUTFIT_POLL_AFTER_MS", "2000"))
+OUTFIT_ESTIMATED_SECONDS = int(os.getenv("OUTFIT_ESTIMATED_SECONDS", "30"))
