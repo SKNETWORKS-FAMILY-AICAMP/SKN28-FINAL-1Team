@@ -228,3 +228,179 @@ def evaluate_outfit(
         model=model,
         latency_ms=int((time.monotonic() - started) * 1000),
     )
+
+
+# ────────────────────────────────────────────────────────────
+# 오늘의 룩
+# ────────────────────────────────────────────────────────────
+
+@dataclass(frozen=True)
+class DailyLookResult:
+    """오늘의 룩 조합 1건의 호출 결과."""
+
+    parsed: dict[str, Any]
+    request: dict[str, Any]
+    response: dict[str, Any]
+    model: str
+    latency_ms: int
+
+
+DAILY_LOOK_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "headline": {
+            "type": "string",
+            "description": "한 줄 요약. 20자 내외의 자연스러운 한국어.",
+        },
+        "golden_id": {
+            "type": "string",
+            "description": "후보 중 고른 코디의 golden_id. 반드시 주어진 목록에서 고른다.",
+        },
+        "rationale_ko": {
+            "type": "string",
+            "description": "왜 이 코디인지. 체형 근거와 날씨를 함께 언급한다.",
+        },
+        "styling_tips": {
+            "type": "array",
+            "items": {"type": "string"},
+            "description": "착장 팁 1~3개.",
+        },
+        "items": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "item_key": {"type": "string"},
+                    "note": {"type": "string", "description": "이 아이템을 고른 이유"},
+                },
+                "required": ["item_key"],
+            },
+        },
+    },
+    "required": ["headline", "golden_id", "rationale_ko"],
+}
+
+DAILY_LOOK_SYSTEM_INSTRUCTION = (
+    "당신은 한국어로 답하는 패션 스타일리스트입니다. "
+    "주어진 코디 후보 중 하나를 골라 오늘의 착장을 제안합니다.\n"
+    "규칙:\n"
+    "1. 반드시 주어진 후보 목록의 golden_id 중 하나만 고릅니다. 새로 지어내지 않습니다.\n"
+    "2. rule_notes는 사용자 체형에 근거한 스타일링 원칙입니다. 근거를 쓸 때 이 내용을 "
+    "그대로 옮기지 말고 자연스러운 문장으로 풀어 씁니다.\n"
+    "3. preference_notes에 기피 항목이 적혀 있으면 그 후보는 고르지 않습니다.\n"
+    "4. 체형을 지적하거나 평가하지 않습니다. '단점을 가린다'가 아니라 "
+    "'균형을 살린다'처럼 씁니다.\n"
+    "5. 날씨 정보가 있으면 기온에 맞는 레이어링을 한 문장으로 덧붙입니다."
+)
+
+
+def build_daily_look_prompt(
+    *, candidates: list[dict[str, Any]], context: dict[str, Any]
+) -> str:
+    profile = context.get("body_profile") or {}
+    weather = context.get("weather") or {}
+    lines = [
+        "## 사용자",
+        f"- 체형: {profile.get('describe') or '정보 없음'}",
+        f"- 날씨: {weather.get('region', '')} {weather.get('temperature', '?')}도"
+        f" {weather.get('sky_state', '')}".strip(),
+    ]
+    pursuit = context.get("pursuit") or {}
+    if pursuit:
+        lines.append(f"- 선호: {json.dumps(pursuit.get('preferred', {}), ensure_ascii=False)}")
+        lines.append(f"- 기피: {json.dumps(pursuit.get('avoided', {}), ensure_ascii=False)}")
+    lines.append("")
+    lines.append("## 코디 후보 (score가 높을수록 체형·취향에 잘 맞음)")
+    lines.append(json.dumps(candidates, ensure_ascii=False, indent=2))
+    return "\n".join(lines)
+
+
+def _build_daily_look_body(
+    *, candidates: list[dict[str, Any]], context: dict[str, Any]
+) -> dict[str, Any]:
+    return {
+        "systemInstruction": {"parts": [{"text": DAILY_LOOK_SYSTEM_INSTRUCTION}]},
+        "contents": [
+            {
+                "role": "user",
+                "parts": [
+                    {
+                        "text": build_daily_look_prompt(
+                            candidates=candidates, context=context
+                        )
+                    }
+                ],
+            }
+        ],
+        "generationConfig": {
+            # 평가(0.4)보다 조금 높게 둔다. 매일 같은 사용자에게 같은 문장이 나오면
+            # 추천이 아니라 템플릿처럼 읽힌다.
+            "temperature": 0.7,
+            "responseMimeType": "application/json",
+            "responseSchema": DAILY_LOOK_SCHEMA,
+        },
+    }
+
+
+def compose_daily_look(
+    *, candidates: list[dict[str, Any]], context: dict[str, Any]
+) -> DailyLookResult:
+    """후보 목록에서 오늘의 착장 하나를 고르고 근거를 생성한다.
+
+    이미지를 보내지 않는다. 골든 원본은 대개 노출 불가이고, 조합과 근거를 말로
+    풀어내는 일이라 태그만으로 충분하다 — 멀티모달 호출보다 훨씬 싸고 빠르다.
+    """
+    api_key = settings.GEMINI_API_KEY
+    if not api_key:
+        raise GeminiConfigurationError("GEMINI_API_KEY가 설정되지 않았습니다.")
+
+    request_body = _build_daily_look_body(candidates=candidates, context=context)
+    model = settings.GEMINI_MODEL
+    url = f"{settings.GEMINI_API_BASE_URL}/v1beta/models/{model}:generateContent"
+
+    started = time.monotonic()
+    error_payload: Any = None
+    try:
+        response = requests.post(
+            url,
+            headers={"x-goog-api-key": api_key, "Content-Type": "application/json"},
+            json=request_body,
+            timeout=settings.GEMINI_TIMEOUT_SECONDS,
+        )
+        if response.status_code >= 400:
+            error_payload = _error_payload(response)
+            logger.error(
+                "Gemini 오늘의 룩 실패 %s: %s",
+                response.status_code,
+                response.text[:2000],
+            )
+        response.raise_for_status()
+        response_payload = response.json()
+        parsed = json.loads(_extract_text(response_payload))
+    except requests.Timeout as exc:
+        raise GeminiServiceError("Gemini 응답 시간이 초과되었습니다.") from exc
+    except GeminiServiceError:
+        raise
+    except (requests.RequestException, ValueError, json.JSONDecodeError) as exc:
+        logger.exception("Gemini 오늘의 룩 호출 실패")
+        raise GeminiServiceError(
+            "오늘의 룩 생성에 실패했습니다.", response_payload=error_payload
+        ) from exc
+
+    chosen = str(parsed.get("golden_id", ""))
+    known = {str(c.get("golden_id")) for c in candidates}
+    if chosen not in known:
+        # 스키마로는 막을 수 없는 환각이다. 후보에 없는 코디를 고르면 프론트가
+        # 존재하지 않는 코디를 조회하게 되므로 여기서 잘라낸다.
+        raise GeminiServiceError(
+            f"후보에 없는 golden_id를 골랐습니다: {chosen!r} (후보 {sorted(known)})",
+            response_payload=response_payload,
+        )
+
+    return DailyLookResult(
+        parsed=parsed,
+        request=request_body,
+        response=response_payload,
+        model=model,
+        latency_ms=int((time.monotonic() - started) * 1000),
+    )

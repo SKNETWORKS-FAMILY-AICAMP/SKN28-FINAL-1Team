@@ -94,6 +94,7 @@ class SocialLoginView(APIView):
         user, created = accounts.get_or_create_user(profile)
         refresh = RefreshToken.for_user(user)
         update_last_login(None, user)
+        _kick_off_daily_look(user)
 
         return Response(
             {
@@ -104,6 +105,22 @@ class SocialLoginView(APIView):
             },
             status=status.HTTP_201_CREATED if created else status.HTTP_200_OK,
         )
+
+
+def _kick_off_daily_look(user) -> None:
+    """그날 첫 로그인이면 오늘의 룩 생성을 미리 걸어둔다.
+
+    사용자가 첫 화면에 도착할 때쯤 이미 완성돼 있게 하려는 선반영이다. 조회
+    엔드포인트도 같은 함수를 부르므로 여기서 실패해도 기능이 사라지지는 않는다 —
+    그래서 예외를 삼킨다. 로그인은 추천보다 훨씬 중요하고, 추천 생성이 로그인을
+    막아서는 안 된다.
+    """
+    try:
+        from apps.recommend.services.daily_look import ensure_today_look
+
+        ensure_today_look(user)
+    except Exception:  # noqa: BLE001
+        logger.exception("오늘의 룩 선반영 실패 (로그인은 계속 진행): user=%s", user.pk)
 
 
 class MeView(APIView):

@@ -3,7 +3,7 @@ from django.core.files.uploadedfile import UploadedFile
 from drf_spectacular.utils import extend_schema_field
 from rest_framework import serializers
 
-from .models import OutfitAnalysis
+from .models import DailyLook, OutfitAnalysis
 from .services import storage, wardrobe_link
 
 
@@ -315,3 +315,80 @@ class OutfitAnalysisClaimResponseSerializer(serializers.Serializer):
         help_text="소유권이 넘어온 평가 ID. 이미 본인 것이던 건도 포함합니다(멱등).",
     )
     skipped = OutfitAnalysisClaimSkippedSerializer(many=True)
+
+
+class DailyLookItemSerializer(serializers.Serializer):
+    """LLM이 고른 착장의 아이템 한 개."""
+
+    item_key = serializers.CharField()
+    note = serializers.CharField(required=False, allow_blank=True)
+
+
+class DailyLookResultSerializer(serializers.Serializer):
+    """생성이 끝났을 때만 채워지는 추천 본문."""
+
+    headline = serializers.CharField()
+    golden_id = serializers.CharField()
+    rationale_ko = serializers.CharField()
+    styling_tips = serializers.ListField(child=serializers.CharField(), required=False)
+    items = DailyLookItemSerializer(many=True, required=False)
+
+
+class DailyLookSerializer(serializers.ModelSerializer):
+    """오늘의 룩 조회 응답.
+
+    생성 전에도 200으로 내려간다. 404를 쓰면 프론트가 "없음"과 "아직"을 구분하지
+    못하고, 202는 본문 스키마가 다른 응답을 만들어 클라이언트 분기를 늘린다.
+    `status`와 `poll_after_ms` 두 필드로 판단하게 한다.
+    """
+
+    look_id = serializers.UUIDField(source="id", read_only=True)
+    result = DailyLookResultSerializer(read_only=True)
+    context = serializers.SerializerMethodField()
+    poll_after_ms = serializers.SerializerMethodField()
+    detail = serializers.SerializerMethodField()
+
+    class Meta:
+        model = DailyLook
+        fields = [
+            "look_id",
+            "look_date",
+            "status",
+            "result",
+            "context",
+            "poll_after_ms",
+            "detail",
+            "created_at",
+            "updated_at",
+        ]
+
+    def get_context(self, obj: DailyLook) -> dict:
+        """무엇이 개인화에 쓰였는지만 알려준다 (값 자체는 프로필 API에 있다)."""
+        profile = obj.body_profile or {}
+        return {
+            "weather": obj.weather,
+            "used_body": obj.body is not None,
+            "used_pursuit": obj.pursuit is not None,
+            "body_profile": profile.get("describe", ""),
+            # 판정하지 못한 치수를 알려주면 프론트가 "어깨너비를 입력하면 더
+            # 정확해져요" 같은 안내를 띄울 수 있다.
+            "missing_measurements": profile.get("missing", []),
+            "candidate_count": len(obj.candidates or []),
+        }
+
+    def get_poll_after_ms(self, obj: DailyLook) -> int | None:
+        return settings.OUTFIT_POLL_AFTER_MS if obj.is_pending else None
+
+    def get_detail(self, obj: DailyLook) -> str | None:
+        """상태별 사용자 문구. 내부 error는 그대로 노출하지 않는다."""
+        if obj.status in DailyLook.PENDING_STATUSES:
+            return "오늘의 룩을 만들고 있어요. 잠시만 기다려주세요."
+        if obj.status == DailyLook.Status.EMPTY:
+            # 재시도해도 같은 결과다. 프론트는 프로필 입력을 유도해야 한다.
+            return (
+                "조건에 맞는 추천을 찾지 못했어요. "
+                "신체치수나 추구미를 입력하면 더 잘 찾을 수 있어요."
+            )
+        if obj.status == DailyLook.Status.FAILED:
+            return "오늘의 룩을 만들지 못했어요. 잠시 후 다시 확인해주세요."
+        return None

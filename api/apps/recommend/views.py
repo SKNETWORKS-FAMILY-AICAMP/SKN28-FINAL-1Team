@@ -30,8 +30,10 @@ from .serializers import (
     OutfitAnalysisPublicSerializer,
     OutfitAnalysisRequestSerializer,
 )
+from .serializers import DailyLookSerializer
 from .services import analysis as analysis_service
 from .services import claim as claim_service
+from .services import daily_look as daily_look_service
 
 logger = logging.getLogger(__name__)
 
@@ -483,3 +485,144 @@ class OutfitAnalysisClaimView(APIView):
         )
         response_serializer.is_valid(raise_exception=True)
         return Response(response_serializer.validated_data)
+
+
+DAILY_LOOK_PENDING_EXAMPLE = OpenApiExample(
+    "생성 중",
+    description=(
+        "그날 첫 조회라 방금 생성이 걸렸거나, 워커가 아직 처리 중이다.\n\n"
+        "`poll_after_ms` 간격으로 같은 URL을 다시 호출한다. `result`는 아직 null이다."
+    ),
+    value={
+        "look_id": "0c4d1d5a-2f3e-4b7a-9c1e-5a6b7c8d9e01",
+        "look_date": "2026-08-09",
+        "status": "QUEUED",
+        "result": None,
+        "context": {
+            "weather": {"region": "서울", "temperature": 28.4, "sky_state": "맑음"},
+            "used_body": True,
+            "used_pursuit": True,
+            "body_profile": "역삼각형 · 표준",
+            "missing_measurements": ["thigh", "calf"],
+            "candidate_count": 0,
+        },
+        "poll_after_ms": 1500,
+        "detail": "오늘의 룩을 만들고 있어요. 잠시만 기다려주세요.",
+    },
+    response_only=True,
+)
+
+DAILY_LOOK_READY_EXAMPLE = OpenApiExample(
+    "생성 완료",
+    value={
+        "look_id": "0c4d1d5a-2f3e-4b7a-9c1e-5a6b7c8d9e01",
+        "look_date": "2026-08-09",
+        "status": "SUCCEEDED",
+        "result": {
+            "headline": "더위엔 가볍게, 어깨는 부드럽게",
+            "golden_id": "095",
+            "rationale_ko": "어깨가 넓은 편이라 상의는 어깨선을 키우지 않는 레귤러핏으로 두고, 하의에 여유를 줘 전체 균형을 맞췄어요. 28도라 겉옷은 생략했습니다.",
+            "styling_tips": ["소매를 한 번 접으면 팔 라인이 가벼워 보여요."],
+            "items": [{"item_key": "095#000", "note": "어깨선을 덮지 않는 기본 기장"}],
+        },
+        "context": {
+            "weather": {"region": "서울", "temperature": 28.4, "sky_state": "맑음"},
+            "used_body": True,
+            "used_pursuit": True,
+            "body_profile": "역삼각형 · 표준",
+            "missing_measurements": [],
+            "candidate_count": 5,
+        },
+        "poll_after_ms": None,
+        "detail": None,
+    },
+    response_only=True,
+)
+
+DAILY_LOOK_EMPTY_EXAMPLE = OpenApiExample(
+    "추천 후보 없음",
+    description=(
+        "실패가 아니다. 폴링해도 결과가 바뀌지 않으므로 프론트는 재시도 대신 "
+        "프로필 입력을 안내해야 한다."
+    ),
+    value={
+        "look_id": "0c4d1d5a-2f3e-4b7a-9c1e-5a6b7c8d9e01",
+        "look_date": "2026-08-09",
+        "status": "EMPTY",
+        "result": None,
+        "context": {
+            "weather": {},
+            "used_body": False,
+            "used_pursuit": False,
+            "body_profile": "미판정",
+            "missing_measurements": ["height", "weight", "shoulder", "waist", "hip"],
+            "candidate_count": 0,
+        },
+        "poll_after_ms": None,
+        "detail": "조건에 맞는 추천을 찾지 못했어요. 신체치수나 추구미를 입력하면 더 잘 찾을 수 있어요.",
+    },
+    response_only=True,
+)
+
+
+class DailyLookTodayView(APIView):
+    """오늘의 룩 조회 (없으면 생성을 걸고 '생성 중'으로 응답).
+
+    사용자 입력이 없는 기능이라 별도의 생성 엔드포인트를 두지 않았다. 그날 첫
+    호출이 곧 생성 트리거다. 로그인 응답에서 미리 걸어두면 사용자가 첫 화면에
+    도착할 때쯤 이미 완성돼 있고, 그 호출이 실패했더라도 이 조회가 다시 건다 —
+    트리거가 한 곳뿐이면 그게 실패했을 때 사용자는 종일 룩을 못 본다.
+    """
+
+    permission_classes = [IsAuthenticated]
+
+    @extend_schema(
+        operation_id="daily_look_today",
+        summary="오늘의 룩 조회",
+        description=(
+            "그날의 추천을 돌려준다. 아직 만들어지지 않았으면 생성을 걸고 "
+            "`status=QUEUED`로 응답한다.\n\n"
+            "**상태별 프론트 동작**\n"
+            "- `QUEUED` / `PROCESSING`: `poll_after_ms` 뒤에 다시 호출\n"
+            "- `SUCCEEDED`: `result` 표시\n"
+            "- `EMPTY`: 폴링하지 말 것. 프로필 입력 안내\n"
+            "- `FAILED`: 다음 호출에서 자동 재시도되지 않는다. 사용자에게 알린다\n\n"
+            "위경도를 주면 그 위치의 날씨로 추천한다. 생성은 하루 한 번뿐이라 "
+            "이미 만들어진 뒤의 좌표는 반영되지 않는다."
+        ),
+        parameters=[
+            OpenApiParameter(
+                name="lat", type=float, required=False,
+                description="위도. 미전달 시 서울 좌표로 대체한다.",
+            ),
+            OpenApiParameter(
+                name="lon", type=float, required=False,
+                description="경도. 미전달 시 서울 좌표로 대체한다.",
+            ),
+        ],
+        responses={200: DailyLookSerializer},
+        examples=[
+            DAILY_LOOK_PENDING_EXAMPLE,
+            DAILY_LOOK_READY_EXAMPLE,
+            DAILY_LOOK_EMPTY_EXAMPLE,
+        ],
+    )
+    def get(self, request: Request) -> Response:
+        look, created = daily_look_service.ensure_today_look(
+            request.user,
+            lat=_float_or_none(request.query_params.get("lat")),
+            lon=_float_or_none(request.query_params.get("lon")),
+        )
+        if created:
+            logger.info("오늘의 룩 생성 접수: user=%s look=%s", request.user.pk, look.pk)
+        return Response(DailyLookSerializer(look).data)
+
+
+def _float_or_none(raw: str | None) -> float | None:
+    if raw in (None, ""):
+        return None
+    try:
+        return float(raw)
+    except (TypeError, ValueError):
+        # 좌표가 깨졌다고 추천을 막을 이유는 없다. 서울 좌표로 폴백한다.
+        return None
