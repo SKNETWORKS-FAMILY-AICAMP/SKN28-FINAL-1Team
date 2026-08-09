@@ -103,8 +103,14 @@ def run_once(
                 settings=settings,
                 text_backend_name=text_backend,
                 dry_run=False,
+                only_missing=settings.index_only_missing,
             )
             summary["indexed"] = True
+            logger.info(
+                "Qdrant 적재: 신규 %s / 기존 건너뜀 %s",
+                summary["index"].get("upserted"),
+                summary["index"].get("skipped_existing", "(전량 적재)"),
+            )
         except Exception as exc:  # noqa: BLE001 — 요약 발행 후 그대로 다시 던진다
             index_error = exc
             summary["index_error"] = f"{type(exc).__name__}: {exc}"

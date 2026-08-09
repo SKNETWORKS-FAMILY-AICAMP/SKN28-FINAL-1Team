@@ -65,6 +65,7 @@ class GoldenSettings:
     item_embedding_version: str = ""
     anchor_exposable: bool = False
     auto_index: bool = True
+    index_only_missing: bool = True
     scan_interval_seconds: int = 0
     image_processor_path: Path = REPO_ROOT / "image-processor"
 
@@ -111,6 +112,10 @@ class GoldenSettings:
             anchor_exposable=_bool("GOLDEN_ANCHOR_EXPOSABLE", "0"),
             # 임베딩 후 Qdrant 적재까지 자동으로 이어갈지.
             auto_index=_bool("GOLDEN_AUTO_INDEX", "1"),
+            # Qdrant에 이미 있는 포인트는 건너뛴다. 이번 실행에서 새로 처리한
+            # 코디는 내용이 바뀌었으므로 이 설정과 무관하게 항상 덮어쓴다.
+            # 0으로 두면 매번 전량 upsert (결과는 같고 느리다).
+            index_only_missing=_bool("GOLDEN_INDEX_ONLY_MISSING", "1"),
             # 0이면 1회 처리 후 종료, 양수면 그 간격(초)으로 계속 스캔한다.
             scan_interval_seconds=_int("GOLDEN_SCAN_INTERVAL_SECONDS", "0"),
             image_processor_path=Path(

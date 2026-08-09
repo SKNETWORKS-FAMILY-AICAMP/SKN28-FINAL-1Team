@@ -6,6 +6,7 @@ import tempfile
 import unittest
 from dataclasses import replace
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
 
 from PIL import Image, ImageDraw
@@ -804,11 +805,21 @@ class GoldenItemPipelineTests(unittest.TestCase):
 
 
 class _StubQdrant:
-    """collection_exists / get_collections 만 흉내내는 최소 스텁."""
+    """collection_exists / get_collections / retrieve / upsert 최소 스텁."""
 
-    def __init__(self, *, existing: set[str] | None = None, reachable: bool = True):
+    def __init__(
+        self,
+        *,
+        existing: set[str] | None = None,
+        reachable: bool = True,
+        points: dict[str, set[str]] | None = None,
+    ):
         self.existing = existing if existing is not None else set()
         self.reachable = reachable
+        #: 컬렉션별로 이미 적재돼 있는 point id
+        self.points = points or {}
+        self.upserted: dict[str, list[str]] = {}
+        self.retrieve_batches = 0
 
     def get_collections(self):
         if not self.reachable:
@@ -817,6 +828,14 @@ class _StubQdrant:
 
     def collection_exists(self, name: str) -> bool:
         return name in self.existing
+
+    def retrieve(self, *, collection_name, ids, with_payload, with_vectors):
+        self.retrieve_batches += 1
+        have = self.points.get(collection_name, set())
+        return [SimpleNamespace(id=value) for value in ids if value in have]
+
+    def upsert(self, *, collection_name, points, wait):
+        self.upserted[collection_name] = [str(point.id) for point in points]
 
 
 class GoldenPreflightTests(unittest.TestCase):
@@ -854,3 +873,79 @@ class GoldenPreflightTests(unittest.TestCase):
         from ml.golden_set.qdrant_index import preflight
 
         preflight(_StubQdrant(existing=set(self.ALL)))
+
+
+class GoldenOnlyMissingTests(unittest.TestCase):
+    """S3에는 있는데 Qdrant에 없는 포인트만 골라 올리는지 확인한다.
+
+    적재가 네트워크로 끊겼거나 컬렉션을 지웠다 다시 만든 뒤, 아이템 분리를
+    다시 돌리지 않고 이 경로만으로 복구되어야 한다.
+    """
+
+    def test_existing_ids_are_reported_and_batched(self) -> None:
+        from ml.golden_set.qdrant_index import ITEM_COLLECTION, _existing_point_ids
+
+        ids = [f"i{n}" for n in range(600)]
+        client = _StubQdrant(points={ITEM_COLLECTION: {"i0", "i599"}})
+
+        found = _existing_point_ids(client, ITEM_COLLECTION, ids)
+
+        self.assertEqual(found, {"i0", "i599"})
+        # 256개씩 끊어 묻는다 (256 + 256 + 88).
+        self.assertEqual(client.retrieve_batches, 3)
+
+    def test_empty_id_list_does_not_call_qdrant(self) -> None:
+        from ml.golden_set.qdrant_index import ITEM_COLLECTION, _existing_point_ids
+
+        client = _StubQdrant()
+        self.assertEqual(_existing_point_ids(client, ITEM_COLLECTION, []), set())
+        self.assertEqual(client.retrieve_batches, 0)
+
+    def test_freshly_processed_outfits_and_items_are_forced(self) -> None:
+        from ml.golden_set.qdrant_index import (
+            _forced_point_ids,
+            item_point_id,
+            outfit_point_id,
+        )
+
+        with tempfile.TemporaryDirectory() as temp:
+            run_dir = Path(temp)
+            (run_dir / "items.meta.json").write_text(
+                json.dumps({"processed_golden_ids": ["g001"]}), encoding="utf-8"
+            )
+            (run_dir / "items.jsonl").write_text(
+                "\n".join(
+                    json.dumps(row)
+                    for row in (
+                        {"golden_id": "g001", "item_key": "g001#000"},
+                        {"golden_id": "g002", "item_key": "g002#000"},
+                    )
+                ),
+                encoding="utf-8",
+            )
+
+            forced = _forced_point_ids(run_dir, "v1")
+
+        self.assertIn(outfit_point_id("v1", "g001"), forced)
+        self.assertIn(item_point_id("v1", "g001#000"), forced)
+        # 재사용된 코디는 강제 대상이 아니다 — 존재하면 건너뛴다.
+        self.assertNotIn(outfit_point_id("v1", "g002"), forced)
+        self.assertNotIn(item_point_id("v1", "g002#000"), forced)
+
+    def test_old_run_without_the_list_forces_nothing(self) -> None:
+        """구형 실행에는 processed_golden_ids가 없다. 전부 존재 검사로 보낸다."""
+        from ml.golden_set.qdrant_index import _forced_point_ids
+
+        with tempfile.TemporaryDirectory() as temp:
+            run_dir = Path(temp)
+            (run_dir / "items.meta.json").write_text(
+                json.dumps({"reused_images": 3}), encoding="utf-8"
+            )
+            self.assertEqual(_forced_point_ids(run_dir, "v1"), set())
+
+    def test_run_without_item_stage_is_tolerated(self) -> None:
+        """아이템 단계를 아예 돌리지 않은 run에도 적재를 걸 수 있어야 한다."""
+        from ml.golden_set.qdrant_index import _forced_point_ids
+
+        with tempfile.TemporaryDirectory() as temp:
+            self.assertEqual(_forced_point_ids(Path(temp), "v1"), set())

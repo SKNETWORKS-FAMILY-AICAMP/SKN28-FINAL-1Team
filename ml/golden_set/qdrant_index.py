@@ -80,6 +80,7 @@ def index_run(
     text_backend_name: str = "bge",
     allow_draft: bool = False,
     dry_run: bool = False,
+    only_missing: bool = False,
     client: QdrantClient | None = None,
 ) -> dict[str, Any]:
     run_manifest = read_json(run_dir / "run_manifest.json")
@@ -325,13 +326,42 @@ def index_run(
 
     qdrant = client or build_client()
     _assert_collections(qdrant)
+
+    # S3에는 있는데 Qdrant에 없는 포인트만 올린다. 적재가 중간에 끊겼거나
+    # (네트워크 단절 등) 컬렉션을 지웠다 다시 만든 경우, 아이템 분리를 다시
+    # 돌리지 않고 이 경로만으로 복구된다.
+    forced = _forced_point_ids(run_dir, version) if only_missing else set()
+    written: dict[str, int] = {}
+    skipped: dict[str, int] = {}
     for collection, points in (
         (KNOWLEDGE_COLLECTION, principle_points),
         (OUTFIT_COLLECTION, outfit_points),
         (ITEM_COLLECTION, item_points),
     ):
-        if points:
-            qdrant.upsert(collection_name=collection, points=points, wait=True)
+        if not points:
+            continue
+        target = points
+        if only_missing:
+            # 이번 실행에서 새로 처리한 코디는 내용이 바뀌었으므로 존재 여부와
+            # 무관하게 덮어쓴다. 나머지만 "없는 것"으로 좁힌다.
+            candidates = [point for point in points if str(point.id) not in forced]
+            present = _existing_point_ids(
+                qdrant, collection, [str(point.id) for point in candidates]
+            )
+            target = [
+                point
+                for point in points
+                if str(point.id) in forced or str(point.id) not in present
+            ]
+            skipped[collection] = len(points) - len(target)
+        written[collection] = len(target)
+        if target:
+            qdrant.upsert(collection_name=collection, points=target, wait=True)
+
+    summary["upserted"] = written
+    if only_missing:
+        summary["skipped_existing"] = skipped
+        summary["only_missing"] = True
     return summary
 
 
@@ -425,6 +455,52 @@ def _principle_styles(row: dict[str, Any]) -> list[str]:
                 if value.strip()
             )
     return values
+
+
+#: retrieve 한 번에 물어보는 포인트 수. Qdrant는 상한이 넉넉하지만 URL·본문
+#: 크기와 타임아웃을 감안해 보수적으로 자른다.
+_EXISTS_BATCH = 256
+
+
+def _existing_point_ids(
+    client: QdrantClient, collection: str, ids: list[str]
+) -> set[str]:
+    """주어진 ID 중 컬렉션에 이미 있는 것만 돌려준다.
+
+    retrieve는 없는 ID를 조용히 빼고 돌려주므로, 반환된 집합의 여집합이 곧
+    미적재분이다. 벡터·payload는 받지 않아 응답이 가볍다.
+    """
+    found: set[str] = set()
+    for start in range(0, len(ids), _EXISTS_BATCH):
+        chunk = ids[start : start + _EXISTS_BATCH]
+        records = client.retrieve(
+            collection_name=collection,
+            ids=chunk,
+            with_payload=False,
+            with_vectors=False,
+        )
+        found.update(str(record.id) for record in records)
+    return found
+
+
+def _forced_point_ids(run_dir: Path, dataset_version: str) -> set[str]:
+    """이번 실행에서 새로 처리한 코디의 포인트 ID (코디 + 소속 아이템).
+
+    내용이 바뀌었으므로 "이미 있으면 건너뛰기"의 예외다. items.meta.json에
+    목록이 없으면(구형 실행) 빈 집합이라 모든 포인트가 존재 검사를 거친다.
+    """
+    meta_path = run_dir / "items.meta.json"
+    # 아이템 단계를 아예 돌리지 않은 run에도 index_run은 걸 수 있다.
+    # read_json은 없는 파일에서 예외를 던지므로 먼저 막는다.
+    meta = read_json(meta_path) if meta_path.exists() else {}
+    fresh = {str(value) for value in meta.get("processed_golden_ids", [])}
+    if not fresh:
+        return set()
+    forced = {outfit_point_id(dataset_version, golden_id) for golden_id in fresh}
+    for row in read_jsonl(run_dir / "items.jsonl"):
+        if str(row.get("golden_id", "")) in fresh:
+            forced.add(item_point_id(dataset_version, str(row["item_key"])))
+    return forced
 
 
 def build_client() -> QdrantClient:

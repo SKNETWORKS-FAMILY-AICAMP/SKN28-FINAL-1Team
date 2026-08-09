@@ -275,7 +275,10 @@ def extract_items(
 
     rows: list[dict[str, Any]] = []
     vectors: dict[str, dict[str, list[float]]] = {}
-    processed_count = 0
+    # 이번 실행에서 새로 처리한 코디. 적재 단계가 "이미 있으면 건너뛰기"를
+    # 할 때 이 목록만은 예외로 두어야 한다 — 내용이 바뀌었으므로 기존 포인트를
+    # 덮어써야 한다.
+    processed_golden_ids: list[str] = []
     reused_count = 0
     embedding_version = settings.item_embedding_version
 
@@ -319,7 +322,7 @@ def extract_items(
         )
         rows.extend(manifest["items"])
         vectors.update(fresh)
-        processed_count += 1
+        processed_golden_ids.append(golden_id)
 
     write_jsonl(run_dir / "items.jsonl", rows)
     keys = [key for key in (row["item_key"] for row in rows) if key in vectors]
@@ -349,7 +352,8 @@ def extract_items(
             "num_images": len(images),
             "num_items": len(rows),
             "num_items_with_vectors": len(keys),
-            "processed_images": processed_count,
+            "processed_images": len(processed_golden_ids),
+            "processed_golden_ids": processed_golden_ids,
             "reused_images": reused_count,
         },
     )
