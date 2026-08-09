@@ -1,3 +1,5 @@
+import logging
+
 from django.conf import settings
 from django.core.files.uploadedfile import UploadedFile
 from drf_spectacular.utils import extend_schema_field
@@ -317,11 +319,46 @@ class OutfitAnalysisClaimResponseSerializer(serializers.Serializer):
     skipped = OutfitAnalysisClaimSkippedSerializer(many=True)
 
 
+logger = logging.getLogger(__name__)
+
+
+def _image_url(row: dict | None) -> str | None:
+    """S3 참조를 조회용 URL로 바꾼다.
+
+    **조회 시점에** 서명한다. presigned URL은 만료되므로 DB에 미리 구워 넣으면
+    며칠 뒤 죽은 링크가 남는다 (같은 이유로 Qdrant payload에도 넣지 않았다).
+
+    서명 실패가 추천 조회 전체를 막지는 않게 한다 — 이미지가 없는 화면이
+    500 화면보다 낫다.
+    """
+    if not row or not row.get("s3_key") or not row.get("s3_bucket"):
+        return None
+    try:
+        return storage.presigned_get_for(str(row["s3_bucket"]), str(row["s3_key"]))
+    except Exception:  # noqa: BLE001
+        logger.exception("오늘의 룩 이미지 URL 생성 실패: %s", row.get("s3_key"))
+        return None
+
+
 class DailyLookItemSerializer(serializers.Serializer):
-    """LLM이 고른 착장의 아이템 한 개."""
+    """착장에 속한 의상 아이템 한 개.
+
+    이미지는 원본 코디 사진이 아니라 파이프라인이 만든 흰 배경 파생물이다.
+    그래서 원본이 노출 불가여도 이 이미지는 보여줄 수 있다.
+    """
 
     item_key = serializers.CharField()
+    name = serializers.CharField(required=False, allow_blank=True)
+    category = serializers.CharField(required=False, allow_blank=True)
+    sub_category = serializers.CharField(required=False, allow_blank=True)
+    layer_role = serializers.CharField(required=False, allow_blank=True)
+    color = serializers.CharField(required=False, allow_blank=True)
     note = serializers.CharField(required=False, allow_blank=True)
+    image_url = serializers.SerializerMethodField()
+
+    @extend_schema_field(serializers.URLField(allow_null=True))
+    def get_image_url(self, obj: dict) -> str | None:
+        return _image_url(obj)
 
 
 class DailyLookResultSerializer(serializers.Serializer):
@@ -331,7 +368,17 @@ class DailyLookResultSerializer(serializers.Serializer):
     golden_id = serializers.CharField()
     rationale_ko = serializers.CharField()
     styling_tips = serializers.ListField(child=serializers.CharField(), required=False)
+    generated_by = serializers.CharField(
+        required=False,
+        help_text="문장을 누가 썼는지: llm | template. template이면 담백한 톤이다.",
+    )
     items = DailyLookItemSerializer(many=True, required=False)
+    outfit_image_url = serializers.SerializerMethodField()
+
+    @extend_schema_field(serializers.URLField(allow_null=True))
+    def get_outfit_image_url(self, obj: dict) -> str | None:
+        """원본 코디 사진. 사용권이 열린 코디(exposable)에만 값이 있다."""
+        return _image_url(obj.get("outfit_image"))
 
 
 class DailyLookSerializer(serializers.ModelSerializer):

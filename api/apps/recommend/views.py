@@ -523,7 +523,22 @@ DAILY_LOOK_READY_EXAMPLE = OpenApiExample(
             "golden_id": "095",
             "rationale_ko": "어깨가 넓은 편이라 상의는 어깨선을 키우지 않는 레귤러핏으로 두고, 하의에 여유를 줘 전체 균형을 맞췄어요. 28도라 겉옷은 생략했습니다.",
             "styling_tips": ["소매를 한 번 접으면 팔 라인이 가벼워 보여요."],
-            "items": [{"item_key": "095#000", "note": "어깨선을 덮지 않는 기본 기장"}],
+            "generated_by": "llm",
+            # 원본 코디 사진은 사용권이 열린 코디에만 값이 있다 (대개 null).
+            "outfit_image_url": None,
+            "items": [
+                {
+                    "item_key": "095#000",
+                    "name": "화이트 셔츠",
+                    "category": "상의",
+                    "sub_category": "셔츠/블라우스",
+                    "layer_role": "기본 상의",
+                    "color": "화이트",
+                    "note": "어깨선을 덮지 않는 기본 기장",
+                    # 조회할 때마다 새로 서명한다. 캐시하지 말 것.
+                    "image_url": "https://skn28-cozy3.s3.ap-northeast-2.amazonaws.com/...",
+                }
+            ],
         },
         "context": {
             "weather": {"region": "서울", "temperature": 28.4, "sky_state": "맑음"},
@@ -587,6 +602,9 @@ class DailyLookTodayView(APIView):
             "- `SUCCEEDED`: `result` 표시\n"
             "- `EMPTY`: 폴링하지 말 것. 프로필 입력 안내\n"
             "- `FAILED`: 다음 호출에서 자동 재시도되지 않는다. 사용자에게 알린다\n\n"
+            "코디 선택은 검색 단계에서 결정적으로 끝난다. 문장 생성(LLM)이 실패해도 "
+            "`SUCCEEDED`이며, 그때는 `result.generated_by`가 `template`이다.\n\n"
+            "`image_url`은 매 조회마다 새로 서명한다. 클라이언트가 캐시하면 만료된다.\n\n"
             "위경도를 주면 그 위치의 날씨로 추천한다. 생성은 하루 한 번뿐이라 "
             "이미 만들어진 뒤의 좌표는 반영되지 않는다."
         ),

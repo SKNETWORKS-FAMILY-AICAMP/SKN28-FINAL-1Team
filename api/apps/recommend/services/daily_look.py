@@ -155,23 +155,134 @@ def run(look: DailyLook) -> None:
         logger.info("오늘의 룩 %s: 후보 0건", look.pk)
         return
 
-    result = gemini.compose_daily_look(
-        candidates=[_candidate_for_llm(c) for c in candidates],
-        context=snapshot,
-    )
-    look.llm_model = result.model
-    look.llm_request = result.request
-    look.llm_response = result.response
-    look.llm_latency_ms = result.latency_ms
-    look.result = result.parsed
+    # ── 여기까지가 추천의 성립 조건이다 ──────────────────────
+    # 코디는 리트리버가 정한다. 1위를 그대로 채택하고, 문장이 붙기 전에 상태를
+    # SUCCEEDED로 확정한다. 예전에는 Gemini가 죽으면 FAILED가 되어, 멀쩡히 찾아둔
+    # 코디가 있는데도 사용자는 아무것도 못 봤다.
+    chosen = candidates[0]
+    look.result = _build_result(chosen, snapshot)
     look.status = DailyLook.Status.SUCCEEDED
     look.error = ""
     look.save(
-        update_fields=[
-            "candidates", "rules_version", "llm_model", "llm_request",
-            "llm_response", "llm_latency_ms", "result", "status", "error",
-            "updated_at",
-        ]
+        update_fields=["candidates", "rules_version", "result", "status", "error",
+                       "updated_at"]
+    )
+
+    # ── 여기부터는 있으면 좋은 것 ────────────────────────────
+    _enrich_with_copy(look, chosen, snapshot)
+
+
+def _build_result(candidate, snapshot: dict[str, Any]) -> dict[str, Any]:
+    """LLM 없이도 화면을 그릴 수 있는 결과를 만든다.
+
+    이미지 URL은 **넣지 않는다.** presigned URL은 만료되므로 조회 시점에
+    만들어야 한다 — DB에 구워 넣으면 며칠 뒤 죽은 링크가 남는다. 대신 버킷과
+    키를 담아 두고 직렬화 단계가 서명한다.
+
+    아이템 이미지는 원본 사진이 아니라 파이프라인이 만든 흰 배경 파생물이라,
+    원본이 노출 불가(exposable=False)여도 보여줄 수 있다.
+    """
+    payload = candidate.payload
+    bucket = str(payload.get("source_bucket", ""))
+    rule_notes = [r.text for r in candidate.reasons if r.source == "rule"]
+
+    return {
+        "golden_id": candidate.golden_id,
+        "headline": _template_headline(snapshot),
+        "rationale_ko": _template_rationale(rule_notes, snapshot),
+        "styling_tips": [],
+        # 문장을 누가 썼는지 프론트가 알 수 있게 한다 (템플릿이면 담백한 톤이다).
+        "generated_by": "template",
+        # 원본 코디 사진은 사용권이 열린 것만 내보낸다.
+        "outfit_image": (
+            {"s3_bucket": bucket, "s3_key": str(payload.get("source_key", ""))}
+            if payload.get("exposable") and payload.get("source_key")
+            else None
+        ),
+        "items": [
+            {
+                "item_key": item.get("item_key", ""),
+                "name": item.get("item_name", ""),
+                "category": item.get("category_large", ""),
+                "sub_category": item.get("category_small", ""),
+                "layer_role": item.get("layer_role", ""),
+                "color": item.get("color", ""),
+                "s3_bucket": bucket,
+                "s3_key": item.get("s3_key", ""),
+                "note": "",
+            }
+            for item in payload.get("items", [])
+        ],
+    }
+
+
+def _template_headline(snapshot: dict[str, Any]) -> str:
+    weather = snapshot.get("weather") or {}
+    temperature = weather.get("temperature")
+    if temperature is None:
+        return "오늘의 추천 코디"
+    return f"{round(float(temperature))}도, 오늘은 이렇게"
+
+
+def _template_rationale(rule_notes: list[str], snapshot: dict[str, Any]) -> str:
+    """규칙표 문장을 이어 붙인다.
+
+    규칙표의 reason이 이미 한국어 문장이라 그대로 재료가 된다. LLM이 붙으면 이걸
+    더 자연스럽게 다듬는 것이지, 없다고 못 쓸 내용은 아니다.
+    """
+    profile = snapshot.get("body_profile") or {}
+    parts: list[str] = []
+    if describe := profile.get("describe"):
+        parts.append(f"{describe} 기준으로 골랐어요.")
+    if rule_notes:
+        # 같은 근거가 여러 아이템에서 나올 수 있어 앞의 두 개만 쓴다.
+        parts.append(" ".join(note.rstrip(".") + "." for note in rule_notes[:2]))
+    weather = snapshot.get("weather") or {}
+    if (temperature := weather.get("temperature")) is not None:
+        parts.append(f"기온은 {round(float(temperature))}도입니다.")
+    return " ".join(parts) or "오늘 조건에 맞춰 골랐어요."
+
+
+def _enrich_with_copy(look: DailyLook, candidate, snapshot: dict[str, Any]) -> None:
+    """문장을 LLM으로 다듬는다. 실패해도 추천은 그대로 남는다.
+
+    매일 같은 사용자에게 나가는 기능이라 템플릿만으로는 사흘이면 "또 같은 말"이
+    된다. 그래서 LLM을 쓰되, 없어도 기능이 성립하도록 순서를 뒤에 뒀다.
+    """
+    try:
+        copy = gemini.write_daily_look_copy(
+            outfit=_candidate_for_llm(candidate), context=snapshot
+        )
+    except Exception as exc:  # noqa: BLE001 — 문장 실패가 추천을 되돌리면 안 된다
+        logger.warning("오늘의 룩 %s 문장 생성 실패 (템플릿 유지): %s", look.pk, exc)
+        look.error = f"문장 생성 실패(추천은 정상): {type(exc).__name__}: {exc}"[:2000]
+        look.save(update_fields=["error", "updated_at"])
+        return
+
+    notes = {
+        str(row.get("item_key")): str(row.get("note", ""))
+        for row in copy.parsed.get("items") or []
+    }
+    result = dict(look.result)
+    result.update(
+        {
+            "headline": copy.parsed.get("headline") or result["headline"],
+            "rationale_ko": copy.parsed.get("rationale_ko") or result["rationale_ko"],
+            "styling_tips": copy.parsed.get("styling_tips") or [],
+            "generated_by": "llm",
+        }
+    )
+    for item in result["items"]:
+        item["note"] = notes.get(item["item_key"], "")
+
+    look.result = result
+    look.llm_model = copy.model
+    look.llm_request = copy.request
+    look.llm_response = copy.response
+    look.llm_latency_ms = copy.latency_ms
+    look.save(
+        update_fields=["result", "llm_model", "llm_request", "llm_response",
+                       "llm_latency_ms", "updated_at"]
     )
 
 

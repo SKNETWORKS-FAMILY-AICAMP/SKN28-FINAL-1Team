@@ -45,6 +45,9 @@ class _FakeCandidate:
         self.payload = {
             "golden_id": golden_id,
             "item_keys": [f"{golden_id}#000"],
+            "source_bucket": "skn28-cozy3",
+            "source_key": f"goldenset/source/{golden_id}.PNG",
+            "exposable": False,
             "items": [
                 {
                     "item_key": f"{golden_id}#000",
@@ -52,6 +55,7 @@ class _FakeCandidate:
                     "category_large": "상의",
                     "layer_role": "기본 상의",
                     "color": "화이트",
+                    "s3_key": f"goldenset/derived/v1/{golden_id}/item_000.png",
                 }
             ],
         }
@@ -124,13 +128,15 @@ class RunTests(TestCase):
         self.assertEqual(self.look.status, DailyLook.Status.EMPTY)
         self.assertEqual(self.look.result, {})
 
-    @patch("apps.recommend.services.daily_look.gemini.compose_daily_look")
+    @patch("apps.recommend.services.daily_look.gemini.write_daily_look_copy")
     @patch("apps.recommend.services.daily_look.retrieve_outfits")
-    def test_success_stores_result_and_candidates(self, retrieve, compose):
+    def test_success_stores_result_and_candidates(self, retrieve, copy):
         retrieve.return_value = [_FakeCandidate()]
-        compose.return_value = type(
+        copy.return_value = type(
             "R", (), {
-                "parsed": {"headline": "가볍게", "golden_id": "095", "rationale_ko": "..."},
+                "parsed": {"headline": "가볍게", "rationale_ko": "...",
+                           "styling_tips": ["팁"], "items": [
+                               {"item_key": "095#000", "note": "기본 기장"}]},
                 "request": {"x": 1}, "response": {"y": 2},
                 "model": "gemini-3.5-flash", "latency_ms": 1200,
             },
@@ -139,23 +145,79 @@ class RunTests(TestCase):
         self.look.refresh_from_db()
         self.assertEqual(self.look.status, DailyLook.Status.SUCCEEDED)
         self.assertEqual(self.look.result["golden_id"], "095")
-        # 후보 스냅샷이 남아야 골든셋이 바뀐 뒤에도 추천 경로를 되짚을 수 있다
+        self.assertEqual(self.look.result["generated_by"], "llm")
+        self.assertEqual(self.look.result["items"][0]["note"], "기본 기장")
         self.assertEqual(self.look.candidates[0]["golden_id"], "095")
         self.assertEqual(self.look.llm_latency_ms, 1200)
 
-    @patch("apps.recommend.services.daily_look.gemini.compose_daily_look")
+    @patch("apps.recommend.services.daily_look.gemini.write_daily_look_copy")
     @patch("apps.recommend.services.daily_look.retrieve_outfits")
-    def test_llm_receives_tags_not_images(self, retrieve, compose):
+    def test_selection_is_deterministic_top_ranked(self, retrieve, copy):
+        """코디는 리트리버가 정한다. LLM은 고르지 않는다."""
+        retrieve.return_value = [
+            _FakeCandidate("095", score=88.0),
+            _FakeCandidate("096", score=42.0),
+        ]
+        copy.return_value = type("R", (), {
+            "parsed": {}, "request": {}, "response": {}, "model": "m", "latency_ms": 1})()
+        service.run(self.look)
+        self.look.refresh_from_db()
+        self.assertEqual(self.look.result["golden_id"], "095")
+        # LLM에는 확정된 코디 하나만 넘어간다 (후보 목록이 아니다)
+        self.assertEqual(copy.call_args.kwargs["outfit"]["golden_id"], "095")
+
+    @patch(
+        "apps.recommend.services.daily_look.gemini.write_daily_look_copy",
+        side_effect=RuntimeError("gemini down"),
+    )
+    @patch("apps.recommend.services.daily_look.retrieve_outfits")
+    def test_llm_failure_keeps_the_recommendation(self, retrieve, _copy):
+        """문장이 실패해도 추천은 살아남아야 한다. 예전에는 FAILED가 됐다."""
+        retrieve.return_value = [_FakeCandidate()]
+        service.run(self.look)
+        self.look.refresh_from_db()
+        self.assertEqual(self.look.status, DailyLook.Status.SUCCEEDED)
+        self.assertEqual(self.look.result["golden_id"], "095")
+        self.assertEqual(self.look.result["generated_by"], "template")
+        self.assertTrue(self.look.result["rationale_ko"])
+        self.assertIn("문장 생성 실패", self.look.error)
+
+    @patch("apps.recommend.services.daily_look.gemini.write_daily_look_copy")
+    @patch("apps.recommend.services.daily_look.retrieve_outfits")
+    def test_result_carries_s3_refs_not_urls(self, retrieve, copy):
+        """presigned URL은 만료된다. DB에는 버킷·키만 담고 직렬화가 서명한다."""
+        retrieve.return_value = [_FakeCandidate()]
+        copy.return_value = type("R", (), {
+            "parsed": {}, "request": {}, "response": {}, "model": "m", "latency_ms": 1})()
+        service.run(self.look)
+        self.look.refresh_from_db()
+        item = self.look.result["items"][0]
+        self.assertEqual(item["s3_bucket"], "skn28-cozy3")
+        self.assertTrue(item["s3_key"].endswith("item_000.png"))
+        self.assertNotIn("image_url", item)
+        self.assertNotIn("https://", json.dumps(self.look.result))
+
+    @patch("apps.recommend.services.daily_look.gemini.write_daily_look_copy")
+    @patch("apps.recommend.services.daily_look.retrieve_outfits")
+    def test_non_exposable_outfit_has_no_original_image(self, retrieve, copy):
+        retrieve.return_value = [_FakeCandidate()]
+        copy.return_value = type("R", (), {
+            "parsed": {}, "request": {}, "response": {}, "model": "m", "latency_ms": 1})()
+        service.run(self.look)
+        self.look.refresh_from_db()
+        self.assertIsNone(self.look.result["outfit_image"])
+
+    @patch("apps.recommend.services.daily_look.gemini.write_daily_look_copy")
+    @patch("apps.recommend.services.daily_look.retrieve_outfits")
+    def test_llm_receives_tags_not_images(self, retrieve, copy):
         """골든 원본은 대개 노출 불가다. 프롬프트에 이미지가 실리면 안 된다."""
         retrieve.return_value = [_FakeCandidate()]
-        compose.return_value = type("R", (), {
-            "parsed": {"golden_id": "095"}, "request": {}, "response": {},
-            "model": "m", "latency_ms": 1})()
+        copy.return_value = type("R", (), {
+            "parsed": {}, "request": {}, "response": {}, "model": "m", "latency_ms": 1})()
         service.run(self.look)
-        sent = compose.call_args.kwargs["candidates"][0]
+        sent = copy.call_args.kwargs["outfit"]
         self.assertIn("items", sent)
         self.assertNotIn("source_uri", json.dumps(sent, ensure_ascii=False))
-        self.assertNotIn("image", json.dumps(sent, ensure_ascii=False))
 
 
 class ClaimTests(TestCase):

@@ -252,10 +252,6 @@ DAILY_LOOK_SCHEMA = {
             "type": "string",
             "description": "한 줄 요약. 20자 내외의 자연스러운 한국어.",
         },
-        "golden_id": {
-            "type": "string",
-            "description": "후보 중 고른 코디의 golden_id. 반드시 주어진 목록에서 고른다.",
-        },
         "rationale_ko": {
             "type": "string",
             "description": "왜 이 코디인지. 체형 근거와 날씨를 함께 언급한다.",
@@ -277,25 +273,25 @@ DAILY_LOOK_SCHEMA = {
             },
         },
     },
-    "required": ["headline", "golden_id", "rationale_ko"],
+    "required": ["headline", "rationale_ko"],
 }
 
 DAILY_LOOK_SYSTEM_INSTRUCTION = (
     "당신은 한국어로 답하는 패션 스타일리스트입니다. "
-    "주어진 코디 후보 중 하나를 골라 오늘의 착장을 제안합니다.\n"
+    "**이미 정해진** 오늘의 착장에 설명을 붙이는 일을 합니다.\n"
     "규칙:\n"
-    "1. 반드시 주어진 후보 목록의 golden_id 중 하나만 고릅니다. 새로 지어내지 않습니다.\n"
-    "2. rule_notes는 사용자 체형에 근거한 스타일링 원칙입니다. 근거를 쓸 때 이 내용을 "
-    "그대로 옮기지 말고 자연스러운 문장으로 풀어 씁니다.\n"
-    "3. preference_notes에 기피 항목이 적혀 있으면 그 후보는 고르지 않습니다.\n"
-    "4. 체형을 지적하거나 평가하지 않습니다. '단점을 가린다'가 아니라 "
+    "1. 코디를 고르거나 바꾸지 않습니다. 다른 코디를 제안하지 않습니다.\n"
+    "2. rule_notes는 사용자 체형에 근거한 스타일링 원칙입니다. 그대로 옮기지 말고 "
+    "자연스러운 문장으로 풀어 씁니다.\n"
+    "3. 체형을 지적하거나 평가하지 않습니다. '단점을 가린다'가 아니라 "
     "'균형을 살린다'처럼 씁니다.\n"
-    "5. 날씨 정보가 있으면 기온에 맞는 레이어링을 한 문장으로 덧붙입니다."
+    "4. 날씨 정보가 있으면 기온에 맞는 레이어링을 한 문장으로 덧붙입니다.\n"
+    "5. items의 note는 주어진 item_key에 대해서만 씁니다. 없는 아이템을 만들지 않습니다."
 )
 
 
 def build_daily_look_prompt(
-    *, candidates: list[dict[str, Any]], context: dict[str, Any]
+    *, outfit: dict[str, Any], context: dict[str, Any]
 ) -> str:
     profile = context.get("body_profile") or {}
     weather = context.get("weather") or {}
@@ -310,13 +306,13 @@ def build_daily_look_prompt(
         lines.append(f"- 선호: {json.dumps(pursuit.get('preferred', {}), ensure_ascii=False)}")
         lines.append(f"- 기피: {json.dumps(pursuit.get('avoided', {}), ensure_ascii=False)}")
     lines.append("")
-    lines.append("## 코디 후보 (score가 높을수록 체형·취향에 잘 맞음)")
-    lines.append(json.dumps(candidates, ensure_ascii=False, indent=2))
+    lines.append("## 오늘의 착장 (이미 확정됨 — 바꾸지 마세요)")
+    lines.append(json.dumps(outfit, ensure_ascii=False, indent=2))
     return "\n".join(lines)
 
 
 def _build_daily_look_body(
-    *, candidates: list[dict[str, Any]], context: dict[str, Any]
+    *, outfit: dict[str, Any], context: dict[str, Any]
 ) -> dict[str, Any]:
     return {
         "systemInstruction": {"parts": [{"text": DAILY_LOOK_SYSTEM_INSTRUCTION}]},
@@ -326,7 +322,7 @@ def _build_daily_look_body(
                 "parts": [
                     {
                         "text": build_daily_look_prompt(
-                            candidates=candidates, context=context
+                            outfit=outfit, context=context
                         )
                     }
                 ],
@@ -342,19 +338,23 @@ def _build_daily_look_body(
     }
 
 
-def compose_daily_look(
-    *, candidates: list[dict[str, Any]], context: dict[str, Any]
+def write_daily_look_copy(
+    *, outfit: dict[str, Any], context: dict[str, Any]
 ) -> DailyLookResult:
-    """후보 목록에서 오늘의 착장 하나를 고르고 근거를 생성한다.
+    """**이미 정해진** 착장에 사람이 읽을 문장을 붙인다.
 
-    이미지를 보내지 않는다. 골든 원본은 대개 노출 불가이고, 조합과 근거를 말로
-    풀어내는 일이라 태그만으로 충분하다 — 멀티모달 호출보다 훨씬 싸고 빠르다.
+    코디 선택은 리트리버가 결정적으로 끝낸다. 여기서 다시 고르게 하면 체형·취향
+    점수 계산을 버리는 셈이고, 같은 입력에 다른 결과가 나와 재현도 채점도 못 한다.
+    그래서 LLM의 역할을 설명 생성으로만 좁혔다.
+
+    이미지를 보내지 않는다. 골든 원본은 대개 노출 불가이고, 조합을 말로 풀어내는
+    일이라 태그만으로 충분하다 — 멀티모달 호출보다 훨씬 싸고 빠르다.
     """
     api_key = settings.GEMINI_API_KEY
     if not api_key:
         raise GeminiConfigurationError("GEMINI_API_KEY가 설정되지 않았습니다.")
 
-    request_body = _build_daily_look_body(candidates=candidates, context=context)
+    request_body = _build_daily_look_body(outfit=outfit, context=context)
     model = settings.GEMINI_MODEL
     url = f"{settings.GEMINI_API_BASE_URL}/v1beta/models/{model}:generateContent"
 
@@ -387,15 +387,19 @@ def compose_daily_look(
             "오늘의 룩 생성에 실패했습니다.", response_payload=error_payload
         ) from exc
 
-    chosen = str(parsed.get("golden_id", ""))
-    known = {str(c.get("golden_id")) for c in candidates}
-    if chosen not in known:
-        # 스키마로는 막을 수 없는 환각이다. 후보에 없는 코디를 고르면 프론트가
-        # 존재하지 않는 코디를 조회하게 되므로 여기서 잘라낸다.
-        raise GeminiServiceError(
-            f"후보에 없는 golden_id를 골랐습니다: {chosen!r} (후보 {sorted(known)})",
-            response_payload=response_payload,
-        )
+    # 코디는 이미 정해져 있으므로 고를 여지가 없다. 남은 환각 위험은 없는
+    # 아이템에 설명을 붙이는 것뿐이라, 모르는 item_key는 조용히 버린다.
+    # 문장 전체를 실패시킬 만한 오류는 아니다.
+    known_keys = {str(item.get("item_key")) for item in outfit.get("items", [])}
+    notes = [
+        note
+        for note in (parsed.get("items") or [])
+        if str(note.get("item_key")) in known_keys
+    ]
+    dropped = len(parsed.get("items") or []) - len(notes)
+    if dropped:
+        logger.warning("오늘의 룩 문장: 알 수 없는 item_key %d건을 버렸습니다", dropped)
+    parsed["items"] = notes
 
     return DailyLookResult(
         parsed=parsed,

@@ -93,3 +93,19 @@ def presigned_get(key: str, ttl: int = PRESIGNED_GET_TTL) -> str:
     return _client().generate_presigned_url(
         "get_object", Params={"Bucket": bucket(), "Key": key}, ExpiresIn=ttl
     )
+
+
+def presigned_get_for(bucket_name: str, key: str, ttl: int = PRESIGNED_GET_TTL) -> str:
+    """다른 버킷의 객체에 대한 조회 URL.
+
+    골든셋 산출물은 이 앱의 버킷(OUTFIT_S3_BUCKET/WARDROBE_S3_BUCKET)이 아니라
+    GOLDEN_S3_BUCKET에 있다. 버킷을 인자로 받아 같은 자격증명·리전으로 서명한다.
+
+    URL은 만료되므로 **조회 시점에** 만들어야 한다. DB나 벡터 payload에 미리
+    구워 넣으면 며칠 뒤 죽은 링크가 남는다.
+    """
+    return _client().generate_presigned_url(
+        "get_object",
+        Params={"Bucket": bucket_name, "Key": key},
+        ExpiresIn=ttl,
+    )
