@@ -81,6 +81,9 @@ class Weights:
     preference_avoid: int = -60
     rule_prefer: int = 15
     rule_avoid: int = -20
+    #: 계절·상황이 맞을 때의 가산. 하드 필터가 아니라 가산인 이유는
+    #: retriever._score_context()의 주석 참고.
+    context_match: int = 10
 
 
 class RuleError(ValueError):

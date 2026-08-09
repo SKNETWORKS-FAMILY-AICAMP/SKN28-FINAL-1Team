@@ -110,12 +110,16 @@ def build_filter(
     if request.exposable_only:
         must.append(qm.FieldCondition(key="exposable", match=qm.MatchValue(value=True)))
 
-    if request.occasion:
-        must.append(_any_of("occasion", [request.occasion]))
-
-    season = _season_from_weather(request.weather)
-    if season:
-        must.append(_any_of("season", [season]))
+    # 계절·상황은 하드 필터로 걸지 않는다.
+    #
+    # 가이드 6장은 하드 필터를 "절대적인 기피 규칙"에만 쓰라고 했는데 처음엔
+    # 여기에 계절까지 얹었다. 그러자 모든 추천이 EMPTY로 끝났다 — 골든 코디의
+    # season/style/occasion은 analyses.jsonl에서 오는데 그 분석 단계가 유료
+    # 호출이 커서 기본으로 꺼져 있어, 적재된 포인트가 전부 빈 배열이었기
+    # 때문이다. 있지도 않은 값에 must를 걸면 결과는 언제나 0건이다.
+    #
+    # 계절은 "맞으면 좋은 것"이지 "틀리면 탈락"이 아니다. 소프트 가산으로 옮겨
+    # _score_context()가 처리한다. 태그가 채워진 뒤에도 이 판단은 유효하다.
 
     if request.pursuit:
         preferred = vocabulary.translate(request.pursuit.get("preferred"))
@@ -248,6 +252,31 @@ def _score_items(
     return total, reasons
 
 
+def _score_context(
+    payload: dict[str, Any], *, season: str, occasion: str, weights
+) -> tuple[float, list[Reason]]:
+    """계절·상황이 맞으면 가산한다. 안 맞아도 탈락시키지 않는다.
+
+    태그가 비어 있으면(분석 단계를 돌리지 않은 골든셋) 가산도 감산도 없다 —
+    "정보가 없음"과 "안 맞음"은 다르다.
+    """
+    total = 0.0
+    reasons: list[Reason] = []
+    if season and season in (payload.get("season") or []):
+        total += weights.context_match
+        reasons.append(
+            Reason(source="context", delta=weights.context_match, text=f"{season} 코디")
+        )
+    if occasion and occasion in (payload.get("occasion") or []):
+        total += weights.context_match
+        reasons.append(
+            Reason(
+                source="context", delta=weights.context_match, text=f"{occasion}에 어울림"
+            )
+        )
+    return total, reasons
+
+
 def retrieve_outfits(
     request: RetrievalRequest,
     *,
@@ -288,6 +317,8 @@ def retrieve_outfits(
         else {}
     )
 
+    season = _season_from_weather(request.weather)
+
     candidates: list[OutfitCandidate] = []
     for point_id, similarity, payload in records:
         if point_id in excluded:
@@ -300,6 +331,11 @@ def retrieve_outfits(
             avoided_tags=avoided,
             weights=weights,
         )
+        context_delta, context_reasons = _score_context(
+            payload, season=season, occasion=request.occasion, weights=weights
+        )
+        delta += context_delta
+        reasons.extend(context_reasons)
         # 유사도(0~1)를 100점 척도로 올려 규칙 가감점과 같은 단위에 둔다.
         base = similarity * 100
         candidates.append(
@@ -311,6 +347,16 @@ def retrieve_outfits(
                 reasons=tuple(reasons),
                 payload=payload,
             )
+        )
+
+    if not candidates:
+        # 왜 0건인지 남긴다. 필터가 문제인지 적재가 문제인지 로그만 보고
+        # 갈릴 수 있어야 한다 — 사용자에게는 둘 다 똑같이 "추천 없음"이다.
+        logger.warning(
+            "골든 코디 후보 0건: 조회 %d건 / 하드제외 %d건 / 필터=%s",
+            len(records),
+            len(excluded),
+            search_filter,
         )
 
     candidates.sort(key=lambda c: c.score, reverse=True)

@@ -142,7 +142,14 @@ def run(look: DailyLook) -> None:
         # 실패와 구분한다. 프론트는 "잠시 후 다시"가 아니라 "프로필을 채워주세요"를
         # 띄워야 하고, 워커는 재시도해봐야 같은 결과다.
         look.status = DailyLook.Status.EMPTY
-        look.error = "조건에 맞는 골든 코디 후보가 없습니다."
+        # 무엇이 없어서 0건인지 남긴다. 사용자에게는 다 똑같이 "추천 없음"이지만,
+        # 운영자에게는 '적재가 안 됐다'와 '이 사용자 조건이 좁다'가 전혀 다른 문제다.
+        avoided = (snapshot.get("pursuit") or {}).get("avoided") or {}
+        look.error = (
+            "조건에 맞는 골든 코디 후보가 없습니다 "
+            f"(체형={profile.silhouette}/{profile.bmi_band}, "
+            f"기피축={sorted(k for k, v in avoided.items() if v) or '없음'})"
+        )
         look.save(update_fields=["candidates", "rules_version", "status", "error",
                                  "updated_at"])
         logger.info("오늘의 룩 %s: 후보 0건", look.pk)

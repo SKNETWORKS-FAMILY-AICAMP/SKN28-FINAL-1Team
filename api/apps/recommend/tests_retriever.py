@@ -30,6 +30,7 @@ from apps.recommend.services.body_profile import (
 )
 from apps.recommend.services.retriever import (
     Reason,
+    _score_context,
     _score_items,
     _season_from_weather,
 )
@@ -177,3 +178,97 @@ class WeatherTests(unittest.TestCase):
         self.assertEqual(_season_from_weather({}), "")
         self.assertEqual(_season_from_weather({"temperature":"n/a"}), "")
 
+
+
+#: 지금 실제로 적재된 골든 코디의 모양. 분석 단계(analyses.jsonl)를 돌리지 않아
+#: style/season/occasion이 전부 빈 배열이다.
+UNTAGGED_OUTFIT = {
+    "golden_id": "095",
+    "style": [],
+    "season": [],
+    "occasion": [],
+    "items": [{"category_large": "상의", "fit": "레귤러핏", "color": "화이트"}],
+}
+TAGGED_OUTFIT = dict(UNTAGGED_OUTFIT, season=["여름"], occasion=["출근"])
+
+
+class ContextScoringTests(unittest.TestCase):
+    """계절·상황은 가산이지 탈락 조건이 아니다.
+
+    처음엔 날씨에서 뽑은 계절을 Qdrant의 must 조건으로 걸었다. 그러자 모든 추천이
+    EMPTY로 끝났다 — 적재된 코디의 season이 전부 빈 배열이라 한 건도 안 걸린
+    것이다. 있지도 않은 값에 must를 걸면 결과는 언제나 0건이다.
+    """
+
+    def setUp(self) -> None:
+        self.weights = load_body_rules().weights
+
+    def test_empty_season_is_neither_bonus_nor_penalty(self) -> None:
+        total, reasons = _score_context(
+            UNTAGGED_OUTFIT, season="여름", occasion="", weights=self.weights
+        )
+        self.assertEqual(total, 0.0)
+        self.assertEqual(reasons, [])
+
+    def test_matching_season_adds_bonus(self) -> None:
+        total, reasons = _score_context(
+            TAGGED_OUTFIT, season="여름", occasion="", weights=self.weights
+        )
+        self.assertEqual(total, self.weights.context_match)
+        self.assertEqual(reasons[0].source, "context")
+
+    def test_mismatching_season_is_not_penalised(self) -> None:
+        """'안 맞음'을 감점하면 태그가 있는 코디가 없는 코디보다 불리해진다."""
+        total, _ = _score_context(
+            TAGGED_OUTFIT, season="겨울", occasion="", weights=self.weights
+        )
+        self.assertEqual(total, 0.0)
+
+    def test_occasion_also_adds(self) -> None:
+        total, _ = _score_context(
+            TAGGED_OUTFIT, season="여름", occasion="출근", weights=self.weights
+        )
+        self.assertEqual(total, self.weights.context_match * 2)
+
+    def test_context_never_outweighs_preference(self) -> None:
+        """계절이 맞는다고 사용자가 기피한 항목을 이기면 안 된다 (가이드 Q2)."""
+        self.assertLess(self.weights.context_match, abs(self.weights.preference_avoid))
+        self.assertLess(self.weights.context_match, self.weights.preference_match)
+        self.assertLessEqual(self.weights.context_match, self.weights.rule_prefer)
+
+    def test_hard_season_filter_would_have_dropped_everything(self) -> None:
+        """회귀 재현 — EMPTY의 정체."""
+        points = [UNTAGGED_OUTFIT, dict(UNTAGGED_OUTFIT, golden_id="096")]
+        survived = [p for p in points if "여름" in (p.get("season") or [])]
+        self.assertEqual(survived, [], "must 조건이면 전부 탈락한다")
+        # 소프트로 바꾼 뒤에는 전부 살아남고 가산만 0이다
+        deltas = [
+            _score_context(p, season="여름", occasion="", weights=self.weights)[0]
+            for p in points
+        ]
+        self.assertEqual(deltas, [0.0, 0.0])
+
+
+class BuildFilterTests(unittest.TestCase):
+    """검색 필터에는 기피 요건만 들어간다 (가이드 6장)."""
+
+    def test_weather_does_not_become_a_filter(self) -> None:
+        from apps.recommend.services.retriever import RetrievalRequest, build_filter
+
+        built = build_filter(RetrievalRequest(weather={"temperature": 28}))
+        self.assertIsNone(built, "날씨만으로는 어떤 조건도 걸리지 않아야 한다")
+
+    def test_occasion_does_not_become_a_filter(self) -> None:
+        from apps.recommend.services.retriever import RetrievalRequest, build_filter
+
+        self.assertIsNone(build_filter(RetrievalRequest(occasion="출근")))
+
+    def test_avoided_style_becomes_must_not(self) -> None:
+        from apps.recommend.services.retriever import RetrievalRequest, build_filter
+
+        built = build_filter(
+            RetrievalRequest(pursuit={"preferred": {}, "avoided": {"styles": ["street"]}})
+        )
+        self.assertIsNotNone(built)
+        self.assertTrue(built.must_not)
+        self.assertFalse(built.must)
