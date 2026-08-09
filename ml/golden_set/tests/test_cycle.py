@@ -590,12 +590,24 @@ class _StubPipeline:
         self.per_image = per_image
         self.calls = 0
 
-    def process(self, image_bytes: bytes, mime: str) -> list:
+    def process(
+        self,
+        image_bytes: bytes,
+        mime: str,
+        exclude_categories: tuple[str, ...] = (),
+    ) -> tuple[list, list]:
+        """실제 WardrobePipeline과 같이 (처리한 아이템, 제외한 아이템)을 준다.
+
+        예전 스텁은 리스트만 돌려줬다. 그래서 image-processor가 튜플로 바뀐 뒤에도
+        테스트는 통과했고, GPU에서만 터졌다. 스텁이 계약을 흉내내지 못하면
+        테스트는 통과 도장만 찍는다.
+        """
         self.calls += 1
         # 마지막 아이템 하나는 실패로 만들어 부분 실패 경로도 태운다.
-        return [_StubProcessed(i) for i in range(self.per_image)] + [
+        items = [_StubProcessed(i) for i in range(self.per_image)] + [
             _StubProcessed(self.per_image, failed=True)
         ]
+        return items, []
 
 
 class _FakeS3:
@@ -949,3 +961,61 @@ class GoldenOnlyMissingTests(unittest.TestCase):
 
         with tempfile.TemporaryDirectory() as temp:
             self.assertEqual(_forced_point_ids(Path(temp), "v1"), set())
+
+
+class GoldenPipelineContractTests(unittest.TestCase):
+    """image-processor의 process() 반환 계약을 붙잡아 둔다.
+
+    룩북 기능에서 반환형이 list → (list, excluded) 튜플로 바뀌었는데, 이 패키지의
+    스텁이 옛 계약을 흉내내고 있어 테스트는 그대로 통과했다. 사고는 GPU 실행에서만
+    드러났다. 계약이 또 움직이면 여기서 먼저 걸리게 한다.
+    """
+
+    def test_stub_matches_the_real_signature(self) -> None:
+        """스텁이 실제 WardrobePipeline과 같은 모양을 돌려주는지."""
+        import inspect
+
+        pipeline = _StubPipeline(per_image=2)
+        result = pipeline.process(b"", "image/png")
+
+        self.assertIsInstance(result, tuple)
+        self.assertEqual(len(result), 2)
+        items, excluded = result
+        self.assertEqual(len(items), 3)          # 정상 2 + 실패 1
+        self.assertEqual(excluded, [])
+        # 실제 시그니처처럼 exclude_categories를 받아야 한다.
+        self.assertIn(
+            "exclude_categories", inspect.signature(pipeline.process).parameters
+        )
+
+    def test_unknown_return_shape_is_reported_with_the_type(self) -> None:
+        """형태가 또 바뀌면 루프 한복판의 AttributeError 대신 이름을 대고 멈춘다."""
+        from ml.golden_set import items as items_module
+
+        class _BadPipeline:
+            key = "bad"
+            embedder = _StubEmbedder()
+
+            def process(self, image_bytes, mime, exclude_categories=()):
+                return ([{"index": 0}], [])      # dataclass가 아닌 dict
+
+        with tempfile.TemporaryDirectory() as temp:
+            source = Path(temp) / "a.png"
+            Image.new("RGB", (8, 8), "white").save(source)
+            with self.assertRaises(TypeError) as ctx:
+                items_module._process_one(
+                    image={
+                        "golden_id": "g001",
+                        "local_path": str(source),
+                        "image_sha256": "abc",
+                        "source_key": "goldenset/source/a.png",
+                    },
+                    bucket="b",
+                    derived="d",
+                    pipeline=_BadPipeline(),
+                    embedding_version="v",
+                )
+
+        message = str(ctx.exception)
+        self.assertIn("dict", message)
+        self.assertIn("items.py", message)

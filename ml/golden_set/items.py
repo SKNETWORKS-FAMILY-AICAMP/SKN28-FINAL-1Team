@@ -185,7 +185,19 @@ def _process_one(
     local = Path(str(image["local_path"]))
     payload = local.read_bytes()
     started = time.perf_counter()
-    processed_items = pipeline.process(payload, _mime_for(local))
+    # image-processor의 process()는 (처리한 아이템, 제외한 아이템) 튜플을 준다.
+    # 룩북 기능이 들어오면서 반환형이 리스트 → 튜플로 바뀌었고, 그때 이 줄이
+    # 조용히 깨졌다 (AttributeError: 'list' object has no attribute 'image_png').
+    # 골든셋은 제외 규칙을 쓰지 않으므로 두 번째 값은 버린다.
+    result = pipeline.process(payload, _mime_for(local))
+    processed_items = result[0] if isinstance(result, tuple) else result
+    if processed_items and not hasattr(processed_items[0], "image_png"):
+        # 또 바뀌면 루프 한복판의 AttributeError 대신 여기서 이름을 대고 멈춘다.
+        raise TypeError(
+            "image-processor pipeline.process()의 반환 형태가 또 바뀌었습니다: "
+            f"{type(processed_items[0]).__name__}. ml/golden_set/items.py의 "
+            "언패킹을 맞추세요."
+        )
 
     rows: list[dict[str, Any]] = []
     vectors: dict[str, dict[str, list[float]]] = {}
