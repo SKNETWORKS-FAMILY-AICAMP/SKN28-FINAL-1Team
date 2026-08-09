@@ -1,0 +1,297 @@
+"""오늘의 룩 파이프라인 자가 진단.
+
+    python manage.py check_daily_look
+    python manage.py check_daily_look --user-id 3        # 그 사용자로 실제 생성까지
+    python manage.py check_daily_look --user-id 3 --dry-run   # 생성은 하지 않고 검색만
+
+왜 필요한가. 이 기능은 사용자 입력이 없어서 "안 되는 것"과 "아직 안 만들어진 것"이
+겉으로 똑같아 보인다. 게다가 로그인 훅은 로그인을 막지 않으려고 예외를 삼키므로
+화면에도 흔적이 남지 않는다. 그래서 연결고리를 하나씩 밟아보고 **어디서 끊겼는지**
+한 줄로 말해주는 도구가 필요하다.
+
+각 단계는 앞 단계가 성공했을 때만 의미가 있으므로 순서대로 돌고, 실패하면 그
+지점에서 멈춰 다음 할 일을 알려준다.
+"""
+
+from __future__ import annotations
+
+from typing import Any
+
+from django.contrib.auth import get_user_model
+from django.core.management.base import BaseCommand
+from django.db import connection
+
+OK = "  [OK]  "
+FAIL = "  [실패] "
+WARN = "  [주의] "
+
+
+class Command(BaseCommand):
+    help = "오늘의 룩 파이프라인이 실제로 동작 가능한 상태인지 단계별로 점검한다."
+
+    def add_arguments(self, parser: Any) -> None:
+        parser.add_argument("--user-id", type=int, help="이 사용자로 실제 흐름까지 확인")
+        parser.add_argument(
+            "--dry-run",
+            action="store_true",
+            help="행 생성·큐 적재 없이 검색 단계까지만 확인",
+        )
+
+    def handle(self, *args: Any, **options: Any) -> None:
+        steps = [
+            ("1. 배포된 코드", self._check_code),
+            ("2. daily_looks 테이블", self._check_table),
+            ("3. 체형 규칙표", self._check_rules),
+            ("4. Qdrant 연결·컬렉션", self._check_qdrant),
+            ("5. 리트리버 검색", self._check_retriever),
+            ("6. 작업 큐 (Redis)", self._check_queue),
+            ("7. Gemini 설정", self._check_gemini),
+        ]
+        for title, check in steps:
+            self.stdout.write(self.style.MIGRATE_HEADING(title))
+            try:
+                if check(options) is False:
+                    self.stdout.write(
+                        self.style.ERROR("\n여기서 끊겼습니다. 위 안내를 먼저 처리하세요.")
+                    )
+                    return
+            except Exception as exc:  # noqa: BLE001 — 진단 도구가 죽으면 안 된다
+                self.stdout.write(FAIL + f"{type(exc).__name__}: {exc}")
+                self.stdout.write(self.style.ERROR("\n여기서 끊겼습니다."))
+                return
+
+        if options["user_id"]:
+            self.stdout.write(self.style.MIGRATE_HEADING("8. 실제 생성 경로"))
+            self._check_user_flow(options)
+
+        self.stdout.write(self.style.SUCCESS("\n점검 완료."))
+
+    # ── 1 ──────────────────────────────────────────────
+    def _check_code(self, options) -> bool:
+        """컨테이너 안의 코드가 최신인지. 이미지가 옛 코드면 여기서 걸린다."""
+        import inspect
+
+        from apps.users import views as user_views
+
+        if not hasattr(user_views, "_kick_off_daily_look"):
+            self.stdout.write(FAIL + "users/views.py에 로그인 훅이 없습니다.")
+            self.stdout.write(
+                "        → 이미지가 옛 코드입니다: "
+                "docker compose --profile api build api migrate && up -d api"
+            )
+            return False
+        source = inspect.getsource(user_views.SocialLoginView.post)
+        if "_kick_off_daily_look" not in source:
+            self.stdout.write(FAIL + "로그인 뷰가 훅을 호출하지 않습니다.")
+            return False
+        self.stdout.write(OK + "로그인 훅이 SocialLoginView.post 안에 있습니다.")
+        return True
+
+    # ── 2 ──────────────────────────────────────────────
+    def _check_table(self, options) -> bool:
+        from apps.recommend.models import DailyLook
+        from apps.recommend.services.daily_look import today
+
+        with connection.cursor() as cursor:
+            cursor.execute("SELECT to_regclass('public.daily_looks')")
+            if cursor.fetchone()[0] is None:
+                self.stdout.write(FAIL + "daily_looks 테이블이 없습니다.")
+                self.stdout.write("        → python manage.py migrate")
+                return False
+
+        look_date = today()
+        total = DailyLook.objects.count()
+        todays = DailyLook.objects.filter(look_date=look_date)
+        self.stdout.write(OK + f"테이블 존재. 전체 {total}행 / 오늘({look_date}) {todays.count()}행")
+        for row in todays.order_by("-created_at")[:5]:
+            self.stdout.write(
+                f"        user={row.user_id} status={row.status} "
+                f"candidates={len(row.candidates or [])} created={row.created_at:%H:%M:%S}"
+            )
+        if total and not todays.exists():
+            # 날짜 경계 문제를 여기서 짚어준다. DB의 CURRENT_DATE는 UTC일 수 있어
+            # 손으로 조회하면 KST 기준 행을 못 찾는 경우가 있다.
+            self.stdout.write(
+                WARN + f"오늘 행이 없습니다. 서비스 기준 날짜는 {look_date}(Asia/Seoul)입니다 — "
+                "psql의 CURRENT_DATE(UTC)와 다를 수 있습니다."
+            )
+        return True
+
+    # ── 3 ──────────────────────────────────────────────
+    def _check_rules(self, options) -> bool:
+        from apps.recommend.services.style_rules import RULES_DIR, load_body_rules
+
+        path = RULES_DIR / "body_fit_rules.json"
+        if not path.exists():
+            self.stdout.write(FAIL + f"규칙표가 없습니다: {path}")
+            self.stdout.write("        → 이미지에 rules/ 가 안 들어갔습니다. 재빌드하세요.")
+            return False
+        rules = load_body_rules()
+        self.stdout.write(
+            OK + f"{rules.schema_version} / 실루엣 {len(rules.silhouette)}종 "
+            f"· BMI {len(rules.bmi_band)}종 (가중치 선호 {rules.weights.preference_avoid} "
+            f"vs 규칙 {rules.weights.rule_avoid})"
+        )
+        return True
+
+    # ── 4 ──────────────────────────────────────────────
+    def _check_qdrant(self, options) -> bool:
+        from django.conf import settings
+
+        from apps.recommend.services.qdrant import (
+            GOLDEN_ITEM_COLLECTION,
+            GOLDEN_OUTFIT_COLLECTION,
+            get_client,
+        )
+
+        client = get_client()
+        try:
+            client.get_collections()
+        except Exception as exc:  # noqa: BLE001
+            self.stdout.write(FAIL + f"Qdrant 접속 실패 ({settings.QDRANT_URL}): {exc}")
+            self.stdout.write(
+                "        → 포트 없는 https URL이면 qdrant-client가 :6333을 붙입니다. "
+                ":443을 명시하세요."
+            )
+            return False
+
+        empty = []
+        for name in (GOLDEN_OUTFIT_COLLECTION, GOLDEN_ITEM_COLLECTION):
+            if not client.collection_exists(name):
+                self.stdout.write(FAIL + f"컬렉션 없음: {name}")
+                self.stdout.write("        → python manage.py init_qdrant")
+                return False
+            count = client.get_collection(name).points_count
+            self.stdout.write(OK + f"{name}: {count}개 포인트")
+            if not count:
+                empty.append(name)
+        if empty:
+            self.stdout.write(
+                WARN + f"{', '.join(empty)}가 비어 있습니다. 리트리버는 후보 0건을 "
+                "돌려주고 오늘의 룩은 EMPTY가 됩니다 (실패가 아닙니다)."
+            )
+        return True
+
+    # ── 5 ──────────────────────────────────────────────
+    def _check_retriever(self, options) -> bool:
+        """체형 정보 없이 훑기만 해본다. 여기서 0건이면 골든셋 적재부터 봐야 한다."""
+        from apps.recommend.services.retriever import RetrievalRequest, retrieve_outfits
+
+        candidates = retrieve_outfits(RetrievalRequest(limit=3))
+        if not candidates:
+            self.stdout.write(
+                WARN + "필터 없이 검색해도 후보가 0건입니다. 골든 코디가 적재되지 "
+                "않았거나 dataset_version이 다릅니다."
+            )
+            return True
+        self.stdout.write(OK + f"후보 {len(candidates)}건")
+        for candidate in candidates:
+            self.stdout.write(
+                f"        golden_id={candidate.golden_id} score={candidate.score} "
+                f"items={len(candidate.items)}"
+            )
+        return True
+
+    # ── 6 ──────────────────────────────────────────────
+    def _check_queue(self, options) -> bool:
+        from apps.recommend.services import queue as queue_service
+
+        spec = queue_service.DAILY_LOOK
+        try:
+            client = queue_service.get_client()
+            client.ping()
+        except Exception as exc:  # noqa: BLE001
+            self.stdout.write(FAIL + f"Redis 접속 실패: {exc}")
+            self.stdout.write(
+                "        → 행은 QUEUED로 남고 워커가 못 집습니다. "
+                "복구: manage.py run_daily_look_worker --sweep"
+            )
+            return False
+        pending = client.llen(spec.pending)
+        processing = client.llen(spec.processing)
+        dead = client.llen(spec.dead)
+        self.stdout.write(
+            OK + f"pending={pending} processing={processing} dead={dead} ({spec.pending})"
+        )
+        if dead:
+            self.stdout.write(WARN + f"dead queue에 {dead}건이 쌓여 있습니다.")
+        if pending and not processing:
+            self.stdout.write(
+                WARN + "대기 중인 작업이 있는데 처리 중이 없습니다. 워커가 떠 있는지 "
+                "확인하세요: manage.py run_daily_look_worker"
+            )
+        return True
+
+    # ── 7 ──────────────────────────────────────────────
+    def _check_gemini(self, options) -> bool:
+        from django.conf import settings
+
+        if not settings.GEMINI_API_KEY:
+            self.stdout.write(FAIL + "GEMINI_API_KEY가 비어 있습니다.")
+            self.stdout.write("        → 후보는 찾아도 문장 생성에서 FAILED가 됩니다.")
+            return False
+        self.stdout.write(
+            OK + f"모델 {settings.GEMINI_MODEL} / 타임아웃 {settings.GEMINI_TIMEOUT_SECONDS}s"
+        )
+        return True
+
+    # ── 8 ──────────────────────────────────────────────
+    def _check_user_flow(self, options) -> None:
+        from apps.recommend.services.body_profile import build_profile
+        from apps.recommend.services.daily_look import ensure_today_look, today
+        from apps.recommend.services.outfit_context import build_analysis_context
+        from apps.recommend.services.retriever import (
+            RetrievalRequest,
+            retrieve_outfits,
+        )
+
+        user = get_user_model().objects.filter(pk=options["user_id"]).first()
+        if user is None:
+            self.stdout.write(FAIL + f"user_id={options['user_id']} 사용자가 없습니다.")
+            return
+
+        context = build_analysis_context(user, lat=None, lon=None)
+        profile = build_profile(context.get("body"))
+        self.stdout.write(f"        체형: {profile.describe()}")
+        self.stdout.write(f"        판정에 쓴 치수: {list(profile.known) or '없음'}")
+        self.stdout.write(f"        빠진 치수: {list(profile.missing) or '없음'}")
+        self.stdout.write(f"        날씨: {context.get('weather')}")
+        self.stdout.write(
+            f"        추구미: {'있음' if context.get('pursuit') else '없음'}"
+        )
+
+        candidates = retrieve_outfits(
+            RetrievalRequest(
+                body=profile,
+                pursuit=context.get("pursuit"),
+                weather=context.get("weather"),
+                limit=5,
+            )
+        )
+        self.stdout.write(f"        이 사용자 기준 후보: {len(candidates)}건")
+        for candidate in candidates:
+            reasons = "; ".join(r.text for r in candidate.reasons[:2])
+            self.stdout.write(
+                f"          golden_id={candidate.golden_id} score={candidate.score}"
+                + (f" ({reasons})" if reasons else "")
+            )
+        if not candidates:
+            self.stdout.write(
+                WARN + "후보 0건 → 오늘의 룩은 EMPTY로 끝납니다. 4번의 포인트 수와 "
+                "체형·기피 조건을 다시 보세요."
+            )
+
+        if options["dry_run"]:
+            self.stdout.write("        (--dry-run: 행 생성·큐 적재는 건너뜁니다)")
+            return
+
+        look, created = ensure_today_look(user)
+        self.stdout.write(
+            OK + f"ensure_today_look: {'새로 생성' if created else '이미 있음'} "
+            f"look_id={look.pk} status={look.status} date={look.look_date}"
+        )
+        if not created:
+            self.stdout.write(
+                f"        → 오늘({today()}) 행이 이미 있어 로그인해도 다시 만들지 "
+                "않습니다. 다시 시험하려면 그 행을 지우세요."
+            )
