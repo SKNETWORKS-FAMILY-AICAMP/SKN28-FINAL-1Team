@@ -165,6 +165,38 @@ services:
       - ./ml:/ml:ro
     command: python manage.py run_outfit_worker
 
+  # 오늘의 룩 생성 워커. 평가 워커와 큐가 분리돼 있어 서로 밀리지 않는다.
+  #
+  # 워커는 1대만 띄운다. 기동 시 recover_stale()이 processing에 남은 작업을 전부
+  # pending으로 되돌리기 때문에, 2대 이상이면 다른 워커가 처리 중인 작업까지 회수한다.
+  daily-look-worker:
+    build:
+      context: ./api
+    container_name: skn28-daily-look-worker
+    restart: unless-stopped
+    profiles: ["api", "all"]
+    depends_on:
+      db:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    env_file:
+      - .env
+    environment:
+      TZ: Asia/Seoul          # look_date를 Asia/Seoul 기준으로 잡는다 (UTC면 날짜가 밀린다)
+      POSTGRES_HOST: db
+      POSTGRES_PORT: 5432
+      REDIS_URL: redis://redis:6379/0  # 비밀번호는 REDIS_PASSWORD로 별도 주입
+      QDRANT_URL: http://qdrant:6333   # 리트리버가 쓴다 — 없으면 후보 0건으로 EMPTY가 된다
+      DJANGO_SETTINGS_MODULE: ${DJANGO_SETTINGS_MODULE:-config.settings.prod}
+      OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
+    volumes:
+      # outfit-worker와 같은 이유. Django system check가 config.urls를 import하고
+      # 그 경로에 body_measurement가 걸려 있어, 이 마운트가 없으면 워커가
+      # ModuleNotFoundError로 죽는다.
+      - ./ml:/ml:ro
+    command: python manage.py run_daily_look_worker
+
   weather-collector:
     build:
       context: ./collector/weather
