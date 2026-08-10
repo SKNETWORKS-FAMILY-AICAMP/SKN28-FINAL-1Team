@@ -12,7 +12,8 @@ import { Editorial, ink, Fonts } from '@/constants/theme';
 import { useBottomTabInset } from '@/hooks/use-bottom-tab-inset';
 import { useBreakpoint } from '@/hooks/use-breakpoint';
 import { confirmWardrobeItem, useWardrobeItem } from '@/hooks/use-wardrobe';
-import { deleteWardrobeItem, itemDisplayName, type WardrobeApiItem } from '@/lib/wardrobeApi';
+import { deleteWardrobeItem, itemDisplayName, type WardrobeApiItem, getMySharedRooms, listSharedRoomItems, registerItemToSharedRoom, unregisterItemFromSharedRoom, type SharedRoom } from '@/lib/wardrobeApi';
+import { useEffect } from 'react';
 
 const INK = Editorial.ink;
 const BONE = Editorial.bone;
@@ -42,6 +43,73 @@ export default function ItemDetail() {
   const [confirming, setConfirming] = useState(false);
   const toast = useToast();
   const confirm = useConfirm();
+
+  const [sharedRooms, setSharedRooms] = useState<SharedRoom[]>([]);
+  const [sharedRoomIds, setSharedRoomIds] = useState<string[]>([]);
+  const [shareEnabled, setShareEnabled] = useState(false);
+  const [selectedRoomId, setSelectedRoomId] = useState<string>('');
+  const [dropdownOpen, setDropdownOpen] = useState(false);
+
+  // 공유 상태 동기화 및 방 목록 조회
+  useEffect(() => {
+    if (id) {
+      getMySharedRooms().then((rooms) => {
+        setSharedRooms(rooms || []);
+        if (rooms && rooms.length > 0) {
+          setSelectedRoomId(rooms[0].id);
+          // 이 아이템이 어느 방에 공유되어 있는지 확인
+          rooms.forEach((room) => {
+            listSharedRoomItems(room.id).then((items) => {
+              const hasItem = items.some((it) => it.wardrobe_item.id === id);
+              if (hasItem) {
+                setSharedRoomIds([room.id]);
+                setShareEnabled(true);
+                setSelectedRoomId(room.id);
+              }
+            });
+          });
+        }
+      });
+    }
+  }, [id]);
+
+  const handleToggleShare = async (nextEnabled: boolean) => {
+    if (!item) return;
+    try {
+      if (nextEnabled) {
+        if (!selectedRoomId) return;
+        await registerItemToSharedRoom(selectedRoomId, item.id);
+        setSharedRoomIds([selectedRoomId]);
+        setShareEnabled(true);
+        toast('공유 옷장에 공유했어요');
+      } else {
+        // 기존 공유된 모든 방에서 해제
+        for (const rid of sharedRoomIds) {
+          await unregisterItemFromSharedRoom(rid, item.id);
+        }
+        setSharedRoomIds([]);
+        setShareEnabled(false);
+        toast('공유를 취소했어요');
+      }
+    } catch (e) {
+      toast(e instanceof Error ? e.message : '공유 처리에 실패했어요', { variant: 'error' });
+    }
+  };
+
+  const handleSelectRoom = async (roomId: string) => {
+    if (!item) return;
+    try {
+      for (const rid of sharedRoomIds) {
+        await unregisterItemFromSharedRoom(rid, item.id);
+      }
+      await registerItemToSharedRoom(roomId, item.id);
+      setSharedRoomIds([roomId]);
+      setSelectedRoomId(roomId);
+      toast('공유 옷장을 변경했어요');
+    } catch (e) {
+      toast(e instanceof Error ? e.message : '공유 옷장 변경에 실패했어요', { variant: 'error' });
+    }
+  };
 
   /* 태그를 고치지 않고 "맞다"고만 확인하는 경로. 고칠 게 있으면 수정 시트에서 저장하면 된다. */
   const onConfirm = async () => {
@@ -173,6 +241,67 @@ export default function ItemDetail() {
                 </View>
               ) : null}
 
+              {/* 공유 옷장 설정 영역 (색 정보 상단에 상주) */}
+              {sharedRooms.length > 0 ? (
+                <View style={styles.shareArea}>
+                  <View style={styles.shareHeader}>
+                    <Text style={styles.shareLabel}>공유 옷장에 공유</Text>
+                    <Pressable
+                      style={[styles.switchContainer, shareEnabled && styles.switchContainerActive]}
+                      onPress={() => handleToggleShare(!shareEnabled)}
+                    >
+                      <View style={[styles.switchCircle, shareEnabled && styles.switchCircleActive]} />
+                    </Pressable>
+                  </View>
+                  {shareEnabled && (
+                    <View style={styles.dropdownWrapper}>
+                      <Pressable
+                        style={styles.dropdownHeader}
+                        onPress={() => setDropdownOpen(!dropdownOpen)}
+                      >
+                        <Text style={styles.dropdownSelectedText} numberOfLines={1}>
+                          {selectedRoomId
+                            ? sharedRooms.find((r) => r.id === selectedRoomId)?.title
+                            : '선택'}
+                        </Text>
+                        <Icon
+                          name={dropdownOpen ? 'chevron.up' : 'chevron.down'}
+                          tintColor={Editorial.textCaption}
+                          size={14}
+                        />
+                      </Pressable>
+                      {dropdownOpen && (
+                        <View style={styles.dropdownList}>
+                          {sharedRooms.map((room) => (
+                            <Pressable
+                              key={room.id}
+                              style={[
+                                styles.dropdownItem,
+                                selectedRoomId === room.id && styles.dropdownItemActive,
+                              ]}
+                              onPress={() => {
+                                handleSelectRoom(room.id);
+                                setDropdownOpen(false);
+                              }}
+                            >
+                              <Text
+                                style={[
+                                  styles.dropdownItemText,
+                                  selectedRoomId === room.id && styles.dropdownItemTextActive,
+                                ]}
+                                numberOfLines={1}
+                              >
+                                {room.title}
+                              </Text>
+                            </Pressable>
+                          ))}
+                        </View>
+                      )}
+                    </View>
+                  )}
+                </View>
+              ) : null}
+
               {specs.length > 0 ? (
                 <View style={styles.specGrid}>
                   {specs.map((s) => (
@@ -219,6 +348,99 @@ export default function ItemDetail() {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: Editorial.page },
+  shareArea: {
+    backgroundColor: Editorial.surfaceSoft,
+    borderRadius: 16,
+    padding: 14,
+    marginBottom: 16,
+    borderWidth: 1,
+    borderColor: Editorial.line,
+  },
+  shareHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  shareLabel: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: INK,
+  },
+  switchContainer: {
+    width: 44,
+    height: 24,
+    borderRadius: 999,
+    backgroundColor: ink(0.12),
+    paddingHorizontal: 2,
+    justifyContent: 'center',
+  },
+  switchContainerActive: {
+    backgroundColor: '#34C759',
+  },
+  switchCircle: {
+    width: 20,
+    height: 20,
+    borderRadius: 10,
+    backgroundColor: '#FFFFFF',
+  },
+  switchCircleActive: {
+    alignSelf: 'flex-end',
+  },
+  dropdownWrapper: {
+    position: 'relative',
+    zIndex: 100,
+    marginTop: 10,
+  },
+  dropdownHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    height: 40,
+    paddingHorizontal: 12,
+    borderRadius: 8,
+    backgroundColor: Editorial.surface,
+    borderWidth: 1,
+    borderColor: Editorial.line,
+  },
+  dropdownSelectedText: {
+    fontSize: 12,
+    color: Editorial.ink,
+    flex: 1,
+  },
+  dropdownList: {
+    position: 'absolute',
+    top: 44,
+    left: 0,
+    right: 0,
+    borderRadius: 8,
+    backgroundColor: Editorial.surface,
+    borderWidth: 1,
+    borderColor: Editorial.line,
+    zIndex: 101,
+    maxHeight: 120,
+    overflow: 'scroll',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.1,
+    shadowRadius: 6,
+  },
+  dropdownItem: {
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: Editorial.lineSoft,
+  },
+  dropdownItemActive: {
+    backgroundColor: Editorial.surfaceSoft,
+  },
+  dropdownItemText: {
+    fontSize: 11,
+    color: Editorial.textSoft,
+  },
+  dropdownItemTextActive: {
+    fontWeight: '600',
+    color: Editorial.ink,
+  },
   headerSafe: { backgroundColor: Editorial.page },
   header: {
     flexDirection: 'row',

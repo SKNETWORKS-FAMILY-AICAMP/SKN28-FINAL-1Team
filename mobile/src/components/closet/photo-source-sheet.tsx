@@ -19,7 +19,7 @@ import { draftItem } from '@/state/draft-item';
 
 const INK = Editorial.ink;
 
-type SourceKey = 'album' | 'camera' | 'web' | 'library';
+type SourceKey = 'album' | 'camera' | 'web' | 'library' | 'mock';
 
 /* 앨범·카메라는 내 사진, Web 은 쇼핑몰에서 가져오기, 라이브러리는 준비된 옷에서 고르기.
    라이브러리를 넣은 이유 — 사진이 없어도 옷장을 채워볼 수 있는 유일한 길이다.
@@ -27,6 +27,7 @@ type SourceKey = 'album' | 'camera' | 'web' | 'library';
 const ALL_SOURCES: { key: SourceKey; label: string; icon: IconName; hint: string }[] = [
   { key: 'album', label: '앨범', icon: 'photo.on.rectangle', hint: '갤러리에서 선택' },
   { key: 'camera', label: '카메라', icon: 'camera', hint: '직접 촬영' },
+  { key: 'mock', label: '임의 이미지', icon: 'sparkles', hint: '테스트용 랜덤 이미지' },
   { key: 'web', label: 'Web', icon: 'globe', hint: '쇼핑몰에서' },
   { key: 'library', label: '라이브러리', icon: 'book', hint: '준비된 옷에서' },
 ];
@@ -68,11 +69,27 @@ export function PhotoSourceSheet({
       return;
     }
 
+    if (key === 'mock') {
+      const mockImages = [
+        'https://images.unsplash.com/photo-1591047139829-d91aecb6caea?w=500', // Jacket
+        'https://images.unsplash.com/photo-1503342217505-b0a15ec3261c?w=500', // T-Shirt
+        'https://images.unsplash.com/photo-1541099649105-f69ad21f3246?w=500', // Jeans
+        'https://images.unsplash.com/photo-1515886657613-9f3515b0c78f?w=500', // Dress
+        'https://images.unsplash.com/photo-1596755094514-f87e34085b2c?w=500', // Shirt
+      ];
+      const shuffled = [...mockImages].sort(() => 0.5 - Math.random());
+      draftItem.setPhotos(shuffled.slice(0, 3));
+      onClose();
+      router.push('/item-add');
+      setActive(null);
+      return;
+    }
+
     setLoading(true);
     try {
       const uri = key === 'album' ? await pickFromAlbum() : await pickFromCamera();
       if (!uri) return;
-      draftItem.setPhoto(uri);
+      draftItem.addPhoto(uri);
       onClose();
       router.push('/item-add');
     } catch {

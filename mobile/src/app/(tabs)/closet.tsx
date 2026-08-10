@@ -11,8 +11,9 @@ import {
 import { PhotoSourceSheet } from '@/components/closet/photo-source-sheet';
 import { CategoryEditSheet, EmptyState, ErrorState, LoadingState, LoginGate, SearchFilterBar, SegmentedToggle, SmartImage, useToast } from '@/components/ui';
 import { useMultiSelectFilter } from '@/hooks/useMultiSelectFilter';
-import { router } from 'expo-router';
+import { router, useLocalSearchParams } from 'expo-router';
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { Platform } from 'react-native';
 import {
   ActivityIndicator,
   Pressable,
@@ -31,12 +32,21 @@ import { useBottomTabInset } from '@/hooks/use-bottom-tab-inset';
 import { useBreakpoint } from '@/hooks/use-breakpoint';
 import { useRefresh } from '@/hooks/use-refresh';
 import { useWardrobeItems } from '@/hooks/use-wardrobe';
-import { itemDisplayName, getMySharedRooms, createSharedRoom, joinSharedRoom } from '@/lib/wardrobeApi';
+import { itemDisplayName, getMySharedRooms, createSharedRoom, joinSharedRoom, listSharedRoomMembers, listSharedRoomItems, renameSharedRoom } from '@/lib/wardrobeApi';
 import { Icon } from '@/components/icon';
 import { useAuth } from '@/state/auth';
-import { uploadJobs, useUploadCompleted, useUploadJobs } from '@/state/upload-jobs';
+import { uploadJobs, useUploadCompleted, useUploadJobs, useBatchTotal, useBatchCompletedCount } from '@/state/upload-jobs';
 
 const INK = Editorial.ink;
+
+const MEMBER_COLORS = [
+  '#FFD54F', // 노랑
+  '#4FC3F7', // 하늘
+  '#81C784', // 연두
+  '#F06292', // 핑크
+  '#BA68C8', // 보라
+  '#FFB74D', // 주황
+];
 
 /* 카드 크기는 창 폭에서 파생되므로 모듈 최상단이 아니라 컴포넌트 안에서 useBreakpoint() 로 구한다.
    (모듈 최상단에서 읽으면 리사이즈에 반응하지 않는다) */
@@ -77,9 +87,20 @@ export default function ClosetScreen() {
   const tabInset = useBottomTabInset();
 
   const toast = useToast();
+  const params = useLocalSearchParams<{ tab?: 'mine' | 'shared' }>();
   const [tab, setTab] = useState<'mine' | 'shared'>('mine');
+
+  // URL 탭 파라미터 감지 및 자동 전환
+  useEffect(() => {
+    if (params.tab && (params.tab === 'mine' || params.tab === 'shared')) {
+      setTab(params.tab);
+    }
+  }, [params.tab]);
+
   const [query, setQuery] = useState('');
   const [sharedSpace, setSharedSpace] = useState<SharedSpace | null>(null);
+  const [sharedRooms, setSharedRooms] = useState<any[]>([]);
+  const [sharedItems, setSharedItems] = useState<Card[]>([]);
   const [inviteOpen, setInviteOpen] = useState(false);
   const [joinOpen, setJoinOpen] = useState(false);
   const [categories, setCategories] = useState<string[]>(DEFAULT_CATEGORIES);
@@ -103,6 +124,9 @@ export default function ClosetScreen() {
   const running = jobs.filter((j) => j.phase !== 'failed');
   const failed = jobs.filter((j) => j.phase === 'failed');
 
+  const batchTotal = useBatchTotal();
+  const batchCompleted = useBatchCompletedCount();
+
   const seenCompleted = useRef(completed);
   useEffect(() => {
     if (completed === seenCompleted.current) return;
@@ -122,63 +146,123 @@ export default function ClosetScreen() {
     [apiItems],
   );
 
-  const sharedSource = sharedSpace && sharedSpace.members.length > 1 ? SHARED_ITEMS : [];
+  const sharedSource = sharedSpace ? sharedItems : [];
   const source = tab === 'mine' ? myItems : sharedSource;
   const items = useMemo(
     () => source.filter((i) => matches(i.category) && matchesQuery(i, query)),
     [source, matches, query],
   );
 
+  const loadRoomData = async (roomId: string, currentRoomsList?: any[]) => {
+    try {
+      const [membersList, itemsList] = await Promise.all([
+        listSharedRoomMembers(roomId),
+        listSharedRoomItems(roomId),
+      ]);
+      const memberNames = membersList.map((m) =>
+        m.user.username === 'dev_autologin' ? '나' : m.user.username
+      );
+      const targetRoom = (currentRoomsList || sharedRooms).find((r) => r.id === roomId);
+      setSharedSpace({
+        id: roomId,
+        name: targetRoom?.title || '공유 옷장',
+        inviteCode: targetRoom?.invite_code || '',
+        members: memberNames,
+      });
+      setSharedItems(
+        itemsList.map((si) => ({
+          id: si.id,
+          name: si.wardrobe_item.item_name || '옷',
+          category: si.wardrobe_item.category_large,
+          image: si.wardrobe_item.image_url,
+          owner: si.registered_by?.username === 'dev_autologin' ? '나' : si.registered_by?.username || undefined,
+        }))
+      );
+    } catch (err) {
+      console.error('공유방 세부 정보 로드 실패:', err);
+    }
+  };
+
   // 첫 마운트 또는 로그인 상태 변경 시 내 공유 옷장 방 로드
   useEffect(() => {
     if (isLoggedIn && tab === 'shared') {
       getMySharedRooms()
-        .then((rooms) => {
+        .then(async (rooms) => {
+          setSharedRooms(rooms || []);
           if (rooms && rooms.length > 0) {
-            const firstRoom = rooms[0];
-            setSharedSpace({
-              id: firstRoom.id,
-              name: firstRoom.title,
-              inviteCode: firstRoom.invite_code || '',
-              members: ['나'], // 기본 멤버 배열 바인딩
-            });
+            const selectedId =
+              sharedSpace?.id && rooms.some((r) => r.id === sharedSpace.id)
+                ? sharedSpace.id
+                : rooms[0].id;
+            await loadRoomData(selectedId, rooms);
           } else {
             setSharedSpace(null);
+            setSharedItems([]);
           }
         })
-        .catch(() => setSharedSpace(null));
+        .catch(() => {
+          setSharedRooms([]);
+          setSharedSpace(null);
+          setSharedItems([]);
+        });
     }
   }, [isLoggedIn, tab]);
 
   const handleCreateSpace = async () => {
+    let title = '공유 옷장';
+    if (Platform.OS === 'web') {
+      const input = window.prompt('새로운 공유 옷장의 이름을 입력해주세요:', '공유 옷장');
+      if (input === null) return; // 취소 누른 경우
+      if (input.trim()) {
+        title = input.trim();
+      }
+    }
     try {
-      const room = await createSharedRoom('공유 옷장');
-      setSharedSpace({
-        id: room.id,
-        name: room.title,
-        inviteCode: room.invite_code || '',
-        members: ['나'],
-      });
+      const room = await createSharedRoom(title);
+      toast(`'${title}'을 만들었어요`, { variant: 'success' });
+      const rooms = await getMySharedRooms();
+      setSharedRooms(rooms || []);
+      await loadRoomData(room.id, rooms);
       setInviteOpen(true);
-      toast('공유 옷장을 만들었어요', { variant: 'success' });
     } catch (err) {
-      toast('공유 옷장 개설에 실패했습니다', { variant: 'error' });
+      console.error('공유 옷장 개설 실패:', err);
+      toast(err instanceof Error ? err.message : '공유 옷장 개설에 실패했습니다', { variant: 'error' });
+    }
+  };
+
+  const handleRenameSpace = async (roomId: string, currentTitle: string) => {
+    if (Platform.OS === 'web') {
+      const input = window.prompt('수정할 공유 옷장의 이름을 입력해주세요:', currentTitle);
+      if (input === null) return; // 취소 누른 경우
+      const newTitle = input.trim();
+      if (newTitle && newTitle !== currentTitle) {
+        try {
+          await renameSharedRoom(roomId, newTitle);
+          toast('옷장 이름을 수정했어요', { variant: 'success' });
+          const rooms = await getMySharedRooms();
+          setSharedRooms(rooms || []);
+          if (sharedSpace?.id === roomId) {
+            setSharedSpace((prev) => (prev ? { ...prev, name: newTitle } : null));
+          }
+        } catch (err) {
+          console.error('공유 옷장 이름 수정 실패:', err);
+          toast('이름을 수정하지 못했습니다.', { variant: 'error' });
+        }
+      }
     }
   };
 
   const handleJoinSpace = async (code: string) => {
     try {
       const res = await joinSharedRoom(code);
-      setSharedSpace({
-        id: res.room_id,
-        name: res.title,
-        inviteCode: code,
-        members: ['나', '친구'], // 참여 멤버수 증가 모사
-      });
       toast('공유 옷장에 참여했어요', { variant: 'success' });
+      const rooms = await getMySharedRooms();
+      setSharedRooms(rooms || []);
+      await loadRoomData(res.room_id, rooms);
       return true;
     } catch (err) {
-      toast('유효하지 않거나 만료된 초대 코드입니다', { variant: 'error' });
+      console.error('공유 옷장 참여 실패:', err);
+      toast(err instanceof Error ? err.message : '유효하지 않거나 만료된 초대 코드입니다', { variant: 'error' });
       return false;
     }
   };
@@ -254,7 +338,9 @@ export default function ClosetScreen() {
           <View style={[styles.jobStrip, contentStyle(ContentMax.wide)]}>
             <ActivityIndicator color={INK} size="small" />
             <Text style={styles.jobText}>
-              옷 등록 중 · {running.length}장
+              {batchTotal > 0
+                ? `옷장 분석중 (${batchCompleted}/${batchTotal})`
+                : `옷 등록 중 · ${running.length}장`}
             </Text>
           </View>
         ) : null}
@@ -271,6 +357,53 @@ export default function ClosetScreen() {
               </View>
             ))
           : null}
+
+        {tab === 'shared' && sharedRooms.length > 0 ? (
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            style={styles.roomTabsScroll}
+            contentContainerStyle={styles.roomTabsContainer}
+          >
+            {sharedRooms.map((room) => {
+              const isSelected = room.id === sharedSpace?.id;
+              return (
+                <Pressable
+                  key={room.id}
+                  style={[
+                    styles.roomTab,
+                    isSelected && styles.roomTabActive,
+                    { flexDirection: 'row', alignItems: 'center' }
+                  ]}
+                  onPress={() => loadRoomData(room.id)}
+                  onLongPress={() => handleRenameSpace(room.id, room.title)}
+                >
+                  <Text style={[styles.roomTabText, isSelected && styles.roomTabTextActive]}>
+                    {room.title}
+                  </Text>
+                  {isSelected && (
+                    <Pressable
+                      hitSlop={8}
+                      style={{ marginLeft: 6 }}
+                      onPress={() => handleRenameSpace(room.id, room.title)}
+                    >
+                      <Icon name="pencil" tintColor="#FFFFFF" size={12} />
+                    </Pressable>
+                  )}
+                </Pressable>
+              );
+            })}
+            <Pressable
+              style={[styles.roomTab, styles.roomTabAdd]}
+              onPress={handleCreateSpace}
+            >
+              <Icon name="plus" tintColor={ink(0.6)} size={12} />
+              <Text style={[styles.roomTabText, { marginLeft: 4, color: ink(0.6) }]}>
+                새 옷장
+              </Text>
+            </Pressable>
+          </ScrollView>
+        ) : null}
 
         {tab === 'shared' && sharedSpace ? (
           <>
@@ -346,9 +479,20 @@ export default function ClosetScreen() {
                       radius={GridCard.radius}
                       contentFit="cover"
                     />
-                    {it.owner ? (
-                      <View style={styles.ownerBadge}>
-                        <Text style={styles.ownerText}>{it.owner}님</Text>
+                     {it.owner ? (
+                      <View style={[
+                        styles.ownerBadge,
+                        {
+                          backgroundColor:
+                            sharedSpace
+                              ? MEMBER_COLORS[sharedSpace.members.indexOf(it.owner) % MEMBER_COLORS.length] || Editorial.ink
+                              : Editorial.ink
+                        }
+                      ]}>
+                        <Text style={[
+                          styles.ownerText,
+                          sharedSpace && sharedSpace.members.indexOf(it.owner) === 0 && { color: '#1C1917' }
+                        ]}>{it.owner}님</Text>
                       </View>
                     ) : null}
                   </View>
@@ -479,5 +623,44 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.12,
     shadowRadius: 14,
     elevation: 8,
+  },
+
+  // ── 공유방 가로 탭 스타일 ──
+  roomTabsScroll: {
+    marginVertical: 12,
+    maxHeight: 40,
+    minHeight: 40,
+  },
+  roomTabsContainer: {
+    paddingHorizontal: PAD,
+    gap: 8,
+    alignItems: 'center',
+  },
+  roomTab: {
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    borderRadius: 999,
+    backgroundColor: '#F3F4F6',
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+  },
+  roomTabActive: {
+    backgroundColor: INK,
+    borderColor: INK,
+  },
+  roomTabAdd: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    borderStyle: 'dashed',
+    borderColor: ink(0.3),
+    backgroundColor: 'transparent',
+  },
+  roomTabText: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: ink(0.6),
+  },
+  roomTabTextActive: {
+    color: '#FFFFFF',
   },
 });

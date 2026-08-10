@@ -1,6 +1,6 @@
 import { useSyncExternalStore } from 'react';
 
-import { getUploadJob, uploadWardrobePhoto } from '@/lib/wardrobeApi';
+import { getUploadJob, uploadWardrobePhoto, registerItemToSharedRoom } from '@/lib/wardrobeApi';
 
 /**
  * 옷 등록 진행 상황 — 화면이 아니라 여기서 돌린다.
@@ -28,6 +28,9 @@ let jobs: UploadJobState[] = [];
 let completed = 0;
 let seq = 0;
 
+let activeBatchTotal = 0;
+let activeBatchCompleted = 0;
+
 const listeners = new Set<() => void>();
 
 function notify() {
@@ -44,64 +47,107 @@ function drop(key: string) {
   notify();
 }
 
+function incrementBatchCompleted() {
+  if (activeBatchTotal > 0) {
+    activeBatchCompleted += 1;
+    if (activeBatchCompleted >= activeBatchTotal) {
+      // 모든 파일이 끝나면(성공/실패 무관) 배치 카운트 리셋
+      activeBatchTotal = 0;
+      activeBatchCompleted = 0;
+    }
+    notify();
+  }
+}
+
 export const uploadJobs = {
   getJobs: () => jobs,
   getCompleted: () => completed,
+  getBatchProgress: () => ({
+    total: activeBatchTotal,
+    completed: activeBatchCompleted,
+  }),
+
+  startBatch(total: number) {
+    activeBatchTotal = total;
+    activeBatchCompleted = 0;
+    notify();
+  },
 
   /** 사진 한 장을 올리고 처리가 끝날 때까지 따라간다. 화면이 닫혀도 계속된다. */
-  start(uri: string, opts?: { name?: string; mimeType?: string }) {
-    const key = `u${++seq}`;
-    jobs = [...jobs, { key, phase: 'uploading' }];
-    notify();
+  start(uri: string, opts?: { name?: string; mimeType?: string; sharedRoomId?: string }): Promise<void> {
+    return new Promise<void>((resolve) => {
+      const key = `u${++seq}`;
+      jobs = [...jobs, { key, phase: 'uploading' }];
+      notify();
 
-    (async () => {
-      let jobId: string;
-      try {
-        jobId = (await uploadWardrobePhoto(uri, opts)).job_id;
-      } catch (e) {
-        update(key, {
-          phase: 'failed',
-          error: e instanceof Error ? e.message : '사진을 올리지 못했어요',
-        });
-        return;
-      }
-      update(key, { phase: 'processing' });
-
-      const startedAt = Date.now();
-      /* 재귀 setTimeout — setInterval 은 응답이 간격보다 느릴 때 요청이 겹친다. */
-      const poll = async () => {
+      (async () => {
+        let jobId: string;
         try {
-          const job = await getUploadJob(jobId);
-          if (job.status === 'DONE') {
-            drop(key);
-            completed += 1;
-            notify();
-            return;
-          }
-          if (job.status === 'FAILED') {
-            update(key, {
-              phase: 'failed',
-              error: job.error_message || '사진을 처리하지 못했어요',
-            });
-            return;
-          }
-          if (Date.now() - startedAt > POLL_TIMEOUT_MS) {
-            update(key, {
-              phase: 'failed',
-              error: '처리가 오래 걸리고 있어요. 잠시 후 옷장을 새로고침해 주세요.',
-            });
-            return;
-          }
-          setTimeout(poll, POLL_INTERVAL_MS);
+          jobId = (await uploadWardrobePhoto(uri, { name: opts?.name, mimeType: opts?.mimeType })).job_id;
         } catch (e) {
           update(key, {
             phase: 'failed',
-            error: e instanceof Error ? e.message : '처리 상태를 확인하지 못했어요',
+            error: e instanceof Error ? e.message : '사진을 올리지 못했어요',
           });
+          incrementBatchCompleted();
+          resolve();
+          return;
         }
-      };
-      setTimeout(poll, POLL_INTERVAL_MS);
-    })();
+        update(key, { phase: 'processing' });
+
+        const startedAt = Date.now();
+        /* 재귀 setTimeout — setInterval 은 응답이 간격보다 느릴 때 요청이 겹친다. */
+        const poll = async () => {
+          try {
+            const job = await getUploadJob(jobId);
+            if (job.status === 'DONE') {
+              if (opts?.sharedRoomId) {
+                try {
+                  for (const it of job.items || []) {
+                    await registerItemToSharedRoom(opts.sharedRoomId, it.id);
+                  }
+                } catch (err) {
+                  console.error('Failed to register item to shared room in background:', err);
+                }
+              }
+              drop(key);
+              completed += 1;
+              incrementBatchCompleted();
+              notify();
+              resolve();
+              return;
+            }
+            if (job.status === 'FAILED') {
+              update(key, {
+                phase: 'failed',
+                error: job.error_message || '사진을 처리하지 못했어요',
+              });
+              incrementBatchCompleted();
+              resolve();
+              return;
+            }
+            if (Date.now() - startedAt > POLL_TIMEOUT_MS) {
+              update(key, {
+                phase: 'failed',
+                error: '처리가 오래 걸리고 있어요. 잠시 후 옷장을 새로고침해 주세요.',
+              });
+              incrementBatchCompleted();
+              resolve();
+              return;
+            }
+            setTimeout(poll, POLL_INTERVAL_MS);
+          } catch (e) {
+            update(key, {
+              phase: 'failed',
+              error: e instanceof Error ? e.message : '처리 상태를 확인하지 못했어요',
+            });
+            incrementBatchCompleted();
+            resolve();
+          }
+        };
+        setTimeout(poll, POLL_INTERVAL_MS);
+      })();
+    });
   },
 
   /** 실패 알림을 사용자가 닫는다 */
@@ -122,4 +168,12 @@ export function useUploadJobs(): UploadJobState[] {
 /** 등록이 하나 끝날 때마다 값이 바뀐다 — 목록을 다시 불러올 신호. */
 export function useUploadCompleted(): number {
   return useSyncExternalStore(uploadJobs.subscribe, uploadJobs.getCompleted, uploadJobs.getCompleted);
+}
+
+export function useBatchTotal(): number {
+  return useSyncExternalStore(uploadJobs.subscribe, () => activeBatchTotal, () => activeBatchTotal);
+}
+
+export function useBatchCompletedCount(): number {
+  return useSyncExternalStore(uploadJobs.subscribe, () => activeBatchCompleted, () => activeBatchCompleted);
 }

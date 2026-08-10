@@ -36,6 +36,20 @@ def create_shared_room(user, title: str) -> SharedWardrobeRoom:
         role=SharedWardrobeMember.Role.OWNER
     )
     
+    # 데모용 가상 멤버 추가 (DEBUG=True일 때 파스텔 아바타 색상 테스트용)
+    from django.conf import settings
+    if settings.DEBUG:
+        for mock_name in ["철수", "영희", "민수"]:
+            mock_user, _ = User.objects.get_or_create(
+                username=mock_name,
+                defaults={"nickname": mock_name}
+            )
+            SharedWardrobeMember.objects.create(
+                room=room,
+                user=mock_user,
+                role=SharedWardrobeMember.Role.MEMBER
+            )
+    
     return room
 
 
@@ -78,6 +92,10 @@ def join_shared_room(user, invite_code: str) -> SharedWardrobeRoom:
     # 이미 참여 중인지 체크
     if SharedWardrobeMember.objects.filter(room=room, user=user).exists():
         return room
+        
+    # 인원 제한 체크 (최대 6명)
+    if room.members.count() >= 6:
+        raise ValueError("공유 옷장 정원(최대 6명)이 초과되어 가입할 수 없습니다.")
         
     # 멤버십 참여 등록
     SharedWardrobeMember.objects.create(

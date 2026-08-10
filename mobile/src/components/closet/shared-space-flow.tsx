@@ -2,6 +2,7 @@ import { Icon } from '@/components/icon';
 import { useToast } from '@/components/ui';
 import { Editorial, ink, Type } from '@/constants/theme';
 import { useMemo, useState } from 'react';
+import { KAKAO_NATIVE_APP_KEY } from '@/constants/config';
 import {
   Modal,
   Platform,
@@ -23,6 +24,9 @@ export type SharedSpace = {
 const DEMO_JOIN_CODE = 'COZY24';
 
 function makeInviteLink(code: string) {
+  if (Platform.OS === 'web' && typeof window !== 'undefined') {
+    return `${window.location.origin}/invite?code=${code}`;
+  }
   return `https://skn-1st-mobile.expo.app/invite?code=${code}`;
 }
 
@@ -78,6 +82,20 @@ export function SharedSpaceInviteBanner({ onInvite }: { onInvite: () => void }) 
   );
 }
 
+const MEMBER_COLORS = [
+  '#FFD54F', // 노랑
+  '#4FC3F7', // 하늘
+  '#81C784', // 연두
+  '#F06292', // 핑크
+  '#BA68C8', // 보라
+  '#FFB74D', // 주황
+];
+
+export function getAvatarColor(name: string): string {
+  // 하위 호환용 (혹시 다른 곳에서 사용 시)
+  return MEMBER_COLORS[0];
+}
+
 /** 멤버 아바타 + 초대 버튼 */
 export function SharedSpaceMembers({
   space,
@@ -86,19 +104,24 @@ export function SharedSpaceMembers({
   space: SharedSpace;
   onInvite: () => void;
 }) {
-  const initials = useMemo(
-    () => space.members.map((m) => m.slice(0, 1)),
-    [space.members],
-  );
-
   return (
     <View style={styles.membersRow}>
       <View style={styles.memberAvatars}>
-        {initials.map((ch, i) => (
-          <View key={`${ch}-${i}`} style={[styles.memberDot, i > 0 && styles.memberDotOverlap]}>
-            <Text style={styles.memberInitial}>{ch}</Text>
-          </View>
-        ))}
+        {space.members.map((member, i) => {
+          const ch = member.slice(0, 1);
+          const bgColor = MEMBER_COLORS[i % MEMBER_COLORS.length];
+          return (
+            <View
+              key={`${member}-${i}`}
+              style={[
+                styles.memberDot,
+                i > 0 && styles.memberDotOverlap,
+                { backgroundColor: bgColor },
+              ]}>
+              <Text style={styles.memberInitial}>{ch}</Text>
+            </View>
+          );
+        })}
       </View>
       <Text style={styles.memberCount}>{space.members.length}명</Text>
       <Pressable style={styles.inviteChip} onPress={onInvite} hitSlop={6}>
@@ -124,6 +147,59 @@ export function SharedSpaceInviteSheet({
 
   const shareLink = async (via: 'kakao' | 'sns' | 'copy') => {
     if (via === 'kakao') {
+      if (Platform.OS === 'web') {
+        const loadKakao = () => {
+          return new Promise<void>((resolve, reject) => {
+            if (typeof window === 'undefined') return resolve();
+            if ((window as any).Kakao) return resolve();
+            const script = document.createElement('script');
+            script.src = 'https://t1.kakaocdn.net/kakao_js_sdk_2.7.2/kakao.min.js';
+            script.onload = () => {
+              try {
+                if (!(window as any).Kakao.isInitialized()) {
+                  (window as any).Kakao.init(KAKAO_NATIVE_APP_KEY);
+                }
+                resolve();
+              } catch (e) {
+                reject(e);
+              }
+            };
+            script.onerror = () => reject(new Error('Kakao SDK load failed'));
+            document.head.appendChild(script);
+          });
+        };
+
+        try {
+          await loadKakao();
+          (window as any).Kakao.Share.sendDefault({
+            objectType: 'feed',
+            content: {
+              title: '공유 옷장 초대',
+              description: `[cozy] '${space.name}' 공유 옷장에 초대합니다!`,
+              imageUrl: 'https://images.unsplash.com/photo-1540221652346-e5dd6b50f3e7?w=500&auto=format&fit=crop&q=60',
+              link: {
+                mobileWebUrl: link,
+                webUrl: link,
+              },
+            },
+            buttons: [
+              {
+                title: '초대장 확인하고 수락하기',
+                link: {
+                  mobileWebUrl: link,
+                  webUrl: link,
+                },
+              },
+            ],
+          });
+          toast('카카오톡 공유창을 열었습니다.', { variant: 'success' });
+          return;
+        } catch (err) {
+          console.error('카카오 웹 공유 실패:', err);
+        }
+      }
+
+      // 네이티브 앱 또는 웹 공유 실패 시 일반 공유 폴백
       try {
         await Share.share({
           message: `[cozy] ${space.name}에 초대합니다!\n${link}`,

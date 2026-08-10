@@ -1,5 +1,5 @@
-import { useState } from 'react';
-import { Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { useEffect, useState } from 'react';
+import { Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, View, Platform } from 'react-native';
 
 import { useToast } from '@/components/ui';
 import {
@@ -17,7 +17,15 @@ import {
 } from '@/constants/wardrobe-taxonomy';
 import { ContentMax, Editorial, ink, Type } from '@/constants/theme';
 import { useBreakpoint } from '@/hooks/use-breakpoint';
-import { patchWardrobeItem, type WardrobeApiItem, type WardrobeItemPatch } from '@/lib/wardrobeApi';
+import {
+  patchWardrobeItem,
+  getMySharedRooms,
+  registerItemToSharedRoom,
+  type WardrobeApiItem,
+  type WardrobeItemPatch,
+  type SharedRoom,
+} from '@/lib/wardrobeApi';
+import { Icon } from '@/components/icon';
 
 const INK = Editorial.ink;
 
@@ -26,10 +34,12 @@ function ChipRow({
   options,
   selected,
   onToggle,
+  onAddCustom,
 }: {
   options: readonly string[];
   selected: string[];
   onToggle: (value: string) => void;
+  onAddCustom?: () => void;
 }) {
   return (
     <View style={styles.chipRow}>
@@ -44,6 +54,11 @@ function ChipRow({
           </Pressable>
         );
       })}
+      {onAddCustom && (
+        <Pressable style={styles.chipAdd} onPress={onAddCustom}>
+          <Text style={styles.chipAddText}>+ 직접 입력</Text>
+        </Pressable>
+      )}
     </View>
   );
 }
@@ -80,6 +95,8 @@ export function ItemTagSheet({
   const [saving, setSaving] = useState(false);
 
   const [draft, setDraft] = useState<WardrobeItemPatch>({});
+  // 사용자 직접 입력 커스텀 태그 옵션 상태
+  const [customOptions, setCustomOptions] = useState<Record<string, string[]>>({});
 
   /* 시트를 열 때(또는 다른 아이템으로 바꿔 열 때) 편집값을 비운다.
      effect 가 아니라 렌더 중에 맞춘다 — 여는 순간 옛 값이 한 프레임 스치지 않게. */
@@ -114,6 +131,63 @@ export function ItemTagSheet({
   const large = val('category_large') as string;
   const smalls = CATEGORY_SMALL[large as CategoryLarge] ?? [];
 
+  // 커스텀 옵션 + 기존 선택값 + 고정 옵션을 중복 없이 머지하는 헬퍼
+  const getOptions = (key: string, defaultOptions: readonly string[]) => {
+    const custom = customOptions[key] || [];
+    const valStrOrArr = val(key as any);
+    const selectedValues = Array.isArray(valStrOrArr)
+      ? valStrOrArr
+      : valStrOrArr
+        ? [valStrOrArr]
+        : [];
+    return Array.from(new Set([...defaultOptions, ...custom, ...selectedValues]));
+  };
+
+  const handleAddCustomTag = (key: string, label: string) => {
+    if (Platform.OS === 'web') {
+      const input = window.prompt(`새로운 ${label} 태그를 입력해주세요:`);
+      if (input === null) return;
+      const tag = input.trim();
+      if (tag) {
+        setCustomOptions((prev) => ({
+          ...prev,
+          [key]: [...(prev[key] || []), tag],
+        }));
+        if (key === 'season' || key === 'style') {
+          const cur = (val(key as any) as string[]) || [];
+          if (!cur.includes(tag)) {
+            setDraft((d) => ({ ...d, [key]: [...cur, tag] }));
+          }
+        } else {
+          setDraft((d) => ({ ...d, [key]: tag }));
+        }
+      }
+    } else {
+      const Alert = require('react-native').Alert;
+      Alert.prompt(
+        `새로운 ${label} 태그`,
+        '추가할 태그명을 입력해주세요.',
+        (tag: string) => {
+          const trimmed = tag.trim();
+          if (trimmed) {
+            setCustomOptions((prev) => ({
+              ...prev,
+              [key]: [...(prev[key] || []), trimmed],
+            }));
+            if (key === 'season' || key === 'style') {
+              const cur = (val(key as any) as string[]) || [];
+              if (!cur.includes(trimmed)) {
+                setDraft((d) => ({ ...d, [key]: [...cur, trimmed] }));
+              }
+            } else {
+              setDraft((d) => ({ ...d, [key]: trimmed }));
+            }
+          }
+        }
+      );
+    }
+  };
+
   const save = async () => {
     if (Object.keys(draft).length === 0) {
       onClose();
@@ -121,7 +195,10 @@ export function ItemTagSheet({
     }
     setSaving(true);
     try {
-      const updated = await patchWardrobeItem(item.id, draft);
+      let updated = item;
+      if (Object.keys(draft).length > 0) {
+        updated = await patchWardrobeItem(item.id, draft);
+      }
       onSaved(updated);
       toast('태그를 수정했어요', { variant: 'success' });
       onClose();
@@ -160,7 +237,7 @@ export function ItemTagSheet({
 
             <Section title="분류">
               <ChipRow
-                options={CATEGORY_LARGE}
+                options={getOptions('category_large', CATEGORY_LARGE)}
                 selected={[large]}
                 /* 대분류를 바꾸면 소분류는 짝이 깨지므로 함께 비운다 */
                 onToggle={(v) =>
@@ -170,13 +247,14 @@ export function ItemTagSheet({
                     category_small: v === large ? (val('category_small') as string) : '',
                   }))
                 }
+                onAddCustom={() => handleAddCustomTag('category_large', '분류')}
               />
             </Section>
 
             {smalls.length > 0 ? (
               <Section title="세부 분류">
                 <ChipRow
-                  options={smalls}
+                  options={getOptions('category_small', smalls)}
                   selected={val('category_small') ? [val('category_small') as string] : []}
                   onToggle={(v) =>
                     setDraft((d) => ({
@@ -184,34 +262,68 @@ export function ItemTagSheet({
                       category_small: val('category_small') === v ? '' : v,
                     }))
                   }
+                  onAddCustom={() => handleAddCustomTag('category_small', '세부 분류')}
                 />
               </Section>
             ) : null}
 
             <Section title="색">
-              <ChipRow options={COLORS} {...single('color')} />
+              <ChipRow
+                options={getOptions('color', COLORS)}
+                {...single('color')}
+                onAddCustom={() => handleAddCustomTag('color', '색')}
+              />
             </Section>
             <Section title="패턴">
-              <ChipRow options={PATTERNS} {...single('pattern')} />
+              <ChipRow
+                options={getOptions('pattern', PATTERNS)}
+                {...single('pattern')}
+                onAddCustom={() => handleAddCustomTag('pattern', '패턴')}
+              />
             </Section>
             <Section title="핏">
-              <ChipRow options={FITS} {...single('fit')} />
+              <ChipRow
+                options={getOptions('fit', FITS)}
+                {...single('fit')}
+                onAddCustom={() => handleAddCustomTag('fit', '핏')}
+              />
             </Section>
             <Section title="소재">
-              <ChipRow options={MATERIALS} {...single('material')} />
+              <ChipRow
+                options={getOptions('material', MATERIALS)}
+                {...single('material')}
+                onAddCustom={() => handleAddCustomTag('material', '소재')}
+              />
             </Section>
             <Section title="소매">
-              <ChipRow options={SLEEVES} {...single('sleeve')} />
+              <ChipRow
+                options={getOptions('sleeve', SLEEVES)}
+                {...single('sleeve')}
+                onAddCustom={() => handleAddCustomTag('sleeve', '소매')}
+              />
             </Section>
             <Section title="기장">
-              <ChipRow options={LENGTHS} {...single('length')} />
+              <ChipRow
+                options={getOptions('length', LENGTHS)}
+                {...single('length')}
+                onAddCustom={() => handleAddCustomTag('length', '기장')}
+              />
             </Section>
             <Section title="계절 (여러 개)">
-              <ChipRow options={SEASONS} {...multi('season')} />
+              <ChipRow
+                options={getOptions('season', SEASONS)}
+                {...multi('season')}
+                onAddCustom={() => handleAddCustomTag('season', '계절')}
+              />
             </Section>
             <Section title="스타일 (여러 개)">
-              <ChipRow options={STYLES} {...multi('style')} />
+              <ChipRow
+                options={getOptions('style', STYLES)}
+                {...multi('style')}
+                onAddCustom={() => handleAddCustomTag('style', '스타일')}
+              />
             </Section>
+
           </ScrollView>
 
           <View style={styles.actions}>
@@ -292,6 +404,22 @@ const styles = StyleSheet.create({
   chipOn: { backgroundColor: Editorial.selected, borderColor: Editorial.selected },
   chipText: { fontSize: Type.caption, color: Editorial.textCaption, fontWeight: '500' },
   chipTextOn: { color: '#fff' },
+  chipAdd: {
+    paddingHorizontal: 12,
+    paddingVertical: 7,
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: ink(0.25),
+    borderStyle: 'dashed',
+    backgroundColor: 'transparent',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  chipAddText: {
+    fontSize: Type.caption,
+    color: ink(0.5),
+    fontWeight: '500',
+  },
 
   actions: { flexDirection: 'row', gap: 10, marginTop: 20 },
   cancelBtn: {
@@ -313,4 +441,89 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   saveText: { fontSize: Type.body, fontWeight: '600', color: '#fff' },
+  dropdownWrapper: {
+    position: 'relative',
+    zIndex: 10,
+  },
+  dropdownHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    height: 46,
+    paddingHorizontal: 14,
+    borderRadius: 12,
+    backgroundColor: Editorial.surfaceSoft,
+    borderWidth: 1,
+    borderColor: Editorial.line,
+  },
+  dropdownSelectedText: {
+    fontSize: Type.body,
+    color: Editorial.ink,
+  },
+  dropdownList: {
+    marginTop: 4,
+    borderRadius: 12,
+    backgroundColor: Editorial.surface,
+    borderWidth: 1,
+    borderColor: Editorial.line,
+    overflow: 'hidden',
+  },
+  dropdownItem: {
+    paddingVertical: 12,
+    paddingHorizontal: 14,
+    borderBottomWidth: 1,
+    borderBottomColor: Editorial.lineSoft,
+  },
+  dropdownItemActive: {
+    backgroundColor: Editorial.surfaceSoft,
+  },
+  dropdownItemText: {
+    fontSize: Type.footnote,
+    color: Editorial.textSoft,
+  },
+  dropdownItemTextActive: {
+    fontWeight: '600',
+    color: Editorial.ink,
+  },
+  toggleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    height: 46,
+    paddingHorizontal: 14,
+    borderRadius: 12,
+    backgroundColor: Editorial.surfaceSoft,
+    borderWidth: 1,
+    borderColor: Editorial.line,
+  },
+  toggleText: {
+    fontSize: Type.footnote,
+    fontWeight: '600',
+    color: INK,
+  },
+  switchContainer: {
+    width: 48,
+    height: 26,
+    borderRadius: 999,
+    backgroundColor: ink(0.12),
+    paddingHorizontal: 3,
+    justifyContent: 'center',
+  },
+  switchContainerActive: {
+    backgroundColor: '#34C759',
+  },
+  switchCircle: {
+    width: 20,
+    height: 20,
+    borderRadius: 10,
+    backgroundColor: '#FFFFFF',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.15,
+    shadowRadius: 2,
+    elevation: 2,
+  },
+  switchCircleActive: {
+    alignSelf: 'flex-end',
+  },
 });

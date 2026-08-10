@@ -113,7 +113,12 @@ export default function AppTabs() {
             ))}
           </Sidebar>
         ) : (
-          <BottomBar onLayout={(e) => setBarHeight(e.nativeEvent.layout.height)}>
+          <BottomBar onLayout={(e) => {
+            const h = e.nativeEvent.layout.height;
+            if (h !== barHeight) {
+              setBarHeight(h);
+            }
+          }}>
             {TABS.slice(0, 2).map((t) => (
               <TabTrigger key={t.name} name={t.name} href={t.href} asChild>
                 <TabItem icon={t.icon} label={t.label} />

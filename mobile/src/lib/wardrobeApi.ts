@@ -291,36 +291,46 @@ export type SharedRoomItem = {
 };
 
 export function createSharedRoom(title: string): Promise<SharedRoom> {
-  return api.post<SharedRoom>('/shared-wardrobes/', { title });
+  return api.post<SharedRoom>('/api/v1/shared-wardrobes/', { title });
+}
+
+export function renameSharedRoom(roomId: string, title: string): Promise<SharedRoom> {
+  return api.patch<SharedRoom>(`/api/v1/shared-wardrobes/${roomId}/`, { title });
 }
 
 export function joinSharedRoom(inviteCode: string): Promise<{ room_id: string; title: string; status: string }> {
-  return api.post<{ room_id: string; title: string; status: string }>('/shared-wardrobes/join/', { invite_code: inviteCode });
+  return api.post<{ room_id: string; title: string; status: string }>('/api/v1/shared-wardrobes/join/', { invite_code: inviteCode });
 }
 
 export function refreshInviteCode(roomId: string): Promise<{ room_id: string; invite_code: string; code_expires_at: string }> {
-  return api.post<{ room_id: string; invite_code: string; code_expires_at: string }>(`/shared-wardrobes/${roomId}/refresh-code/`);
+  return api.post<{ room_id: string; invite_code: string; code_expires_at: string }>(`/api/v1/shared-wardrobes/${roomId}/refresh-code/`);
 }
 
 export function leaveSharedRoom(roomId: string, deleteMyItems: boolean = true): Promise<unknown> {
-  return api.post(`/shared-wardrobes/${roomId}/leave/`, { delete_my_items: deleteMyItems });
+  return api.post(`/api/v1/shared-wardrobes/${roomId}/leave/`, { delete_my_items: deleteMyItems });
 }
 
 export function listSharedRoomItems(roomId: string): Promise<SharedRoomItem[]> {
-  return api.get<SharedRoomItem[]>(`/shared-wardrobes/${roomId}/items/`);
+  return api.get<SharedRoomItem[]>(`/api/v1/shared-wardrobes/${roomId}/items/`);
 }
 
 export function registerItemToSharedRoom(roomId: string, wardrobeItemId: string, status: 'available' | 'borrowed' | 'private' = 'available'): Promise<SharedRoomItem> {
-  return api.post<SharedRoomItem>(`/shared-wardrobes/${roomId}/items/`, {
+  return api.post<SharedRoomItem>(`/api/v1/shared-wardrobes/${roomId}/items/`, {
     wardrobe_item_id: wardrobeItemId,
     status
   });
 }
 
+export function unregisterItemFromSharedRoom(roomId: string, wardrobeItemId: string): Promise<unknown> {
+  return api.delete(`/api/v1/shared-wardrobes/${roomId}/items/`, {
+    params: { wardrobe_item_id: wardrobeItemId },
+  });
+}
+
 export function listSharedRoomMembers(roomId: string): Promise<SharedRoomMember[]> {
-  return api.get<SharedRoomMember[]>(`/shared-wardrobes/${roomId}/members/`);
+  return api.get<SharedRoomMember[]>(`/api/v1/shared-wardrobes/${roomId}/members/`);
 }
 
 export function getMySharedRooms(): Promise<SharedRoom[]> {
-  return api.get<SharedRoom[]>('/shared-wardrobes/');
+  return api.get<SharedRoom[]>('/api/v1/shared-wardrobes/');
 }

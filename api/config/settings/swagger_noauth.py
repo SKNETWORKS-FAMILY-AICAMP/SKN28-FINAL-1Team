@@ -25,3 +25,6 @@ REST_FRAMEWORK = {
         "apps.users.authentication.AutoLoginAuthentication",
     ],
 }
+
+# 로컬 개발용 CORS 전체 허용
+CORS_ALLOW_ALL_ORIGINS = True

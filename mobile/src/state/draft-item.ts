@@ -2,16 +2,25 @@ import { useSyncExternalStore } from 'react';
 
 /**
  * 아이템 등록(D2) 화면과 무신사 WebView(import) 사이에서
- * "가져온 사진 URL"을 주고받기 위한 초경량 스토어.
- * (모달에서 뒤로 돌아올 때 값을 전달할 방법으로 사용)
+ * "가져온 사진 URL 리스트"를 주고받기 위한 초경량 스토어.
  */
-let photo: string | null = null;
+let photos: string[] = [];
 const listeners = new Set<() => void>();
 
 export const draftItem = {
-  getPhoto: () => photo,
-  setPhoto(next: string | null) {
-    photo = next;
+  getPhotos: () => photos,
+  setPhotos(next: string[]) {
+    photos = next.slice(0, 3);
+    listeners.forEach((l) => l());
+  },
+  addPhoto(photo: string) {
+    if (photos.length < 3 && !photos.includes(photo)) {
+      photos = [...photos, photo];
+      listeners.forEach((l) => l());
+    }
+  },
+  clear() {
+    photos = [];
     listeners.forEach((l) => l());
   },
   subscribe(listener: () => void) {
@@ -22,7 +31,7 @@ export const draftItem = {
   },
 };
 
-/** D2 화면에서 현재 가져온 사진을 구독 */
-export function useDraftPhoto() {
-  return useSyncExternalStore(draftItem.subscribe, draftItem.getPhoto, draftItem.getPhoto);
+/** D2 화면에서 현재 가져온 사진 리스트를 구독 */
+export function useDraftPhotos() {
+  return useSyncExternalStore(draftItem.subscribe, draftItem.getPhotos, draftItem.getPhotos);
 }
