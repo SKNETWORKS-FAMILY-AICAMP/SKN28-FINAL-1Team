@@ -5,8 +5,9 @@
 - ``estimate_from_basic``  : 성별·키·몸무게 → 표 기반 모델이 상세 7개와 지표 3개 예측
 - ``estimate_from_photos`` : 위 10개를 만든 뒤, 사진 VLM 응답으로 덮어씀
 
-사진 VLM은 10개를 다 물어본다. 초기 모델 비교는 비용을 아끼려고
-가슴·허리·엉덩이 3개만 채점했지만, SizeKorea 기반 VLM 라벨에는
+사진 VLM은 10개를 다 물어본다. 과거 모델 비교 보고서는 비용을 아끼려고
+가슴·허리·엉덩이 3개만 채점했지만, 현재 OpenRouter benchmark prompt도
+10개 키를 요청한다. SizeKorea 기반 VLM 라벨에는
 허벅지·장딴지·팔·어깨 정답도 복구되어 오프라인 평가는 상세 7개 모두 가능하다.
 
 학습 코드(``benchmark.py``)와 달리 이 모듈은 서빙 전용이다. 모델을 하나만 lazy 로드하고
@@ -57,9 +58,9 @@ HEIGHT_RANGE_CM = (100.0, 230.0)
 WEIGHT_RANGE_KG = (25.0, 300.0)
 
 OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions"
-# 서빙은 7개를 다 물어보는 _full 프롬프트를 쓴다.
-# 모델 선정 벤치마크(scripts/run_openrouter.py)는 비용을 아끼려고 3개만 묻는
-# body_measurement_prompt.j2를 쓰며, 기록된 MAE를 재현할 수 있도록 그대로 둔다.
+# 서빙은 측정값 7개와 체형 지표 3개, 총 10개를 물어보는 _full 프롬프트를 쓴다.
+# 모델 선정 벤치마크(scripts/run_openrouter.py)는 현재 10개를 요청한다.
+# 과거 3개 prompt의 기록된 MAE는 보고서에 보존한다.
 PROMPT_PATH = PROJECT_ROOT / "prompts" / "body_measurement_prompt_full.j2"
 SCHEMA_PATH = PROJECT_ROOT / "prompts" / "body_measurement_schema_full.json"
 

@@ -19,14 +19,14 @@ REPO_ROOT = PROJECT_ROOT.parent.parent
 DATA_DIR = PROJECT_ROOT / "data" / "splits" / "vlm"
 PROMPTS_DIR = PROJECT_ROOT / "prompts"
 
-# 모델 선정 벤치마크 기준 부위. 응답에 없으면 실패로 본다.
+# 모델 선정 벤치마크에서 반드시 확인하는 핵심 부위. 현재 prompt는 전체 10개를 요청한다.
 CORE_TARGETS = ["chest", "waist", "hip"]
 # 서빙에서 실제로 쓰는 7개 + 3개 비율 지표 전체
 RATIO_TARGETS = ["neck_length", "thigh_calf_ratio", "torso_leg_ratio"]
 FULL_TARGETS = [*CORE_TARGETS, "thigh", "calf", "arm", "shoulder", *RATIO_TARGETS]
 
-# core: 모델 선정 벤치마크에 쓴 3개짜리. (이제 10개짜리 full과 동기화되어 둘 다 10개를 씀)
-# full: 서빙과 동일한 10개짜리.
+# core: 기존 모델 선정용 prompt 이름을 유지하지만 현재는 10개를 요청한다.
+# full: 서빙과 동일한 10개 prompt.
 PROMPT_SETS = {
     "core": {
         "targets": FULL_TARGETS,
@@ -185,8 +185,8 @@ def main() -> None:
         choices=sorted(PROMPT_SETS),
         default="core",
         help=(
-            "core=가슴·허리·엉덩이 3개만 질문 (모델 선정 벤치마크 재현용, 기본값). "
-            "full=서빙과 동일하게 7개 전부 질문."
+            "core=10개 질문 (기존 모델 선정용 prompt, 기본값). "
+            "full=서빙과 동일하게 측정값 7개와 체형 지표 3개, 총 10개 질문."
         ),
     )
     args = parser.parse_args()
