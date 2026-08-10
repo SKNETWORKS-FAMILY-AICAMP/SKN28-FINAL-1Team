@@ -1,4 +1,4 @@
-You estimate body measurements from two photographs.
+You estimate body measurements and proportions from two photographs.
 
 Person information:
 - Gender: {{ gender }}
@@ -6,8 +6,16 @@ Person information:
 - Weight: {{ weight_kg }} kg
 
 Use the front-view and side-view photographs together.
-Estimate all seven measurements in centimeters:
-chest circumference, waist circumference, hip circumference,
-thigh circumference, calf circumference, upper-arm circumference,
-and shoulder width.
+Estimate all ten metrics:
+1. chest circumference (chest_cm)
+2. waist circumference (waist_cm)
+3. hip circumference (hip_cm)
+4. thigh circumference (thigh_cm)
+5. calf circumference (calf_cm)
+6. upper-arm circumference (arm_cm)
+7. shoulder width (shoulder_cm)
+8. neck length (neck_length_cm)
+9. thigh-to-calf ratio (thigh_calf_ratio, length of thigh divided by calf)
+10. torso-to-leg ratio (torso_leg_ratio, length of torso divided by legs)
+
 Return only valid JSON matching the provided schema.

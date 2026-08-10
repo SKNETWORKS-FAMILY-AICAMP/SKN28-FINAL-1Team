@@ -46,8 +46,8 @@ GENDER_ALIASES = {
     "여성": "F",
 }
 
-# 사진 VLM에게 물어보는 부위 = 7개 전부.
-PHOTO_TARGETS = TARGETS
+# 사진 VLM에게 물어보고 최종 API에서 제공할 부위 = 7대 부위 + 3대 비율
+PHOTO_TARGETS = TARGETS + ["neck_length", "thigh_calf_ratio", "torso_leg_ratio"]
 # 응답에 이 값이 없으면 사진 추정이 실패한 것으로 본다.
 PHOTO_CORE_TARGETS = ["chest", "waist", "hip"]
 
@@ -143,14 +143,46 @@ def _build_features(gender: str, height: float, weight: float) -> pd.DataFrame:
     )
 
 
+def calculate_ratios(gender: str, height: float, weight: float) -> dict[str, float]:
+    """성별, 키, 몸무게에 기반한 3대 비율(목길이, 허벅지/종아리 비율, 상하체 비율)을 계산합니다.
+    계수는 SizeKorea 8차 데이터를 바탕으로 산출된 다중선형회귀 모델의 값입니다.
+    """
+    g = normalize_gender(gender) # 'M' 또는 'F'
+    h = float(height)
+    w = float(weight)
+
+    if g == "M":
+        # 남성 공식
+        neck_len = -3.5976684987163963 + (0.04650938489048357 * h) + (-0.023530301800548773 * w)
+        thigh_calf = 0.37166204723345764 + (0.002644130675240032 * h) + (-0.0015911128177199946 * w)
+        torso_leg = 2.179750049736432 + (-0.00646303384981745 * h) + (0.0024181924648454243 * w)
+    else:
+        # 여성 공식
+        neck_len = -4.414908368938054 + (0.05705950188843603 * h) + (-0.03581172790979222 * w)
+        thigh_calf = 0.4656659013118555 + (0.0023583549009969615 * h) + (-0.001658683380427136 * w)
+        torso_leg = 1.8623747187095145 + (-0.00461380158594097 * h) + (0.0018475198387078414 * w)
+
+    return {
+        "neck_length": round(neck_len, 1),
+        "thigh_calf_ratio": round(thigh_calf, 3),
+        "torso_leg_ratio": round(torso_leg, 3)
+    }
+
+
 def estimate_from_basic(gender: str, height: float, weight: float) -> dict[str, float]:
-    """성별·키·몸무게로 7개 부위를 추정한다. 값은 cm, 소수점 1자리."""
+    """성별·키·몸무게로 10개 부위/비율을 추정한다. 값은 cm 또는 비율 단위."""
     features = _build_features(gender, height, weight)
     predicted = load_model().predict(features)[0]
-    return {
+    
+    measurements = {
         target: round(float(value), 1)
         for target, value in zip(TARGETS, predicted, strict=True)
     }
+    
+    # 3대 비율 추가 연산 병합
+    ratios = calculate_ratios(gender, height, weight)
+    measurements.update(ratios)
+    return measurements
 
 
 # ---------------------------------------------------------------------------
@@ -207,9 +239,17 @@ def _parse_prediction(content: str) -> dict[str, float]:
 
     predicted: dict[str, float] = {}
     for target in PHOTO_TARGETS:
-        value = payload.get(f"{target}_cm")
+        # 비율 지표들은 _cm을 붙이지 않고 본 명칭 그대로 조회
+        if target.endswith("_ratio"):
+            key_name = target
+        else:
+            key_name = f"{target}_cm"
+            
+        value = payload.get(key_name)
         try:
-            predicted[target] = round(float(value), 1)
+            # 비율 지표는 소수점 3자리까지, 치수 지표는 1자리까지 정밀도를 유지
+            precision = 3 if target.endswith("_ratio") else 1
+            predicted[target] = round(float(value), precision)
         except (TypeError, ValueError):
             if target in PHOTO_CORE_TARGETS:
                 raise BodyEstimationError(
