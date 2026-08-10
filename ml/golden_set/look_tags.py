@@ -23,6 +23,14 @@ LOOK_TAG_SCHEMA_VERSION = "golden-look-tags-v1"
 #: 리트리버가 하드 필터로 쓴다 (api/apps/recommend/services/retriever.py).
 PRESENTATION_GROUPS = ["men", "women", "unisex"]
 
+#: "판단 못 함"을 나타내는 값. 저장할 때는 빈 문자열로 되돌린다.
+#:
+#: 빈 문자열을 enum에 직접 넣을 수 없다 — Gemini가 400으로 거부한다:
+#:   response_schema.properties[presentation_group].enum[3]: cannot be empty
+#: 그래서 모델에게는 명시적인 단어를 주고, normalize()가 저장 형태로 옮긴다.
+#: 미분류를 unisex로 흘리지 않으려면 이 경로가 반드시 있어야 한다.
+PRESENTATION_UNKNOWN = "unknown"
+
 #: 착용 상황. style·season과 달리 기존 어휘가 없어 여기서 정한다.
 #: 이 값이 곧 앱 화면의 선택지이자 RetrievalRequest.occasion에 들어갈 값이므로,
 #: 프론트 선택지를 바꾸면 여기도 함께 바꿔야 한다.
@@ -62,8 +70,8 @@ def build_schema() -> dict[str, Any]:
         "properties": {
             "presentation_group": {
                 "type": "string",
-                "enum": [*PRESENTATION_GROUPS, ""],
-                "description": "착장의 성별 표현. 확신이 없으면 빈 문자열.",
+                "enum": [*PRESENTATION_GROUPS, PRESENTATION_UNKNOWN],
+                "description": f"착장의 성별 표현. 확신이 없으면 '{PRESENTATION_UNKNOWN}'.",
             },
             "style": {
                 "type": "array",
@@ -98,7 +106,7 @@ SYSTEM_INSTRUCTION = (
     "1. 주어진 목록 밖의 값을 만들지 않습니다.\n"
     "2. presentation_group은 **착장의 표현**을 뜻합니다. 사진 속 인물의 외모나 "
     "정체성을 판단하지 말고, 그 옷차림이 통상 남성복/여성복/공용 중 어디로 "
-    "유통되는지로 고릅니다. 애매하면 빈 문자열을 씁니다.\n"
+    "유통되는지로 고릅니다. 애매하면 'unknown'을 씁니다.\n"
     "3. 인물의 외모·체형·나이·인종에 대해 어떤 판단도 하지 않습니다.\n"
     "4. 축마다 최대 3개까지만 고릅니다. 많이 고를수록 검색에서 쓸모가 없어집니다.\n"
     "5. season은 그 옷차림으로 지내기 적당한 계절입니다. 얇은 겉옷처럼 "
@@ -132,6 +140,8 @@ def normalize(raw: dict[str, Any]) -> dict[str, Any]:
                 seen.append(text)
         result[axis] = seen[:MAX_VALUES_PER_AXIS]
 
+    # 모델은 'unknown'을 돌려주지만 저장 형태는 빈 문자열이다. 리트리버는
+    # 빈 값을 "라벨 없음"으로 읽어 성별 필터에서 제외한다.
     group = str(raw.get("presentation_group", "")).strip().lower()
     result["presentation_group"] = group if group in PRESENTATION_GROUPS else ""
 

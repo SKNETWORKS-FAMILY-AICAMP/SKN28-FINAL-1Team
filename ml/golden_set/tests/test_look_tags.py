@@ -29,10 +29,34 @@ class SchemaTests(unittest.TestCase):
         self.assertEqual(props["style"]["items"]["enum"], list(STYLES))
         self.assertEqual(props["season"]["items"]["enum"], list(SEASONS))
 
-    def test_presentation_group_allows_empty(self) -> None:
-        """확신이 없으면 비울 수 있어야 한다 — 미분류가 오분류보다 낫다."""
+    def test_presentation_group_has_an_unknown_escape(self) -> None:
+        """확신이 없으면 빠져나갈 값이 있어야 한다 — 미분류가 오분류보다 낫다."""
         enum = look_tags.build_schema()["properties"]["presentation_group"]["enum"]
-        self.assertIn("", enum)
+        self.assertIn(look_tags.PRESENTATION_UNKNOWN, enum)
+
+    def test_enum_has_no_empty_string(self) -> None:
+        """Gemini는 enum에 빈 문자열이 있으면 400으로 거부한다.
+
+            response_schema.properties[presentation_group].enum[3]: cannot be empty
+        """
+        schema = look_tags.build_schema()
+        self.assertNotIn("", schema["properties"]["presentation_group"]["enum"])
+        for axis in ("style", "season", "occasion"):
+            self.assertNotIn("", schema["properties"][axis]["items"]["enum"], axis)
+
+    def test_unknown_is_stored_as_empty(self) -> None:
+        """모델은 'unknown'을 주고, 저장 형태는 빈 문자열이다.
+
+        리트리버가 빈 값을 '라벨 없음'으로 읽어 성별 필터에서 제외한다.
+        여기서 unisex로 흘리면 여성 코디가 남성에게 그대로 나간다.
+        """
+        tags = look_tags.normalize(
+            {
+                "presentation_group": look_tags.PRESENTATION_UNKNOWN,
+                "style": [], "season": [], "occasion": [], "confidence": 1,
+            }
+        )
+        self.assertEqual(tags["presentation_group"], "")
 
     def test_occasion_keeps_existing_examples(self) -> None:
         """metadata.example.csv가 쓰던 값과 이어져야 한다."""
