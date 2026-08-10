@@ -119,9 +119,9 @@ def _measure_field(label: str) -> models.DecimalField:
 class BodyMeasurement(models.Model):
     """사용자 신체치수 (설정 페이지 입력값). 사용자당 1행.
 
-    기본 수치(성별/키/몸무게)와 상세 둘레 수치를 한 행으로 관리한다.
-    상세 수치는 전부 선택 입력이라 null을 허용하며, 추후 사진 기반 추론
-    기능이 같은 컬럼을 추론값으로 갱신하는 것을 전제로 한다.
+    기본 수치(성별/키/몸무게), 상세 둘레와 체형 지표를 한 행으로 관리한다.
+    상세 수치와 체형 지표는 전부 선택 입력이라 null을 허용하며, 사진 기반
+    추론 기능이 같은 컬럼을 추론값으로 갱신하는 것을 전제로 한다.
     """
 
     class Gender(models.TextChoices):
@@ -152,6 +152,38 @@ class BodyMeasurement(models.Model):
     arm = _measure_field("팔뚝둘레(cm)")
     shoulder = _measure_field("어깨너비(cm)")
 
+    # 체형 분류에 사용하는 길이·비율 지표
+    neck_length = models.DecimalField(
+        "목길이(cm)",
+        max_digits=4,
+        decimal_places=1,
+        null=True,
+        blank=True,
+        validators=[MinValueValidator(Decimal("1"))],
+        help_text="목길이(cm)",
+        db_comment="목길이(cm)",
+    )
+    thigh_calf_ratio = models.DecimalField(
+        "허벅지/종아리 비율",
+        max_digits=5,
+        decimal_places=3,
+        null=True,
+        blank=True,
+        validators=[MinValueValidator(Decimal("0.1"))],
+        help_text="허벅지/종아리 비율 (길이 기준)",
+        db_comment="허벅지/종아리 비율 (길이 기준)",
+    )
+    torso_leg_ratio = models.DecimalField(
+        "상하체 비율",
+        max_digits=5,
+        decimal_places=3,
+        null=True,
+        blank=True,
+        validators=[MinValueValidator(Decimal("0.1"))],
+        help_text="상하체 비율 (길이 기준)",
+        db_comment="상하체 비율 (길이 기준)",
+    )
+
     created_at = models.DateTimeField(
         "생성 시각", auto_now_add=True, db_comment="행 생성 시각"
     )
@@ -159,7 +191,7 @@ class BodyMeasurement(models.Model):
 
     class Meta:
         db_table = "body_measurements"
-        db_table_comment = "사용자 신체치수 (성별·키·몸무게 + 상세 둘레, 사용자당 1행. 상세 수치는 추후 사진 추론이 갱신 가능)"
+        db_table_comment = "사용자 신체치수 (기본 정보·상세 둘레·체형 지표, 사용자당 1행)"
         verbose_name = "신체치수"
         verbose_name_plural = "신체치수"
 

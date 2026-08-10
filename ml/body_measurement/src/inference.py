@@ -1,13 +1,13 @@
 """API 서버가 호출하는 신체치수 추론 인터페이스.
 
-추론 경로는 두 개지만, 둘 다 7개 부위를 모두 채운 같은 형태의 dict를 반환한다.
+추론 경로는 두 개지만, 둘 다 상세 7개와 체형 지표 3개를 채운 같은 형태의 dict를 반환한다.
 
-- ``estimate_from_basic``  : 성별·키·몸무게 → 표 기반 모델이 7개 예측
-- ``estimate_from_photos`` : 위 7개를 만든 뒤, 사진 VLM 응답으로 덮어씀
+- ``estimate_from_basic``  : 성별·키·몸무게 → 표 기반 모델이 상세 7개와 지표 3개 예측
+- ``estimate_from_photos`` : 위 10개를 만든 뒤, 사진 VLM 응답으로 덮어씀
 
-사진 VLM은 7개를 다 물어본다. 초기 모델 비교는 비용을 아끼려고
+사진 VLM은 10개를 다 물어본다. 초기 모델 비교는 비용을 아끼려고
 가슴·허리·엉덩이 3개만 채점했지만, SizeKorea 기반 VLM 라벨에는
-허벅지·장딴지·팔·어깨 정답도 복구되어 오프라인 평가는 7개 모두 가능하다.
+허벅지·장딴지·팔·어깨 정답도 복구되어 오프라인 평가는 상세 7개 모두 가능하다.
 
 학습 코드(``benchmark.py``)와 달리 이 모듈은 서빙 전용이다. 모델을 하나만 lazy 로드하고
 CLI·S3·학습 의존성을 갖지 않는다. 상수는 학습 시점
@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import base64
 import json
+import math
 import os
 import re
 import threading
@@ -46,9 +47,9 @@ GENDER_ALIASES = {
     "여성": "F",
 }
 
-# 사진 VLM에게 물어보고 최종 API에서 제공할 부위 = 7대 부위 + 3대 비율
+# 사진 VLM에게 물어보고 최종 API에서 제공할 값 = 7대 부위 + 3대 체형 지표
 PHOTO_TARGETS = TARGETS + ["neck_length", "thigh_calf_ratio", "torso_leg_ratio"]
-# 응답에 이 값이 없으면 사진 추정이 실패한 것으로 본다.
+# 응답에 핵심 3개가 없으면 사진 추정이 실패한 것으로 본다.
 PHOTO_CORE_TARGETS = ["chest", "waist", "hip"]
 
 # 학습 데이터(SizeKorea) 범위를 벗어난 입력은 KNN이 외삽하지 못해 신뢰할 수 없다.
@@ -220,7 +221,7 @@ def _image_part(image_bytes: bytes) -> dict:
 def _parse_prediction(content: str) -> dict[str, float]:
     """모델 응답 JSON에서 부위별 수치를 꺼낸다. 코드펜스로 감싸서 오는 경우가 있다.
 
-    핵심 3개(가슴·허리·엉덩이)는 없으면 실패로 본다. 나머지 4개는 모델이
+    핵심 3개(가슴·허리·엉덩이)는 없으면 실패로 본다. 나머지 7개는 모델이
     빠뜨리거나 숫자가 아니면 조용히 건너뛰고, 호출부가 기본 정보 추정값을
     그대로 쓰게 한다 — 사진 한 장 때문에 응답에 빈칸이 생기면 안 된다.
     """
@@ -230,6 +231,8 @@ def _parse_prediction(content: str) -> dict[str, float]:
         payload = json.loads(cleaned)
     except json.JSONDecodeError as error:
         raise BodyEstimationError(f"모델 응답을 JSON으로 읽지 못했습니다: {error}") from error
+    if not isinstance(payload, dict):
+        raise BodyEstimationError("모델 응답은 JSON 객체여야 합니다.")
 
     missing = [
         f"{target}_cm" for target in PHOTO_CORE_TARGETS if f"{target}_cm" not in payload
@@ -249,7 +252,10 @@ def _parse_prediction(content: str) -> dict[str, float]:
         try:
             # 비율 지표는 소수점 3자리까지, 치수 지표는 1자리까지 정밀도를 유지
             precision = 3 if target.endswith("_ratio") else 1
-            predicted[target] = round(float(value), precision)
+            numeric = float(value)
+            if not math.isfinite(numeric):
+                raise ValueError("finite number required")
+            predicted[target] = round(numeric, precision)
         except (TypeError, ValueError):
             if target in PHOTO_CORE_TARGETS:
                 raise BodyEstimationError(
@@ -319,11 +325,11 @@ def estimate_from_photos(
     front_image: bytes,
     side_image: bytes,
 ) -> dict[str, float]:
-    """사진 2장 + 기본 정보로 7개 부위를 추정한다.
+    """사진 2장 + 기본 정보로 상세 치수·체형 지표를 추정한다.
 
-    기본 정보 추정으로 7개를 먼저 채운 뒤 VLM 응답으로 덮어쓴다. VLM이 7개를
-    다 주면 전부 사진 기반 값이 되고, 일부를 빠뜨리면 그 부위만 기본 정보
-    추정값이 남는다 — 어느 쪽이든 7칸이 비지 않는다. 반환 형태는
+    기본 정보 추정으로 10개를 먼저 채운 뒤 VLM 응답으로 덮어쓴다. VLM이 값을
+    빠뜨리면 그 부위만 기본 정보 추정값이 남는다 — 어느 쪽이든 값이 비지 않는다.
+    반환 형태는
     ``estimate_from_basic``과 완전히 같아서 API 응답 스키마가 갈라지지 않는다.
     """
     measurements = estimate_from_basic(gender, height, weight)
