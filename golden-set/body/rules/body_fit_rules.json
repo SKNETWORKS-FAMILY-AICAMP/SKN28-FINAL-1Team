@@ -1,130 +1,266 @@
 {
-  "version": "0.4.0",
-  "taxonomy_source": "image-processor/pipeline/taxonomy.py (FITS, LENGTHS)",
-  "threshold_source": "golden-set/body/rules/body_shape_thresholds.json",
-  "shape_taxonomy_source": "golden-set/body/rules/sizekorea_body_shape_reference.json",
-  "note": "축은 서로 독립이다. 최종 권장은 각 축의 권장을 교집합으로 합치고, 어느 한 축이라도 avoid면 avoid로 처리한다. 측정 불가 축은 default_when_unknown 값으로 두고 규칙을 적용하지 않는다.",
-
-  "changelog": {
-    "0.4.0": "가로축을 사이즈코리아(Rasband 1994) 체형 명칭에 맞추고 standard(표준체형)를 추가해 6체형이 됐다. width_rules의 signal 문구를 v3 임계값(둥근=p90, 사각=p67)에 맞춰 갱신. 처방 내용 자체는 바꾸지 않았다 — 클래스 이름과 경계만 정렬한 것이다.",
-    "0.3.0": "width_rules에서 색 처방 제거 (체형 축은 색을 판단하지 않는다)."
+  "version": "1.0.0",
+  "taxonomy_source": "image-processor/pipeline/taxonomy.py (FITS, LENGTHS) + Rasband(1994) 상반신 체형",
+  "threshold_source": "golden-set/body/rules/body_shape_thresholds.json (v3, 8차 실측 5,092명)",
+  "note": "네 축은 서로 독립이다. 최종 권장은 각 축의 권장을 교집합으로 합치고, 어느 한 축이라도 avoid면 avoid로 처리한다. 값을 모르는 축은 default_when_unknown으로 두고 규칙을 적용하지 않는다.",
+  "evidence_strength": {
+    "thresholds": "실측 — 사이즈코리아 8차 5,092명 백분위. 어떤 체형/구간인가를 정한다",
+    "prescriptions": "수기 — 무엇을 입을까를 정한다. 실측 근거가 없으므로 should 가중치로만 쓰고 후보를 잘라내지 않는다(must_not 금지)"
   },
-
   "scope": {
-    "in_scope": ["fit", "length", "rise", "neckline", "실루엣", "신발 기장"],
-    "out_of_scope": ["색상", "색 조합", "명도 대비"],
+    "in_scope": [
+      "fit",
+      "length",
+      "rise",
+      "neckline",
+      "실루엣",
+      "신발 기장"
+    ],
+    "out_of_scope": [
+      "색상",
+      "색 조합",
+      "명도 대비"
+    ],
     "decision": "체형 축은 색을 처방하지 않는다 (2026-08-06 확정).",
     "why": "체형과 색은 서로 다른 축이다. 체형은 '이 비율에 어떤 형태가 맞나'만 답하고, 색은 golden-set/color/rules/color_rules.json이 단독으로 판단한다. v0.2.0까지는 width_rules에 color 키(top/bottom visual_effect)가 있었으나 제거했다 — 두 축이 같은 대상을 판단하면 충돌하고, 실제로 어깨가 넓으면서 허리도 두꺼운 사용자(표본 181명 중 16명)에서 '하의 확장색' vs '상하 동일 계열'이 정면으로 부딪혔다.",
     "consequence": "체형 판정이 색 후보를 제한하지 않는다. 두 축의 결과를 합칠 때 색은 color_rules만, 형태는 이 파일만 본다."
   },
-
   "axes": {
     "width": {
-      "label": "체형 (사이즈코리아 상반신 체형)",
-      "input": "shoulder, waist, hip (BodyMeasurement 기존 컬럼)",
+      "label": "체형 (모양)",
+      "input": "shoulder, waist, hip",
       "status": "measurable",
-      "values": ["round", "inverted_triangle", "triangle", "hourglass", "rectangle", "standard"],
-      "labels_ko": {
-        "round": "둥근체형",
-        "inverted_triangle": "역삼각체형",
-        "triangle": "삼각체형",
-        "hourglass": "모래시계체형",
-        "rectangle": "사각체형",
-        "standard": "표준체형(이상체형)"
-      },
-      "excluded": {
-        "diamond": "마름모꼴체형",
-        "tube": "튜브체형"
-      },
-      "excluded_why": "Rasband 8체형 중 2개. 사이즈코리아도 '모래시계형~튜브체형에 이르는 체형으로의 상세한 분류는 추가적인 분석이 필요합니다'라고 명시했고, 8차 실측 5,092명에서 마름모꼴 0.4~0.95퍼센트 / 튜브 0~0.04퍼센트라 배정이 사실상 불가능하다. 추론기가 절대 못 내놓는 라벨은 스키마에 넣지 않는다.",
-      "not_a_size_axis": "⚠️ 이 축은 '얼마나 큰가'가 아니라 '어떤 모양인가'다. 사이즈(호칭·XS~XXL)가 필요하면 별도 축으로 두고 체형 값에 섞지 않는다. v2에서 A~F를 체형이라 부른 것이 정확히 이 실수였다.",
-      "rules_key": "width_rules"
+      "values": [
+        "round",
+        "inverted_triangle",
+        "triangle",
+        "hourglass",
+        "rectangle",
+        "standard"
+      ],
+      "threshold_keys": [
+        "shoulder_hip",
+        "waist_hip"
+      ],
+      "rules_key": "width_rules",
+      "caveat": "⚠️ shoulder는 너비(cm), hip은 둘레(cm)라 shoulder_hip은 차원이 섞인 비율이다. Rasband의 원래 정의는 어깨너비 대 엉덩이너비 비교인데 우리 입력에 엉덩이너비가 없다. 임계값이 같은 표본의 백분위라 내부적으로는 일관되지만, 절대값을 다른 데이터셋과 비교하면 안 된다."
     },
     "torso_ratio": {
       "label": "상체:하체 비율",
-      "input": "상체 길이 / 다리 길이 (미보유 — 신규 입력 필요)",
-      "status": "NOT_measurable_yet",
-      "values": ["long_torso", "balanced", "short_torso"],
+      "input": "torso_leg_ratio (상체 길이 / 다리 길이)",
+      "status": "measurable",
+      "values": [
+        "long_torso",
+        "balanced",
+        "short_torso"
+      ],
       "default_when_unknown": "balanced",
-      "blocker": "BodyMeasurement에 다리길이/앉은키 컬럼 없음, pose 파이프라인 없음",
-      "do_not_use": ["BodyMeasurement.waist", "BodyMeasurement.hip"],
-      "why_not": "둘레 비율과 길이 비율은 무관하다. waist/hip이나 BMI에서 유도하면 근사조차 되지 않는다",
+      "threshold_keys": [
+        "torso_leg_ratio"
+      ],
+      "grade": "≥ p67 → long_torso · ≤ p33 → short_torso · 그 외 balanced",
       "rules_key": "torso_ratio_rules"
     },
     "neck_length": {
       "label": "목 길이",
-      "input": "목 길이 (미보유 — 신규 입력 필요)",
-      "status": "NOT_measurable_yet",
-      "values": ["long_neck", "balanced", "short_neck"],
+      "input": "neck_length (cm)",
+      "status": "measurable",
+      "values": [
+        "long_neck",
+        "balanced",
+        "short_neck"
+      ],
       "default_when_unknown": "balanced",
-      "blocker": "BodyMeasurement에 목 관련 컬럼이 아예 없음. 아이템 쪽에도 neckline 태그가 없어 처방을 실행할 수단이 없다",
-      "rules_key": "neck_length_rules"
+      "threshold_keys": [
+        "neck_length"
+      ],
+      "grade": "≥ p67 → long_neck · ≤ p33 → short_neck · 그 외 balanced",
+      "rules_key": "neck_length_rules",
+      "blocker": "아이템 쪽에 neckline 태그가 없어 처방을 실행할 수단이 아직 없다 (required_taxonomy_additions 참조)"
     },
     "thigh_calf_ratio": {
       "label": "허벅지:종아리 비율",
-      "input": "허벅지 길이 / 무릎-발목 길이 (미보유 — 신규 입력 필요)",
-      "status": "NOT_measurable_yet",
-      "values": ["thigh_dominant", "balanced", "calf_dominant"],
+      "input": "thigh_calf_ratio (허벅지 길이 / 무릎-발목 길이)",
+      "status": "measurable",
+      "values": [
+        "thigh_dominant",
+        "balanced",
+        "calf_dominant"
+      ],
       "default_when_unknown": "balanced",
-      "blocker": "BodyMeasurement에 다리 분절 길이 컬럼 없음, pose 파이프라인 없음",
-      "do_not_use": ["BodyMeasurement.thigh", "BodyMeasurement.calf"],
-      "why_not": "⚠️ 이 두 컬럼은 존재하지만 **둘레(cm)이지 길이가 아니다**. thigh/calf로 계산하면 에러 없이 무관한 값이 나오고, 그 값으로 실루엣 처방이 정해진다. 다른 축은 컬럼이 없어서 막히지만 이 축은 조용히 틀린 답을 낸다 — 가장 위험하다",
-      "rules_key": "thigh_calf_ratio_rules"
+      "threshold_keys": [
+        "thigh_calf_ratio"
+      ],
+      "grade": "≥ p67 → thigh_dominant · ≤ p33 → calf_dominant · 그 외 balanced",
+      "rules_key": "thigh_calf_ratio_rules",
+      "do_not_use": [
+        "BodyMeasurement.thigh",
+        "BodyMeasurement.calf"
+      ],
+      "why_not": "⚠️ 서빙 경로의 이 두 컬럼은 **둘레(cm)이지 길이가 아니다**. thigh/calf로 계산하면 에러 없이 무관한 값이 나오고 그 값으로 실루엣 처방이 정해진다. 임계값은 사이즈코리아 길이 항목에서 산출한 thigh_calf_ratio 컬럼 기준이므로, 같은 이름의 길이 값을 넣어야 한다"
     }
   },
-
-  "width_classification": {
-    "note": "판정 순서가 곧 정의다. 위에서부터 먼저 걸리는 규칙이 이긴다. 임계값은 성별 × 연령대 백분위(body_shape_thresholds.json).",
-    "order": [
-      { "shape": "round", "test": "waist/hip >= p90" },
-      { "shape": "inverted_triangle", "test": "shoulder/hip >= p67" },
-      { "shape": "triangle", "test": "shoulder/hip <= p33" },
-      { "shape": "hourglass", "test": "waist/hip <= p33" },
-      { "shape": "rectangle", "test": "waist/hip >= p67" },
-      { "shape": "standard", "test": "그 외" }
+  "classification": {
+    "order_is_the_definition": true,
+    "steps": [
+      "1. waist/hip ≥ p90     → round             (둥근체형)",
+      "2. shoulder/hip ≥ p67  → inverted_triangle (역삼각체형)",
+      "3. shoulder/hip ≤ p33  → triangle          (삼각체형)",
+      "4. waist/hip ≤ p33     → hourglass         (모래시계체형)",
+      "5. waist/hip ≥ p67     → rectangle         (사각체형)",
+      "6. 그 외                → standard          (표준체형)"
     ],
-    "why_waist_first": "허리가 엉덩이에 육박하면 어깨 폭과 무관하게 스타일링 과제가 '폭 균형'이 아니라 '세로선 만들기'로 바뀐다. 이때 어깨 기반 처방은 효과가 없다.",
-    "why_p90_for_round": "v2까지 둥근체형 관문이 p67이라 표본의 1/3이 둥근체형으로 빨려 들어갔다. p90으로 올려 복부가 실제로 지배적인 10퍼센트만 남긴다."
+    "why_waist_first": "허리가 엉덩이에 육박하면 어깨 폭과 무관하게 과제가 '폭 균형'이 아니라 '세로선 만들기'로 바뀐다. 이 경우 어깨 기반 처방은 효과가 없다.",
+    "why_p90_for_round": "p67을 관문으로 두면 정의상 표본의 1/3이 둥근체형이 된다. 둥근체형 처방은 제약이 가장 세므로 3명 중 1명에게 거는 건 과잉이다. p90으로 올리고 p67~p90 구간은 rectangle로 보낸다.",
+    "excluded": {
+      "diamond": "마름모꼴체형",
+      "tube": "튜브체형"
+    },
+    "excluded_reason": "사이즈코리아 원문: '모래시계형~튜브체형에 이르는 체형으로의 상세한 분류는 추가적인 분석이 필요합니다.' 우리 표본에서도 마름모꼴은 1퍼센트 미만, 튜브는 0퍼센트라 배정 자체가 불가능하다. 추론기가 절대 못 내놓는 라벨을 스키마에 넣지 않는다."
   },
-
   "width_rules": {
     "round": {
       "label": "둥근체형",
       "signal": "waist/hip 상위 10퍼센타일",
       "goal": "세로선을 만들고 허리 주변 시선을 분산한다",
-      "top": { "fit_prefer": ["레귤러핏"], "fit_avoid": ["슬림핏", "오버핏"], "length_prefer": ["기본"], "length_avoid": ["크롭"] },
-      "bottom": { "fit_prefer": ["레귤러핏", "와이드핏"], "fit_avoid": ["슬림핏"] },
-      "outer": { "length_prefer": ["롱"], "note": "오픈 착용 시 생기는 두 개의 세로선이 핵심" },
-      "pattern_avoid": ["체크", "도트"],
+      "top": {
+        "fit_prefer": [
+          "레귤러핏"
+        ],
+        "fit_avoid": [
+          "슬림핏",
+          "오버핏"
+        ],
+        "length_prefer": [
+          "기본"
+        ],
+        "length_avoid": [
+          "크롭"
+        ]
+      },
+      "bottom": {
+        "fit_prefer": [
+          "레귤러핏",
+          "와이드핏"
+        ],
+        "fit_avoid": [
+          "슬림핏"
+        ]
+      },
+      "outer": {
+        "length_prefer": [
+          "롱"
+        ],
+        "note": "오픈 착용 시 생기는 두 개의 세로선이 핵심"
+      },
+      "pattern_avoid": [
+        "체크",
+        "도트"
+      ],
       "reason": "가로 분할(크롭 기장, 가로 패턴)이 폭을 강조한다. 반대로 세로 요소는 길이를 강조한다"
     },
     "inverted_triangle": {
       "label": "역삼각체형",
       "signal": "shoulder/hip 상위 33퍼센타일",
       "goal": "상체 폭을 줄이고 하체에 부피를 준다",
-      "top": { "fit_prefer": ["레귤러핏", "슬림핏"], "fit_avoid": ["오버핏"], "length_prefer": ["기본"] },
-      "bottom": { "fit_prefer": ["와이드핏", "레귤러핏"], "fit_avoid": ["슬림핏"] },
-      "outer": { "fit_avoid": ["오버핏"], "note": "어깨 패드·드롭숄더는 폭을 더 넓힌다" },
+      "top": {
+        "fit_prefer": [
+          "레귤러핏",
+          "슬림핏"
+        ],
+        "fit_avoid": [
+          "오버핏"
+        ],
+        "length_prefer": [
+          "기본"
+        ]
+      },
+      "bottom": {
+        "fit_prefer": [
+          "와이드핏",
+          "레귤러핏"
+        ],
+        "fit_avoid": [
+          "슬림핏"
+        ]
+      },
+      "outer": {
+        "fit_avoid": [
+          "오버핏"
+        ],
+        "note": "어깨 패드·드롭숄더는 폭을 더 넓힌다"
+      },
       "reason": "어깨가 이미 넓으므로 상의 볼륨은 과잉, 하의 볼륨은 균형 회복에 기여한다"
     },
     "triangle": {
-      "label": "삼각체형(하체 발달)",
+      "label": "삼각체형",
       "signal": "shoulder/hip 하위 33퍼센타일",
       "goal": "상체에 부피를 주고 하체 라인은 정돈한다",
-      "top": { "fit_prefer": ["오버핏", "레귤러핏"], "fit_avoid": ["슬림핏"], "length_prefer": ["기본", "크롭"] },
-      "bottom": { "fit_prefer": ["레귤러핏"], "fit_avoid": ["와이드핏"], "note": "타이트도 부적합 — 실루엣이 그대로 드러난다" },
-      "outer": { "fit_prefer": ["오버핏"], "length_prefer": ["기본"] },
-      "reason": "역삼각형의 반대. 상의 볼륨과 밝은 색이 어깨선을 넓혀 보이게 한다"
+      "top": {
+        "fit_prefer": [
+          "오버핏",
+          "레귤러핏"
+        ],
+        "fit_avoid": [
+          "슬림핏"
+        ],
+        "length_prefer": [
+          "기본",
+          "크롭"
+        ]
+      },
+      "bottom": {
+        "fit_prefer": [
+          "레귤러핏"
+        ],
+        "fit_avoid": [
+          "와이드핏"
+        ],
+        "note": "타이트도 부적합 — 실루엣이 그대로 드러난다"
+      },
+      "outer": {
+        "fit_prefer": [
+          "오버핏"
+        ],
+        "length_prefer": [
+          "기본"
+        ]
+      },
+      "reason": "역삼각체형의 반대. 상의 볼륨이 어깨선을 넓혀 보이게 한다"
     },
     "hourglass": {
       "label": "모래시계체형",
       "signal": "waist/hip 하위 33퍼센타일 + 어깨·엉덩이 균형(shoulder/hip 중간 구간)",
       "goal": "허리선을 살린다",
-      "top": { "fit_prefer": ["레귤러핏", "슬림핏"], "length_prefer": ["크롭", "기본"], "fit_avoid": ["오버핏"] },
-      "bottom": { "fit_prefer": ["레귤러핏", "슬림핏", "와이드핏"] },
-      "outer": { "note": "오픈 착용 + 벨트로 허리 강조" },
+      "top": {
+        "fit_prefer": [
+          "레귤러핏",
+          "슬림핏"
+        ],
+        "length_prefer": [
+          "크롭",
+          "기본"
+        ],
+        "fit_avoid": [
+          "오버핏"
+        ]
+      },
+      "bottom": {
+        "fit_prefer": [
+          "레귤러핏",
+          "슬림핏",
+          "와이드핏"
+        ]
+      },
+      "outer": {
+        "note": "오픈 착용 + 벨트로 허리 강조"
+      },
       "combo_avoid": [
-        { "top_fit": "오버핏", "bottom_fit": "와이드핏", "reason": "상하 동시 볼륨은 이 체형의 유일한 강점(허리)을 지운다" }
+        {
+          "top_fit": "오버핏",
+          "bottom_fit": "와이드핏",
+          "reason": "상하 동시 볼륨은 이 체형의 유일한 강점(허리)을 지운다"
+        }
       ],
       "reason": "굴곡이 이미 있으므로 규칙의 목적이 '보정'이 아니라 '노출'이다"
     },
@@ -132,121 +268,311 @@
       "label": "사각체형",
       "signal": "waist/hip 상위 33퍼센타일(p90 미만) + 어깨·엉덩이 균형 — 허리 굴곡이 거의 없다",
       "goal": "레이어드와 색 분할로 허리 위치를 만들어 준다",
-      "top": { "fit_prefer": ["레귤러핏", "오버핏"], "length_prefer": ["크롭", "기본"] },
-      "bottom": { "fit_prefer": ["와이드핏", "레귤러핏"] },
-      "outer": { "fit_prefer": ["레귤러핏"], "note": "짧은 아우터 + 긴 이너로 층을 만든다" },
+      "top": {
+        "fit_prefer": [
+          "레귤러핏",
+          "오버핏"
+        ],
+        "length_prefer": [
+          "크롭",
+          "기본"
+        ]
+      },
+      "bottom": {
+        "fit_prefer": [
+          "와이드핏",
+          "레귤러핏"
+        ]
+      },
+      "outer": {
+        "fit_prefer": [
+          "레귤러핏"
+        ],
+        "note": "짧은 아우터 + 긴 이너로 층을 만든다"
+      },
       "reason": "보정할 과잉이 없는 대신 구분점이 없다. 대비를 인위적으로 만드는 것이 과제다"
     },
     "standard": {
       "label": "표준체형(이상체형)",
       "signal": "shoulder/hip·waist/hip 둘 다 중간 구간 — 어느 쪽으로도 치우치지 않는다",
       "goal": "보정할 것이 없다. 제약을 걸지 않고 취향·TPO에 자리를 내준다",
-      "top": { "fit_prefer": ["레귤러핏", "슬림핏", "오버핏"] },
-      "bottom": { "fit_prefer": ["레귤러핏", "슬림핏", "와이드핏"] },
+      "top": {
+        "fit_prefer": [
+          "레귤러핏",
+          "슬림핏",
+          "오버핏"
+        ]
+      },
+      "bottom": {
+        "fit_prefer": [
+          "레귤러핏",
+          "슬림핏",
+          "와이드핏"
+        ]
+      },
       "outer": {},
       "reason": "사이즈코리아가 모든 연령·성별 표에서 100퍼센트 기준선으로 쓰는 체형이다. 다른 체형의 처방은 전부 '이 체형에서 얼마나 벗어났는가'를 되돌리는 것이므로, 정작 이 체형에는 되돌릴 것이 없다. 여기에 억지 규칙을 넣으면 근거 없는 제약만 늘어난다",
       "caution": "'표준'은 좋다는 뜻이 아니라 '치우침이 없다'는 뜻이다. 사용자에게 노출할 때 우열로 읽히지 않게 문구를 고른다"
     }
   },
-
   "torso_ratio_rules": {
     "long_torso": {
       "label": "상체가 김 (다리가 짧아 보이는 비율)",
       "goal": "허리선을 실제보다 위로 올린다",
-      "top": { "length_prefer": ["크롭", "기본"], "length_avoid": ["롱"] },
-      "bottom": { "rise_prefer": ["하이웨스트"], "rise_avoid": ["로우라이즈"] },
-      "styling": ["상의 프론트 턱인", "벨트를 허리 최상단에", "하의와 신발 색 통일"],
+      "top": {
+        "length_prefer": [
+          "크롭",
+          "기본"
+        ],
+        "length_avoid": [
+          "롱"
+        ]
+      },
+      "bottom": {
+        "rise_prefer": [
+          "하이웨스트"
+        ],
+        "rise_avoid": [
+          "로우라이즈"
+        ]
+      },
+      "styling": [
+        "상의 프론트 턱인",
+        "벨트를 허리 최상단에",
+        "하의와 신발 색 통일"
+      ],
       "reason": "허리선(=색·기장이 바뀌는 지점)이 곧 다리 시작점으로 읽힌다. 이걸 올리면 하체 비중이 커진다"
     },
     "balanced": {
       "label": "균형",
       "goal": "제약 없음 — 가로축(체형) 규칙만 적용",
-      "top": {}, "bottom": {}, "styling": []
+      "top": {},
+      "bottom": {},
+      "styling": []
     },
     "short_torso": {
       "label": "상체가 짧음 (다리가 긴 비율)",
       "goal": "상체 길이를 벌어준다",
-      "top": { "length_prefer": ["기본", "롱"], "length_avoid": ["크롭"] },
-      "bottom": { "rise_prefer": ["레귤러라이즈", "로우라이즈"], "rise_avoid": ["하이웨스트"] },
-      "styling": ["상의를 빼서 입기", "롱 아우터로 상체 면적 확보"],
+      "top": {
+        "length_prefer": [
+          "기본",
+          "롱"
+        ],
+        "length_avoid": [
+          "크롭"
+        ]
+      },
+      "bottom": {
+        "rise_prefer": [
+          "레귤러라이즈",
+          "로우라이즈"
+        ],
+        "rise_avoid": [
+          "하이웨스트"
+        ]
+      },
+      "styling": [
+        "상의를 빼서 입기",
+        "롱 아우터로 상체 면적 확보"
+      ],
       "reason": "크롭+하이웨스트는 허리선을 더 올려 이미 짧은 상체를 더 짧게 만든다 — long_torso 처방의 정반대"
     }
   },
-
   "neck_length_rules": {
     "long_neck": {
       "label": "목이 김",
       "goal": "제약 없음 — 높은 넥라인을 답답함 없이 소화한다",
-      "top": { "neckline_prefer": ["하이넥", "터틀넥", "크루넥"] },
-      "styling": ["높은 넥라인 단독 착용 가능"],
+      "top": {
+        "neckline_prefer": [
+          "하이넥",
+          "터틀넥",
+          "크루넥"
+        ]
+      },
+      "styling": [
+        "높은 넥라인 단독 착용 가능"
+      ],
       "reason": "목 노출을 줄여도 답답해 보이지 않는다"
     },
     "balanced": {
       "label": "균형",
       "goal": "제약 없음 — 모든 넥라인 가능",
-      "top": {}, "styling": []
+      "top": {},
+      "styling": []
     },
     "short_neck": {
       "label": "목이 짧음",
       "goal": "목 노출을 늘려 시각적 길이를 보완한다",
-      "top": { "neckline_prefer": ["V넥", "U넥", "오픈카라"], "neckline_avoid": ["하이넥", "터틀넥"] },
-      "styling": ["깊은 V넥", "민소매", "셔츠 상단 1단 오픈"],
+      "top": {
+        "neckline_prefer": [
+          "V넥",
+          "U넥",
+          "오픈카라"
+        ],
+        "neckline_avoid": [
+          "하이넥",
+          "터틀넥"
+        ]
+      },
+      "styling": [
+        "깊은 V넥",
+        "민소매",
+        "셔츠 상단 1단 오픈"
+      ],
       "reason": "넥라인이 낮을수록 드러나는 목 면적이 늘어 길이가 보완된다. 하이넥은 반대로 목을 지운다"
     }
   },
-
   "thigh_calf_ratio_rules": {
     "thigh_dominant": {
       "label": "허벅지가 김",
       "goal": "무릎 위쪽으로 시선을 분산하고 다리 시작점을 올린다",
-      "bottom": { "fit_prefer": ["와이드핏", "부츠컷"], "fit_avoid": ["슬림핏"], "rise_prefer": ["하이웨스트"] },
-      "shoes": { "prefer": ["넓은 부츠", "미들 부츠"] },
-      "styling": ["벨트·셔츠 인으로 상단 강조"],
+      "bottom": {
+        "fit_prefer": [
+          "와이드핏",
+          "부츠컷"
+        ],
+        "fit_avoid": [
+          "슬림핏"
+        ],
+        "rise_prefer": [
+          "하이웨스트"
+        ]
+      },
+      "shoes": {
+        "prefer": [
+          "넓은 부츠",
+          "미들 부츠"
+        ]
+      },
+      "styling": [
+        "벨트·셔츠 인으로 상단 강조"
+      ],
       "reason": "무릎이 상대적으로 위에 있어 다리가 짧아 보인다. 위쪽 볼륨이 시작점을 끌어올린다"
     },
     "balanced": {
       "label": "균형",
       "goal": "제약 없음",
-      "bottom": {}, "shoes": {}, "styling": []
+      "bottom": {},
+      "shoes": {},
+      "styling": []
     },
     "calf_dominant": {
       "label": "종아리가 김",
       "goal": "무릎 아래로 시선을 분산하고 다리 끝점을 강조한다",
-      "bottom": { "fit_prefer": ["슬림핏", "레귤러핏"], "fit_avoid": ["와이드핏"], "rise_prefer": ["하이웨스트"] },
-      "shoes": { "prefer": ["슬림 부츠", "앵클부츠"] },
+      "bottom": {
+        "fit_prefer": [
+          "슬림핏",
+          "레귤러핏"
+        ],
+        "fit_avoid": [
+          "와이드핏"
+        ],
+        "rise_prefer": [
+          "하이웨스트"
+        ]
+      },
+      "shoes": {
+        "prefer": [
+          "슬림 부츠",
+          "앵클부츠"
+        ]
+      },
       "styling": [],
       "reason": "무릎 아래가 길어 다리가 길어 보인다. 와이드는 그 길이를 덮어 장점을 지운다"
     }
   },
-
   "required_taxonomy_additions": [
     {
       "field": "rise",
       "applies_to": "하의",
-      "values": ["하이웨스트", "레귤러라이즈", "로우라이즈"],
+      "values": [
+        "하이웨스트",
+        "레귤러라이즈",
+        "로우라이즈"
+      ],
       "why": "torso_ratio_rules와 thigh_calf_ratio_rules가 이 필드를 참조한다. 없으면 두 축 모두 실행 불가",
       "where": "image-processor/pipeline/taxonomy.py, api/apps/wardrobe/taxonomy.py, test/test-llm2/common/taxonomy.py (3곳 동기화)"
     },
     {
       "field": "neckline",
       "applies_to": "상의, 원피스/세트",
-      "values": ["크루넥", "V넥", "U넥", "하이넥", "터틀넥", "오픈카라"],
+      "values": [
+        "크루넥",
+        "V넥",
+        "U넥",
+        "하이넥",
+        "터틀넥",
+        "오픈카라"
+      ],
       "why": "neck_length_rules 전체가 이 필드를 참조한다. 현재 taxonomy에 넥라인 개념 자체가 없다",
       "where": "위와 동일 3곳"
     },
     {
       "field": "FITS 확장",
       "applies_to": "하의",
-      "values": ["부츠컷 추가"],
+      "values": [
+        "부츠컷 추가"
+      ],
       "why": "thigh_dominant 처방이 부츠컷을 권장하는데 현재 FITS는 오버핏/레귤러핏/슬림핏/와이드핏 4종뿐이다",
       "where": "위와 동일 3곳"
     },
     {
       "field": "신발 소분류 세분화",
       "applies_to": "신발",
-      "values": ["부츠 → 앵클부츠 / 미들부츠 / 롱부츠"],
+      "values": [
+        "부츠 → 앵클부츠 / 미들부츠 / 롱부츠"
+      ],
       "why": "thigh_calf_ratio_rules의 신발 처방이 부츠 길이를 구분하는데 현재 소분류는 '부츠' 하나뿐이다",
       "where": "위와 동일 3곳"
     }
-  ]
+  ],
+  "changelog": [
+    {
+      "version": "1.0.0",
+      "date": "2026-08-10",
+      "change": "v3 체계로 정렬. 가로축 5체형 → 사이즈코리아 6체형(standard 신설), 세로축 3종 status NOT_measurable_yet → measurable (8차 실측에서 neck_length·torso_leg_ratio·thigh_calf_ratio 백분위 확보). classification·evidence_strength 추가"
+    },
+    {
+      "version": "0.3.0",
+      "date": "2026-08-06",
+      "change": "width_rules에서 color 키 제거. 체형 축은 색을 처방하지 않는다(scope 참조)"
+    },
+    {
+      "version": "0.2.0",
+      "date": "2026-08-06",
+      "change": "세로축 3종으로 확장"
+    }
+  ],
+  "shape_taxonomy_source": "golden-set/body/rules/sizekorea_body_shape_reference.json",
+  "width_classification": {
+    "note": "판정 순서가 곧 정의다. 위에서부터 먼저 걸리는 규칙이 이긴다. 임계값은 성별 × 연령대 백분위(body_shape_thresholds.json).",
+    "order": [
+      {
+        "shape": "round",
+        "test": "waist/hip >= p90"
+      },
+      {
+        "shape": "inverted_triangle",
+        "test": "shoulder/hip >= p67"
+      },
+      {
+        "shape": "triangle",
+        "test": "shoulder/hip <= p33"
+      },
+      {
+        "shape": "hourglass",
+        "test": "waist/hip <= p33"
+      },
+      {
+        "shape": "rectangle",
+        "test": "waist/hip >= p67"
+      },
+      {
+        "shape": "standard",
+        "test": "그 외"
+      }
+    ],
+    "why_waist_first": "허리가 엉덩이에 육박하면 어깨 폭과 무관하게 스타일링 과제가 '폭 균형'이 아니라 '세로선 만들기'로 바뀐다. 이때 어깨 기반 처방은 효과가 없다.",
+    "why_p90_for_round": "v2까지 둥근체형 관문이 p67이라 표본의 1/3이 둥근체형으로 빨려 들어갔다. p90으로 올려 복부가 실제로 지배적인 10퍼센트만 남긴다."
+  }
 }
