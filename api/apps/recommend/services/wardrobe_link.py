@@ -14,6 +14,9 @@ crossing-app 호출을 이 모듈 하나로 몰아 둔다. analysis.py가 wardro
   대신 큐 페이로드에 source·output 버킷을 명시해, 결과물은 옷장 버킷에 쌓이게 한다.
 - **실패해도 평가를 막지 않는다.** 사용자가 요청한 주된 작업은 코디 평가다. 옷장 등록은
   곁가지이므로 job을 FAILED로 남기고 넘어간다 — 무엇이 실패했는지는 job 조회로 보인다.
+- **읽기도 이 모듈을 거친다.** 평가 상세 응답에 옷장 진행 상황·아이템을 실어야 해서
+  `job_summary()`를 여기 둔다. serializers.py가 WardrobeItem을 직접 import하면
+  옷장 태그 스키마가 바뀔 때마다 평가 시리얼라이저까지 따라 깨진다.
 """
 
 from __future__ import annotations
@@ -25,10 +28,21 @@ from django.utils import timezone
 
 from apps.wardrobe.models import WardrobeUploadJob
 from apps.wardrobe.services import jobs as wardrobe_jobs
+from apps.wardrobe.services import storage as wardrobe_storage
 
 from . import storage
 
 logger = logging.getLogger(__name__)
+
+#: 평가 상세 응답에 실을 아이템 필드. 전체 태그(season/style/fit/seg_meta 등)는
+#: 옷장 API의 일이라 여기서는 칩·썸네일을 그릴 만큼만 내려준다.
+ITEM_SUMMARY_FIELDS = (
+    "item_name",
+    "category_large",
+    "category_small",
+    "color",
+    "confirmed",
+)
 
 
 def register_outfit_photo(analysis) -> WardrobeUploadJob | None:
@@ -72,3 +86,52 @@ def register_outfit_photo(analysis) -> WardrobeUploadJob | None:
         analysis.user_id,
     )
     return job
+
+
+def _item_image_url(s3_key: str) -> str | None:
+    """옷장 버킷은 비공개라 presigned GET으로만 노출한다. 발급 실패 시 None."""
+    if not s3_key or not wardrobe_storage.BUCKET:
+        return None
+    try:
+        return wardrobe_storage.presigned_get(s3_key)
+    except Exception:  # noqa: BLE001 — URL 발급 실패가 평가 조회를 막지 않는다
+        logger.warning("옷장 아이템 presigned URL 발급 실패: key=%s", s3_key, exc_info=True)
+        return None
+
+
+def job_summary(analysis) -> dict | None:
+    """평가 상세 응답에 실을 옷장 연계 요약을 만든다.
+
+    Returns: 연계 job이 없으면 None. 있으면 항상 상태를 내려주고, **job이 DONE일
+        때만** 생성된 아이템 요약을 채운다 (그 외에는 빈 배열).
+
+    옷장 파이프라인은 GPU 서버 → 콜백 구조라 평가가 SUCCEEDED가 된 뒤에도 job은
+    아직 PROCESSING일 수 있다. 그래서 상태를 항상 실어 프론트가 이 엔드포인트만
+    폴링해도 옷장 등록 완료까지 따라갈 수 있게 한다.
+
+    N+1을 피하려면 호출부가 `select_related("wardrobe_job")` ·
+    `prefetch_related("wardrobe_job__items")`로 미리 당겨야 한다.
+    """
+    job = analysis.wardrobe_job
+    if job is None:
+        return None
+
+    items: list[dict] = []
+    if job.status == WardrobeUploadJob.Status.DONE:
+        items = [
+            {
+                "id": item.pk,
+                **{name: getattr(item, name) for name in ITEM_SUMMARY_FIELDS},
+                "image_url": _item_image_url(item.s3_key),
+            }
+            for item in job.items.all()
+        ]
+
+    return {
+        "job_id": job.pk,
+        "status": job.status,
+        "error_message": job.error_message,
+        "created_at": job.created_at,
+        "finished_at": job.finished_at,
+        "items": items,
+    }

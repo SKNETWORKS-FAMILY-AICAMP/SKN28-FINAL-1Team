@@ -105,6 +105,22 @@ export const HomeEndpoint = '/api/v1/home/';
 export const OutfitAnalysisEndpoint = '/api/v1/outfits/analyze/';
 
 /**
+ * 착장 분석 기록 (api/apps/recommend/urls.py 기준).
+ *   GET  /api/v1/outfits/analyses/?limit=&offset=&status=  → { count, limit, offset, results[] }
+ *   GET  /api/v1/outfits/analyses/{id}/                    → 단건 (진행 상태 겸 결과)
+ *   POST /api/v1/outfits/analyses/claim/  { claim_tokens[] } → 비로그인 접수 건을 계정으로 이전
+ *
+ * ⚠️ 목록만 JWT 필수다. 단건 조회는 AllowAny — UUID를 아는 사람이면 24시간 안에 볼 수 있다.
+ *    익명 기록(user=NULL)은 목록에서 빠지므로, 비회원이 분석한 건은 claim 을 거쳐야 목록에 나타난다.
+ *    claim 토큰은 발급 후 60분만 유효하다(조회 24시간과 다름).
+ */
+export const OutfitHistoryEndpoints = {
+  list: '/api/v1/outfits/analyses/',
+  detail: (analysisId: string) => `/api/v1/outfits/analyses/${analysisId}/`,
+  claim: '/api/v1/outfits/analyses/claim/',
+} as const;
+
+/**
  * 신체치수 (api/apps/users/urls.py 기준). 전부 JWT 필요.
  *   GET   /api/v1/users/me/body/         → 전체 치수 (미입력 필드는 null)
  *   PUT   /api/v1/users/me/body/basic/   { height, weight }  (둘 다 필수)

@@ -49,7 +49,9 @@ SKN28-FINAL-1Team/
 │       ├── users/         # 사용자·인증 (naver/kakao/google OAuth + JWT)
 │       ├── catalog/       # 상품 (naver_product 등, collector/naver가 사용)
 │       ├── weather/       # 날씨 (weather_* 테이블, collector/weather가 사용)
-│       └── recommend/     # 추천: Qdrant 클라이언트·컬렉션 스키마 소유 (manage.py init_qdrant)
+│       ├── recommend/     # 추천: Qdrant 클라이언트·컬렉션 스키마 소유 (manage.py init_qdrant)
+│       ├── style_calendar/ # 착장 캘린더 (하루 한 건, 사진→옷장 job 재사용)
+│       └── lookbook/      # 룩북 (날짜 없이 여러 건, 겹치는 부위는 사진 등록 제외)
 ├── collector/             # 독립 실행 데이터 수집기 (스키마는 Django migration이 소유)
 │   ├── weather/           # 기상청 APIHub 수집
 │   └── naver/             # 네이버 쇼핑 상품 수집 + LLM 태깅
@@ -160,4 +162,4 @@ python manage.py runserver
 
 ---
 
-_마지막 업데이트: 2026-07-29_
+_마지막 업데이트: 2026-08-07_

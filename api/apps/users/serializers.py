@@ -127,11 +127,23 @@ class SocialAccountSerializer(serializers.ModelSerializer):
 
 
 class BudgetSerializer(serializers.ModelSerializer):
+    """GET/PUT /users/me/budget/ — 월 의류 구매 예산.
+
+    PUT은 전체 교체라 `monthly_budget` 키가 반드시 있어야 하며(required),
+    예산을 지우려면 키를 빼는 게 아니라 **명시적으로 null**을 보낸다.
+    메타 상한(2,147,480,000)은 PositiveIntegerField의 21억대 상한을
+    1만원 단위로 내림 값이다 — 저장 직전에 DB가 터지지 않게 하려는 방어막.
+    """
+
     monthly_budget = serializers.IntegerField(
         min_value=10_000,
         max_value=2_147_480_000,
         allow_null=True,
         required=True,
+        help_text=(
+            "월 의류 구매 예산(원). **1만원 단위**로 10,000 이상 2,147,480,000 이하. "
+            "`null`을 보내면 설정해 둔 예산을 지우고, 조회 시 미설정이면 `null`이 내려갑니다."
+        ),
     )
 
     class Meta:
@@ -154,7 +166,10 @@ class UserSerializer(serializers.ModelSerializer):
 
 
 BODY_BASIC_FIELDS = ["gender", "height", "weight"]
-BODY_DETAIL_FIELDS = ["chest", "waist", "hip", "thigh", "calf", "arm", "shoulder"]
+BODY_DETAIL_FIELDS = [
+    "chest", "waist", "hip", "thigh", "calf", "arm", "shoulder",
+    "neck_length", "thigh_calf_ratio", "torso_leg_ratio"
+]
 
 
 class BodyMeasurementSerializer(serializers.ModelSerializer):
@@ -193,7 +208,7 @@ class BodyBasicInputSerializer(serializers.ModelSerializer):
 
 
 class BodyDetailInputSerializer(serializers.ModelSerializer):
-    """PATCH /users/me/body/detail — 상세 둘레 수치. 전부 선택 입력.
+    """PATCH /users/me/body/detail — 상세 치수·체형 지표. 전부 선택 입력.
 
     보낸 필드만 갱신하며(partial), null을 보내면 해당 값을 지운다.
     """
@@ -283,7 +298,7 @@ class BodyEstimationResultSerializer(serializers.Serializer):
         allow_null=True, help_text="사진 측정일 때만 값이 있다. 무사진 추정은 null."
     )
     measurement = BodyMeasurementSerializer(
-        help_text="추정된 신체치수 전체. 상세 7개는 항상 채워져 있다."
+        help_text="추정된 신체치수 전체. 상세 7개와 체형 지표 3개가 포함된다."
     )
     error_message = serializers.CharField(
         allow_null=True, help_text="실패했을 때만 사유가 들어간다."

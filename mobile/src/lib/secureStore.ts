@@ -15,6 +15,7 @@ const REFRESH_KEY = 'auth_refresh_token';
 /* 데모 세션 표식. 토큰이 없는 세션이라 이 값이 없으면 새로고침·앱 재시작에서 그냥 사라진다. */
 const DEMO_KEY = 'auth_demo_session';
 const OUTFIT_ANALYSIS_KEY = 'outfit_analysis_job';
+const OUTFIT_CLAIM_KEY = 'outfit_claim_tokens';
 
 const isWeb = Platform.OS === 'web';
 
@@ -109,4 +110,21 @@ export function getOutfitAnalysisJob(): Promise<string | null> {
 
 export function clearOutfitAnalysisJob(): Promise<void> {
   return deleteItem(OUTFIT_ANALYSIS_KEY);
+}
+
+/**
+ * 비로그인으로 접수한 분석의 claim 토큰 보관함.
+ * 진행 중 작업(위 OUTFIT_ANALYSIS_KEY)은 1건만 들고 있다가 새 분석을 시작하면 지워지는데,
+ * 토큰은 로그인 시점까지 살아 있어야 해서 따로 쌓는다.
+ */
+export function saveOutfitClaimTokens(value: string): Promise<void> {
+  return setItem(OUTFIT_CLAIM_KEY, value);
+}
+
+export function getOutfitClaimTokens(): Promise<string | null> {
+  return getItem(OUTFIT_CLAIM_KEY);
+}
+
+export function clearOutfitClaimTokens(): Promise<void> {
+  return deleteItem(OUTFIT_CLAIM_KEY);
 }

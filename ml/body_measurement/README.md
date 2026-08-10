@@ -1,7 +1,8 @@
 # 신체치수 모델 비교 도구
 
-키와 몸무게로 상세 신체치수 7개를 예측하는 모델을 동일한 데이터 분할과
-지표로 비교한다.
+키와 몸무게로 상세 신체치수 7개를 예측하고, 여기에 체형 지표 3개를 더해
+총 10개 값을 API에 제공한다. 모델 비교 벤치마크의 기본 학습 target은
+측정값 7개이며, 체형 지표 3개는 추론 단계에서 회귀식으로 계산한다.
 
 ## 폴더 구조
 
@@ -26,13 +27,15 @@ body_measurement/
 │   ├── benchmark_vlm.py                   ← VLM 벤치마크
 │   ├── benchmark_openrouter_two_view.py   ← OpenRouter 2-view 벤치마크
 │   ├── inference.py                       ← API 서빙용 추론 헬퍼
+│   ├── run_tabular_benchmark.py           ← VLM split 대상 10개 출력 검증
 │   └── huggingface_benchmark.ipynb        ← Colab GPU에서 HF 모델 실행
 ├── artifacts/models/                      ← API 서빙용 joblib 모델
 ├── experiments/                           ← 모델별·실행별 평가 결과
 │   ├── tabular/<model>/<run_name>/
 │   └── vlm/<model>/<run_name>/
 ├── reports/                               ← 비교 리포트
-│   ├── model_comparison_report.md         ← 사람이 보는 7모델 비교 보고서
+│   ├── model_comparison_report.md         ← 7개 측정 target 모델 비교 보고서
+│   ├── model_evaluation_summary.md        ← 사진 추론 및 10개 출력 평가 요약
 │   ├── model_comparison_summary.csv       ← 모델별 평균 지표
 │   ├── model_comparison_detail.csv        ← target별 상세 지표
 │   └── model_comparison.png               ← R2/MAE/RMSE 차트
@@ -62,16 +65,22 @@ Hugging Face 후보는 모델 다운로드, 큰 의존성, 라이선스 검토�
 
 ## 데이터 형식
 
-정제 CSV에 다음 컬럼이 필요하다.
+정제 CSV는 아래 컬럼을 사용한다. `benchmark.py`의 학습 필수 컬럼은
+`gender`·`height`·`weight`와 측정값 7개이며, 마지막 체형 지표 3개는
+현재 정제본과 10개 출력 검증에서 함께 사용한다.
 
 ```text
-gender,height,weight,chest,waist,hip,thigh,calf,arm,shoulder
+gender,height,weight,chest,waist,hip,thigh,calf,arm,shoulder,neck_length,thigh_calf_ratio,torso_leg_ratio
 ```
 
 - `gender`: M/F
 - `height`: cm
 - `weight`: kg
-- 나머지 target: cm
+- `chest`~`shoulder`: cm 단위의 측정값 7개
+- `neck_length`: 턱선에서 어깨선까지의 시각적 길이(cm)
+- `thigh_calf_ratio`: 골반·외측 엉덩이에서 무릎까지의 시각적 허벅지 길이를 무릎에서 발목까지의 종아리 길이로 나눈 비율 (`0.8~1.3`, 일반적으로 `1.00~1.15`)
+- `torso_leg_ratio`: 어깨에서 외측 엉덩이까지의 시각적 상체 길이를 외측 엉덩이에서 발목·바닥까지의 다리 길이로 나눈 비율 (`0.6~1.0`, 일반적으로 `0.70~0.85`)
+- 무사진 경로는 랜드마크를 볼 수 없으므로 `torso_leg_ratio=0.786` 기준값을 사용하고, 사진 경로는 유효한 VLM 측정값으로 덮어쓴다.
 - 결측 행은 현재 MVP에서 제외한다.
 - 실제 평가에서는 동일 조사 대상이 train/test에 중복되지 않도록 전처리
   단계에서 subject 기준 split 컬럼을 추가하는 방향으로 확장한다.
@@ -202,11 +211,30 @@ python src\benchmark.py predict `
   --weight 65
 ```
 
-세 기본 모델의 상세 7개 예측값이 JSON으로 출력된다.
+세 기본 모델의 상세 7개 예측값이 JSON으로 출력된다. API 서빙 경로
+(`src/inference.py`)는 여기에 `neck_length`, `thigh_calf_ratio`,
+`torso_leg_ratio`를 추가해 10개 값을 반환한다.
 
 `benchmark` 명령에도 `--height`, `--weight`가 있으므로 7개 모델을 학습한
 직후 같은 입력을 한 번에 비교할 수 있다. Hugging Face 모델은 라이브러리별
 영구 저장 방식이 달라 `sample_predictions.json`에 해당 실행의 예측값을 남긴다.
+
+## 10개 출력 검증
+
+VLM 평가 split의 성별·키·몸무게를 입력으로 서빙용 tabular 경로가 반환하는
+10개 값(측정값 7개 + 체형 지표 3개)을 검증한다.
+
+```powershell
+python src\run_tabular_benchmark.py
+```
+
+`experiments/tabular/validation/`과 `experiments/tabular/test/`에
+`predictions.csv`, `evaluated.csv`, `metrics.json`을 생성한다. 비율 지표의
+오차는 cm가 아닌 비율 단위이며, 기존 7개 target 모델 비교 리포트의 평균 MAE와
+직접 합산해서 비교하지 않는다.
+
+현재 VLM split의 비율 정답은 재정의 전 산식으로 만들어져 기본 평가에서 제외된다.
+새 시각적 비율 라벨을 준비한 뒤에만 `evaluate_results.py --include-ratios`를 사용한다.
 
 ## 7모델 비교 리포트 생성
 
@@ -301,7 +329,7 @@ python src\benchmark.py benchmark `
 
 1. `Prior-Labs/TabPFN-v2-reg`는 배포 전 라이선스를 확인한다.
 2. 최초 실행은 Hugging Face 모델 다운로드 때문에 네트워크가 필요하다.
-3. foundation 모델은 target별로 7번 실행하므로 CPU·메모리·지연을 측정한다.
+3. foundation 모델은 측정 target 7개별로 실행하므로 CPU·메모리·지연을 측정한다.
 4. Hugging Face 모델 저장·재로딩은 라이브러리별 방식이 달라 현재 CLI의
    `predict` 명령은 기본 4개 모델부터 지원한다.
 5. Colab 노트북에 예전 `benchmark.py` 패치 셀이 남아 있으면 실행하지 않는다.
@@ -309,8 +337,9 @@ python src\benchmark.py benchmark `
 
 ## 보고서 (사람이 보는 결과)
 
-`reports/model_comparison_report.md`는 7개 모델의 비교를 사람이 읽기 좋게
-정리한 보고서다. 표·차트·분석·재현 명령어가 한 파일에 들어 있다.
+`reports/model_comparison_report.md`는 측정값 7개를 대상으로 한 7개 모델 비교를
+사람이 읽기 좋게 정리한 보고서다. 현재 API의 10개 출력 계약과 사진 경로 평가는
+`reports/model_evaluation_summary.md`에서 별도로 관리한다.
 
 ```powershell
 # 추천 워크플로

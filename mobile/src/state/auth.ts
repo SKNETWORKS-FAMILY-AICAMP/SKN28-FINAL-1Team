@@ -11,6 +11,7 @@ import {
   saveDemoFlag,
   saveTokens,
 } from '@/lib/secureStore';
+import { outfitAnalysisStore } from '@/state/outfit-analysis';
 
 /**
  * 전역 인증 상태.
@@ -120,6 +121,10 @@ export const authStore = {
   /** 로그아웃: simplejwt(stateless)라 서버 엔드포인트가 없다 → 클라이언트 토큰 폐기로 처리 */
   async signOut(): Promise<void> {
     await Promise.all([clearTokens(), clearDemoFlag()]);
+    /* 기기에 남은 착장 분석 결과는 방금 나간 사용자 것이다 — 같이 지운다.
+       (서버 데이터가 새는 건 아니지만, 로그아웃 후에도 홈에 그 사람 분석 카드가 남는다)
+       claim 토큰은 비로그인으로 접수한 건이라 다음 로그인 때 넘겨야 하므로 남긴다. */
+    await outfitAnalysisStore.clear();
     setState({ status: 'guest', user: null, isDemo: false });
   },
 };

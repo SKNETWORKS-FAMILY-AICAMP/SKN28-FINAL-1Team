@@ -18,6 +18,7 @@ from rest_framework.parsers import FormParser, MultiPartParser
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
+from apps.lookbook.services import lookbook_service
 from apps.style_calendar.services import calendar_service
 
 from .models import WardrobeItem, WardrobeUploadJob
@@ -132,7 +133,11 @@ class WardrobeCallbackView(APIView):
                 job.error_message = data.get("error", "")
                 job.finished_at = timezone.now()
                 job.save(update_fields=["status", "error_message", "finished_at"])
+                # 한 job이 캘린더와 룩북 양쪽에 걸려 있을 수 있다 (룩북에서
+                # '캘린더에도 기록'을 켠 경우 같은 사진을 두 번 처리하지 않으려고
+                # job을 공유한다). 걸린 쪽이 없으면 각 함수가 조용히 반환한다.
                 calendar_service.apply_wardrobe_job_failure(job=job)
+                lookbook_service.apply_wardrobe_job_failure(job=job)
                 return Response({"job_id": str(job.pk), "status": job.status})
 
             created: list[tuple[WardrobeItem, list, list]] = []
@@ -150,9 +155,14 @@ class WardrobeCallbackView(APIView):
             job.status = WardrobeUploadJob.Status.DONE
             job.finished_at = timezone.now()
             job.save(update_fields=["status", "finished_at"])
+            created_wardrobe_items = [item for item, _, _ in created]
             calendar_service.apply_wardrobe_job_success(
                 job=job,
-                created_items=[item for item, _, _ in created],
+                created_items=created_wardrobe_items,
+            )
+            lookbook_service.apply_wardrobe_job_success(
+                job=job,
+                created_items=created_wardrobe_items,
             )
 
         # DB 커밋 후 파생 저장소 반영 (실패해도 embedding_version으로 재색인 가능)
