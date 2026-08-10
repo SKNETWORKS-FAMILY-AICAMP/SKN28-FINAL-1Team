@@ -10,34 +10,55 @@ import { ApiError, api } from '@/lib/apiClient';
  * expo-router 는 세 화면이 서로 다른 라우트라 화면 간 공유 부모가 없다.
  * authStore 와 동일한 경량 모듈 스토어(useSyncExternalStore) 로 스텝 간 데이터를 잇는다.
  *
- * 백엔드 연동(팀레포 main, users/body):
- *   - STEP1  "다음"  → PUT   /users/me/body/basic/  { gender, height, weight }  (saveBasic)
- *   - 결과 진입      → GET   /users/me/body/  로 저장된 상세치수를 불러오고,
- *                      없으면 키·몸무게 기반 제안값(mock)을 초기값으로 보여준다 (estimate)
- *   - STEP2  "측정 시작하기" → POST /body/photos/(multipart) → 트랜잭션 폴링 →
- *              성공 시 GET /body/ 로 추론된 치수 로드 (startPhotoMeasurement)
- *   - STEP3  "완료"  → PATCH /users/me/body/detail/  로 수정한 둘레를 저장 (saveDetail)
- * basic/detail 저장은 best-effort — 실패해도 로컬 상태로 플로우는 계속되고, 화면이 토스트로 알린다.
+ * 백엔드 연동 (api/apps/users/views.py):
+ *   - STEP1  "다음"          → PUT  /body/basic/  { gender, height, weight }        (saveBasic)
+ *   - STEP2  "사진 없이 진행" → POST /body/estimate/ { gender,height,weight }        (estimate)
+ *   - STEP2  "측정 시작하기"  → POST /body/photos/ (multipart) → 폴링                (startPhotoMeasurement)
+ *   - STEP3  "완료"          → PATCH /body/detail/ 로 수정한 상세 7개 저장           (saveDetail)
+ *
+ * 추정 수치는 **전부 서버(ml/body_measurement)가 만든다.** 예전에는 여기서 키·몸무게
+ * 기반 선형식(mockEstimate)으로 자리채움 값을 만들어 보여줬는데, 서버에 실제 추정
+ * API 가 생긴 뒤로도 그대로 남아 학습한 모델이 아니라 가짜 숫자가 화면에 나갔다.
+ * 프론트에서 치수를 지어내지 않고, 추정에 실패하면 실패로 보여준다.
  */
 
 export type Sex = 'female' | 'male' | 'none';
 
 export type MeasureInput = { height: number; weight: number; sex: Sex };
-/** 사진 URI (없으면 null). 지금은 실제 카메라 대신 mock URI 를 넣는다. */
+/** 사진 URI (없으면 null) */
 export type MeasurePhotos = { front: string | null; side: string | null };
 
+/**
+ * 서버가 추정하는 상세 치수 7개. 키 이름은 백엔드 BODY_DETAIL_FIELDS 와 1:1 이라
+ * PATCH /body/detail/ 에 이 객체를 그대로 실어 보낼 수 있다.
+ */
 export type Measurement = {
   shoulder: number; // 어깨너비
   chest: number; // 가슴둘레
   waist: number; // 허리둘레
   hip: number; // 엉덩이둘레
+  thigh: number; // 허벅지둘레
+  calf: number; // 종아리둘레
+  arm: number; // 팔뚝둘레
 };
+
+/** Measurement 의 키 목록 — DTO 변환·화면 순회에 함께 쓴다. */
+export const MEASURE_KEYS = [
+  'shoulder',
+  'chest',
+  'waist',
+  'hip',
+  'thigh',
+  'calf',
+  'arm',
+] as const;
+
 export type SizeMatch = { brand: string; size: string; fit: string };
 
 export type MeasureResult = {
   measures: Measurement;
   sizes: SizeMatch[];
-  usedPhotos: boolean; // 사진을 써서 추정했는지 (안내문 분기용)
+  usedPhotos: boolean; // 사진을 써서 추정했는지 (안내문 분기용). 서버 응답의 source 로 판단한다.
 };
 
 type EstimateStatus = 'idle' | 'loading' | 'success' | 'error';
@@ -48,6 +69,11 @@ type MeasureState = {
   status: EstimateStatus;
   result: MeasureResult | null;
   error: string | null;
+  /**
+   * 실패 원인이 '기본 정보(성별·키·몸무게) 없음'인지. 이 경우 재시도는 같은 실패를
+   * 반복하므로 화면이 재시도 대신 STEP1 로 돌려보내야 한다.
+   */
+  needsBasicInfo: boolean;
 };
 
 const EMPTY: MeasureState = {
@@ -56,10 +82,8 @@ const EMPTY: MeasureState = {
   status: 'idle',
   result: null,
   error: null,
+  needsBasicInfo: false,
 };
-
-// 입력을 건너뛰고 결과로 직접 진입한 경우의 안전 기본값 (170cm/63kg).
-const DEFAULT_INPUT: MeasureInput = { height: 170, weight: 63, sex: 'none' };
 
 let state: MeasureState = EMPTY;
 const listeners = new Set<() => void>();
@@ -69,23 +93,10 @@ function setState(next: Partial<MeasureState>): void {
   listeners.forEach((l) => l());
 }
 
-const round1 = (n: number) => Math.round(n * 10) / 10;
-
 /**
- * mock 추정: 170cm/63kg 기준값에서 입력 편차만큼 보정한다.
- * 실제 값이 아니라 플로우 검증용 자리채움 (→ API 로 대체될 함수).
+ * 브랜드 사이즈 매칭 — 아직 백엔드가 없어 가슴둘레 기준 임시 규칙으로 만든다.
+ * (치수 자체와 달리 이건 '추정값'이 아니라 표시용 매칭이라 프론트에 남겨둔다.)
  */
-function mockEstimate(input: MeasureInput): Measurement {
-  const dh = input.height - 170;
-  const dw = input.weight - 63;
-  return {
-    shoulder: round1(41.2 + dh * 0.12 + dw * 0.05),
-    chest: round1(92.5 + dw * 0.7 + dh * 0.1),
-    waist: round1(78.0 + dw * 0.8 + dh * 0.05),
-    hip: round1(95.8 + dw * 0.6 + dh * 0.1),
-  };
-}
-
 function mockSizes(chest: number): SizeMatch[] {
   const tier = chest < 90 ? 'S' : chest < 98 ? 'M' : 'L';
   const up = tier === 'S' ? 'M' : tier === 'M' ? 'L' : 'XL';
@@ -96,9 +107,10 @@ function mockSizes(chest: number): SizeMatch[] {
   ];
 }
 
-// ── 백엔드 신체치수(GET /body/) ────────────────────────────────
+// ── 백엔드 응답 형식 ──────────────────────────────────────────
 // DRF DecimalField 는 문자열("170.0")로 내려올 수 있어 숫자로 정규화한다. 미입력은 null.
 type BodyDto = {
+  gender: string | null;
   height: string | number | null;
   weight: string | number | null;
   chest: string | number | null;
@@ -111,30 +123,62 @@ type BodyDto = {
   updated_at: string | null;
 };
 
+/**
+ * 무사진 추정(POST /body/estimate/)과 사진 트랜잭션 조회(GET /body/photos/{id}/)가
+ * 공유하는 결과 형식 (BodyEstimationResultSerializer).
+ */
+type BodyEstimationResult = {
+  status: 'in_progress' | 'succeeded' | 'failed';
+  source: 'basic_info' | 'photo';
+  transaction_id: string | null;
+  measurement: BodyDto;
+  error_message: string | null;
+};
+
 function toNum(v: unknown): number | null {
   if (v === null || v === undefined || v === '') return null;
   const n = Number(v);
   return Number.isFinite(n) ? n : null;
 }
 
-/** GET /body/ 조회. 미로그인/오프라인/미입력이면 null (플로우는 mock 로 진행). */
+/**
+ * 추정 결과의 상세 7개를 화면용 Measurement 로 바꾼다.
+ * 하나라도 비어 있으면 null — 빈 칸을 0 이나 임의값으로 메우면 사용자는 그게
+ * 추정 실패인지 진짜 0 인지 구분할 수 없다. (서버는 성공 시 7개를 모두 채워 보낸다)
+ */
+function toMeasurement(dto: BodyDto | null | undefined): Measurement | null {
+  if (!dto) return null;
+  const out = {} as Measurement;
+  for (const key of MEASURE_KEYS) {
+    const value = toNum(dto[key]);
+    if (value === null) return null;
+    out[key] = value;
+  }
+  return out;
+}
+
+/**
+ * 로컬 입력을 서버가 받는 형태로 바꾼다.
+ * 성별 미선택('none')은 아예 보내지 않는다 — 서버 ChoiceField 가 male|female 만 받아
+ * 빈 값을 보내면 400 이 되고, 생략하면 저장된 값으로 대체된다.
+ */
+function basicInfoPayload(input: MeasureInput | null): Record<string, string> {
+  if (!input) return {};
+  const payload: Record<string, string> = {
+    height: String(input.height),
+    weight: String(input.weight),
+  };
+  if (input.sex !== 'none') payload.gender = input.sex;
+  return payload;
+}
+
+/** GET /body/ 조회. 미로그인/오프라인/미입력이면 null. */
 async function fetchBody(): Promise<BodyDto | null> {
   try {
     return await api.get<BodyDto>(BodyEndpoints.me);
   } catch {
     return null;
   }
-}
-
-/** 저장된 상세치수를 mock 제안값 위에 덮어쓴다 (저장값 우선, 빈 칸은 mock 유지). */
-function mergeMeasures(dto: BodyDto | null, base: Measurement): Measurement {
-  if (!dto) return base;
-  return {
-    shoulder: toNum(dto.shoulder) ?? base.shoulder,
-    chest: toNum(dto.chest) ?? base.chest,
-    waist: toNum(dto.waist) ?? base.waist,
-    hip: toNum(dto.hip) ?? base.hip,
-  };
 }
 
 /** STEP1 프리필용 — 저장된 키·몸무게 (없으면 null). */
@@ -148,7 +192,10 @@ export async function fetchBodyBasic(): Promise<{
 }
 
 // ── 사진 기반 측정 (POST photos → 폴링) ─────────────────────────
-type PhotoTxResponse = { transaction_id: string; status: string };
+type PhotoUploadResponse = { transaction_id: string; status: string };
+
+const POLL_INTERVAL_MS = 2000;
+const POLL_ATTEMPTS = 30; // 2초 × 30 = 최대 약 60초
 
 const delay = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -168,23 +215,71 @@ async function appendImage(
   }
 }
 
-/** 정면·측면 사진을 multipart 로 업로드 → 측정 트랜잭션 생성(202). */
-async function uploadBodyPhotos(frontUri: string, sideUri: string): Promise<PhotoTxResponse> {
+/**
+ * 정면·측면 사진을 multipart 로 업로드 → 측정 트랜잭션 생성(202).
+ *
+ * 키·몸무게·성별을 **같이** 보낸다. 생략하면 서버가 저장된 기본 정보를 찾는데,
+ * STEP1 에서 저장이 실패했거나(오프라인·인증 만료) 사용자가 입력을 건너뛰었으면
+ * 저장된 값이 없어 업로드가 통째로 400 이 된다. 로컬 입력은 이미 손에 있으므로
+ * 그걸 실어 보내 STEP1 저장 성공 여부와의 결합을 끊는다.
+ */
+async function uploadBodyPhotos(
+  frontUri: string,
+  sideUri: string,
+  input: MeasureInput | null,
+): Promise<PhotoUploadResponse> {
   const form = new FormData();
   await appendImage(form, 'front_image', frontUri, 'front.jpg');
   await appendImage(form, 'side_image', sideUri, 'side.jpg');
-  return api.post<PhotoTxResponse>(BodyEndpoints.photos, form);
+  for (const [key, value] of Object.entries(basicInfoPayload(input))) {
+    form.append(key, value);
+  }
+  return api.post<PhotoUploadResponse>(BodyEndpoints.photos, form);
 }
 
-/** 측정 트랜잭션을 성공/실패까지 2초 간격 폴링 (최대 ~60초). 타임아웃은 실패로 본다. */
-async function pollTransaction(transactionId: string): Promise<'succeeded' | 'failed'> {
-  for (let i = 0; i < 30; i++) {
-    const tx = await api.get<PhotoTxResponse>(BodyEndpoints.photo(transactionId));
-    if (tx.status === 'succeeded') return 'succeeded';
-    if (tx.status === 'failed') return 'failed';
-    await delay(2000);
+/**
+ * 측정 트랜잭션이 끝날 때까지 폴링한다. 끝나면 결과 전체를 그대로 돌려준다 —
+ * 이 응답에 추정된 치수와 실패 사유가 이미 들어 있어 GET /body/ 를 다시 부를 필요가 없다.
+ * 시간 안에 안 끝나면 null (호출부가 안내 문구를 정한다).
+ */
+async function pollTransaction(
+  transactionId: string,
+): Promise<BodyEstimationResult | null> {
+  for (let i = 0; i < POLL_ATTEMPTS; i++) {
+    const result = await api.get<BodyEstimationResult>(
+      BodyEndpoints.photo(transactionId),
+    );
+    if (result.status !== 'in_progress') return result;
+    await delay(POLL_INTERVAL_MS);
   }
-  return 'failed';
+  return null;
+}
+
+/** 추정 결과 → 화면 상태. 상세 7개를 못 읽으면 null (호출부가 실패로 처리한다). */
+function toResult(estimation: BodyEstimationResult): MeasureResult | null {
+  const measures = toMeasurement(estimation.measurement);
+  if (!measures) return null;
+  return {
+    measures,
+    sizes: mockSizes(measures.chest),
+    usedPhotos: estimation.source === 'photo',
+  };
+}
+
+/** 서버가 성공이라 했는데 치수가 비어 있을 때의 안내 문구. */
+const UNREADABLE_RESULT = '추정 결과를 읽지 못했어요. 다시 시도해주세요.';
+
+/**
+ * 이 실패가 '기본 정보 없음' 때문인지 판정한다.
+ *
+ * 두 추정 API 모두 성별·키·몸무게를 생략하면 **저장된 값**으로 대체하고, 그것도
+ * 없으면 400 을 준다. 즉 우리가 로컬 입력을 못 보낸 상태에서 400 이 왔다면
+ * 서버에도 저장된 값이 없다는 뜻이고, 같은 요청을 재시도해봐야 결과는 같다.
+ * 이럴 때 화면은 재시도 버튼 대신 STEP1 입력으로 안내해야 한다.
+ */
+function isMissingBasicInfo(error: unknown, input: MeasureInput | null): boolean {
+  const sentBasicInfo = Boolean(input && input.sex !== 'none');
+  return !sentBasicInfo && error instanceof ApiError && error.status === 400;
 }
 
 export const measureStore = {
@@ -213,7 +308,6 @@ export const measureStore = {
   async saveBasic(input: MeasureInput): Promise<void> {
     setState({ input });
     /* 서버는 gender·height·weight 를 **셋 다** 요구하고, gender 는 male|female 만 받는다.
-       예전엔 gender 를 안 보내 매번 400 이 났다.
        성별을 안 고른 상태로는 저장할 방법이 없으므로 요청을 보내지 않는다 —
        어차피 400 이 될 요청을 던져 에러 토스트만 띄우느니 로컬 입력만 들고 진행한다.
        (화면에서 성별을 고르게 막아 두어 여기까진 잘 오지 않는다) */
@@ -230,71 +324,113 @@ export const measureStore = {
   },
 
   /**
-   * 치수 추정 실행. STEP2 완료(또는 건너뛰기) 시 호출하고, 결과는 STEP3 가 구독한다.
-   * 화면이 언마운트돼도 이 스토어에 결과가 남으므로, 나갔다 돌아와도 결과가 유지된다.
+   * 사진 없이 치수 추정 — POST /body/estimate/ (서버 동기 추론, 수십 ms).
+   * STEP2 "사진 없이 진행" 과 STEP3 직접 진입 시 호출하고, 결과는 STEP3 가 구독한다.
+   * 화면이 언마운트돼도 결과가 이 스토어에 남아 나갔다 돌아와도 유지된다.
    */
   async estimate(): Promise<void> {
-    /* 키·몸무게도 없고 사진도 없으면 추정할 근거가 하나도 없다.
-       기본값(170/63)으로 대신 계산하면 사용자가 준 적 없는 수치를 결과로 보여주게 된다. */
+    /* 로컬 입력도 사진도 없으면 추정 근거가 없다. 서버에 저장된 기본 정보가 있을 수도
+       있지만, 그 경우도 값이 없으면 서버가 400 을 주므로 굳이 왕복하지 않고 먼저 막는다. */
     const hasPhotos = Boolean(state.photos.front || state.photos.side);
     if (!state.input && !hasPhotos) {
       setState({
         status: 'error',
         result: null,
         error: '키·몸무게를 입력하거나 사진을 등록해야 치수를 추정할 수 있어요.',
+        needsBasicInfo: true,
       });
       return;
     }
 
-    const input = state.input ?? DEFAULT_INPUT;
-    setState({ status: 'loading', error: null, result: null });
+    setState({ status: 'loading', error: null, result: null, needsBasicInfo: false });
     try {
-      // 사진 추론은 다음 단계. 서버에 저장된 상세치수가 있으면 그걸 초기값으로,
-      // 없으면 키·몸무게 기반 제안값(mock)을 보여준다. 사용자가 STEP3에서 수정하면
-      // saveDetail 로 PATCH 된다. GET 실패(오프라인 등)해도 mock 로 진행한다.
-      const measures = mergeMeasures(await fetchBody(), mockEstimate(input));
-      const usedPhotos = Boolean(state.photos.front && state.photos.side);
-      setState({
-        status: 'success',
-        result: { measures, sizes: mockSizes(measures.chest), usedPhotos },
-      });
+      const estimation = await api.post<BodyEstimationResult>(
+        BodyEndpoints.estimate,
+        basicInfoPayload(state.input),
+      );
+      const result = toResult(estimation);
+      if (!result) {
+        setState({
+          status: 'error',
+          result: null,
+          error: estimation.error_message ?? UNREADABLE_RESULT,
+        });
+        return;
+      }
+      setState({ status: 'success', result });
     } catch (e) {
       setState({
         status: 'error',
-        error: e instanceof Error ? e.message : '치수 추정에 실패했어요.',
+        result: null,
+        // 서버가 준 사유(성별 미입력 등)를 그대로 보여준다. 네트워크 오류는 원문이
+        // 'Failed to fetch' 라 사용자에게 의미가 없어 우리 문구로 바꾼다.
+        error:
+          e instanceof ApiError
+            ? e.message
+            : '치수 추정에 실패했어요. 잠시 후 다시 시도해주세요.',
+        needsBasicInfo: isMissingBasicInfo(e, state.input),
       });
     }
   },
 
   /**
-   * STEP2 "측정 시작하기" — 정면·측면 사진 업로드 → 측정 트랜잭션 폴링 →
-   * 성공 시 백엔드가 채운 상세치수를 GET /body/ 로 불러온다.
-   * (백엔드 추론은 현재 10초 mock 이지만, 업로드·폴링 흐름은 실제로 동작한다.)
+   * STEP2 "측정 시작하기" — 정면·측면 사진 업로드 → 측정 트랜잭션 폴링.
+   * 폴링 응답에 추정된 치수가 함께 오므로 별도 조회 없이 바로 결과를 그린다.
    */
   async startPhotoMeasurement(): Promise<void> {
     const { front, side } = state.photos;
     if (!front || !side) {
-      setState({ status: 'error', result: null, error: '정면·측면 사진이 모두 필요해요.' });
+      // 사진이 모자란 것이지 기본 정보 문제는 아니다 — 직전 실패의 플래그를 물려받지 않게 끈다.
+      setState({
+        status: 'error',
+        result: null,
+        error: '정면·측면 사진이 모두 필요해요.',
+        needsBasicInfo: false,
+      });
       return;
     }
-    setState({ status: 'loading', error: null, result: null });
+    setState({ status: 'loading', error: null, result: null, needsBasicInfo: false });
     try {
-      const tx = await uploadBodyPhotos(front, side);
-      const outcome = await pollTransaction(tx.transaction_id);
-      if (outcome !== 'succeeded') {
-        setState({ status: 'error', error: '사진 측정에 실패했어요. 다시 시도해주세요.' });
+      const tx = await uploadBodyPhotos(front, side, state.input);
+      const estimation = await pollTransaction(tx.transaction_id);
+
+      if (!estimation) {
+        setState({
+          status: 'error',
+          result: null,
+          error: '측정이 시간 내에 끝나지 않았어요. 잠시 후 다시 시도해주세요.',
+        });
         return;
       }
-      // 추론된 상세치수를 불러온다. 비어 있는 값은 키·몸무게 기반 제안값으로 보완.
-      const measures = mergeMeasures(await fetchBody(), mockEstimate(state.input ?? DEFAULT_INPUT));
-      setState({
-        status: 'success',
-        result: { measures, sizes: mockSizes(measures.chest), usedPhotos: true },
-      });
+      if (estimation.status !== 'succeeded') {
+        // 서버가 실패 사유를 담아 보낸다 — 뭉뚱그린 문구 대신 그대로 보여준다.
+        setState({
+          status: 'error',
+          result: null,
+          error: estimation.error_message ?? '사진 측정에 실패했어요. 다시 시도해주세요.',
+        });
+        return;
+      }
+      const result = toResult(estimation);
+      if (!result) {
+        setState({
+          status: 'error',
+          result: null,
+          error: estimation.error_message ?? UNREADABLE_RESULT,
+        });
+        return;
+      }
+      setState({ status: 'success', result });
     } catch (e) {
       setState({
         status: 'error',
-        error: e instanceof ApiError ? e.message : '사진 측정에 실패했어요. 다시 시도해주세요.',
+        result: null,
+        error:
+          e instanceof ApiError
+            ? e.message
+            : '사진 측정에 실패했어요. 다시 시도해주세요.',
+        // 업로드 400 도 기본 정보 부족이 원인일 수 있다 (서버가 저장된 값을 못 찾은 경우).
+        needsBasicInfo: isMissingBasicInfo(e, state.input),
       });
     }
   },
@@ -306,18 +442,13 @@ export const measureStore = {
   },
 
   /**
-   * STEP3 "완료" — 수정한 둘레를 서버에 저장(PATCH detail)한다.
-   * UI에 있는 4개(shoulder/chest/waist/hip)만 보내고 thigh/calf/arm 은 건드리지 않는다.
+   * STEP3 "완료" — 수정한 상세 7개를 서버에 저장(PATCH detail)한다.
+   * Measurement 의 키가 백엔드 BODY_DETAIL_FIELDS 와 1:1 이라 그대로 보낸다.
    * 로컬 반영을 먼저 하므로 저장 실패해도 결과는 유지되고, 실패는 throw 로 알린다.
    */
   async saveDetail(measures: Measurement): Promise<void> {
     if (state.result) setState({ result: { ...state.result, measures } });
-    await api.patch(BodyEndpoints.detail, {
-      shoulder: measures.shoulder,
-      chest: measures.chest,
-      waist: measures.waist,
-      hip: measures.hip,
-    });
+    await api.patch(BodyEndpoints.detail, measures);
   },
 };
 
