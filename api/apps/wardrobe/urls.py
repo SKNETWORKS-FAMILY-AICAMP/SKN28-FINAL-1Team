@@ -1,4 +1,5 @@
-from django.urls import path
+from django.urls import path, include
+from rest_framework.routers import DefaultRouter
 
 from apps.wardrobe.views import (
     WardrobeCallbackView,
@@ -6,9 +7,13 @@ from apps.wardrobe.views import (
     WardrobeItemListView,
     WardrobeUploadJobView,
     WardrobeUploadView,
+    SharedWardrobeViewSet,
 )
 
 app_name = "wardrobe"
+
+router = DefaultRouter()
+router.register(r"shared-wardrobes", SharedWardrobeViewSet, basename="shared-wardrobes")
 
 urlpatterns = [
     # 옷장 아이템 등록 (비동기)
@@ -19,4 +24,7 @@ urlpatterns = [
     # 옷장 아이템 조회·수정·삭제
     path("wardrobe/items/", WardrobeItemListView.as_view(), name="items"),
     path("wardrobe/items/<uuid:item_id>/", WardrobeItemDetailView.as_view(), name="item-detail"),
+    
+    # ── 공유 옷장 (Shared Wardrobe) ──
+    path("", include(router.urls)),
 ]

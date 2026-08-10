@@ -131,3 +131,55 @@ class CallbackSerializer(serializers.Serializer):
     status = serializers.ChoiceField(choices=["success", "failed"])
     error = serializers.CharField(allow_blank=True, default="")
     items = CallbackItemSerializer(many=True, default=list)
+
+
+# ── 공유 옷장 (Shared Wardrobe) 시리얼라이저 ─────────────────
+from django.contrib.auth import get_user_model
+from .models import SharedWardrobeRoom, SharedWardrobeMember, SharedWardrobeItem
+
+User = get_user_model()
+
+class UserSimpleSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = User
+        fields = ["id", "username", "email"]
+
+
+class SharedWardrobeRoomSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = SharedWardrobeRoom
+        fields = ["id", "title", "invite_code", "code_expires_at", "created_at"]
+        read_only_fields = ["id", "invite_code", "code_expires_at", "created_at"]
+
+
+class SharedWardrobeMemberSerializer(serializers.ModelSerializer):
+    user = UserSimpleSerializer(read_only=True)
+
+    class Meta:
+        model = SharedWardrobeMember
+        fields = ["id", "user", "role", "joined_at"]
+
+
+class SharedWardrobeItemSerializer(serializers.ModelSerializer):
+    wardrobe_item = WardrobeItemSerializer(read_only=True)
+    registered_by = UserSimpleSerializer(read_only=True)
+
+    class Meta:
+        model = SharedWardrobeItem
+        fields = ["id", "registered_by", "wardrobe_item", "status", "created_at"]
+
+
+class SharedWardrobeJoinSerializer(serializers.Serializer):
+    invite_code = serializers.CharField(max_length=6, min_length=6, write_only=True)
+
+
+class SharedWardrobeLeaveSerializer(serializers.Serializer):
+    delete_my_items = serializers.BooleanField(default=True)
+
+
+class SharedWardrobeItemRegisterSerializer(serializers.Serializer):
+    wardrobe_item_id = serializers.UUIDField()
+    status = serializers.ChoiceField(
+        choices=SharedWardrobeItem.Status.choices,
+        default=SharedWardrobeItem.Status.AVAILABLE
+    )

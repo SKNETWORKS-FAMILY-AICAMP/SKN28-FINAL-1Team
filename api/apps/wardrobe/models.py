@@ -157,3 +157,121 @@ class WardrobeItem(models.Model):
 
     def __str__(self) -> str:
         return f"{self.item_name or self.category_large} ({self.user_id})"
+
+
+class SharedWardrobeRoom(models.Model):
+    """공유 옷장 방 정보. 초대코드 및 만료 관리를 담당합니다."""
+
+    id = models.UUIDField(
+        primary_key=True,
+        default=uuid.uuid4,
+        editable=False,
+        db_comment="공유방 UUID (외부 노출 식별자)",
+    )
+    title = models.CharField(
+        "방 이름", max_length=100, db_comment="공유방 이름 (예: 가족 옷장)"
+    )
+    invite_code = models.CharField(
+        "초대코드", max_length=6, unique=True, null=True, blank=True, db_comment="6자리 초대용 핀코드"
+    )
+    code_expires_at = models.DateTimeField(
+        "초대코드 만료일시", null=True, blank=True, db_comment="초대코드 유효 만료 시각"
+    )
+    created_at = models.DateTimeField(
+        "생성일시", auto_now_add=True, db_comment="방 개설 시각"
+    )
+
+    class Meta:
+        db_table = "shared_wardrobe_room"
+        db_table_comment = "공유 옷장 그룹 방"
+        ordering = ["-created_at"]
+
+    def __str__(self) -> str:
+        return self.title
+
+
+class SharedWardrobeMember(models.Model):
+    """공유 옷장 참여 멤버십 정보. 사용자 권한(방장/멤버)을 관리합니다."""
+
+    class Role(models.TextChoices):
+        OWNER = "owner", "방장"
+        MEMBER = "member", "멤버"
+
+    room = models.ForeignKey(
+        SharedWardrobeRoom,
+        on_delete=models.CASCADE,
+        related_name="members",
+        db_comment="소속 공유방 FK"
+    )
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name="shared_rooms",
+        db_comment="참여 사용자 FK"
+    )
+    role = models.CharField(
+        "역할", max_length=10, choices=Role.choices, default=Role.MEMBER, db_comment="방 권한 (owner/member)"
+    )
+    joined_at = models.DateTimeField(
+        "참여일시", auto_now_add=True, db_comment="방 참가 시각"
+    )
+
+    class Meta:
+        db_table = "shared_wardrobe_member"
+        db_table_comment = "공유 옷장 그룹 참여자"
+        unique_together = (("room", "user"),)
+        ordering = ["joined_at"]
+
+    def __str__(self) -> str:
+        return f"{self.user} in {self.room} ({self.role})"
+
+
+class SharedWardrobeItem(models.Model):
+    """공유 옷장에 등록된 의류 아이템 정보. 사용자 탈퇴 시 아이템 유지/삭제 분기가 가능합니다."""
+
+    class Status(models.TextChoices):
+        AVAILABLE = "available", "공유가능"
+        BORROWED = "borrowed", "대여중"
+        PRIVATE = "private", "나만보기"
+
+    id = models.UUIDField(
+        primary_key=True,
+        default=uuid.uuid4,
+        editable=False,
+        db_comment="공유 아이템 UUID"
+    )
+    room = models.ForeignKey(
+        SharedWardrobeRoom,
+        on_delete=models.CASCADE,
+        related_name="items",
+        db_comment="소속 공유방 FK"
+    )
+    registered_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="shared_items",
+        db_comment="등록 사용자 FK (사용자 탈퇴 시에도 옷 유지를 위해 SET_NULL 지원)"
+    )
+    # 기존 개인 옷장 아이템에서 정보(사진 및 메타)를 참조하여 연결
+    wardrobe_item = models.ForeignKey(
+        WardrobeItem,
+        on_delete=models.CASCADE,
+        related_name="shared_instances",
+        db_comment="원본 옷장 아이템 FK"
+    )
+    status = models.CharField(
+        "공유상태", max_length=15, choices=Status.choices, default=Status.AVAILABLE, db_comment="공유 대여 가능 상태"
+    )
+    created_at = models.DateTimeField(
+        "등록일시", auto_now_add=True, db_comment="공유방 등록 시각"
+    )
+
+    class Meta:
+        db_table = "shared_wardrobe_item"
+        db_table_comment = "공유 옷장 내 등록된 의류 아이템"
+        ordering = ["-created_at"]
+
+    def __str__(self) -> str:
+        return f"{self.wardrobe_item.item_name or '옷'} in {self.room}"
