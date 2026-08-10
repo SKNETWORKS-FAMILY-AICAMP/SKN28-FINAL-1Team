@@ -13,9 +13,10 @@ import { CategoryEditSheet, EmptyState, ErrorState, LoadingState, LoginGate, Sea
 import { useMultiSelectFilter } from '@/hooks/useMultiSelectFilter';
 import { router, useLocalSearchParams } from 'expo-router';
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Platform } from 'react-native';
 import {
   ActivityIndicator,
+  Modal,
+  Platform,
   Pressable,
   RefreshControl,
   ScrollView,
@@ -470,7 +471,18 @@ export default function ClosetScreen() {
                   style={[styles.card, { width: cardW }]}
                   onPress={() =>
                     router.push({ pathname: '/item-detail', params: { id: it.id } })
-                  }>
+                  }
+                  // Web HTML5 Drag and drop
+                  draggable={true}
+                  onDragStart={(e: any) => {
+                    if (Platform.OS === 'web') {
+                      e.dataTransfer.setData('text/plain', JSON.stringify({
+                        id: it.id,
+                        name: it.name || it.category_large,
+                        image: it.image
+                      }));
+                    }
+                  }}>
                   <View style={[styles.cardImage, { height: cardH }]}>
                     <SmartImage
                       uri={it.image}
