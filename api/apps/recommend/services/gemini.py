@@ -285,7 +285,10 @@ DAILY_LOOK_SYSTEM_INSTRUCTION = (
     "자연스러운 문장으로 풀어 씁니다.\n"
     "3. 체형을 지적하거나 평가하지 않습니다. '단점을 가린다'가 아니라 "
     "'균형을 살린다'처럼 씁니다.\n"
-    "4. 날씨 정보가 있으면 기온에 맞는 레이어링을 한 문장으로 덧붙입니다.\n"
+    "4. 날씨 정보가 있으면 기온에 맞는 레이어링을 한 문장으로 덧붙입니다. "
+    "기온은 섭씨이며, 주어진 값과 기온대 판정을 다르게 표현하지 않습니다. "
+    "착장이 그 기온에 다소 맞지 않으면 억지로 맞다고 쓰지 말고 "
+    "'겉옷은 벗어 들고 다녀도 좋아요' 처럼 실용적인 안내로 풀어 씁니다.\n"
     "5. items의 note는 주어진 item_key에 대해서만 씁니다. 없는 아이템을 만들지 않습니다."
 )
 
@@ -293,14 +296,28 @@ DAILY_LOOK_SYSTEM_INSTRUCTION = (
 def build_daily_look_prompt(
     *, outfit: dict[str, Any], context: dict[str, Any]
 ) -> str:
+    from apps.recommend.services.retriever import celsius_of
+    from apps.recommend.services.style_rules import load_weather_rules
+
     profile = context.get("body_profile") or {}
     weather = context.get("weather") or {}
+
+    # 단위를 명시한다. "27.4도"만 주면 모델이 화씨로 읽을 여지가 남는다.
+    celsius = celsius_of(weather)
+    temperature = f"{celsius}°C (섭씨)" if celsius is not None else "정보 없음"
+
     lines = [
         "## 사용자",
         f"- 체형: {profile.get('describe') or '정보 없음'}",
-        f"- 날씨: {weather.get('region', '')} {weather.get('temperature', '?')}도"
+        f"- 날씨: {weather.get('region', '')} {temperature}"
         f" {weather.get('sky_state', '')}".strip(),
     ]
+
+    # 기온대 판정을 미리 내려서 준다. 모델이 스스로 판단하게 두면, 착장에 아우터가
+    # 있고 기온이 높을 때 "말이 되게" 만들려고 날씨 쪽을 굽힌다 — 27도를 두고
+    # "선선한 날씨"라고 쓴 사고가 실제로 있었다. 판정을 사실로 못 박아 둔다.
+    if (band := load_weather_rules().band_for(celsius)) is not None:
+        lines.append(f"- 기온대: {band.label} — {band.hint}")
     pursuit = context.get("pursuit") or {}
     if pursuit:
         lines.append(f"- 선호: {json.dumps(pursuit.get('preferred', {}), ensure_ascii=False)}")

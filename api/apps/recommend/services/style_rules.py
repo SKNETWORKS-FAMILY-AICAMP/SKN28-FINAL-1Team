@@ -222,3 +222,117 @@ class BodyRules:
             avoid.extend(block.avoid)
 
         return AxisRules(prefer=tuple(prefer), avoid=tuple(avoid))
+
+
+# ────────────────────────────────────────────────────────────
+# 기온 규칙
+# ────────────────────────────────────────────────────────────
+
+@dataclass(frozen=True)
+class WeatherWeights:
+    discourage: int = -40
+    encourage: int = 12
+
+
+@dataclass(frozen=True)
+class WeatherBand:
+    """기온 구간 하나. min 이상 max 미만."""
+
+    label: str
+    hint: str = ""
+    minimum: float | None = None
+    maximum: float | None = None
+    discourage: tuple[Rule, ...] = ()
+    encourage: tuple[Rule, ...] = ()
+
+    def contains(self, celsius: float) -> bool:
+        if self.minimum is not None and celsius < self.minimum:
+            return False
+        if self.maximum is not None and celsius >= self.maximum:
+            return False
+        return True
+
+
+@dataclass(frozen=True)
+class WeatherRules:
+    schema_version: str
+    weights: WeatherWeights
+    bands: tuple[WeatherBand, ...]
+
+    def band_for(self, celsius: float | None) -> WeatherBand | None:
+        """기온에 해당하는 구간. 기온을 모르면 None이라 규칙이 적용되지 않는다."""
+        if celsius is None:
+            return None
+        for band in self.bands:
+            if band.contains(celsius):
+                return band
+        return None
+
+    @classmethod
+    def from_document(cls, document: dict) -> "WeatherRules":
+        weights_raw = {
+            k: v for k, v in (document.get("weights") or {}).items() if k != "note"
+        }
+        return cls(
+            schema_version=str(document.get("schema_version", "")),
+            weights=WeatherWeights(**weights_raw),
+            bands=tuple(
+                WeatherBand(
+                    label=str(band.get("label", "")),
+                    hint=str(band.get("hint", "")),
+                    minimum=band.get("min"),
+                    maximum=band.get("max"),
+                    discourage=_parse_rules(band.get("discourage"), where="discourage"),
+                    encourage=_parse_rules(band.get("encourage"), where="encourage"),
+                )
+                for band in document.get("bands") or []
+            ),
+        )
+
+
+def validate_weather_rules(document: dict) -> list[str]:
+    """기온 규칙의 태그 값을 검증한다. 구간이 겹치거나 비면 그것도 알린다."""
+    problems: list[str] = []
+    for index, band in enumerate(document.get("bands") or []):
+        where = f"bands[{index}]({band.get('label', '?')})"
+        for kind in ("discourage", "encourage"):
+            for row_index, row in enumerate(band.get(kind) or []):
+                for field, value in row.items():
+                    if field in _META_KEYS:
+                        continue
+                    allowed = KNOWN_VALUES.get(field)
+                    if allowed is None:
+                        problems.append(
+                            f"{where}.{kind}[{row_index}]: 알 수 없는 태그 필드 '{field}'"
+                        )
+                    elif value not in allowed:
+                        problems.append(
+                            f"{where}.{kind}[{row_index}]: '{field}'에 없는 값 '{value}'"
+                        )
+        if band.get("min") is None and band.get("max") is None:
+            problems.append(f"{where}: min/max가 모두 없어 모든 기온에 걸린다")
+
+    # 구간 사이에 구멍이 있으면 그 기온에서 규칙이 통째로 빠진다 — 조용한 실패다.
+    bounded = sorted(
+        (b for b in (document.get("bands") or []) if b.get("min") is not None),
+        key=lambda b: b["min"],
+    )
+    for lower, upper in zip(bounded, bounded[1:]):
+        if lower.get("max") is not None and lower["max"] != upper["min"]:
+            problems.append(
+                f"기온 구간 사이에 틈: {lower.get('label')} max={lower['max']} "
+                f"vs {upper.get('label')} min={upper['min']}"
+            )
+    return problems
+
+
+@lru_cache(maxsize=1)
+def load_weather_rules() -> WeatherRules:
+    path = RULES_DIR / "weather_rules.json"
+    document = json.loads(path.read_text(encoding="utf-8"))
+    problems = validate_weather_rules(document)
+    if problems:
+        raise RuleError(
+            f"{path.name}이 태그 어휘와 맞지 않습니다:\n  " + "\n  ".join(problems)
+        )
+    return WeatherRules.from_document(document)

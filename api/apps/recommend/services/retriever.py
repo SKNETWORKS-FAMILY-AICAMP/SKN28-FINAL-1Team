@@ -32,7 +32,13 @@ from apps.recommend.services.qdrant import (
     IMAGE_VECTOR,
     get_client,
 )
-from apps.recommend.services.style_rules import BodyRules, Rule, load_body_rules
+from apps.recommend.services.style_rules import (
+    BodyRules,
+    Rule,
+    WeatherBand,
+    load_body_rules,
+    load_weather_rules,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -252,6 +258,52 @@ def _score_items(
     return total, reasons
 
 
+def celsius_of(weather: dict[str, Any] | None) -> float | None:
+    """날씨 dict에서 섭씨 기온을 꺼낸다. 값이 없거나 숫자가 아니면 None."""
+    if not weather:
+        return None
+    try:
+        return float(weather.get("temperature"))
+    except (TypeError, ValueError):
+        return None
+
+
+def _score_weather(
+    items: list[dict[str, Any]], band: WeatherBand | None, weights
+) -> tuple[float, list[Reason]]:
+    """기온대에 맞지 않는 아이템을 감점하고 맞는 아이템을 가산한다.
+
+    검색 필터로 아예 제외하지 않는 이유가 있다. 27도에 아우터가 든 코디를 전부
+    빼버리면, 골든셋이 아우터 코디 위주일 때 후보가 0건이 되어 사용자는 아무것도
+    못 본다 — 계절을 하드 필터로 걸었다가 모든 추천이 EMPTY로 끝난 적이 있다.
+    감점은 순위만 밀어내므로 그 사고가 없다.
+
+    같은 근거는 아이템이 여럿이어도 한 번만 남긴다.
+    """
+    if band is None:
+        return 0.0, []
+
+    total = 0.0
+    reasons: list[Reason] = []
+    seen: set[str] = set()
+
+    def add(delta: float, text: str) -> None:
+        nonlocal total
+        total += delta
+        if text not in seen:
+            seen.add(text)
+            reasons.append(Reason(source="weather", delta=delta, text=text))
+
+    for item in items:
+        for rule in band.discourage:
+            if rule.matches(item):
+                add(weights.discourage, rule.reason)
+        for rule in band.encourage:
+            if rule.matches(item):
+                add(weights.encourage, rule.reason)
+    return total, reasons
+
+
 def _score_context(
     payload: dict[str, Any], *, season: str, occasion: str, weights
 ) -> tuple[float, list[Reason]]:
@@ -318,6 +370,8 @@ def retrieve_outfits(
     )
 
     season = _season_from_weather(request.weather)
+    weather_rules = load_weather_rules()
+    band = weather_rules.band_for(celsius_of(request.weather))
 
     candidates: list[OutfitCandidate] = []
     for point_id, similarity, payload in records:
@@ -336,6 +390,14 @@ def retrieve_outfits(
         )
         delta += context_delta
         reasons.extend(context_reasons)
+
+        # 기온은 계절 태그와 달리 아이템 구성만으로 판단된다. 골든셋에 계절
+        # 태그가 없어도 "27도에 아우터"는 여기서 걸린다.
+        weather_delta, weather_reasons = _score_weather(
+            list(payload.get("items", [])), band, weather_rules.weights
+        )
+        delta += weather_delta
+        reasons.extend(weather_reasons)
         # 유사도(0~1)를 100점 척도로 올려 규칙 가감점과 같은 단위에 둔다.
         base = similarity * 100
         candidates.append(

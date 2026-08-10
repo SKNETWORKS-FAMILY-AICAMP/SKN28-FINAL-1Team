@@ -32,13 +32,17 @@ from apps.recommend.services.retriever import (
     Reason,
     _score_context,
     _score_items,
+    _score_weather,
     _season_from_weather,
+    celsius_of,
 )
 from apps.recommend.services.style_rules import (
     RULES_DIR,
     Rule,
     load_body_rules,
+    load_weather_rules,
     validate_rules,
+    validate_weather_rules,
 )
 
 translate = vocabulary.translate
@@ -272,3 +276,88 @@ class BuildFilterTests(unittest.TestCase):
         self.assertIsNotNone(built)
         self.assertTrue(built.must_not)
         self.assertFalse(built.must)
+
+
+OUTER = {"category_large": "아우터", "material": "코튼"}
+SHORT_TEE = {"category_large": "상의", "sleeve": "반팔", "material": "코튼"}
+KNIT_TOP = {"category_large": "상의", "sleeve": "긴팔", "material": "니트"}
+
+
+class WeatherRuleTests(unittest.TestCase):
+    """기온을 선택에 반영한다.
+
+    실제 사고: 27도인데 아우터가 든 코디가 1위로 뽑혔고, LLM은 그걸 정당화하려고
+    "선선한 날씨"라고 썼다. 모델이 온도를 잘못 읽은 게 아니라 모순을 봉합한
+    것이다. 근본 원인은 기온이 선택에 전혀 관여하지 않았다는 것이었다.
+    """
+
+    def setUp(self) -> None:
+        self.rules = load_weather_rules()
+        self.weights = self.rules.weights
+
+    def test_shipped_rules_validate(self) -> None:
+        document = json.loads(
+            (RULES_DIR / "weather_rules.json").read_text(encoding="utf-8")
+        )
+        self.assertEqual(validate_weather_rules(document), [])
+
+    def test_band_boundaries(self) -> None:
+        for celsius, label in (
+            (27, "더움"), (23, "더움"), (22.9, "선선"), (17, "선선"),
+            (16.9, "쌀쌀"), (9, "쌀쌀"), (8.9, "추움"), (-10, "추움"),
+        ):
+            self.assertEqual(self.rules.band_for(celsius).label, label, f"{celsius}도")
+
+    def test_unknown_temperature_disables_the_rules(self) -> None:
+        self.assertIsNone(self.rules.band_for(None))
+        self.assertEqual(_score_weather([OUTER], None, self.weights), (0.0, []))
+
+    def test_outer_at_27_is_penalised(self) -> None:
+        band = self.rules.band_for(27.4)
+        total, reasons = _score_weather([OUTER, SHORT_TEE], band, self.weights)
+        self.assertLess(total, 0)
+        self.assertTrue(any(r.source == "weather" for r in reasons))
+        self.assertTrue(any("겉옷" in r.text for r in reasons))
+
+    def test_outer_when_cool_is_rewarded(self) -> None:
+        total, _ = _score_weather([OUTER], self.rules.band_for(12), self.weights)
+        self.assertEqual(total, self.weights.encourage)
+
+    def test_knit_flips_with_temperature(self) -> None:
+        self.assertLess(
+            _score_weather([KNIT_TOP], self.rules.band_for(28), self.weights)[0], 0
+        )
+        self.assertGreater(
+            _score_weather([KNIT_TOP], self.rules.band_for(12), self.weights)[0], 0
+        )
+
+    def test_reason_not_repeated_across_items(self) -> None:
+        band = self.rules.band_for(27.4)
+        _, reasons = _score_weather([OUTER] * 3, band, self.weights)
+        self.assertEqual(len(reasons), len({r.text for r in reasons}))
+
+    def test_penalty_is_weaker_than_user_avoidance(self) -> None:
+        """사용자가 직접 고른 기피가 날씨 추정보다 우선이어야 한다 (가이드 Q2)."""
+        self.assertLess(
+            abs(self.weights.discourage), abs(load_body_rules().weights.preference_avoid)
+        )
+
+    def test_gap_between_bands_is_reported(self) -> None:
+        """구간 사이에 구멍이 있으면 그 기온에서 규칙이 통째로 빠진다."""
+        bad = {"bands": [{"label": "a", "min": 20, "max": 25}, {"label": "b", "min": 30}]}
+        self.assertTrue(any("틈" in p for p in validate_weather_rules(bad)))
+
+    def test_unbounded_band_is_reported(self) -> None:
+        self.assertTrue(
+            any("모든 기온" in p for p in validate_weather_rules({"bands": [{"label": "x"}]}))
+        )
+
+
+class CelsiusTests(unittest.TestCase):
+    def test_parses_number_and_string(self) -> None:
+        self.assertEqual(celsius_of({"temperature": 27.4}), 27.4)
+        self.assertEqual(celsius_of({"temperature": "27.4"}), 27.4)
+
+    def test_missing_or_garbage_is_none(self) -> None:
+        for value in (None, {}, {"temperature": None}, {"temperature": "n/a"}):
+            self.assertIsNone(celsius_of(value))
