@@ -31,7 +31,7 @@ import { useBottomTabInset } from '@/hooks/use-bottom-tab-inset';
 import { useBreakpoint } from '@/hooks/use-breakpoint';
 import { useRefresh } from '@/hooks/use-refresh';
 import { useWardrobeItems } from '@/hooks/use-wardrobe';
-import { itemDisplayName } from '@/lib/wardrobeApi';
+import { itemDisplayName, getMySharedRooms, createSharedRoom, joinSharedRoom } from '@/lib/wardrobeApi';
 import { Icon } from '@/components/icon';
 import { useAuth } from '@/state/auth';
 import { uploadJobs, useUploadCompleted, useUploadJobs } from '@/state/upload-jobs';
@@ -129,18 +129,58 @@ export default function ClosetScreen() {
     [source, matches, query],
   );
 
-  const handleCreateSpace = () => {
-    const space = createSharedSpace();
-    setSharedSpace(space);
-    setInviteOpen(true);
-    toast('공유 옷장을 만들었어요', { variant: 'success' });
+  // 첫 마운트 또는 로그인 상태 변경 시 내 공유 옷장 방 로드
+  useEffect(() => {
+    if (isLoggedIn && tab === 'shared') {
+      getMySharedRooms()
+        .then((rooms) => {
+          if (rooms && rooms.length > 0) {
+            const firstRoom = rooms[0];
+            setSharedSpace({
+              id: firstRoom.id,
+              name: firstRoom.title,
+              inviteCode: firstRoom.invite_code || '',
+              members: ['나'], // 기본 멤버 배열 바인딩
+            });
+          } else {
+            setSharedSpace(null);
+          }
+        })
+        .catch(() => setSharedSpace(null));
+    }
+  }, [isLoggedIn, tab]);
+
+  const handleCreateSpace = async () => {
+    try {
+      const room = await createSharedRoom('공유 옷장');
+      setSharedSpace({
+        id: room.id,
+        name: room.title,
+        inviteCode: room.invite_code || '',
+        members: ['나'],
+      });
+      setInviteOpen(true);
+      toast('공유 옷장을 만들었어요', { variant: 'success' });
+    } catch (err) {
+      toast('공유 옷장 개설에 실패했습니다', { variant: 'error' });
+    }
   };
 
-  const handleJoinSpace = (code: string) => {
-    const space = joinSharedSpace(code);
-    if (!space) return false;
-    setSharedSpace(space);
-    return true;
+  const handleJoinSpace = async (code: string) => {
+    try {
+      const res = await joinSharedRoom(code);
+      setSharedSpace({
+        id: res.room_id,
+        name: res.title,
+        inviteCode: code,
+        members: ['나', '친구'], // 참여 멤버수 증가 모사
+      });
+      toast('공유 옷장에 참여했어요', { variant: 'success' });
+      return true;
+    } catch (err) {
+      toast('유효하지 않거나 만료된 초대 코드입니다', { variant: 'error' });
+      return false;
+    }
   };
 
   const emptyTitle = useMemo(() => {

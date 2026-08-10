@@ -20,14 +20,10 @@ export type SharedSpace = {
   members: string[];
 };
 
-const DEMO_JOIN_CODE = 'COZY2024';
+const DEMO_JOIN_CODE = 'COZY24';
 
 function makeInviteLink(code: string) {
-  return `https://cozy.app/join/${code}`;
-}
-
-function makeInviteCode() {
-  return Math.random().toString(36).slice(2, 8).toUpperCase();
+  return `https://skn-1st-mobile.expo.app/invite?code=${code}`;
 }
 
 async function copyToClipboard(text: string): Promise<boolean> {

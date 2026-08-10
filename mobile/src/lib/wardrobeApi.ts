@@ -252,7 +252,75 @@ function guessFileName(uri: string): string {
   return /\.[a-zA-Z0-9]+$/.test(last) ? last : 'wardrobe.jpg';
 }
 
-function guessMimeType(name: string): string {
+export function guessMimeType(name: string): string {
   const ext = name.split('.').pop()?.toLowerCase() ?? '';
   return MIME_BY_EXT[ext] ?? 'image/jpeg';
+}
+
+// ── 공유 옷장 (Shared Wardrobe) API ──
+export type SharedRoom = {
+  id: string;
+  title: string;
+  invite_code: string | null;
+  code_expires_at: string | null;
+  created_at: string;
+  role?: 'owner' | 'member';
+};
+
+export type SharedRoomMember = {
+  id: number;
+  user: {
+    id: number;
+    username: string;
+    email: string;
+  };
+  role: 'owner' | 'member';
+  joined_at: string;
+};
+
+export type SharedRoomItem = {
+  id: string;
+  registered_by: {
+    id: number;
+    username: string;
+    email: string;
+  } | null;
+  wardrobe_item: WardrobeApiItem;
+  status: 'available' | 'borrowed' | 'private';
+  created_at: string;
+};
+
+export function createSharedRoom(title: string): Promise<SharedRoom> {
+  return api.post<SharedRoom>('/shared-wardrobes/', { title });
+}
+
+export function joinSharedRoom(inviteCode: string): Promise<{ room_id: string; title: string; status: string }> {
+  return api.post<{ room_id: string; title: string; status: string }>('/shared-wardrobes/join/', { invite_code: inviteCode });
+}
+
+export function refreshInviteCode(roomId: string): Promise<{ room_id: string; invite_code: string; code_expires_at: string }> {
+  return api.post<{ room_id: string; invite_code: string; code_expires_at: string }>(`/shared-wardrobes/${roomId}/refresh-code/`);
+}
+
+export function leaveSharedRoom(roomId: string, deleteMyItems: boolean = true): Promise<unknown> {
+  return api.post(`/shared-wardrobes/${roomId}/leave/`, { delete_my_items: deleteMyItems });
+}
+
+export function listSharedRoomItems(roomId: string): Promise<SharedRoomItem[]> {
+  return api.get<SharedRoomItem[]>(`/shared-wardrobes/${roomId}/items/`);
+}
+
+export function registerItemToSharedRoom(roomId: string, wardrobeItemId: string, status: 'available' | 'borrowed' | 'private' = 'available'): Promise<SharedRoomItem> {
+  return api.post<SharedRoomItem>(`/shared-wardrobes/${roomId}/items/`, {
+    wardrobe_item_id: wardrobeItemId,
+    status
+  });
+}
+
+export function listSharedRoomMembers(roomId: string): Promise<SharedRoomMember[]> {
+  return api.get<SharedRoomMember[]>(`/shared-wardrobes/${roomId}/members/`);
+}
+
+export function getMySharedRooms(): Promise<SharedRoom[]> {
+  return api.get<SharedRoom[]>('/shared-wardrobes/');
 }
