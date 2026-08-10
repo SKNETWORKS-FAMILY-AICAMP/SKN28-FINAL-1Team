@@ -80,7 +80,7 @@ def join_shared_room(user, invite_code: str) -> SharedWardrobeRoom:
     초대코드의 24시간 만료 시간 체크가 적용됩니다.
     """
     code = invite_code.strip().upper()
-    room = SharedWardrobeRoom.objects.filter(invite_code=code).first()
+    room = SharedWardrobeRoom.objects.select_for_update().filter(invite_code=code).first()
     
     if not room:
         raise ValueError("유효하지 않은 초대코드입니다.")
