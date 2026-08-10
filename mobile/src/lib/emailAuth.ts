@@ -81,3 +81,21 @@ export function emailAuthErrorMessage(error: unknown): string {
   }
   return error.message;
 }
+
+/**
+ * 특정 필드의 서버 검증 메시지를 꺼낸다. 해당 필드 에러가 없으면 null.
+ *
+ * Django 의 validate_password 는 **위반한 규칙을 전부** 배열로 돌려준다.
+ * 첫 줄만 보여주면 "8자 이상"만 고치고 또 거절당하는 왕복이 생기므로 전부 잇는다.
+ */
+export function fieldErrorMessage(error: unknown, field: string): string | null {
+  if (!(error instanceof ApiError)) return null;
+
+  const value = (error.data as Record<string, unknown> | null)?.[field];
+  if (typeof value === 'string') return value;
+  if (Array.isArray(value)) {
+    const lines = value.filter((line): line is string => typeof line === 'string');
+    return lines.length > 0 ? lines.join('\n') : null;
+  }
+  return null;
+}

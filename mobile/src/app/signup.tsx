@@ -16,7 +16,7 @@ import { useToast } from '@/components/ui';
 import { APPLE_LOGIN_ENABLED } from '@/constants/config';
 import { Editorial, ink, Fonts , ContentMax} from '@/constants/theme';
 import { useBreakpoint } from '@/hooks/use-breakpoint';
-import { emailAuthErrorMessage, signupWithEmail } from '@/lib/emailAuth';
+import { emailAuthErrorMessage, fieldErrorMessage, signupWithEmail } from '@/lib/emailAuth';
 
 const INK = Editorial.ink;
 const KAKAO = Editorial.kakao;
@@ -33,6 +33,17 @@ const TERMS: { key: TermKey; label: string; required: boolean }[] = [
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const MIN_PW = 8;
 
+/* 비밀번호 규칙 안내 — 백엔드 AUTH_PASSWORD_VALIDATORS(api/config/settings/base.py)와 1:1로 맞춘다.
+   길이와 '숫자로만' 여부는 앱에서 서버와 똑같이 판정할 수 있어 실시간 체크로 보여준다.
+   나머지 둘(이메일 유사도는 SequenceMatcher, 흔한 비밀번호는 2만 건 목록)은 서버만 정확히
+   판정할 수 있다 — 지킬 수 없는 ✓ 를 미리 켜 두면 통과한 줄 알았다가 거절당하므로,
+   이 둘은 체크 대신 안내로 두고 서버가 거절하면 그 자리에 사유를 붙인다. */
+const PW_RULES: { label: string; ok: (pw: string) => boolean }[] = [
+  { label: `${MIN_PW}자 이상`, ok: (pw) => pw.length >= MIN_PW },
+  { label: '숫자로만 이루어지지 않기', ok: (pw) => !/^\d+$/.test(pw) },
+];
+const PW_SERVER_RULE = '이메일과 비슷하거나 흔히 쓰이는 비밀번호가 아닐 것 (가입할 때 확인해요)';
+
 // A4 회원가입 — 이메일/비밀번호 + 약관 동의 → 권한 동의(A6)로 진입
 export default function Signup() {
   const { contentStyle } = useBreakpoint();
@@ -41,6 +52,8 @@ export default function Signup() {
   const [pw2, setPw2] = useState('');
   const [show, setShow] = useState(false);
   const [saving, setSaving] = useState(false);
+  /** 서버가 돌려준 비밀번호 규칙 위반 사유 (이메일과 유사·흔한 비밀번호 등). */
+  const [pwServerError, setPwServerError] = useState<string | null>(null);
   const [agreed, setAgreed] = useState<Set<TermKey>>(new Set());
   const toast = useToast();
 
@@ -69,9 +82,9 @@ export default function Signup() {
       : null;
   const pwError = !pw
     ? '비밀번호를 입력해 주세요'
-    : pw.length < MIN_PW
-      ? `비밀번호는 ${MIN_PW}자 이상이어야 해요`
-      : null;
+    : PW_RULES.every((rule) => rule.ok(pw))
+      ? null
+      : '아래 조건을 모두 만족해야 해요';
   const pw2Error = pw2 !== pw ? '비밀번호가 일치하지 않아요' : null;
 
   const create = async () => {
@@ -85,7 +98,11 @@ export default function Signup() {
         params: { email: response.email, retryAfter: String(response.retry_after) },
       });
     } catch (error) {
-      toast(emailAuthErrorMessage(error), { variant: 'error' });
+      /* 비밀번호 규칙 위반을 토스트로 흘려보내면 사라진 뒤엔 뭘 어겼는지 다시 볼 수 없다.
+         규칙 목록 자리에 붙여 고쳐야 할 조건이 계속 보이게 한다. */
+      const passwordError = fieldErrorMessage(error, 'password');
+      if (passwordError) setPwServerError(passwordError);
+      else toast(emailAuthErrorMessage(error), { variant: 'error' });
     } finally {
       setSaving(false);
     }
@@ -129,8 +146,11 @@ export default function Signup() {
               <TextInput
                 style={[styles.input, styles.pwInput]}
                 value={pw}
-                onChangeText={setPw}
-                placeholder="8자 이상"
+                onChangeText={(value) => {
+                  setPw(value);
+                  setPwServerError(null); // 고치는 중이면 지난 거절 사유는 지운다
+                }}
+                placeholder={`${MIN_PW}자 이상`}
                 placeholderTextColor={ink(0.32)}
                 secureTextEntry={!show}
               />
@@ -138,8 +158,34 @@ export default function Signup() {
                 <Text style={styles.showText}>{show ? '숨김' : '표시'}</Text>
               </Pressable>
             </View>
-            <View style={[styles.underline, submitted && pwError && styles.underlineError]} />
-            {submitted && pwError ? <Text style={styles.errText}>{pwError}</Text> : null}
+            <View
+              style={[
+                styles.underline,
+                ((submitted && pwError) || pwServerError) && styles.underlineError,
+              ]}
+            />
+            {submitted && !pw ? <Text style={styles.errText}>{pwError}</Text> : null}
+
+            {/* 규칙은 입력 전부터 띄운다 — 무엇을 요구하는지 먼저 알아야 한 번에 통과한다. */}
+            <View style={styles.pwRules}>
+              {PW_RULES.map((rule) => {
+                const ok = rule.ok(pw);
+                return (
+                  <View key={rule.label} style={styles.pwRuleRow}>
+                    <Text style={[styles.pwRuleMark, ok && styles.pwRuleMarkOn]}>
+                      {ok ? '✓' : '•'}
+                    </Text>
+                    <Text style={[styles.pwRuleText, ok && styles.pwRuleTextOn]}>{rule.label}</Text>
+                  </View>
+                );
+              })}
+              <View style={styles.pwRuleRow}>
+                <Text style={[styles.pwRuleMark, pwServerError && styles.pwRuleMarkError]}>•</Text>
+                <Text style={[styles.pwRuleText, pwServerError && styles.pwRuleTextError]}>
+                  {pwServerError ?? PW_SERVER_RULE}
+                </Text>
+              </View>
+            </View>
           </View>
 
           {/* 비밀번호 확인 */}
@@ -249,6 +295,16 @@ const styles = StyleSheet.create({
   underline: { marginTop: 10, height: 1, backgroundColor: ink(0.15) },
   underlineError: { backgroundColor: Editorial.danger },
   errText: { marginTop: 6, fontSize: 11, color: Editorial.danger },
+
+  // 비밀번호 규칙 체크리스트 — 팔레트가 모노톤이라 초록 대신 잉크 농도로 충족을 표시한다.
+  pwRules: { marginTop: 10, gap: 4 },
+  pwRuleRow: { flexDirection: 'row', alignItems: 'flex-start', gap: 6 },
+  pwRuleMark: { width: 12, fontSize: 11, lineHeight: 16, color: ink(0.35) },
+  pwRuleMarkOn: { color: Editorial.ink, fontWeight: '700' },
+  pwRuleMarkError: { color: Editorial.danger },
+  pwRuleText: { flex: 1, fontSize: 11, lineHeight: 16, color: Editorial.textCaption },
+  pwRuleTextOn: { color: Editorial.ink },
+  pwRuleTextError: { color: Editorial.danger },
 
   // 약관
   terms: { marginTop: 30, gap: 12 },
