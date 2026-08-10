@@ -361,3 +361,66 @@ class CelsiusTests(unittest.TestCase):
     def test_missing_or_garbage_is_none(self) -> None:
         for value in (None, {}, {"temperature": None}, {"temperature": "n/a"}):
             self.assertIsNone(celsius_of(value))
+
+
+class GenderHardFilterTests(unittest.TestCase):
+    """성별은 하드 필터다.
+
+    남성 사용자에게 여성 코디를 "순위만 낮춰" 보여주는 건 추천이 아니라
+    오작동으로 읽힌다. 계절·기온과 달리 감점으로 둘 수 없는 축이다.
+    """
+
+    def _filter(self, **kwargs):
+        from apps.recommend.services.retriever import RetrievalRequest, build_filter
+
+        return build_filter(RetrievalRequest(**kwargs))
+
+    def test_male_user_gets_men_and_unisex(self) -> None:
+        built = self._filter(gender="male")
+        self.assertIsNotNone(built)
+        condition = built.must[0]
+        self.assertEqual(condition.key, "presentation_group")
+        self.assertEqual(sorted(condition.match.any), ["men", "unisex"])
+
+    def test_female_user_gets_women_and_unisex(self) -> None:
+        condition = self._filter(gender="female").must[0]
+        self.assertEqual(sorted(condition.match.any), ["unisex", "women"])
+
+    def test_unknown_gender_disables_the_filter(self) -> None:
+        """성별 미등록 사용자에게까지 걸면 아무것도 못 본다."""
+        for value in ("", "   ", "other"):
+            self.assertIsNone(self._filter(gender=value), repr(value))
+
+    def test_case_and_whitespace_tolerated(self) -> None:
+        condition = self._filter(gender="  MALE  ").must[0]
+        self.assertEqual(sorted(condition.match.any), ["men", "unisex"])
+
+    def test_gender_is_a_must_not_a_penalty(self) -> None:
+        """감점 경로로 새면 여성 코디가 순위만 밀린 채 노출된다."""
+        built = self._filter(gender="male")
+        self.assertTrue(built.must)
+        self.assertFalse(built.must_not)
+
+
+class PresentationGroupNormalizeTests(unittest.TestCase):
+    """CSV 표기가 흔들리면 그대로 검색 누락이 된다.
+
+    golden_set 쪽 정규화 함수와 리트리버의 매핑이 같은 어휘를 써야 한다.
+    """
+
+    def test_retriever_vocabulary_matches_golden_set(self) -> None:
+        from apps.recommend.services.retriever import (
+            GENDER_TO_PRESENTATION,
+            PRESENTATION_UNISEX,
+        )
+
+        self.assertEqual(set(GENDER_TO_PRESENTATION.values()), {"men", "women"})
+        self.assertEqual(PRESENTATION_UNISEX, "unisex")
+
+    def test_body_measurement_choices_are_covered(self) -> None:
+        """users.BodyMeasurement.Gender의 값이 전부 매핑돼야 한다."""
+        from apps.recommend.services.retriever import GENDER_TO_PRESENTATION
+        from apps.users.models import BodyMeasurement
+
+        for value in BodyMeasurement.Gender.values:
+            self.assertIn(value, GENDER_TO_PRESENTATION, value)

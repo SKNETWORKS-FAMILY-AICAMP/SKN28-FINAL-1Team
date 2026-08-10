@@ -57,6 +57,40 @@ def _clean_id(value: str) -> str:
     return cleaned[:64] or "golden"
 
 
+
+#: 성별 표현 그룹의 표준 값. 코디가 어느 쪽 표현인지를 뜻하며, 사람의 정체성이
+#: 아니라 착장의 표현을 가리킨다. 리트리버가 하드 필터로 쓰므로 표기가 흔들리면
+#: 그대로 검색 누락이 된다 — CSV에 무엇이 적혀 오든 여기서 한 형태로 모은다.
+PRESENTATION_MEN = "men"
+PRESENTATION_WOMEN = "women"
+PRESENTATION_UNISEX = "unisex"
+
+_PRESENTATION_ALIASES = {
+    PRESENTATION_MEN: PRESENTATION_MEN,
+    "male": PRESENTATION_MEN, "m": PRESENTATION_MEN,
+    "man": PRESENTATION_MEN, "남": PRESENTATION_MEN, "남성": PRESENTATION_MEN,
+    "남자": PRESENTATION_MEN, "menswear": PRESENTATION_MEN,
+    PRESENTATION_WOMEN: PRESENTATION_WOMEN,
+    "female": PRESENTATION_WOMEN, "f": PRESENTATION_WOMEN,
+    "woman": PRESENTATION_WOMEN, "여": PRESENTATION_WOMEN, "여성": PRESENTATION_WOMEN,
+    "여자": PRESENTATION_WOMEN, "womenswear": PRESENTATION_WOMEN,
+    PRESENTATION_UNISEX: PRESENTATION_UNISEX,
+    "공용": PRESENTATION_UNISEX, "남녀공용": PRESENTATION_UNISEX,
+    "무관": PRESENTATION_UNISEX, "neutral": PRESENTATION_UNISEX,
+    "any": PRESENTATION_UNISEX, "all": PRESENTATION_UNISEX,
+}
+
+
+def normalize_presentation_group(raw: str) -> str:
+    """CSV 표기를 표준 값으로 모은다. 모르는 값은 빈 문자열(미분류).
+
+    빈 문자열은 "아직 라벨을 안 붙였다"는 뜻이고, 성별 필터가 켜지면 그 코디는
+    검색에서 빠진다. 임의로 unisex로 메우지 않는 이유가 그것이다 — 미분류를
+    공용으로 취급하면 여성 코디가 남성 사용자에게 그대로 나간다.
+    """
+    return _PRESENTATION_ALIASES.get(str(raw or "").strip().lower(), "")
+
+
 def _parse_metadata_rows(rows: list[dict[str, str]]) -> dict[str, dict[str, str]]:
     result: dict[str, dict[str, str]] = {}
     for row in rows:
@@ -153,7 +187,9 @@ def _build_rows(
                 "duplicate_of": duplicate_of,
                 "duplicate_kind": duplicate_kind,
                 "split": meta.get("split", "KNOWLEDGE").upper(),
-                "presentation_group": meta.get("presentation_group", ""),
+                "presentation_group": normalize_presentation_group(
+                    meta.get("presentation_group", "")
+                ),
                 "metadata": {
                     "style": _split_values(meta.get("style", "")),
                     "season": _split_values(meta.get("season", "")),

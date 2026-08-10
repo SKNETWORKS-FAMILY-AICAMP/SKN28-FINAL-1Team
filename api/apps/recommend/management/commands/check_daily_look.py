@@ -155,6 +155,8 @@ class Command(BaseCommand):
             )
             return False
 
+        self._report_presentation_groups(client)
+
         empty = []
         for name in (GOLDEN_OUTFIT_COLLECTION, GOLDEN_ITEM_COLLECTION):
             if not client.collection_exists(name):
@@ -171,6 +173,45 @@ class Command(BaseCommand):
                 "돌려주고 오늘의 룩은 EMPTY가 됩니다 (실패가 아닙니다)."
             )
         return True
+
+    def _report_presentation_groups(self, client) -> None:
+        """성별 표현 그룹 분포. 성별 하드 필터가 무엇을 거를지 미리 보여준다.
+
+        라벨이 없는 코디는 성별 필터가 켜진 사용자에게 전부 걸러진다. 그 사실을
+        모르면 "적재가 안 됐다"와 "라벨이 없다"를 구분하지 못한다.
+        """
+        from apps.recommend.services.qdrant import GOLDEN_OUTFIT_COLLECTION
+
+        counts: dict[str, int] = {}
+        offset = None
+        while True:
+            points, offset = client.scroll(
+                collection_name=GOLDEN_OUTFIT_COLLECTION,
+                with_payload=["presentation_group"],
+                with_vectors=False,
+                limit=256,
+                offset=offset,
+            )
+            for point in points:
+                label = str((point.payload or {}).get("presentation_group") or "")
+                counts[label or "(미분류)"] = counts.get(label or "(미분류)", 0) + 1
+            if offset is None:
+                break
+
+        if not counts:
+            return
+        summary = ", ".join(f"{k}={v}" for k, v in sorted(counts.items()))
+        self.stdout.write(OK + f"성별 표현 그룹: {summary}")
+        unlabelled = counts.get("(미분류)", 0)
+        if unlabelled:
+            self.stdout.write(
+                WARN + f"{unlabelled}건이 미분류입니다. 성별이 등록된 사용자에게는 "
+                "이 코디들이 전부 걸러집니다."
+            )
+            self.stdout.write(
+                "        → metadata CSV에 presentation_group 열(men/women/unisex)을 "
+                "채우고 GOLDEN_INDEX_ONLY_MISSING=0으로 재적재하세요."
+            )
 
     # ── 5 ──────────────────────────────────────────────
     def _check_retriever(self, options) -> bool:
@@ -260,11 +301,14 @@ class Command(BaseCommand):
             f"        추구미: {'있음' if context.get('pursuit') else '없음'}"
         )
 
+        gender = str((context.get("body") or {}).get("gender", ""))
+        self.stdout.write(f"        성별: {gender or '미지정 (성별 필터 꺼짐)'}")
         candidates = retrieve_outfits(
             RetrievalRequest(
                 body=profile,
                 pursuit=context.get("pursuit"),
                 weather=context.get("weather"),
+                gender=gender,
                 limit=5,
             )
         )

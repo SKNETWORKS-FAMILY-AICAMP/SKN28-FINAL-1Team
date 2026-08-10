@@ -131,6 +131,7 @@ def run(look: DailyLook) -> None:
             body=profile,
             pursuit=snapshot.get("pursuit"),
             weather=snapshot.get("weather"),
+            gender=str((snapshot.get("body") or {}).get("gender", "")),
             limit=CANDIDATE_LIMIT,
         ),
         rules=rules,
@@ -146,9 +147,11 @@ def run(look: DailyLook) -> None:
         # 무엇이 없어서 0건인지 남긴다. 사용자에게는 다 똑같이 "추천 없음"이지만,
         # 운영자에게는 '적재가 안 됐다'와 '이 사용자 조건이 좁다'가 전혀 다른 문제다.
         avoided = (snapshot.get("pursuit") or {}).get("avoided") or {}
+        gender = str((snapshot.get("body") or {}).get("gender", ""))
         look.error = (
             "조건에 맞는 골든 코디 후보가 없습니다 "
-            f"(체형={profile.silhouette}/{profile.bmi_band}, "
+            f"(성별={gender or '미지정'}, "
+            f"체형={profile.silhouette}/{profile.bmi_band}, "
             f"기피축={sorted(k for k, v in avoided.items() if v) or '없음'})"
         )
         look.save(update_fields=["candidates", "rules_version", "status", "error",

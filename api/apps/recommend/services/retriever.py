@@ -48,6 +48,12 @@ OUTFIT_FILTER_FIELDS = frozenset(
     {"style", "season", "occasion", "item_layer_roles", "item_categories"}
 )
 
+#: 성별 표현 그룹. golden_set/manifest.py의 표준 값과 같아야 한다.
+#: golden_set은 Django 없이 도는 패키지라 import할 수 없어 값을 복제한다 —
+#: point_ids.POINT_NAMESPACE와 같은 이유다. 한쪽을 바꾸면 다른 쪽도 바꿔야 한다.
+PRESENTATION_UNISEX = "unisex"
+GENDER_TO_PRESENTATION = {"male": "men", "female": "women"}
+
 #: 후보를 몇 배수로 넉넉히 뽑아 놓고 점수화 후 자를지. 소프트 감점 때문에
 #: 상위 N개가 뒤바뀌므로 limit만큼만 뽑으면 좋은 후보를 놓친다.
 _OVERFETCH = 4
@@ -61,6 +67,9 @@ class RetrievalRequest:
     #: users/services/pursuit.get_pursuit() 의 payload 그대로
     pursuit: dict[str, dict[str, list[str]]] | None = None
     weather: dict[str, Any] | None = None
+    #: 사용자 성별 (BodyMeasurement.gender: "male" | "female" | ""). 값이 있으면
+    #: 성별 표현이 다른 코디를 검색에서 즉시 탈락시킨다 — 가이드 6장의 하드 필터.
+    gender: str = ""
     occasion: str = ""
     #: 자유 문구 (예: "비 오는 날 출근룩"). 있으면 텍스트 벡터로 검색한다.
     query_text: str = ""
@@ -115,6 +124,15 @@ def build_filter(
 
     if request.exposable_only:
         must.append(qm.FieldCondition(key="exposable", match=qm.MatchValue(value=True)))
+
+    # 성별은 하드 필터다. 남성 사용자에게 여성 코디를 "순위만 낮춰" 보여주는 건
+    # 추천이 아니라 오작동으로 읽힌다. 계절과 달리 감점으로 둘 수 없는 축이다.
+    #
+    # 라벨이 없는 코디(presentation_group="")는 여기서 함께 빠진다. 미분류를
+    # unisex로 취급하면 여성 코디가 그대로 남성에게 나가므로, 조용히 통과시키는
+    # 대신 빠지게 두고 EMPTY 사유에 그 사실을 적는다.
+    if presentation := GENDER_TO_PRESENTATION.get(request.gender.strip().lower()):
+        must.append(_any_of("presentation_group", [presentation, PRESENTATION_UNISEX]))
 
     # 계절·상황은 하드 필터로 걸지 않는다.
     #
@@ -415,9 +433,10 @@ def retrieve_outfits(
         # 왜 0건인지 남긴다. 필터가 문제인지 적재가 문제인지 로그만 보고
         # 갈릴 수 있어야 한다 — 사용자에게는 둘 다 똑같이 "추천 없음"이다.
         logger.warning(
-            "골든 코디 후보 0건: 조회 %d건 / 하드제외 %d건 / 필터=%s",
+            "골든 코디 후보 0건: 조회 %d건 / 하드제외 %d건 / 성별=%s / 필터=%s",
             len(records),
             len(excluded),
+            request.gender or "(미지정)",
             search_filter,
         )
 
