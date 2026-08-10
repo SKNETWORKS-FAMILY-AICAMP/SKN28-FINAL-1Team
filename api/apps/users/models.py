@@ -11,7 +11,7 @@ import uuid
 from decimal import Decimal
 
 from django.contrib.auth.models import AbstractUser, Permission
-from django.core.validators import MinValueValidator
+from django.core.validators import MaxValueValidator, MinValueValidator
 from django.db import models
 from django.utils.translation import gettext_lazy as _
 
@@ -169,7 +169,10 @@ class BodyMeasurement(models.Model):
         decimal_places=3,
         null=True,
         blank=True,
-        validators=[MinValueValidator(Decimal("0.1"))],
+        validators=[
+            MinValueValidator(Decimal("0.8")),
+            MaxValueValidator(Decimal("1.3")),
+        ],
         help_text="허벅지/종아리 비율 (길이 기준)",
         db_comment="허벅지/종아리 비율 (길이 기준)",
     )
@@ -179,7 +182,10 @@ class BodyMeasurement(models.Model):
         decimal_places=3,
         null=True,
         blank=True,
-        validators=[MinValueValidator(Decimal("0.1"))],
+        validators=[
+            MinValueValidator(Decimal("0.6")),
+            MaxValueValidator(Decimal("1.0")),
+        ],
         help_text="상하체 비율 (길이 기준)",
         db_comment="상하체 비율 (길이 기준)",
     )

@@ -77,8 +77,10 @@ gender,height,weight,chest,waist,hip,thigh,calf,arm,shoulder,neck_length,thigh_c
 - `height`: cm
 - `weight`: kg
 - `chest`~`shoulder`: cm 단위의 측정값 7개
-- `neck_length`: cm 단위의 체형 지표
-- `thigh_calf_ratio`, `torso_leg_ratio`: 단위 없는 비율 지표
+- `neck_length`: 턱선에서 어깨선까지의 시각적 길이(cm)
+- `thigh_calf_ratio`: 골반·외측 엉덩이에서 무릎까지의 시각적 허벅지 길이를 무릎에서 발목까지의 종아리 길이로 나눈 비율 (`0.8~1.3`, 일반적으로 `1.00~1.15`)
+- `torso_leg_ratio`: 어깨에서 외측 엉덩이까지의 시각적 상체 길이를 외측 엉덩이에서 발목·바닥까지의 다리 길이로 나눈 비율 (`0.6~1.0`, 일반적으로 `0.70~0.85`)
+- 무사진 경로는 랜드마크를 볼 수 없으므로 `torso_leg_ratio=0.786` 기준값을 사용하고, 사진 경로는 유효한 VLM 측정값으로 덮어쓴다.
 - 결측 행은 현재 MVP에서 제외한다.
 - 실제 평가에서는 동일 조사 대상이 train/test에 중복되지 않도록 전처리
   단계에서 subject 기준 split 컬럼을 추가하는 방향으로 확장한다.
@@ -230,6 +232,9 @@ python src\run_tabular_benchmark.py
 `predictions.csv`, `evaluated.csv`, `metrics.json`을 생성한다. 비율 지표의
 오차는 cm가 아닌 비율 단위이며, 기존 7개 target 모델 비교 리포트의 평균 MAE와
 직접 합산해서 비교하지 않는다.
+
+현재 VLM split의 비율 정답은 재정의 전 산식으로 만들어져 기본 평가에서 제외된다.
+새 시각적 비율 라벨을 준비한 뒤에만 `evaluate_results.py --include-ratios`를 사용한다.
 
 ## 7모델 비교 리포트 생성
 

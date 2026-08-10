@@ -21,6 +21,9 @@ CORE_TARGETS = ["chest", "waist", "hip"]
 EXTRA_TARGETS = ["thigh", "calf", "arm", "shoulder"]
 RATIO_TARGETS = ["neck_length", "thigh_calf_ratio", "torso_leg_ratio"]
 FULL_TARGETS = [*CORE_TARGETS, *EXTRA_TARGETS, *RATIO_TARGETS]
+# 현재 VLM split의 두 비율 라벨은 재정의 전 산식으로 만들어졌다. 새 시각적
+# 비율 라벨을 다시 생성하기 전에는 기본 평가 대상에서 제외한다.
+DEFAULT_SCORING_TARGETS = [*CORE_TARGETS, *EXTRA_TARGETS, "neck_length"]
 
 
 def get_column_names(target: str):
@@ -68,12 +71,18 @@ def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--split", choices=["validation", "test"], required=True)
     parser.add_argument("--predictions", type=Path, required=True)
+    parser.add_argument(
+        "--include-ratios",
+        action="store_true",
+        help="재정의된 시각적 비율 라벨을 준비한 경우 두 비율 MAE도 계산",
+    )
     args = parser.parse_args()
 
     labels_path = DATA_DIR / f"{args.split}_set.csv"
     label_source = pd.read_csv(labels_path)
+    scoring_targets = FULL_TARGETS if args.include_ratios else DEFAULT_SCORING_TARGETS
     available_targets = [
-        target for target in FULL_TARGETS if target in label_source.columns
+        target for target in scoring_targets if target in label_source.columns
     ]
     labels = label_source[["subject_id", *available_targets]]
     predictions = pd.read_csv(args.predictions)
@@ -110,6 +119,7 @@ def main() -> None:
         "success_count": int(len(success_rows)),
         "success_rate": round(len(success_rows) / len(evaluated), 4),
         "mean_latency_seconds": round(success_rows["latency_seconds"].mean(), 3),
+        "ratio_scoring_enabled": bool(args.include_ratios),
     }
     for target in scored_targets:
         _, error_column = get_column_names(target)

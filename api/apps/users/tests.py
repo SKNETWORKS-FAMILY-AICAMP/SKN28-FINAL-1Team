@@ -458,6 +458,24 @@ class BodyMeasurementTests(TestCase):
         )
         self.assertEqual(response.status_code, 400)
 
+    def test_detail_patch_rejects_legacy_ratio_ranges(self):
+        for field, value in (
+            ("thigh_calf_ratio", "0.724"),
+            ("torso_leg_ratio", "1.213"),
+        ):
+            response = self.client.patch(
+                reverse("users:body-detail"), {field: value}, format="json"
+            )
+            self.assertEqual(response.status_code, 400, field)
+
+    def test_detail_patch_accepts_redefined_ratio_ranges(self):
+        response = self.client.patch(
+            reverse("users:body-detail"),
+            {"thigh_calf_ratio": "1.112", "torso_leg_ratio": "0.786"},
+            format="json",
+        )
+        self.assertEqual(response.status_code, 200)
+
     # ---- 사진 접수 ----
 
     def _save_basic(self):
@@ -604,8 +622,8 @@ ESTIMATED_MEASUREMENTS = {
     "arm": 31.8,
     "shoulder": 40.2,
     "neck_length": 9.6,
-    "thigh_calf_ratio": 0.724,
-    "torso_leg_ratio": 1.213,
+    "thigh_calf_ratio": 1.112,
+    "torso_leg_ratio": 0.786,
 }
 
 

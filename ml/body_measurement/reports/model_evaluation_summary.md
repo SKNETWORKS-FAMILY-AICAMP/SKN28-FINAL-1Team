@@ -17,12 +17,15 @@
 
 `src/run_tabular_benchmark.py`로 현재 VLM split의 성별·키·몸무게를 입력해
 측정값 7개와 체형 지표 3개를 모두 생성했다. 성공률은 두 split 모두 100%다.
-치수·목길이 MAE는 cm, 두 비율 MAE는 단위 없는 비율 값이다.
+치수·목길이 MAE는 cm 단위다. 현재 VLM split의 `thigh_calf_ratio`·`torso_leg_ratio`
+정답 열은 재정의 전의 레거시 산식으로 생성되어 새 시각적 비율과 비교할 수 없으므로,
+아래 표에서는 두 비율 MAE를 제외한다. 새 비율 라벨을 다시 생성한 뒤에만 비율 오차를
+계산해야 한다.
 
 | split | 건수 | chest | waist | hip | thigh | calf | arm | shoulder | neck_length | thigh_calf_ratio | torso_leg_ratio |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
-| Validation | 36 | 4.689 | 4.058 | 1.972 | 3.331 | 1.161 | 1.389 | 1.403 | 1.361 | 0.039 | 0.041 |
-| Test | 145 | 5.550 | 4.088 | 1.984 | 2.667 | 1.168 | 1.210 | 1.410 | 1.234 | 0.038 | 0.047 |
+| Validation | 36 | 4.689 | 4.058 | 1.972 | 3.331 | 1.161 | 1.389 | 1.403 | 1.361 | — | — |
+| Test | 145 | 5.550 | 4.088 | 1.984 | 2.667 | 1.168 | 1.210 | 1.410 | 1.234 | — | — |
 
 원본 지표는 `experiments/tabular/validation/metrics.json`과
 `experiments/tabular/test/metrics.json`에 저장한다. 이 표는 사진 VLM 성능이

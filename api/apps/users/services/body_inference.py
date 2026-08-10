@@ -42,6 +42,11 @@ SOURCE_PHOTO = "photo"
 # VLM 호출은 검증에서 최대 10초대였으므로 10분이면 충분히 여유 있다.
 STALE_TRANSACTION_TIMEOUT_MINUTES = 10
 
+RATIO_LIMITS = {
+    "thigh_calf_ratio": (Decimal("0.8"), Decimal("1.3")),
+    "torso_leg_ratio": (Decimal("0.6"), Decimal("1.0")),
+}
+
 
 class BodyEstimationError(Exception):
     """추정에 필요한 입력이 없거나 추론이 실패했을 때."""
@@ -67,8 +72,9 @@ def _to_decimal(value: float, field_name: str = "measurement") -> Decimal:
     try:
         if field_name.endswith("_ratio"):
             result = Decimal(str(round(numeric, 3))).quantize(Decimal("0.001"))
-            minimum = Decimal("0.1")
-            maximum = Decimal("99.999")
+            minimum, maximum = RATIO_LIMITS.get(
+                field_name, (Decimal("0.1"), Decimal("99.999"))
+            )
         else:
             result = Decimal(str(round(numeric, 1))).quantize(Decimal("0.1"))
             minimum = Decimal("1")

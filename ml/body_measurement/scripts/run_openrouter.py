@@ -1,6 +1,7 @@
 import argparse
 import base64
 import json
+import math
 import os
 import re
 import time
@@ -24,6 +25,10 @@ CORE_TARGETS = ["chest", "waist", "hip"]
 # 서빙에서 실제로 쓰는 7개 + 3개 비율 지표 전체
 RATIO_TARGETS = ["neck_length", "thigh_calf_ratio", "torso_leg_ratio"]
 FULL_TARGETS = [*CORE_TARGETS, "thigh", "calf", "arm", "shoulder", *RATIO_TARGETS]
+RATIO_RANGES = {
+    "thigh_calf_ratio": (0.8, 1.3),
+    "torso_leg_ratio": (0.6, 1.0),
+}
 
 # core: 기존 모델 선정용 prompt 이름을 유지하지만 현재는 10개를 요청한다.
 # full: 서빙과 동일한 10개 prompt.
@@ -122,7 +127,18 @@ def parse_prediction(content: str, targets: list[str]) -> dict:
     result = {}
     for target in targets:
         if target.endswith("_ratio"):
-            result[target] = prediction.get(target)
+            value = prediction.get(target)
+            try:
+                numeric = float(value)
+            except (TypeError, ValueError):
+                result[target] = None
+                continue
+            minimum, maximum = RATIO_RANGES[target]
+            result[target] = (
+                round(numeric, 3)
+                if math.isfinite(numeric) and minimum <= numeric <= maximum
+                else None
+            )
         else:
             result[target] = prediction.get(f"{target}_cm")
     return result

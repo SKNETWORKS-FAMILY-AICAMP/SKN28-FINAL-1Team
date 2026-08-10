@@ -59,7 +59,10 @@
         "torso_leg_ratio"
       ],
       "grade": "≥ p67 → long_torso · ≤ p33 → short_torso · 그 외 balanced",
-      "rules_key": "torso_ratio_rules"
+      "rules_key": "torso_ratio_rules",
+      "valid_range": {"minimum": 0.6, "maximum": 1.0},
+      "basic_fallback": 0.786,
+      "fallback_note": "기본 정보 경로는 시각 랜드마크가 없어 baseline 0.786을 사용하며 balanced로 처리한다."
     },
     "neck_length": {
       "label": "목 길이",
@@ -93,6 +96,7 @@
       ],
       "grade": "≥ p67 → thigh_dominant · ≤ p33 → calf_dominant · 그 외 balanced",
       "rules_key": "thigh_calf_ratio_rules",
+      "valid_range": {"minimum": 0.8, "maximum": 1.3},
       "do_not_use": [
         "BodyMeasurement.thigh",
         "BodyMeasurement.calf"

@@ -53,6 +53,14 @@ PHOTO_TARGETS = TARGETS + ["neck_length", "thigh_calf_ratio", "torso_leg_ratio"]
 # 응답에 핵심 3개가 없으면 사진 추정이 실패한 것으로 본다.
 PHOTO_CORE_TARGETS = ["chest", "waist", "hip"]
 
+# 새 시각적 비율 정의의 저장·응답 허용 범위. 모델이 범위를 벗어난 값을
+# 반환하면 사진 경로에서는 기본 정보 추정값을 유지한다.
+RATIO_RANGES = {
+    "thigh_calf_ratio": (0.8, 1.3),
+    "torso_leg_ratio": (0.6, 1.0),
+}
+DEFAULT_TORSO_LEG_RATIO = 0.786
+
 # 학습 데이터(SizeKorea) 범위를 벗어난 입력은 KNN이 외삽하지 못해 신뢰할 수 없다.
 HEIGHT_RANGE_CM = (100.0, 230.0)
 WEIGHT_RANGE_KG = (25.0, 300.0)
@@ -146,28 +154,43 @@ def _build_features(gender: str, height: float, weight: float) -> pd.DataFrame:
 
 
 def calculate_ratios(gender: str, height: float, weight: float) -> dict[str, float]:
-    """성별, 키, 몸무게에 기반한 3대 비율(목길이, 허벅지/종아리 비율, 상하체 비율)을 계산합니다.
-    계수는 SizeKorea 8차 데이터를 바탕으로 산출된 다중선형회귀 모델의 값입니다.
+    """기본 정보로 3개 지표를 계산한다.
+
+    목길이와 허벅지/종아리 비율은 성별별 회귀식으로 계산한다. 상하체 비율은
+    키·몸무게만으로 시각적 랜드마크를 알 수 없으므로 기준값을 반환하며,
+    사진 경로에서 유효한 VLM 측정값이 있으면 그 값으로 덮어쓴다.
     """
-    g = normalize_gender(gender) # 'M' 또는 'F'
+    g = normalize_gender(gender)
     h = float(height)
     w = float(weight)
 
     if g == "M":
-        # 남성 공식 (시각적 목길이 / 엉덩이둘레높이 골반 기준 비율 적용)
-        neck_len = -10.006382911223897 + (0.13626812434249555 * h) + (-0.06165386384938887 * w)
-        thigh_calf = 0.9469918492058431 + (0.001212376672129909 * h) + (-0.0007217358314418855 * w)
-        torso_leg = 0.786
+        neck_len = (
+            -10.006382911223897
+            + (0.13626812434249555 * h)
+            + (-0.06165386384938887 * w)
+        )
+        thigh_calf = (
+            0.9469918492058431
+            + (0.001212376672129909 * h)
+            + (-0.0007217358314418855 * w)
+        )
     else:
-        # 여성 공식 (시각적 목길이 / 엉덩이둘레높이 골반 기준 비율 적용)
-        neck_len = -5.330732028008625 + (0.1026503757117952 * h) + (-0.05444849074436387 * w)
-        thigh_calf = 0.9565370468792599 + (0.0013321559570070288 * h) + (-0.0008278299981845468 * w)
-        torso_leg = 0.786
+        neck_len = (
+            -5.330732028008625
+            + (0.1026503757117952 * h)
+            + (-0.05444849074436387 * w)
+        )
+        thigh_calf = (
+            0.9565370468792599
+            + (0.0013321559570070288 * h)
+            + (-0.0008278299981845468 * w)
+        )
 
     return {
         "neck_length": round(neck_len, 1),
         "thigh_calf_ratio": round(thigh_calf, 3),
-        "torso_leg_ratio": round(torso_leg, 3)
+        "torso_leg_ratio": DEFAULT_TORSO_LEG_RATIO,
     }
 
 
@@ -256,6 +279,11 @@ def _parse_prediction(content: str) -> dict[str, float]:
             numeric = float(value)
             if not math.isfinite(numeric):
                 raise ValueError("finite number required")
+            if target in RATIO_RANGES:
+                minimum, maximum = RATIO_RANGES[target]
+                if not minimum <= numeric <= maximum:
+                    # 사진 값이 새 정의의 범위를 벗어나면 기본 정보 추정값을 유지한다.
+                    continue
             predicted[target] = round(numeric, precision)
         except (TypeError, ValueError):
             if target in PHOTO_CORE_TARGETS:
