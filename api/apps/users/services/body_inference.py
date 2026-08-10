@@ -4,9 +4,9 @@
 쪽 관심사(입력 확정, DB 저장, 트랜잭션 상태 전이, 응답 형식)만 맡는다
 (CLAUDE.md §7: 모델 코드는 ml/에 두고 웹 계층은 인터페이스로 호출).
 
-두 경로 모두 상세 7개를 전부 채운다. 사진 경로는 기본 정보 추정으로 7개를 채운 뒤
-VLM 응답으로 덮어쓴다. VLM에게도 7개를 다 물어보지만, 정확도가 실제로 측정된 부위는
-가슴·허리·엉덩이 3개뿐이다 (나머지 4개는 정답 데이터가 없어 오차를 계산할 수 없음).
+두 경로 모두 상세 7개와 체형 지표 3개를 채운다. 사진 경로는 기본 정보 추정으로
+10개를 채운 뒤 VLM 응답으로 덮어쓴다. VLM에게도 10개를 다 물어보지만, 정확도가
+실제로 측정된 부위는 가슴·허리·엉덩이 3개뿐이다.
 
 사진 처리는 백그라운드 스레드로 돌린다. 개발용 임시 수단이며 AWS 이관 시
 Celery/SQS로 교체하는 것을 전제로, 호출부(views)는 start_measurement()만 사용한다.
@@ -15,8 +15,10 @@ Celery/SQS로 교체하는 것을 전제로, 호출부(views)는 start_measureme
 from __future__ import annotations
 
 import logging
+import math
 import threading
 import uuid
+from collections.abc import Mapping
 from datetime import timedelta
 from decimal import Decimal, InvalidOperation
 
@@ -29,7 +31,7 @@ from body_measurement.src import inference
 
 logger = logging.getLogger(__name__)
 
-DETAIL_FIELDS = inference.TARGETS
+DETAIL_FIELDS = inference.PHOTO_TARGETS
 
 SOURCE_BASIC = "basic_info"
 SOURCE_PHOTO = "photo"
@@ -40,20 +42,55 @@ SOURCE_PHOTO = "photo"
 # VLM 호출은 검증에서 최대 10초대였으므로 10분이면 충분히 여유 있다.
 STALE_TRANSACTION_TIMEOUT_MINUTES = 10
 
+RATIO_LIMITS = {
+    "thigh_calf_ratio": (Decimal("0.8"), Decimal("1.3")),
+    "torso_leg_ratio": (Decimal("0.6"), Decimal("1.0")),
+}
+
 
 class BodyEstimationError(Exception):
     """추정에 필요한 입력이 없거나 추론이 실패했을 때."""
 
 
-def _to_decimal(value: float) -> Decimal:
-    """모델이 준 float를 DecimalField(소수점 1자리) 형식으로 맞춘다.
+def _to_decimal(value: float, field_name: str = "measurement") -> Decimal:
+    """모델이 준 float를 DecimalField 형식으로 맞춘다.
 
-    quantize하지 않고 그대로 저장하면 float 오차 때문에 max_digits 검증에 걸린다.
+    비율 필드는 소수점 3자리(0.001), 그 외 치수 필드는 1자리(0.1)로 quantize한다.
     """
     try:
-        return Decimal(str(round(float(value), 1))).quantize(Decimal("0.1"))
-    except (InvalidOperation, TypeError, ValueError) as error:
-        raise BodyEstimationError(f"추정값을 저장할 수 없습니다: {value!r}") from error
+        numeric = float(value)
+    except (TypeError, ValueError) as error:
+        raise BodyEstimationError(
+            f"{field_name} 추정값을 숫자로 변환할 수 없습니다: {value!r}"
+        ) from error
+
+    if not math.isfinite(numeric):
+        raise BodyEstimationError(
+            f"{field_name} 추정값이 유효하지 않습니다: {value!r}"
+        )
+
+    try:
+        if field_name.endswith("_ratio"):
+            result = Decimal(str(round(numeric, 3))).quantize(Decimal("0.001"))
+            minimum, maximum = RATIO_LIMITS.get(
+                field_name, (Decimal("0.1"), Decimal("99.999"))
+            )
+        else:
+            result = Decimal(str(round(numeric, 1))).quantize(Decimal("0.1"))
+            minimum = Decimal("1")
+            maximum = Decimal("999.9")
+    except (InvalidOperation, ValueError) as error:
+        raise BodyEstimationError(f"{field_name} 추정값을 저장할 수 없습니다: {value!r}") from error
+
+    if result < minimum:
+        raise BodyEstimationError(
+            f"{field_name} 추정값이 허용 범위보다 작습니다: {result}"
+        )
+    if result > maximum:
+        raise BodyEstimationError(
+            f"{field_name} 추정값이 허용 범위를 초과합니다: {result}"
+        )
+    return result
 
 
 def resolve_basic_info(
@@ -89,17 +126,24 @@ def save_measurements(
     weight: Decimal,
     estimated: dict[str, float],
 ) -> BodyMeasurement:
-    """기본 정보와 추정된 상세 7개를 저장한다.
+    """기본 정보와 추정된 상세 치수/비율들을 저장한다.
 
     상세 값은 덮어쓴다 — 사용자가 직접 입력한 값이 있어도 최신 추정으로 교체된다.
-    추정 후 사용자가 PATCH /users/me/body/detail/ 로 다시 고칠 수 있는 흐름이라
-    이렇게 합의했다.
     """
+    if not isinstance(estimated, Mapping):
+        raise BodyEstimationError("추정 결과 형식이 올바르지 않습니다.")
+
     measurement.gender = gender
     measurement.height = height
     measurement.weight = weight
+    missing = [field for field in DETAIL_FIELDS if field not in estimated]
+    if missing:
+        raise BodyEstimationError(
+            f"추정 결과에 필수 값이 없습니다: {', '.join(missing)}"
+        )
+
     for field in DETAIL_FIELDS:
-        setattr(measurement, field, _to_decimal(estimated[field]))
+        setattr(measurement, field, _to_decimal(estimated[field], field))
     measurement.save(
         update_fields=["gender", "height", "weight", *DETAIL_FIELDS, "updated_at"]
     )
@@ -113,7 +157,7 @@ def estimate_from_basic_info(
     height: Decimal | None = None,
     weight: Decimal | None = None,
 ) -> BodyMeasurement:
-    """성별·키·몸무게만으로 상세 7개를 추정해 저장하고 반환한다 (동기)."""
+    """성별·키·몸무게만으로 상세 7개와 체형 지표 3개를 추정해 저장한다 (동기)."""
     measurement, _ = BodyMeasurement.objects.get_or_create(user=user)
     gender, height, weight = resolve_basic_info(
         measurement, gender=gender, height=height, weight=weight
@@ -122,6 +166,11 @@ def estimate_from_basic_info(
         estimated = inference.estimate_from_basic(gender, float(height), float(weight))
     except inference.BodyEstimationError as error:
         raise BodyEstimationError(str(error)) from error
+    except Exception as error:
+        logger.exception("기본 정보 신체 측정 실패 (user=%s)", getattr(user, "pk", None))
+        raise BodyEstimationError(
+            "기본 정보로 신체치수를 추정하는 중 오류가 발생했습니다."
+        ) from error
 
     return save_measurements(
         measurement, gender=gender, height=height, weight=weight, estimated=estimated
@@ -187,9 +236,10 @@ def _run_measurement(transaction_id: uuid.UUID, **kwargs) -> None:
         complete_measurement(transaction_id, **kwargs)
     except Exception as error:
         logger.exception("사진 측정 실패 (tx=%s)", transaction_id)
+        error_message = str(error).strip() or "사진 측정 중 알 수 없는 오류가 발생했습니다."
         BodyPhotoTransaction.objects.filter(pk=transaction_id).update(
             status=BodyPhotoTransaction.Status.FAILED,
-            error_message=str(error)[:500],
+            error_message=error_message[:500],
         )
     finally:
         connections.close_all()
@@ -216,6 +266,11 @@ def complete_measurement(
         )
     except inference.BodyEstimationError as error:
         raise BodyEstimationError(str(error)) from error
+    except Exception as error:
+        logger.exception("사진 신체 측정 실패 (tx=%s)", transaction_id)
+        raise BodyEstimationError(
+            "사진으로 신체치수를 추정하는 중 오류가 발생했습니다."
+        ) from error
 
     with db_transaction.atomic():
         tx = BodyPhotoTransaction.objects.select_for_update().get(pk=transaction_id)
@@ -251,6 +306,9 @@ def build_result(
     error_message: str = "",
 ) -> dict:
     """무사진 추정과 사진 측정 조회가 공유하는 결과 payload를 만든다."""
+    if status == BodyPhotoTransaction.Status.FAILED and not error_message:
+        error_message = "신체 측정에 실패했습니다. 다시 시도해주세요."
+
     return {
         "status": status,
         "source": source,
