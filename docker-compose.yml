@@ -92,6 +92,28 @@ services:
       - ./ml:/ml:ro
     command: python manage.py migrate --noinput
 
+  # 추천 검색 컬렉션 계약 초기화. 벡터 차원이나 기존 인덱스 타입이 다르면
+  # 데이터 유실을 피하기 위해 실패하고 API 기동을 막는다. 누락된 payload index는
+  # 비파괴적으로 추가한다.
+  qdrant-init:
+    build:
+      context: ./api
+    container_name: skn28-qdrant-init
+    restart: "no"
+    profiles: ["api", "all"]
+    depends_on:
+      qdrant:
+        condition: service_healthy
+    env_file:
+      - .env
+    environment:
+      TZ: Asia/Seoul
+      QDRANT_URL: http://qdrant:6333
+      DJANGO_SETTINGS_MODULE: ${DJANGO_SETTINGS_MODULE:-config.settings.prod}
+    volumes:
+      - ./ml:/ml:ro
+    command: python manage.py init_qdrant
+
   api:
     build:
       context: ./api
@@ -102,6 +124,8 @@ services:
       db:
         condition: service_healthy
       migrate:
+        condition: service_completed_successfully
+      qdrant-init:
         condition: service_completed_successfully
     env_file:
       - .env                  # DJANGO_*, *_OAUTH_*, POSTGRES_* 등
@@ -146,6 +170,8 @@ services:
       db:
         condition: service_healthy
       migrate:
+        condition: service_completed_successfully
+      qdrant-init:
         condition: service_completed_successfully
     env_file:
       - .env

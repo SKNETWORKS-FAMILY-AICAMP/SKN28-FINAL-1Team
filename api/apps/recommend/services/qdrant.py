@@ -1,11 +1,11 @@
-"""Qdrant 클라이언트와 컬렉션 스키마 정의.
+"""추천 도메인이 사용하는 Qdrant 컬렉션 계약.
 
-컬렉션 스키마의 단일 소유자다 (PG 스키마를 Django migration이 소유하는 것과
-같은 원칙). 컬렉션 생성/변경은 반드시 `manage.py init_qdrant`를 통해 한다.
+PostgreSQL 스키마를 Django migration이 소유하듯 추천 API가 조회하는 Qdrant
+컬렉션의 이름, named vector, payload index 계약은 이 모듈에서 관리한다.
 
-설계 근거: docs/fashion-rag-embedding-retriever_2.md
-- 한 포인트에 named vector 2개(image=FashionSigLIP, text=BGE-M3)를 저장한다.
-- 하드 필터에 쓰이는 payload 필드는 반드시 인덱스를 만든다.
+실제 벡터 적재는 골든셋 파이프라인, 상품 indexer, wardrobe worker가 각각
+담당한다. 이 모듈은 모든 생산자와 검색 계층이 같은 계약을 쓰도록 컬렉션을
+초기화하고, 이미 존재하는 컬렉션의 호환성을 검사한다.
 """
 
 from __future__ import annotations
@@ -13,6 +13,7 @@ from __future__ import annotations
 import uuid
 from dataclasses import dataclass, field
 from functools import lru_cache
+from typing import Any
 
 from django.conf import settings
 from qdrant_client import QdrantClient
@@ -21,21 +22,55 @@ from qdrant_client import models as qm
 IMAGE_VECTOR = "image"
 TEXT_VECTOR = "text"
 
+# Retriever와 적재기가 공유하는 컬렉션 이름. 검색 코드가 문자열 리터럴을
+# 직접 사용하지 않도록 이전 golenset_new 인터페이스도 유지한다.
+GOLDEN_OUTFIT_COLLECTION = settings.QDRANT_GOLDEN_OUTFIT_COLLECTION
+GOLDEN_ITEM_COLLECTION = settings.QDRANT_GOLDEN_ITEM_COLLECTION
+
 # point ID 생성용 고정 네임스페이스. 같은 원본 키는 항상 같은 UUID가 되어
 # 재실행 시 upsert가 멱등하게 동작한다. 절대 변경하지 않는다.
 _POINT_NAMESPACE = uuid.UUID("6b2c1f3a-9d4e-4c8b-8a71-2f0e5d9c3b17")
 
 
+class QdrantContractError(RuntimeError):
+    """기존 컬렉션을 안전하게 자동 보정할 수 없을 때 발생한다."""
+
+
 def point_id(source_key: str) -> str:
-    """원본 식별자(naver_product_id 등) → 결정적 Qdrant point ID."""
+    """원본 식별자를 결정적 Qdrant UUID로 변환한다."""
     return str(uuid.uuid5(_POINT_NAMESPACE, source_key))
 
 
 @dataclass(frozen=True)
 class CollectionSpec:
+    """컬렉션의 named vector와 필터용 payload index 계약."""
+
+    role: str
     name: str
-    vectors: dict[str, int]                      # named vector → 차원
-    payload_indexes: dict[str, str] = field(default_factory=dict)  # 필드 → 스키마
+    vectors: dict[str, int]
+    payload_indexes: dict[str, str] = field(default_factory=dict)
+
+
+@dataclass(frozen=True)
+class CollectionStatus:
+    """실제 컬렉션을 계약과 비교한 결과."""
+
+    role: str
+    name: str
+    exists: bool
+    vector_mismatches: tuple[str, ...] = ()
+    missing_payload_indexes: tuple[str, ...] = ()
+    payload_index_mismatches: tuple[str, ...] = ()
+    points_count: int | None = None
+
+    @property
+    def valid(self) -> bool:
+        return (
+            self.exists
+            and not self.vector_mismatches
+            and not self.missing_payload_indexes
+            and not self.payload_index_mismatches
+        )
 
 
 def _image_dim() -> int:
@@ -46,36 +81,108 @@ def _text_dim() -> int:
     return settings.QDRANT_TEXT_VECTOR_DIM
 
 
-# 상품·옷장이 같은 태그 체계를 쓰므로 필터 인덱스도 동일하게 맞춘다
-# (크로스 컬렉션 질의가 같은 필터 언어로 동작해야 한다).
+def _item_vectors() -> dict[str, int]:
+    return {IMAGE_VECTOR: _image_dim(), TEXT_VECTOR: _text_dim()}
+
+
+# 골든·옷장·상품 아이템은 같은 필터 언어로 교차 검색할 수 있어야 한다.
 _ITEM_TAG_INDEXES: dict[str, str] = {
     "category_large": "keyword",
     "category_small": "keyword",
     "layer_role": "keyword",
     "season": "keyword",
     "style": "keyword",
+    "occasion": "keyword",
     "color": "keyword",
     "fit": "keyword",
     "pattern": "keyword",
     "material": "keyword",
 }
 
+_DATASET_INDEXES: dict[str, str] = {
+    "dataset_version": "keyword",
+    "dataset_status": "keyword",
+}
+
 
 def collection_specs() -> list[CollectionSpec]:
-    """차원이 settings에서 오므로 모듈 상수 대신 함수로 정의한다."""
-    return [
+    """환경별 실제 이름을 반영한 전체 추천 컬렉션 계약을 반환한다."""
+
+    specs = [
         CollectionSpec(
-            name="products",
-            vectors={IMAGE_VECTOR: _image_dim(), TEXT_VECTOR: _text_dim()},
-            payload_indexes={**_ITEM_TAG_INDEXES, "lprice": "integer"},
+            role="golden_outfits",
+            name=settings.QDRANT_GOLDEN_OUTFIT_COLLECTION,
+            vectors=_item_vectors(),
+            payload_indexes={
+                **_DATASET_INDEXES,
+                "golden_id": "keyword",
+                "presentation_group": "keyword",
+                "style": "keyword",
+                "season": "keyword",
+                "occasion": "keyword",
+                "item_layer_roles": "keyword",
+                "item_categories": "keyword",
+                "exposable": "bool",
+            },
         ),
         CollectionSpec(
-            name="wardrobe",
-            vectors={IMAGE_VECTOR: _image_dim(), TEXT_VECTOR: _text_dim()},
-            payload_indexes={**_ITEM_TAG_INDEXES, "user_id": "keyword"},
+            role="golden_items",
+            name=settings.QDRANT_GOLDEN_ITEM_COLLECTION,
+            vectors=_item_vectors(),
+            payload_indexes={
+                **_ITEM_TAG_INDEXES,
+                **_DATASET_INDEXES,
+                "golden_id": "keyword",
+                "outfit_point_id": "keyword",
+                "presentation_group": "keyword",
+                "exposable": "bool",
+            },
         ),
         CollectionSpec(
-            name="knowledge",
+            role="wardrobe",
+            name=settings.QDRANT_WARDROBE_COLLECTION,
+            vectors=_item_vectors(),
+            payload_indexes={
+                **_ITEM_TAG_INDEXES,
+                "user_id": "integer",
+                "item_id": "keyword",
+                "confirmed": "bool",
+                "embedding_version": "keyword",
+            },
+        ),
+        CollectionSpec(
+            role="products_naver",
+            name=settings.PRODUCT_NAVER_QDRANT_COLLECTION,
+            vectors=_item_vectors(),
+            payload_indexes={
+                **_ITEM_TAG_INDEXES,
+                "source": "keyword",
+                "external_product_id": "keyword",
+                "brand": "keyword",
+                "tagging_status": "keyword",
+                "embedding_version": "keyword",
+                "usage": "keyword",
+                "price": "integer",
+            },
+        ),
+        CollectionSpec(
+            role="products_eleven",
+            name=settings.PRODUCT_ELEVEN_QDRANT_COLLECTION,
+            vectors=_item_vectors(),
+            payload_indexes={
+                **_ITEM_TAG_INDEXES,
+                "source": "keyword",
+                "external_product_id": "keyword",
+                "brand": "keyword",
+                "tagging_status": "keyword",
+                "embedding_version": "keyword",
+                "usage": "keyword",
+                "price": "integer",
+            },
+        ),
+        CollectionSpec(
+            role="knowledge",
+            name=settings.QDRANT_KNOWLEDGE_COLLECTION,
             vectors={TEXT_VECTOR: _text_dim()},
             payload_indexes={
                 "knowledge_type": "keyword",
@@ -86,39 +193,175 @@ def collection_specs() -> list[CollectionSpec]:
             },
         ),
     ]
+    _validate_unique_names(specs)
+    return specs
+
+
+def collection_names_by_role() -> dict[str, str]:
+    """검색 계층이 문자열 리터럴 없이 컬렉션을 선택하도록 역할별 이름을 제공한다."""
+    return {spec.role: spec.name for spec in collection_specs()}
+
+
+def collection_spec(role: str) -> CollectionSpec:
+    """논리 역할에 해당하는 컬렉션 계약 하나를 반환한다."""
+    for spec in collection_specs():
+        if spec.role == role:
+            return spec
+    raise KeyError(f"정의되지 않은 Qdrant 컬렉션 역할: {role}")
+
+
+def product_collection_names() -> tuple[str, ...]:
+    """상품 검색 시 함께 조회해야 하는 쇼핑몰별 컬렉션 이름."""
+    roles = collection_names_by_role()
+    return roles["products_naver"], roles["products_eleven"]
+
+
+def _validate_unique_names(specs: list[CollectionSpec]) -> None:
+    empty_roles = sorted(spec.role for spec in specs if not spec.name)
+    if empty_roles:
+        raise QdrantContractError(
+            "Qdrant 컬렉션 이름이 비어 있습니다: " + ", ".join(empty_roles)
+        )
+
+    names = [spec.name for spec in specs]
+    duplicated = sorted({name for name in names if names.count(name) > 1})
+    if duplicated:
+        raise QdrantContractError(
+            "서로 다른 역할의 Qdrant 컬렉션 이름이 중복되었습니다: "
+            + ", ".join(duplicated)
+        )
 
 
 @lru_cache(maxsize=1)
 def get_client() -> QdrantClient:
-    """프로세스당 1개 재사용. gunicorn 워커별로 각자 생성된다."""
+    """프로세스당 하나의 REST 클라이언트를 재사용한다."""
     return QdrantClient(
         url=settings.QDRANT_URL,
         api_key=settings.QDRANT_API_KEY or None,
         timeout=settings.QDRANT_TIMEOUT,
+        port=None,
+        prefer_grpc=False,
     )
 
 
-def ensure_collections(client: QdrantClient, *, recreate: bool = False) -> list[str]:
-    """스키마 정의대로 컬렉션을 생성한다. 이미 있으면 건드리지 않는다(멱등).
+def _enum_value(value: Any) -> str:
+    raw = getattr(value, "value", value)
+    return str(raw).lower()
 
-    Returns: 이번 호출에서 새로 생성한 컬렉션 이름 목록.
+
+def _actual_vector_dimensions(info: Any) -> dict[str, int]:
+    vectors = info.config.params.vectors
+    if not isinstance(vectors, dict):
+        return {}
+    return {name: int(config.size) for name, config in vectors.items()}
+
+
+def _actual_payload_indexes(info: Any) -> dict[str, str]:
+    schema = getattr(info, "payload_schema", None) or {}
+    result: dict[str, str] = {}
+    for name, config in schema.items():
+        data_type = getattr(config, "data_type", config)
+        result[name] = _enum_value(data_type)
+    return result
+
+
+def inspect_collection(client: QdrantClient, spec: CollectionSpec) -> CollectionStatus:
+    """Qdrant를 변경하지 않고 컬렉션 한 개를 계약과 비교한다."""
+    if not client.collection_exists(spec.name):
+        return CollectionStatus(role=spec.role, name=spec.name, exists=False)
+
+    info = client.get_collection(spec.name)
+    actual_vectors = _actual_vector_dimensions(info)
+    vector_mismatches = tuple(
+        f"{name}: expected={expected}, actual={actual_vectors.get(name)}"
+        for name, expected in spec.vectors.items()
+        if actual_vectors.get(name) != expected
+    )
+    unexpected_vectors = tuple(
+        f"{name}: expected=absent, actual={actual}"
+        for name, actual in actual_vectors.items()
+        if name not in spec.vectors
+    )
+
+    actual_indexes = _actual_payload_indexes(info)
+    missing_indexes = tuple(
+        name for name in spec.payload_indexes if name not in actual_indexes
+    )
+    index_mismatches = tuple(
+        f"{name}: expected={expected}, actual={actual_indexes[name]}"
+        for name, expected in spec.payload_indexes.items()
+        if name in actual_indexes and actual_indexes[name] != expected
+    )
+    return CollectionStatus(
+        role=spec.role,
+        name=spec.name,
+        exists=True,
+        vector_mismatches=vector_mismatches + unexpected_vectors,
+        missing_payload_indexes=missing_indexes,
+        payload_index_mismatches=index_mismatches,
+        points_count=getattr(info, "points_count", None),
+    )
+
+
+def inspect_collections(client: QdrantClient) -> list[CollectionStatus]:
+    """전체 컬렉션 계약 상태를 조회한다."""
+    return [inspect_collection(client, spec) for spec in collection_specs()]
+
+
+def _create_collection(client: QdrantClient, spec: CollectionSpec) -> None:
+    client.create_collection(
+        collection_name=spec.name,
+        vectors_config={
+            vector_name: qm.VectorParams(size=dimension, distance=qm.Distance.COSINE)
+            for vector_name, dimension in spec.vectors.items()
+        },
+    )
+    for field_name, schema in spec.payload_indexes.items():
+        client.create_payload_index(
+            collection_name=spec.name,
+            field_name=field_name,
+            field_schema=schema,
+        )
+
+
+def _raise_incompatible(status: CollectionStatus) -> None:
+    issues = [*status.vector_mismatches, *status.payload_index_mismatches]
+    if issues:
+        raise QdrantContractError(
+            f"Qdrant 컬렉션 '{status.name}' 계약이 호환되지 않습니다: "
+            + "; ".join(issues)
+            + ". 데이터를 보존한 채 자동 변경할 수 없으므로 재색인 계획을 먼저 세워야 합니다."
+        )
+
+
+def ensure_collection_contract(client: QdrantClient, spec: CollectionSpec) -> bool:
+    """컬렉션 하나를 계약에 맞추고 새로 생성했는지 반환한다."""
+    status = inspect_collection(client, spec)
+    if not status.exists:
+        _create_collection(client, spec)
+        return True
+
+    _raise_incompatible(status)
+    for field_name in status.missing_payload_indexes:
+        client.create_payload_index(
+            collection_name=spec.name,
+            field_name=field_name,
+            field_schema=spec.payload_indexes[field_name],
+        )
+    return False
+
+
+def ensure_collections(client: QdrantClient, *, recreate: bool = False) -> list[str]:
+    """컬렉션을 생성하고 기존 컬렉션에는 누락된 payload index만 보완한다.
+
+    벡터 차원이나 기존 payload index 타입이 다른 경우 데이터 손실 가능성이 있어
+    자동 변경하지 않고 :class:`QdrantContractError`를 발생시킨다.
     """
     created: list[str] = []
     for spec in collection_specs():
         if recreate and client.collection_exists(spec.name):
             client.delete_collection(spec.name)
-        if client.collection_exists(spec.name):
-            continue
-        client.create_collection(
-            collection_name=spec.name,
-            vectors_config={
-                vec_name: qm.VectorParams(size=dim, distance=qm.Distance.COSINE)
-                for vec_name, dim in spec.vectors.items()
-            },
-        )
-        for fld, schema in spec.payload_indexes.items():
-            client.create_payload_index(
-                collection_name=spec.name, field_name=fld, field_schema=schema
-            )
-        created.append(spec.name)
+
+        if ensure_collection_contract(client, spec):
+            created.append(spec.name)
     return created

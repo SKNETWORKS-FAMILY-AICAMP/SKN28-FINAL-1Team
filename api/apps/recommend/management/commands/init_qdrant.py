@@ -14,9 +14,10 @@ from typing import Any
 from django.core.management.base import BaseCommand, CommandError
 
 from apps.recommend.services.qdrant import (
-    collection_specs,
+    QdrantContractError,
     ensure_collections,
     get_client,
+    inspect_collections,
 )
 
 
@@ -38,21 +39,45 @@ class Command(BaseCommand):
     def handle(self, *args: Any, **options: Any) -> None:
         client = get_client()
         try:
-            existing = {c.name for c in client.get_collections().collections}
+            client.get_collections()
         except Exception as exc:  # 연결 실패를 명확한 메시지로
             raise CommandError(
                 f"Qdrant에 연결할 수 없습니다 (QDRANT_URL 확인): {exc}"
             ) from exc
 
         if options["check"]:
-            for spec in collection_specs():
-                if spec.name in existing:
-                    info = client.get_collection(spec.name)
+            invalid = []
+            for status in inspect_collections(client):
+                if status.valid:
                     self.stdout.write(
-                        f"  {spec.name}: OK (points={info.points_count})"
+                        f"  {status.name} [{status.role}]: OK "
+                        f"(points={status.points_count})"
                     )
+                    continue
+
+                invalid.append(status.name)
+                if not status.exists:
+                    details = "컬렉션 없음"
                 else:
-                    self.stdout.write(f"  {spec.name}: 없음")
+                    details = "; ".join(
+                        [
+                            *status.vector_mismatches,
+                            *(
+                                f"payload index 누락={name}"
+                                for name in status.missing_payload_indexes
+                            ),
+                            *status.payload_index_mismatches,
+                        ]
+                    )
+                self.stdout.write(
+                    self.style.ERROR(
+                        f"  {status.name} [{status.role}]: 계약 불일치 ({details})"
+                    )
+                )
+            if invalid:
+                raise CommandError(
+                    "Qdrant 컬렉션 계약 확인 실패: " + ", ".join(invalid)
+                )
             return
 
         if options["recreate"]:
@@ -63,8 +88,13 @@ class Command(BaseCommand):
                 self.stdout.write("취소했습니다.")
                 return
 
-        created = ensure_collections(client, recreate=options["recreate"])
+        try:
+            created = ensure_collections(client, recreate=options["recreate"])
+        except QdrantContractError as exc:
+            raise CommandError(str(exc)) from exc
         if created:
             self.stdout.write(self.style.SUCCESS(f"생성: {', '.join(created)}"))
         else:
-            self.stdout.write("모든 컬렉션이 이미 존재합니다. 변경 없음.")
+            self.stdout.write(
+                "모든 컬렉션이 존재합니다. 누락된 payload index가 있으면 보완했습니다."
+            )

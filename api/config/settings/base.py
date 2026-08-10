@@ -306,6 +306,26 @@ QDRANT_TIMEOUT = int(os.getenv("QDRANT_TIMEOUT", "10"))
 # 임베딩 모델 차원 (FashionSigLIP=768, BGE-M3=1024). 모델 교체 시에만 변경.
 QDRANT_IMAGE_VECTOR_DIM = int(os.getenv("QDRANT_IMAGE_VECTOR_DIM", "768"))
 QDRANT_TEXT_VECTOR_DIM = int(os.getenv("QDRANT_TEXT_VECTOR_DIM", "1024"))
+# 추천 API가 조회하는 컬렉션 이름. 적재기에도 같은 환경변수를 주입해야 한다.
+# 상품은 소스별 재색인·삭제를 독립적으로 수행하므로 네이버/11번가를 분리한다.
+QDRANT_GOLDEN_OUTFIT_COLLECTION = os.getenv(
+    "QDRANT_GOLDEN_OUTFIT_COLLECTION", "outfit_goldenset"
+).strip()
+QDRANT_GOLDEN_ITEM_COLLECTION = os.getenv(
+    "QDRANT_GOLDEN_ITEM_COLLECTION", "goldenset_items"
+).strip()
+QDRANT_WARDROBE_COLLECTION = os.getenv(
+    "QDRANT_WARDROBE_COLLECTION", "wardrobe_items"
+).strip()
+PRODUCT_NAVER_QDRANT_COLLECTION = os.getenv(
+    "PRODUCT_NAVER_QDRANT_COLLECTION", "products_naver_v1"
+).strip()
+PRODUCT_ELEVEN_QDRANT_COLLECTION = os.getenv(
+    "PRODUCT_ELEVEN_QDRANT_COLLECTION", "products_eleven_v1"
+).strip()
+QDRANT_KNOWLEDGE_COLLECTION = os.getenv(
+    "QDRANT_KNOWLEDGE_COLLECTION", "knowledge"
+).strip()
 
 # Gemini 기반 코디 사진 평가 (apps.recommend)
 # 요청/응답과 질의 컨텍스트는 outfit_analysis 테이블에 기록한다.
