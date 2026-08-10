@@ -242,13 +242,33 @@ def main() -> None:
     image_backend = build_image_backend(settings, args.image_backend)
     text_backend = build_text_backend(settings, args.text_backend)
 
-    outfit_points: list[PointStruct] = []
-    item_points: list[PointStruct] = []
+    # 모아 두었다가 마지막에 한 번에 올리지 않는다. 코디 수만큼 임베딩을 메모리에
+    # 쌓게 되고, 무엇보다 중간에 끊기면 그때까지 계산한 게 통째로 날아간다.
+    # 배치가 차면 바로 올려 진행분이 남게 한다 — point id가 결정적이라 다시
+    # 돌려도 같은 자리에 덮어쓰므로 중복이 생기지 않는다.
+    pending_outfits: list[PointStruct] = []
+    pending_items: list[PointStruct] = []
+    written_outfits = written_items = 0
     untagged = skipped = 0
+
+    def flush(force: bool = False) -> None:
+        nonlocal written_outfits, written_items
+        if args.dry_run:
+            return
+        if force or len(pending_outfits) >= BATCH:
+            if pending_outfits:
+                _upsert(client, OUTFIT_COLLECTION, pending_outfits)
+                written_outfits += len(pending_outfits)
+                pending_outfits.clear()
+            if pending_items:
+                _upsert(client, ITEM_COLLECTION, pending_items)
+                written_items += len(pending_items)
+                pending_items.clear()
+            logger.info("적재 진행: 코디 %d / 아이템 %d", written_outfits, written_items)
 
     with tempfile.TemporaryDirectory() as temp:
         workdir = Path(temp)
-        for key in manifest_keys:
+        for index, key in enumerate(manifest_keys, start=1):
             manifest = s3io.get_json(bucket, key)
             if not manifest or not manifest.get("golden_id"):
                 logger.warning("건너뜀 (읽을 수 없음): %s", key)
@@ -288,18 +308,23 @@ def main() -> None:
                 image_model=image_backend.name,
                 text_model=text_backend.name,
             )
-            outfit_points.append(outfit)
-            item_points.extend(items)
+            pending_outfits.append(outfit)
+            pending_items.extend(items)
             logger.info(
-                "%s: 아이템 %d개 / 성별표현 %s",
-                golden_id,
-                len(items),
+                "[%d/%d] %s: 아이템 %d개 / 성별표현 %s",
+                index, len(manifest_keys), golden_id, len(items),
                 tags.get("presentation_group") or "(미분류)",
             )
+            flush()
+
+        flush(force=True)
 
     logger.info(
-        "코디 %d / 아이템 %d / 태그 없음 %d / 건너뜀 %d",
-        len(outfit_points), len(item_points), untagged, skipped,
+        "완료: 코디 %d / 아이템 %d / 태그 없음 %d / 건너뜀 %d",
+        written_outfits or len(pending_outfits),
+        written_items or len(pending_items),
+        untagged,
+        skipped,
     )
     if untagged:
         logger.warning(
@@ -307,18 +332,8 @@ def main() -> None:
             "걸러집니다 — API 서버에서 태깅 스크립트를 먼저 돌리세요.",
             untagged,
         )
-
     if args.dry_run:
         logger.info("dry-run: 적재하지 않았습니다.")
-        return
-
-    assert client is not None
-    _upsert(client, OUTFIT_COLLECTION, outfit_points)
-    _upsert(client, ITEM_COLLECTION, item_points)
-    logger.info(
-        "적재 완료: %s %d건 / %s %d건",
-        OUTFIT_COLLECTION, len(outfit_points), ITEM_COLLECTION, len(item_points),
-    )
 
 
 if __name__ == "__main__":
