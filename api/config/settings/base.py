@@ -348,9 +348,15 @@ DAILY_LOOK_RENDER_ENABLED = os.getenv("DAILY_LOOK_RENDER_ENABLED", "1").strip().
     "1", "true", "yes", "y",
 }
 DAILY_LOOK_RENDER_MODEL = os.getenv("DAILY_LOOK_RENDER_MODEL", "qwen/qwen-image-3-pro")
+# 이미지 생성은 채팅 API가 아니라 전용 엔드포인트를 쓴다. 채팅 API에
+# modalities=["image","text"]를 붙이면 404 "No endpoints found that support the
+# requested output modalities"를 받는다.
 DAILY_LOOK_RENDER_URL = os.getenv(
-    "DAILY_LOOK_RENDER_URL", "https://openrouter.ai/api/v1/chat/completions"
+    "DAILY_LOOK_RENDER_URL", "https://openrouter.ai/api/v1/images"
 )
+# 전신이 담겨야 하므로 세로로 긴 비율.
+DAILY_LOOK_RENDER_ASPECT_RATIO = os.getenv("DAILY_LOOK_RENDER_ASPECT_RATIO", "9:16")
+DAILY_LOOK_RENDER_RESOLUTION = os.getenv("DAILY_LOOK_RENDER_RESOLUTION", "1K")
 # 이미지 생성은 텍스트보다 훨씬 느리다. 워커에서 도는 작업이라 넉넉히 준다.
 DAILY_LOOK_RENDER_TIMEOUT_SECONDS = int(
     os.getenv("DAILY_LOOK_RENDER_TIMEOUT_SECONDS", "180")

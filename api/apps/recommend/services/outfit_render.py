@@ -111,17 +111,19 @@ def _generate(*, bucket: str, reference_keys: list[str]) -> bytes:
     if not api_key:
         raise RenderError("OPENROUTER_API_KEY가 설정되지 않았습니다.")
 
-    parts: list[dict[str, Any]] = [{"type": "text", "text": PROMPT}]
-    for reference in reference_keys:
-        raw = storage.download_for(bucket, reference)
-        parts.append(
-            {
-                "type": "image_url",
-                "image_url": {
-                    "url": "data:image/png;base64," + base64.b64encode(raw).decode()
-                },
-            }
-        )
+    # OpenRouter는 이미지 생성에 전용 엔드포인트(POST /api/v1/images)를 쓴다.
+    # 채팅 API에 modalities=["image","text"]를 붙이는 방식은 지원되지 않아
+    # 404 "No endpoints found that support the requested output modalities"를 받는다.
+    references = [
+        {
+            "type": "image_url",
+            "image_url": {
+                "url": "data:image/png;base64,"
+                + base64.b64encode(storage.download_for(bucket, key)).decode()
+            },
+        }
+        for key in reference_keys
+    ]
 
     try:
         response = requests.post(
@@ -132,8 +134,12 @@ def _generate(*, bucket: str, reference_keys: list[str]) -> bytes:
             },
             json={
                 "model": settings.DAILY_LOOK_RENDER_MODEL,
-                "messages": [{"role": "user", "content": parts}],
-                "modalities": ["image", "text"],
+                "prompt": PROMPT,
+                "input_references": references,
+                # 전신이 담겨야 하므로 세로로 긴 비율을 지정한다.
+                "aspect_ratio": settings.DAILY_LOOK_RENDER_ASPECT_RATIO,
+                "resolution": settings.DAILY_LOOK_RENDER_RESOLUTION,
+                "n": 1,
             },
             timeout=settings.DAILY_LOOK_RENDER_TIMEOUT_SECONDS,
         )
@@ -147,6 +153,9 @@ def _generate(*, bucket: str, reference_keys: list[str]) -> bytes:
         )
 
     payload = response.json()
+    if usage := payload.get("usage"):
+        # 첫 실행에서 실제 요금을 눈으로 확인할 수 있게 남긴다.
+        logger.info("착용 이미지 usage: %s", usage)
     image = _extract_image(payload)
     if image is None:
         raise RenderError(
@@ -157,19 +166,27 @@ def _generate(*, bucket: str, reference_keys: list[str]) -> bytes:
 
 
 def _extract_image(payload: dict[str, Any]) -> bytes | None:
-    """OpenRouter 응답에서 첫 이미지를 꺼낸다.
+    """OpenRouter 이미지 API 응답에서 첫 이미지를 꺼낸다.
 
-    제공자마다 담는 위치가 달라 두 자리를 모두 본다 — 메시지의 images 배열과
-    content 안의 data URL. 한쪽만 보면 제공자가 바뀔 때 조용히 실패한다.
+        {"data": [{"b64_json": "...", "media_type": "image/png"}], "usage": {...}}
+
+    채팅 API 형태(messages.images / content의 data URL)도 함께 본다. 모델을
+    바꾸면 그쪽으로 응답이 오는 경우가 있어, 한쪽만 보면 조용히 실패한다.
     """
+    for row in payload.get("data") or []:
+        if encoded := row.get("b64_json"):
+            if decoded := _decode_base64(str(encoded)):
+                return decoded
+        if url := row.get("url"):
+            if decoded := _decode_data_url(str(url)):
+                return decoded
+
     for choice in payload.get("choices") or []:
         message = choice.get("message") or {}
-
         for image in message.get("images") or []:
             url = (image.get("image_url") or {}).get("url") or image.get("url")
             if decoded := _decode_data_url(str(url or "")):
                 return decoded
-
         content = message.get("content")
         if isinstance(content, str):
             if decoded := _decode_data_url(content.strip()):
@@ -180,6 +197,14 @@ def _extract_image(payload: dict[str, Any]) -> bytes | None:
                 if decoded := _decode_data_url(str(url)):
                     return decoded
     return None
+
+
+def _decode_base64(value: str) -> bytes | None:
+    try:
+        return base64.b64decode(value, validate=True)
+    except (binascii.Error, ValueError):
+        logger.warning("착용 이미지 base64 디코딩 실패")
+        return None
 
 
 def _decode_data_url(value: str) -> bytes | None:

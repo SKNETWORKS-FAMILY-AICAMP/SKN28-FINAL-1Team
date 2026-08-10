@@ -138,3 +138,73 @@ class ExtractImageTests(unittest.TestCase):
     def test_empty_payload(self) -> None:
         self.assertIsNone(_extract_image({}))
         self.assertIsNone(_extract_image({"choices": []}))
+
+
+class ImageApiResponseTests(unittest.TestCase):
+    """OpenRouter 이미지 전용 API(POST /api/v1/images) 응답 형태.
+
+    처음엔 채팅 API에 modalities=["image","text"]를 붙였다가 404를 받았다.
+    "No endpoints found that support the requested output modalities" — 이미지
+    생성은 별도 엔드포인트를 쓴다.
+    """
+
+    def test_data_b64_json(self) -> None:
+        payload = {
+            "created": 1748372400,
+            "data": [{"b64_json": base64.b64encode(PNG).decode(), "media_type": "image/png"}],
+            "usage": {"total_tokens": 4175, "cost": 0.04},
+        }
+        self.assertEqual(_extract_image(payload), PNG)
+
+    def test_data_url_variant(self) -> None:
+        self.assertEqual(_extract_image({"data": [{"url": DATA_URL}]}), PNG)
+
+    def test_chat_shape_still_parsed(self) -> None:
+        """모델을 바꾸면 채팅 형태로 오는 경우가 있어 둘 다 본다."""
+        payload = {"choices": [{"message": {"images": [{"image_url": {"url": DATA_URL}}]}}]}
+        self.assertEqual(_extract_image(payload), PNG)
+
+    def test_empty_data_array(self) -> None:
+        self.assertIsNone(_extract_image({"data": []}))
+
+    def test_corrupt_b64_json(self) -> None:
+        self.assertIsNone(_extract_image({"data": [{"b64_json": "@@@@"}]}))
+
+
+class RequestShapeTests(TestCase):
+    """요청이 이미지 API 규약대로 나가는지."""
+
+    @patch("apps.recommend.services.outfit_render.storage.download_for", return_value=PNG)
+    @patch("apps.recommend.services.outfit_render.requests.post")
+    def test_uses_images_endpoint_with_input_references(self, post, _download):
+        post.return_value = type("R", (), {
+            "status_code": 200,
+            "json": lambda self: {"data": [{"b64_json": base64.b64encode(PNG).decode()}]},
+        })()
+        outfit_render._generate(bucket=BUCKET, reference_keys=[ITEMS[0]["s3_key"]])
+
+        url = post.call_args.args[0]
+        body = post.call_args.kwargs["json"]
+        self.assertTrue(url.endswith("/api/v1/images"), url)
+        # 채팅 API 규약이 남아 있으면 다시 404가 난다
+        self.assertNotIn("messages", body)
+        self.assertNotIn("modalities", body)
+        self.assertIn("prompt", body)
+        self.assertEqual(len(body["input_references"]), 1)
+        self.assertTrue(
+            body["input_references"][0]["image_url"]["url"].startswith("data:image/png;base64,")
+        )
+
+    @patch("apps.recommend.services.outfit_render.storage.download_for", return_value=PNG)
+    @patch("apps.recommend.services.outfit_render.requests.post")
+    def test_http_error_body_is_kept_in_the_message(self, post, _download):
+        """404의 실제 사유는 본문에만 담긴다. 삼키면 원인을 못 찾는다."""
+        post.return_value = type("R", (), {
+            "status_code": 404,
+            "text": '{"error":{"message":"No endpoints found...","code":404}}',
+            "json": lambda self: {},
+        })()
+        with self.assertRaises(RenderError) as ctx:
+            outfit_render._generate(bucket=BUCKET, reference_keys=[ITEMS[0]["s3_key"]])
+        self.assertIn("404", str(ctx.exception))
+        self.assertIn("No endpoints found", str(ctx.exception))
