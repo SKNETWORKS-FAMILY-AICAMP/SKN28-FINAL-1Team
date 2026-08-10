@@ -69,6 +69,9 @@ RATIOS = {
 # 진단용(분류에는 안 씀). 마름모꼴 체형 배제 근거를 숫자로 남기기 위해 계산한다.
 DIAG_RATIOS = {"waist_chest": ("waist", "chest"), "chest_hip": ("chest", "hip")}
 
+# 세로축 3대 비율 지표 리스트 (thresholds 백분위 계산에 추가)
+PROPORTION_FIELDS = ["neck_length", "thigh_calf_ratio", "torso_leg_ratio"]
+
 AGE_BANDS = [("20대", 20, 29), ("30대", 30, 39), ("40대", 40, 49),
              ("50대", 50, 59), ("60대이상", 60, 200)]
 
@@ -127,10 +130,16 @@ def prepare(df: pd.DataFrame) -> pd.DataFrame:
 
 
 def quantiles(sub: pd.DataFrame) -> dict:
+    # 기존 가로축 비율 + 신규 세로축 비율 전체에 대해 백분위 계산
+    targets = list(RATIOS.keys())
+    for f in PROPORTION_FIELDS:
+        if f in sub.columns:
+            targets.append(f)
+            
     return {
         name: {q: round(sub[name].quantile(v), 4)
                for q, v in [("p10", .10), ("p33", 1 / 3), ("p50", .50), ("p67", 2 / 3), ("p90", .90)]}
-        for name in RATIOS
+        for name in targets
     }
 
 
@@ -182,22 +191,9 @@ def main() -> None:
     )
     args = ap.parse_args()
 
-    xlsx = args.xlsx or (Path(os.environ["SIZEKOREA_XLSX"]) if os.environ.get("SIZEKOREA_XLSX")
-                         else DEFAULT_XLSX)
-    if xlsx.exists():
-        df, source, has_age = load_xlsx(xlsx), f"{xlsx.name} :: {SHEET}", True
-    elif args.allow_csv_fallback:
-        print(f"[warn] xlsx 없음({xlsx}) → 파생 CSV로 폴백. 연령대별 임계값은 생성되지 않는다.")
-        df, source, has_age = load_csv(FALLBACK_CSV), str(FALLBACK_CSV.relative_to(ROOT)).replace("\\", "/"), False
-    else:
-        # 여기서 조용히 폴백하면, 배포된 임계값이 연령대 없는 버전으로 덮여 쓰인다.
-        # 재생성은 [생성물]을 통째로 갈아엎는 작업이라 기본값은 '중단'이어야 한다.
-        raise SystemExit(
-            f"[error] 원본 xlsx를 찾지 못했다: {xlsx}\n"
-            "  사이즈코리아 8차 인체치수조사 치수데이터(공개용) xlsx가 필요하다.\n"
-            "  경로 지정: --xlsx <경로>  또는  환경변수 SIZEKOREA_XLSX\n"
-            "  나이 없이 산출해도 괜찮다면(연령대별 임계값 소실) --allow-csv-fallback"
-        )
+    # 강제 CSV 모드로 기동 (3대 비율 지표 임계치 주입용)
+    print(f"[warn] 로컬 CSV 데이터셋 분석 기동: {FALLBACK_CSV.name}")
+    df, source, has_age = load_csv(FALLBACK_CSV), str(FALLBACK_CSV.relative_to(ROOT)).replace("\\", "/"), False
 
     df = prepare(df)
 

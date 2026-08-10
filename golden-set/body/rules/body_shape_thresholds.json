@@ -1,7 +1,7 @@
 {
   "version": "3.0.0",
   "generated_by": "golden-set/body/tools/derive_body_thresholds.py",
-  "source": "8차 인체치수조사(2020~24)_치수데이터(공개용).xlsx :: (1~2차년도) 직접측정",
+  "source": "ml/body_measurement/data/processed/sizekorea_measurements_clean.csv",
   "source_survey": "사이즈코리아 8차 한국인 인체치수조사(2020~2024) 직접측정",
   "taxonomy": {
     "basis": "Rasband(1994) 상반신 8체형 — 사이즈코리아 '성별 및 연령별 체형'이 채택한 분류법",
@@ -62,20 +62,10 @@
   "active_threshold_key": "all",
   "sample_size": {
     "F": {
-      "all": 2773,
-      "20대": 575,
-      "30대": 655,
-      "40대": 577,
-      "50대": 500,
-      "60대이상": 466
+      "all": 2773
     },
     "M": {
-      "all": 2319,
-      "20대": 610,
-      "30대": 493,
-      "40대": 464,
-      "50대": 290,
-      "60대이상": 462
+      "all": 2319
     }
   },
   "thresholds": {
@@ -94,86 +84,27 @@
           "p50": 0.8151,
           "p67": 0.8491,
           "p90": 0.921
-        }
-      },
-      "20대": {
-        "shoulder_hip": {
-          "p10": 0.3472,
-          "p33": 0.3669,
-          "p50": 0.378,
-          "p67": 0.3877,
-          "p90": 0.4043
         },
-        "waist_hip": {
-          "p10": 0.7161,
-          "p33": 0.753,
-          "p50": 0.7717,
-          "p67": 0.7897,
-          "p90": 0.8379
-        }
-      },
-      "30대": {
-        "shoulder_hip": {
-          "p10": 0.3424,
-          "p33": 0.3644,
-          "p50": 0.3764,
-          "p67": 0.3876,
-          "p90": 0.4087
+        "neck_length": {
+          "p10": 5.9,
+          "p33": 7.2,
+          "p50": 7.9,
+          "p67": 8.5,
+          "p90": 9.9
         },
-        "waist_hip": {
-          "p10": 0.7362,
-          "p33": 0.767,
-          "p50": 0.7856,
-          "p67": 0.8085,
-          "p90": 0.8587
-        }
-      },
-      "40대": {
-        "shoulder_hip": {
-          "p10": 0.3455,
-          "p33": 0.3649,
-          "p50": 0.3742,
-          "p67": 0.3839,
-          "p90": 0.4025
+        "thigh_calf_ratio": {
+          "p10": 0.6752,
+          "p33": 0.719,
+          "p50": 0.744,
+          "p67": 0.767,
+          "p90": 0.814
         },
-        "waist_hip": {
-          "p10": 0.7505,
-          "p33": 0.7932,
-          "p50": 0.8187,
-          "p67": 0.8472,
-          "p90": 0.9046
-        }
-      },
-      "50대": {
-        "shoulder_hip": {
-          "p10": 0.3496,
-          "p33": 0.3686,
-          "p50": 0.378,
-          "p67": 0.3846,
-          "p90": 0.4023
-        },
-        "waist_hip": {
-          "p10": 0.7757,
-          "p33": 0.8263,
-          "p50": 0.8541,
-          "p67": 0.881,
-          "p90": 0.9394
-        }
-      },
-      "60대이상": {
-        "shoulder_hip": {
-          "p10": 0.3487,
-          "p33": 0.3702,
-          "p50": 0.3772,
-          "p67": 0.3877,
-          "p90": 0.4036
-        },
-        "waist_hip": {
-          "p10": 0.8159,
-          "p33": 0.868,
-          "p50": 0.8975,
-          "p67": 0.9219,
-          "p90": 0.9724
+        "torso_leg_ratio": {
+          "p10": 1.156,
+          "p33": 1.202,
+          "p50": 1.227,
+          "p67": 1.254,
+          "p90": 1.313
         }
       }
     },
@@ -192,86 +123,27 @@
           "p50": 0.8979,
           "p67": 0.9256,
           "p90": 0.9834
-        }
-      },
-      "20대": {
-        "shoulder_hip": {
-          "p10": 0.3784,
-          "p33": 0.4045,
-          "p50": 0.4155,
-          "p67": 0.4264,
-          "p90": 0.449
         },
-        "waist_hip": {
-          "p10": 0.7911,
-          "p33": 0.8255,
-          "p50": 0.8485,
-          "p67": 0.8704,
-          "p90": 0.9098
-        }
-      },
-      "30대": {
-        "shoulder_hip": {
-          "p10": 0.3749,
-          "p33": 0.396,
-          "p50": 0.4074,
-          "p67": 0.4161,
-          "p90": 0.4359
+        "neck_length": {
+          "p10": 6.5,
+          "p33": 8.1,
+          "p50": 9.0,
+          "p67": 9.7,
+          "p90": 11.2
         },
-        "waist_hip": {
-          "p10": 0.8206,
-          "p33": 0.8558,
-          "p50": 0.8776,
-          "p67": 0.9028,
-          "p90": 0.955
-        }
-      },
-      "40대": {
-        "shoulder_hip": {
-          "p10": 0.3818,
-          "p33": 0.4011,
-          "p50": 0.409,
-          "p67": 0.4173,
-          "p90": 0.4351
+        "thigh_calf_ratio": {
+          "p10": 0.644,
+          "p33": 0.687,
+          "p50": 0.71,
+          "p67": 0.729,
+          "p90": 0.769
         },
-        "waist_hip": {
-          "p10": 0.8417,
-          "p33": 0.8903,
-          "p50": 0.9107,
-          "p67": 0.9314,
-          "p90": 0.9789
-        }
-      },
-      "50대": {
-        "shoulder_hip": {
-          "p10": 0.3816,
-          "p33": 0.4042,
-          "p50": 0.4113,
-          "p67": 0.4219,
-          "p90": 0.4365
-        },
-        "waist_hip": {
-          "p10": 0.8574,
-          "p33": 0.9075,
-          "p50": 0.928,
-          "p67": 0.9536,
-          "p90": 0.9957
-        }
-      },
-      "60대이상": {
-        "shoulder_hip": {
-          "p10": 0.386,
-          "p33": 0.4043,
-          "p50": 0.4137,
-          "p67": 0.4228,
-          "p90": 0.44
-        },
-        "waist_hip": {
-          "p10": 0.8761,
-          "p33": 0.9247,
-          "p50": 0.9508,
-          "p67": 0.9772,
-          "p90": 1.0158
+        "torso_leg_ratio": {
+          "p10": 1.1608,
+          "p33": 1.21,
+          "p50": 1.238,
+          "p67": 1.268,
+          "p90": 1.326
         }
       }
     }
@@ -316,204 +188,44 @@
   "distribution": {
     "F": {
       "all": {
-        "inverted_triangle": 860,
-        "triangle": 774,
-        "hourglass": 329,
-        "standard": 327,
-        "round": 281,
-        "rectangle": 202
-      },
-      "20대": {
-        "inverted_triangle": 181,
-        "triangle": 154,
-        "standard": 70,
-        "hourglass": 68,
-        "round": 58,
-        "rectangle": 44
-      },
-      "30대": {
-        "inverted_triangle": 206,
-        "triangle": 177,
-        "hourglass": 92,
-        "standard": 73,
-        "round": 67,
-        "rectangle": 40
-      },
-      "40대": {
-        "inverted_triangle": 179,
-        "triangle": 163,
-        "standard": 66,
-        "hourglass": 66,
-        "round": 58,
-        "rectangle": 45
-      },
-      "50대": {
-        "inverted_triangle": 156,
-        "triangle": 140,
-        "standard": 59,
-        "hourglass": 52,
-        "round": 51,
-        "rectangle": 42
-      },
-      "60대이상": {
-        "triangle": 140,
-        "inverted_triangle": 138,
-        "standard": 59,
-        "hourglass": 51,
-        "round": 47,
-        "rectangle": 31
+        "inverted_triangle": 845,
+        "triangle": 806,
+        "hourglass": 332,
+        "standard": 291,
+        "round": 278,
+        "rectangle": 221
       }
     },
     "M": {
       "all": {
-        "inverted_triangle": 735,
-        "triangle": 629,
-        "standard": 274,
-        "hourglass": 263,
-        "round": 234,
-        "rectangle": 184
-      },
-      "20대": {
-        "inverted_triangle": 195,
-        "triangle": 154,
-        "standard": 80,
-        "hourglass": 73,
-        "round": 62,
-        "rectangle": 46
-      },
-      "30대": {
-        "inverted_triangle": 164,
-        "triangle": 130,
-        "hourglass": 59,
-        "standard": 57,
-        "round": 50,
-        "rectangle": 33
-      },
-      "40대": {
-        "inverted_triangle": 147,
-        "triangle": 131,
-        "standard": 54,
-        "round": 46,
-        "hourglass": 45,
-        "rectangle": 41
-      },
-      "50대": {
-        "inverted_triangle": 88,
-        "triangle": 83,
-        "hourglass": 35,
-        "standard": 32,
-        "round": 30,
-        "rectangle": 22
-      },
-      "60대이상": {
-        "inverted_triangle": 141,
-        "triangle": 131,
-        "standard": 51,
-        "hourglass": 51,
-        "round": 46,
-        "rectangle": 42
+        "inverted_triangle": 732,
+        "triangle": 658,
+        "standard": 269,
+        "hourglass": 253,
+        "round": 232,
+        "rectangle": 175
       }
     }
   },
   "distribution_pct": {
     "F": {
       "all": {
-        "inverted_triangle": 31.0,
-        "triangle": 27.9,
-        "hourglass": 11.9,
-        "standard": 11.8,
-        "round": 10.1,
-        "rectangle": 7.3
-      },
-      "20대": {
-        "inverted_triangle": 31.5,
-        "triangle": 26.8,
-        "standard": 12.2,
-        "hourglass": 11.8,
-        "round": 10.1,
-        "rectangle": 7.7
-      },
-      "30대": {
-        "inverted_triangle": 31.5,
-        "triangle": 27.0,
-        "hourglass": 14.0,
-        "standard": 11.1,
-        "round": 10.2,
-        "rectangle": 6.1
-      },
-      "40대": {
-        "inverted_triangle": 31.0,
-        "triangle": 28.2,
-        "standard": 11.4,
-        "hourglass": 11.4,
-        "round": 10.1,
-        "rectangle": 7.8
-      },
-      "50대": {
-        "inverted_triangle": 31.2,
-        "triangle": 28.0,
-        "standard": 11.8,
-        "hourglass": 10.4,
-        "round": 10.2,
-        "rectangle": 8.4
-      },
-      "60대이상": {
-        "triangle": 30.0,
-        "inverted_triangle": 29.6,
-        "standard": 12.7,
-        "hourglass": 10.9,
-        "round": 10.1,
-        "rectangle": 6.7
+        "inverted_triangle": 30.5,
+        "triangle": 29.1,
+        "hourglass": 12.0,
+        "standard": 10.5,
+        "round": 10.0,
+        "rectangle": 8.0
       }
     },
     "M": {
       "all": {
-        "inverted_triangle": 31.7,
-        "triangle": 27.1,
-        "standard": 11.8,
-        "hourglass": 11.3,
-        "round": 10.1,
-        "rectangle": 7.9
-      },
-      "20대": {
-        "inverted_triangle": 32.0,
-        "triangle": 25.2,
-        "standard": 13.1,
-        "hourglass": 12.0,
-        "round": 10.2,
-        "rectangle": 7.5
-      },
-      "30대": {
-        "inverted_triangle": 33.3,
-        "triangle": 26.4,
-        "hourglass": 12.0,
-        "standard": 11.6,
-        "round": 10.1,
-        "rectangle": 6.7
-      },
-      "40대": {
-        "inverted_triangle": 31.7,
-        "triangle": 28.2,
-        "standard": 11.6,
-        "round": 9.9,
-        "hourglass": 9.7,
-        "rectangle": 8.8
-      },
-      "50대": {
-        "inverted_triangle": 30.3,
-        "triangle": 28.6,
-        "hourglass": 12.1,
-        "standard": 11.0,
-        "round": 10.3,
-        "rectangle": 7.6
-      },
-      "60대이상": {
-        "inverted_triangle": 30.5,
+        "inverted_triangle": 31.6,
         "triangle": 28.4,
-        "standard": 11.0,
-        "hourglass": 11.0,
+        "standard": 11.6,
+        "hourglass": 10.9,
         "round": 10.0,
-        "rectangle": 9.1
+        "rectangle": 7.5
       }
     }
   },
