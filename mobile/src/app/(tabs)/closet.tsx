@@ -33,7 +33,7 @@ import { useBottomTabInset } from '@/hooks/use-bottom-tab-inset';
 import { useBreakpoint } from '@/hooks/use-breakpoint';
 import { useRefresh } from '@/hooks/use-refresh';
 import { useWardrobeItems } from '@/hooks/use-wardrobe';
-import { itemDisplayName, getMySharedRooms, createSharedRoom, joinSharedRoom, listSharedRoomMembers, listSharedRoomItems, renameSharedRoom } from '@/lib/wardrobeApi';
+import { itemDisplayName, getMySharedRooms, createSharedRoom, joinSharedRoom, listSharedRoomMembers, listSharedRoomItems, renameSharedRoom, unregisterItemFromSharedRoom } from '@/lib/wardrobeApi';
 import { Icon } from '@/components/icon';
 import { useAuth } from '@/state/auth';
 import { uploadJobs, useUploadCompleted, useUploadJobs, useBatchTotal, useBatchCompletedCount } from '@/state/upload-jobs';
@@ -136,6 +136,27 @@ export default function ClosetScreen() {
     toast('옷장에 추가됐어요', { variant: 'success' });
   }, [completed, reload, toast]);
 
+  const handleUnshareItem = async (itemId: string, itemName: string) => {
+    const ok = await confirm({
+      title: '공유 해제',
+      message: `[${itemName}]을 공유 옷장에서 삭제할까요? (내 옷장에는 그대로 유지됩니다.)`,
+      confirmLabel: '공유 해제',
+      destructive: true,
+    });
+    if (!ok) return;
+    try {
+      if (!sharedSpace) return;
+      const target = sharedItems.find((x) => x.id === itemId);
+      if (target) {
+        await unregisterItemFromSharedRoom(sharedSpace.id, target.wardrobeItemId);
+        toast('공유를 해제했어요', { variant: 'success' });
+        await loadRoomData(sharedSpace.id);
+      }
+    } catch (e) {
+      toast(e instanceof Error ? e.message : '공유를 해제하지 못했어요', { variant: 'error' });
+    }
+  };
+
   const myItems = useMemo<Card[]>(
     () =>
       apiItems.map((i) => ({
@@ -173,6 +194,7 @@ export default function ClosetScreen() {
       setSharedItems(
         itemsList.map((si) => ({
           id: si.id,
+          wardrobeItemId: si.wardrobe_item.id,
           name: si.wardrobe_item.item_name || '옷',
           category: si.wardrobe_item.category_large,
           image: si.wardrobe_item.image_url,
@@ -507,6 +529,18 @@ export default function ClosetScreen() {
                         ]}>{it.owner}님</Text>
                       </View>
                     ) : null}
+                    {tab === 'shared' && it.owner === '나' && (
+                      <Pressable
+                        style={styles.unshareBtn}
+                        onPress={(e) => {
+                          e.stopPropagation();
+                          handleUnshareItem(it.id, it.name);
+                        }}
+                        hitSlop={8}
+                      >
+                        <Icon name="xmark" tintColor="#FFFFFF" size={10} />
+                      </Pressable>
+                    )}
                   </View>
                   <View style={styles.cardMeta}>
                     <Text style={styles.cardName} numberOfLines={1}>{it.name}</Text>
@@ -604,6 +638,18 @@ const styles = StyleSheet.create({
     borderRadius: 999,
   },
   ownerText: { fontSize: 11, fontWeight: '600', color: '#fff' },
+  unshareBtn: {
+    position: 'absolute',
+    top: 10,
+    right: 10,
+    width: 22,
+    height: 22,
+    borderRadius: 11,
+    backgroundColor: 'rgba(0,0,0,0.6)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    zIndex: 10,
+  },
   cardMeta: {
     flexDirection: 'row',
     alignItems: 'baseline',
