@@ -28,6 +28,10 @@ from apps.recommend.services.body_profile import (
     BodyProfile,
     build_profile,
 )
+from apps.recommend.services.gender import (
+    allowed_presentation_groups,
+    normalize_gender,
+)
 from apps.recommend.services.retriever import (
     Reason,
     _score_context,
@@ -424,3 +428,118 @@ class PresentationGroupNormalizeTests(unittest.TestCase):
 
         for value in BodyMeasurement.Gender.values:
             self.assertIn(value, GENDER_TO_PRESENTATION, value)
+
+
+class GenderNormalizationTests(unittest.TestCase):
+    """성별 표기 해석은 한 곳에서만 한다.
+
+    이 클래스는 실제로 난 사고의 재발 방지선이다. 83kg 남성 사용자에게 "캉캉
+    끈나시 탑"이 추천됐는데, 원인은 검색 로직이 아니라 **값의 배관**이었다:
+
+        BodyMeasurement.gender = ""           (미입력 허용 컬럼)
+          → _serialize_measurement 의 `value or None`  → None
+          → daily_look 의 `str(...)`                    → "None"
+          → GENDER_TO_PRESENTATION.get("none")          → None
+          → 성별 하드 필터가 통째로 사라짐 (예외도 로그도 없음)
+
+    필터가 "적용됐는데 틀린" 것이 아니라 "조용히 사라진" 것이라 겉으로는 그냥
+    추천이 하나 나온 것처럼 보였다. 그래서 아래 두 가지를 못 박는다.
+    """
+
+    def test_str_of_none_is_not_a_gender(self) -> None:
+        """실제 사고 값. 이것 하나가 필터 전체를 무력화했다."""
+        self.assertEqual(normalize_gender("None"), "")
+        self.assertEqual(normalize_gender(None), "")
+        self.assertEqual(allowed_presentation_groups("None"), ())
+
+    def test_known_spellings(self) -> None:
+        for value in ("male", "MALE", "  Male ", "m", "남성", "남자"):
+            self.assertEqual(normalize_gender(value), "male", repr(value))
+        for value in ("female", "F", "여성", "여자"):
+            self.assertEqual(normalize_gender(value), "female", repr(value))
+
+    def test_blank_like_values_are_blank(self) -> None:
+        for value in ("", "   ", "unknown", "미지정", "null", "-"):
+            self.assertEqual(normalize_gender(value), "", repr(value))
+
+    def test_allowed_groups_never_include_the_other_side(self) -> None:
+        self.assertEqual(allowed_presentation_groups("male"), ("men", "unisex"))
+        self.assertEqual(allowed_presentation_groups("female"), ("women", "unisex"))
+        # 라벨 없는 코디("")는 어느 쪽에도 없다. unisex로 봐주면 여성 코디가
+        # 그대로 남성에게 나간다.
+        self.assertNotIn("", allowed_presentation_groups("male"))
+
+    def test_empty_tuple_means_unknown_not_unrestricted(self) -> None:
+        """빈 튜플을 '제한 없음'으로 읽는 호출부가 생기면 다시 같은 사고가 난다."""
+        self.assertEqual(allowed_presentation_groups(""), ())
+
+
+class _FakePoint:
+    def __init__(self, pid: str, payload: dict) -> None:
+        self.id = pid
+        self.payload = payload
+
+
+class _IgnoresFilterClient:
+    """필터를 **무시하는** Qdrant. 인덱스 누락·구버전 배포를 흉내낸다.
+
+    Qdrant의 must는 payload 인덱스가 없거나 키가 빠지면 기대와 다르게 동작할 수
+    있고, 오래된 이미지가 돌면 애초에 필터가 붙지 않는다. 어느 쪽이든 예외가
+    나지 않아 조용히 통과한다. 그래서 리트리버는 파이썬에서 한 번 더 막는다.
+    """
+
+    def __init__(self, payloads: list[dict]) -> None:
+        self.payloads = payloads
+        self.last_filter = "unset"
+
+    def scroll(self, *, scroll_filter=None, **kwargs):
+        self.last_filter = scroll_filter
+        return [_FakePoint(f"p{i}", p) for i, p in enumerate(self.payloads)], None
+
+
+class GenderSecondLineOfDefenceTests(unittest.TestCase):
+    def _run(self, gender: str, payloads: list[dict]):
+        from apps.recommend.services.retriever import RetrievalRequest, retrieve_outfits
+
+        client = _IgnoresFilterClient(payloads)
+        got = retrieve_outfits(
+            RetrievalRequest(gender=gender, limit=10), client=client
+        )
+        return client, got
+
+    def test_womens_outfit_never_reaches_a_male_user(self) -> None:
+        client, got = self._run(
+            "male",
+            [
+                {"golden_id": "w1", "presentation_group": "women",
+                 "items": [{"category": "탑", "name": "캉캉 끈나시 탑"}]},
+                {"golden_id": "m1", "presentation_group": "men", "items": []},
+                {"golden_id": "u1", "presentation_group": "unisex", "items": []},
+            ],
+        )
+        # 검색 단계에도 조건이 붙어 있어야 한다 (왕복 낭비를 줄이는 1차 방어선)
+        self.assertIsNotNone(client.last_filter)
+        # 그리고 필터가 무시돼도 결과에는 없어야 한다 (2차 방어선)
+        self.assertEqual(sorted(c.golden_id for c in got), ["m1", "u1"])
+
+    def test_unlabelled_outfits_are_dropped_not_treated_as_unisex(self) -> None:
+        _, got = self._run(
+            "male",
+            [
+                {"golden_id": "x", "presentation_group": "", "items": []},
+                {"golden_id": "y", "items": []},
+                {"golden_id": "m1", "presentation_group": "men", "items": []},
+            ],
+        )
+        self.assertEqual([c.golden_id for c in got], ["m1"])
+
+    def test_str_none_gender_does_not_open_the_gate(self) -> None:
+        """사고 재현. 예전 코드는 여기서 여성 코디를 그대로 돌려줬다."""
+        client, got = self._run(
+            "None",
+            [{"golden_id": "w1", "presentation_group": "women", "items": []}],
+        )
+        # 성별을 모르면 리트리버는 제한하지 않는다 — 그 판단은 daily_look의 몫이다.
+        # 다만 "None"이 성별로 해석되지 않는다는 점은 여기서 못 박는다.
+        self.assertIsNone(client.last_filter)
+        self.assertEqual([c.golden_id for c in got], ["w1"])

@@ -36,6 +36,13 @@ class Command(BaseCommand):
             action="store_true",
             help="행 생성·큐 적재 없이 검색 단계까지만 확인",
         )
+        parser.add_argument(
+            "--regenerate",
+            action="store_true",
+            help="오늘 행을 지우고 다시 만든다 (--user-id 필요). 로직을 고친 뒤 "
+                 "같은 날 다시 시험할 때 쓴다 — (user, look_date) 유니크 제약 때문에 "
+                 "행이 남아 있으면 로그인해도 재생성되지 않는다.",
+        )
 
     def handle(self, *args: Any, **options: Any) -> None:
         steps = [
@@ -209,8 +216,8 @@ class Command(BaseCommand):
                 "이 코디들이 전부 걸러집니다."
             )
             self.stdout.write(
-                "        → metadata CSV에 presentation_group 열(men/women/unisex)을 "
-                "채우고 GOLDEN_INDEX_ONLY_MISSING=0으로 재적재하세요."
+                "        → 태깅을 먼저 돌린 뒤 동기화하세요: "
+                "./run_goldenset_tagging.sh (API 서버) → ./run_goldenset_sync.sh (GPU 서버)"
             )
 
     # ── 5 ──────────────────────────────────────────────
@@ -301,8 +308,23 @@ class Command(BaseCommand):
             f"        추구미: {'있음' if context.get('pursuit') else '없음'}"
         )
 
-        gender = str((context.get("body") or {}).get("gender", ""))
-        self.stdout.write(f"        성별: {gender or '미지정 (성별 필터 꺼짐)'}")
+        from apps.recommend.services.gender import (
+            allowed_presentation_groups,
+            normalize_gender,
+        )
+
+        raw_gender = (context.get("body") or {}).get("gender")
+        gender = normalize_gender(raw_gender)
+        groups = allowed_presentation_groups(gender)
+        self.stdout.write(
+            f"        성별: {gender or '미지정'} (원본 {raw_gender!r}) "
+            f"→ 허용 presentation_group: {list(groups) or '없음'}"
+        )
+        if not groups:
+            self.stdout.write(
+                WARN + "성별이 없으면 오늘의 룩은 EMPTY로 끝납니다 (추천을 만들지 "
+                "않습니다). PUT /users/me/body/basic 으로 성별을 저장하세요."
+            )
         candidates = retrieve_outfits(
             RetrievalRequest(
                 body=profile,
@@ -315,8 +337,10 @@ class Command(BaseCommand):
         self.stdout.write(f"        이 사용자 기준 후보: {len(candidates)}건")
         for candidate in candidates:
             reasons = "; ".join(r.text for r in candidate.reasons[:2])
+            group = str(candidate.payload.get("presentation_group") or "(미분류)")
             self.stdout.write(
-                f"          golden_id={candidate.golden_id} score={candidate.score}"
+                f"          golden_id={candidate.golden_id} score={candidate.score} "
+                f"group={group}"
                 + (f" ({reasons})" if reasons else "")
             )
         if not candidates:
@@ -329,6 +353,17 @@ class Command(BaseCommand):
             self.stdout.write("        (--dry-run: 행 생성·큐 적재는 건너뜁니다)")
             return
 
+        if options["regenerate"]:
+            from apps.recommend.models import DailyLook
+
+            deleted, _ = DailyLook.objects.filter(
+                user=user, look_date=today()
+            ).delete()
+            self.stdout.write(
+                OK + f"오늘 행 {deleted}건 삭제 (재생성용). 출력 이미지는 S3에 남아 "
+                "있어 다시 만들지 않고 재사용합니다."
+            )
+
         look, created = ensure_today_look(user)
         self.stdout.write(
             OK + f"ensure_today_look: {'새로 생성' if created else '이미 있음'} "
@@ -337,5 +372,5 @@ class Command(BaseCommand):
         if not created:
             self.stdout.write(
                 f"        → 오늘({today()}) 행이 이미 있어 로그인해도 다시 만들지 "
-                "않습니다. 다시 시험하려면 그 행을 지우세요."
+                "않습니다. 다시 시험하려면 --regenerate를 붙이세요."
             )

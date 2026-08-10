@@ -26,6 +26,7 @@ from apps.recommend.services import gemini
 from apps.recommend.services import outfit_render
 from apps.recommend.services import queue as queue_service
 from apps.recommend.services.body_profile import build_profile
+from apps.recommend.services.gender import normalize_gender
 from apps.recommend.services.outfit_context import build_analysis_context
 from apps.recommend.services.retriever import RetrievalRequest, retrieve_outfits
 from apps.recommend.services.style_rules import load_body_rules
@@ -126,12 +127,33 @@ def run(look: DailyLook) -> None:
     )
 
     rules = load_body_rules()
+    gender = normalize_gender((snapshot.get("body") or {}).get("gender"))
+
+    # 성별을 모르면 추천을 만들지 않는다.
+    #
+    # 예전에는 그냥 필터 없이 검색해서, 성별이 비어 있는 사용자에게 아무 코디나
+    # 나갔다. 사용자 입장에서 그건 "덜 맞는 추천"이 아니라 틀린 추천이다 —
+    # 남성에게 여성복이 나오면 기능 전체의 신뢰가 무너진다. 검색 계층은 범용이라
+    # 제약을 스스로 만들지 않으므로, 그 판단은 오늘의 룩이 여기서 내린다.
+    if not gender:
+        look.status = DailyLook.Status.EMPTY
+        look.rules_version = rules.schema_version
+        look.candidates = []
+        look.error = (
+            "성별 정보가 없어 오늘의 룩을 만들지 않았습니다. "
+            "체형 정보(PUT /users/me/body/basic)에 성별을 저장한 뒤 다시 로그인하세요."
+        )
+        look.save(update_fields=["candidates", "rules_version", "status", "error",
+                                 "updated_at"])
+        logger.warning("오늘의 룩 %s: 성별 미상으로 생성 중단", look.pk)
+        return
+
     candidates = retrieve_outfits(
         RetrievalRequest(
             body=profile,
             pursuit=snapshot.get("pursuit"),
             weather=snapshot.get("weather"),
-            gender=str((snapshot.get("body") or {}).get("gender", "")),
+            gender=gender,
             limit=CANDIDATE_LIMIT,
         ),
         rules=rules,
@@ -147,7 +169,6 @@ def run(look: DailyLook) -> None:
         # 무엇이 없어서 0건인지 남긴다. 사용자에게는 다 똑같이 "추천 없음"이지만,
         # 운영자에게는 '적재가 안 됐다'와 '이 사용자 조건이 좁다'가 전혀 다른 문제다.
         avoided = (snapshot.get("pursuit") or {}).get("avoided") or {}
-        gender = str((snapshot.get("body") or {}).get("gender", ""))
         look.error = (
             "조건에 맞는 골든 코디 후보가 없습니다 "
             f"(성별={gender or '미지정'}, "
@@ -324,6 +345,9 @@ def _candidate_snapshot(candidate) -> dict[str, Any]:
         "golden_id": candidate.golden_id,
         "score": candidate.score,
         "similarity": candidate.similarity,
+        # 성별 사고가 재발하면 이 한 칸만 보면 된다. 후보에 무엇이 통과했는지
+        # 남기지 않았던 탓에 지난번엔 Qdrant를 따로 뒤져야 했다.
+        "presentation_group": str(candidate.payload.get("presentation_group") or ""),
         "reasons": [
             {"source": r.source, "delta": r.delta, "text": r.text}
             for r in candidate.reasons

@@ -26,6 +26,12 @@ from qdrant_client import models as qm
 
 from apps.recommend.services import vocabulary
 from apps.recommend.services.body_profile import BodyProfile
+from apps.recommend.services.gender import (
+    GENDER_TO_PRESENTATION,
+    PRESENTATION_UNISEX,
+    allowed_presentation_groups,
+    normalize_gender,
+)
 from apps.recommend.services.qdrant import (
     GOLDEN_ITEM_COLLECTION,
     GOLDEN_OUTFIT_COLLECTION,
@@ -48,11 +54,10 @@ OUTFIT_FILTER_FIELDS = frozenset(
     {"style", "season", "occasion", "item_layer_roles", "item_categories"}
 )
 
-#: 성별 표현 그룹. golden_set/manifest.py의 표준 값과 같아야 한다.
-#: golden_set은 Django 없이 도는 패키지라 import할 수 없어 값을 복제한다 —
-#: point_ids.POINT_NAMESPACE와 같은 이유다. 한쪽을 바꾸면 다른 쪽도 바꿔야 한다.
-PRESENTATION_UNISEX = "unisex"
-GENDER_TO_PRESENTATION = {"male": "men", "female": "women"}
+#: 성별 표현 그룹 상수와 표기 해석은 services/gender.py가 단일 출처다. 예전엔
+#: 여기서 직접 들고 있었는데, 해석이 세 파일에 흩어진 탓에 그 중 한 곳에서 빈
+#: 문자열이 "None"으로 굳어 성별 필터가 통째로 사라진 적이 있다 (gender.py 참고).
+#: 재노출은 기존 import 경로를 쓰는 호출부·테스트를 위한 것이다.
 
 #: 후보를 몇 배수로 넉넉히 뽑아 놓고 점수화 후 자를지. 소프트 감점 때문에
 #: 상위 N개가 뒤바뀌므로 limit만큼만 뽑으면 좋은 후보를 놓친다.
@@ -131,8 +136,8 @@ def build_filter(
     # 라벨이 없는 코디(presentation_group="")는 여기서 함께 빠진다. 미분류를
     # unisex로 취급하면 여성 코디가 그대로 남성에게 나가므로, 조용히 통과시키는
     # 대신 빠지게 두고 EMPTY 사유에 그 사실을 적는다.
-    if presentation := GENDER_TO_PRESENTATION.get(request.gender.strip().lower()):
-        must.append(_any_of("presentation_group", [presentation, PRESENTATION_UNISEX]))
+    if groups := allowed_presentation_groups(request.gender):
+        must.append(_any_of("presentation_group", groups))
 
     # 계절·상황은 하드 필터로 걸지 않는다.
     #
@@ -375,6 +380,14 @@ def retrieve_outfits(
 
     records = _fetch(client, request, search_filter, fetch)
 
+    # 성별은 Qdrant 필터로도 걸지만, 파이썬에서 **한 번 더** 검사한다. 중복이
+    # 아니라 다른 실패에 대비한 것이다: presentation_group 인덱스가 없거나,
+    # 재적재로 payload 키가 빠졌거나, 오래된 이미지가 필터 없는 코드를 돌고
+    # 있으면 Qdrant 쪽 must는 조용히 무력해진다. 그때도 남성 사용자에게 여성
+    # 코디가 나가서는 안 된다. 통과하지 못한 건수는 로그로 드러낸다.
+    allowed_groups = allowed_presentation_groups(request.gender)
+    blocked_by_gender = 0
+
     axis = rules.for_profile(profile)
     preferred = (
         vocabulary.translate((request.pursuit or {}).get("preferred")).tags
@@ -394,6 +407,9 @@ def retrieve_outfits(
     candidates: list[OutfitCandidate] = []
     for point_id, similarity, payload in records:
         if point_id in excluded:
+            continue
+        if allowed_groups and str(payload.get("presentation_group") or "") not in allowed_groups:
+            blocked_by_gender += 1
             continue
         delta, reasons = _score_items(
             list(payload.get("items", [])),
@@ -427,6 +443,17 @@ def retrieve_outfits(
                 reasons=tuple(reasons),
                 payload=payload,
             )
+        )
+
+    if blocked_by_gender:
+        # 검색 필터가 이미 걸렀어야 할 것이 여기까지 왔다는 뜻이다. 결과는
+        # 안전하지만 원인(인덱스 누락·payload 누락·구버전 배포)은 남는다.
+        logger.warning(
+            "성별 필터를 통과한 뒤에도 %d건이 파이썬 단계에서 걸렸습니다 "
+            "(성별=%s, 허용=%s). presentation_group 인덱스와 payload를 확인하세요.",
+            blocked_by_gender,
+            normalize_gender(request.gender) or "(미지정)",
+            list(allowed_groups),
         )
 
     if not candidates:
