@@ -336,3 +336,26 @@ OUTFIT_STALE_AFTER_MINUTES = int(os.getenv("OUTFIT_STALE_AFTER_MINUTES", "5"))
 # 프론트가 폴링 간격을 하드코딩하지 않도록 서버가 응답에 실어 보낸다
 OUTFIT_POLL_AFTER_MS = int(os.getenv("OUTFIT_POLL_AFTER_MS", "2000"))
 OUTFIT_ESTIMATED_SECONDS = int(os.getenv("OUTFIT_ESTIMATED_SECONDS", "30"))
+
+# ── 오늘의 룩: 착용 이미지 생성 (OpenRouter) ──────────────
+# 지금까지 신체치수 추정(ml/body_measurement)이 os.getenv로 직접 읽고 있었다.
+# settings로 올려 두 곳이 같은 출처를 보게 한다.
+OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY", "")
+# 골든셋 아이템 이미지를 입력으로 "정면을 보는 사람이 그 옷을 입은" 이미지를 만든다.
+# 결과는 골든 코디와 같은 S3 위치에 저장하고, 이미 있으면 다시 만들지 않는다 —
+# 같은 코디가 여러 사용자·여러 날에 추천되므로 코디당 한 번만 생성하면 된다.
+DAILY_LOOK_RENDER_ENABLED = os.getenv("DAILY_LOOK_RENDER_ENABLED", "1").strip().lower() in {
+    "1", "true", "yes", "y",
+}
+DAILY_LOOK_RENDER_MODEL = os.getenv("DAILY_LOOK_RENDER_MODEL", "qwen/qwen-image-3-pro")
+DAILY_LOOK_RENDER_URL = os.getenv(
+    "DAILY_LOOK_RENDER_URL", "https://openrouter.ai/api/v1/chat/completions"
+)
+# 이미지 생성은 텍스트보다 훨씬 느리다. 워커에서 도는 작업이라 넉넉히 준다.
+DAILY_LOOK_RENDER_TIMEOUT_SECONDS = int(
+    os.getenv("DAILY_LOOK_RENDER_TIMEOUT_SECONDS", "180")
+)
+# 참조로 넘길 아이템 이미지 수. 늘리면 입력 토큰과 요금이 함께 오른다.
+DAILY_LOOK_RENDER_MAX_REFERENCES = int(
+    os.getenv("DAILY_LOOK_RENDER_MAX_REFERENCES", "5")
+)

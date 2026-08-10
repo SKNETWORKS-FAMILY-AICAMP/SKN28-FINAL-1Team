@@ -109,3 +109,33 @@ def presigned_get_for(bucket_name: str, key: str, ttl: int = PRESIGNED_GET_TTL) 
         Params={"Bucket": bucket_name, "Key": key},
         ExpiresIn=ttl,
     )
+
+
+def exists_for(bucket_name: str, key: str) -> bool:
+    """다른 버킷의 객체 존재 여부. 404면 False, 그 밖의 오류는 그대로 올린다.
+
+    권한 문제(403)를 '없음'으로 삼키면 매번 다시 만들게 되므로 구분한다.
+    """
+    from botocore.exceptions import ClientError
+
+    try:
+        _client().head_object(Bucket=bucket_name, Key=key)
+    except ClientError as exc:
+        if exc.response.get("Error", {}).get("Code") in {"404", "NoSuchKey", "NotFound"}:
+            return False
+        raise
+    return True
+
+
+def put_bytes_for(
+    bucket_name: str, key: str, data: bytes, content_type: str = "image/png"
+) -> None:
+    """다른 버킷에 객체를 올린다 (골든셋 산출물용)."""
+    _client().put_object(
+        Bucket=bucket_name, Key=key, Body=data, ContentType=content_type
+    )
+
+
+def download_for(bucket_name: str, key: str) -> bytes:
+    """다른 버킷의 객체를 읽는다."""
+    return _client().get_object(Bucket=bucket_name, Key=key)["Body"].read()

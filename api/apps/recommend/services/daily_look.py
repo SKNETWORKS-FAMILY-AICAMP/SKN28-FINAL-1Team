@@ -23,6 +23,7 @@ from django.utils import timezone
 
 from apps.recommend.models import DailyLook
 from apps.recommend.services import gemini
+from apps.recommend.services import outfit_render
 from apps.recommend.services import queue as queue_service
 from apps.recommend.services.body_profile import build_profile
 from apps.recommend.services.outfit_context import build_analysis_context
@@ -169,7 +170,31 @@ def run(look: DailyLook) -> None:
     )
 
     # ── 여기부터는 있으면 좋은 것 ────────────────────────────
+    # 둘 다 실패해도 추천은 이미 SUCCEEDED다. 화면은 아이템 카드로 성립한다.
+    _attach_render(look, chosen)
     _enrich_with_copy(look, chosen, snapshot)
+
+
+def _attach_render(look: DailyLook, candidate) -> None:
+    """정면 착용 이미지를 붙인다. 이미 만들어 둔 코디면 생성 없이 참조만 얻는다."""
+    payload = candidate.payload
+    try:
+        reference = outfit_render.ensure_render(
+            bucket=str(payload.get("source_bucket", "")),
+            items=list(payload.get("items", [])),
+        )
+    except Exception as exc:  # noqa: BLE001 — 이미지 실패가 추천을 되돌리면 안 된다
+        logger.warning("오늘의 룩 %s 착용 이미지 실패: %s", look.pk, exc)
+        look.error = f"착용 이미지 생성 실패(추천은 정상): {exc}"[:2000]
+        look.save(update_fields=["error", "updated_at"])
+        return
+
+    if reference is None:
+        return
+    result = dict(look.result)
+    result["render_image"] = reference.as_dict()
+    look.result = result
+    look.save(update_fields=["result", "updated_at"])
 
 
 def _build_result(candidate, snapshot: dict[str, Any]) -> dict[str, Any]:
@@ -193,6 +218,9 @@ def _build_result(candidate, snapshot: dict[str, Any]) -> dict[str, Any]:
         "styling_tips": [],
         # 문장을 누가 썼는지 프론트가 알 수 있게 한다 (템플릿이면 담백한 톤이다).
         "generated_by": "template",
+        # 정면 착용 이미지. 코디당 한 번만 만들고 재사용하므로, 여기서는
+        # 자리만 비워 두고 _attach_render()가 채운다.
+        "render_image": None,
         # 원본 코디 사진은 사용권이 열린 것만 내보낸다.
         "outfit_image": (
             {"s3_bucket": bucket, "s3_key": str(payload.get("source_key", ""))}

@@ -373,7 +373,18 @@ class DailyLookResultSerializer(serializers.Serializer):
         help_text="문장을 누가 썼는지: llm | template. template이면 담백한 톤이다.",
     )
     items = DailyLookItemSerializer(many=True, required=False)
+    render_image_url = serializers.SerializerMethodField()
     outfit_image_url = serializers.SerializerMethodField()
+
+    @extend_schema_field(serializers.URLField(allow_null=True))
+    def get_render_image_url(self, obj: dict) -> str | None:
+        """정면 착용 이미지. 화면의 대표 이미지로 쓰는 값이다.
+
+        골든 원본과 달리 사용권 제약이 없다 — 아이템 이미지를 참조로 새로 만든
+        것이라 특정 인물이 담기지 않는다. 생성이 아직/실패면 null이며, 그때는
+        items[].image_url 카드로 화면이 성립한다.
+        """
+        return _image_url(obj.get("render_image"))
 
     @extend_schema_field(serializers.URLField(allow_null=True))
     def get_outfit_image_url(self, obj: dict) -> str | None:

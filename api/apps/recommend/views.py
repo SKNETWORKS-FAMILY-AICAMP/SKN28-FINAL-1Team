@@ -524,6 +524,10 @@ DAILY_LOOK_READY_EXAMPLE = OpenApiExample(
             "rationale_ko": "어깨가 넓은 편이라 상의는 어깨선을 키우지 않는 레귤러핏으로 두고, 하의에 여유를 줘 전체 균형을 맞췄어요. 28도라 겉옷은 생략했습니다.",
             "styling_tips": ["소매를 한 번 접으면 팔 라인이 가벼워 보여요."],
             "generated_by": "llm",
+            # 화면의 대표 이미지. 골든 아이템 이미지를 참조로 새로 만든 착용 컷이라
+            # 사용권 제약이 없다. 아직 만들어지지 않았으면 null이고, 그때는
+            # items[].image_url 카드로 화면을 그린다.
+            "render_image_url": "https://skn28-cozy3.s3.ap-northeast-2.amazonaws.com/...render_frontal.png?...",
             # 원본 코디 사진은 사용권이 열린 코디에만 값이 있다 (대개 null).
             "outfit_image_url": None,
             "items": [
@@ -604,7 +608,10 @@ class DailyLookTodayView(APIView):
             "- `FAILED`: 다음 호출에서 자동 재시도되지 않는다. 사용자에게 알린다\n\n"
             "코디 선택은 검색 단계에서 결정적으로 끝난다. 문장 생성(LLM)이 실패해도 "
             "`SUCCEEDED`이며, 그때는 `result.generated_by`가 `template`이다.\n\n"
-            "`image_url`은 매 조회마다 새로 서명한다. 클라이언트가 캐시하면 만료된다.\n\n"
+            "`image_url`·`render_image_url`은 매 조회마다 새로 서명한다. 클라이언트가 캐시하면 만료된다.\n\n"
+            "대표 이미지는 `result.render_image_url`이다. 골든 코디당 한 번만 만들어 "
+            "재사용하므로 같은 코디를 받은 사용자끼리 같은 이미지를 본다. 생성 전이거나 "
+            "실패하면 null이며, 그때는 `result.items[].image_url` 카드로 화면을 구성한다.\n\n"
             "위경도를 주면 그 위치의 날씨로 추천한다. 생성은 하루 한 번뿐이라 "
             "이미 만들어진 뒤의 좌표는 반영되지 않는다."
         ),
