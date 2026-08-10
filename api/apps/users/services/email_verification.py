@@ -56,8 +56,10 @@ def verify_code(email: str, code: str) -> User:
         except EmailVerification.DoesNotExist as exc:
             raise ValidationError({"email": "인증 메일을 먼저 요청해 주세요."}) from exc
 
+        # 이미 인증된 계정을 무조건 통과시키면, 코드를 모르는 사람도 이 API로
+        # '검증 성공' 상태를 얻는다. 인증이 끝났으면 로그인으로 안내한다.
         if verification.verified_at:
-            return user
+            raise ValidationError({"email": "이미 인증된 이메일입니다. 로그인해 주세요."})
         now = timezone.now()
         if not verification.expires_at or now >= verification.expires_at:
             raise ValidationError({"code": "인증 코드가 만료되었습니다. 다시 발송해 주세요."})

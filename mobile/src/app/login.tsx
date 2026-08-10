@@ -1,5 +1,5 @@
-import { router } from 'expo-router';
-import { useState } from 'react';
+import { router, useLocalSearchParams } from 'expo-router';
+import { useEffect, useState } from 'react';
 import {
   ActivityIndicator,
   Platform,
@@ -31,6 +31,7 @@ const NAVER = '#03C75A';
 // A3 로그인 — "로그인"/소셜 누르면 앱(홈 탭)으로 진입
 export default function Login() {
   const { contentStyle } = useBreakpoint();
+  const { email: verifiedEmail } = useLocalSearchParams<{ email?: string }>();
   const [email, setEmail] = useState('');
   const [pw, setPw] = useState('');
   const [show, setShow] = useState(false);
@@ -39,6 +40,12 @@ export default function Login() {
   const { kakao, naver, google, apple, pending } = useSocialLogin();
   const toast = useToast();
 
+  /* 이메일 인증을 마치고 돌아오면 방금 인증한 주소를 채워 준다. 이 화면은 스택에
+     남아 있어 다시 마운트되지 않을 수 있으므로 useState 초기값이 아니라 effect 로 넣는다. */
+  useEffect(() => {
+    if (verifiedEmail) setEmail(verifiedEmail);
+  }, [verifiedEmail]);
+
   const enter = async () => {
     if (!email.trim() || !pw) {
       toast('이메일과 비밀번호를 입력해 주세요');
@@ -46,8 +53,14 @@ export default function Login() {
     }
     setEmailPending(true);
     try {
-      await loginWithEmail(email, pw);
-      router.replace('/home');
+      const { is_new_user } = await loginWithEmail(email, pw);
+      /* 가입 후 첫 로그인이면 권한 동의 → 체형 측정 → 추구미 순서로 온보딩을 태운다.
+         (체형 사진 촬영에 카메라·사진 권한이 필요해 권한 화면이 먼저 온다) */
+      if (is_new_user) {
+        router.replace({ pathname: '/permissions', params: { onboarding: '1' } });
+      } else {
+        router.replace('/home');
+      }
     } catch (error) {
       toast(emailAuthErrorMessage(error), { variant: 'error' });
     } finally {

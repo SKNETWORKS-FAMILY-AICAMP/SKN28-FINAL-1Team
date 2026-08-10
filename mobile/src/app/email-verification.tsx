@@ -35,7 +35,10 @@ export default function EmailVerificationScreen() {
     setSubmitting(true);
     try {
       await verifyEmail(normalizedEmail, code);
-      router.replace({ pathname: '/permissions', params: { onboarding: '1' } });
+      toast('이메일 인증을 마쳤어요. 로그인해 주세요.');
+      /* 인증 API 는 토큰을 주지 않는다 — 로그인 화면으로 돌려보내 세션을 열게 한다.
+         navigate 는 스택에 남아 있는 로그인 화면으로 돌아가며 params 만 갱신한다. */
+      router.navigate({ pathname: '/login', params: { email: normalizedEmail } });
     } catch (error) {
       toast(emailAuthErrorMessage(error), { variant: 'error' });
     } finally {
@@ -60,7 +63,8 @@ export default function EmailVerificationScreen() {
           <Text style={styles.brand}>COZY</Text>
           <Text style={styles.title}>이메일을 확인해 주세요</Text>
           <Text style={styles.description}>
-            {normalizedEmail}로 보낸 6자리 인증 코드를 입력하면 회원가입을 계속할 수 있어요.
+            {normalizedEmail}로 보낸 6자리 인증 코드를 입력해 주세요. 인증이 끝나면 로그인 화면에서
+            로그인하면 가입이 마무리돼요.
           </Text>
           <TextInput
             style={styles.input}

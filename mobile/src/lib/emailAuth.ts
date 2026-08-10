@@ -15,6 +15,11 @@ type SignupResponse = {
   retry_after: number;
 };
 
+type VerificationResponse = {
+  email: string;
+  verified: true;
+};
+
 async function finishEmailAuth(path: string, payload: Record<string, string>) {
   const response = await api.post<EmailAuthResponse>(
     path,
@@ -43,11 +48,16 @@ export function loginWithEmail(email: string, password: string) {
   });
 }
 
+/**
+ * 이메일 소유 확인. **토큰을 받지 않는다** — 백엔드는 계정만 활성화하므로,
+ * 인증을 마치면 로그인 화면으로 돌아가 이메일·비밀번호로 로그인해야 세션이 열린다.
+ */
 export function verifyEmail(email: string, code: string) {
-  return finishEmailAuth(AuthEndpoints.verifyEmail, {
-    email: email.trim().toLowerCase(),
-    code,
-  });
+  return api.post<VerificationResponse>(
+    AuthEndpoints.verifyEmail,
+    { email: email.trim().toLowerCase(), code },
+    { auth: false },
+  );
 }
 
 export function resendVerificationEmail(email: string) {

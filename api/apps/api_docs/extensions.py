@@ -155,8 +155,21 @@ class EmailVerificationViewExtension(OpenApiViewExtension):
                 operation_id="email_verify",
                 tags=["Authentication"],
                 summary="이메일 인증 코드 확인",
+                description=(
+                    "이메일 소유를 확인하고 계정을 활성화합니다. "
+                    "**토큰은 발급하지 않으므로** 인증 후 로그인 API를 호출해야 합니다."
+                ),
                 request=EmailVerificationSerializer,
-                responses={201: SocialLoginResponseSerializer, 400: OpenApiResponse(description="코드 오류·만료")},
+                responses={
+                    200: inline_serializer(
+                        name="EmailVerifiedResponse",
+                        fields={
+                            "email": serializers.EmailField(),
+                            "verified": serializers.BooleanField(),
+                        },
+                    ),
+                    400: OpenApiResponse(description="코드 오류·만료·이미 인증된 이메일"),
+                },
             )
         )
         class DocumentedEmailVerificationView(self.target_class):
@@ -193,7 +206,11 @@ class EmailLoginViewExtension(OpenApiViewExtension):
                 operation_id="email_login",
                 tags=["Authentication"],
                 summary="이메일 로그인",
-                description="이메일과 비밀번호를 확인하고 서비스 JWT를 발급합니다.",
+                description=(
+                    "이메일과 비밀번호를 확인하고 서비스 JWT를 발급합니다. "
+                    "`is_new_user`는 가입 후 첫 로그인(`last_login`이 NULL)일 때 true이며, "
+                    "앱은 이 값으로 온보딩(권한 → 체형 측정 → 추구미) 진입을 분기합니다."
+                ),
                 request=EmailLoginSerializer,
                 responses={
                     200: SocialLoginResponseSerializer,

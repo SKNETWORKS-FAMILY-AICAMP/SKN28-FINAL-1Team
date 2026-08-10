@@ -71,12 +71,26 @@ class EmailAuthTests(TestCase):
         self.assertTrue(user.check_password(self.body["password"]))
         self.assertFalse(user.is_active)
 
-    def test_verification_activates_user_and_returns_jwt(self):
+    def test_verification_activates_user_without_issuing_token(self):
         response = self._verify()
 
-        self.assertEqual(response.status_code, 201)
-        self.assertIn("access", response.data)
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(response.data["verified"])
+        self.assertNotIn("access", response.data)
         self.assertTrue(User.objects.get(email=self.body["email"]).is_active)
+
+    def test_verified_email_cannot_be_verified_again(self):
+        """인증이 끝난 계정은 임의의 코드로 다시 통과할 수 없어야 한다 (계정 탈취 차단)."""
+        self._verify()
+
+        response = self.client.post(
+            self.verify_url,
+            {"email": self.body["email"], "code": "000000"},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertNotIn("access", response.data)
 
     def test_signup_rejects_duplicate_email(self):
         self.client.post(self.signup_url, self.body, format="json")
@@ -95,12 +109,21 @@ class EmailAuthTests(TestCase):
         self.assertEqual(response.status_code, 400)
         self.assertIn("password", response.data)
 
-    def test_login_returns_jwt(self):
+    def test_first_login_after_signup_is_flagged_new(self):
+        """앱은 is_new_user로 온보딩(권한→체형 측정→추구미) 진입을 분기한다."""
         self._verify()
         response = self.client.post(self.login_url, self.body, format="json")
 
         self.assertEqual(response.status_code, 200)
         self.assertIn("access", response.data)
+        self.assertTrue(response.data["is_new_user"])
+
+    def test_second_login_is_not_flagged_new(self):
+        self._verify()
+        self.client.post(self.login_url, self.body, format="json")
+        response = self.client.post(self.login_url, self.body, format="json")
+
+        self.assertEqual(response.status_code, 200)
         self.assertFalse(response.data["is_new_user"])
 
     def test_login_rejects_invalid_credentials(self):
@@ -113,9 +136,10 @@ class EmailAuthTests(TestCase):
 
         self.assertEqual(response.status_code, 400)
 
-    def test_verified_token_can_save_pursuit(self):
-        verified = self._verify()
-        self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {verified.data['access']}")
+    def test_login_token_can_save_pursuit(self):
+        self._verify()
+        logged_in = self.client.post(self.login_url, self.body, format="json")
+        self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {logged_in.data['access']}")
         empty_selections = {key: [] for key in category_keys()}
 
         response = self.client.put(
