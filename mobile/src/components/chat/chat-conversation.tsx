@@ -18,6 +18,7 @@ import { SmartImage, useToast } from '@/components/ui';
 import { ContentMax, Editorial, Fonts, ink } from '@/constants/theme';
 import { useBreakpoint } from '@/hooks/use-breakpoint';
 import { pickOutfitPhoto } from '@/lib/pickItemPhoto';
+import { ClosetItemSelectSheet } from './closet-item-select-sheet';
 import { chatStore, nextMessageId, useChatSession, type ChatMessage } from '@/state/chat';
 
 const INK = Editorial.ink;
@@ -99,6 +100,8 @@ export function ChatConversation({
   /* 타이핑 표시는 답변을 기다리는 '지금'만의 상태라 저장하지 않는다 (state/chat.ts 참고). */
   const [typing, setTyping] = useState(false);
   const toast = useToast();
+  
+  const [closetSelectOpen, setClosetSelectOpen] = useState(false);
 
   const scrollRef = useRef<ScrollView>(null);
   const timers = useRef<ReturnType<typeof setTimeout>[]>([]);
@@ -179,6 +182,39 @@ export function ChatConversation({
     timers.current.push(t);
   };
 
+  const handleSelectClosetItems = (selectedItems: { id: string; image: string; name: string }[]) => {
+    if (selectedItems.length === 0) return;
+    
+    append({
+      id: nextMessageId(),
+      role: 'user',
+      kind: 'closet_items',
+      items: selectedItems,
+    });
+    scrollToEnd();
+
+    setTyping(true);
+    const t = setTimeout(() => {
+      setTyping(false);
+      const itemNames = selectedItems.map((i) => `[${i.name}]`).join(', ');
+      append({
+        id: nextMessageId(),
+        role: 'ai',
+        kind: 'text',
+        text: `선택하신 옷들(${itemNames})로 공유 룩북 조합을 분석해 봤어요! 아주 트렌디하고 세련된 매칭이에요. 아래의 '매칭 추천 룩' 카드를 확인해 보시겠어요?`,
+      });
+      append({
+        id: nextMessageId(),
+        role: 'ai',
+        kind: 'rec',
+        title: `${selectedItems[0].name} 매칭 코디 룩`,
+        tags: ['캐주얼', '데일리', '공유룩북'],
+      });
+      scrollToEnd();
+    }, 1500);
+    timers.current.push(t);
+  };
+
   /** "이걸로 추천받기" — 무드를 확정하고 비슷한 룩을 찾는다. */
   const acceptMood = (tags: string[]) => {
     append({
@@ -247,6 +283,18 @@ export function ChatConversation({
                     ) : (
                       <Icon name="photo" tintColor={ink(0.3)} size={30} />
                     )}
+                  </View>
+                ) : m.kind === 'closet_items' ? (
+                  <View style={styles.attachedItemsContainer}>
+                    <Text style={styles.attachedTitle}>내가 선택한 옷들로 코디 추천해줘 :</Text>
+                    <View style={styles.attachedGrid}>
+                      {m.items?.map((it) => (
+                        <View key={it.id} style={styles.attachedCard}>
+                          <SmartImage uri={it.image} width="100%" height={52} contentFit="cover" />
+                          <Text style={styles.attachedCardName} numberOfLines={1}>{it.name}</Text>
+                        </View>
+                      ))}
+                    </View>
                   </View>
                 ) : (
                   <View style={styles.userBubble}>
@@ -345,6 +393,9 @@ export function ChatConversation({
           <Pressable style={styles.photoBtn} onPress={attachPhoto} hitSlop={8}>
             <Icon name="photo" tintColor={ink(0.55)} size={22} />
           </Pressable>
+          <Pressable style={[styles.photoBtn, { marginLeft: -2 }]} onPress={() => setClosetSelectOpen(true)} hitSlop={8}>
+            <Icon name="tshirt" tintColor={ink(0.55)} size={22} />
+          </Pressable>
           {/* 웹에서 multiline 은 textarea 로 렌더되어 기본 2줄 높이를 갖는다.
               numberOfLines={1} 로 한 줄에서 시작하게 하고, 길어지면 maxHeight 까지 늘어난다. */}
           <TextInput
@@ -367,6 +418,12 @@ export function ChatConversation({
           </Pressable>
         </View>
       </SafeAreaView>
+
+      <ClosetItemSelectSheet
+        visible={closetSelectOpen}
+        onClose={() => setClosetSelectOpen(false)}
+        onSelect={handleSelectClosetItems}
+      />
     </KeyboardAvoidingView>
   );
 }
@@ -537,4 +594,42 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   sendBtnOn: { backgroundColor: Editorial.cta },
+  attachedItemsContainer: {
+    alignSelf: 'flex-end',
+    backgroundColor: Editorial.surfaceSoft,
+    borderWidth: 1,
+    borderColor: Editorial.line,
+    borderRadius: 16,
+    padding: 12,
+    maxWidth: '85%',
+    gap: 8,
+  },
+  attachedTitle: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: ink(0.7),
+  },
+  attachedGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+  },
+  attachedCard: {
+    width: 72,
+    borderRadius: 8,
+    backgroundColor: '#FFFFFF',
+    borderWidth: 1,
+    borderColor: Editorial.line,
+    overflow: 'hidden',
+    alignItems: 'center',
+    paddingBottom: 4,
+  },
+  attachedCardName: {
+    fontSize: 9,
+    fontWeight: '600',
+    color: Editorial.ink,
+    marginTop: 3,
+    paddingHorizontal: 2,
+    textAlign: 'center',
+  },
 });
