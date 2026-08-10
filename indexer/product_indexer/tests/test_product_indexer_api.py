@@ -4,8 +4,8 @@ import os
 import sys
 import threading
 import unittest
-from pathlib import Path
 import unittest.mock
+from pathlib import Path
 from unittest.mock import patch
 
 import requests
@@ -125,6 +125,56 @@ class ProductIndexerApiTests(unittest.TestCase):
         self.assertEqual(response.json()["source"], "all")
         start.assert_called_once_with("all")
 
+    def test_text_embedding_requires_server_token(self) -> None:
+        with patch.dict(os.environ, {}, clear=True):
+            response = requests.post(
+                f"{self.base_url}/v1/embeddings/text",
+                json={"texts": ["출근 코디"]},
+                timeout=2,
+            )
+
+        self.assertEqual(response.status_code, 503)
+
+    def test_text_embedding_returns_bge_vectors(self) -> None:
+        with (
+            patch.dict(
+                os.environ,
+                {"TEXT_EMBEDDING_API_TOKEN": "correct"},
+                clear=True,
+            ),
+            patch.object(
+                product_indexer_api.embedding_manager,
+                "embed",
+                return_value=([[0.1, 0.2, 0.3]], 3),
+            ) as embed,
+        ):
+            response = requests.post(
+                f"{self.base_url}/v1/embeddings/text",
+                json={"texts": [" 출근 코디 "]},
+                headers={"Authorization": "Bearer correct"},
+                timeout=2,
+            )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["vectors"], [[0.1, 0.2, 0.3]])
+        self.assertEqual(response.json()["dimension"], 3)
+        embed.assert_called_once_with(["출근 코디"])
+
+    def test_text_embedding_rejects_invalid_payload(self) -> None:
+        with patch.dict(
+            os.environ,
+            {"TEXT_EMBEDDING_API_TOKEN": "correct"},
+            clear=True,
+        ):
+            response = requests.post(
+                f"{self.base_url}/v1/embeddings/text",
+                json={"texts": []},
+                headers={"Authorization": "Bearer correct"},
+                timeout=2,
+            )
+
+        self.assertEqual(response.status_code, 400)
+
 
 class DrainProcessManagerTests(unittest.TestCase):
     """쇼핑몰별 drain이 동시에 실행될 수 있어야 한다."""
@@ -146,9 +196,7 @@ class DrainProcessManagerTests(unittest.TestCase):
 
     def test_different_sources_run_concurrently(self) -> None:
         with (
-            patch.object(
-                product_indexer_api.subprocess, "Popen", self._fake_popen()
-            ),
+            patch.object(product_indexer_api.subprocess, "Popen", self._fake_popen()),
             patch.object(product_indexer_api.threading, "Thread"),
         ):
             naver_status, naver_pid = self.manager.start("naver")
@@ -166,9 +214,7 @@ class DrainProcessManagerTests(unittest.TestCase):
 
     def test_same_source_is_not_started_twice(self) -> None:
         with (
-            patch.object(
-                product_indexer_api.subprocess, "Popen", self._fake_popen()
-            ),
+            patch.object(product_indexer_api.subprocess, "Popen", self._fake_popen()),
             patch.object(product_indexer_api.threading, "Thread"),
         ):
             first_status, first_pid = self.manager.start("naver")
@@ -181,9 +227,7 @@ class DrainProcessManagerTests(unittest.TestCase):
 
     def test_manual_drain_omits_source_flag(self) -> None:
         with (
-            patch.object(
-                product_indexer_api.subprocess, "Popen", self._fake_popen()
-            ),
+            patch.object(product_indexer_api.subprocess, "Popen", self._fake_popen()),
             patch.object(product_indexer_api.threading, "Thread"),
         ):
             self.manager.start(product_indexer_api.ALL_SOURCES_KEY)

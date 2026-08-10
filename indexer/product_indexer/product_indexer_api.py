@@ -20,9 +20,13 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any
 
+from . import product_config as config
+from .bge_embedder import BgeM3Embedder
+
 logger = logging.getLogger("product_indexer_api")
 
 TRIGGER_PATH = "/v1/product-indexer/drain"
+TEXT_EMBEDDING_PATH = "/v1/embeddings/text"
 HEALTH_PATH = "/health"
 
 
@@ -123,10 +127,38 @@ class DrainProcessManager:
 manager = DrainProcessManager()
 
 
-def _authorized(header_value: str | None) -> tuple[bool, bool]:
+class TextEmbeddingManager:
+    """BGE-M3를 최초 질의 때 한 번만 로드하고 GPU 호출을 직렬화한다."""
+
+    def __init__(self) -> None:
+        self._lock = threading.Lock()
+        self._embedder: BgeM3Embedder | None = None
+
+    def embed(self, texts: list[str]) -> tuple[list[list[float]], int]:
+        with self._lock:
+            if self._embedder is None:
+                self._embedder = BgeM3Embedder(
+                    config.TEXT_MODEL_ID,
+                    revision=config.TEXT_MODEL_REVISION,
+                    device=config.DEVICE,
+                    max_length=config.TEXT_MAX_LENGTH,
+                )
+            vectors = self._embedder.encode_texts(texts)
+            return vectors.tolist(), self._embedder.dim
+
+
+embedding_manager = TextEmbeddingManager()
+
+
+def _authorized(
+    header_value: str | None,
+    token_env: str = "PRODUCT_INDEXER_TRIGGER_TOKEN",
+) -> tuple[bool, bool]:
     """(인증 성공, 서버 token 설정 여부)를 반환한다."""
 
-    expected = os.getenv("PRODUCT_INDEXER_TRIGGER_TOKEN", "").strip()
+    expected = os.getenv(token_env, "").strip()
+    if token_env == "TEXT_EMBEDDING_API_TOKEN" and not expected:
+        expected = os.getenv("PRODUCT_INDEXER_TRIGGER_TOKEN", "").strip()
     if not expected:
         return False, False
     prefix = "Bearer "
@@ -156,6 +188,9 @@ class ProductIndexerRequestHandler(BaseHTTPRequestHandler):
         )
 
     def do_POST(self) -> None:
+        if self.path == TEXT_EMBEDDING_PATH:
+            self._handle_text_embedding()
+            return
         if self.path != TRIGGER_PATH:
             self._json_response(HTTPStatus.NOT_FOUND, {"detail": "not found"})
             return
@@ -202,6 +237,54 @@ class ProductIndexerRequestHandler(BaseHTTPRequestHandler):
                 "status": status,
                 "pid": pid,
                 "source": drain_source,
+            },
+        )
+
+    def _handle_text_embedding(self) -> None:
+        authorized, configured = _authorized(
+            self.headers.get("Authorization"),
+            "TEXT_EMBEDDING_API_TOKEN",
+        )
+        if not configured:
+            self._json_response(
+                HTTPStatus.SERVICE_UNAVAILABLE,
+                {"detail": "text embedding token is not configured"},
+            )
+            return
+        if not authorized:
+            self._json_response(
+                HTTPStatus.UNAUTHORIZED,
+                {"detail": "invalid bearer token"},
+                extra_headers={"WWW-Authenticate": "Bearer"},
+            )
+            return
+
+        payload = self._read_json()
+        if payload is None:
+            return
+        texts = _embedding_texts(payload)
+        if texts is None:
+            self._json_response(
+                HTTPStatus.BAD_REQUEST,
+                {"detail": "texts must contain 1 to 8 non-empty strings"},
+            )
+            return
+        try:
+            vectors, dimension = embedding_manager.embed(texts)
+        except Exception:
+            logger.exception("BGE-M3 질의 임베딩 실패")
+            self._json_response(
+                HTTPStatus.SERVICE_UNAVAILABLE,
+                {"detail": "text embedding is temporarily unavailable"},
+            )
+            return
+        self._json_response(
+            HTTPStatus.OK,
+            {
+                "model": config.TEXT_MODEL_ID,
+                "version": config.TEXT_EMBEDDING_VERSION,
+                "dimension": dimension,
+                "vectors": vectors,
             },
         )
 
@@ -266,6 +349,21 @@ def _valid_payload(payload: dict[str, Any]) -> bool:
         and not isinstance(tagged_count, bool)
         and tagged_count >= 0
     )
+
+
+def _embedding_texts(payload: dict[str, Any]) -> list[str] | None:
+    raw_texts = payload.get("texts")
+    if not isinstance(raw_texts, list) or not 1 <= len(raw_texts) <= 8:
+        return None
+    texts: list[str] = []
+    for value in raw_texts:
+        if not isinstance(value, str):
+            return None
+        text = value.strip()
+        if not text or len(text) > 2_000:
+            return None
+        texts.append(text)
+    return texts
 
 
 def main() -> int:

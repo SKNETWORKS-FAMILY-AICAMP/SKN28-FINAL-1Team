@@ -327,6 +327,18 @@ QDRANT_KNOWLEDGE_COLLECTION = os.getenv(
     "QDRANT_KNOWLEDGE_COLLECTION", "knowledge"
 ).strip()
 
+# BGE-M3 질의 임베딩 서비스. 골든셋 적재 시 사용한 모델과 같은 벡터 공간을
+# 써야 하므로 OpenAI 임베딩으로 대체하지 않는다. 현재는 GPU product-indexer가
+# 내부 엔드포인트를 제공하고, AWS 이관 시 URL만 교체한다.
+TEXT_EMBEDDING_API_URL = os.getenv("TEXT_EMBEDDING_API_URL", "").strip()
+TEXT_EMBEDDING_API_TOKEN = os.getenv("TEXT_EMBEDDING_API_TOKEN", "").strip()
+TEXT_EMBEDDING_TIMEOUT_SECONDS = int(
+    os.getenv("TEXT_EMBEDDING_TIMEOUT_SECONDS", "15")
+)
+TEXT_EMBEDDING_EXPECTED_DIM = int(
+    os.getenv("TEXT_EMBEDDING_EXPECTED_DIM", str(QDRANT_TEXT_VECTOR_DIM))
+)
+
 # Gemini 기반 코디 사진 평가 (apps.recommend)
 # 요청/응답과 질의 컨텍스트는 outfit_analysis 테이블에 기록한다.
 # 원본 사진 버킷(OUTFIT_S3_BUCKET 또는 WARDROBE_S3_BUCKET)은

@@ -34,9 +34,7 @@ QDRANT_URL = os.getenv("QDRANT_URL", "http://localhost:6333")
 QDRANT_API_KEY = os.getenv("QDRANT_API_KEY") or None
 # 쇼핑몰별 컬렉션. 벡터 구성은 같지만 검색·재색인·삭제를 독립적으로 하려고 나눈다.
 QDRANT_COLLECTIONS = {
-    "naver": os.getenv(
-        "PRODUCT_NAVER_QDRANT_COLLECTION", "products_naver_v1"
-    ).strip(),
+    "naver": os.getenv("PRODUCT_NAVER_QDRANT_COLLECTION", "products_naver_v1").strip(),
     "eleven": os.getenv(
         "PRODUCT_ELEVEN_QDRANT_COLLECTION", "products_eleven_v1"
     ).strip(),
@@ -46,6 +44,7 @@ QDRANT_COLLECTIONS = {
 def qdrant_collection(source: str) -> str:
     return QDRANT_COLLECTIONS[require_source(source)]
 
+
 # 모델
 IMAGE_MODEL_ID = os.getenv(
     "PRODUCT_IMAGE_EMBED_MODEL",
@@ -53,6 +52,10 @@ IMAGE_MODEL_ID = os.getenv(
 )
 TEXT_MODEL_ID = os.getenv("PRODUCT_TEXT_EMBED_MODEL", "BAAI/bge-m3")
 TEXT_MODEL_REVISION = os.getenv("PRODUCT_TEXT_MODEL_REVISION", "").strip() or None
+TEXT_EMBEDDING_VERSION = os.getenv(
+    "TEXT_EMBEDDING_VERSION",
+    f"{TEXT_MODEL_ID}@{TEXT_MODEL_REVISION or 'default'}",
+).strip()
 EMBEDDING_VERSION = os.getenv(
     "PRODUCT_EMBEDDING_VERSION",
     "marqo-fashionSigLIP+bge-m3-v1",
@@ -76,6 +79,7 @@ IMAGE_S3_PREFIXES = {
 
 def image_s3_prefix(source: str) -> str:
     return IMAGE_S3_PREFIXES[require_source(source)]
+
 
 # worker
 BATCH_SIZE = min(
@@ -129,6 +133,8 @@ def validate_runtime_config() -> None:
         )
     if not EMBEDDING_VERSION:
         raise RuntimeError("PRODUCT_EMBEDDING_VERSION은 비어 있을 수 없습니다.")
+    if not TEXT_EMBEDDING_VERSION:
+        raise RuntimeError("TEXT_EMBEDDING_VERSION은 비어 있을 수 없습니다.")
     for source in SOURCES:
         if not QDRANT_COLLECTIONS[source]:
             raise RuntimeError(
@@ -142,10 +148,7 @@ def validate_runtime_config() -> None:
             )
     if len(set(QDRANT_COLLECTIONS.values())) != len(SOURCES):
         raise RuntimeError(
-            "쇼핑몰별 Qdrant 컬렉션 이름이 중복됩니다: "
-            f"{QDRANT_COLLECTIONS}"
+            f"쇼핑몰별 Qdrant 컬렉션 이름이 중복됩니다: {QDRANT_COLLECTIONS}"
         )
     if len(set(IMAGE_S3_PREFIXES.values())) != len(SOURCES):
-        raise RuntimeError(
-            f"쇼핑몰별 S3 prefix가 중복됩니다: {IMAGE_S3_PREFIXES}"
-        )
+        raise RuntimeError(f"쇼핑몰별 S3 prefix가 중복됩니다: {IMAGE_S3_PREFIXES}")

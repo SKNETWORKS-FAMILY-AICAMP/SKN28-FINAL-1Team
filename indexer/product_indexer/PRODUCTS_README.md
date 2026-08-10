@@ -98,6 +98,7 @@ PRODUCT_INDEXER_IMAGE_WORKERS=8
 PRODUCT_IMAGE_EMBED_MODEL=hf-hub:Marqo/marqo-fashionSigLIP
 PRODUCT_TEXT_EMBED_MODEL=BAAI/bge-m3
 PRODUCT_TEXT_MODEL_REVISION=<huggingface-commit-hash>
+TEXT_EMBEDDING_VERSION=BAAI/bge-m3@<huggingface-commit-hash>
 PRODUCT_EMBEDDING_VERSION=marqo-fashionSigLIP+bge-m3-v1
 PRODUCT_INDEXER_MAX_RETRIES=2
 
@@ -109,6 +110,10 @@ PRODUCT_CATALOG_API_TIMEOUT_SECONDS=30
 
 # collector와 GPU API에 같은 token을 설정한다.
 PRODUCT_INDEXER_TRIGGER_TOKEN=<random-secret-token>
+# 메인 API와 GPU API에 동일한 질의 임베딩 token을 설정한다.
+TEXT_EMBEDDING_API_TOKEN=<random-embedding-token>
+# 메인 API에만 GPU 질의 임베딩 URL을 설정한다.
+TEXT_EMBEDDING_API_URL=https://<gpu-host>/v1/embeddings/text
 # collector 서버에만 GPU API의 전체 trigger URL을 설정한다.
 PRODUCT_INDEXER_TRIGGER_URL=https://<gpu-host>/v1/product-indexer/drain
 PRODUCT_INDEXER_TRIGGER_TIMEOUT_SECONDS=10
@@ -177,6 +182,24 @@ payload의 `source`가 대상 쇼핑몰을 정한다.
 (`GET /health`의 `drains`에서 실행 중인 대상별 pid를 볼 수 있다).
 여러 worker가 동시에 실행되더라도 catalog API의 행 잠금으로 같은 작업을 중복
 선점하지 않는다.
+
+## 골든셋 질의 임베딩 API
+
+채팅 추천의 `GoldenOutfitRetriever`는 골든셋 적재와 같은 BGE-M3 벡터 공간을
+사용해야 한다. GPU API는 모델을 최초 요청에 한 번만 로드해 다음 내부 API를
+제공한다.
+
+```bash
+curl -X POST https://<gpu-host>/v1/embeddings/text \
+  -H "Authorization: Bearer <TEXT_EMBEDDING_API_TOKEN>" \
+  -H "Content-Type: application/json" \
+  -d '{"texts":["비 오는 날 출근룩"]}'
+```
+
+한 요청에는 1~8개의 문자열을 보낼 수 있고 각 문자열은 최대 2,000자다. 응답에는
+`model`, `version`, `dimension`, `vectors`가 포함된다. 별도
+`TEXT_EMBEDDING_API_TOKEN`을 설정하지 않으면 기존
+`PRODUCT_INDEXER_TRIGGER_TOKEN`을 사용하지만 운영에서는 권한 분리를 권장한다.
 
 API를 거치지 않고 Docker에서 일회성 drain을 실행하려면 entrypoint를 덮어쓴다.
 
