@@ -14,11 +14,13 @@ __pycache__/
 ml/body_measurement/experiments/**/.ipynb_checkpoints/
 
 # ============================================================
-# 원본 데이터 (S3에서 재생성 가능, 19MB)
-# 재실행: python src/manual_test.py
-# 현재는 해당 디렉토리 없음. 재생성 시 아래 주석 해제.
-# ml/body_measurement/data/raw/
-# ml/body_measurement/data/raw_test_data/
+# 원본 데이터 (사이즈코리아 8차 xlsx 19MB — 공개 데이터라 재취득 가능)
+# raw/sizekorea_8th_direct_measurement.xlsx = 137개 측정항목 원본.
+# processed/ 의 clean CSV는 여기서 파생된다.
+# 경로에 ml/ 접두사를 붙이면 안 된다 — 슬래시가 포함된 패턴은 이 .gitignore
+# 위치(ml/) 기준으로 앵커되므로 ml/ml/... 을 가리키게 되어 매칭에 실패한다.
+body_measurement/data/raw/
+body_measurement/data/raw_test_data/
 
 # ============================================================
 # 분석용 임시 스크립트

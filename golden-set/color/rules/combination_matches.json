@@ -1,0 +1,1652 @@
+{
+  "version": "v2.1",
+  "total_pairs": 216,
+  "pairs": [
+    {
+      "top": "Black",
+      "pant": "Denim",
+      "pant_hex": "#4A6FA5",
+      "grade": "recommended",
+      "reasons": []
+    },
+    {
+      "top": "Black",
+      "pant": "White",
+      "pant_hex": "#FFFFFF",
+      "grade": "recommended",
+      "reasons": []
+    },
+    {
+      "top": "Black",
+      "pant": "Black",
+      "pant_hex": "#1E1E2E",
+      "grade": "recommended",
+      "reasons": []
+    },
+    {
+      "top": "Black",
+      "pant": "Beige",
+      "pant_hex": "#D9C3A5",
+      "grade": "recommended",
+      "reasons": []
+    },
+    {
+      "top": "Black",
+      "pant": "Ivory",
+      "pant_hex": "#F2E8D5",
+      "grade": "recommended",
+      "reasons": []
+    },
+    {
+      "top": "Black",
+      "pant": "Brown",
+      "pant_hex": "#6B4F3A",
+      "grade": "recommended",
+      "reasons": []
+    },
+    {
+      "top": "Black",
+      "pant": "Khaki",
+      "pant_hex": "#8B7355",
+      "grade": "recommended",
+      "reasons": []
+    },
+    {
+      "top": "Black",
+      "pant": "Navy",
+      "pant_hex": "#1B2444",
+      "grade": "recommended",
+      "reasons": []
+    },
+    {
+      "top": "Black",
+      "pant": "Medium Gray",
+      "pant_hex": "#808080",
+      "grade": "recommended",
+      "reasons": []
+    },
+    {
+      "top": "Black",
+      "pant": "Light Denim",
+      "pant_hex": "#A0BCD8",
+      "grade": "recommended",
+      "reasons": []
+    },
+    {
+      "top": "Black",
+      "pant": "Dark Denim",
+      "pant_hex": "#2C3E50",
+      "grade": "recommended",
+      "reasons": []
+    },
+    {
+      "top": "Black",
+      "pant": "Olive",
+      "pant_hex": "#6B6B45",
+      "grade": "recommended",
+      "reasons": []
+    },
+    {
+      "top": "White",
+      "pant": "Denim",
+      "pant_hex": "#4A6FA5",
+      "grade": "caution",
+      "reasons": [
+        "R4: 명도 뭉개짐"
+      ]
+    },
+    {
+      "top": "White",
+      "pant": "White",
+      "pant_hex": "#FFFFFF",
+      "grade": "recommended",
+      "reasons": []
+    },
+    {
+      "top": "White",
+      "pant": "Black",
+      "pant_hex": "#1E1E2E",
+      "grade": "recommended",
+      "reasons": []
+    },
+    {
+      "top": "White",
+      "pant": "Beige",
+      "pant_hex": "#D9C3A5",
+      "grade": "recommended",
+      "reasons": []
+    },
+    {
+      "top": "White",
+      "pant": "Ivory",
+      "pant_hex": "#F2E8D5",
+      "grade": "recommended",
+      "reasons": []
+    },
+    {
+      "top": "White",
+      "pant": "Brown",
+      "pant_hex": "#6B4F3A",
+      "grade": "caution",
+      "reasons": [
+        "R4: 명도 뭉개짐"
+      ]
+    },
+    {
+      "top": "White",
+      "pant": "Khaki",
+      "pant_hex": "#8B7355",
+      "grade": "recommended",
+      "reasons": []
+    },
+    {
+      "top": "White",
+      "pant": "Navy",
+      "pant_hex": "#1B2444",
+      "grade": "recommended",
+      "reasons": []
+    },
+    {
+      "top": "White",
+      "pant": "Medium Gray",
+      "pant_hex": "#808080",
+      "grade": "recommended",
+      "reasons": []
+    },
+    {
+      "top": "White",
+      "pant": "Light Denim",
+      "pant_hex": "#A0BCD8",
+      "grade": "recommended",
+      "reasons": []
+    },
+    {
+      "top": "White",
+      "pant": "Dark Denim",
+      "pant_hex": "#2C3E50",
+      "grade": "recommended",
+      "reasons": []
+    },
+    {
+      "top": "White",
+      "pant": "Olive",
+      "pant_hex": "#6B6B45",
+      "grade": "caution",
+      "reasons": [
+        "R4: 명도 뭉개짐"
+      ]
+    },
+    {
+      "top": "Charcoal",
+      "pant": "Denim",
+      "pant_hex": "#4A6FA5",
+      "grade": "recommended",
+      "reasons": []
+    },
+    {
+      "top": "Charcoal",
+      "pant": "White",
+      "pant_hex": "#FFFFFF",
+      "grade": "recommended",
+      "reasons": []
+    },
+    {
+      "top": "Charcoal",
+      "pant": "Black",
+      "pant_hex": "#1E1E2E",
+      "grade": "caution",
+      "reasons": [
+        "R4: 명도 뭉개짐"
+      ]
+    },
+    {
+      "top": "Charcoal",
+      "pant": "Beige",
+      "pant_hex": "#D9C3A5",
+      "grade": "recommended",
+      "reasons": []
+    },
+    {
+      "top": "Charcoal",
+      "pant": "Ivory",
+      "pant_hex": "#F2E8D5",
+      "grade": "recommended",
+      "reasons": []
+    },
+    {
+      "top": "Charcoal",
+      "pant": "Brown",
+      "pant_hex": "#6B4F3A",
+      "grade": "recommended",
+      "reasons": []
+    },
+    {
+      "top": "Charcoal",
+      "pant": "Khaki",
+      "pant_hex": "#8B7355",
+      "grade": "recommended",
+      "reasons": []
+    },
+    {
+      "top": "Charcoal",
+      "pant": "Navy",
+      "pant_hex": "#1B2444",
+      "grade": "caution",
+      "reasons": [
+        "R4: 명도 뭉개짐"
+      ]
+    },
+    {
+      "top": "Charcoal",
+      "pant": "Medium Gray",
+      "pant_hex": "#808080",
+      "grade": "recommended",
+      "reasons": []
+    },
+    {
+      "top": "Charcoal",
+      "pant": "Light Denim",
+      "pant_hex": "#A0BCD8",
+      "grade": "recommended",
+      "reasons": []
+    },
+    {
+      "top": "Charcoal",
+      "pant": "Dark Denim",
+      "pant_hex": "#2C3E50",
+      "grade": "recommended",
+      "reasons": []
+    },
+    {
+      "top": "Charcoal",
+      "pant": "Olive",
+      "pant_hex": "#6B6B45",
+      "grade": "recommended",
+      "reasons": []
+    },
+    {
+      "top": "Navy",
+      "pant": "Denim",
+      "pant_hex": "#4A6FA5",
+      "grade": "recommended",
+      "reasons": []
+    },
+    {
+      "top": "Navy",
+      "pant": "White",
+      "pant_hex": "#FFFFFF",
+      "grade": "recommended",
+      "reasons": []
+    },
+    {
+      "top": "Navy",
+      "pant": "Black",
+      "pant_hex": "#1E1E2E",
+      "grade": "caution",
+      "reasons": [
+        "R4: 명도 뭉개짐"
+      ]
+    },
+    {
+      "top": "Navy",
+      "pant": "Beige",
+      "pant_hex": "#D9C3A5",
+      "grade": "recommended",
+      "reasons": []
+    },
+    {
+      "top": "Navy",
+      "pant": "Ivory",
+      "pant_hex": "#F2E8D5",
+      "grade": "recommended",
+      "reasons": []
+    },
+    {
+      "top": "Navy",
+      "pant": "Brown",
+      "pant_hex": "#6B4F3A",
+      "grade": "recommended",
+      "reasons": []
+    },
+    {
+      "top": "Navy",
+      "pant": "Khaki",
+      "pant_hex": "#8B7355",
+      "grade": "recommended",
+      "reasons": []
+    },
+    {
+      "top": "Navy",
+      "pant": "Navy",
+      "pant_hex": "#1B2444",
+      "grade": "recommended",
+      "reasons": []
+    },
+    {
+      "top": "Navy",
+      "pant": "Medium Gray",
+      "pant_hex": "#808080",
+      "grade": "recommended",
+      "reasons": []
+    },
+    {
+      "top": "Navy",
+      "pant": "Light Denim",
+      "pant_hex": "#A0BCD8",
+      "grade": "recommended",
+      "reasons": []
+    },
+    {
+      "top": "Navy",
+      "pant": "Dark Denim",
+      "pant_hex": "#2C3E50",
+      "grade": "recommended",
+      "reasons": []
+    },
+    {
+      "top": "Navy",
+      "pant": "Olive",
+      "pant_hex": "#6B6B45",
+      "grade": "recommended",
+      "reasons": []
+    },
+    {
+      "top": "Beige",
+      "pant": "Denim",
+      "pant_hex": "#4A6FA5",
+      "grade": "caution",
+      "reasons": [
+        "R4: 명도 뭉개짐"
+      ]
+    },
+    {
+      "top": "Beige",
+      "pant": "White",
+      "pant_hex": "#FFFFFF",
+      "grade": "recommended",
+      "reasons": []
+    },
+    {
+      "top": "Beige",
+      "pant": "Black",
+      "pant_hex": "#1E1E2E",
+      "grade": "caution",
+      "reasons": [
+        "R6: 웜·쿨 혼합"
+      ]
+    },
+    {
+      "top": "Beige",
+      "pant": "Beige",
+      "pant_hex": "#D9C3A5",
+      "grade": "recommended",
+      "reasons": []
+    },
+    {
+      "top": "Beige",
+      "pant": "Ivory",
+      "pant_hex": "#F2E8D5",
+      "grade": "recommended",
+      "reasons": []
+    },
+    {
+      "top": "Beige",
+      "pant": "Brown",
+      "pant_hex": "#6B4F3A",
+      "grade": "caution",
+      "reasons": [
+        "R4: 명도 뭉개짐"
+      ]
+    },
+    {
+      "top": "Beige",
+      "pant": "Khaki",
+      "pant_hex": "#8B7355",
+      "grade": "recommended",
+      "reasons": []
+    },
+    {
+      "top": "Beige",
+      "pant": "Navy",
+      "pant_hex": "#1B2444",
+      "grade": "caution",
+      "reasons": [
+        "R6: 웜·쿨 혼합"
+      ]
+    },
+    {
+      "top": "Beige",
+      "pant": "Medium Gray",
+      "pant_hex": "#808080",
+      "grade": "recommended",
+      "reasons": []
+    },
+    {
+      "top": "Beige",
+      "pant": "Light Denim",
+      "pant_hex": "#A0BCD8",
+      "grade": "recommended",
+      "reasons": []
+    },
+    {
+      "top": "Beige",
+      "pant": "Dark Denim",
+      "pant_hex": "#2C3E50",
+      "grade": "recommended",
+      "reasons": []
+    },
+    {
+      "top": "Beige",
+      "pant": "Olive",
+      "pant_hex": "#6B6B45",
+      "grade": "caution",
+      "reasons": [
+        "R4: 명도 뭉개짐"
+      ]
+    },
+    {
+      "top": "Olive",
+      "pant": "Denim",
+      "pant_hex": "#4A6FA5",
+      "grade": "recommended",
+      "reasons": []
+    },
+    {
+      "top": "Olive",
+      "pant": "White",
+      "pant_hex": "#FFFFFF",
+      "grade": "recommended",
+      "reasons": []
+    },
+    {
+      "top": "Olive",
+      "pant": "Black",
+      "pant_hex": "#1E1E2E",
+      "grade": "caution",
+      "reasons": [
+        "R4: 명도 뭉개짐",
+        "R6: 웜·쿨 혼합"
+      ]
+    },
+    {
+      "top": "Olive",
+      "pant": "Beige",
+      "pant_hex": "#D9C3A5",
+      "grade": "recommended",
+      "reasons": []
+    },
+    {
+      "top": "Olive",
+      "pant": "Ivory",
+      "pant_hex": "#F2E8D5",
+      "grade": "recommended",
+      "reasons": []
+    },
+    {
+      "top": "Olive",
+      "pant": "Brown",
+      "pant_hex": "#6B4F3A",
+      "grade": "recommended",
+      "reasons": []
+    },
+    {
+      "top": "Olive",
+      "pant": "Khaki",
+      "pant_hex": "#8B7355",
+      "grade": "recommended",
+      "reasons": []
+    },
+    {
+      "top": "Olive",
+      "pant": "Navy",
+      "pant_hex": "#1B2444",
+      "grade": "caution",
+      "reasons": [
+        "R4: 명도 뭉개짐",
+        "R6: 웜·쿨 혼합"
+      ]
+    },
+    {
+      "top": "Olive",
+      "pant": "Medium Gray",
+      "pant_hex": "#808080",
+      "grade": "recommended",
+      "reasons": []
+    },
+    {
+      "top": "Olive",
+      "pant": "Light Denim",
+      "pant_hex": "#A0BCD8",
+      "grade": "recommended",
+      "reasons": []
+    },
+    {
+      "top": "Olive",
+      "pant": "Dark Denim",
+      "pant_hex": "#2C3E50",
+      "grade": "caution",
+      "reasons": [
+        "R4: 명도 뭉개짐"
+      ]
+    },
+    {
+      "top": "Olive",
+      "pant": "Olive",
+      "pant_hex": "#6B6B45",
+      "grade": "recommended",
+      "reasons": []
+    },
+    {
+      "top": "Brown",
+      "pant": "Denim",
+      "pant_hex": "#4A6FA5",
+      "grade": "recommended",
+      "reasons": []
+    },
+    {
+      "top": "Brown",
+      "pant": "White",
+      "pant_hex": "#FFFFFF",
+      "grade": "recommended",
+      "reasons": []
+    },
+    {
+      "top": "Brown",
+      "pant": "Black",
+      "pant_hex": "#1E1E2E",
+      "grade": "caution",
+      "reasons": [
+        "R4: 명도 뭉개짐",
+        "R6: 웜·쿨 혼합"
+      ]
+    },
+    {
+      "top": "Brown",
+      "pant": "Beige",
+      "pant_hex": "#D9C3A5",
+      "grade": "recommended",
+      "reasons": []
+    },
+    {
+      "top": "Brown",
+      "pant": "Ivory",
+      "pant_hex": "#F2E8D5",
+      "grade": "recommended",
+      "reasons": []
+    },
+    {
+      "top": "Brown",
+      "pant": "Brown",
+      "pant_hex": "#6B4F3A",
+      "grade": "recommended",
+      "reasons": []
+    },
+    {
+      "top": "Brown",
+      "pant": "Khaki",
+      "pant_hex": "#8B7355",
+      "grade": "recommended",
+      "reasons": []
+    },
+    {
+      "top": "Brown",
+      "pant": "Navy",
+      "pant_hex": "#1B2444",
+      "grade": "caution",
+      "reasons": [
+        "R4: 명도 뭉개짐",
+        "R6: 웜·쿨 혼합"
+      ]
+    },
+    {
+      "top": "Brown",
+      "pant": "Medium Gray",
+      "pant_hex": "#808080",
+      "grade": "recommended",
+      "reasons": []
+    },
+    {
+      "top": "Brown",
+      "pant": "Light Denim",
+      "pant_hex": "#A0BCD8",
+      "grade": "recommended",
+      "reasons": []
+    },
+    {
+      "top": "Brown",
+      "pant": "Dark Denim",
+      "pant_hex": "#2C3E50",
+      "grade": "recommended",
+      "reasons": []
+    },
+    {
+      "top": "Brown",
+      "pant": "Olive",
+      "pant_hex": "#6B6B45",
+      "grade": "recommended",
+      "reasons": []
+    },
+    {
+      "top": "Burgundy",
+      "pant": "Denim",
+      "pant_hex": "#4A6FA5",
+      "grade": "avoid",
+      "reasons": [
+        "R3: 고채도+보색"
+      ]
+    },
+    {
+      "top": "Burgundy",
+      "pant": "White",
+      "pant_hex": "#FFFFFF",
+      "grade": "avoid",
+      "reasons": [
+        "R3: 고채도+보색"
+      ]
+    },
+    {
+      "top": "Burgundy",
+      "pant": "Black",
+      "pant_hex": "#1E1E2E",
+      "grade": "avoid",
+      "reasons": [
+        "R3: 고채도+보색",
+        "R6: 웜·쿨 혼합"
+      ]
+    },
+    {
+      "top": "Burgundy",
+      "pant": "Beige",
+      "pant_hex": "#D9C3A5",
+      "grade": "avoid",
+      "reasons": [
+        "R3: 고채도+보색"
+      ]
+    },
+    {
+      "top": "Burgundy",
+      "pant": "Ivory",
+      "pant_hex": "#F2E8D5",
+      "grade": "avoid",
+      "reasons": [
+        "R3: 고채도+보색"
+      ]
+    },
+    {
+      "top": "Burgundy",
+      "pant": "Brown",
+      "pant_hex": "#6B4F3A",
+      "grade": "avoid",
+      "reasons": [
+        "R3: 고채도+보색"
+      ]
+    },
+    {
+      "top": "Burgundy",
+      "pant": "Khaki",
+      "pant_hex": "#8B7355",
+      "grade": "avoid",
+      "reasons": [
+        "R3: 고채도+보색"
+      ]
+    },
+    {
+      "top": "Burgundy",
+      "pant": "Navy",
+      "pant_hex": "#1B2444",
+      "grade": "avoid",
+      "reasons": [
+        "R3: 고채도+보색",
+        "R6: 웜·쿨 혼합"
+      ]
+    },
+    {
+      "top": "Burgundy",
+      "pant": "Medium Gray",
+      "pant_hex": "#808080",
+      "grade": "avoid",
+      "reasons": [
+        "R3: 고채도+보색"
+      ]
+    },
+    {
+      "top": "Burgundy",
+      "pant": "Light Denim",
+      "pant_hex": "#A0BCD8",
+      "grade": "avoid",
+      "reasons": [
+        "R3: 고채도+보색"
+      ]
+    },
+    {
+      "top": "Burgundy",
+      "pant": "Dark Denim",
+      "pant_hex": "#2C3E50",
+      "grade": "avoid",
+      "reasons": [
+        "R3: 고채도+보색"
+      ]
+    },
+    {
+      "top": "Burgundy",
+      "pant": "Olive",
+      "pant_hex": "#6B6B45",
+      "grade": "avoid",
+      "reasons": [
+        "R3: 고채도+보색"
+      ]
+    },
+    {
+      "top": "Mustard",
+      "pant": "Denim",
+      "pant_hex": "#4A6FA5",
+      "grade": "recommended",
+      "reasons": []
+    },
+    {
+      "top": "Mustard",
+      "pant": "White",
+      "pant_hex": "#FFFFFF",
+      "grade": "recommended",
+      "reasons": []
+    },
+    {
+      "top": "Mustard",
+      "pant": "Black",
+      "pant_hex": "#1E1E2E",
+      "grade": "caution",
+      "reasons": [
+        "R6: 웜·쿨 혼합"
+      ]
+    },
+    {
+      "top": "Mustard",
+      "pant": "Beige",
+      "pant_hex": "#D9C3A5",
+      "grade": "recommended",
+      "reasons": []
+    },
+    {
+      "top": "Mustard",
+      "pant": "Ivory",
+      "pant_hex": "#F2E8D5",
+      "grade": "recommended",
+      "reasons": []
+    },
+    {
+      "top": "Mustard",
+      "pant": "Brown",
+      "pant_hex": "#6B4F3A",
+      "grade": "caution",
+      "reasons": [
+        "R4: 명도 뭉개짐"
+      ]
+    },
+    {
+      "top": "Mustard",
+      "pant": "Khaki",
+      "pant_hex": "#8B7355",
+      "grade": "recommended",
+      "reasons": []
+    },
+    {
+      "top": "Mustard",
+      "pant": "Navy",
+      "pant_hex": "#1B2444",
+      "grade": "caution",
+      "reasons": [
+        "R6: 웜·쿨 혼합"
+      ]
+    },
+    {
+      "top": "Mustard",
+      "pant": "Medium Gray",
+      "pant_hex": "#808080",
+      "grade": "recommended",
+      "reasons": []
+    },
+    {
+      "top": "Mustard",
+      "pant": "Light Denim",
+      "pant_hex": "#A0BCD8",
+      "grade": "recommended",
+      "reasons": []
+    },
+    {
+      "top": "Mustard",
+      "pant": "Dark Denim",
+      "pant_hex": "#2C3E50",
+      "grade": "caution",
+      "reasons": [
+        "R4: 명도 뭉개짐"
+      ]
+    },
+    {
+      "top": "Mustard",
+      "pant": "Olive",
+      "pant_hex": "#6B6B45",
+      "grade": "recommended",
+      "reasons": []
+    },
+    {
+      "top": "Teal",
+      "pant": "Denim",
+      "pant_hex": "#4A6FA5",
+      "grade": "recommended",
+      "reasons": []
+    },
+    {
+      "top": "Teal",
+      "pant": "White",
+      "pant_hex": "#FFFFFF",
+      "grade": "recommended",
+      "reasons": []
+    },
+    {
+      "top": "Teal",
+      "pant": "Black",
+      "pant_hex": "#1E1E2E",
+      "grade": "caution",
+      "reasons": [
+        "R4: 명도 뭉개짐"
+      ]
+    },
+    {
+      "top": "Teal",
+      "pant": "Beige",
+      "pant_hex": "#D9C3A5",
+      "grade": "recommended",
+      "reasons": []
+    },
+    {
+      "top": "Teal",
+      "pant": "Ivory",
+      "pant_hex": "#F2E8D5",
+      "grade": "recommended",
+      "reasons": []
+    },
+    {
+      "top": "Teal",
+      "pant": "Brown",
+      "pant_hex": "#6B4F3A",
+      "grade": "recommended",
+      "reasons": []
+    },
+    {
+      "top": "Teal",
+      "pant": "Khaki",
+      "pant_hex": "#8B7355",
+      "grade": "recommended",
+      "reasons": []
+    },
+    {
+      "top": "Teal",
+      "pant": "Navy",
+      "pant_hex": "#1B2444",
+      "grade": "caution",
+      "reasons": [
+        "R4: 명도 뭉개짐"
+      ]
+    },
+    {
+      "top": "Teal",
+      "pant": "Medium Gray",
+      "pant_hex": "#808080",
+      "grade": "recommended",
+      "reasons": []
+    },
+    {
+      "top": "Teal",
+      "pant": "Light Denim",
+      "pant_hex": "#A0BCD8",
+      "grade": "recommended",
+      "reasons": []
+    },
+    {
+      "top": "Teal",
+      "pant": "Dark Denim",
+      "pant_hex": "#2C3E50",
+      "grade": "caution",
+      "reasons": [
+        "R4: 명도 뭉개짐"
+      ]
+    },
+    {
+      "top": "Teal",
+      "pant": "Olive",
+      "pant_hex": "#6B6B45",
+      "grade": "recommended",
+      "reasons": []
+    },
+    {
+      "top": "Gray",
+      "pant": "Denim",
+      "pant_hex": "#4A6FA5",
+      "grade": "recommended",
+      "reasons": []
+    },
+    {
+      "top": "Gray",
+      "pant": "White",
+      "pant_hex": "#FFFFFF",
+      "grade": "recommended",
+      "reasons": []
+    },
+    {
+      "top": "Gray",
+      "pant": "Black",
+      "pant_hex": "#1E1E2E",
+      "grade": "recommended",
+      "reasons": []
+    },
+    {
+      "top": "Gray",
+      "pant": "Beige",
+      "pant_hex": "#D9C3A5",
+      "grade": "recommended",
+      "reasons": []
+    },
+    {
+      "top": "Gray",
+      "pant": "Ivory",
+      "pant_hex": "#F2E8D5",
+      "grade": "recommended",
+      "reasons": []
+    },
+    {
+      "top": "Gray",
+      "pant": "Brown",
+      "pant_hex": "#6B4F3A",
+      "grade": "recommended",
+      "reasons": []
+    },
+    {
+      "top": "Gray",
+      "pant": "Khaki",
+      "pant_hex": "#8B7355",
+      "grade": "recommended",
+      "reasons": []
+    },
+    {
+      "top": "Gray",
+      "pant": "Navy",
+      "pant_hex": "#1B2444",
+      "grade": "caution",
+      "reasons": [
+        "R4: 명도 뭉개짐"
+      ]
+    },
+    {
+      "top": "Gray",
+      "pant": "Medium Gray",
+      "pant_hex": "#808080",
+      "grade": "recommended",
+      "reasons": []
+    },
+    {
+      "top": "Gray",
+      "pant": "Light Denim",
+      "pant_hex": "#A0BCD8",
+      "grade": "recommended",
+      "reasons": []
+    },
+    {
+      "top": "Gray",
+      "pant": "Dark Denim",
+      "pant_hex": "#2C3E50",
+      "grade": "caution",
+      "reasons": [
+        "R4: 명도 뭉개짐"
+      ]
+    },
+    {
+      "top": "Gray",
+      "pant": "Olive",
+      "pant_hex": "#6B6B45",
+      "grade": "recommended",
+      "reasons": []
+    },
+    {
+      "top": "Cream",
+      "pant": "Denim",
+      "pant_hex": "#4A6FA5",
+      "grade": "caution",
+      "reasons": [
+        "R4: 명도 뭉개짐"
+      ]
+    },
+    {
+      "top": "Cream",
+      "pant": "White",
+      "pant_hex": "#FFFFFF",
+      "grade": "recommended",
+      "reasons": []
+    },
+    {
+      "top": "Cream",
+      "pant": "Black",
+      "pant_hex": "#1E1E2E",
+      "grade": "caution",
+      "reasons": [
+        "R6: 웜·쿨 혼합"
+      ]
+    },
+    {
+      "top": "Cream",
+      "pant": "Beige",
+      "pant_hex": "#D9C3A5",
+      "grade": "recommended",
+      "reasons": []
+    },
+    {
+      "top": "Cream",
+      "pant": "Ivory",
+      "pant_hex": "#F2E8D5",
+      "grade": "recommended",
+      "reasons": []
+    },
+    {
+      "top": "Cream",
+      "pant": "Brown",
+      "pant_hex": "#6B4F3A",
+      "grade": "caution",
+      "reasons": [
+        "R4: 명도 뭉개짐"
+      ]
+    },
+    {
+      "top": "Cream",
+      "pant": "Khaki",
+      "pant_hex": "#8B7355",
+      "grade": "recommended",
+      "reasons": []
+    },
+    {
+      "top": "Cream",
+      "pant": "Navy",
+      "pant_hex": "#1B2444",
+      "grade": "caution",
+      "reasons": [
+        "R6: 웜·쿨 혼합"
+      ]
+    },
+    {
+      "top": "Cream",
+      "pant": "Medium Gray",
+      "pant_hex": "#808080",
+      "grade": "recommended",
+      "reasons": []
+    },
+    {
+      "top": "Cream",
+      "pant": "Light Denim",
+      "pant_hex": "#A0BCD8",
+      "grade": "recommended",
+      "reasons": []
+    },
+    {
+      "top": "Cream",
+      "pant": "Dark Denim",
+      "pant_hex": "#2C3E50",
+      "grade": "recommended",
+      "reasons": []
+    },
+    {
+      "top": "Cream",
+      "pant": "Olive",
+      "pant_hex": "#6B6B45",
+      "grade": "caution",
+      "reasons": [
+        "R4: 명도 뭉개짐"
+      ]
+    },
+    {
+      "top": "Rust",
+      "pant": "Denim",
+      "pant_hex": "#4A6FA5",
+      "grade": "avoid",
+      "reasons": [
+        "R3: 고채도+보색"
+      ]
+    },
+    {
+      "top": "Rust",
+      "pant": "White",
+      "pant_hex": "#FFFFFF",
+      "grade": "avoid",
+      "reasons": [
+        "R3: 고채도+보색"
+      ]
+    },
+    {
+      "top": "Rust",
+      "pant": "Black",
+      "pant_hex": "#1E1E2E",
+      "grade": "avoid",
+      "reasons": [
+        "R3: 고채도+보색",
+        "R6: 웜·쿨 혼합"
+      ]
+    },
+    {
+      "top": "Rust",
+      "pant": "Beige",
+      "pant_hex": "#D9C3A5",
+      "grade": "avoid",
+      "reasons": [
+        "R3: 고채도+보색"
+      ]
+    },
+    {
+      "top": "Rust",
+      "pant": "Ivory",
+      "pant_hex": "#F2E8D5",
+      "grade": "avoid",
+      "reasons": [
+        "R3: 고채도+보색"
+      ]
+    },
+    {
+      "top": "Rust",
+      "pant": "Brown",
+      "pant_hex": "#6B4F3A",
+      "grade": "avoid",
+      "reasons": [
+        "R3: 고채도+보색"
+      ]
+    },
+    {
+      "top": "Rust",
+      "pant": "Khaki",
+      "pant_hex": "#8B7355",
+      "grade": "avoid",
+      "reasons": [
+        "R3: 고채도+보색"
+      ]
+    },
+    {
+      "top": "Rust",
+      "pant": "Navy",
+      "pant_hex": "#1B2444",
+      "grade": "avoid",
+      "reasons": [
+        "R3: 고채도+보색",
+        "R6: 웜·쿨 혼합"
+      ]
+    },
+    {
+      "top": "Rust",
+      "pant": "Medium Gray",
+      "pant_hex": "#808080",
+      "grade": "avoid",
+      "reasons": [
+        "R3: 고채도+보색"
+      ]
+    },
+    {
+      "top": "Rust",
+      "pant": "Light Denim",
+      "pant_hex": "#A0BCD8",
+      "grade": "avoid",
+      "reasons": [
+        "R3: 고채도+보색"
+      ]
+    },
+    {
+      "top": "Rust",
+      "pant": "Dark Denim",
+      "pant_hex": "#2C3E50",
+      "grade": "avoid",
+      "reasons": [
+        "R3: 고채도+보색"
+      ]
+    },
+    {
+      "top": "Rust",
+      "pant": "Olive",
+      "pant_hex": "#6B6B45",
+      "grade": "avoid",
+      "reasons": [
+        "R3: 고채도+보색"
+      ]
+    },
+    {
+      "top": "Forest Green",
+      "pant": "Denim",
+      "pant_hex": "#4A6FA5",
+      "grade": "recommended",
+      "reasons": []
+    },
+    {
+      "top": "Forest Green",
+      "pant": "White",
+      "pant_hex": "#FFFFFF",
+      "grade": "recommended",
+      "reasons": []
+    },
+    {
+      "top": "Forest Green",
+      "pant": "Black",
+      "pant_hex": "#1E1E2E",
+      "grade": "recommended",
+      "reasons": []
+    },
+    {
+      "top": "Forest Green",
+      "pant": "Beige",
+      "pant_hex": "#D9C3A5",
+      "grade": "recommended",
+      "reasons": []
+    },
+    {
+      "top": "Forest Green",
+      "pant": "Ivory",
+      "pant_hex": "#F2E8D5",
+      "grade": "recommended",
+      "reasons": []
+    },
+    {
+      "top": "Forest Green",
+      "pant": "Brown",
+      "pant_hex": "#6B4F3A",
+      "grade": "recommended",
+      "reasons": []
+    },
+    {
+      "top": "Forest Green",
+      "pant": "Khaki",
+      "pant_hex": "#8B7355",
+      "grade": "recommended",
+      "reasons": []
+    },
+    {
+      "top": "Forest Green",
+      "pant": "Navy",
+      "pant_hex": "#1B2444",
+      "grade": "caution",
+      "reasons": [
+        "R4: 명도 뭉개짐"
+      ]
+    },
+    {
+      "top": "Forest Green",
+      "pant": "Medium Gray",
+      "pant_hex": "#808080",
+      "grade": "recommended",
+      "reasons": []
+    },
+    {
+      "top": "Forest Green",
+      "pant": "Light Denim",
+      "pant_hex": "#A0BCD8",
+      "grade": "recommended",
+      "reasons": []
+    },
+    {
+      "top": "Forest Green",
+      "pant": "Dark Denim",
+      "pant_hex": "#2C3E50",
+      "grade": "caution",
+      "reasons": [
+        "R4: 명도 뭉개짐"
+      ]
+    },
+    {
+      "top": "Forest Green",
+      "pant": "Olive",
+      "pant_hex": "#6B6B45",
+      "grade": "recommended",
+      "reasons": []
+    },
+    {
+      "top": "Lavender",
+      "pant": "Denim",
+      "pant_hex": "#4A6FA5",
+      "grade": "recommended",
+      "reasons": []
+    },
+    {
+      "top": "Lavender",
+      "pant": "White",
+      "pant_hex": "#FFFFFF",
+      "grade": "recommended",
+      "reasons": []
+    },
+    {
+      "top": "Lavender",
+      "pant": "Black",
+      "pant_hex": "#1E1E2E",
+      "grade": "recommended",
+      "reasons": []
+    },
+    {
+      "top": "Lavender",
+      "pant": "Beige",
+      "pant_hex": "#D9C3A5",
+      "grade": "recommended",
+      "reasons": []
+    },
+    {
+      "top": "Lavender",
+      "pant": "Ivory",
+      "pant_hex": "#F2E8D5",
+      "grade": "recommended",
+      "reasons": []
+    },
+    {
+      "top": "Lavender",
+      "pant": "Brown",
+      "pant_hex": "#6B4F3A",
+      "grade": "recommended",
+      "reasons": []
+    },
+    {
+      "top": "Lavender",
+      "pant": "Khaki",
+      "pant_hex": "#8B7355",
+      "grade": "recommended",
+      "reasons": []
+    },
+    {
+      "top": "Lavender",
+      "pant": "Navy",
+      "pant_hex": "#1B2444",
+      "grade": "recommended",
+      "reasons": []
+    },
+    {
+      "top": "Lavender",
+      "pant": "Medium Gray",
+      "pant_hex": "#808080",
+      "grade": "recommended",
+      "reasons": []
+    },
+    {
+      "top": "Lavender",
+      "pant": "Light Denim",
+      "pant_hex": "#A0BCD8",
+      "grade": "recommended",
+      "reasons": []
+    },
+    {
+      "top": "Lavender",
+      "pant": "Dark Denim",
+      "pant_hex": "#2C3E50",
+      "grade": "caution",
+      "reasons": [
+        "R4: 명도 뭉개짐"
+      ]
+    },
+    {
+      "top": "Lavender",
+      "pant": "Olive",
+      "pant_hex": "#6B6B45",
+      "grade": "recommended",
+      "reasons": []
+    },
+    {
+      "top": "Light Blue",
+      "pant": "Denim",
+      "pant_hex": "#4A6FA5",
+      "grade": "recommended",
+      "reasons": []
+    },
+    {
+      "top": "Light Blue",
+      "pant": "White",
+      "pant_hex": "#FFFFFF",
+      "grade": "recommended",
+      "reasons": []
+    },
+    {
+      "top": "Light Blue",
+      "pant": "Black",
+      "pant_hex": "#1E1E2E",
+      "grade": "recommended",
+      "reasons": []
+    },
+    {
+      "top": "Light Blue",
+      "pant": "Beige",
+      "pant_hex": "#D9C3A5",
+      "grade": "recommended",
+      "reasons": []
+    },
+    {
+      "top": "Light Blue",
+      "pant": "Ivory",
+      "pant_hex": "#F2E8D5",
+      "grade": "recommended",
+      "reasons": []
+    },
+    {
+      "top": "Light Blue",
+      "pant": "Brown",
+      "pant_hex": "#6B4F3A",
+      "grade": "caution",
+      "reasons": [
+        "R4: 명도 뭉개짐"
+      ]
+    },
+    {
+      "top": "Light Blue",
+      "pant": "Khaki",
+      "pant_hex": "#8B7355",
+      "grade": "recommended",
+      "reasons": []
+    },
+    {
+      "top": "Light Blue",
+      "pant": "Navy",
+      "pant_hex": "#1B2444",
+      "grade": "recommended",
+      "reasons": []
+    },
+    {
+      "top": "Light Blue",
+      "pant": "Medium Gray",
+      "pant_hex": "#808080",
+      "grade": "recommended",
+      "reasons": []
+    },
+    {
+      "top": "Light Blue",
+      "pant": "Light Denim",
+      "pant_hex": "#A0BCD8",
+      "grade": "recommended",
+      "reasons": []
+    },
+    {
+      "top": "Light Blue",
+      "pant": "Dark Denim",
+      "pant_hex": "#2C3E50",
+      "grade": "recommended",
+      "reasons": []
+    },
+    {
+      "top": "Light Blue",
+      "pant": "Olive",
+      "pant_hex": "#6B6B45",
+      "grade": "recommended",
+      "reasons": []
+    },
+    {
+      "top": "Blush Pink",
+      "pant": "Denim",
+      "pant_hex": "#4A6FA5",
+      "grade": "recommended",
+      "reasons": []
+    },
+    {
+      "top": "Blush Pink",
+      "pant": "White",
+      "pant_hex": "#FFFFFF",
+      "grade": "recommended",
+      "reasons": []
+    },
+    {
+      "top": "Blush Pink",
+      "pant": "Black",
+      "pant_hex": "#1E1E2E",
+      "grade": "caution",
+      "reasons": [
+        "R6: 웜·쿨 혼합"
+      ]
+    },
+    {
+      "top": "Blush Pink",
+      "pant": "Beige",
+      "pant_hex": "#D9C3A5",
+      "grade": "recommended",
+      "reasons": []
+    },
+    {
+      "top": "Blush Pink",
+      "pant": "Ivory",
+      "pant_hex": "#F2E8D5",
+      "grade": "recommended",
+      "reasons": []
+    },
+    {
+      "top": "Blush Pink",
+      "pant": "Brown",
+      "pant_hex": "#6B4F3A",
+      "grade": "caution",
+      "reasons": [
+        "R4: 명도 뭉개짐"
+      ]
+    },
+    {
+      "top": "Blush Pink",
+      "pant": "Khaki",
+      "pant_hex": "#8B7355",
+      "grade": "recommended",
+      "reasons": []
+    },
+    {
+      "top": "Blush Pink",
+      "pant": "Navy",
+      "pant_hex": "#1B2444",
+      "grade": "caution",
+      "reasons": [
+        "R6: 웜·쿨 혼합"
+      ]
+    },
+    {
+      "top": "Blush Pink",
+      "pant": "Medium Gray",
+      "pant_hex": "#808080",
+      "grade": "recommended",
+      "reasons": []
+    },
+    {
+      "top": "Blush Pink",
+      "pant": "Light Denim",
+      "pant_hex": "#A0BCD8",
+      "grade": "recommended",
+      "reasons": []
+    },
+    {
+      "top": "Blush Pink",
+      "pant": "Dark Denim",
+      "pant_hex": "#2C3E50",
+      "grade": "recommended",
+      "reasons": []
+    },
+    {
+      "top": "Blush Pink",
+      "pant": "Olive",
+      "pant_hex": "#6B6B45",
+      "grade": "recommended",
+      "reasons": []
+    },
+    {
+      "top": "Blue",
+      "pant": "Denim",
+      "pant_hex": "#4A6FA5",
+      "grade": "recommended",
+      "reasons": []
+    },
+    {
+      "top": "Blue",
+      "pant": "White",
+      "pant_hex": "#FFFFFF",
+      "grade": "recommended",
+      "reasons": []
+    },
+    {
+      "top": "Blue",
+      "pant": "Black",
+      "pant_hex": "#1E1E2E",
+      "grade": "caution",
+      "reasons": [
+        "R4: 명도 뭉개짐"
+      ]
+    },
+    {
+      "top": "Blue",
+      "pant": "Beige",
+      "pant_hex": "#D9C3A5",
+      "grade": "recommended",
+      "reasons": []
+    },
+    {
+      "top": "Blue",
+      "pant": "Ivory",
+      "pant_hex": "#F2E8D5",
+      "grade": "recommended",
+      "reasons": []
+    },
+    {
+      "top": "Blue",
+      "pant": "Brown",
+      "pant_hex": "#6B4F3A",
+      "grade": "recommended",
+      "reasons": []
+    },
+    {
+      "top": "Blue",
+      "pant": "Khaki",
+      "pant_hex": "#8B7355",
+      "grade": "recommended",
+      "reasons": []
+    },
+    {
+      "top": "Blue",
+      "pant": "Navy",
+      "pant_hex": "#1B2444",
+      "grade": "caution",
+      "reasons": [
+        "R4: 명도 뭉개짐"
+      ]
+    },
+    {
+      "top": "Blue",
+      "pant": "Medium Gray",
+      "pant_hex": "#808080",
+      "grade": "recommended",
+      "reasons": []
+    },
+    {
+      "top": "Blue",
+      "pant": "Light Denim",
+      "pant_hex": "#A0BCD8",
+      "grade": "recommended",
+      "reasons": []
+    },
+    {
+      "top": "Blue",
+      "pant": "Dark Denim",
+      "pant_hex": "#2C3E50",
+      "grade": "recommended",
+      "reasons": []
+    },
+    {
+      "top": "Blue",
+      "pant": "Olive",
+      "pant_hex": "#6B6B45",
+      "grade": "recommended",
+      "reasons": []
+    }
+  ]
+}

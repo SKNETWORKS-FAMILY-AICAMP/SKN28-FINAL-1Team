@@ -160,7 +160,7 @@ payload 추가 (적재 시 라벨에서 유도):
 
 1. warmth_level 등급 수(1~5 초안)와 소재×복종 매핑 테이블 — 01 집계 후 팀 확정.
 2. 기온 구간 경계(예: 아우터 필수 기준 온도) — filter_rules 상수 초안 후 검수.
-3. 체형 분류 체계(3분류 vs 5분류, 기능설계서 미확정 1번)가 체형 청크 payload 스키마를 결정 — 선행 확정 필요.
+3. ~~체형 분류 체계(3분류 vs 5분류, 기능설계서 미확정 1번)~~ → ✅ **해소 (2026-08-10, v3)**: 사이즈코리아(Rasband 1994) 상반신 6체형 — `round`/`inverted_triangle`/`triangle`/`hourglass`/`rectangle`/`standard`. 체형 청크 `body_type` payload는 이 6개 slug를 쓴다. 근거: `golden-set/body/docs/02-body-proportion-rules.md`.
 4. 옷장 소규모에서 looks 2단 검색 실익 (5절 A/B로 판정).
 5. 신발·가방 등 잡화 슬롯 포함 여부 — K-Fashion 라벨에 잡화 파트가 없어 공출현 근거 부재. 1차는 상의/하의/아우터로 한정 권장.
 

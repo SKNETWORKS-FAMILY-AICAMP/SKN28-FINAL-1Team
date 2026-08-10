@@ -24,7 +24,7 @@
 | 7 | [common-colors.md](../color/docs/common-colors.md) | 12 Pants + 17 Tops 팔레트 |
 | 8 | [pinterest-color-combos.md](../color/docs/pinterest-color-combos.md) | Pinterest 인기 색조합 |
 | 2 | [body-proportion-rules.md](../body/docs/02-body-proportion-rules.md) | 체형·비율 4차원 처방 |
-| 3 | [body-proportion-matrix.md](../body/docs/03-body-proportion-matrix.md) | 5체형 × 4차원 매트릭스 |
+| 3 | [body-proportion-matrix.md](../body/docs/03-body-proportion-matrix.md) | 사이즈코리아 6체형 × 4차원 매트릭스 |
 
 ---
 
@@ -84,7 +84,7 @@ docs/golden-set/
 ├── 02-personal-color.md             # 4시즌 × 4 카테고리
 ├── 02-body-proportion-rules.md      # 체형 4차원
 ├── 03-color-categories.md           # 4 카테고리
-├── 03-body-proportion-matrix.md     # 5체형 매트릭스
+├── 03-body-proportion-matrix.md     # 사이즈코리아 6체형 매트릭스
 ├── 04-combination-rules.md          # Michael 84
 ├── 05-use-cases.md                  # 4 시나리오 + API
 ├── 06-layered-look.md               # 60-30-10 + 5 재킷

@@ -12,6 +12,8 @@ _*.md
 # 생성 요청 임시 JSON만 골라서 제외한다 (스크립트로 재생성 가능).
 golden-set/**/_batches/
 golden-set/**/_grid_batches/
+# Exclude color outfit batch JSON files
+color/images/outfits/_batches/*.json
 
 # Python
 __pycache__/

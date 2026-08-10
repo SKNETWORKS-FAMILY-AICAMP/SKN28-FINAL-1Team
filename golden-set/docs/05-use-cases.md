@@ -17,7 +17,7 @@
 - `user_id`
 - `preferred_categories`: ["warm", "neutral"] (선택)
 - `personal_color_season`: "spring" (선택, 4 시즌)
-- `body_type`: "hourglass" (선택, 5 체형)
+- `body_type`: "hourglass" (선택, 사이즈코리아 6체형)
 
 **출력**:
 - 4 카테고리 메인컬러 30개 (8개씩)
@@ -131,7 +131,7 @@ def apply_season_bonus(season, color_v2):
 {
   "user_id": 123,
   "personal_color_season": "autumn",          // spring/summer/autumn/winter (선택)
-  "body_type": "apple",                       // apple/pear/hourglass/rectangle/inverted_triangle (선택)
+  "body_type": "round",                       // round/inverted_triangle/triangle/hourglass/rectangle/standard (선택)
   "tpo": "casual",                            // casual/business/formal/sport (선택)
   "preferred_categories": ["warm", "neutral"], // 사용자가 선호하는 카테고리 (선택)
   "occasion": "weekend brunch",               // 자유 입력 (선택)
@@ -246,7 +246,7 @@ def apply_season_bonus(season, color_v2):
 
 ## 5. 확장 가능성
 
-- **체형 매핑**: `body_shape_thresholds.json` + `body_fit_rules.json` — 5체형 × 4차원
+- **체형 매핑**: `body_shape_thresholds.json` + `body_fit_rules.json` — 사이즈코리아 6체형 × 4차원
 - **TPO 필터**: 비즈니스/캐주얼/포멀/스포츠별 톤 규칙
 - **시즌성**: 봄/여름/가을/겨울 옷장 분리 추천
 - **가격대**: 예산별 추천 (저가/중가/고가)

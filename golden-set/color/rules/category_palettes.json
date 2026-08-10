@@ -1,0 +1,76 @@
+{
+  "version": "v3",
+  "colors_total": 18,
+  "category_palettes": {
+    "WARM": {
+      "main": [
+        "Beige",
+        "Blush Pink",
+        "Burgundy",
+        "Cream",
+        "Mustard",
+        "Rust"
+      ],
+      "complement": [
+        "Black",
+        "Gray",
+        "White"
+      ],
+      "muted": [
+        "Brown",
+        "Charcoal"
+      ]
+    },
+    "COOL": {
+      "main": [
+        "Blue",
+        "Forest Green",
+        "Lavender"
+      ],
+      "complement": [
+        "Black",
+        "Gray",
+        "White"
+      ],
+      "muted": [
+        "Brown",
+        "Charcoal"
+      ]
+    },
+    "NEUTRAL": {
+      "main": [
+        "Black",
+        "Gray",
+        "White"
+      ],
+      "complement": [
+        "Black",
+        "Gray",
+        "White"
+      ],
+      "muted": [
+        "Brown",
+        "Charcoal"
+      ]
+    },
+    "MUTED": {
+      "main": [
+        "Brown",
+        "Charcoal",
+        "Light Blue",
+        "Navy",
+        "Olive",
+        "Teal"
+      ],
+      "complement": [
+        "Black",
+        "Gray",
+        "White"
+      ],
+      "muted": [
+        "Brown",
+        "Charcoal"
+      ]
+    }
+  }
+}

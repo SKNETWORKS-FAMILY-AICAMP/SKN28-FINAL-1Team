@@ -54,13 +54,14 @@ golden-set/
 │
 └── body/                               # ■ 체형
     ├── rules/
-    │   ├── body_shape_thresholds.json  #     [생성물] 사이즈코리아 181명 백분위
+    │   ├── body_shape_thresholds.json  #     [생성물] 사이즈코리아 8차 5,092명 성별×연령대 백분위
+    │   ├── sizekorea_body_shape_reference.json # [근거] 사이즈코리아 8체형 원문·연령별 군집
     │   └── body_fit_rules.json         #     [수기] 4축(폭 + 세로 3종) 처방
     ├── tools/
     │   ├── derive_body_thresholds.py   #     사이즈코리아 CSV → 체형 임계값
     │   └── _archive/
     └── images/
-        ├── shapes/                     #     5체형 개별 실루엣 (6장)
+        ├── shapes/                     #     체형별 개별 실루엣 (⚠️ 미생성)
         └── comparison/                 #     성별·BMI·목·허벅지 비교 (6장, 03번 문서가 참조)
 ```
 
@@ -89,7 +90,10 @@ golden-set/
 # 색상 규칙 재생성
 python golden-set/color/tools/build_color_rules.py
 
-# 체형 임계값 재산출
+# 체형 임계값 재산출 (사이즈코리아 8차 xlsx 필요)
+#   경로 지정: --xlsx <경로> 또는 환경변수 SIZEKOREA_XLSX
+#   기본 탐색: ~/Downloads/8차 인체치수조사(2020~24)_치수데이터(공개용).xlsx
+#   xlsx가 없으면 ml/.../sizekorea_measurements_clean.csv로 폴백한다 (연령대별 임계값은 생성 안 됨)
 python golden-set/body/tools/derive_body_thresholds.py
 
 # 검증 (taxonomy나 팔레트가 바뀌면 여기서 먼저 깨진다)
@@ -113,8 +117,9 @@ v2 색 이름(영문 18색)은 레퍼런스에서 온 것이고, 실제 아이�
 | 색상 조합 (v2 18색, 153쌍) | ✅ 완료 | CIELCh 속성 + 규칙 R1~R6 자동 등급 — 권장 125 · 허용 7 · 주의 19 · 기피 2 |
 | 아이템 태그 ↔ v2 매핑 | ⚠️ **손실 5건** | `블루`는 Blue 추가로 해소. `멀티`만 대응 색 없음 — [01번 §6](docs/01-color-combination-rules.md) |
 | 레퍼런스 등급표 교차검증 | ❌ **불가** | 이미지 셀 검출 실패 (7개 행 뭉개짐, na 27칸) — 계산 등급 유지 |
-| 체형 분류 (가로축 5분류) | ✅ 완료 | 사이즈코리아 실측 181명 성별 백분위 |
-| 체형별 핏·기장 권장 | ✅ 초안 | 수기 규칙 (`body_fit_rules.json` v0.3.0 — 색 처방 없음) — `should` 전용 |
+| 체형 분류 (사이즈코리아 6체형) | ✅ 완료 | 8차 인체치수조사 5,092명 성별×연령대 백분위 (v3, 2026-08-10) |
+| 체형별 핏·기장 권장 | ✅ 초안 | 수기 규칙 (`body_fit_rules.json` v0.4.0 — 색 처방 없음) — `should` 전용 |
+| 체형 일러스트 108장 | ⚠️ 무효 | v2(A~F 사이즈 축) 산출물. v3 체형 축과 대응 없음 — 재생성 필요 |
 | **세로축 ① 상체:하체** | ⛔ **입력 없음** | 다리길이/앉은키 컬럼 부재 |
 | **세로축 ② 목 길이** | ⛔ **입력·태그 둘 다 없음** | 목 컬럼 부재 + `neckline` 태그 부재 |
 | **세로축 ③ 허벅지:종아리** | ⛔ **입력 없음** ⚠️ | `thigh`/`calf` 컬럼은 있으나 **둘레라 오용 위험** — [02번 §4-2](docs/02-body-proportion-rules.md) |
