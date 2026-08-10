@@ -141,6 +141,42 @@ def delete_entry(*, user, calendar_id: UUID) -> None:
     )
 
 
+@transaction.atomic
+def clear_date_for_replacement(*, user, entry_date: date) -> None:
+    """해당 날짜의 기존 캘린더를 지워 다른 기록이 그 자리를 쓰게 한다.
+
+    룩북에서 '캘린더에도 기록'을 켰는데 그날 기록이 이미 있을 때, 사용자가
+    '바꾸기'를 고른 경로에서만 호출한다. 캘린더는 하루 한 건이라 덮어쓰기가 곧
+    기존 기록의 삭제이므로, 확인 없이 이 함수를 부르면 안 된다.
+
+    이미지 처리 중인 캘린더는 삭제와 callback이 경합하므로 거절한다
+    (delete_entry와 같은 규칙).
+    """
+
+    existing = (
+        CalendarEntry.objects.select_for_update()
+        .filter(user=user, date=entry_date)
+        .first()
+    )
+    if existing is None:
+        return
+    if existing.status not in {
+        CalendarStatus.COMPLETED.value,
+        CalendarStatus.FAILED.value,
+    }:
+        raise CalendarDeletionConflictError(existing.status)
+
+    user_id = existing.user_id
+    entry_id = existing.pk
+    existing.delete()
+    transaction.on_commit(
+        lambda: _cleanup_deleted_calendar_s3(
+            user_id=user_id,
+            calendar_id=entry_id,
+        )
+    )
+
+
 def _cleanup_deleted_calendar_s3(*, user_id: int | str, calendar_id: UUID) -> None:
     try:
         storage.delete_calendar(user_id, calendar_id)
@@ -415,6 +451,72 @@ def create_from_photo(
     )
 
     return entries_for_user(user=user).get(pk=entry.pk)
+
+
+def create_photo_entry_for_job(
+    *,
+    user: User,
+    entry_date: date,
+    upload_job: WardrobeUploadJob,
+    image_s3_key: str,
+    ordered_items: Sequence[WardrobeItem],
+    schedule: str,
+    tpo: list[str],
+    hashtags: list[str],
+    entry_id: UUID | None = None,
+) -> CalendarEntry:
+    """이미 만들어진 옷장 job을 공유하는 사진 캘린더를 만든다.
+
+    룩북이 '캘린더에도 기록'을 켰을 때 쓴다. 캘린더가 자기 job을 따로 만들면
+    같은 사진을 GPU가 두 번 처리하게 되므로 job은 룩북과 공유하고, callback은
+    apply_wardrobe_job_success가 job으로 캘린더를 찾아 그대로 반영한다.
+
+    호출자 책임:
+    - upload_job은 이미 저장돼 있어야 한다 (FK 참조).
+    - image_s3_key는 **캘린더 버킷**에 이미 복사해 둔 원본 키여야 한다.
+      캘린더는 자기 버킷만 presign한다.
+    - ordered_items는 소유권 검증이 끝난 WardrobeItem이어야 한다.
+
+    entry_id: 원본을 복사할 캘린더 prefix를 정하려면 호출자가 캘린더 UUID를
+        먼저 알아야 한다. 여기서 새로 뽑으면 image_s3_key가 가리키는 prefix와
+        어긋나 캘린더를 지워도 원본이 S3에 남는다(delete_calendar는 정확한
+        prefix만 지운다).
+    """
+
+    if CalendarEntry.objects.filter(user=user, date=entry_date).exists():
+        raise CalendarDateConflictError
+
+    entry = CalendarEntry(
+        **({"id": entry_id} if entry_id is not None else {}),
+        user=user,
+        wardrobe_upload_job=upload_job,
+        date=entry_date,
+        source_type=CalendarSourceType.PHOTO_UPLOAD.value,
+        image_s3_key=image_s3_key,
+        schedule=schedule,
+        tpo=tpo,
+        hashtags=hashtags,
+        status=CalendarStatus.REGISTERED.value,
+    )
+    links, destination_keys = _prepare_wardrobe_links(
+        entry=entry,
+        ordered_items=ordered_items,
+    )
+
+    stored_keys: list[str] = []
+    try:
+        _copy_wardrobe_images(
+            ordered_items=ordered_items,
+            destination_keys=destination_keys,
+            stored_keys=stored_keys,
+        )
+    except Exception as exc:
+        _cleanup_s3_objects(stored_keys)
+        raise CalendarStorageError from exc
+
+    _save_entry_with_links(entry=entry, links=links, stored_keys=stored_keys)
+
+    return entry
 
 
 def mark_queue_enqueue_failed(entry: CalendarEntry) -> None:

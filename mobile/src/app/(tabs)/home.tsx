@@ -285,6 +285,14 @@ function HomeBody({ data }: { data: HomeData }) {
             </View>
           </View>
         </View>
+
+      {/* 착장 분석 진입점은 옷장이 빈 사용자용 EmptyClosetStart 에만 있었다 — 옷을 등록하고 나면
+          홈에서 들어갈 길이 사라진다. 오늘의 룩 아래 한 줄로 두어 세로 공간을 거의 안 쓰면서
+          "오늘 뭐 입지" 다음에 "내가 입은 건 어때" 가 이어지게 한다. */}
+      <Pressable style={styles.analyzeLink} onPress={() => router.push('/outfit-review')}>
+        <Text style={styles.analyzeLinkText}>내 착장 분석하기</Text>
+        <Text style={styles.analyzeLinkArrow}>›</Text>
+      </Pressable>
       </View>
   );
 }
@@ -422,4 +430,15 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   altBtnText: { color: Editorial.textSoft, fontSize: 14, fontWeight: '500' },
+
+  // 카드가 아니라 한 줄 링크 — 오늘의 룩이 홈의 주인공 자리를 유지하게 한다
+  analyzeLink: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 4,
+    paddingVertical: 12,
+  },
+  analyzeLinkText: { fontSize: 14, fontWeight: '600', color: Editorial.textSoft },
+  analyzeLinkArrow: { fontSize: 20, color: Editorial.textCaption },
 });

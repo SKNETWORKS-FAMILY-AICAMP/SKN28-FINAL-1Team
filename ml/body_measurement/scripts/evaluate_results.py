@@ -19,14 +19,35 @@ TRAILING_METADATA_COLUMNS = [
 
 CORE_TARGETS = ["chest", "waist", "hip"]
 EXTRA_TARGETS = ["thigh", "calf", "arm", "shoulder"]
-FULL_TARGETS = [*CORE_TARGETS, *EXTRA_TARGETS]
+RATIO_TARGETS = ["neck_length", "thigh_calf_ratio", "torso_leg_ratio"]
+FULL_TARGETS = [*CORE_TARGETS, *EXTRA_TARGETS, *RATIO_TARGETS]
 
+
+def get_column_names(target: str):
+    """지표 형태에 맞춰 예측 컬럼명과 오차 컬럼명을 반환합니다."""
+    if target in RATIO_TARGETS:
+        if target == "neck_length":
+            # 목길이는 cm 단위
+            return f"predicted_{target}_cm", f"{target}_absolute_error_cm"
+        else:
+            # 비율 지표
+            return f"predicted_{target}", f"{target}_absolute_error"
+    return f"predicted_{target}_cm", f"{target}_absolute_error_cm"
+
+
+# 동적으로 10개 부위 컬럼 세트 생성
+PRED_COLS = []
+ERR_COLS = []
+for target in FULL_TARGETS:
+    p_col, e_col = get_column_names(target)
+    PRED_COLS.append(p_col)
+    ERR_COLS.append(e_col)
 
 MEASUREMENT_COLUMNS = [
     "subject_id",
-    *[f"predicted_{target}_cm" for target in FULL_TARGETS],
+    *PRED_COLS,
     *FULL_TARGETS,
-    *[f"{target}_absolute_error_cm" for target in FULL_TARGETS],
+    *ERR_COLS,
 ]
 
 
@@ -66,8 +87,7 @@ def main() -> None:
 
     scored_targets = []
     for measurement in available_targets:
-        prediction_column = f"predicted_{measurement}_cm"
-        error_column = f"{measurement}_absolute_error_cm"
+        prediction_column, error_column = get_column_names(measurement)
         if prediction_column not in evaluated.columns:
             continue
         evaluated[prediction_column] = pd.to_numeric(
@@ -92,15 +112,18 @@ def main() -> None:
         "mean_latency_seconds": round(success_rows["latency_seconds"].mean(), 3),
     }
     for target in scored_targets:
-        metrics[f"{target}_mae_cm"] = round(
-            success_rows[f"{target}_absolute_error_cm"].mean(), 3
+        _, error_column = get_column_names(target)
+        # 비율인지 cm인지에 맞추어 키값 지정
+        unit_suffix = "_ratio" if target.endswith("_ratio") else "_mae_cm"
+        metrics[f"{target}{unit_suffix}"] = round(
+            success_rows[error_column].mean(), 3
         )
 
     # 정답이 비어 있는 부위는 "모델이 값을 주기는 했는지"만 기록한다.
     # 이 숫자는 정확도가 아니라 응답률이다.
     coverage = {}
     for target in FULL_TARGETS:
-        column = f"predicted_{target}_cm"
+        column, _ = get_column_names(target)
         if column in success_rows.columns and target not in scored_targets:
             filled = int(
                 pd.to_numeric(success_rows[column], errors="coerce").notna().sum()

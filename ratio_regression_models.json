@@ -1,0 +1,36 @@
+{
+  "M": {
+    "neck_length": {
+      "intercept": -9.345006493457939,
+      "coef_height": 0.13157641423182745,
+      "coef_weight": -0.05935597499347307
+    },
+    "thigh_calf_ratio": {
+      "intercept": 0.34071454583431354,
+      "coef_height": 0.002875852241576988,
+      "coef_weight": -0.001736836913080183
+    },
+    "torso_leg_ratio": {
+      "intercept": 2.119090085171346,
+      "coef_height": -0.0060599959727511065,
+      "coef_weight": 0.002248838082996495
+    }
+  },
+  "F": {
+    "neck_length": {
+      "intercept": -4.570591870215094,
+      "coef_height": 0.09709096211820346,
+      "coef_weight": -0.05189601246843043
+    },
+    "thigh_calf_ratio": {
+      "intercept": 0.4356590685473226,
+      "coef_height": 0.0025675121752655396,
+      "coef_weight": -0.0017664083698426172
+    },
+    "torso_leg_ratio": {
+      "intercept": 1.8783480592799626,
+      "coef_height": -0.0047122865308593135,
+      "coef_weight": 0.0018165824663871851
+    }
+  }
+}
