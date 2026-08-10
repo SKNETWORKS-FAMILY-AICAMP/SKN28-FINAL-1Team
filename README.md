@@ -73,6 +73,7 @@ docker compose --profile all up -d --build      # 전부
 
 GPU가 필요한 워커 2종만 별도 compose로 띄운다. db·qdrant·redis·api는 AWS 스택에
 있다고 가정하고, 접속 주소는 `.env`(Infisical `gpu` 환경)의 원격 호스트 값을 쓴다.
+Qwen 옷장 태깅의 배포·복구 절차는 [GPU 운영 문서](docs/wardrobe-qwen-gpu-runbook.md)를 따른다.
 
 ```bash
 ./run-gpu.sh                                          # infisical export + 빌드 + 기동
