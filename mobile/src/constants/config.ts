@@ -120,6 +120,17 @@ export const AuthEndpoints = {
 export const HomeEndpoint = '/api/v1/home/';
 
 /**
+ * 오늘의 룩 (api/apps/recommend/urls.py 기준). JWT 필요.
+ *   GET /api/v1/looks/today/?lat=&lon=  → { look_id, look_date, status, result, context, poll_after_ms, detail }
+ *   - 그날 첫 호출이 곧 생성 트리거다 (홈 API 진입 시 백엔드가 미리 걸어 두므로 보통은 완성돼 있다).
+ *   - status 분기: QUEUED/PROCESSING → poll_after_ms 뒤 재조회 | SUCCEEDED → result 표시
+ *                  | EMPTY → 폴링 중단(프로필 입력 유도) | FAILED → 자동 재시도 없음
+ *   - result 의 이미지 URL 은 조회마다 새로 서명된다 — 캐시하면 만료된다.
+ *   - 대표 이미지는 result.render_image_url, null 이면 items[].image_url 카드로 화면을 만든다.
+ */
+export const DailyLookEndpoint = '/api/v1/looks/today/';
+
+/**
  * 착장 사진 분석. 인증 없이 호출할 수 있고, JWT가 있으면 개인화 정보를 반영한다.
  * POST multipart { image, lat?, lon? } → { status, evaluation, context }
  */

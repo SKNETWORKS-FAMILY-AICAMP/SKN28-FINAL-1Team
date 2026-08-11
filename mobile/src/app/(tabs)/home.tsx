@@ -1,6 +1,6 @@
 import { Icon } from '@/components/icon';
 import { router } from 'expo-router';
-import { useMemo, useState } from 'react';
+import { useCallback, useMemo, useState } from 'react';
 import { ActivityIndicator, Pressable, RefreshControl, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
@@ -11,9 +11,11 @@ import { Editorial, ink, Fonts , ContentMax} from '@/constants/theme';
 import { PROFILE_IMAGE, TODAY_LOOK_IMAGE } from '@/constants/look-images';
 import { useBottomTabInset } from '@/hooks/use-bottom-tab-inset';
 import { useBreakpoint } from '@/hooks/use-breakpoint';
+import { useDailyLook } from '@/hooks/use-daily-look';
 import { useHome, type HomeData, type HomeWeather } from '@/hooks/use-home';
 import { useRefresh } from '@/hooks/use-refresh';
 import { useWardrobeItems } from '@/hooks/use-wardrobe';
+import { type DailyLook } from '@/lib/dailyLookApi';
 import { useAuth } from '@/state/auth';
 import { outfitAnalysisStore, useOutfitAnalysis } from '@/state/outfit-analysis';
 import { savedLookStore } from '@/state/saved';
@@ -51,7 +53,17 @@ export default function HomeScreen() {
      데모 세션도 부른다 — 토큰이 없을 뿐 요청은 통과한다(dev 서버가 무토큰 요청을 허용).
      그래야 발표에서 진짜 날씨가 뜬다. 예전엔 여기서 막아 두어 고정 목업만 보였다. */
   const { data: apiData, loading, reload } = useHome(undefined, status === 'authed');
-  const { refreshing, onRefresh } = useRefresh(reload);
+  /* 오늘의 룩은 홈 API 의 기온 템플릿과 별도로 추천 API(/looks/today/)가 만든다.
+     생성 중이면 훅이 알아서 폴링하고, 완성되는 순간 아래 카드가 실제 추천으로 바뀐다.
+     실패·EMPTY·데모 폴백에서는 카드가 홈 API 템플릿으로 물러나므로 홈을 막지 않는다. */
+  const { look: dailyLook, reload: reloadDailyLook } = useDailyLook(status === 'authed');
+  /* 당겨서 새로고침은 홈과 오늘의 룩을 같이 다시 부른다 — 하나만 부르면
+     "새로고침했는데 룩은 그대로"가 된다. */
+  const reloadAll = useCallback(
+    () => Promise.all([reload(), reloadDailyLook()]),
+    [reload, reloadDailyLook],
+  );
+  const { refreshing, onRefresh } = useRefresh(reloadAll);
   /* 실패하면 데모 세션만 목업으로 물러난다 — 인증이 켜지면 401 이 나는데,
      체험용 링크에서 홈이 통째로 에러 화면이 되는 것보다 낫다. */
   const data = apiData ?? (isDemo ? DEMO_HOME : null);
@@ -115,7 +127,7 @@ export default function HomeScreen() {
           ) : closetItems.length === 0 ? (
             <EmptyClosetStart />
           ) : (
-            <HomeBody data={data} />
+            <HomeBody data={data} daily={dailyLook} />
           )}
         </ScrollView>
       </SafeAreaView>
@@ -184,6 +196,33 @@ type DisplayLook = {
   variantId: string;
 };
 
+/** 오늘의 룩 API 응답 → 홈 카드. 완성(SUCCEEDED) 전에는 null — 카드는 템플릿으로 물러난다. */
+function toDisplayLook(look: DailyLook | null): DisplayLook | null {
+  if (look?.status !== 'SUCCEEDED' || !look.result) return null;
+  const r = look.result;
+  /* 대표 이미지 우선순위: 정면 착용 이미지 → 원본 코디 사진(exposable 일 때만 있음)
+     → 아이템 카드 첫 장. 전부 presigned URL 이라 캐시하지 않고 받은 그대로 쓴다. */
+  const image =
+    r.render_image_url ??
+    r.outfit_image_url ??
+    r.items?.find((i) => i.image_url)?.image_url ??
+    null;
+  const tags = (r.items ?? [])
+    .map((i) => (i.name || i.category || '').trim())
+    .filter(Boolean)
+    .slice(0, 4)
+    .map((t) => `#${t.replace(/\s+/g, '')}`);
+  return {
+    image,
+    asset: image ? undefined : TODAY_LOOK_IMAGE,
+    /* 카드 문구는 근거 문장(rationale_ko)을 쓴다 — headline("28도, 오늘은 이렇게")은
+       바로 위 날씨 라벨과 내용이 겹친다. */
+    comment: r.rationale_ko || r.headline,
+    tags: tags.length ? tags : ['#오늘의룩'],
+    variantId: 'daily',
+  };
+}
+
 /** '다른 룩' 순환용 대안 추천 — 오늘의 룩(API) 다음으로 돌아가며 보여준다(룩북 피드와 같은 사진 재사용). */
 const ALT_LOOKS: DisplayLook[] = [
   {
@@ -207,15 +246,18 @@ const ALT_LOOKS: DisplayLook[] = [
 ];
 
 /** 홈 본문 — 오늘의 룩 (데이터 로드 성공 시) */
-function HomeBody({ data }: { data: HomeData }) {
+function HomeBody({ data, daily }: { data: HomeData; daily: DailyLook | null }) {
   const toast = useToast();
   const [idx, setIdx] = useState(0);
 
-  // 오늘의 룩(API)을 맨 앞에 두고 대안 룩을 이어 붙여 '다른 룩'으로 순환한다.
-  // 백엔드가 사진을 주면 그걸, 없으면 번들 목업(룩상세와 같은 사진)을 쓴다.
+  // 오늘의 룩(추천 API)을 맨 앞에 두고 대안 룩을 이어 붙여 '다른 룩'으로 순환한다.
+  // 추천이 아직이면(생성 중·후보 없음·실패·데모) 홈 API 의 기온 템플릿으로 물러난다 —
+  // 그래야 어떤 상태에서도 카드가 비지 않는다. 생성 중에는 훅이 폴링하고 있어
+  // 완성되는 순간 이 메모가 다시 계산되며 카드가 실제 추천으로 바뀐다.
+  const apiLook = useMemo(() => toDisplayLook(daily), [daily]);
   const looks = useMemo<DisplayLook[]>(
     () => [
-      {
+      apiLook ?? {
         image: data.today_look.image ?? null,
         asset: data.today_look.image ? undefined : TODAY_LOOK_IMAGE,
         comment: data.today_look.comment,
@@ -224,7 +266,7 @@ function HomeBody({ data }: { data: HomeData }) {
       },
       ...ALT_LOOKS,
     ],
-    [data],
+    [data, apiLook],
   );
   const look = looks[idx % looks.length];
 
