@@ -30,6 +30,36 @@ export function guessMimeType(name: string): string {
 }
 
 /**
+ * 네이티브 멀티파트 업로드 — XHR 로 직접 보낸다.
+ *
+ * 전역 `fetch` 는 Expo winter fetch 라 RN 의 `{ uri, name, type }` 파트를 못 받고
+ * (`Unsupported FormDataPart implementation`), RN Blob 은 ArrayBuffer 로 못 만든다.
+ * XHR 은 이 파트를 네이티브로 처리하고 **같은 키를 여러 번** 붙일 수 있어,
+ * 배열 필드(`wardrobe_item_ids` 등)를 서버가 원하는 형태로 보낼 수 있는 유일한 길이다.
+ *
+ * ⚠️ apiClient 를 타지 않으므로 인증 헤더는 호출자가 넣고, 401 자동 재발급은 없다.
+ */
+export function uploadMultipart(
+  url: string,
+  form: FormData,
+  options: { token?: string | null; timeoutMs?: number } = {},
+): Promise<{ status: number; body: string }> {
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open('POST', url);
+    xhr.setRequestHeader('Accept', 'application/json');
+    if (options.token) xhr.setRequestHeader('Authorization', `Bearer ${options.token}`);
+    // Content-Type 은 직접 넣지 않는다 — boundary 를 XHR 이 붙여야 한다.
+    xhr.timeout = options.timeoutMs ?? 60_000;
+    xhr.onload = () => resolve({ status: xhr.status, body: xhr.responseText });
+    xhr.onerror = () => reject(new Error('네트워크 문제로 사진을 올리지 못했어요.'));
+    xhr.ontimeout = () =>
+      reject(new Error('사진 저장이 오래 걸리고 있어요. 잠시 후 다시 시도해 주세요.'));
+    xhr.send(form as unknown as Document);
+  });
+}
+
+/**
  * 업로드에 쓸 로컬 파일을 만든다.
  *
  * `File` 은 기기 안의 파일을 가리키는 것이라 `https://...` 주소를 그대로 넣으면 올라가지 않는다.
