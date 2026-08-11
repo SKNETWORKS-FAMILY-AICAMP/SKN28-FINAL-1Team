@@ -20,6 +20,7 @@ from apps.recommend.services.outfit_render import (
     RenderError,
     RenderRef,
     _extract_image,
+    PROVIDER_MAX_REFERENCES,
     _reference_keys,
     ensure_render,
     render_key_for,
@@ -62,6 +63,64 @@ class RenderKeyTests(unittest.TestCase):
         """참조 장수만큼 입력 토큰과 요금이 오른다."""
         many = [{"s3_key": f"goldenset/derived/v1/095/item_{n:03d}.png"} for n in range(20)]
         self.assertEqual(len(_reference_keys(many)), 3)
+
+    @override_settings(DAILY_LOOK_RENDER_MAX_REFERENCES=99)
+    def test_provider_hard_limit_wins_over_settings(self) -> None:
+        """.env에 옛 값(5)이 남은 서버에서 그대로 재현되던 400을 막는다.
+
+            Provider rejections: Alibaba: input_references:
+            must have between 0 and 4 items
+
+        qwen/qwen-image-3-pro는 제공자가 Alibaba 하나뿐이라 5장을 보내면 다른
+        곳으로 넘어가지 못하고 요청 자체가 실패한다.
+        """
+        many = [{"s3_key": f"k/item_{n:03d}.png"} for n in range(20)]
+        self.assertEqual(len(_reference_keys(many)), PROVIDER_MAX_REFERENCES)
+        self.assertLessEqual(PROVIDER_MAX_REFERENCES, 4)
+
+    @override_settings(DAILY_LOOK_RENDER_MAX_REFERENCES=4)
+    def test_silhouette_survives_when_accessories_are_dropped(self) -> None:
+        """자리가 모자라면 가방·액세서리를 버리고 옷을 남긴다.
+
+        예전엔 payload 순서대로 앞에서 잘랐다. 그 순서엔 의미가 없어서 가방이
+        남고 바지가 빠지면, 생성된 사진이 그 코디가 아니게 된다.
+        """
+        items = [
+            {"s3_key": "a.png", "category_large": "가방", "item_name": "토트백"},
+            {"s3_key": "b.png", "category_large": "액세서리", "item_name": "모자"},
+            {"s3_key": "c.png", "category_large": "상의", "item_name": "셔츠"},
+            {"s3_key": "d.png", "category_large": "하의", "item_name": "슬랙스"},
+            {"s3_key": "e.png", "category_large": "신발", "item_name": "로퍼"},
+            {"s3_key": "f.png", "category_large": "아우터", "item_name": "코트"},
+        ]
+        keys = _reference_keys(items)
+        self.assertEqual(len(keys), 4)
+        self.assertEqual(set(keys), {"c.png", "d.png", "e.png", "f.png"})
+        # 전달 순서는 원래 순서를 지킨다 (모델에 주는 순서가 결과에 영향을 준다)
+        self.assertEqual(keys, ["c.png", "d.png", "e.png", "f.png"])
+
+    @override_settings(DAILY_LOOK_RENDER_MAX_REFERENCES=4)
+    def test_selection_is_deterministic_for_ties(self) -> None:
+        """같은 코디는 매번 같은 참조 조합이어야 한다 (착용 이미지는 재사용된다)."""
+        items = [
+            {"s3_key": f"{n}.png", "category_large": "액세서리"} for n in range(6)
+        ]
+        self.assertEqual(_reference_keys(items), _reference_keys(items))
+        self.assertEqual(_reference_keys(items), ["0.png", "1.png", "2.png", "3.png"])
+
+    @override_settings(DAILY_LOOK_RENDER_MAX_REFERENCES=4)
+    def test_unknown_category_is_not_dropped_before_clothing(self) -> None:
+        """분류가 비어도 옷일 수 있다. 가방·액세서리보다는 앞에 둔다."""
+        items = [
+            {"s3_key": "bag.png", "category_large": "가방"},
+            {"s3_key": "acc.png", "category_large": "액세서리"},
+            {"s3_key": "unknown.png"},
+            {"s3_key": "top.png", "category_large": "상의"},
+            {"s3_key": "bottom.png", "category_large": "하의"},
+        ]
+        keys = _reference_keys(items)
+        self.assertIn("unknown.png", keys)
+        self.assertNotIn("acc.png", keys)
 
 
 class EnsureRenderTests(TestCase):

@@ -36,6 +36,31 @@ logger = logging.getLogger(__name__)
 
 RENDER_OBJECT_NAME = "render_frontal.png"
 
+#: 참조 이미지 개수의 **제공자 상한**. 설정값과 무관하게 이 수를 넘길 수 없다.
+#:
+#:     Provider rejections: Alibaba: input_references: must have between 0 and 4 items
+#:
+#: qwen/qwen-image-3-pro를 제공하는 곳이 Alibaba 하나뿐이라, 5장을 보내면 다른
+#: 제공자로 넘어가지 못하고 그대로 400이 된다. 설정 기본값만 낮추면 .env에
+#: 옛 값이 남은 서버에서 똑같이 재현되므로 코드에서도 막는다.
+PROVIDER_MAX_REFERENCES = 4
+
+#: 자리가 모자랄 때 무엇을 남길지. 실루엣을 만드는 옷이 먼저다 — 가방·액세서리를
+#: 남기려고 바지를 버리면 생성된 사진이 그 코디가 아니게 된다.
+_CATEGORY_PRIORITY = {
+    "원피스/세트": 0,
+    "상의": 1,
+    "하의": 2,
+    "아우터": 3,
+    "신발": 4,
+    "가방": 5,
+    "액세서리": 6,
+    "언더웨어/이너웨어": 7,
+}
+#: 분류가 비었거나 목록 밖인 경우. 신발과 가방 사이에 둔다 — 무엇인지 모르는
+#: 아이템이 옷일 가능성은 남아 있으므로 가방·액세서리보다는 앞세운다.
+_CATEGORY_FALLBACK = 4.5
+
 #: 응답에서 이미지 데이터를 찾을 때 쓰는 data URL 형식
 _DATA_URL = re.compile(r"^data:image/(?P<ext>[a-zA-Z0-9.+-]+);base64,(?P<data>.+)$", re.S)
 
@@ -70,9 +95,38 @@ def render_key_for(item_s3_key: str) -> str:
 
 
 def _reference_keys(items: list[dict[str, Any]]) -> list[str]:
-    keys = [str(item.get("s3_key")) for item in items if item.get("s3_key")]
-    # 참조 수가 늘면 입력 토큰과 요금이 함께 오른다. 상한을 둔다.
-    return keys[: settings.DAILY_LOOK_RENDER_MAX_REFERENCES]
+    """생성에 넣을 아이템 이미지 키. 개수가 넘치면 **중요도 순으로** 자른다.
+
+    예전에는 payload 순서대로 앞에서 잘랐다. 그 순서는 의미가 없어서, 아이템이
+    다섯인 코디에서 신발 대신 가방이 남는 식으로 결과가 흔들렸다. 게다가 상한이
+    5라 제공자 한도(4)를 넘겨 400으로 실패했다.
+    """
+    usable = [item for item in items if item.get("s3_key")]
+    limit = min(settings.DAILY_LOOK_RENDER_MAX_REFERENCES, PROVIDER_MAX_REFERENCES)
+
+    ordered = sorted(
+        enumerate(usable),
+        key=lambda pair: (
+            _CATEGORY_PRIORITY.get(
+                str(pair[1].get("category_large") or ""), _CATEGORY_FALLBACK
+            ),
+            pair[0],  # 같은 우선순위면 원래 순서를 지킨다 (결과가 매번 같도록)
+        ),
+    )
+    chosen = ordered[:limit]
+    if len(usable) > limit:
+        dropped = [
+            str(item.get("item_name") or item.get("category_large") or "?")
+            for _, item in ordered[limit:]
+        ]
+        logger.info(
+            "착용 이미지 참조 %d장 중 %d장만 사용합니다 (제외: %s)",
+            len(usable), limit, ", ".join(dropped),
+        )
+
+    # 화면에 담기는 순서는 원래 순서를 따른다. 모델에 주는 순서가 결과에
+    # 영향을 주므로, 잘라내기 기준과 전달 순서를 분리한다.
+    return [str(item.get("s3_key")) for _, item in sorted(chosen, key=lambda p: p[0])]
 
 
 def ensure_render(*, bucket: str, items: list[dict[str, Any]]) -> RenderRef | None:

@@ -363,5 +363,6 @@ DAILY_LOOK_RENDER_TIMEOUT_SECONDS = int(
 )
 # 참조로 넘길 아이템 이미지 수. 늘리면 입력 토큰과 요금이 함께 오른다.
 DAILY_LOOK_RENDER_MAX_REFERENCES = int(
-    os.getenv("DAILY_LOOK_RENDER_MAX_REFERENCES", "5")
+    # 제공자(Alibaba) 한도가 4다. 더 키워도 outfit_render가 4로 자른다.
+    os.getenv("DAILY_LOOK_RENDER_MAX_REFERENCES", "4")
 )
