@@ -232,35 +232,6 @@ class WardrobeUploadView(APIView):
         job.source_s3_key = key
         job.save()
 
-        # 로컬 개발 환경일 경우 비동기 AI 프로세서를 우회하여 완료 처리 및 Gemini AI 분석 등록
-        if storage.IS_LOCAL:
-            import os
-            job.status = WardrobeUploadJob.Status.DONE
-            job.finished_at = timezone.now()
-            job.save(update_fields=["status", "finished_at"])
-            
-            # 실제 저장된 로컬 파일 경로
-            local_path = os.path.join(storage.LOCAL_MEDIA_DIR, key)
-            
-            # Gemini API를 사용하여 옷 분석
-            from .services import gemini
-            analysis = gemini.analyze_clothing_image(local_path)
-            
-            WardrobeItem.objects.create(
-                user=request.user,
-                job=job,
-                item_name=analysis["item_name"],
-                category_large=analysis["category_large"],
-                category_small=analysis["category_small"],
-                color=analysis["color"],
-                s3_key=key,
-                confirmed=False,
-            )
-            return Response(
-                {"job_id": str(job.pk), "status": job.status},
-                status=status.HTTP_202_ACCEPTED,
-            )
-
         try:
             jobs.enqueue(job)
         except redis_lib.RedisError:
