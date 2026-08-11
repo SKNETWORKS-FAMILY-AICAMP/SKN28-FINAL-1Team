@@ -20,7 +20,7 @@ import {
 
 import { ThemedText } from '@/components/themed-text';
 import { EmptyState, ModalShell, useToast } from '@/components/ui';
-import { MOBILE_USER_AGENT, resolveImportSite } from '@/constants/import-sites';
+import { MOBILE_USER_AGENT, resolveImportSite, type ImportSite } from '@/constants/import-sites';
 import { ContentMax, Editorial, ink, Spacing } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
 import {
@@ -69,13 +69,19 @@ type ResultMode = 'orders' | 'images' | null;
  * 서버가 받을 수 없는 주소(공개 http(s) 가 아니거나 너무 긴 것)는 여기서 걸러 null 로 만든다.
  * 한 건이라도 형식이 어긋나면 배치 요청 **전체**가 400 이라, 보내기 전에 떨어뜨리는 편이 낫다.
  */
-function toBatchItem(imageLink: string, name: string): WardrobeBatchItemInput | null {
-  if (!/^https?:\/\//i.test(imageLink)) return null;
-  if (imageLink.length > WARDROBE_BATCH_MAX_LINK_LENGTH) return null;
+function toBatchItem(
+  site: ImportSite,
+  imageLink: string,
+  name: string,
+): WardrobeBatchItemInput | null {
+  // 썸네일 대신 원본을 보낸다 — 서버 모델이 읽을 사진이라 클수록 태그가 정확하다
+  const link = site.upscaleImage?.(imageLink) ?? imageLink;
+  if (!/^https?:\/\//i.test(link)) return null;
+  if (link.length > WARDROBE_BATCH_MAX_LINK_LENGTH) return null;
 
   const guess = classifyProduct(name);
   return {
-    image_link: imageLink,
+    image_link: link,
     item_name: name.trim().slice(0, WARDROBE_BATCH_MAX_NAME_LENGTH),
     /* 상품명으로 알아본 분류만 넣는다. 못 알아봤으면 비워 두고 서버 모델에 맡긴다 —
        추측으로 채우면 틀린 분류가 모델 결과를 덮어쓴다(앱이 보낸 값이 우선이다). */
@@ -371,9 +377,9 @@ export default function ImportScreen() {
 
     const items = picked
       .map((id) => {
-        if (resultMode !== 'orders') return toBatchItem(id, '');
+        if (resultMode !== 'orders') return toBatchItem(site, id, '');
         const order = orders[Number(id)];
-        return order ? toBatchItem(order.image, order.name) : null;
+        return order ? toBatchItem(site, order.image, order.name) : null;
       })
       .filter((item): item is WardrobeBatchItemInput => item !== null);
 
