@@ -503,7 +503,7 @@ DAILY_LOOK_PENDING_EXAMPLE = OpenApiExample(
             "used_body": True,
             "used_pursuit": True,
             "body_profile": "역삼각형 · 표준",
-            "missing_measurements": ["thigh", "calf"],
+            "missing_measurements": ["thigh_length", "calf_length", "torso_length", "leg_length"],
             "candidate_count": 0,
         },
         "poll_after_ms": 1500,

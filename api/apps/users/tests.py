@@ -585,20 +585,19 @@ class BodyMeasurementTests(TestCase):
         )
         self.assertEqual(response.status_code, 400)
 
-    def test_detail_patch_rejects_legacy_ratio_ranges(self):
-        for field, value in (
-            ("thigh_calf_ratio", "0.724"),
-            ("torso_leg_ratio", "1.213"),
-        ):
-            response = self.client.patch(
-                reverse("users:body-detail"), {field: value}, format="json"
-            )
-            self.assertEqual(response.status_code, 400, field)
+    def test_detail_patch_accepts_outside_reference_ratio_ranges(self):
+        """SizeKorea 분포는 참고용이며 사용자가 수정한 양수 비율은 저장한다."""
+        response = self.client.patch(
+            reverse("users:body-detail"),
+            {"thigh_calf_ratio": "1.200", "torso_leg_ratio": "0.250"},
+            format="json",
+        )
+        self.assertEqual(response.status_code, 200)
 
     def test_detail_patch_accepts_redefined_ratio_ranges(self):
         response = self.client.patch(
             reverse("users:body-detail"),
-            {"thigh_calf_ratio": "1.112", "torso_leg_ratio": "0.786"},
+            {"thigh_calf_ratio": "1.112", "torso_leg_ratio": "1.086"},
             format="json",
         )
         self.assertEqual(response.status_code, 200)
@@ -744,13 +743,14 @@ ESTIMATED_MEASUREMENTS = {
     "chest": 98.3,
     "waist": 82.0,
     "hip": 94.9,
-    "thigh": 55.9,
-    "calf": 37.7,
-    "arm": 31.8,
+    "thigh_length": 40.1,
+    "calf_length": 37.7,
+    "torso_length": 45.0,
+    "leg_length": 68.2,
     "shoulder": 40.2,
     "neck_length": 9.6,
-    "thigh_calf_ratio": 1.112,
-    "torso_leg_ratio": 0.786,
+    "thigh_calf_ratio": 1.064,
+    "torso_leg_ratio": 0.660,
 }
 
 
@@ -780,7 +780,7 @@ class BodyEstimateTests(TestCase):
         self.assertEqual(response.data["source"], "basic_info")
         self.assertIsNone(response.data["transaction_id"])
         self.assertIsNone(response.data["error_message"])
-        # 상세 7개와 체형 지표 3개가 전부 채워져 내려간다.
+        # 상세 항목이 전부 채워져 내려간다.
         measurement = response.data["measurement"]
         for field, value in ESTIMATED_MEASUREMENTS.items():
             self.assertEqual(float(measurement[field]), value, field)

@@ -296,7 +296,7 @@ class TodayLookApiTests(TestCase):
     def test_context_reports_missing_measurements(self, _ctx, _push):
         """프론트가 '어깨너비를 입력하면 더 정확해져요'를 띄울 수 있어야 한다."""
         body = self.client.get(self.url).json()
-        self.assertIn("thigh", body["context"]["missing_measurements"])
+        self.assertIn("thigh_length", body["context"]["missing_measurements"])
         self.assertTrue(body["context"]["used_body"])
 
 

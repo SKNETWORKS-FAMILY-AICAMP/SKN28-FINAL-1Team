@@ -166,9 +166,11 @@ class UserSerializer(serializers.ModelSerializer):
 
 
 BODY_BASIC_FIELDS = ["gender", "height", "weight"]
+# 2026-08-12 main 기준: 상세 9개 응답 -> torso_length/leg_length 포함 11개 응답.
 BODY_DETAIL_FIELDS = [
-    "chest", "waist", "hip", "thigh", "calf", "arm", "shoulder",
-    "neck_length", "thigh_calf_ratio", "torso_leg_ratio"
+    "shoulder", "chest", "waist", "hip", "thigh_length", "calf_length",
+    "torso_length", "leg_length", "neck_length",
+    "thigh_calf_ratio", "torso_leg_ratio"
 ]
 
 
@@ -298,7 +300,7 @@ class BodyEstimationResultSerializer(serializers.Serializer):
         allow_null=True, help_text="사진 측정일 때만 값이 있다. 무사진 추정은 null."
     )
     measurement = BodyMeasurementSerializer(
-        help_text="추정된 신체치수 전체. 상세 7개와 체형 지표 3개가 포함된다."
+        help_text="추정된 패션용 체형 지표 11개 전체."
     )
     error_message = serializers.CharField(
         allow_null=True, help_text="실패했을 때만 사유가 들어간다."

@@ -1,6 +1,6 @@
 {
-  "schema_version": "body-fit-rules-v1",
-  "note": "체형별 의류 매칭 규칙. 추천 엔진의 단일 판단 원천(가이드 7장 Q3). 값은 반드시 image-processor/pipeline/taxonomy.py의 태그 라벨만 쓴다 — 오타는 조용히 '규칙 없음'이 되므로 style_rules.validate_rules()가 기동 시 검사한다.",
+  "schema_version": "body-fit-rules-v2",
+  "note": "체형별 의류 매칭 규칙. schema_version은 추천 규칙 파일 내부 버전이며 백엔드 API 경로 /api/v1과 무관하다. 2026-08-12 main 기준: 과거 임의 비율 기준 -> SizeKorea 11개 지표 평균/분위수 기준. 값은 반드시 image-processor/pipeline/taxonomy.py의 태그 라벨만 쓴다 — 오타는 조용히 '규칙 없음'이 되므로 style_rules.validate_rules()가 기동 시 검사한다.",
   "weights": {
     "note": "취향이 1순위, 체형 규칙이 2순위 (가이드 Q2). 선호 가점이 규칙 감점보다 크도록 잡았다. context_match는 계절·상황 일치 가산 — 하드 필터가 아니다.",
     "preference_match": 30,
@@ -218,7 +218,7 @@
           {
             "category_large": "하의",
             "fit": "슬림핏",
-            "reason": "허벅지 둘레가 그대로 드러난다"
+            "reason": "허벅지 라인이 부각된다"
           }
         ]
       },
@@ -235,6 +235,52 @@
       },
       "balanced": {
         "label": "균형",
+        "prefer": [],
+        "avoid": []
+      }
+    },
+    "vertical_balance": {
+      "long_torso": {
+        "label": "상체 길이감 우세",
+        "prefer": [
+          {
+            "category_large": "하의",
+            "length": "롱",
+            "reason": "하체 세로선을 길게 이어 상하 균형을 맞춘다"
+          },
+          {
+            "category_large": "상의",
+            "length": "기본",
+            "reason": "상체를 더 길게 끊어 보이지 않게 한다"
+          }
+        ],
+        "avoid": [
+          {
+            "category_large": "상의",
+            "length": "롱",
+            "reason": "상체 길이감이 더 길어 보일 수 있다"
+          }
+        ]
+      },
+      "short_torso": {
+        "label": "하체 길이감 우세",
+        "prefer": [
+          {
+            "category_large": "상의",
+            "length": "기본",
+            "reason": "짧은 상체 비율을 과하게 끊지 않는다"
+          }
+        ],
+        "avoid": [
+          {
+            "category_large": "상의",
+            "length": "크롭",
+            "reason": "상체가 더 짧아 보일 수 있다"
+          }
+        ]
+      },
+      "balanced": {
+        "label": "상하체 균형",
         "prefer": [],
         "avoid": []
       }

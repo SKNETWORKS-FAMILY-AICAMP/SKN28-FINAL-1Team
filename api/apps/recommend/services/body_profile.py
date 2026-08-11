@@ -62,6 +62,11 @@ _WAIST_DOMINANT = 0.95
 #: 어깨 발달은 실제로 다른 축이라 ratios의 보조 신호로 남긴다.
 _SHOULDER_BROAD = 0.46
 _SHOULDER_NARROW = 0.40
+# 2026-08-12 main 기준: 과거 임의 ratio cut -> SizeKorea 11개 지표 분포 기반 cut.
+_THIGH_CALF_BALANCED_MIN = 0.778  # 25%
+_THIGH_CALF_THIGH_DOMINANT_MIN = 0.870  # 75%
+_TORSO_LEG_SHORT_TORSO_MAX = 0.630  # 25%
+_TORSO_LEG_LONG_TORSO_MIN = 0.688  # 75%
 
 
 @dataclass(frozen=True)
@@ -144,13 +149,12 @@ def _ratios(measure: dict[str, float]) -> dict[str, str]:
     """세부 비율 3축. 각 축은 필요한 치수가 다 있을 때만 판정한다."""
     result: dict[str, str] = {}
 
-    # 허벅지/종아리 — 팬츠 핏 결정에 개입한다.
-    thigh, calf = measure.get("thigh"), measure.get("calf")
-    if thigh and calf:
-        ratio = thigh / calf
+    # 허벅지/종아리 길이 — 팬츠 핏 결정에 개입한다.
+    ratio = measure.get("thigh_calf_ratio")
+    if ratio:
         result["leg_volume"] = (
-            "thigh_dominant" if ratio >= 1.55
-            else "balanced" if ratio >= 1.35
+            "thigh_dominant" if ratio >= _THIGH_CALF_THIGH_DOMINANT_MIN
+            else "balanced" if ratio >= _THIGH_CALF_BALANCED_MIN
             else "calf_dominant"
         )
 
@@ -167,11 +171,13 @@ def _ratios(measure: dict[str, float]) -> dict[str, str]:
         )
 
     # 상하체 — 하이웨이스트 등 분할선 조절에 개입한다.
-    height, hip = measure.get("height"), measure.get("hip")
-    if height and hip:
-        # 엉덩이둘레만으로 다리 길이를 알 수는 없다. 가이드가 요구하는 축이지만
-        # 지금 스키마로는 대용치가 없어 판정하지 않는다.
-        pass
+    torso_leg = measure.get("torso_leg_ratio")
+    if torso_leg:
+        result["vertical_balance"] = (
+            "long_torso" if torso_leg >= _TORSO_LEG_LONG_TORSO_MIN
+            else "short_torso" if torso_leg <= _TORSO_LEG_SHORT_TORSO_MAX
+            else "balanced"
+        )
 
     # 목길이 — 카라·넥라인 필터에 개입해야 하지만, 목길이를 잴 컬럼도
     # 넥라인 태그도 없다. 축을 비워 두고 규칙 쪽에서 건너뛴다.
@@ -185,8 +191,11 @@ def build_profile(measurement: dict[str, Any] | None) -> BodyProfile:
 
     measure = {
         name: value
-        for name in ("height", "weight", "shoulder", "chest", "waist", "hip",
-                     "thigh", "calf", "arm")
+        for name in (
+            "height", "weight", "shoulder", "chest", "waist", "hip",
+            "thigh_length", "calf_length", "torso_length", "leg_length", "neck_length",
+            "thigh_calf_ratio", "torso_leg_ratio",
+        )
         if (value := _number(measurement.get(name))) is not None
     }
 
@@ -206,7 +215,11 @@ def build_profile(measurement: dict[str, Any] | None) -> BodyProfile:
 
     # chest가 빠지면 실루엣이 통째로 미판정이 된다. 프론트가 "가슴둘레를
     # 입력하면 더 정확해져요"를 띄울 수 있도록 목록 앞쪽에 둔다.
-    wanted = ("height", "weight", "chest", "waist", "hip", "shoulder", "thigh", "calf")
+    wanted = (
+        "height", "weight", "chest", "waist", "hip", "shoulder",
+        "thigh_length", "calf_length", "torso_length", "leg_length", "neck_length",
+        "thigh_calf_ratio", "torso_leg_ratio",
+    )
     return BodyProfile(
         silhouette=silhouette,
         bmi_band=bmi_band,

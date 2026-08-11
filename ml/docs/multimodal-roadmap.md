@@ -1,109 +1,26 @@
-# 멀티모달(이미지+메타데이터) 기반 신체치수 측정 모델 개발 계획 및 로드맵
+# 멀티모달 신체측정 로드맵
 
-> **상태: 완료 (2026-08-05)** — 아래 목표 3개는 모두 달성했다. 초기 계획을 남겨 두는
-> 이력 문서이며, 현재 설계와 성능은 [docs/body-measurement-api-design.md](../../docs/body-measurement-api-design.md)를 본다.
->
-> | 목표 | 결과 |
-> |---|---|
-> | 사진 + 실측치수가 조인된 테스트셋 100~300개 구축 | SizeKorea 145명 |
-> | VLM 후보 탐색·비교 | 4개 비교 후 Kimi K2.5 선정 (Validation MAE 2.757cm) |
-> | 정형 모델과 A/B 정량 비교 | 143명 A/B 완료 — 가슴·허리는 사진 우세, 나머지 5개는 무사진 우세 |
+현재 로드맵은 11개 패션용 체형 지표 기준으로 정리한다. 과거 7개/10개 신체치수 실험과 팔뚝둘레·허벅지둘레·종아리둘레 기준은 더 이상 현재 기준으로 사용하지 않는다.
 
-이 문서는 기존 **성별·키·몸무게** 기반의 신체치수 예측 모델에서 한 단계 나아가, **전신사진(이미지)**을 조합하여 가슴둘레, 허리둘레, 엉덩이둘레의 예측 정확도를 개선하기 위한 R&D 진행 계획입니다.
+## 1. 완료된 기준 정리
 
----
+| 항목 | 현재 상태 |
+|---|---|
+| 출력 필드 | `shoulder`, `chest`, `waist`, `hip`, `thigh_length`, `calf_length`, `torso_length`, `leg_length`, `neck_length`, `thigh_calf_ratio`, `torso_leg_ratio` |
+| 무사진 추정 | 8차 Size Korea 기반 HistGradientBoosting 11개 출력 |
+| 사진 추정 | 정면/측면 사진 기반 VLM 추정 + 서버 후처리 비율 계산 |
+| 평균 비율 | SizeKorea 기준 `thigh_calf_ratio` 평균 0.823, `torso_leg_ratio` 평균 0.660 |
+| 원본 데이터 | `data/raw/`에 보관, 직접 수정하지 않음 |
+| 파생 데이터 | `data/preprocessed/`, `data/hist/`, `data/vlm/`에 분리 보관 |
 
-## 1. Goal Description (목표 및 배경)
+## 2. 다음 작업
 
-### 배경 및 필요성
+1. VLM 평가 가능한 정답 컬럼을 더 확보한다.
+2. 수치별 `source`와 `confidence`를 API 응답에 추가할지 결정한다.
+3. 사진 분석 결과는 바로 확정하지 않고, 사용자가 수정·확정할 수 있는 프론트 흐름으로 연결한다.
+4. 실제 서비스 전 얼굴 블러와 사진 저장/폐기 정책을 확정한다.
 
-* 기존 `benchmark.py`에 적용된 KNN, HistGradientBoosting 등의 정형 모델은 키/몸무게/성별 3가지 피처만 활용하므로 평균 오차가 약 1.9cm(허리의 경우 3.3cm 이상)에 수렴합니다.
-* 개인별 골격 분포, 복부 지방 상태 등 세부 체형 차이를 반영하기 위해 사용자가 업로드한 **전신사진(정면 및 측면)**을 추가 피처로 결합하여 오차를 줄입니다.
+## 3. 기준 문서
 
-### 목표
-
-1. AWS S3 버킷에서 사진과 실제 신체 3대 치수(가슴, 허리, 엉덩이)가 조인된 테스트셋 100~300개 구축.
-2. 경량 비전 언어 모델(VLM)을 탐색하여 최적의 오차 수준을 보이는 모델 후보군 발굴 및 비교 검증.
-3. 기존 정형 모델과의 A/B 테스트 결과(MAE, RMSE 개선율)를 정량적 데이터로 제시.
-
----
-
-## 2. User Review Required (사용자 검토 필요 사항)
-
-> [!IMPORTANT]
-> **외부 API 호출 시의 개인정보 보호 정책**
-> 사용자의 전신사진은 극도로 민감한 개인정보에 해당합니다. OpenRouter나 Gemini 등의 외부 클라우드 API를 호출하여 예측을 수행하는 단계가 포함되므로, 이를 서비스화하기 전에 **얼굴을 자동으로 감지하여 블러(Blur) 처리하는 전처리 파이프라인**을 설계해야 합니다.
-
----
-
-## 3. Open Questions (오픈 질문)
-
-> [!WARNING]
-> **S3 데이터셋 정합성 및 스키마 차이 (로컬 샘플 실측 완료)**
->
-> * **`20.한국인_전신_형상_및_치수_측정_데이터` 실측 성공**:
->   - 3D 스캔 측정값 기반 (`F009.csv`): 키 161.1cm / 몸무게 59.2kg / 젖가슴둘레 91.3cm / 허리둘레 75.9cm / 엉덩이둘레 97.8cm.
->   - 측정 대상자가 타이트한 **측정복**을 입고 정면/측면에서 찍은 전신 실루엣이 제공됩니다.
->   - 
->   - **체형 계측 핵심 근거**: 옷에 의해 신체 실루엣이 가려지지 않아 VLM이 사람 실제 골격 및 체형(마름/보통/비만 등)을 가장 왜곡 없이 관찰할 수 있는 최적의 원천입니다.
-> * **`01_의류통합데이터` 실측 성공**:
->   - 키 160cm / 몸무게 56kg / 가슴 90cm / 허리 79cm / 엉덩이 94cm 이지만, 모델이 블라우스나 외투 등 루즈한 일상복을 착용한 사진이므로 옷 자체의 핏 때문에 실제 사람 신체 사이즈를 추출하는 R&D 목적에는 부적합합니다.
-> * **개인정보 보호 조치 (Face Blurring)**:
->   - 수집된 모든 전신사진은 VLM API로 전송되기 전에 파이썬 OpenCV (`cv2.CascadeClassifier` 또는 `mediapipe`) 혹은 경량 비전 전처리 라이브러리를 통해 얼굴 영역을 탐지하여 **가우시안 블러링(Gaussian Blurring)** 처리를 강제합니다.
-> * **결론 및 계획**: 실제 사람의 체형 및 신체 사이즈를 VLM이 측정할 수 있는지 검증하기 위해, 측정복을 입어 몸의 실루엣이 완전히 드러나고 정밀 치수가 보존된 **`20.한국인_전신_형상_및_치수_측정_데이터`**를 우선적인 골든 테스트셋(150~200개 규모)으로 구축하겠습니다.
-
----
-
-## 4. Proposed Changes (단계별 진행 계획)
-
-### [Phase 1] S3 데이터 분석 & 골든 테스트셋 (100~300개) 구축
-
-* **목적**: 정확한 Ground Truth와 사진이 매핑된 검증셋 확보.
-* **작업**:
-  * [NEW] `ml/body_measurement/src/create_multimodal_testset.py` 스크립트 작성.
-  * S3 버킷의 메타데이터 CSV(`F009.csv` 형태)와 이미지 경로를 매핑하여 `[s3_image_key, gender, height, weight, actual_chest, actual_waist, actual_hip]` 구조의 CSV 생성.
-  * [NEW] `ml/body_measurement/src/utils/privacy.py` 작성: OpenCV 또는 PIL 기반 **얼굴 탐지 및 블러 처리 유틸리티**. VLM에 전송되는 모든 로컬 이미지 캐시는 이를 거친 후 전송되도록 의존성 주입.
-
-### [Phase 2] VLM 모델 후보군 탐색 및 비교 벤치마크
-
-* **목적**: 이미지에서 체형 특성을 추출해 정확한 센티미터(cm) 단위 수치를 맞출 모델 선정.
-* **비교 기준 테이블**:
-
-| 모델 분류                   | 대표 후보군            | 탐색 가치 및 선정 사유                                                                           | 오차 예측 프로세스                                  |
-| :-------------------------- | :--------------------- | :----------------------------------------------------------------------------------------------- | :-------------------------------------------------- |
-| **Frontier API**      | Gemini 1.5 Flash / Pro | **Upper Bound (비교 기준점)** 설정용. 이미지 내 체형 실루엣 및 비율 인식 능력이 최고 수준. | Zero-shot / Few-shot 프롬프트를 통해 예측 JSON 추출 |
-| **OpenRouter API**    | Qwen-2-VL-7B-Instruct  | **가성비 및 지연시간** 검증용. 텍스트 지시 능력이 뛰어나 정밀한 포맷팅 예측에 적합.        | OpenRouter API 호출을 통한 수치 추출                |
-| **Open-Weight (GPU)** | LLaVA-1.5-13B          | **완전 자체 서빙 및 보안** 우려 해소용. 프롬프트 지시 및 자체 파인튜닝 적합성 판단.        | 로컬 GPU 인프라에서 로딩 후 배치 예측               |
-
-### [Phase 3] 프롬프트 엔지니어링 및 1차 오차 측정 스크립트 개발
-
-* **목적**: 비전 모델이 신체 치수를 안정적으로 뽑아내도록 구조화된 프롬프트 설계 및 파서 구현.
-* **작업**:
-  * [NEW] `ml/body_measurement/src/vlm_benchmark.py` 작성.
-  * 테스트셋의 이미지를 입력으로 VLM API를 호출하고 결과를 받아 실제 값과의 MAE(Mean Absolute Error) 연산.
-
-### [Phase 4] 기존 Tabular 모델 대비 오차 개선 리포트 작성
-
-* **목적**: 기존 키/몸무게 입력 결과와 이미지 추가 입력 결과의 성능 차이를 시각화하여 보고서 생성.
-* **작업**:
-  * [MODIFY] `ml/body_measurement/src/compare_all_models.py` 수정 (VLM 벤치마크 지표 병합 지원).
-
----
-
-## 5. Verification Plan (검증 및 평가 계획)
-
-### 자동 검증 및 오차 평가 지표
-
-1. **MAE (Mean Absolute Error)**: 부위별 예측값과 실제값의 평균 오차(cm 단위).
-2. **Improvement Rate (%)**: 정형 모델 대비 비전 모델 도입으로 오차가 몇 % 감소했는지 계산.
-3. **P90 Error**: 최악의 예측 케이스(아주 틀린 예측)의 오차 바운더리 확인.
-
-### 실행 명령어 예시
-
-```bash
-# 1. S3 데이터셋 추출 및 100개 테스트셋 생성
-python src/create_multimodal_testset.py --samples 150 --output data/test_multimodal_150.csv
-
-# 2. VLM 벤치마크 실행 (Gemini API 키 등 환경변수 필요)
-python src/vlm_benchmark.py --data data/test_multimodal_150.csv --model gemini-1.5-flash --output artifacts/metrics_vlm_flash.json
-```
+- 데이터 정의: `ml/body_measurement/docs/body_measurement_data_definition.md`
+- 모델 평가: `ml/body_measurement/docs/body_measurement_model_evaluation.md`

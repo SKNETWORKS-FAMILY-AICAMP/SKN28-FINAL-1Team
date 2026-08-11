@@ -142,8 +142,14 @@ class BodyProfileTests(unittest.TestCase):
         self.assertTrue(build_profile({}).is_empty)
 
     def test_leg_volume_ratio(self):
-        self.assertEqual(build_profile({"thigh": 62, "calf": 38}).ratios["leg_volume"], "thigh_dominant")
-        self.assertEqual(build_profile({"thigh": 52, "calf": 37}).ratios["leg_volume"], "balanced")
+        self.assertEqual(build_profile({"thigh_calf_ratio": 1.2}).ratios["leg_volume"], "thigh_dominant")
+        self.assertEqual(build_profile({"thigh_calf_ratio": 0.82}).ratios["leg_volume"], "balanced")
+        self.assertEqual(build_profile({"thigh_calf_ratio": 0.70}).ratios["leg_volume"], "calf_dominant")
+
+    def test_vertical_balance_ratio(self):
+        self.assertEqual(build_profile({"torso_leg_ratio": 0.72}).ratios["vertical_balance"], "long_torso")
+        self.assertEqual(build_profile({"torso_leg_ratio": 0.66}).ratios["vertical_balance"], "balanced")
+        self.assertEqual(build_profile({"torso_leg_ratio": 0.58}).ratios["vertical_balance"], "short_torso")
 
     def test_garbage_values_are_ignored(self):
         self.assertTrue(build_profile({"height": "abc", "weight": -5, "chest": None}).is_empty)
@@ -179,7 +185,7 @@ class RulesTests(unittest.TestCase):
     def setUp(self):
         self.rules = load_body_rules()
     def test_loads_clean(self):
-        self.assertEqual(self.rules.schema_version, "body-fit-rules-v1")
+        self.assertEqual(self.rules.schema_version, "body-fit-rules-v2")
     def test_preference_outweighs_rules(self):
         w = self.rules.weights
         self.assertGreater(abs(w.preference_avoid), abs(w.rule_avoid))
@@ -203,7 +209,11 @@ class RulesTests(unittest.TestCase):
         self.assertTrue(hard)
         self.assertEqual(hard[0].match, {"category_large":"상의","length":"크롭"})
     def test_axes_combine(self):
-        p = BodyProfile(silhouette=TRIANGLE, bmi_band=OBESE, ratios={"leg_volume":"thigh_dominant"})
+        p = BodyProfile(
+            silhouette=TRIANGLE,
+            bmi_band=OBESE,
+            ratios={"leg_volume": "thigh_dominant", "vertical_balance": "long_torso"},
+        )
         axis = self.rules.for_profile(p)
         self.assertGreater(len(axis.avoid), 3)
     def test_rule_matches_list_payload(self):
