@@ -1,6 +1,6 @@
 import { Icon } from '@/components/icon';
 import { router, useLocalSearchParams } from 'expo-router';
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import {
   Pressable,
   ScrollView,
@@ -11,12 +11,20 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import { MeasureGuideSheet } from '@/components/measure/measure-guide-sheet';
 import { ErrorState, LoadingState, useToast } from '@/components/ui';
-import { Editorial, ink, Fonts , ContentMax} from '@/constants/theme';
+import {
+  BODY_MEASURES,
+  PROPORTION_MEASURES,
+  SIZE_MEASURES,
+  type BodyMeasureKey,
+  type BodyMeasureSpec,
+} from '@/constants/body-measures';
+import { ContentMax, Editorial, Fonts, ink, Type } from '@/constants/theme';
 import { useBottomTabInset } from '@/hooks/use-bottom-tab-inset';
 import { useBreakpoint } from '@/hooks/use-breakpoint';
 import { ApiError } from '@/lib/apiClient';
-import { measureStore, useMeasure } from '@/state/measure';
+import { measureStore, useMeasure, type Measurement } from '@/state/measure';
 
 const INK = Editorial.ink;
 
@@ -30,13 +38,11 @@ function Steps({ active }: { active: number }) {
   );
 }
 
-// 추정 치수 표시 순서·라벨 (값은 measureStore 결과에서). measures 키와 일치.
-const MEASURE_ROWS = [
-  { key: 'shoulder', label: '어깨너비' },
-  { key: 'chest', label: '가슴둘레' },
-  { key: 'waist', label: '허리둘레' },
-  { key: 'hip', label: '엉덩이둘레' },
-] as const;
+/** 입력칸 문자열이 백엔드 허용 범위 안의 수인지 (벗어나면 PATCH detail 이 400 이 된다) */
+function isValid(spec: BodyMeasureSpec, raw: string | undefined): boolean {
+  const n = parseFloat(raw ?? '');
+  return Number.isFinite(n) && n >= spec.min && n <= spec.max;
+}
 
 // G3 치수 결과·사이즈 매칭 — measureStore 결과를 구독. 완료 시 측정 플로우 닫기
 export default function MeasureResult() {
@@ -46,6 +52,8 @@ export default function MeasureResult() {
   const { status, result, photos, error, needsInput } = useMeasure();
   const toast = useToast();
   const [savingDone, setSavingDone] = useState(false);
+  /** '재는 법' 시트에서 처음 보여줄 항목. null 이면 닫힌 상태 */
+  const [guideKey, setGuideKey] = useState<BodyMeasureKey | null>(null);
 
   // 플로우를 거치지 않고 직접 진입했으면(status idle) 추정을 시작한다.
   useEffect(() => {
@@ -59,18 +67,23 @@ export default function MeasureResult() {
     usingPhotos ? measureStore.startPhotoMeasurement() : measureStore.estimate();
 
   // 사용자가 직접 수정하는 편집값(문자열) — 결과가 도착하면 초기화
-  const [values, setValues] = useState<Record<string, string>>({});
+  const [values, setValues] = useState<Partial<Record<BodyMeasureKey, string>>>({});
   useEffect(() => {
-    if (result) {
-      // 소수점 1자리로 표기 (예: 78 → "78.0")
-      setValues({
-        shoulder: result.measures.shoulder.toFixed(1),
-        chest: result.measures.chest.toFixed(1),
-        waist: result.measures.waist.toFixed(1),
-        hip: result.measures.hip.toFixed(1),
-      });
-    }
+    if (!result) return;
+    // cm 는 소수 1자리, 비율은 3자리 — 백엔드 Decimal 자릿수와 같게 표기한다.
+    setValues(
+      Object.fromEntries(
+        BODY_MEASURES.map((spec) => [spec.key, result.measures[spec.key].toFixed(spec.decimals)]),
+      ),
+    );
   }, [result]);
+
+  /* 범위를 벗어난 값은 저장이 400 으로 튕긴다. 눌러 보고 실패를 알려 주는 대신
+     어느 칸이 문제인지 먼저 짚고 완료를 막는다. */
+  const invalid = useMemo(
+    () => BODY_MEASURES.filter((spec) => !isValid(spec, values[spec.key])),
+    [values],
+  );
 
   // 로딩 / 에러 — 결과가 아직 없을 때
   if (status !== 'success' || !result) {
@@ -117,16 +130,11 @@ export default function MeasureResult() {
 
   // 완료 — 수정한 값을 서버에 저장(PATCH detail)하고 플로우 닫기
   const onDone = async () => {
-    const num = (k: keyof typeof result.measures) => {
-      const v = parseFloat(values[k]);
-      return Number.isFinite(v) ? v : result.measures[k];
-    };
-    const measures = {
-      shoulder: num('shoulder'),
-      chest: num('chest'),
-      waist: num('waist'),
-      hip: num('hip'),
-    };
+    if (invalid.length > 0) return;
+    const measures = Object.fromEntries(
+      BODY_MEASURES.map((spec) => [spec.key, parseFloat(values[spec.key] as string)]),
+    ) as Measurement;
+
     setSavingDone(true);
     try {
       await measureStore.saveDetail(measures);
@@ -146,6 +154,15 @@ export default function MeasureResult() {
     }
   };
 
+  const guideButton = (spec: BodyMeasureSpec) => (
+    <Pressable
+      hitSlop={10}
+      accessibilityLabel={`${spec.label} 재는 법`}
+      onPress={() => setGuideKey(spec.key)}>
+      <Icon name="questionmark.circle" tintColor={ink(0.45)} size={15} />
+    </Pressable>
+  );
+
   return (
     <View style={styles.container}>
       <SafeAreaView edges={['top']} style={styles.safe}>
@@ -164,22 +181,29 @@ export default function MeasureResult() {
             </Text>
           </View>
 
-          {/* 추정 치수 — 각 값 탭하여 직접 수정 가능 */}
+          {/* 둘레·너비 7개 — 각 값 탭하여 직접 수정 가능 */}
           <View style={styles.sectionHead}>
-            <Text style={styles.sectionTitlePlain}>추정 치수</Text>
-            <Text style={styles.editHint}>탭하여 수정</Text>
+            <Text style={styles.sectionTitlePlain}>둘레 · 너비</Text>
+            <Pressable style={styles.guideLink} onPress={() => setGuideKey('shoulder')}>
+              <Icon name="questionmark.circle" tintColor={ink(0.5)} size={14} />
+              <Text style={styles.guideLinkText}>재는 법</Text>
+            </Pressable>
           </View>
           <View style={styles.measureGrid}>
-            {MEASURE_ROWS.map((row) => (
-              <View key={row.key} style={styles.measureTile}>
-                <Text style={styles.measureLabel}>{row.label}</Text>
+            {SIZE_MEASURES.map((spec) => (
+              <View key={spec.key} style={styles.measureTile}>
+                <View style={styles.measureLabelRow}>
+                  <Text style={styles.measureLabel}>{spec.label}</Text>
+                  {guideButton(spec)}
+                </View>
                 <View style={styles.measureValueRow}>
                   <TextInput
-                    style={styles.measureInput}
-                    value={values[row.key] ?? ''}
-                    onChangeText={(t) =>
-                      setValues((prev) => ({ ...prev, [row.key]: t }))
-                    }
+                    style={[
+                      styles.measureInput,
+                      !isValid(spec, values[spec.key]) && styles.measureInputBad,
+                    ]}
+                    value={values[spec.key] ?? ''}
+                    onChangeText={(t) => setValues((prev) => ({ ...prev, [spec.key]: t }))}
                     keyboardType="decimal-pad"
                     selectTextOnFocus
                     maxLength={5}
@@ -190,6 +214,58 @@ export default function MeasureResult() {
               </View>
             ))}
           </View>
+
+          {/* 체형 지표 3개 — 넥라인·기장·하의 실루엣 추천에 쓰인다 */}
+          <View style={styles.sectionHead}>
+            <Text style={styles.sectionTitlePlain}>체형 지표</Text>
+            <Text style={styles.editHint}>탭하여 수정</Text>
+          </View>
+          <View style={styles.ratioCard}>
+            {PROPORTION_MEASURES.map((spec, i) => (
+              <View
+                key={spec.key}
+                style={[styles.ratioRow, i > 0 && styles.ratioRowDivided]}>
+                <View style={styles.ratioTexts}>
+                  <View style={styles.measureLabelRow}>
+                    <Text style={styles.ratioLabel}>{spec.label}</Text>
+                    {guideButton(spec)}
+                  </View>
+                  {spec.caption ? <Text style={styles.ratioCaption}>{spec.caption}</Text> : null}
+                </View>
+                <View style={[styles.measureValueRow, styles.ratioValueRow]}>
+                  <TextInput
+                    style={[
+                      styles.measureInput,
+                      styles.ratioInput,
+                      !isValid(spec, values[spec.key]) && styles.measureInputBad,
+                    ]}
+                    value={values[spec.key] ?? ''}
+                    onChangeText={(t) => setValues((prev) => ({ ...prev, [spec.key]: t }))}
+                    keyboardType="decimal-pad"
+                    selectTextOnFocus
+                    maxLength={6}
+                    returnKeyType="done"
+                  />
+                  {spec.unit ? <Text style={styles.measureUnit}>{spec.unit}</Text> : null}
+                </View>
+              </View>
+            ))}
+          </View>
+
+          {/* 사진 없이 추정하면 상하체 비율만 개인차가 없다 — 숫자를 그대로 믿게 두지 않는다 */}
+          {result.usedPhotos ? null : (
+            <Text style={styles.ratioNote}>
+              * 상하체 비율은 사진이 있어야 실제로 잴 수 있어요. 지금은 기준값이라 사진으로 다시
+              측정하거나 직접 고쳐 주세요.
+            </Text>
+          )}
+
+          {invalid.length > 0 ? (
+            <Text style={styles.invalidText}>
+              {invalid.map((s) => s.label).join(' · ')} 값을 확인해 주세요
+              {invalid.length === 1 ? ` (${invalid[0].min} ~ ${invalid[0].max})` : ''}.
+            </Text>
+          ) : null}
 
           {/* 사이즈 매칭 */}
           <Text style={styles.sectionTitle}>브랜드 사이즈 매칭</Text>
@@ -228,11 +304,20 @@ export default function MeasureResult() {
         </ScrollView>
 
         <View style={[styles.bottomBar, { paddingBottom: tabInset }, contentStyle(ContentMax.narrow)]}>
-          <Pressable style={styles.cta} onPress={onDone} disabled={savingDone}>
+          <Pressable
+            style={[styles.cta, (savingDone || invalid.length > 0) && styles.ctaOff]}
+            onPress={onDone}
+            disabled={savingDone || invalid.length > 0}>
             <Text style={styles.ctaText}>{savingDone ? '저장 중…' : '완료'}</Text>
           </Pressable>
         </View>
       </SafeAreaView>
+
+      <MeasureGuideSheet
+        visible={guideKey !== null}
+        measureKey={guideKey}
+        onClose={() => setGuideKey(null)}
+      />
     </View>
   );
 }
@@ -259,18 +344,21 @@ const styles = StyleSheet.create({
     marginBottom: 6,
   },
   title: { fontFamily: Fonts.serif, fontSize: 26, color: INK },
-  lead: { fontSize: 14, color: Editorial.textCaption },
+  lead: { fontSize: Type.footnote, color: Editorial.textCaption },
 
-  sectionTitle: { fontSize: 16, fontWeight: '600', color: INK, marginTop: 30, marginBottom: 12 },
+  sectionTitle: { fontSize: Type.label, fontWeight: '600', color: INK, marginTop: 30, marginBottom: 12 },
   sectionHead: {
     flexDirection: 'row',
-    alignItems: 'baseline',
+    alignItems: 'center',
     justifyContent: 'space-between',
     marginTop: 30,
     marginBottom: 12,
   },
-  sectionTitlePlain: { fontSize: 16, fontWeight: '600', color: INK },
-  editHint: { fontSize: 12, color: Editorial.textCaption },
+  sectionTitlePlain: { fontSize: Type.label, fontWeight: '600', color: INK },
+  editHint: { fontSize: Type.micro, color: Editorial.textCaption },
+  guideLink: { flexDirection: 'row', alignItems: 'center', gap: 5, paddingVertical: 4 },
+  guideLinkText: { fontSize: Type.caption, color: Editorial.textCaption },
+
   measureGrid: {
     flexDirection: 'row',
     flexWrap: 'wrap',
@@ -280,7 +368,8 @@ const styles = StyleSheet.create({
     overflow: 'hidden',
   },
   measureTile: { width: '50%', paddingHorizontal: 18, paddingVertical: 16, gap: 6 },
-  measureLabel: { fontSize: 12, color: Editorial.textCaption },
+  measureLabelRow: { flexDirection: 'row', alignItems: 'center', gap: 5 },
+  measureLabel: { fontSize: Type.micro, color: Editorial.textCaption },
   measureValueRow: { flexDirection: 'row', alignItems: 'flex-end', gap: 4 },
   measureInput: {
     fontFamily: Fonts.serif,
@@ -293,7 +382,27 @@ const styles = StyleSheet.create({
     borderBottomColor: ink(0.18),
     paddingBottom: 2,
   },
-  measureUnit: { fontSize: 12, color: Editorial.textCaption, marginBottom: 3 },
+  measureInputBad: { color: Editorial.danger, borderBottomColor: Editorial.danger },
+  measureUnit: { fontSize: Type.micro, color: Editorial.textCaption, marginBottom: 3 },
+
+  ratioCard: { borderWidth: 1, borderColor: ink(0.09), borderRadius: 16, paddingHorizontal: 18 },
+  ratioRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 12,
+    paddingVertical: 16,
+  },
+  ratioRowDivided: { borderTopWidth: 1, borderTopColor: ink(0.07) },
+  ratioTexts: { flex: 1, gap: 4 },
+  ratioLabel: { fontSize: Type.footnote, color: INK, fontWeight: '500' },
+  ratioCaption: { fontSize: Type.micro, color: Editorial.textCaption, lineHeight: 17 },
+  /* 값 자리를 고정해야 설명이 남은 폭을 다 쓴다 — 안 잡으면 입력칸이 늘어나 설명이 3줄로 접힌다 */
+  ratioValueRow: { width: 96, justifyContent: 'flex-end' },
+  ratioInput: { width: 62, minWidth: 0, textAlign: 'right' },
+  ratioNote: { fontSize: Type.micro, color: Editorial.textCaption, lineHeight: 18, marginTop: 10 },
+
+  invalidText: { fontSize: Type.caption, color: Editorial.danger, marginTop: 10 },
 
   sizeCard: { borderWidth: 1, borderColor: ink(0.09), borderRadius: 16, paddingHorizontal: 16 },
   sizeRow: {
@@ -313,11 +422,11 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  sizeBadgeText: { fontSize: 13, color: '#fff', fontWeight: '700' },
-  sizeFit: { fontSize: 12, color: Editorial.textCaption, width: 58, textAlign: 'right' },
+  sizeBadgeText: { fontSize: Type.caption, color: '#fff', fontWeight: '700' },
+  sizeFit: { fontSize: Type.micro, color: Editorial.textCaption, width: 58, textAlign: 'right' },
   sizeLine: { height: 1, backgroundColor: ink(0.07) },
 
-  note: { fontSize: 11.5, color: Editorial.textCaption, lineHeight: 18, marginTop: 16 },
+  note: { fontSize: Type.micro, color: Editorial.textCaption, lineHeight: 18, marginTop: 16 },
   remeasure: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -326,7 +435,7 @@ const styles = StyleSheet.create({
     marginTop: 22,
     paddingVertical: 6,
   },
-  remeasureText: { fontSize: 13, color: Editorial.textCaption },
+  remeasureText: { fontSize: Type.caption, color: Editorial.textCaption },
 
   bottomBar: {
     paddingHorizontal: 24,
@@ -341,5 +450,6 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  ctaText: { color: '#fff', fontSize: 15, fontWeight: '500' },
+  ctaOff: { opacity: 0.45 },
+  ctaText: { color: '#fff', fontSize: Type.body, fontWeight: '500' },
 });

@@ -1,6 +1,7 @@
 import { useSyncExternalStore } from 'react';
 import { Platform } from 'react-native';
 
+import { BODY_MEASURES, type BodyMeasureKey } from '@/constants/body-measures';
 import { BodyEndpoints } from '@/constants/config';
 import { ApiError, api } from '@/lib/apiClient';
 
@@ -13,7 +14,7 @@ import { ApiError, api } from '@/lib/apiClient';
  * 백엔드 연동(팀레포 main, users/body):
  *   - STEP1  "다음"  → PUT   /users/me/body/basic/  { gender, height, weight }  (saveBasic)
  *   - 사진 없이 진행 → POST  /users/me/body/estimate/  { gender?, height?, weight? }
- *                      서버가 학습 모델로 상세 7개를 추정·저장하고 응답에 실어 준다 (estimate)
+ *                      서버가 학습 모델로 상세 10개를 추정·저장하고 응답에 실어 준다 (estimate)
  *   - STEP2  "측정 시작하기" → POST /body/photos/(multipart) → 트랜잭션 폴링 →
  *              폴링 응답에 담겨 오는 추론 치수를 그대로 사용 (startPhotoMeasurement)
  *   - STEP3  "완료"  → PATCH /users/me/body/detail/  로 수정한 둘레를 저장 (saveDetail)
@@ -26,12 +27,12 @@ export type MeasureInput = { height: number; weight: number; sex: Sex };
 /** 사진 URI (없으면 null). 지금은 실제 카메라 대신 mock URI 를 넣는다. */
 export type MeasurePhotos = { front: string | null; side: string | null };
 
-export type Measurement = {
-  shoulder: number; // 어깨너비
-  chest: number; // 가슴둘레
-  waist: number; // 허리둘레
-  hip: number; // 엉덩이둘레
-};
+/**
+ * 상세 치수 10개 — 둘레·너비 7개 + 체형 지표 3개(목길이·허벅지:종아리·상하체).
+ * 키가 백엔드 필드명 그대로라 PATCH detail 본문에 통째로 넣을 수 있다.
+ * 라벨·단위·허용 범위·'재는 법'은 constants/body-measures.ts 가 단일 출처다.
+ */
+export type Measurement = Record<BodyMeasureKey, number>;
 export type SizeMatch = { brand: string; size: string; fit: string };
 
 export type MeasureResult = {
@@ -84,16 +85,12 @@ function mockSizes(chest: number): SizeMatch[] {
 
 // ── 백엔드 신체치수(GET /body/) ────────────────────────────────
 // DRF DecimalField 는 문자열("170.0")로 내려올 수 있어 숫자로 정규화한다. 미입력은 null.
-type BodyDto = {
-  height: string | number | null;
-  weight: string | number | null;
-  chest: string | number | null;
-  waist: string | number | null;
-  hip: string | number | null;
-  shoulder: string | number | null;
-  thigh: string | number | null;
-  calf: string | number | null;
-  arm: string | number | null;
+type Numeric = string | number | null;
+
+type BodyDto = Record<BodyMeasureKey, Numeric> & {
+  gender: string | null;
+  height: Numeric;
+  weight: Numeric;
   updated_at: string | null;
 };
 
@@ -115,18 +112,19 @@ async function fetchBody(): Promise<BodyDto> {
 }
 
 /**
- * 응답 치수 → 화면이 쓰는 4개. 하나라도 비면 null 을 돌려 호출부가 실패로 처리한다.
- * 서버는 추정에 성공하면 상세 7개를 모두 채워 주므로, 빈 칸은 "추정이 안 된 것"이다.
+ * 응답 치수 → 화면이 쓰는 10개. 하나라도 비면 null 을 돌려 호출부가 실패로 처리한다.
+ * 서버는 추정에 성공하면 상세 10개를 모두 채워 주므로, 빈 칸은 "추정이 안 된 것"이다.
  * 예전엔 빈 칸을 키·몸무게 공식으로 만든 값으로 메웠는데, 그러면 추정에 실패해도
  * 그럴듯한 숫자가 결과로 앉아 사용자가 구분할 수 없었다.
  */
 function toMeasurement(dto: BodyDto): Measurement | null {
-  const shoulder = toNum(dto.shoulder);
-  const chest = toNum(dto.chest);
-  const waist = toNum(dto.waist);
-  const hip = toNum(dto.hip);
-  if (shoulder === null || chest === null || waist === null || hip === null) return null;
-  return { shoulder, chest, waist, hip };
+  const measures = {} as Measurement;
+  for (const spec of BODY_MEASURES) {
+    const value = toNum(dto[spec.key]);
+    if (value === null) return null;
+    measures[spec.key] = value;
+  }
+  return measures;
 }
 
 /** 추정 결과 형식 — 무사진(POST estimate)과 사진(GET photos/{id})이 공유한다. */
@@ -281,7 +279,8 @@ export const measureStore = {
   },
 
   /**
-   * 사진 없이 치수 추정 — POST /body/estimate/ (서버가 학습 모델로 상세 7개를 채우고 저장한다).
+   * 사진 없이 치수 추정 — POST /body/estimate/ (서버가 학습 모델로 상세 10개를 채우고 저장한다.
+   * 둘레 7개는 회귀 모델, 목길이·허벅지:종아리는 성별 회귀식, 상하체 비율은 기준값 0.786).
    * STEP2 "사진 없이 진행할게요" 와 결과 화면 직접 진입에서 호출하고, 결과는 STEP3 가 구독한다.
    * 화면이 언마운트돼도 이 스토어에 결과가 남으므로, 나갔다 돌아와도 결과가 유지된다.
    */
@@ -397,18 +396,13 @@ export const measureStore = {
   },
 
   /**
-   * STEP3 "완료" — 수정한 둘레를 서버에 저장(PATCH detail)한다.
-   * UI에 있는 4개(shoulder/chest/waist/hip)만 보내고 thigh/calf/arm 은 건드리지 않는다.
+   * STEP3 "완료" — 수정한 상세 10개를 서버에 저장(PATCH detail)한다.
+   * Measurement 의 키가 곧 API 필드명이라 그대로 본문이 된다.
    * 로컬 반영을 먼저 하므로 저장 실패해도 결과는 유지되고, 실패는 throw 로 알린다.
    */
   async saveDetail(measures: Measurement): Promise<void> {
     if (state.result) setState({ result: { ...state.result, measures } });
-    await api.patch(BodyEndpoints.detail, {
-      shoulder: measures.shoulder,
-      chest: measures.chest,
-      waist: measures.waist,
-      hip: measures.hip,
-    });
+    await api.patch(BodyEndpoints.detail, measures);
   },
 };
 
