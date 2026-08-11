@@ -1,0 +1,16 @@
+{
+  "total_count": 36,
+  "success_count": 36,
+  "success_rate": 1.0,
+  "mean_latency_seconds": 0.005,
+  "chest_mae_cm": 4.689,
+  "waist_mae_cm": 4.058,
+  "hip_mae_cm": 1.972,
+  "thigh_mae_cm": 3.331,
+  "calf_mae_cm": 1.161,
+  "arm_mae_cm": 1.389,
+  "shoulder_mae_cm": 1.403,
+  "neck_length_mae_cm": 1.353,
+  "thigh_calf_ratio_ratio": 0.387,
+  "torso_leg_ratio_ratio": 0.452
+}

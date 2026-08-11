@@ -1,7 +1,7 @@
 # image-processor — 옷장 이미지 프로세서 (AI Worker)
 
-Redis 큐에서 job을 받아 사진 속 패션 아이템을 분리·태깅·임베딩하고,
-결과를 S3에 저장한 뒤 wardrobe-api 콜백으로 등록을 완료하는 워커.
+Redis 큐에서 옷장 업로드 job을 받아 사진 속 패션 아이템을 처리하는 이미지
+프로세서. 캘린더 사진도 별도 consumer 없이 동일한 옷장 업로드 job으로 처리한다.
 
 - 설계: Confluence > 설계 > "옷장 이미지 파이프라인 설계서" + "옷장 기능 전체 설계"
 - 코어 로직: `test/test-llm2` (Gemini 열거 → 이미지 편집 생성 → 태깅) 이식
@@ -27,6 +27,18 @@ services/
 └── callback.py           # wardrobe-api 콜백 (X-Internal-Token, 재시도)
 ```
 
+캘린더 API는 사진 원본을 캘린더와 옷장 S3 경로에 각각 보관하고 기존
+`WardrobeUploadJob`을 enqueue한다. worker와 옷장 callback은 기존과 동일하게
+옷장 아이템을 생성하며, API가 해당 job으로 생성된 아이템을 캘린더에 연결한다.
+
+룩북 API도 같은 job을 쓰되 페이로드에 **`exclude_categories`**(예: `["상의"]`)를
+싣는다. 사용자가 '입은 옷'으로 이미 지정한 부위라 다시 등록하면 옷장에 같은 옷이
+두 벌 생긴다. worker는 이 목록을 **열거 직후** 걸러 내므로 생성·태깅·임베딩 비용
+자체가 발생하지 않는다. 제외 결과는 manifest의 `counts.excluded` ·
+`excluded_categories` · `excluded_items`에 남는다. 전부 제외돼 남는 아이템이 없으면
+실패가 아니라 `status=success` + 빈 items로 콜백한다 — 사용자가 사진 속 부위를
+직접 다 지정한 정상 흐름이기 때문이다. 키가 없는 기존 페이로드는 동작이 같다.
+
 **구현 교체**: 새 컴포넌트로 `pipeline/base.py` 인터페이스를 구현하고
 `pipeline/__init__.py`의 `_REGISTRY`에 빌더를 등록한 뒤
 `WORKER_PIPELINE` 환경변수로 선택한다 (예정: `sam3-crop`).
@@ -48,7 +60,7 @@ services/
 | `GEMINI_API_KEY` | (필수) | 열거·생성·태깅 공용 |
 | `REDIS_URL` | redis://localhost:6379/0 | |
 | `WARDROBE_JOB_QUEUE` | wardrobe:jobs | pending 키 (processing/dead는 파생) |
-| `WARDROBE_INTERNAL_TOKEN` | (필수) | 콜백 인증 — api와 동일 값 |
+| `WARDROBE_INTERNAL_TOKEN` | (필수) | 옷장 callback 인증 — api와 동일 값 |
 | `WARDROBE_CALLBACK_URL` | | 페이로드에 callback_url 없을 때 폴백 |
 | `WORKER_PIPELINE` | gemini-edit | 파이프라인 구현 선택 |
 | `GEMINI_FLASH_IMAGE_MODEL` | gemini-3.1-flash-image | 상품 이미지 생성 모델 |
