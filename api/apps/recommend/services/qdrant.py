@@ -95,12 +95,17 @@ _ITEM_TAG_INDEXES: dict[str, str] = {
     "occasion": "keyword",
     "color": "keyword",
     "fit": "keyword",
+    "sleeve": "keyword",
+    "length": "keyword",
     "pattern": "keyword",
     "material": "keyword",
 }
 
 _DATASET_INDEXES: dict[str, str] = {
     "dataset_version": "keyword",
+    # golenset_new 적재본은 status를, 채팅 설계 이후 적재본은
+    # dataset_status를 사용한다. 재색인이 끝날 때까지 두 계약을 함께 읽는다.
+    "status": "keyword",
     "dataset_status": "keyword",
 }
 
@@ -116,6 +121,7 @@ def collection_specs() -> list[CollectionSpec]:
             payload_indexes={
                 **_DATASET_INDEXES,
                 "golden_id": "keyword",
+                "split": "keyword",
                 "presentation_group": "keyword",
                 "style": "keyword",
                 "season": "keyword",
@@ -133,7 +139,10 @@ def collection_specs() -> list[CollectionSpec]:
                 **_ITEM_TAG_INDEXES,
                 **_DATASET_INDEXES,
                 "golden_id": "keyword",
+                "item_key": "keyword",
+                "outfit_golden_id": "keyword",
                 "outfit_point_id": "keyword",
+                "split": "keyword",
                 "presentation_group": "keyword",
                 "exposable": "bool",
             },

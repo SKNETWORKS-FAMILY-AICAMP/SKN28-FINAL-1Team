@@ -11,9 +11,11 @@ from itertools import combinations
 from typing import Any, Protocol
 
 from apps.catalog.models import ElevenProduct, NaverProduct
+from apps.recommend.services.body_profile import BodyProfile
 from apps.recommend.services.item_retriever import ItemSource
 from apps.recommend.services.outfit_types import OutfitComposition, OutfitItem
 from apps.recommend.services.qdrant import collection_spec
+from apps.recommend.services.style_rules import load_body_rules, load_weather_rules
 from apps.wardrobe.models import WardrobeItem
 
 
@@ -54,6 +56,7 @@ class EligibilityGateway(Protocol):
 @dataclass(frozen=True)
 class ValidationContext:
     user_id: int | None = None
+    body: BodyProfile | None = None
     season: str = ""
     weather: Mapping[str, Any] | None = None
     occasion: str = ""
@@ -134,6 +137,15 @@ def _season_from_context(context: ValidationContext) -> str:
     if temperature >= 9:
         return "가을"
     return "겨울"
+
+
+def _temperature(weather: Mapping[str, Any] | None) -> float | None:
+    if not weather:
+        return None
+    try:
+        return float(weather.get("temperature"))
+    except (TypeError, ValueError):
+        return None
 
 
 def _season_matches(actual: set[str], expected: str) -> bool:
@@ -352,6 +364,7 @@ class OutfitValidator:
         self._validate_categories(composition.items, issues)
         self._validate_layer_order(composition.items, issues)
         self._validate_context_rules(composition.items, context, issues)
+        self._validate_body_and_weather_rules(composition.items, context, issues)
 
         eligibility = self.eligibility_gateway.check(
             composition.items,
@@ -643,6 +656,64 @@ class OutfitValidator:
                         f"색상 규칙에서 '{first}'와 '{second}' 조합을 비권장합니다.",
                     )
                 )
+
+    @staticmethod
+    def _validate_body_and_weather_rules(
+        items: tuple[OutfitItem, ...],
+        context: ValidationContext,
+        issues: list[ValidationIssue],
+    ) -> None:
+        body_rules = load_body_rules()
+        axis = body_rules.for_profile(context.body or BodyProfile())
+        for item in items:
+            tags = {
+                **item.payload,
+                "category_large": item.category_large
+                or item.payload.get("category_large"),
+                "layer_role": item.layer_role or item.payload.get("layer_role"),
+            }
+            issue_kwargs = {
+                "slot_id": item.slot_id,
+                "source_type": item.source_type,
+                "source_id": item.source_id,
+            }
+            for rule in axis.avoid:
+                if not rule.matches(tags):
+                    continue
+                issues.append(
+                    ValidationIssue(
+                        ValidationSeverity.ERROR
+                        if rule.hard
+                        else ValidationSeverity.WARNING,
+                        "BODY_RULE_HARD_EXCLUDED" if rule.hard else "BODY_FIT_WARNING",
+                        rule.reason,
+                        **issue_kwargs,
+                    )
+                )
+
+        weather_rules = load_weather_rules()
+        band = weather_rules.band_for(_temperature(context.weather))
+        if band is None:
+            return
+        for item in items:
+            tags = {
+                **item.payload,
+                "category_large": item.category_large
+                or item.payload.get("category_large"),
+                "layer_role": item.layer_role or item.payload.get("layer_role"),
+            }
+            for rule in band.discourage:
+                if rule.matches(tags):
+                    issues.append(
+                        ValidationIssue(
+                            ValidationSeverity.WARNING,
+                            "WEATHER_RULE_WARNING",
+                            rule.reason,
+                            slot_id=item.slot_id,
+                            source_type=item.source_type,
+                            source_id=item.source_id,
+                        )
+                    )
 
     @staticmethod
     def _validate_eligibility_and_budget(

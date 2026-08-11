@@ -14,11 +14,21 @@ from typing import Any
 from qdrant_client import models as qm
 
 from apps.recommend.services import vocabulary
+from apps.recommend.services.body_profile import BodyProfile
 from apps.recommend.services.qdrant import (
+    GOLDEN_ITEM_COLLECTION,
     GOLDEN_OUTFIT_COLLECTION,
     IMAGE_VECTOR,
     TEXT_VECTOR,
     get_client,
+)
+from apps.recommend.services.style_rules import (
+    BodyRules,
+    Rule,
+    WeatherBand,
+    WeatherRules,
+    load_body_rules,
+    load_weather_rules,
 )
 from apps.recommend.services.text_embedding import (
     TextEmbeddingClient,
@@ -33,9 +43,11 @@ _OVERFETCH = 4
 
 @dataclass(frozen=True)
 class RetrievalRequest:
+    body: BodyProfile | None = None
     pursuit: dict[str, dict[str, list[str]]] | None = None
     weather: dict[str, Any] | None = None
     occasion: str = ""
+    season: str = ""
     query_text: str = ""
     image_vector: list[float] | None = None
     presentation_groups: tuple[str, ...] = ()
@@ -83,6 +95,55 @@ def _any_of(field_name: str, values: Iterable[str]) -> qm.FieldCondition:
     )
 
 
+_PRESENTATION_GROUP_ALIASES = {
+    "male": "man",
+    "man": "man",
+    "masculine": "man",
+    "남성": "man",
+    "female": "woman",
+    "woman": "woman",
+    "feminine": "woman",
+    "여성": "woman",
+    "unisex": "unisex",
+    "유니섹스": "unisex",
+}
+
+
+def normalize_presentation_groups(values: Iterable[str]) -> tuple[str, ...]:
+    """프로필·대화의 성별 표현을 골든셋 metadata 값으로 통일한다."""
+    normalized = {
+        mapped
+        for value in values
+        if (mapped := _PRESENTATION_GROUP_ALIASES.get(str(value).strip().casefold()))
+    }
+    if normalized & {"man", "woman"}:
+        normalized.add("unisex")
+    return tuple(sorted(normalized))
+
+
+def _status_condition(statuses: Iterable[str]) -> qm.Filter:
+    values = tuple(
+        sorted(
+            {
+                variant
+                for value in statuses
+                for variant in (
+                    str(value).strip(),
+                    str(value).strip().upper(),
+                    str(value).strip().lower(),
+                )
+                if variant
+            }
+        )
+    )
+    return qm.Filter(
+        should=[
+            _any_of("dataset_status", values),
+            _any_of("status", values),
+        ]
+    )
+
+
 def build_filter(request: RetrievalRequest) -> qm.Filter | None:
     """명시적 필수 조건과 기피 조건만 Qdrant 하드 필터로 만든다."""
     must: list[qm.Condition] = []
@@ -98,11 +159,10 @@ def build_filter(request: RetrievalRequest) -> qm.Filter | None:
             )
         )
     if request.dataset_statuses:
-        must.append(_any_of("dataset_status", request.dataset_statuses))
-    # presentation_group은 성별 대용 하드 필터가 아니다. 사용자가 명시적으로
-    # 요청해 호출부가 값을 채운 경우에만 적용한다.
-    if request.presentation_groups:
-        must.append(_any_of("presentation_group", request.presentation_groups))
+        must.append(_status_condition(request.dataset_statuses))
+    presentation_groups = normalize_presentation_groups(request.presentation_groups)
+    if presentation_groups:
+        must.append(_any_of("presentation_group", presentation_groups))
 
     if request.pursuit and request.hard_filter:
         avoided = vocabulary.translate(request.pursuit.get("avoided"))
@@ -159,11 +219,8 @@ def _matches(payload: dict[str, Any], field_name: str, expected: set[str]) -> se
 
 
 def _season_from_weather(weather: dict[str, Any] | None) -> str:
-    if not weather:
-        return ""
-    try:
-        temperature = float(weather.get("temperature"))
-    except (TypeError, ValueError):
+    temperature = celsius_of(weather)
+    if temperature is None:
         return ""
     if temperature >= 23:
         return "여름"
@@ -174,56 +231,133 @@ def _season_from_weather(weather: dict[str, Any] | None) -> str:
     return "겨울"
 
 
-def _hard_excluded_by_items(
+def celsius_of(weather: dict[str, Any] | None) -> float | None:
+    if not weather:
+        return None
+    try:
+        return float(weather.get("temperature"))
+    except (TypeError, ValueError):
+        return None
+
+
+def _hard_excluded_by_preferences(
     payload: dict[str, Any], avoided_tags: dict[str, set[str]]
 ) -> bool:
     for field_name, expected in avoided_tags.items():
-        if field_name not in OUTFIT_FILTER_FIELDS and _matches(
-            payload, field_name, expected
-        ):
+        if _matches(payload, field_name, expected):
             return True
     return False
 
 
-def _score_candidate(
-    payload: dict[str, Any],
+def _hard_excluded_by_body(
+    items: list[dict[str, Any]], rules: tuple[Rule, ...]
+) -> bool:
+    hard_rules = tuple(rule for rule in rules if rule.hard)
+    return any(rule.matches(item) for item in items for rule in hard_rules)
+
+
+def _score_items(
+    items: list[dict[str, Any]],
     *,
+    rules_prefer: tuple[Rule, ...],
+    rules_avoid: tuple[Rule, ...],
     preferred_tags: dict[str, set[str]],
     avoided_tags: dict[str, set[str]],
-    season: str,
-    occasion: str,
-    hard_filter: bool,
+    weights,
 ) -> tuple[float, list[Reason]]:
-    delta = 0.0
+    total = 0.0
     reasons: list[Reason] = []
     seen: set[tuple[str, str]] = set()
 
-    def add(source: str, amount: float, text: str) -> None:
-        nonlocal delta
+    def add(amount: float, source: str, text: str) -> None:
+        nonlocal total
+        total += amount
         key = source, text
-        if key in seen:
-            return
-        seen.add(key)
-        delta += amount
-        reasons.append(Reason(source=source, delta=amount, text=text))
+        if key not in seen:
+            seen.add(key)
+            reasons.append(Reason(source=source, delta=amount, text=text))
 
-    for field_name, expected in preferred_tags.items():
-        for value in sorted(_matches(payload, field_name, expected)):
-            add("preference", 8.0, f"선호 {field_name} '{value}' 일치")
-
-    if not hard_filter:
+    for item in items:
         for field_name, expected in avoided_tags.items():
-            for value in sorted(_matches(payload, field_name, expected)):
-                add("preference", -20.0, f"기피 {field_name} '{value}' 포함")
+            matched = _payload_values(item, field_name) & expected
+            for value in sorted(matched):
+                add(
+                    weights.preference_avoid,
+                    "preference",
+                    f"기피 {field_name} '{value}' 포함",
+                )
+        for field_name, expected in preferred_tags.items():
+            matched = _payload_values(item, field_name) & expected
+            for value in sorted(matched):
+                add(
+                    weights.preference_match,
+                    "preference",
+                    f"선호 {field_name} '{value}' 일치",
+                )
+        for rule in rules_avoid:
+            if rule.matches(item):
+                add(weights.rule_avoid, "rule", rule.reason)
+        for rule in rules_prefer:
+            if rule.matches(item):
+                add(weights.rule_prefer, "rule", rule.reason)
+    return total, reasons
 
+
+def _score_context(
+    payload: dict[str, Any],
+    *,
+    season: str,
+    occasion: str,
+    weights,
+) -> tuple[float, list[Reason]]:
+    total = 0.0
+    reasons: list[Reason] = []
     if season and season in _payload_values(payload, "season"):
-        add("context", 6.0, f"현재 기온에 맞는 {season} 코디")
+        total += weights.context_match
+        reasons.append(
+            Reason("context", weights.context_match, f"{season} 조건과 일치")
+        )
     normalized_occasion = occasion.strip()
     if normalized_occasion and normalized_occasion in _payload_values(
         payload, "occasion"
     ):
-        add("context", 6.0, f"{normalized_occasion} 상황과 일치")
-    return delta, reasons
+        total += weights.context_match
+        reasons.append(
+            Reason(
+                "context",
+                weights.context_match,
+                f"{normalized_occasion} 상황과 일치",
+            )
+        )
+    return total, reasons
+
+
+def _score_weather(
+    items: list[dict[str, Any]],
+    band: WeatherBand | None,
+    weights,
+) -> tuple[float, list[Reason]]:
+    if band is None:
+        return 0.0, []
+    total = 0.0
+    reasons: list[Reason] = []
+    seen: set[str] = set()
+
+    def add(amount: float, text: str) -> None:
+        nonlocal total
+        total += amount
+        if text not in seen:
+            seen.add(text)
+            reasons.append(Reason("weather", amount, text))
+
+    for item in items:
+        for rule in band.discourage:
+            if rule.matches(item):
+                add(weights.discourage, rule.reason)
+        for rule in band.encourage:
+            if rule.matches(item):
+                add(weights.encourage, rule.reason)
+    return total, reasons
 
 
 class GoldenOutfitRetriever:
@@ -232,9 +366,13 @@ class GoldenOutfitRetriever:
         *,
         client=None,
         embedding_client: TextEmbeddingClient | None = None,
+        body_rules: BodyRules | None = None,
+        weather_rules: WeatherRules | None = None,
     ) -> None:
         self.client = client or get_client()
         self.embedding_client = embedding_client
+        self.body_rules = body_rules or load_body_rules()
+        self.weather_rules = weather_rules or load_weather_rules()
 
     def retrieve(self, request: RetrievalRequest) -> RetrievalResult:
         if not 1 <= request.limit <= 50:
@@ -272,6 +410,8 @@ class GoldenOutfitRetriever:
             search_mode = "filter"
             records = self._scroll(search_filter=search_filter, limit=fetch)
 
+        records = self._hydrate_items(records)
+
         preferred = vocabulary.translate((request.pursuit or {}).get("preferred"))
         avoided = vocabulary.translate((request.pursuit or {}).get("avoided"))
         if preferred.unmapped or avoided.unmapped:
@@ -280,19 +420,45 @@ class GoldenOutfitRetriever:
                 sorted(set(preferred.unmapped) | set(avoided.unmapped)),
             )
 
-        season = _season_from_weather(request.weather)
+        profile = request.body or BodyProfile()
+        axis_rules = self.body_rules.for_profile(profile)
+        season = request.season.strip() or _season_from_weather(request.weather)
+        weather_band = self.weather_rules.band_for(celsius_of(request.weather))
         candidates: list[OutfitCandidate] = []
         for point_id, similarity, payload in records:
-            if request.hard_filter and _hard_excluded_by_items(payload, avoided.tags):
+            items = [
+                item for item in payload.get("items", []) if isinstance(item, dict)
+            ]
+            if request.hard_filter and _hard_excluded_by_preferences(
+                payload, avoided.tags
+            ):
                 continue
-            delta, reasons = _score_candidate(
-                payload,
+            if request.hard_filter and _hard_excluded_by_body(items, axis_rules.avoid):
+                continue
+
+            scoring_items = [payload, *items]
+            delta, reasons = _score_items(
+                scoring_items,
+                rules_prefer=axis_rules.prefer,
+                rules_avoid=axis_rules.avoid,
                 preferred_tags=preferred.tags,
-                avoided_tags=avoided.tags,
+                avoided_tags={} if request.hard_filter else avoided.tags,
+                weights=self.body_rules.weights,
+            )
+            context_delta, context_reasons = _score_context(
+                payload,
                 season=season,
                 occasion=request.occasion,
-                hard_filter=request.hard_filter,
+                weights=self.body_rules.weights,
             )
+            weather_delta, weather_reasons = _score_weather(
+                items,
+                weather_band,
+                self.weather_rules.weights,
+            )
+            delta += context_delta + weather_delta
+            reasons.extend(context_reasons)
+            reasons.extend(weather_reasons)
             candidates.append(
                 OutfitCandidate(
                     point_id=point_id,
@@ -318,6 +484,71 @@ class GoldenOutfitRetriever:
             embedding_model=embedding_model,
             embedding_version=embedding_version,
         )
+
+    @staticmethod
+    def _item_point_ids(payload: dict[str, Any]) -> tuple[str, ...]:
+        values: list[str] = []
+        raw_ids = payload.get("item_point_ids")
+        if isinstance(raw_ids, (list, tuple)):
+            values.extend(str(value) for value in raw_ids if value not in (None, ""))
+        raw_items = payload.get("items")
+        if isinstance(raw_items, list):
+            for item in raw_items:
+                if not isinstance(item, dict):
+                    continue
+                value = item.get("item_point_id") or item.get("point_id")
+                if value not in (None, ""):
+                    values.append(str(value))
+        return tuple(dict.fromkeys(values))
+
+    def _hydrate_items(
+        self,
+        records: list[tuple[str, float, dict[str, Any]]],
+    ) -> list[tuple[str, float, dict[str, Any]]]:
+        """코디의 item_point_ids를 한꺼번에 조회해 상세 태그를 보충한다."""
+        if not hasattr(self.client, "retrieve"):
+            return records
+
+        point_ids = tuple(
+            dict.fromkeys(
+                point_id
+                for _, _, payload in records
+                for point_id in self._item_point_ids(payload)
+            )
+        )
+        if not point_ids:
+            return records
+
+        loaded: dict[str, dict[str, Any]] = {}
+        for start in range(0, len(point_ids), 256):
+            points = self.client.retrieve(
+                collection_name=GOLDEN_ITEM_COLLECTION,
+                ids=list(point_ids[start : start + 256]),
+                with_payload=True,
+                with_vectors=False,
+            )
+            loaded.update((str(point.id), point.payload or {}) for point in points)
+
+        hydrated = []
+        for outfit_id, similarity, raw_payload in records:
+            payload = dict(raw_payload)
+            summaries: dict[str, dict[str, Any]] = {}
+            for item in payload.get("items") or []:
+                if not isinstance(item, dict):
+                    continue
+                point_id = item.get("item_point_id") or item.get("point_id")
+                if point_id not in (None, ""):
+                    summaries[str(point_id)] = item
+
+            items: list[dict[str, Any]] = []
+            for point_id in self._item_point_ids(payload):
+                summary = summaries.get(point_id, {})
+                details = loaded.get(point_id, {})
+                items.append({**summary, **details, "point_id": point_id})
+            if items:
+                payload["items"] = items
+            hydrated.append((outfit_id, similarity, payload))
+        return hydrated
 
     def _search(
         self,

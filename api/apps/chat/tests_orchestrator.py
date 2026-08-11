@@ -71,6 +71,7 @@ def analysis(
     target_mode="CURRENT",
     response_text="",
     clarification_question="어떤 상황에서 입을 옷인가요?",
+    presentation_groups=None,
 ):
     return TurnAnalysis(
         action=action,
@@ -79,6 +80,7 @@ def analysis(
         conditions=RecommendationConditions(
             occasion="출근",
             season="가을",
+            presentation_groups=list(presentation_groups or []),
             styles=["미니멀"],
             colors=[],
             fits=[],
@@ -462,6 +464,9 @@ class ChatRecommendationPipelineTests(TestCase):
 
         request = item_retriever.retrieve.call_args.args[0]
         self.assertEqual(request.sources, (ItemSource.PRODUCT,))
+        golden_request = golden.retrieve.call_args.args[0]
+        self.assertEqual(golden_request.season, "가을")
+        self.assertFalse(golden_request.exposable_only)
         self.assertEqual(output.result.run, run)
         saved_item = output.result.compositions.get().items.get()
         self.assertEqual(saved_item.source_type, "PRODUCT")
@@ -470,6 +475,30 @@ class ChatRecommendationPipelineTests(TestCase):
             output.approved_payload["compositions"][0]["items"][0]["name"],
             "미니멀 셔츠",
         )
+
+    def test_explicit_presentation_group_overrides_profile_gender(self):
+        context = self._context()
+        context["profile"]["body"] = {"gender": "female"}
+
+        explicit = ChatRecommendationPipeline._presentation_groups(
+            context=context,
+            analysis=analysis(presentation_groups=["man"]),
+        )
+        profile_default = ChatRecommendationPipeline._presentation_groups(
+            context=context,
+            analysis=analysis(),
+        )
+
+        self.assertEqual(explicit, ("man", "unisex"))
+        self.assertEqual(profile_default, ("unisex", "woman"))
+
+    def test_turn_fit_condition_is_merged_into_retriever_preferences(self):
+        turn = analysis()
+        turn.conditions.fits = ["레귤러핏"]
+
+        pursuit = ChatRecommendationPipeline._merged_pursuit(self._context(), turn)
+
+        self.assertEqual(pursuit["preferred"]["fits"], ["레귤러핏"])
 
     def test_guest_cannot_run_wardrobe_mode_without_member_wardrobe(self):
         run = self._run(member=False, mode=ChatSession.Mode.WARDROBE_BASED)

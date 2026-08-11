@@ -1,0 +1,107 @@
+{
+  "schema_version": "body-fit-rules-v1",
+  "weights": {
+    "preference_match": 30,
+    "preference_avoid": -60,
+    "rule_prefer": 15,
+    "rule_avoid": -20,
+    "context_match": 10
+  },
+  "silhouette": {
+    "triangle": {
+      "prefer": [
+        {"category_large": "상의", "fit": "오버핏", "reason": "상체에 부피를 더해 어깨와 엉덩이 폭의 균형을 맞춘다"},
+        {"category_large": "하의", "fit": "레귤러핏", "reason": "하체 볼륨을 과도하게 키우지 않는다"}
+      ],
+      "avoid": [
+        {"category_large": "상의", "fit": "슬림핏", "reason": "상체가 좁아 보여 하체가 더 부각될 수 있다"},
+        {"category_large": "하의", "fit": "와이드핏", "reason": "하체 볼륨을 키울 수 있다", "hard": true}
+      ]
+    },
+    "inverted": {
+      "prefer": [
+        {"category_large": "상의", "fit": "레귤러핏", "reason": "어깨선을 과도하게 키우지 않는다"},
+        {"category_large": "하의", "fit": "와이드핏", "reason": "하체에 볼륨을 더해 균형을 맞춘다"}
+      ],
+      "avoid": [
+        {"category_large": "상의", "fit": "오버핏", "reason": "어깨 폭이 더 넓어 보일 수 있다"},
+        {"category_large": "하의", "fit": "슬림핏", "reason": "상하체 대비가 커질 수 있다", "hard": true}
+      ]
+    },
+    "round": {
+      "prefer": [
+        {"category_large": "상의", "length": "기본", "reason": "허리선을 가로로 끊지 않는다"},
+        {"category_large": "아우터", "length": "롱", "reason": "세로선을 살려 시선을 분산한다"}
+      ],
+      "avoid": [
+        {"category_large": "상의", "length": "크롭", "reason": "가로 분할선이 허리를 강조할 수 있다", "hard": true},
+        {"category_large": "상의", "fit": "슬림핏", "reason": "허리 라인이 강조될 수 있다"}
+      ]
+    },
+    "hourglass": {
+      "prefer": [
+        {"category_large": "상의", "fit": "레귤러핏", "reason": "균형 잡힌 실루엣을 자연스럽게 살린다"},
+        {"category_large": "상의", "fit": "슬림핏", "reason": "균형 잡힌 실루엣을 살린다"}
+      ],
+      "avoid": [
+        {"category_large": "상의", "fit": "오버핏", "reason": "허리선이 가려질 수 있다"}
+      ]
+    },
+    "rectangle": {
+      "prefer": [
+        {"category_large": "상의", "length": "크롭", "reason": "허리 위치를 만들어 상하 분할을 준다"},
+        {"category_large": "아우터", "fit": "레귤러핏", "reason": "직선 실루엣에 구조를 더한다"}
+      ],
+      "avoid": [
+        {"category_large": "상의", "fit": "오버핏", "reason": "직선적인 인상이 강해질 수 있다"}
+      ]
+    }
+  },
+  "bmi_band": {
+    "obese": {
+      "prefer": [
+        {"category_large": "상의", "fit": "레귤러핏", "reason": "과도하게 붙거나 뜨지 않는 핏이다"},
+        {"pattern": "무지", "reason": "시선을 분산시키지 않고 세로선을 살린다"}
+      ],
+      "avoid": [
+        {"category_large": "상의", "fit": "슬림핏", "reason": "몸에 지나치게 붙을 수 있다"},
+        {"pattern": "그래픽/로고", "reason": "상체 면적을 강조할 수 있다"}
+      ]
+    },
+    "overweight": {
+      "prefer": [
+        {"category_large": "상의", "fit": "레귤러핏", "reason": "과도한 부피감을 줄인다"}
+      ],
+      "avoid": []
+    },
+    "underweight": {
+      "prefer": [
+        {"category_large": "상의", "fit": "오버핏", "reason": "적당한 볼륨을 더한다"},
+        {"material": "니트", "reason": "두께감이 실루엣을 보완한다"}
+      ],
+      "avoid": [
+        {"category_large": "상의", "fit": "슬림핏", "reason": "마른 실루엣이 더 강조될 수 있다"}
+      ]
+    },
+    "normal": {"prefer": [], "avoid": []}
+  },
+  "ratios": {
+    "leg_volume": {
+      "thigh_dominant": {
+        "prefer": [
+          {"category_large": "하의", "fit": "레귤러핏", "reason": "허벅지에 붙지 않으면서 실루엣을 정리한다"}
+        ],
+        "avoid": [
+          {"category_large": "하의", "fit": "슬림핏", "reason": "허벅지 둘레가 강조될 수 있다"}
+        ]
+      },
+      "calf_dominant": {
+        "prefer": [
+          {"category_large": "하의", "length": "롱", "reason": "종아리를 덮어 다리선을 길게 만든다"}
+        ],
+        "avoid": []
+      },
+      "balanced": {"prefer": [], "avoid": []}
+    }
+  }
+}

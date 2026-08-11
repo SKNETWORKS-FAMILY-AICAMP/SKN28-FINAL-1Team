@@ -4,6 +4,7 @@ from types import SimpleNamespace
 
 from django.test import SimpleTestCase
 
+from apps.recommend.services.body_profile import ROUND, BodyProfile
 from apps.recommend.services.item_retriever import ItemSource
 from apps.recommend.services.outfit_types import (
     OutfitComposition,
@@ -266,6 +267,48 @@ class OutfitValidatorTests(SimpleTestCase):
         )
         self.assertEqual(issue.slot_id, "top")
         self.assertEqual(issue.source_id, "owned-top")
+
+    def test_hard_body_rule_rejects_final_composition(self) -> None:
+        item = _item(
+            "top",
+            ItemSource.GOLDENSET_ITEM,
+            "golden-crop",
+            payload={"fit": "레귤러핏", "length": "크롭"},
+        )
+
+        result = OutfitValidator(eligibility_gateway=FakeEligibilityGateway()).validate(
+            _composition(item),
+            context=ValidationContext(body=BodyProfile(silhouette=ROUND)),
+        )
+
+        self.assertFalse(result.valid)
+        self.assertIn(
+            "BODY_RULE_HARD_EXCLUDED",
+            _codes(result, ValidationSeverity.ERROR),
+        )
+
+    def test_soft_body_and_weather_rules_are_warnings(self) -> None:
+        item = _item(
+            "top",
+            ItemSource.GOLDENSET_ITEM,
+            "golden-knit",
+            payload={"fit": "슬림핏", "material": "니트"},
+        )
+
+        result = OutfitValidator(eligibility_gateway=FakeEligibilityGateway()).validate(
+            _composition(item),
+            context=ValidationContext(
+                body=BodyProfile(silhouette=ROUND),
+                weather={"temperature": 28},
+            ),
+        )
+
+        self.assertTrue(result.valid)
+        self.assertTrue(
+            {"BODY_FIT_WARNING", "WEATHER_RULE_WARNING"}.issubset(
+                _codes(result, ValidationSeverity.WARNING)
+            )
+        )
 
     def test_current_catalog_price_is_used_for_total_budget(self) -> None:
         item = _item(

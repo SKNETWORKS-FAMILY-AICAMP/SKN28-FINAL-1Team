@@ -20,6 +20,7 @@ from apps.recommend.models import (
 from apps.recommend.models import (
     OutfitComposition as OutfitCompositionModel,
 )
+from apps.recommend.services.body_profile import BodyProfile, build_profile
 from apps.recommend.services.item_retriever import (
     ItemCandidateRetriever,
     ItemRetrievalRequest,
@@ -33,6 +34,7 @@ from apps.recommend.services.retriever import (
     GoldenOutfitRetriever,
     OutfitCandidate,
     RetrievalRequest,
+    normalize_presentation_groups,
 )
 from apps.recommend.services.validator import OutfitValidator, ValidationContext
 from apps.recommend.services.wardrobe_composer import (
@@ -99,17 +101,26 @@ class ChatRecommendationPipeline:
             )
 
         pursuit = self._merged_pursuit(context, analysis)
+        body = build_profile(context.get("profile", {}).get("body"))
         retrieval = self.golden_retriever.retrieve(
             RetrievalRequest(
+                body=body,
                 pursuit=pursuit,
                 weather=context.get("weather"),
                 occasion=analysis.conditions.occasion,
+                season=analysis.conditions.season,
                 query_text=analysis.search_query or context["current_request"],
+                presentation_groups=self._presentation_groups(
+                    context=context,
+                    analysis=analysis,
+                ),
                 dataset_version=settings.CHAT_GOLDENSET_DATASET_VERSION,
                 dataset_statuses=settings.CHAT_GOLDENSET_DATASET_STATUSES,
                 limit=5,
                 hard_filter=True,
-                exposable_only=True,
+                # 골든 코디는 내부 조합 템플릿이다. 원본 이미지 노출 권한은
+                # 결과 표출·렌더링 경계에서 별도로 검사한다.
+                exposable_only=False,
             )
         )
         if not retrieval.candidates:
@@ -150,6 +161,7 @@ class ChatRecommendationPipeline:
                         user_id=user_id,
                         context=context,
                         analysis=analysis,
+                        body=body,
                     ),
                 )
                 if validation.valid:
@@ -218,6 +230,9 @@ class ChatRecommendationPipeline:
         preferred["colors"] = list(
             dict.fromkeys([*preferred.get("colors", []), *analysis.conditions.colors])
         )
+        preferred["fits"] = list(
+            dict.fromkeys([*preferred.get("fits", []), *analysis.conditions.fits])
+        )
         avoided["styles"] = list(
             dict.fromkeys(
                 [*avoided.get("styles", []), *analysis.conditions.avoided_styles]
@@ -231,14 +246,29 @@ class ChatRecommendationPipeline:
         return {"preferred": preferred, "avoided": avoided}
 
     @staticmethod
+    def _presentation_groups(
+        *,
+        context: dict[str, Any],
+        analysis: TurnAnalysis,
+    ) -> tuple[str, ...]:
+        explicit = analysis.conditions.presentation_groups
+        if explicit:
+            return normalize_presentation_groups(explicit)
+        gender = context.get("profile", {}).get("body") or {}
+        value = gender.get("gender") if isinstance(gender, dict) else None
+        return normalize_presentation_groups((str(value),)) if value else ()
+
+    @staticmethod
     def _validation_context(
         *,
         user_id: int | None,
         context: dict,
         analysis: TurnAnalysis,
+        body: BodyProfile,
     ) -> ValidationContext:
         return ValidationContext(
             user_id=user_id,
+            body=body,
             season=analysis.conditions.season,
             weather=context.get("weather"),
             occasion=analysis.conditions.occasion,

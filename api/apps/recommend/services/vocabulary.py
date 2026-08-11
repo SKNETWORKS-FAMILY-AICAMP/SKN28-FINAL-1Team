@@ -12,149 +12,179 @@ class TranslatedPreferences:
     unmapped: tuple[str, ...] = ()
 
 
-_CATEGORY_FIELDS = {
-    "seasons": "season",
-    "styles": "style",
-    "colors": "color",
-    "necklines": "neckline",
-    "top_fits": "fit",
-    "pants_fits": "fit",
-    "top_lengths": "length",
-    "pants_lengths": "length",
-    "skirt_lengths": "length",
-    "sleeves": "sleeve",
-    "skirt_types": "fit",
-}
-
-_LABELS = {
-    # 계절
+SEASON = {
     "spring": "봄",
     "summer": "여름",
     "autumn": "가을",
     "winter": "겨울",
-    # 스타일
+}
+STYLE = {
     "minimal": "미니멀",
     "casual": "캐주얼",
     "street": "스트릿",
-    "classic": "클래식",
     "lovely": "러블리",
     "chic": "시크",
     "sporty": "스포티",
     "vintage": "빈티지",
-    "romantic": "로맨틱",
-    "elegance": "엘레강스",
-    "retro": "레트로",
-    "modern": "모던",
-    "business": "비즈니스",
-    "business_casual": "비즈니스 캐주얼",
     "americasual": "아메카지",
-    "boyish": "보이시",
-    # 색상
+}
+COLOR = {
     "black": "블랙",
     "ivory": "아이보리",
     "white": "화이트",
     "gray": "그레이",
-    "charcoal": "차콜",
+    "charcoal": "그레이",
     "navy": "네이비",
     "beige": "베이지",
     "brown": "브라운",
-    "olive": "올리브",
+    "olive": "카키",
     "khaki": "카키",
-    "carmel": "카멜",
-    "denim_blue": "데님블루",
-    "light_pink": "라이트 핑크",
+    "carmel": "브라운",
+    "denim_blue": "블루",
+    "light_pink": "핑크",
     "pink": "핑크",
-    "rose": "로즈",
-    "mauve": "모브",
-    "peach": "피치",
-    "coral": "코럴",
-    "light_blue": "라이트 블루",
+    "rose": "핑크",
+    "mauve": "퍼플",
+    "peach": "오렌지",
+    "coral": "오렌지",
+    "light_blue": "스카이블루",
     "blue": "블루",
-    "mint": "민트",
+    "mint": "그린",
     "green": "그린",
     "red": "레드",
-    "burgundy": "버건디",
+    "burgundy": "레드",
     "yellow": "옐로우",
     "purple": "퍼플",
     "orange": "오렌지",
-    "silver": "실버",
-    "gold": "골드",
-    # 핏·기장·소매·넥라인
-    "normal": "노멀핏",
+    "silver": "그레이",
+    "gold": "베이지",
+}
+TOP_FIT = {
+    "normal": "레귤러핏",
     "slim": "슬림핏",
-    "loose": "루즈핏",
+    "loose": "오버핏",
     "oversized": "오버핏",
-    "wide": "와이드",
-    "jogger": "조거",
-    "straight": "스트레이트",
-    "skinny": "스키니",
-    "bootcut": "부츠컷",
-    "slacks": "슬랙스",
-    "semi_wide": "세미와이드",
+}
+PANTS_FIT = {
+    "wide": "와이드핏",
+    "semi_wide": "와이드핏",
+    "straight": "레귤러핏",
+    "slacks": "레귤러핏",
+    "bootcut": "레귤러핏",
+    "jogger": "레귤러핏",
+    "skinny": "슬림핏",
+}
+TOP_LENGTH = {
     "crop": "크롭",
-    "short": "숏",
-    "regular": "레귤러",
+    "regular": "기본",
+    "short": "기본",
     "long": "롱",
-    "short_shorts": "3부",
-    "shorts": "5부",
-    "seven_part": "7부",
-    "long_pants": "긴바지",
-    "mini": "미니",
-    "midi": "미디",
-    "maxi": "맥시",
-    "three_quarter": "7부소매",
+}
+SLEEVE = {
+    "long": "긴팔",
+    "short": "반팔",
     "sleeveless": "민소매",
-    "round": "라운드넥",
-    "vneck": "브이넥",
-    "uneck": "유넥",
-    "hood": "후드",
-    "square": "스퀘어넥",
-    "off_shoulder": "오프숄더",
-    "half_high": "반하이넥",
-    "one_shoulder": "원숄더",
-    "halter": "홀터넥",
-    "boat": "보트넥",
-    "heart": "하트넥",
-    "turtle": "터틀넥",
-    "high": "하이넥",
-    "half_zip": "반집업",
-    "aline": "A라인",
-    "pleats": "플리츠",
-    "flare": "플레어 라인",
-    "hline": "H라인",
-    "mermaid": "머메이드",
-    "balloon": "벌룬",
+}
+
+_TABLES = {
+    "seasons": SEASON,
+    "styles": STYLE,
+    "colors": COLOR,
+    "top_fits": TOP_FIT,
+    "pants_fits": PANTS_FIT,
+    "top_lengths": TOP_LENGTH,
+    "sleeves": SLEEVE,
+    "fits": {**TOP_FIT, **PANTS_FIT},
+}
+_CATEGORY_FIELDS = {
+    "seasons": "season",
+    "styles": "style",
+    "colors": "color",
+    "top_fits": "fit",
+    "pants_fits": "fit",
+    "top_lengths": "length",
+    "sleeves": "sleeve",
+    "fits": "fit",
+}
+_DIRECT_VALUES = {
+    "season": frozenset({"봄", "여름", "가을", "겨울", "간절기"}),
+    "style": frozenset(
+        {
+            "캐주얼",
+            "포멀",
+            "미니멀",
+            "스트릿",
+            "스포티",
+            "러블리",
+            "페미닌",
+            "시크",
+            "빈티지",
+            "아웃도어",
+            "댄디",
+            "아메카지",
+            "트렌디",
+            "리조트",
+            "베이직",
+        }
+    ),
+    "color": frozenset(
+        {
+            "화이트",
+            "블랙",
+            "그레이",
+            "네이비",
+            "블루",
+            "스카이블루",
+            "레드",
+            "핑크",
+            "오렌지",
+            "옐로우",
+            "그린",
+            "카키",
+            "브라운",
+            "베이지",
+            "아이보리",
+            "퍼플",
+            "멀티",
+        }
+    ),
+    "fit": frozenset({"오버핏", "레귤러핏", "슬림핏", "와이드핏"}),
+    "length": frozenset({"크롭", "기본", "롱"}),
+    "sleeve": frozenset({"반팔", "긴팔", "민소매"}),
 }
 
 
-def _variants(value: str) -> set[str]:
-    normalized = value.strip()
-    if not normalized:
-        return set()
-    variants = {normalized, normalized.lower()}
-    if label := _LABELS.get(normalized.lower()):
-        variants.add(label)
-    return variants
-
-
 def translate(payload: Any) -> TranslatedPreferences:
-    """preferred/avoided의 카테고리별 코드 배열을 Qdrant 필드 태그로 바꾼다."""
+    """선호/기피 코드를 실제 Qdrant taxonomy 값으로 변환한다."""
     if not isinstance(payload, dict):
         return TranslatedPreferences()
 
     tags: dict[str, set[str]] = {}
     unmapped: list[str] = []
-    for category, raw_values in payload.items():
-        field_name = _CATEGORY_FIELDS.get(str(category))
-        if field_name is None:
-            unmapped.append(str(category))
+    for raw_category, raw_values in payload.items():
+        category = str(raw_category)
+        field_name = _CATEGORY_FIELDS.get(category)
+        table = _TABLES.get(category)
+        if field_name is None or table is None:
+            unmapped.append(category)
             continue
         if not isinstance(raw_values, (list, tuple, set)):
-            unmapped.append(str(category))
+            unmapped.append(category)
             continue
+
         for raw_value in raw_values:
             if not isinstance(raw_value, str):
                 unmapped.append(f"{category}:{raw_value}")
                 continue
-            tags.setdefault(field_name, set()).update(_variants(raw_value))
+            value = raw_value.strip()
+            if not value:
+                continue
+            label = table.get(value.casefold())
+            if label is None and value in _DIRECT_VALUES[field_name]:
+                label = value
+            if label is None:
+                unmapped.append(f"{category}:{value}")
+                continue
+            tags.setdefault(field_name, set()).add(label)
+
     return TranslatedPreferences(tags=tags, unmapped=tuple(sorted(set(unmapped))))

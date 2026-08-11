@@ -29,6 +29,7 @@ class ChatLLMConfigurationError(ChatLLMError):
 class RecommendationConditions(BaseModel):
     occasion: str
     season: str
+    presentation_groups: list[Literal["woman", "man", "unisex"]]
     styles: list[str]
     colors: list[str]
     fits: list[str]
@@ -78,7 +79,11 @@ class LLMResult(Generic[T]):
 
 _ANALYZE_INSTRUCTIONS = """
 당신은 패션 추천 서비스의 요청 분석기다. 반드시 제공된 세션 모드를 유지한다.
-사용자 발화에서 스타일·계절·TPO·핏·예산·기피 조건만 구조화한다.
+사용자 발화에서 스타일·계절·TPO·핏·예산·기피 조건을 구조화한다.
+사용자가 성별 표현을 직접 요청한 경우에만 presentation_groups를 woman, man,
+unisex 중 하나 이상으로 채우고, 명시하지 않았으면 빈 배열로 둔다.
+스타일·색상·핏은 서비스 태그와 동일한 한국어 표준값을 사용한다. 예를 들어
+미니멀, 캐주얼 / 블랙, 레드 / 오버핏, 레귤러핏, 슬림핏, 와이드핏처럼 쓴다.
 추천에 필수인 조건이 모호하거나 이전 조건과 충돌할 때만 CLARIFY를 선택한다.
 사용자가 현재 세션과 다른 추천 모드를 명시하면 MODE_CHANGE를 선택한다.
 일상 대화나 추천과 무관한 질문에는 RESPOND를 선택한다.

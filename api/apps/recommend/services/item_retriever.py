@@ -277,8 +277,9 @@ class ItemCandidateRetriever:
         conditions = list(common_conditions)
         if request.dataset_version:
             conditions.append(_match_value("dataset_version", request.dataset_version))
-        if request.dataset_statuses:
-            conditions.append(_match_any("dataset_status", request.dataset_statuses))
+        # golenset_new의 아이템 포인트에는 dataset_status/status가 없고 상태는
+        # 부모 outfit_goldenset 포인트가 소유한다. 부모 코디를 승인 상태로
+        # 검색한 뒤 전달된 item_point_id이므로 여기서는 버전만 다시 검증한다.
         candidates = self._retrieve_collection(
             collection_name=GOLDEN_ITEM_COLLECTION,
             source_type=ItemSource.GOLDENSET_ITEM,
