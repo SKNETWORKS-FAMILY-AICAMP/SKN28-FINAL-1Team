@@ -34,9 +34,29 @@ import { useWardrobeItems } from '@/hooks/use-wardrobe';
 import { itemDisplayName } from '@/lib/wardrobeApi';
 import { Icon } from '@/components/icon';
 import { useAuth } from '@/state/auth';
-import { uploadJobs, useUploadCompleted, useUploadJobs } from '@/state/upload-jobs';
+import {
+  isBatchRunning,
+  type ImportBatchState,
+  uploadJobs,
+  useImportBatches,
+  useUploadCompleted,
+  useUploadJobs,
+  useWardrobeRevision,
+} from '@/state/upload-jobs';
 
 const INK = Editorial.ink;
+
+/**
+ * 가져오기 배치 한 줄 문구 — 진행 중엔 어디까지 왔는지, 끝나면 결과만.
+ * 실패 건수를 감추지 않는다. 몇 벌이 안 들어왔는지 알아야 다시 담을지 정할 수 있다.
+ */
+function batchMessage(b: ImportBatchState): string {
+  if (b.error) return b.error;
+  if (isBatchRunning(b)) return `가져온 옷 정리 중 · ${b.done + b.failed}/${b.total}장`;
+  if (!b.done) return '가져온 옷을 옷장에 담지 못했어요';
+  if (b.failed) return `${b.done}벌을 담았어요 · ${b.failed}장은 실패했어요`;
+  return `${b.done}벌을 옷장에 담았어요`;
+}
 
 /* 카드 크기는 창 폭에서 파생되므로 모듈 최상단이 아니라 컴포넌트 안에서 useBreakpoint() 로 구한다.
    (모듈 최상단에서 읽으면 리사이즈에 반응하지 않는다) */
@@ -110,6 +130,17 @@ export default function ClosetScreen() {
     reload();
     toast('옷장에 추가됐어요', { variant: 'success' });
   }, [completed, reload, toast]);
+
+  /* 가져오기(일괄 등록)는 옷이 여러 벌 들어온다 — 한 벌마다 토스트를 띄우면 시끄러우니
+     목록만 조용히 갱신하고, 진행 상황은 아래 줄이 대신 말해준다. */
+  const batches = useImportBatches();
+  const revision = useWardrobeRevision();
+  const seenRevision = useRef(revision);
+  useEffect(() => {
+    if (revision === seenRevision.current) return;
+    seenRevision.current = revision;
+    reload();
+  }, [revision, reload]);
 
   const myItems = useMemo<Card[]>(
     () =>
@@ -218,6 +249,43 @@ export default function ClosetScreen() {
             </Text>
           </View>
         ) : null}
+        {/* 가져오기 배치 — 진행 중에는 남은 장수, 끝나면 결과 요약(사용자가 닫는다) */}
+        {tab === 'mine'
+          ? batches.map((b) => {
+              const running = isBatchRunning(b);
+              const bad = !running && (b.done === 0 || b.failed > 0 || Boolean(b.error));
+              return (
+                <View
+                  key={b.batchId}
+                  style={[
+                    styles.jobStrip,
+                    bad && styles.jobStripFail,
+                    contentStyle(ContentMax.wide),
+                  ]}>
+                  {running ? (
+                    <ActivityIndicator color={INK} size="small" />
+                  ) : (
+                    <Icon
+                      name={bad ? 'exclamationmark.triangle' : 'checkmark'}
+                      tintColor={bad ? Editorial.danger : INK}
+                      size={15}
+                    />
+                  )}
+                  <Text style={[styles.jobText, bad && styles.jobTextFail]} numberOfLines={2}>
+                    {batchMessage(b)}
+                  </Text>
+                  {running ? null : (
+                    <Pressable
+                      hitSlop={10}
+                      onPress={() => uploadJobs.dismissBatch(b.batchId)}
+                      accessibilityLabel="닫기">
+                      <Icon name="xmark" tintColor={ink(0.45)} size={14} />
+                    </Pressable>
+                  )}
+                </View>
+              );
+            })
+          : null}
         {tab === 'mine'
           ? failed.map((j) => (
               <View key={j.key} style={[styles.jobStrip, styles.jobStripFail, contentStyle(ContentMax.wide)]}>
