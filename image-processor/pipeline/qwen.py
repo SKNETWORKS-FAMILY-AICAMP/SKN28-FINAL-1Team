@@ -36,6 +36,9 @@ def _prompt() -> str:
 category_large: {tx.CATEGORY_LARGE}
 category_small은 다음 짝만 허용: {json.dumps(tx.CATEGORY_SMALL, ensure_ascii=False)}
 season: {tx.SEASONS}; style(최대 2개): {tx.STYLES}; color: {tx.COLORS}
+season은 반드시 위 목록에서 1개 이상을 선택해 JSON 배열로 출력하세요.
+판단이 애매해도 소재·두께·노출 정도를 기준으로 가장 가능성 높은 계절을 고르세요.
+season에 빈 배열, 빈 문자열, null 또는 목록 밖 값을 출력하지 마세요.
 pattern: {tx.PATTERNS}; fit: {tx.FITS}; material: {tx.MATERIALS}
 sleeve: {tx.SLEEVES}; length: {tx.LENGTHS}; layer_role: {tx.LAYER_ROLES}
 필드: item_name, category_large, category_small, season, style, color, pattern,
@@ -59,17 +62,24 @@ def normalize_tags(raw: dict[str, Any]) -> dict[str, Any]:
     enum = lambda key, values: raw.get(key) if raw.get(key) in values else ""
     enum_list = lambda key, values: ([v for v in raw.get(key, []) if v in values]
                                     if isinstance(raw.get(key, []), list) else [])
+    season = raw.get("season") or []
+    usage = raw.get("usage") or []
+    if isinstance(season, str):
+        season = [season]
+    if isinstance(usage, str):
+        usage = [usage]
     tags = {
         "item_name": raw.get("item_name", "") if isinstance(raw.get("item_name", ""), str) else "",
         "category_large": enum("category_large", tx.CATEGORY_LARGE),
         "category_small": enum("category_small", tx.ALL_SMALL),
-        "season": enum_list("season", tx.SEASONS), "style": enum_list("style", tx.STYLES)[:2],
+        "season": [v for v in season if v in tx.SEASONS],
+        "style": enum_list("style", tx.STYLES)[:2],
         "color": enum("color", tx.COLORS), "pattern": enum("pattern", tx.PATTERNS),
         "fit": enum("fit", tx.FITS), "material": enum("material", tx.MATERIALS),
         "sleeve": enum("sleeve", tx.SLEEVES), "length": enum("length", tx.LENGTHS),
         "usage": [
             v.strip()
-            for v in (raw.get("usage") or [])
+            for v in usage
             if isinstance(v, str) and v.strip()
         ],
         "layer_role": enum("layer_role", tx.LAYER_ROLES),
