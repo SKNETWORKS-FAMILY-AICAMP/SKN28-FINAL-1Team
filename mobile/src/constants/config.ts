@@ -169,10 +169,28 @@ export const PursuitEndpoint = '/api/v1/users/me/pursuit/';
  * ⚠️ 새로 만들어진 아이템은 confirmed=false(사용자 확인 대기)이고 추천 검색에서 제외된다.
  *    사용자가 태그를 확인·수정한 뒤 PATCH 로 confirmed=true 를 보내야 옷장에 정식 편입된다.
  * ⚠️ 업로드 제한: 15MB 이하, jpeg/png/webp/heic.
+ *
+ * ── 일괄 등록(batches) — 인앱 브라우저로 긁어온 외부 상품 전용 ──
+ *   POST /api/v1/wardrobe/batches/  json { source, items[] } → 202 배치 접수
+ *         items[] 는 **이미지 주소**와 우리가 이미 아는 태그만 넣는다.
+ *         이미지는 서버가 직접 내려받아 S3 에 저장한다 — 앱이 파일을 올리지 않는다
+ *         (쇼핑몰 이미지는 핫링크 403 이 잦고, 앱에서 받아 다시 올리면 왕복이 두 배가 된다).
+ *   GET  /api/v1/wardrobe/batches/{batch_id}/  → 진행률 + job 별 상태
+ *   GET  /api/v1/wardrobe/batches/?status=&limit=&offset=  → 최근 배치 목록
+ *
+ * 서버 처리: 이미지 1장 = job 1개 → Qwen VL 태깅 워커(qwen-tag) → 콜백으로 아이템 생성.
+ * 앱이 함께 보낸 태그가 모델 결과보다 **우선**한다(구매목록의 상품명이 더 정확하므로).
+ *
+ * ⚠️ 한 번에 30건·합계 100MB 까지. 개별 이미지는 단건 업로드와 같은 15MB 제한.
+ * ⚠️ items 중 **하나라도** 값이 백엔드 taxonomy 와 어긋나면 요청 전체가 400 이다
+ *    (DRF ChoiceField). 확신 없는 태그는 아예 빼고 보낸다 — 그 자리는 모델이 채운다.
+ * ⚠️ 이미지 주소는 공개 http(s) 여야 한다. 사설망 주소·data: URL 은 서버가 거절한다.
  */
 export const WardrobeEndpoints = {
   uploads: '/api/v1/wardrobe/uploads/',
   uploadJob: (jobId: string) => `/api/v1/wardrobe/uploads/${jobId}/`,
   items: '/api/v1/wardrobe/items/',
   item: (itemId: string) => `/api/v1/wardrobe/items/${itemId}/`,
+  batches: '/api/v1/wardrobe/batches/',
+  batch: (batchId: string) => `/api/v1/wardrobe/batches/${batchId}/`,
 } as const;

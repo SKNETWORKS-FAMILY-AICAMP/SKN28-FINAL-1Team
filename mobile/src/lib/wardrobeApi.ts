@@ -185,6 +185,98 @@ export function getUploadJob(jobId: string): Promise<UploadJob> {
   return api.get<UploadJob>(WardrobeEndpoints.uploadJob(jobId));
 }
 
+/* ── 일괄 등록(batch) — 인앱 브라우저에서 긁어온 외부 상품 ────────────────
+   사진을 올리는 대신 **이미지 주소**를 넘긴다. 이미지는 서버가 받아 S3 에 저장하고
+   Qwen VL 태깅 워커를 태운다. 자세한 계약은 constants/config.ts 의 WardrobeEndpoints 주석. */
+
+/** 백엔드 WARDROBE_BATCH_MAX_ITEMS 기본값. 넘겨 보내면 요청 전체가 400 이다. */
+export const WARDROBE_BATCH_MAX_ITEMS = 30;
+
+/** URLField(max_length=2048) — 더 긴 주소는 400 을 부른다. */
+export const WARDROBE_BATCH_MAX_LINK_LENGTH = 2048;
+
+/** CharField(max_length=120) */
+export const WARDROBE_BATCH_MAX_NAME_LENGTH = 120;
+
+/**
+ * 일괄 등록에 넣는 상품 1건.
+ * image_link 만 필수고, 나머지는 **아는 것만** 넣는다 — 비워 둔 자리는 서버 모델이 채운다.
+ * 값이 taxonomy 와 어긋나면 배치 전체가 400 이므로 추측으로 채우지 말 것.
+ */
+export type WardrobeBatchItemInput = {
+  image_link: string;
+  item_name?: string;
+  category_large?: string;
+  category_small?: string;
+  season?: string[];
+  style?: string[];
+  color?: string;
+  pattern?: string;
+  fit?: string;
+  material?: string;
+  sleeve?: string;
+  length?: string;
+  usage?: string[];
+  layer_role?: string;
+  layer_order?: number | null;
+  confirmed?: boolean;
+};
+
+/** PARTIAL = 일부만 성공. DONE/PARTIAL/FAILED 가 종료 상태다. */
+export type WardrobeBatchStatus = 'PENDING' | 'PROCESSING' | 'DONE' | 'PARTIAL' | 'FAILED';
+
+/** 배치 안의 job 1개 = 이미지 1장. 단건 업로드 job 에 원본 파일명이 붙은 형태. */
+export type WardrobeBatchJob = UploadJob & {
+  job_id: string;
+  /** 이미지 주소에서 뽑은 원본 파일명 — 처리 중에는 이것 말고 보여줄 게 없다 */
+  file_name: string;
+};
+
+/** POST 응답(202). 접수 결과일 뿐 아직 아이템은 없다. */
+export type WardrobeBatchCreated = {
+  batch_id: string;
+  status: WardrobeBatchStatus;
+  total_count: number;
+  accepted: { job_id: string; image_link: string }[];
+  /** 이미지를 못 받았거나 큐 적재에 실패한 건. reason: image_fetch_failed | upload_failed | enqueue_failed */
+  rejected: { image_link: string; reason: string }[];
+  poll_url: string;
+  poll_after_ms: number;
+  estimated_seconds: number;
+};
+
+export type WardrobeBatch = {
+  batch_id: string;
+  status: WardrobeBatchStatus;
+  source: string;
+  counts: { total: number; pending: number; done: number; failed: number };
+  /** 0~1 */
+  progress: number;
+  /** null 이면 더 물어볼 필요 없다(종료) */
+  poll_after_ms: number | null;
+  created_at: string;
+  finished_at: string | null;
+  jobs: WardrobeBatchJob[];
+};
+
+/**
+ * 상품 여러 건을 한 번에 접수(202).
+ *
+ * source 는 등록 경로 꼬리표다(백엔드 정규식 `^[a-z][a-z0-9_-]{0,19}$`).
+ * 나중에 "어디서 들어온 옷인지"를 세는 데 쓰이므로 화면마다 다른 값을 넣지 말 것.
+ */
+export function createWardrobeBatch(
+  items: WardrobeBatchItemInput[],
+  source = 'in_app_browser',
+): Promise<WardrobeBatchCreated> {
+  return api.post<WardrobeBatchCreated>(WardrobeEndpoints.batches, { source, items });
+}
+
+/** 배치 진행 상태. 종료되면 poll_after_ms 가 null 로 온다. */
+export function getWardrobeBatch(batchId: string): Promise<WardrobeBatch> {
+  return api.get<WardrobeBatch>(WardrobeEndpoints.batch(batchId));
+}
+
 export function listWardrobeItems(query: WardrobeItemQuery = {}): Promise<WardrobeApiItem[]> {
   const params = new URLSearchParams();
   if (query.category_large) params.set('category_large', query.category_large);
