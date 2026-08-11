@@ -361,8 +361,32 @@ DAILY_LOOK_RENDER_RESOLUTION = os.getenv("DAILY_LOOK_RENDER_RESOLUTION", "1K")
 DAILY_LOOK_RENDER_TIMEOUT_SECONDS = int(
     os.getenv("DAILY_LOOK_RENDER_TIMEOUT_SECONDS", "180")
 )
-# 참조로 넘길 아이템 이미지 수. 늘리면 입력 토큰과 요금이 함께 오른다.
+# 참조로 넘길 아이템 이미지 수의 **상한**. 늘리면 입력 토큰과 요금이 함께 오른다.
+# 백엔드별 한도(OpenRouter 4장 / Gemini 14장)는 outfit_render가 따로 적용한다.
 DAILY_LOOK_RENDER_MAX_REFERENCES = int(
-    # 제공자(Alibaba) 한도가 4다. 더 키워도 outfit_render가 4로 자른다.
-    os.getenv("DAILY_LOOK_RENDER_MAX_REFERENCES", "4")
+    os.getenv("DAILY_LOOK_RENDER_MAX_REFERENCES", "8")
+)
+
+# ── 착용 이미지: 참조가 많을 때 쓰는 두 번째 백엔드 (Gemini) ──
+# qwen/qwen-image-3-pro는 제공자가 Alibaba 하나뿐이고 참조 이미지가 4장까지다.
+#
+#     Provider rejections: Alibaba: input_references:
+#     must have between 0 and 4 items
+#
+# 아이템이 다섯 이상인 코디는 무엇을 버려도 그 코디가 아니게 되므로, 그때는
+# 참조를 14장까지 받는 Gemini 3.1 Flash Image로 넘긴다. 1K 기준 장당 약 $0.067로
+# Qwen($0.04~)보다 비싸지만, 착용 이미지는 코디당 한 번 만들고 재사용한다.
+#
+# 이 값 **이상**의 참조가 필요하면 Gemini를 쓴다. 4로 낮추면 4장짜리 코디도
+# Gemini로 가고, 아주 크게 두면 항상 OpenRouter만 쓴다.
+DAILY_LOOK_RENDER_GEMINI_THRESHOLD = int(
+    os.getenv("DAILY_LOOK_RENDER_GEMINI_THRESHOLD", "5")
+)
+DAILY_LOOK_RENDER_GEMINI_MODEL = os.getenv(
+    "DAILY_LOOK_RENDER_GEMINI_MODEL", "gemini-3.1-flash-image"
+)
+# 이미지 모델은 generateContent가 아니라 Interactions API를 쓴다. 화면비·해상도를
+# response_format으로 직접 지정할 수 있어야 전신 9:16을 강제할 수 있다.
+DAILY_LOOK_RENDER_GEMINI_URL = os.getenv(
+    "DAILY_LOOK_RENDER_GEMINI_URL", f"{GEMINI_API_BASE_URL}/v1beta/interactions"
 )

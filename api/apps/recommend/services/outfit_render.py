@@ -36,14 +36,25 @@ logger = logging.getLogger(__name__)
 
 RENDER_OBJECT_NAME = "render_frontal.png"
 
-#: 참조 이미지 개수의 **제공자 상한**. 설정값과 무관하게 이 수를 넘길 수 없다.
+#: 백엔드 이름. 참조 장수만 보고 고른다.
+BACKEND_OPENROUTER = "openrouter"
+BACKEND_GEMINI = "gemini"
+
+#: OpenRouter(qwen/qwen-image-3-pro)의 참조 이미지 한도.
 #:
 #:     Provider rejections: Alibaba: input_references: must have between 0 and 4 items
 #:
-#: qwen/qwen-image-3-pro를 제공하는 곳이 Alibaba 하나뿐이라, 5장을 보내면 다른
-#: 제공자로 넘어가지 못하고 그대로 400이 된다. 설정 기본값만 낮추면 .env에
-#: 옛 값이 남은 서버에서 똑같이 재현되므로 코드에서도 막는다.
-PROVIDER_MAX_REFERENCES = 4
+#: 이 모델을 제공하는 곳이 Alibaba 하나뿐이라, 5장을 보내면 다른 제공자로
+#: 넘어가지 못하고 그대로 400이 된다. 설정값과 무관하게 코드에서 막는다 —
+#: 기본값만 낮추면 .env에 옛 값이 남은 서버에서 똑같이 재현된다.
+OPENROUTER_MAX_REFERENCES = 4
+
+#: Gemini 3 계열 이미지 모델이 섞을 수 있는 참조 이미지 수.
+#: 아이템이 다섯 이상인 코디는 이쪽으로 넘긴다.
+GEMINI_MAX_REFERENCES = 14
+
+#: 하위호환. 예전 이름을 쓰는 곳이 있으면 OpenRouter 한도를 가리킨다.
+PROVIDER_MAX_REFERENCES = OPENROUTER_MAX_REFERENCES
 
 #: 자리가 모자랄 때 무엇을 남길지. 실루엣을 만드는 옷이 먼저다 — 가방·액세서리를
 #: 남기려고 바지를 버리면 생성된 사진이 그 코디가 아니게 된다.
@@ -94,39 +105,70 @@ def render_key_for(item_s3_key: str) -> str:
     return posixpath.join(posixpath.dirname(item_s3_key), RENDER_OBJECT_NAME)
 
 
-def _reference_keys(items: list[dict[str, Any]]) -> list[str]:
-    """생성에 넣을 아이템 이미지 키. 개수가 넘치면 **중요도 순으로** 자른다.
+def _ordered_items(items: list[dict[str, Any]]) -> list[tuple[int, dict[str, Any]]]:
+    """이미지가 있는 아이템을 **중요도 순**으로 정렬한다 (원래 인덱스를 함께 들고).
 
-    예전에는 payload 순서대로 앞에서 잘랐다. 그 순서는 의미가 없어서, 아이템이
-    다섯인 코디에서 신발 대신 가방이 남는 식으로 결과가 흔들렸다. 게다가 상한이
-    5라 제공자 한도(4)를 넘겨 400으로 실패했다.
+    예전에는 payload 순서대로 앞에서 잘랐다. 그 순서에는 의미가 없어서, 아이템이
+    다섯인 코디에서 신발 대신 가방이 남는 식으로 결과가 흔들렸다.
     """
-    usable = [item for item in items if item.get("s3_key")]
-    limit = min(settings.DAILY_LOOK_RENDER_MAX_REFERENCES, PROVIDER_MAX_REFERENCES)
-
-    ordered = sorted(
-        enumerate(usable),
+    usable = [(i, item) for i, item in enumerate(items) if item.get("s3_key")]
+    return sorted(
+        usable,
         key=lambda pair: (
             _CATEGORY_PRIORITY.get(
                 str(pair[1].get("category_large") or ""), _CATEGORY_FALLBACK
             ),
-            pair[0],  # 같은 우선순위면 원래 순서를 지킨다 (결과가 매번 같도록)
+            pair[0],  # 같은 우선순위면 원래 순서 — 같은 코디가 매번 같은 조합이 되도록
         ),
     )
+
+
+def _take(ordered: list[tuple[int, dict[str, Any]]], limit: int) -> list[str]:
+    """중요도 상위 limit개를 고르되, **전달 순서는 원래 순서**로 되돌린다.
+
+    모델에 주는 순서가 결과에 영향을 주므로, 무엇을 버릴지 고르는 기준과 남은
+    것을 어떤 순서로 넘길지를 분리한다.
+    """
     chosen = ordered[:limit]
-    if len(usable) > limit:
+    if len(ordered) > limit:
         dropped = [
             str(item.get("item_name") or item.get("category_large") or "?")
             for _, item in ordered[limit:]
         ]
         logger.info(
             "착용 이미지 참조 %d장 중 %d장만 사용합니다 (제외: %s)",
-            len(usable), limit, ", ".join(dropped),
+            len(ordered), limit, ", ".join(dropped),
         )
-
-    # 화면에 담기는 순서는 원래 순서를 따른다. 모델에 주는 순서가 결과에
-    # 영향을 주므로, 잘라내기 기준과 전달 순서를 분리한다.
     return [str(item.get("s3_key")) for _, item in sorted(chosen, key=lambda p: p[0])]
+
+
+@dataclass(frozen=True)
+class RenderPlan:
+    """이 코디를 어느 백엔드로, 어떤 참조로 만들지."""
+
+    backend: str
+    keys: list[str]
+
+
+def plan_references(items: list[dict[str, Any]]) -> RenderPlan:
+    """참조 장수만 보고 백엔드를 고른다.
+
+    OpenRouter(Qwen)가 더 싸므로 기본이고, 참조가 그 한도(4장)를 넘는 코디만
+    Gemini로 보낸다. 아이템이 다섯 이상인 코디에서 넷만 남기면 무엇을 버려도
+    그 코디가 아니게 되기 때문이다 — 가방을 버려도 아우터가 빠지면 마찬가지다.
+    """
+    ordered = _ordered_items(items)
+    budget = max(0, settings.DAILY_LOOK_RENDER_MAX_REFERENCES)
+    ordered = ordered[:budget]
+
+    if len(ordered) >= settings.DAILY_LOOK_RENDER_GEMINI_THRESHOLD:
+        return RenderPlan(BACKEND_GEMINI, _take(ordered, GEMINI_MAX_REFERENCES))
+    return RenderPlan(BACKEND_OPENROUTER, _take(ordered, OPENROUTER_MAX_REFERENCES))
+
+
+def _reference_keys(items: list[dict[str, Any]]) -> list[str]:
+    """하위호환 래퍼. 새 코드는 plan_references()를 쓴다."""
+    return plan_references(items).keys
 
 
 def ensure_render(*, bucket: str, items: list[dict[str, Any]]) -> RenderRef | None:
@@ -135,7 +177,8 @@ def ensure_render(*, bucket: str, items: list[dict[str, Any]]) -> RenderRef | No
     Returns: 참조. 만들 수 없으면(참조 이미지 없음·기능 끔) None.
     Raises: RenderError — 생성을 시도했는데 실패한 경우.
     """
-    reference_keys = _reference_keys(items)
+    plan = plan_references(items)
+    reference_keys = plan.keys
     if not bucket or not reference_keys:
         logger.info("착용 이미지 생략: 버킷 또는 참조 아이템 이미지가 없습니다")
         return None
@@ -151,16 +194,88 @@ def ensure_render(*, bucket: str, items: list[dict[str, Any]]) -> RenderRef | No
         logger.info("착용 이미지 생성이 꺼져 있습니다 (DAILY_LOOK_RENDER_ENABLED=0)")
         return None
 
-    image = _generate(bucket=bucket, reference_keys=reference_keys)
+    image = _generate(
+        bucket=bucket, reference_keys=reference_keys, backend=plan.backend
+    )
     storage.put_bytes_for(bucket, key, image, "image/png")
     logger.info(
-        "착용 이미지 생성: s3://%s/%s (참조 %d장, %d bytes)",
-        bucket, key, len(reference_keys), len(image),
+        "착용 이미지 생성: s3://%s/%s (%s, 참조 %d장, %d bytes)",
+        bucket, key, plan.backend, len(reference_keys), len(image),
     )
     return RenderRef(bucket, key)
 
 
-def _generate(*, bucket: str, reference_keys: list[str]) -> bytes:
+def _generate(*, bucket: str, reference_keys: list[str], backend: str) -> bytes:
+    if backend == BACKEND_GEMINI:
+        return _generate_gemini(bucket=bucket, reference_keys=reference_keys)
+    return _generate_openrouter(bucket=bucket, reference_keys=reference_keys)
+
+
+def _load_references(bucket: str, reference_keys: list[str]) -> list[bytes]:
+    return [storage.download_for(bucket, key) for key in reference_keys]
+
+
+def _generate_gemini(*, bucket: str, reference_keys: list[str]) -> bytes:
+    """Gemini 3.1 Flash Image로 만든다. 참조를 14장까지 받는다.
+
+    OpenRouter가 아니라 Google API를 직접 부른다. 이미지 모델은 generateContent가
+    아니라 Interactions API를 쓰는데, 화면비·해상도를 response_format으로 지정할
+    수 있어야 전신 9:16을 강제할 수 있기 때문이다.
+    """
+    api_key = settings.GEMINI_API_KEY
+    if not api_key:
+        raise RenderError(
+            "GEMINI_API_KEY가 설정되지 않았습니다 "
+            "(참조 5장 이상인 코디는 Gemini로 만듭니다)."
+        )
+
+    payload_input: list[dict[str, Any]] = [{"type": "text", "text": PROMPT}]
+    for blob in _load_references(bucket, reference_keys):
+        payload_input.append(
+            {
+                "type": "image",
+                "mime_type": "image/png",
+                "data": base64.b64encode(blob).decode(),
+            }
+        )
+
+    try:
+        response = requests.post(
+            settings.DAILY_LOOK_RENDER_GEMINI_URL,
+            headers={"x-goog-api-key": api_key, "Content-Type": "application/json"},
+            json={
+                "model": settings.DAILY_LOOK_RENDER_GEMINI_MODEL,
+                "input": payload_input,
+                "response_format": {
+                    "type": "image",
+                    "mime_type": "image/png",
+                    "aspect_ratio": settings.DAILY_LOOK_RENDER_ASPECT_RATIO,
+                    "image_size": settings.DAILY_LOOK_RENDER_RESOLUTION,
+                },
+            },
+            timeout=settings.DAILY_LOOK_RENDER_TIMEOUT_SECONDS,
+        )
+    except requests.RequestException as exc:
+        raise RenderError(f"Gemini 이미지 생성 요청 실패: {exc}") from exc
+
+    if response.status_code >= 400:
+        raise RenderError(
+            f"Gemini 이미지 생성 실패 {response.status_code}: {response.text[:500]}"
+        )
+
+    payload = response.json()
+    if usage := (payload.get("usage") or payload.get("usageMetadata")):
+        logger.info("착용 이미지 usage(gemini): %s", usage)
+    image = _extract_image(payload)
+    if image is None:
+        raise RenderError(
+            "Gemini 응답에서 이미지를 찾지 못했습니다 "
+            f"(model={settings.DAILY_LOOK_RENDER_GEMINI_MODEL})"
+        )
+    return image
+
+
+def _generate_openrouter(*, bucket: str, reference_keys: list[str]) -> bytes:
     api_key = settings.OPENROUTER_API_KEY
     if not api_key:
         raise RenderError("OPENROUTER_API_KEY가 설정되지 않았습니다.")
@@ -172,11 +287,10 @@ def _generate(*, bucket: str, reference_keys: list[str]) -> bytes:
         {
             "type": "image_url",
             "image_url": {
-                "url": "data:image/png;base64,"
-                + base64.b64encode(storage.download_for(bucket, key)).decode()
+                "url": "data:image/png;base64," + base64.b64encode(blob).decode()
             },
         }
-        for key in reference_keys
+        for blob in _load_references(bucket, reference_keys)
     ]
 
     try:
@@ -224,9 +338,13 @@ def _extract_image(payload: dict[str, Any]) -> bytes | None:
 
         {"data": [{"b64_json": "...", "media_type": "image/png"}], "usage": {...}}
 
-    채팅 API 형태(messages.images / content의 data URL)도 함께 본다. 모델을
-    바꾸면 그쪽으로 응답이 오는 경우가 있어, 한쪽만 보면 조용히 실패한다.
+    채팅 API 형태(messages.images / content의 data URL)와 Gemini 형태도 함께 본다.
+    모델·백엔드를 바꾸면 응답 모양이 통째로 달라지는데, 한쪽만 보면 "이미지를
+    찾지 못했습니다"로 조용히 실패한다.
     """
+    if decoded := _extract_gemini_image(payload):
+        return decoded
+
     for row in payload.get("data") or []:
         if encoded := row.get("b64_json"):
             if decoded := _decode_base64(str(encoded)):
@@ -250,6 +368,35 @@ def _extract_image(payload: dict[str, Any]) -> bytes | None:
                 url = (part.get("image_url") or {}).get("url", "")
                 if decoded := _decode_data_url(str(url)):
                     return decoded
+    return None
+
+
+def _extract_gemini_image(payload: dict[str, Any]) -> bytes | None:
+    """Gemini 응답에서 이미지를 꺼낸다. 두 API 모양을 모두 본다.
+
+    Interactions API:
+        {"steps": [{"content": [{"type": "image", "data": "<b64>"}]}]}
+    generateContent:
+        {"candidates": [{"content": {"parts": [{"inlineData": {"data": "<b64>"}}]}}]}
+
+    문서가 Interactions 쪽을 표준으로 안내하지만 두 경로가 함께 살아 있어서,
+    엔드포인트 설정(DAILY_LOOK_RENDER_GEMINI_URL)만 바꿔도 동작하게 둔다.
+    """
+    for step in payload.get("steps") or []:
+        for part in step.get("content") or []:
+            if not isinstance(part, dict):
+                continue
+            if decoded := _decode_base64(str(part.get("data") or "")):
+                return decoded
+
+    for candidate in payload.get("candidates") or []:
+        content = candidate.get("content") or {}
+        for part in content.get("parts") or []:
+            if not isinstance(part, dict):
+                continue
+            inline = part.get("inlineData") or part.get("inline_data") or {}
+            if decoded := _decode_base64(str(inline.get("data") or "")):
+                return decoded
     return None
 
 

@@ -11,18 +11,23 @@ from __future__ import annotations
 
 import base64
 import unittest
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 from django.test import TestCase, override_settings
 
 from apps.recommend.services import outfit_render
 from apps.recommend.services.outfit_render import (
+    BACKEND_GEMINI,
+    BACKEND_OPENROUTER,
+    GEMINI_MAX_REFERENCES,
+    OPENROUTER_MAX_REFERENCES,
     RenderError,
     RenderRef,
     _extract_image,
-    PROVIDER_MAX_REFERENCES,
+    _generate,
     _reference_keys,
     ensure_render,
+    plan_references,
     render_key_for,
 )
 
@@ -64,19 +69,22 @@ class RenderKeyTests(unittest.TestCase):
         many = [{"s3_key": f"goldenset/derived/v1/095/item_{n:03d}.png"} for n in range(20)]
         self.assertEqual(len(_reference_keys(many)), 3)
 
-    @override_settings(DAILY_LOOK_RENDER_MAX_REFERENCES=99)
-    def test_provider_hard_limit_wins_over_settings(self) -> None:
-        """.env에 옛 값(5)이 남은 서버에서 그대로 재현되던 400을 막는다.
+    @override_settings(
+        DAILY_LOOK_RENDER_MAX_REFERENCES=99, DAILY_LOOK_RENDER_GEMINI_THRESHOLD=999
+    )
+    def test_openrouter_limit_wins_over_settings(self) -> None:
+        """.env에 큰 값이 남아 있어도 OpenRouter에는 4장을 넘기지 않는다.
 
             Provider rejections: Alibaba: input_references:
             must have between 0 and 4 items
 
         qwen/qwen-image-3-pro는 제공자가 Alibaba 하나뿐이라 5장을 보내면 다른
-        곳으로 넘어가지 못하고 요청 자체가 실패한다.
+        곳으로 넘어가지 못하고 요청 자체가 실패한다. (threshold를 아주 크게 둬
+        Gemini로 넘어가지 않는 상황을 만든다.)
         """
         many = [{"s3_key": f"k/item_{n:03d}.png"} for n in range(20)]
-        self.assertEqual(len(_reference_keys(many)), PROVIDER_MAX_REFERENCES)
-        self.assertLessEqual(PROVIDER_MAX_REFERENCES, 4)
+        self.assertEqual(len(_reference_keys(many)), OPENROUTER_MAX_REFERENCES)
+        self.assertLessEqual(OPENROUTER_MAX_REFERENCES, 4)
 
     @override_settings(DAILY_LOOK_RENDER_MAX_REFERENCES=4)
     def test_silhouette_survives_when_accessories_are_dropped(self) -> None:
@@ -240,7 +248,11 @@ class RequestShapeTests(TestCase):
             "status_code": 200,
             "json": lambda self: {"data": [{"b64_json": base64.b64encode(PNG).decode()}]},
         })()
-        outfit_render._generate(bucket=BUCKET, reference_keys=[ITEMS[0]["s3_key"]])
+        outfit_render._generate(
+                bucket=BUCKET,
+                reference_keys=[ITEMS[0]["s3_key"]],
+                backend=BACKEND_OPENROUTER,
+            )
 
         url = post.call_args.args[0]
         body = post.call_args.kwargs["json"]
@@ -264,6 +276,138 @@ class RequestShapeTests(TestCase):
             "json": lambda self: {},
         })()
         with self.assertRaises(RenderError) as ctx:
-            outfit_render._generate(bucket=BUCKET, reference_keys=[ITEMS[0]["s3_key"]])
+            outfit_render._generate(
+                bucket=BUCKET,
+                reference_keys=[ITEMS[0]["s3_key"]],
+                backend=BACKEND_OPENROUTER,
+            )
         self.assertIn("404", str(ctx.exception))
         self.assertIn("No endpoints found", str(ctx.exception))
+
+class BackendChoiceTests(unittest.TestCase):
+    """참조 장수만 보고 백엔드를 고른다.
+
+    OpenRouter(qwen/qwen-image-3-pro)가 더 싸서 기본이지만 참조가 4장까지다.
+
+        Provider rejections: Alibaba: input_references:
+        must have between 0 and 4 items
+
+    아이템이 다섯 이상인 코디는 넷만 남기면 무엇을 버려도 그 코디가 아니게
+    되므로, 그때만 참조 14장을 받는 Gemini로 넘긴다.
+    """
+
+    def _plan(self, count: int, **kwargs):
+        items = [{"s3_key": f"{n}.png", "category_large": "상의"} for n in range(count)]
+        return plan_references(items)
+
+    @override_settings(
+        DAILY_LOOK_RENDER_MAX_REFERENCES=8, DAILY_LOOK_RENDER_GEMINI_THRESHOLD=5
+    )
+    def test_four_or_fewer_stays_on_openrouter(self) -> None:
+        for count in (1, 2, 3, 4):
+            plan = self._plan(count)
+            self.assertEqual(plan.backend, BACKEND_OPENROUTER, f"{count}장")
+            self.assertEqual(len(plan.keys), count)
+
+    @override_settings(
+        DAILY_LOOK_RENDER_MAX_REFERENCES=8, DAILY_LOOK_RENDER_GEMINI_THRESHOLD=5
+    )
+    def test_five_or_more_switches_to_gemini(self) -> None:
+        for count in (5, 6, 8):
+            plan = self._plan(count)
+            self.assertEqual(plan.backend, BACKEND_GEMINI, f"{count}장")
+            # Gemini로 갔으면 버리지 않는다 — 넘긴 이유가 그거다.
+            self.assertEqual(len(plan.keys), count)
+
+    @override_settings(
+        DAILY_LOOK_RENDER_MAX_REFERENCES=99, DAILY_LOOK_RENDER_GEMINI_THRESHOLD=5
+    )
+    def test_gemini_has_its_own_ceiling(self) -> None:
+        plan = self._plan(30)
+        self.assertEqual(plan.backend, BACKEND_GEMINI)
+        self.assertEqual(len(plan.keys), GEMINI_MAX_REFERENCES)
+
+    @override_settings(
+        DAILY_LOOK_RENDER_MAX_REFERENCES=99, DAILY_LOOK_RENDER_GEMINI_THRESHOLD=999
+    )
+    def test_openrouter_never_receives_more_than_four(self) -> None:
+        """설정을 아무리 키워도 400을 다시 만들지 않는다."""
+        plan = self._plan(30)
+        self.assertEqual(plan.backend, BACKEND_OPENROUTER)
+        self.assertEqual(len(plan.keys), OPENROUTER_MAX_REFERENCES)
+
+    @override_settings(
+        DAILY_LOOK_RENDER_MAX_REFERENCES=8, DAILY_LOOK_RENDER_GEMINI_THRESHOLD=4
+    )
+    def test_threshold_is_configurable(self) -> None:
+        """'4장 이상은 Gemini'로 바꾸고 싶으면 env 한 줄이면 된다."""
+        self.assertEqual(self._plan(4).backend, BACKEND_GEMINI)
+        self.assertEqual(self._plan(3).backend, BACKEND_OPENROUTER)
+
+    @override_settings(
+        DAILY_LOOK_RENDER_MAX_REFERENCES=4, DAILY_LOOK_RENDER_GEMINI_THRESHOLD=5
+    )
+    def test_budget_is_an_operator_ceiling(self) -> None:
+        """MAX_REFERENCES는 '돈을 얼마까지 쓸까'다. 그 아래로 잘리면 Gemini로 가지 않는다."""
+        plan = self._plan(10)
+        self.assertEqual(plan.backend, BACKEND_OPENROUTER)
+        self.assertEqual(len(plan.keys), 4)
+
+
+class GeminiRequestTests(TestCase):
+    ITEMS = [
+        {"s3_key": f"k/item_{n}.png", "category_large": "상의"} for n in range(5)
+    ]
+
+    @override_settings(
+        GEMINI_API_KEY="test-key",
+        DAILY_LOOK_RENDER_MAX_REFERENCES=8,
+        DAILY_LOOK_RENDER_GEMINI_THRESHOLD=5,
+        DAILY_LOOK_RENDER_ASPECT_RATIO="9:16",
+        DAILY_LOOK_RENDER_RESOLUTION="1K",
+    )
+    @patch("apps.recommend.services.outfit_render.storage.download_for",
+           return_value=b"\x89PNG-fake")
+    @patch("apps.recommend.services.outfit_render.requests.post")
+    def test_five_items_go_to_gemini_with_all_references(self, post, _download) -> None:
+        post.return_value = Mock(
+            status_code=200,
+            json=Mock(return_value={
+                "steps": [{"type": "model_output", "content": [
+                    {"type": "image", "data": base64.b64encode(b"rendered").decode()}
+                ]}]
+            }),
+        )
+        plan = plan_references(self.ITEMS)
+        image = _generate(bucket=BUCKET, reference_keys=plan.keys, backend=plan.backend)
+
+        self.assertEqual(image, b"rendered")
+        body = post.call_args.kwargs["json"]
+        # OpenRouter가 아니라 Google API로 갔는가
+        self.assertIn("interactions", post.call_args.args[0])
+        self.assertEqual(post.call_args.kwargs["headers"]["x-goog-api-key"], "test-key")
+        # 다섯 장을 하나도 버리지 않았는가 (텍스트 1 + 이미지 5)
+        images = [p for p in body["input"] if p["type"] == "image"]
+        self.assertEqual(len(images), 5)
+        self.assertEqual(body["input"][0]["type"], "text")
+        # 전신이 담기려면 세로 비율이어야 한다
+        self.assertEqual(body["response_format"]["aspect_ratio"], "9:16")
+        self.assertEqual(body["response_format"]["image_size"], "1K")
+
+    @override_settings(GEMINI_API_KEY="")
+    def test_missing_key_is_reported_clearly(self) -> None:
+        with self.assertRaises(RenderError) as caught:
+            _generate(bucket=BUCKET, reference_keys=["a.png"], backend=BACKEND_GEMINI)
+        self.assertIn("GEMINI_API_KEY", str(caught.exception))
+
+    def test_generate_content_shape_is_also_understood(self) -> None:
+        """엔드포인트 설정만 바꿔도 동작하도록 두 응답 모양을 모두 읽는다."""
+        payload = {"candidates": [{"content": {"parts": [
+            {"inlineData": {"mimeType": "image/png",
+                            "data": base64.b64encode(b"alt").decode()}}
+        ]}}]}
+        self.assertEqual(_extract_image(payload), b"alt")
+
+    def test_openrouter_shape_still_works(self) -> None:
+        payload = {"data": [{"b64_json": base64.b64encode(b"legacy").decode()}]}
+        self.assertEqual(_extract_image(payload), b"legacy")
