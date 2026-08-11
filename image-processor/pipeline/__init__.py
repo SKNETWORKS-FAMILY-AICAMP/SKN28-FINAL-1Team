@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import logging
 import time
+from collections.abc import Sequence
 
 import config
 
@@ -49,11 +50,38 @@ class WardrobePipeline:
     def key(self) -> str:
         return self.generator.key
 
-    def process(self, image_bytes: bytes, mime: str) -> list[ProcessedItem]:
+    def process(
+        self,
+        image_bytes: bytes,
+        mime: str,
+        exclude_categories: Sequence[str] = (),
+    ) -> tuple[list[ProcessedItem], list[EnumeratedItem]]:
+        """(처리한 아이템, 대분류가 겹쳐 제외한 아이템)을 돌려준다.
+
+        exclude_categories는 룩북이 '입은 옷'으로 이미 지정해 둔 대분류다
+        (상의/하의 등, api의 wardrobe/services/jobs.py가 큐에 싣는다).
+        열거 **직후**에 거르는 것이 핵심이다 — 뒤쪽의 이미지 생성·태깅·임베딩이
+        아이템당 비용의 거의 전부이므로, 여기서 빼면 그 비용이 아예 들지 않는다.
+        """
+
+        excluded_labels = {c for c in exclude_categories if c}
+
         t0 = time.perf_counter()
         enumerated = self.enumerator.enumerate(image_bytes, mime)
         enum_sec = round(time.perf_counter() - t0, 3)
-        logger.info("열거 완료: %d개 아이템 (%.1fs)", len(enumerated), enum_sec)
+
+        excluded = [it for it in enumerated if it.category_large in excluded_labels]
+        if excluded_labels:
+            enumerated = [
+                it for it in enumerated if it.category_large not in excluded_labels
+            ]
+        logger.info(
+            "열거 완료: %d개 아이템 처리 / %d개 제외(%s) (%.1fs)",
+            len(enumerated),
+            len(excluded),
+            ", ".join(sorted(excluded_labels)) or "-",
+            enum_sec,
+        )
 
         results: list[ProcessedItem] = []
         for i, enum_item in enumerate(enumerated):
@@ -82,7 +110,7 @@ class WardrobePipeline:
                 logger.exception("아이템 %d(%s) 처리 실패", i, enum_item.label_ko)
                 item.error = f"{type(e).__name__}: {e}"
             results.append(item)
-        return results
+        return results, excluded
 
 
 # ── factory ──────────────────────────────────────────────

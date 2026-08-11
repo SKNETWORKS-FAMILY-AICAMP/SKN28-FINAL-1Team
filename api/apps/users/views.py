@@ -145,7 +145,7 @@ class BodyBasicView(APIView):
 
 
 class BodyDetailView(APIView):
-    """PATCH /api/v1/users/me/body/detail/ — 상세 둘레 수치 입력 (전부 선택)."""
+    """PATCH /api/v1/users/me/body/detail/ — 상세 치수·체형 지표 입력 (전부 선택)."""
 
     def patch(self, request):
         return _save_body_measurement(request, BodyDetailInputSerializer, partial=True)
@@ -154,9 +154,9 @@ class BodyDetailView(APIView):
 class BodyEstimateView(APIView):
     """POST /api/v1/users/me/body/estimate/ — 사진 없이 상세 신체치수 추정.
 
-    성별·키·몸무게만으로 상세 7개(가슴·허리·엉덩이·허벅지·종아리·팔뚝·어깨)를
-    추정해 저장하고 결과를 반환한다. 세 값을 본문에 담지 않으면 이미 저장된
-    기본 신체치수를 사용한다.
+    성별·키·몸무게만으로 상세 7개와 체형 지표 3개(목길이·허벅지/종아리 비율·
+    상하체 비율)를 추정해 저장하고 결과를 반환한다. 세 값을 본문에 담지 않으면
+    이미 저장된 기본 신체치수를 사용한다.
 
     추론이 수십 ms로 끝나므로 동기 처리한다(사진 경로는 VLM 호출이 수 초 걸려
     비동기). 응답의 결과 형식은 사진 경로 조회와 동일하다.
@@ -256,9 +256,10 @@ class BodyPhotoView(APIView):
             )
         except Exception as exc:
             logger.exception("사진 측정 시작 실패 (tx=%s)", tx.pk)
+            error_message = str(exc).strip() or "사진 측정을 시작하지 못했습니다."
             BodyPhotoTransaction.objects.filter(pk=tx.pk).update(
                 status=BodyPhotoTransaction.Status.FAILED,
-                error_message=f"측정을 시작하지 못했습니다: {exc}"[:500],
+                error_message=f"측정을 시작하지 못했습니다: {error_message}"[:500],
             )
             return Response(
                 {"detail": "사진을 처리하지 못했습니다. 다시 시도해주세요."},

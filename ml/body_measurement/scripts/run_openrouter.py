@@ -1,6 +1,7 @@
 import argparse
 import base64
 import json
+import math
 import os
 import re
 import time
@@ -19,17 +20,21 @@ REPO_ROOT = PROJECT_ROOT.parent.parent
 DATA_DIR = PROJECT_ROOT / "data" / "splits" / "vlm"
 PROMPTS_DIR = PROJECT_ROOT / "prompts"
 
-# 모델 선정 벤치마크 기준 부위. 응답에 없으면 실패로 본다.
+# 모델 선정 벤치마크에서 반드시 확인하는 핵심 부위. 현재 prompt는 전체 10개를 요청한다.
 CORE_TARGETS = ["chest", "waist", "hip"]
-# 서빙에서 실제로 쓰는 7개. SizeKorea 라벨이 있는 행은 7개 모두 채점할 수 있다.
-FULL_TARGETS = [*CORE_TARGETS, "thigh", "calf", "arm", "shoulder"]
+# 서빙에서 실제로 쓰는 7개 + 3개 비율 지표 전체
+RATIO_TARGETS = ["neck_length", "thigh_calf_ratio", "torso_leg_ratio"]
+FULL_TARGETS = [*CORE_TARGETS, "thigh", "calf", "arm", "shoulder", *RATIO_TARGETS]
+RATIO_RANGES = {
+    "thigh_calf_ratio": (0.8, 1.3),
+    "torso_leg_ratio": (0.6, 1.0),
+}
 
-# core: 모델 선정 벤치마크에 쓴 3개짜리. MODEL_EVALUATION_SUMMARY.md의 MAE를
-#       재현하려면 이걸 써야 하므로 기본값으로 둔다.
-# full: 서빙과 동일한 7개짜리. 서빙 성능을 재려면 이걸 쓴다.
+# core: 기존 모델 선정용 prompt 이름을 유지하지만 현재는 10개를 요청한다.
+# full: 서빙과 동일한 10개 prompt.
 PROMPT_SETS = {
     "core": {
-        "targets": CORE_TARGETS,
+        "targets": FULL_TARGETS,
         "prompt": PROMPTS_DIR / "body_measurement_prompt.j2",
         "schema": PROMPTS_DIR / "body_measurement_schema.json",
     },
@@ -50,13 +55,29 @@ TRAILING_METADATA_COLUMNS = [
 ]
 
 
+def get_column_names(target: str) -> tuple[str, str]:
+    if target in RATIO_TARGETS:
+        if target == "neck_length":
+            return f"predicted_{target}_cm", f"{target}_absolute_error_cm"
+        else:
+            return f"predicted_{target}", f"{target}_absolute_error"
+    return f"predicted_{target}_cm", f"{target}_absolute_error_cm"
+
+
 def measurement_columns() -> list[str]:
     """예측값 → 정답값 → 오차 순으로 보이도록 앞쪽 열 순서를 만든다."""
+    pred_cols = []
+    err_cols = []
+    for target in FULL_TARGETS:
+        p_col, e_col = get_column_names(target)
+        pred_cols.append(p_col)
+        err_cols.append(e_col)
+        
     return [
         "subject_id",
-        *[f"predicted_{target}_cm" for target in FULL_TARGETS],
+        *pred_cols,
         *FULL_TARGETS,
-        *[f"{target}_absolute_error_cm" for target in FULL_TARGETS],
+        *err_cols,
     ]
 
 
@@ -71,7 +92,6 @@ def order_result_columns(dataframe: pd.DataFrame) -> pd.DataFrame:
         if column not in preferred and column not in trailing
     ]
     return dataframe[preferred + middle + trailing]
-
 
 
 def load_image_part(image_path: Path) -> dict:
@@ -95,9 +115,6 @@ def render_prompt(row: pd.Series, prompt_path: Path) -> str:
 
 def parse_prediction(content: str, targets: list[str]) -> dict:
     """응답 JSON에서 부위별 수치를 꺼낸다.
-
-    CORE_TARGETS는 채점에 쓰므로 없으면 실패 처리한다. 나머지 부위는 모델이
-    빠뜨려도 실패로 보지 않고 빈 값으로 남긴다 — 채점 대상이 아니기 때문이다.
     """
     cleaned = re.sub(r"^```(?:json)?\s*", "", content.strip(), flags=re.IGNORECASE)
     cleaned = re.sub(r"\s*```$", "", cleaned)
@@ -107,7 +124,24 @@ def parse_prediction(content: str, targets: list[str]) -> dict:
     if missing_keys:
         raise ValueError(f"응답에 필수 키가 없습니다: {missing_keys}")
 
-    return {target: prediction.get(f"{target}_cm") for target in targets}
+    result = {}
+    for target in targets:
+        if target.endswith("_ratio"):
+            value = prediction.get(target)
+            try:
+                numeric = float(value)
+            except (TypeError, ValueError):
+                result[target] = None
+                continue
+            minimum, maximum = RATIO_RANGES[target]
+            result[target] = (
+                round(numeric, 3)
+                if math.isfinite(numeric) and minimum <= numeric <= maximum
+                else None
+            )
+        else:
+            result[target] = prediction.get(f"{target}_cm")
+    return result
 
 
 def request_prediction(
@@ -167,8 +201,8 @@ def main() -> None:
         choices=sorted(PROMPT_SETS),
         default="core",
         help=(
-            "core=가슴·허리·엉덩이 3개만 질문 (모델 선정 벤치마크 재현용, 기본값). "
-            "full=서빙과 동일하게 7개 전부 질문."
+            "core=10개 질문 (기존 모델 선정용 prompt, 기본값). "
+            "full=서빙과 동일하게 측정값 7개와 체형 지표 3개, 총 10개 질문."
         ),
     )
     args = parser.parse_args()
@@ -223,7 +257,7 @@ def main() -> None:
             "run_name": args.run_name,
             "prompt_set": args.prompt_set,
             "status": "success",
-            **{f"predicted_{target}_cm": None for target in targets},
+            **{get_column_names(target)[0]: None for target in targets},
             "latency_seconds": None,
             "prompt_tokens": None,
             "completion_tokens": None,
@@ -254,7 +288,8 @@ def main() -> None:
             prediction = parse_prediction(content, targets)
             usage = response_data.get("usage", {})
             for target in targets:
-                record[f"predicted_{target}_cm"] = prediction[target]
+                p_col, _ = get_column_names(target)
+                record[p_col] = prediction[target]
             record["prompt_tokens"] = usage.get("prompt_tokens")
             record["completion_tokens"] = usage.get("completion_tokens")
             record["total_tokens"] = usage.get("total_tokens")
@@ -282,7 +317,8 @@ def main() -> None:
         success = frame[frame["status"] == "success"]
         print(f"\n추가 부위 응답률 (성공 {len(success)}건 기준):")
         for target in extra_targets:
-            filled = success[f"predicted_{target}_cm"].notna().sum()
+            p_col, _ = get_column_names(target)
+            filled = success[p_col].notna().sum()
             print(f"  {target:9s} {filled}/{len(success)}")
 
 
