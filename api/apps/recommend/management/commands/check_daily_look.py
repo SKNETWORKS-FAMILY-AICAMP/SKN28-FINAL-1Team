@@ -89,20 +89,20 @@ class Command(BaseCommand):
         """컨테이너 안의 코드가 최신인지. 이미지가 옛 코드면 여기서 걸린다."""
         import inspect
 
-        from apps.users import views as user_views
+        from apps.home import views as home_views
 
-        if not hasattr(user_views, "_kick_off_daily_look"):
-            self.stdout.write(FAIL + "users/views.py에 로그인 훅이 없습니다.")
+        if not hasattr(home_views, "_kick_off_daily_look"):
+            self.stdout.write(FAIL + "home/views.py에 홈 진입 훅이 없습니다.")
             self.stdout.write(
                 "        → 이미지가 옛 코드입니다: "
                 "docker compose --profile api build api migrate && up -d api"
             )
             return False
-        source = inspect.getsource(user_views.SocialLoginView.post)
+        source = inspect.getsource(home_views.HomeView.get)
         if "_kick_off_daily_look" not in source:
-            self.stdout.write(FAIL + "로그인 뷰가 훅을 호출하지 않습니다.")
+            self.stdout.write(FAIL + "홈 뷰가 훅을 호출하지 않습니다.")
             return False
-        self.stdout.write(OK + "로그인 훅이 SocialLoginView.post 안에 있습니다.")
+        self.stdout.write(OK + "홈 진입 훅이 HomeView.get 안에 있습니다.")
         return True
 
     # ── 2 ──────────────────────────────────────────────
