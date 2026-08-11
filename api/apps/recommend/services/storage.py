@@ -15,6 +15,7 @@ from functools import lru_cache
 
 import boto3
 from botocore.config import Config
+from botocore.exceptions import ClientError
 
 
 def bucket() -> str:
@@ -116,3 +117,48 @@ def download_for(bucket_name: str, key: str, *, max_bytes: int | None = None) ->
     if max_bytes is not None and len(data) > max_bytes:
         raise ValueError(f"S3 이미지가 허용 크기 {max_bytes} bytes를 초과합니다.")
     return data
+
+
+def put_bytes_for(
+    bucket_name: str,
+    key: str,
+    data: bytes,
+    content_type: str,
+) -> None:
+    """명시한 비공개 버킷에 생성 이미지 바이트를 저장한다."""
+    if not bucket_name or not key:
+        raise ValueError("S3 bucket과 key가 모두 필요합니다.")
+    if not data:
+        raise ValueError("저장할 이미지 데이터가 필요합니다.")
+    _client().put_object(
+        Bucket=bucket_name,
+        Key=key,
+        Body=data,
+        ContentType=content_type,
+        CacheControl="private, max-age=31536000, immutable",
+    )
+
+
+def exists_for(bucket_name: str, key: str) -> bool:
+    """명시한 S3 객체의 존재 여부를 확인한다."""
+    if not bucket_name or not key:
+        return False
+    try:
+        _client().head_object(Bucket=bucket_name, Key=key)
+    except ClientError as exc:
+        code = str(exc.response.get("Error", {}).get("Code", ""))
+        if code in {"404", "NoSuchKey", "NotFound"}:
+            return False
+        raise
+    return True
+
+
+def presigned_get_for(bucket_name: str, key: str, *, ttl: int) -> str:
+    """소유권 확인이 끝난 결과 객체에 한해서 짧은 GET URL을 발급한다."""
+    if not bucket_name or not key:
+        raise ValueError("S3 bucket과 key가 모두 필요합니다.")
+    return _client().generate_presigned_url(
+        "get_object",
+        Params={"Bucket": bucket_name, "Key": key},
+        ExpiresIn=ttl,
+    )

@@ -1,5 +1,6 @@
 from django.conf import settings
 from django.core.files.uploadedfile import UploadedFile
+from django.urls import reverse
 from drf_spectacular.utils import extend_schema_field
 from rest_framework import serializers
 
@@ -7,6 +8,7 @@ from .models import (
     OutfitAnalysis,
     OutfitComposition,
     OutfitCompositionItem,
+    OutfitRenderJob,
     RecommendationFeedback,
     RecommendationResult,
 )
@@ -467,6 +469,61 @@ class RecommendationCardSerializer(serializers.ModelSerializer):
         except RecommendationFeedback.DoesNotExist:
             return None
         return RecommendationFeedbackSerializer(feedback).data
+
+
+class OutfitRenderJobSerializer(serializers.ModelSerializer):
+    job_id = serializers.UUIDField(source="id", read_only=True)
+    card_id = serializers.UUIDField(source="composition_id", read_only=True)
+    image_url = serializers.SerializerMethodField()
+    events_url = serializers.SerializerMethodField()
+    error = serializers.SerializerMethodField()
+
+    class Meta:
+        model = OutfitRenderJob
+        fields = [
+            "job_id",
+            "card_id",
+            "status",
+            "cache_hit",
+            "image_url",
+            "output_media_type",
+            "output_bytes",
+            "provider",
+            "model",
+            "prompt_version",
+            "reference_count",
+            "attempts",
+            "error",
+            "events_url",
+            "enqueued_at",
+            "started_at",
+            "finished_at",
+            "created_at",
+            "updated_at",
+        ]
+
+    def get_image_url(self, obj: OutfitRenderJob) -> str | None:
+        if (
+            obj.status != OutfitRenderJob.Status.SUCCEEDED
+            or not obj.output_s3_bucket
+            or not obj.output_s3_key
+        ):
+            return None
+        return storage.presigned_get_for(
+            obj.output_s3_bucket,
+            obj.output_s3_key,
+            ttl=settings.OUTFIT_RENDER_PRESIGNED_GET_TTL_SECONDS,
+        )
+
+    def get_events_url(self, obj: OutfitRenderJob) -> str:
+        path = reverse("recommend:outfit-render-events", args=[obj.pk])
+        request = self.context.get("request")
+        return request.build_absolute_uri(path) if request is not None else path
+
+    def get_error(self, obj: OutfitRenderJob) -> dict | None:
+        if obj.status != OutfitRenderJob.Status.FAILED:
+            return None
+        return {"code": obj.error_code, "message": obj.error_message}
 
 
 class RecommendationHistoryItemSerializer(serializers.ModelSerializer):

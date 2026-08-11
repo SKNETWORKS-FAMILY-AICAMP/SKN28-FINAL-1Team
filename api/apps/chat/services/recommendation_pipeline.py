@@ -20,6 +20,7 @@ from apps.recommend.models import (
 from apps.recommend.models import (
     OutfitComposition as OutfitCompositionModel,
 )
+from apps.recommend.services import render_jobs
 from apps.recommend.services.body_profile import BodyProfile, build_profile
 from apps.recommend.services.item_retriever import (
     ItemCandidateRetriever,
@@ -88,6 +89,7 @@ class ChatRecommendationPipeline:
     ) -> RecommendationPipelineResult:
         existing = RecommendationResult.objects.filter(run=run).first()
         if existing is not None:
+            transaction.on_commit(lambda: render_jobs.schedule_result(existing.pk))
             return RecommendationPipelineResult(
                 result=existing,
                 approved_payload=self._approved_payload(existing),
@@ -360,6 +362,8 @@ class ChatRecommendationPipeline:
                     reasons=list(item.reasons),
                     item_snapshot=item.payload,
                 )
+        result_id = result.pk
+        transaction.on_commit(lambda: render_jobs.schedule_result(result_id))
         return result
 
     @staticmethod

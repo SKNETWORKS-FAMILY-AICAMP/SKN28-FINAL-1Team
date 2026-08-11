@@ -571,6 +571,164 @@ class OutfitCompositionItem(models.Model):
         return f"outfit-item {self.composition_id}:{self.slot} ({self.source_type})"
 
 
+class OutfitRenderJob(models.Model):
+    """검증된 추천 카드 한 장의 비동기 착용 이미지 생성 상태."""
+
+    class Status(models.TextChoices):
+        QUEUED = "QUEUED", "생성 대기"
+        PROCESSING = "PROCESSING", "생성 중"
+        SUCCEEDED = "SUCCEEDED", "생성 완료"
+        FAILED = "FAILED", "생성 실패"
+
+    TERMINAL_STATUSES = (Status.SUCCEEDED, Status.FAILED)
+
+    id = models.UUIDField(
+        primary_key=True,
+        default=uuid.uuid4,
+        editable=False,
+        db_comment="코디 이미지 생성 작업 UUID (큐·SSE 공통 추적 ID)",
+    )
+    composition = models.OneToOneField(
+        OutfitComposition,
+        on_delete=models.CASCADE,
+        related_name="render_job",
+        db_comment="이미지를 생성할 검증 완료 코디 조합 FK (outfit_composition.id)",
+    )
+    status = models.CharField(
+        max_length=16,
+        choices=Status.choices,
+        default=Status.QUEUED,
+        db_comment="이미지 생성 상태 (QUEUED/PROCESSING/SUCCEEDED/FAILED)",
+    )
+    composition_fingerprint = models.CharField(
+        max_length=64,
+        db_comment="작업 접수 당시 코디 조합 SHA-256 지문",
+    )
+    render_fingerprint = models.CharField(
+        max_length=64,
+        db_comment="코디 지문·모델·프롬프트·출력 설정을 합친 렌더 캐시 SHA-256 지문",
+    )
+    output_s3_bucket = models.CharField(
+        max_length=255,
+        blank=True,
+        default="",
+        db_comment="생성 결과를 보관한 비공개 S3 버킷 (미완료이면 빈 문자열)",
+    )
+    output_s3_key = models.CharField(
+        max_length=512,
+        blank=True,
+        default="",
+        db_comment="생성 결과 S3 객체 키 (외부 API에는 직접 노출하지 않음)",
+    )
+    output_media_type = models.CharField(
+        max_length=50,
+        blank=True,
+        default="",
+        db_comment="생성 결과 MIME 타입 (image/jpeg/image/png/image/webp, 미완료이면 빈 문자열)",
+    )
+    output_bytes = models.PositiveIntegerField(
+        null=True,
+        blank=True,
+        db_comment="생성 결과 이미지 크기 (bytes, 미완료이면 NULL)",
+    )
+    provider = models.CharField(
+        max_length=32,
+        blank=True,
+        default="",
+        db_comment="이미지 생성 제공자 (예: openrouter, 캐시 결과도 원 생성 제공자 기록)",
+    )
+    model = models.CharField(
+        max_length=128,
+        blank=True,
+        default="",
+        db_comment="이미지 생성 모델명 (예: qwen/qwen-image-3-pro)",
+    )
+    prompt_version = models.CharField(
+        max_length=64,
+        blank=True,
+        default="",
+        db_comment="이미지 생성 프롬프트 버전",
+    )
+    reference_count = models.PositiveSmallIntegerField(
+        default=0,
+        db_comment="최종 이미지 생성에 사용한 참조 아이템 이미지 수",
+    )
+    usage = models.JSONField(
+        default=dict,
+        blank=True,
+        db_comment="이미지 제공자가 반환한 사용량·비용 JSON",
+    )
+    cache_hit = models.BooleanField(
+        default=False,
+        db_comment="동일 렌더 지문의 기존 생성 결과를 재사용했는지 여부",
+    )
+    attempts = models.PositiveSmallIntegerField(
+        default=0,
+        db_comment="이미지 워커 처리 시도 횟수 (재시도 포함)",
+    )
+    error_code = models.CharField(
+        max_length=64,
+        blank=True,
+        default="",
+        db_comment="실패 오류 코드 (성공 또는 대기 상태이면 빈 문자열)",
+    )
+    error_message = models.CharField(
+        max_length=500,
+        blank=True,
+        default="",
+        db_comment="사용자에게 노출 가능한 실패 메시지 (성공 또는 대기 상태이면 빈 문자열)",
+    )
+    enqueued_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        db_comment="Redis pending 큐 적재 확인 시각 (적재 확인 전이면 NULL)",
+    )
+    started_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        db_comment="이미지 워커가 마지막 처리를 시작한 시각",
+    )
+    finished_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        db_comment="이미지 생성 성공 또는 최종 실패 시각",
+    )
+    created_at = models.DateTimeField(
+        auto_now_add=True,
+        db_comment="이미지 생성 작업 최초 접수 시각",
+    )
+    updated_at = models.DateTimeField(
+        auto_now=True,
+        db_comment="이미지 생성 작업 마지막 수정 시각",
+    )
+
+    class Meta:
+        db_table = "outfit_render_job"
+        db_table_comment = (
+            "추천 카드별 비동기 착용 이미지 생성 상태·비공개 S3 결과·캐시 근거"
+        )
+        ordering = ["-created_at"]
+        indexes = [
+            models.Index(
+                fields=["status", "created_at"],
+                name="ix_outfit_render_status",
+            ),
+            models.Index(
+                fields=["render_fingerprint"],
+                name="ix_outfit_render_fprint",
+            ),
+        ]
+        constraints = [
+            models.CheckConstraint(
+                condition=Q(status__in=["QUEUED", "PROCESSING", "SUCCEEDED", "FAILED"]),
+                name="ck_outfit_render_status",
+            ),
+        ]
+
+    def __str__(self) -> str:
+        return f"outfit-render {self.id} ({self.status})"
+
+
 class RecommendationFeedback(models.Model):
     """사용자가 추천 카드 하나에 남긴 최신 평가.
 

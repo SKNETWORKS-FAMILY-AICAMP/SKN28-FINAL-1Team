@@ -5,7 +5,9 @@ from .views import (
     OutfitAnalysisDetailView,
     OutfitAnalysisHistoryView,
     OutfitAnalysisView,
+    OutfitRenderEventStreamView,
     RecommendationCardDetailView,
+    RecommendationCardRenderView,
     RecommendationFeedbackView,
     RecommendationHistoryView,
     RecommendationResultDetailView,
@@ -33,6 +35,16 @@ urlpatterns = [
         "recommendations/<uuid:result_id>/cards/<uuid:card_id>/feedback/",
         RecommendationFeedbackView.as_view(),
         name="recommendation-feedback",
+    ),
+    path(
+        "recommendations/<uuid:result_id>/cards/<uuid:card_id>/render/",
+        RecommendationCardRenderView.as_view(),
+        name="recommendation-card-render",
+    ),
+    path(
+        "recommendations/render-jobs/<uuid:job_id>/events/",
+        OutfitRenderEventStreamView.as_view(),
+        name="outfit-render-events",
     ),
     path("outfits/analyze/", OutfitAnalysisView.as_view(), name="outfit-analysis"),
     path(
