@@ -34,7 +34,13 @@ import {
   type ProbeHit,
 } from '@/lib/import-inject';
 import { classifyProduct } from '@/lib/classifyProduct';
-import { draftItem } from '@/state/draft-item';
+import {
+  WARDROBE_BATCH_MAX_ITEMS,
+  WARDROBE_BATCH_MAX_LINK_LENGTH,
+  WARDROBE_BATCH_MAX_NAME_LENGTH,
+  type WardrobeBatchItemInput,
+} from '@/lib/wardrobeApi';
+import { uploadJobs } from '@/state/upload-jobs';
 
 /**
  * 옷장 가져오기 — 인앱 브라우저.
@@ -44,8 +50,11 @@ import { draftItem } from '@/state/draft-item';
  *   ② 사용자가 **직접** 로그인 (우리는 비밀번호를 보지도 저장하지도 않는다. 세션 쿠키만 WebView 에 남는다)
  *   ③ 로그인이 끝나면 구매목록으로 자동 복귀 — 엉뚱한 페이지에 떨어지면 한 번 더 밀어준다
  *   ④ "구매목록 불러오기" → 스크래퍼 주입 → postMessage 로 상품 목록 수신
+ *   ⑤ 옷으로 보이는 것만 골라 **이미지 주소 + 상품명**을 일괄 등록 API 로 넘긴다.
+ *      이미지 다운로드·누끼·태깅은 전부 서버 몫이고, 앱은 진행 화면에서 결과만 기다린다.
  *
  * 방식②(아무 상품 페이지에서 큰 이미지 후보 뽑기)는 "자동스캔" 버튼으로 그대로 유지한다.
+ * 이쪽은 상품명이 없어 분류를 못 붙이지만, 서버 모델이 사진만으로 태그를 채운다.
  */
 
 /** 스크래핑이 이 시간 안에 안 끝나면 실패로 본다(스크롤 루프 최악 ~14초 + 여유) */
@@ -53,6 +62,28 @@ const SCAN_TIMEOUT_MS = 25_000;
 
 type Phase = 'login' | 'orders' | 'other';
 type ResultMode = 'orders' | 'images' | null;
+
+/**
+ * 상품 1건 → 일괄 등록 payload.
+ *
+ * 서버가 받을 수 없는 주소(공개 http(s) 가 아니거나 너무 긴 것)는 여기서 걸러 null 로 만든다.
+ * 한 건이라도 형식이 어긋나면 배치 요청 **전체**가 400 이라, 보내기 전에 떨어뜨리는 편이 낫다.
+ */
+function toBatchItem(imageLink: string, name: string): WardrobeBatchItemInput | null {
+  if (!/^https?:\/\//i.test(imageLink)) return null;
+  if (imageLink.length > WARDROBE_BATCH_MAX_LINK_LENGTH) return null;
+
+  const guess = classifyProduct(name);
+  return {
+    image_link: imageLink,
+    item_name: name.trim().slice(0, WARDROBE_BATCH_MAX_NAME_LENGTH),
+    /* 상품명으로 알아본 분류만 넣는다. 못 알아봤으면 비워 두고 서버 모델에 맡긴다 —
+       추측으로 채우면 틀린 분류가 모델 결과를 덮어쓴다(앱이 보낸 값이 우선이다). */
+    ...(guess ? { category_large: guess.large, category_small: guess.small } : {}),
+    // 사람이 태그를 확인하기 전까지는 추천에서 빼둔다(사진 1장 업로드와 같은 규칙)
+    confirmed: false,
+  };
+}
 
 /**
  * 웹 안내 화면.
@@ -80,6 +111,38 @@ function ImportUnsupportedOnWeb() {
   );
 }
 
+/**
+ * 결과 모달 하단의 확정 버튼.
+ * 접수는 서버가 이미지를 하나씩 받아오는 동안 기다려야 해서(장수만큼 길어진다)
+ * 눌린 뒤에도 몇 초 조용하다 — 그동안 무슨 일이 벌어지는지 버튼이 직접 말해준다.
+ */
+function AddButton({
+  count,
+  busy,
+  onPress,
+}: {
+  count: number;
+  busy: boolean;
+  onPress: () => void;
+}) {
+  const theme = useTheme();
+  return (
+    <Pressable
+      style={[
+        styles.primaryButton,
+        styles.addButton,
+        { backgroundColor: theme.text, opacity: count && !busy ? 1 : 0.4 },
+      ]}
+      disabled={!count || busy}
+      onPress={onPress}>
+      {busy ? <ActivityIndicator color={theme.background} size="small" /> : null}
+      <ThemedText style={{ color: theme.background, fontWeight: '600' }}>
+        {busy ? '상품 사진을 가져오는 중…' : `내 옷장에 추가 (${count})`}
+      </ThemedText>
+    </Pressable>
+  );
+}
+
 export default function ImportScreen() {
   const theme = useTheme();
   const toast = useToast();
@@ -92,6 +155,8 @@ export default function ImportScreen() {
   const [currentUrl, setCurrentUrl] = useState(site.orderUrl);
   const [phase, setPhase] = useState<Phase>('other');
   const [scanning, setScanning] = useState(false);
+  /** 일괄 등록 접수 중 — 이미지를 서버가 받아오는 동안이라 몇 초 걸린다 */
+  const [submitting, setSubmitting] = useState(false);
 
   const [orders, setOrders] = useState<OrderItem[]>([]);
   const [candidates, setCandidates] = useState<ImageCandidate[]>([]);
@@ -289,39 +354,54 @@ export default function ImportScreen() {
   };
 
   /**
-   * 선택한 상품을 옷장에 추가.
+   * 선택한 상품을 옷장에 담는다 → 일괄 등록 API 접수 → 진행 화면으로.
    *
    * 선택 id 는 모드마다 다르다 — 구매목록은 **행 인덱스**, 자동스캔은 이미지 URL.
    * 구매목록에서는 서로 다른 주문이 같은 썸네일을 쓰는 경우가 실제로 있어(같은 상품 재구매 등)
    * 이미지 URL 을 id 로 쓰면 항목끼리 겹친다. 자동스캔 후보는 URL 로 이미 중복 제거돼 있어 안전하다.
    *
-   * 지금은 아이템 등록(D2) 화면이 사진 1장을 받는 구조라 첫 번째 항목만 넘긴다.
-   * TODO(백엔드): 여러 건을 한 번에 보내는 수집 엔드포인트가 생기면
-   *   URL 목록 + 상품명을 서버로 보내고(핫링크 403 회피 위해 이미지는 서버가 받아 S3 저장),
-   *   누끼·속성 태깅까지 끝난 결과를 옷장에서 읽는 흐름으로 바꾼다. (WebView.md 7.3)
+   * 이미지는 **주소만** 보낸다. 앱이 내려받아 다시 올리면 왕복이 두 배가 되고, 쇼핑몰 이미지는
+   * Referer 없는 요청을 403 으로 막는 곳이 있어 앱에서 받는 것 자체가 불안하다.
+   * 상품명으로 알아낸 분류는 함께 실어 보낸다 — 서버에서 모델이 뽑은 값보다 우선한다.
    */
-  const confirmSelection = () => {
+  const confirmSelection = async () => {
+    if (submitting) return;
     const picked = Array.from(selected);
     if (!picked.length) return;
 
-    const photos =
-      resultMode === 'orders'
-        ? picked
-            .map((id) => orders[Number(id)]?.image)
-            .filter((uri): uri is string => Boolean(uri))
-        : picked;
+    const items = picked
+      .map((id) => {
+        if (resultMode !== 'orders') return toBatchItem(id, '');
+        const order = orders[Number(id)];
+        return order ? toBatchItem(order.image, order.name) : null;
+      })
+      .filter((item): item is WardrobeBatchItemInput => item !== null);
 
-    if (!photos.length) {
+    if (!items.length) {
       toast('사진 주소를 찾지 못했어요', { variant: 'error' });
       return;
     }
 
-    setResultMode(null);
-    if (photos.length > 1) {
-      toast(`${photos.length}개 중 1개부터 등록해요`);
+    // 서버가 한 번에 받는 건수 제한 — 넘치면 앞에서부터 잘라 보낸다(요청 전체가 400 이 되느니).
+    const dropped = Math.max(items.length - WARDROBE_BATCH_MAX_ITEMS, 0);
+    setSubmitting(true);
+    try {
+      /* 접수는 서버가 이미지를 하나씩 내려받는 동안 기다린다(장수만큼 길어진다).
+         그 뒤 태깅 진행은 스토어가 따라가므로 이 화면을 닫아도 계속된다. */
+      const batch = await uploadJobs.startBatch(items.slice(0, WARDROBE_BATCH_MAX_ITEMS));
+      setResultMode(null);
+      if (batch.rejected.length) {
+        toast(`${batch.rejected.length}건은 사진을 가져오지 못했어요`, { variant: 'error' });
+      } else if (dropped) {
+        toast(`한 번에 ${WARDROBE_BATCH_MAX_ITEMS}건까지만 담을 수 있어 ${dropped}건은 빼두었어요`);
+      }
+      // 진행 상황은 옷장 화면 위쪽 줄에서 이어서 보여준다
+      router.replace('/(tabs)/closet');
+    } catch (e) {
+      toast(e instanceof Error ? e.message : '옷장에 담지 못했어요', { variant: 'error' });
+    } finally {
+      setSubmitting(false);
     }
-    draftItem.setPhoto(photos[0]);
-    router.replace('/item-add');
   };
 
   // 상품명에서 추정한 옷장 분류. null = "모르겠다"(옷이 아니라는 뜻이 아니다)
@@ -501,17 +581,7 @@ export default function ImportScreen() {
             })}
           </ScrollView>
 
-          <Pressable
-            style={[
-              styles.primaryButton,
-              { backgroundColor: theme.text, margin: Spacing.three, opacity: selected.size ? 1 : 0.4 },
-            ]}
-            disabled={!selected.size}
-            onPress={confirmSelection}>
-            <ThemedText style={{ color: theme.background, fontWeight: '600' }}>
-              내 옷장에 추가 ({selected.size})
-            </ThemedText>
-          </Pressable>
+          <AddButton count={selected.size} busy={submitting} onPress={confirmSelection} />
         </SafeAreaView>
       </Modal>
 
@@ -550,17 +620,7 @@ export default function ImportScreen() {
             })}
           </ScrollView>
 
-          <Pressable
-            style={[
-              styles.primaryButton,
-              { backgroundColor: theme.text, margin: Spacing.three, opacity: selected.size ? 1 : 0.4 },
-            ]}
-            disabled={!selected.size}
-            onPress={confirmSelection}>
-            <ThemedText style={{ color: theme.background, fontWeight: '600' }}>
-              내 옷장에 추가 ({selected.size})
-            </ThemedText>
-          </Pressable>
+          <AddButton count={selected.size} busy={submitting} onPress={confirmSelection} />
         </SafeAreaView>
       </Modal>
 
@@ -630,6 +690,12 @@ const styles = StyleSheet.create({
   // 가로 액션바에서 남는 폭을 채울 때만 붙인다.
   // primaryButton 자체에 flex 를 넣으면 세로 컨테이너(결과 모달 하단)에서 버튼이 세로로 늘어난다.
   grow: { flex: 1 },
+  addButton: {
+    flexDirection: 'row',
+    justifyContent: 'center',
+    gap: Spacing.two,
+    margin: Spacing.three,
+  },
   secondaryButton: {
     paddingVertical: Spacing.three,
     paddingHorizontal: Spacing.four,
