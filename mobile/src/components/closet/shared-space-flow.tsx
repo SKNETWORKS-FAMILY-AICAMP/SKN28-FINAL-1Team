@@ -82,7 +82,8 @@ export function SharedSpaceInviteBanner({ onInvite }: { onInvite: () => void }) 
   );
 }
 
-const MEMBER_COLORS = [
+/** 가입 순서(index) 기반 고정 색. 초대장 화면도 같은 색을 써야 해서 여기서 내보낸다. */
+export const MEMBER_COLORS = [
   '#FFD54F', // 노랑
   '#4FC3F7', // 하늘
   '#81C784', // 연두

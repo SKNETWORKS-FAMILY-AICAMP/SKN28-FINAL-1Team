@@ -1,4 +1,4 @@
-from django.test import TestCase
+from django.test import TestCase, override_settings
 from django.contrib.auth import get_user_model
 from django.utils import timezone
 from datetime import timedelta
@@ -22,15 +22,16 @@ class SharedWardrobeTests(TestCase):
             confirmed=True
         )
 
+    @override_settings(DEBUG=True)
     def test_create_room(self):
-        """방 생성 시 6자리 초대코드 및 방장 권한이 올바르게 생성되는지 확인합니다."""
+        """DEBUG 환경에서도 생성자만 방장으로 등록되는지 확인합니다."""
         room = shared_service.create_shared_room(self.user1, "하영이네 옷장")
         self.assertEqual(room.title, "하영이네 옷장")
         self.assertEqual(len(room.invite_code), 6)
-        
-        # 멤버십 확인 (user1 이 owner인지)
+
         member = SharedWardrobeMember.objects.get(room=room, user=self.user1)
         self.assertEqual(member.role, SharedWardrobeMember.Role.OWNER)
+        self.assertEqual(SharedWardrobeMember.objects.filter(room=room).count(), 1)
 
     def test_invite_code_expiry(self):
         """초대코드가 24시간을 경과하면 만료 처리되어 가입할 수 없는지 확인합니다."""

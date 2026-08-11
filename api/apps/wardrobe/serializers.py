@@ -183,3 +183,54 @@ class SharedWardrobeItemRegisterSerializer(serializers.Serializer):
         choices=SharedWardrobeItem.Status.choices,
         default=SharedWardrobeItem.Status.AVAILABLE
     )
+
+
+# ── 비로그인 초대 미리보기 (구경 모드) ─────────────────────
+#
+# 초대 링크만 있으면 로그인 없이 방을 둘러볼 수 있다. 열람 전용이며 서버에
+# 아무 레코드도 남기지 않는다 (익명 User·멤버십 생성 금지 — 정원 6명 카운트와
+# 방장 위임 대상이 오염된다).
+#
+# 소유자는 실명 대신 가입 순서 기반 라벨로 치환해서 내린다. 인덱스가 프론트의
+# MEMBER_COLORS와 1:1로 맞으므로(0=노랑 … 5=주황) 이름과 색이 같은 순서를
+# 공유하게 되고, 로그인 화면과 구경 화면의 아바타가 어긋나지 않는다.
+ANON_MEMBER_LABELS = ["다람쥐", "고래", "여우", "판다", "펭귄", "너구리"]
+
+
+def anon_member_label(index: int) -> str:
+    return ANON_MEMBER_LABELS[index % len(ANON_MEMBER_LABELS)]
+
+
+class SharedWardrobePreviewMemberSerializer(serializers.Serializer):
+    """비로그인용 멤버 표시. PK·실명·이메일을 의도적으로 제외한다."""
+
+    index = serializers.IntegerField(help_text="가입 순서(0-base). 아바타 색상 인덱스")
+    label = serializers.CharField(help_text="방 안에서만 쓰는 익명 라벨")
+    role = serializers.CharField(help_text="owner / member")
+
+
+class SharedWardrobePreviewItemSerializer(serializers.Serializer):
+    """비로그인용 아이템 표시. 옷 UUID를 안 내려 쓰기 경로를 원천 차단한다."""
+
+    image_url = serializers.CharField()
+    item_name = serializers.CharField(allow_null=True)
+    category_large = serializers.CharField(allow_null=True)
+    color = serializers.CharField(allow_null=True)
+    owner_index = serializers.IntegerField(allow_null=True)
+    owner_label = serializers.CharField(allow_null=True)
+
+
+class SharedWardrobePreviewSerializer(serializers.Serializer):
+    """GET /shared-wardrobes/preview/?code= 응답 (문서화용).
+
+    방 UUID를 내리지 않는다 — 익명 사용자가 멤버 전용 엔드포인트
+    (/shared-wardrobes/{id}/items/ 등)의 주소를 알 이유가 없다.
+    """
+
+    title = serializers.CharField()
+    member_count = serializers.IntegerField()
+    capacity = serializers.IntegerField()
+    can_join = serializers.BooleanField(help_text="정원이 남아 있고 만료되지 않았는가")
+    expired = serializers.BooleanField()
+    members = SharedWardrobePreviewMemberSerializer(many=True)
+    items = SharedWardrobePreviewItemSerializer(many=True)

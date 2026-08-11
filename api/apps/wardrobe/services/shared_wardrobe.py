@@ -3,10 +3,12 @@ import string
 from datetime import timedelta
 from django.utils import timezone
 from django.db import transaction
-from django.contrib.auth import get_user_model
 from apps.wardrobe.models import SharedWardrobeRoom, SharedWardrobeMember, SharedWardrobeItem, WardrobeItem
 
-User = get_user_model()
+# 한 공유방의 최대 인원. preview 응답의 capacity도 이 값을 참조한다 —
+# 리터럴 6을 여러 곳에 두면 정원 정책이 바뀔 때 화면과 서버가 어긋난다.
+MAX_MEMBERS = 6
+
 
 def generate_unique_invite_code() -> str:
     """영문 대문자와 숫자가 혼합된 고유한 6자리 핀코드를 생성합니다."""
@@ -35,20 +37,6 @@ def create_shared_room(user, title: str) -> SharedWardrobeRoom:
         user=user,
         role=SharedWardrobeMember.Role.OWNER
     )
-    
-    # 데모용 가상 멤버 추가 (DEBUG=True일 때 파스텔 아바타 색상 테스트용)
-    from django.conf import settings
-    if settings.DEBUG:
-        for mock_name in ["철수", "영희", "민수"]:
-            mock_user, _ = User.objects.get_or_create(
-                username=mock_name,
-                defaults={"nickname": mock_name}
-            )
-            SharedWardrobeMember.objects.create(
-                room=room,
-                user=mock_user,
-                role=SharedWardrobeMember.Role.MEMBER
-            )
     
     return room
 
@@ -93,9 +81,9 @@ def join_shared_room(user, invite_code: str) -> SharedWardrobeRoom:
     if SharedWardrobeMember.objects.filter(room=room, user=user).exists():
         return room
         
-    # 인원 제한 체크 (최대 6명)
-    if room.members.count() >= 6:
-        raise ValueError("공유 옷장 정원(최대 6명)이 초과되어 가입할 수 없습니다.")
+    # 인원 제한 체크
+    if room.members.count() >= MAX_MEMBERS:
+        raise ValueError(f"공유 옷장 정원(최대 {MAX_MEMBERS}명)이 초과되어 가입할 수 없습니다.")
         
     # 멤버십 참여 등록
     SharedWardrobeMember.objects.create(

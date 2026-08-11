@@ -201,6 +201,41 @@ REST_FRAMEWORK = {
     "DEFAULT_RENDERER_CLASSES": [
         "rest_framework.renderers.JSONRenderer",
     ],
+    # 스로틀 클래스는 각 뷰에서 지정한다 (전역 적용 안 함). 여기엔 요율만 등록.
+    # invite_preview: 초대코드가 곧 열람 권한이라 무차별 대입을 막아야 한다.
+    "DEFAULT_THROTTLE_RATES": {
+        "invite_preview": "20/min",
+    },
+}
+
+# ── 캐시 ───────────────────────────────────────────────
+#
+# throttle 별칭을 따로 둔다. DRF 스로틀 카운터를 기본 LocMemCache에 저장하면
+# gunicorn 워커마다 따로 세기 때문에, 실제 허용량이 (요율 x 워커 수)로 부풀어
+# 오른다 (GUNICORN_WORKERS=3 환경에서 20/min 제한이 사실상 60/min이 됐다).
+# Redis가 있으면 워커 간에 카운터를 공유하고, 없으면 LocMemCache로 폴백한다.
+_REDIS_URL = os.getenv("REDIS_URL", "")
+# requirepass 비밀번호는 URL에 내장하지 않고 별도 주입한다 (services/jobs.py와 동일 규약)
+_REDIS_PASSWORD = os.getenv("REDIS_PASSWORD", "")
+
+CACHES = {
+    "default": {
+        "BACKEND": "django.core.cache.backends.locmem.LocMemCache",
+    },
+    "throttle": (
+        {
+            "BACKEND": "django.core.cache.backends.redis.RedisCache",
+            "LOCATION": _REDIS_URL,
+            **(
+                {"OPTIONS": {"password": _REDIS_PASSWORD}} if _REDIS_PASSWORD else {}
+            ),
+        }
+        if _REDIS_URL
+        else {
+            "BACKEND": "django.core.cache.backends.locmem.LocMemCache",
+            "LOCATION": "throttle-fallback",
+        }
+    ),
 }
 
 SIMPLE_JWT = {

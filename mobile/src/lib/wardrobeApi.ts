@@ -302,6 +302,45 @@ export function joinSharedRoom(inviteCode: string): Promise<{ room_id: string; t
   return api.post<{ room_id: string; title: string; status: string }>('/api/v1/shared-wardrobes/join/', { invite_code: inviteCode });
 }
 
+/** 초대장 미리보기 응답 — 방 UUID·실명·이메일은 오지 않는다(비로그인에게 노출 금지). */
+export type SharedRoomPreviewMember = {
+  /** 가입 순서(0~5). 아바타 색을 여기서 뽑는다 — 배열 위치가 아니라 이 값을 쓸 것. */
+  index: number;
+  label: string;
+  role: 'owner' | 'member';
+};
+
+export type SharedRoomPreviewItem = {
+  image_url: string;
+  item_name: string;
+  category_large: string;
+  color: string;
+  owner_index: number;
+  owner_label: string;
+};
+
+export type SharedRoomPreview = {
+  title: string;
+  member_count: number;
+  capacity: number;
+  can_join: boolean;
+  /** true 면 초대 코드가 만료된 것 — items 는 빈 배열로 온다. */
+  expired: boolean;
+  members: SharedRoomPreviewMember[];
+  items: SharedRoomPreviewItem[];
+};
+
+/**
+ * 초대 코드로 방을 구경(읽기 전용). 비로그인 방문자용이라 인증 헤더를 붙이지 않는다 —
+ * 붙이면 만료된 토큰일 때 401 → 세션 종료 흐름으로 튄다.
+ */
+export function previewSharedRoom(code: string): Promise<SharedRoomPreview> {
+  return api.get<SharedRoomPreview>(
+    `/api/v1/shared-wardrobes/preview/?code=${encodeURIComponent(code)}`,
+    { auth: false },
+  );
+}
+
 export function refreshInviteCode(roomId: string): Promise<{ room_id: string; invite_code: string; code_expires_at: string }> {
   return api.post<{ room_id: string; invite_code: string; code_expires_at: string }>(`/api/v1/shared-wardrobes/${roomId}/refresh-code/`);
 }
