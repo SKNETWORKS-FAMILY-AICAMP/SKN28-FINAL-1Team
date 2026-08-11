@@ -10,6 +10,7 @@ const MAP = {
   'chevron.left': 'chevron-back',
   'chevron.right': 'chevron-forward',
   'chevron.down': 'chevron-down',
+  'chevron.up': 'chevron-up',
   'trash': 'trash-outline',
   'square.and.pencil': 'create-outline',
   'pencil': 'pencil',

@@ -15,8 +15,8 @@ import { MeasureGuideSheet } from '@/components/measure/measure-guide-sheet';
 import { ErrorState, LoadingState, useToast } from '@/components/ui';
 import {
   BODY_MEASURES,
-  PROPORTION_MEASURES,
-  SIZE_MEASURES,
+  PREVIEW_COUNT,
+  measureLabel,
   type BodyMeasureKey,
   type BodyMeasureSpec,
 } from '@/constants/body-measures';
@@ -48,17 +48,29 @@ function isValid(spec: BodyMeasureSpec, raw: string | undefined): boolean {
 export default function MeasureResult() {
   const { contentStyle } = useBreakpoint();
   const tabInset = useBottomTabInset();
-  const { returnTo } = useLocalSearchParams<{ returnTo?: string }>();
+  /* guide 파라미터로 '재는 법'을 바로 열 수 있다 (mobile:///measure-result?guide=shoulder).
+     화면을 거치지 않고 특정 항목 안내로 보낼 때 쓴다 — 도움말 링크·QA 확인용. */
+  const { returnTo, guide } = useLocalSearchParams<{ returnTo?: string; guide?: string }>();
   const { status, result, photos, error, needsInput } = useMeasure();
   const toast = useToast();
   const [savingDone, setSavingDone] = useState(false);
   /** '재는 법' 시트에서 처음 보여줄 항목. null 이면 닫힌 상태 */
   const [guideKey, setGuideKey] = useState<BodyMeasureKey | null>(null);
+  /** 접힘 상태 — 처음엔 어깨·가슴·허리·엉덩이 4개만 */
+  const [expanded, setExpanded] = useState(false);
+  const shown = expanded ? BODY_MEASURES : BODY_MEASURES.slice(0, PREVIEW_COUNT);
 
   // 플로우를 거치지 않고 직접 진입했으면(status idle) 추정을 시작한다.
   useEffect(() => {
     if (status === 'idle') measureStore.estimate();
   }, [status]);
+
+  /* 초기값이 아니라 effect 로 여는 이유: 이미 이 화면이 떠 있는 상태에서 guide 만 다른
+     링크가 오면 컴포넌트가 다시 마운트되지 않아 useState 초기화가 실행되지 않는다. */
+  useEffect(() => {
+    const key = BODY_MEASURES.find((m) => m.key === guide)?.key;
+    if (key) setGuideKey(key);
+  }, [guide]);
 
   const usingPhotos = Boolean(photos.front && photos.side);
   /* 실패한 것을 그대로 다시 한다 — 사진 측정이 실패했는데 estimate() 를 부르면
@@ -181,62 +193,27 @@ export default function MeasureResult() {
             </Text>
           </View>
 
-          {/* 둘레·너비 7개 — 각 값 탭하여 직접 수정 가능 */}
+          {/* 추정 치수 — 값 탭하여 직접 수정. 처음엔 4개만 보이고 나머지는 '더보기' */}
           <View style={styles.sectionHead}>
-            <Text style={styles.sectionTitlePlain}>둘레 · 너비</Text>
+            <Text style={styles.sectionTitlePlain}>추정 치수</Text>
             <Pressable style={styles.guideLink} onPress={() => setGuideKey('shoulder')}>
               <Icon name="questionmark.circle" tintColor={ink(0.5)} size={14} />
               <Text style={styles.guideLinkText}>재는 법</Text>
             </Pressable>
           </View>
           <View style={styles.measureGrid}>
-            {SIZE_MEASURES.map((spec) => (
+            {shown.map((spec) => (
               <View key={spec.key} style={styles.measureTile}>
                 <View style={styles.measureLabelRow}>
-                  <Text style={styles.measureLabel}>{spec.label}</Text>
+                  <Text style={styles.measureLabel} numberOfLines={1}>
+                    {measureLabel(spec)}
+                  </Text>
                   {guideButton(spec)}
                 </View>
                 <View style={styles.measureValueRow}>
                   <TextInput
                     style={[
                       styles.measureInput,
-                      !isValid(spec, values[spec.key]) && styles.measureInputBad,
-                    ]}
-                    value={values[spec.key] ?? ''}
-                    onChangeText={(t) => setValues((prev) => ({ ...prev, [spec.key]: t }))}
-                    keyboardType="decimal-pad"
-                    selectTextOnFocus
-                    maxLength={5}
-                    returnKeyType="done"
-                  />
-                  <Text style={styles.measureUnit}>cm</Text>
-                </View>
-              </View>
-            ))}
-          </View>
-
-          {/* 체형 지표 3개 — 넥라인·기장·하의 실루엣 추천에 쓰인다 */}
-          <View style={styles.sectionHead}>
-            <Text style={styles.sectionTitlePlain}>체형 지표</Text>
-            <Text style={styles.editHint}>탭하여 수정</Text>
-          </View>
-          <View style={styles.ratioCard}>
-            {PROPORTION_MEASURES.map((spec, i) => (
-              <View
-                key={spec.key}
-                style={[styles.ratioRow, i > 0 && styles.ratioRowDivided]}>
-                <View style={styles.ratioTexts}>
-                  <View style={styles.measureLabelRow}>
-                    <Text style={styles.ratioLabel}>{spec.label}</Text>
-                    {guideButton(spec)}
-                  </View>
-                  {spec.caption ? <Text style={styles.ratioCaption}>{spec.caption}</Text> : null}
-                </View>
-                <View style={[styles.measureValueRow, styles.ratioValueRow]}>
-                  <TextInput
-                    style={[
-                      styles.measureInput,
-                      styles.ratioInput,
                       !isValid(spec, values[spec.key]) && styles.measureInputBad,
                     ]}
                     value={values[spec.key] ?? ''}
@@ -250,15 +227,27 @@ export default function MeasureResult() {
                 </View>
               </View>
             ))}
+
+            {/* 접기/펴기 — 그리드 안에 둬서 카드 하나로 읽히게 한다 */}
+            <Pressable style={styles.moreRow} onPress={() => setExpanded((v) => !v)}>
+              <Text style={styles.moreText}>
+                {expanded ? '접기' : `더보기 (${BODY_MEASURES.length - PREVIEW_COUNT}개)`}
+              </Text>
+              <Icon
+                name={expanded ? 'chevron.up' : 'chevron.down'}
+                tintColor={ink(0.5)}
+                size={14}
+              />
+            </Pressable>
           </View>
 
           {/* 사진 없이 추정하면 상하체 비율만 개인차가 없다 — 숫자를 그대로 믿게 두지 않는다 */}
-          {result.usedPhotos ? null : (
+          {expanded && !result.usedPhotos ? (
             <Text style={styles.ratioNote}>
               * 상하체 비율은 사진이 있어야 실제로 잴 수 있어요. 지금은 기준값이라 사진으로 다시
               측정하거나 직접 고쳐 주세요.
             </Text>
-          )}
+          ) : null}
 
           {invalid.length > 0 ? (
             <Text style={styles.invalidText}>
@@ -355,7 +344,6 @@ const styles = StyleSheet.create({
     marginBottom: 12,
   },
   sectionTitlePlain: { fontSize: Type.label, fontWeight: '600', color: INK },
-  editHint: { fontSize: Type.micro, color: Editorial.textCaption },
   guideLink: { flexDirection: 'row', alignItems: 'center', gap: 5, paddingVertical: 4 },
   guideLinkText: { fontSize: Type.caption, color: Editorial.textCaption },
 
@@ -385,21 +373,18 @@ const styles = StyleSheet.create({
   measureInputBad: { color: Editorial.danger, borderBottomColor: Editorial.danger },
   measureUnit: { fontSize: Type.micro, color: Editorial.textCaption, marginBottom: 3 },
 
-  ratioCard: { borderWidth: 1, borderColor: ink(0.09), borderRadius: 16, paddingHorizontal: 18 },
-  ratioRow: {
+  /* 그리드 마지막 줄 전체를 차지한다 — 타일이 홀수 개여도 버튼이 한가운데 온다 */
+  moreRow: {
+    width: '100%',
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-between',
-    gap: 12,
-    paddingVertical: 16,
+    justifyContent: 'center',
+    gap: 5,
+    paddingVertical: 14,
+    borderTopWidth: 1,
+    borderTopColor: ink(0.07),
   },
-  ratioRowDivided: { borderTopWidth: 1, borderTopColor: ink(0.07) },
-  ratioTexts: { flex: 1, gap: 4 },
-  ratioLabel: { fontSize: Type.footnote, color: INK, fontWeight: '500' },
-  ratioCaption: { fontSize: Type.micro, color: Editorial.textCaption, lineHeight: 17 },
-  /* 값 자리를 고정해야 설명이 남은 폭을 다 쓴다 — 안 잡으면 입력칸이 늘어나 설명이 3줄로 접힌다 */
-  ratioValueRow: { width: 96, justifyContent: 'flex-end' },
-  ratioInput: { width: 62, minWidth: 0, textAlign: 'right' },
+  moreText: { fontSize: Type.caption, color: Editorial.textCaption },
   ratioNote: { fontSize: Type.micro, color: Editorial.textCaption, lineHeight: 18, marginTop: 10 },
 
   invalidText: { fontSize: Type.caption, color: Editorial.danger, marginTop: 10 },

@@ -85,6 +85,8 @@ export function MeasureGuideSheet({
             </View>
 
             <Text style={styles.summary}>{spec.summary}</Text>
+            {/* 이 값이 추천의 무엇을 바꾸는지 — 목록에선 자리가 없어 여기서만 밝힌다 */}
+            {spec.caption ? <Text style={styles.usage}>{spec.caption}</Text> : null}
 
             <View style={styles.steps}>
               {spec.steps.map((step, i) => (
@@ -169,6 +171,7 @@ const styles = StyleSheet.create({
   },
 
   summary: { fontSize: Type.body, color: INK, lineHeight: 23, marginTop: 18 },
+  usage: { fontSize: Type.caption, color: Editorial.textCaption, lineHeight: 20, marginTop: 6 },
 
   steps: { marginTop: 14, gap: 10 },
   stepRow: { flexDirection: 'row', alignItems: 'flex-start', gap: 10 },

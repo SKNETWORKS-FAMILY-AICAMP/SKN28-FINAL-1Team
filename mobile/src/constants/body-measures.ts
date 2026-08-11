@@ -30,6 +30,8 @@ export type BodyMeasureKey =
 export type BodyMeasureSpec = {
   key: BodyMeasureKey;
   label: string;
+  /** 타일처럼 좁은 자리에 쓰는 짧은 이름. 없으면 label 을 쓴다 */
+  shortLabel?: string;
   /** 'size' = cm 실측치(7개), 'proportion' = 체형 지표(3개) */
   group: 'size' | 'proportion';
   /** 값 옆에 붙는 단위. 비율은 단위가 없다 */
@@ -179,6 +181,7 @@ export const BODY_MEASURES: readonly BodyMeasureSpec[] = [
   {
     key: 'thigh_calf_ratio',
     label: '허벅지:종아리 비율',
+    shortLabel: '허벅지:종아리',
     group: 'proportion',
     unit: null,
     decimals: 3,
@@ -214,9 +217,16 @@ export const BODY_MEASURES: readonly BodyMeasureSpec[] = [
   },
 ] as const;
 
-/** 그룹별 목록 — 화면에서 두 덩어리로 나눠 그린다 */
-export const SIZE_MEASURES = BODY_MEASURES.filter((m) => m.group === 'size');
-export const PROPORTION_MEASURES = BODY_MEASURES.filter((m) => m.group === 'proportion');
+/**
+ * 접혀 있을 때 보여줄 개수 — 어깨·가슴·허리·엉덩이.
+ *
+ * 10개를 한 번에 펼치면 결과 화면이 숫자 벽이 되고, 정작 옷 사이즈를 정하는
+ * 네 값이 묻힌다. 나머지 6개는 '더보기'로 미룬다 (순서는 BODY_MEASURES 정의 순).
+ */
+export const PREVIEW_COUNT = 4;
+
+/** 타일 등 좁은 자리에 쓸 이름 */
+export const measureLabel = (spec: BodyMeasureSpec): string => spec.shortLabel ?? spec.label;
 
 export const BODY_MEASURE_BY_KEY: Record<BodyMeasureKey, BodyMeasureSpec> =
   Object.fromEntries(BODY_MEASURES.map((m) => [m.key, m])) as Record<
