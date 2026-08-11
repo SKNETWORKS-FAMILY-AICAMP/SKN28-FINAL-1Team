@@ -1,9 +1,11 @@
+import logging
+
 from django.conf import settings
 from django.core.files.uploadedfile import UploadedFile
 from drf_spectacular.utils import extend_schema_field
 from rest_framework import serializers
 
-from .models import OutfitAnalysis
+from .models import DailyLook, OutfitAnalysis
 from .services import storage, wardrobe_link
 
 
@@ -315,3 +317,136 @@ class OutfitAnalysisClaimResponseSerializer(serializers.Serializer):
         help_text="소유권이 넘어온 평가 ID. 이미 본인 것이던 건도 포함합니다(멱등).",
     )
     skipped = OutfitAnalysisClaimSkippedSerializer(many=True)
+
+
+logger = logging.getLogger(__name__)
+
+
+def _image_url(row: dict | None) -> str | None:
+    """S3 참조를 조회용 URL로 바꾼다.
+
+    **조회 시점에** 서명한다. presigned URL은 만료되므로 DB에 미리 구워 넣으면
+    며칠 뒤 죽은 링크가 남는다 (같은 이유로 Qdrant payload에도 넣지 않았다).
+
+    서명 실패가 추천 조회 전체를 막지는 않게 한다 — 이미지가 없는 화면이
+    500 화면보다 낫다.
+    """
+    if not row or not row.get("s3_key") or not row.get("s3_bucket"):
+        return None
+    try:
+        return storage.presigned_get_for(str(row["s3_bucket"]), str(row["s3_key"]))
+    except Exception:  # noqa: BLE001
+        logger.exception("오늘의 룩 이미지 URL 생성 실패: %s", row.get("s3_key"))
+        return None
+
+
+class DailyLookItemSerializer(serializers.Serializer):
+    """착장에 속한 의상 아이템 한 개.
+
+    이미지는 원본 코디 사진이 아니라 파이프라인이 만든 흰 배경 파생물이다.
+    그래서 원본이 노출 불가여도 이 이미지는 보여줄 수 있다.
+    """
+
+    item_key = serializers.CharField()
+    name = serializers.CharField(required=False, allow_blank=True)
+    category = serializers.CharField(required=False, allow_blank=True)
+    sub_category = serializers.CharField(required=False, allow_blank=True)
+    layer_role = serializers.CharField(required=False, allow_blank=True)
+    color = serializers.CharField(required=False, allow_blank=True)
+    note = serializers.CharField(required=False, allow_blank=True)
+    image_url = serializers.SerializerMethodField()
+
+    @extend_schema_field(serializers.URLField(allow_null=True))
+    def get_image_url(self, obj: dict) -> str | None:
+        return _image_url(obj)
+
+
+class DailyLookResultSerializer(serializers.Serializer):
+    """생성이 끝났을 때만 채워지는 추천 본문."""
+
+    headline = serializers.CharField()
+    golden_id = serializers.CharField()
+    rationale_ko = serializers.CharField()
+    styling_tips = serializers.ListField(child=serializers.CharField(), required=False)
+    generated_by = serializers.CharField(
+        required=False,
+        help_text="문장을 누가 썼는지: llm | template. template이면 담백한 톤이다.",
+    )
+    items = DailyLookItemSerializer(many=True, required=False)
+    render_image_url = serializers.SerializerMethodField()
+    outfit_image_url = serializers.SerializerMethodField()
+
+    @extend_schema_field(serializers.URLField(allow_null=True))
+    def get_render_image_url(self, obj: dict) -> str | None:
+        """정면 착용 이미지. 화면의 대표 이미지로 쓰는 값이다.
+
+        골든 원본과 달리 사용권 제약이 없다 — 아이템 이미지를 참조로 새로 만든
+        것이라 특정 인물이 담기지 않는다. 생성이 아직/실패면 null이며, 그때는
+        items[].image_url 카드로 화면이 성립한다.
+        """
+        return _image_url(obj.get("render_image"))
+
+    @extend_schema_field(serializers.URLField(allow_null=True))
+    def get_outfit_image_url(self, obj: dict) -> str | None:
+        """원본 코디 사진. 사용권이 열린 코디(exposable)에만 값이 있다."""
+        return _image_url(obj.get("outfit_image"))
+
+
+class DailyLookSerializer(serializers.ModelSerializer):
+    """오늘의 룩 조회 응답.
+
+    생성 전에도 200으로 내려간다. 404를 쓰면 프론트가 "없음"과 "아직"을 구분하지
+    못하고, 202는 본문 스키마가 다른 응답을 만들어 클라이언트 분기를 늘린다.
+    `status`와 `poll_after_ms` 두 필드로 판단하게 한다.
+    """
+
+    look_id = serializers.UUIDField(source="id", read_only=True)
+    result = DailyLookResultSerializer(read_only=True)
+    context = serializers.SerializerMethodField()
+    poll_after_ms = serializers.SerializerMethodField()
+    detail = serializers.SerializerMethodField()
+
+    class Meta:
+        model = DailyLook
+        fields = [
+            "look_id",
+            "look_date",
+            "status",
+            "result",
+            "context",
+            "poll_after_ms",
+            "detail",
+            "created_at",
+            "updated_at",
+        ]
+
+    def get_context(self, obj: DailyLook) -> dict:
+        """무엇이 개인화에 쓰였는지만 알려준다 (값 자체는 프로필 API에 있다)."""
+        profile = obj.body_profile or {}
+        return {
+            "weather": obj.weather,
+            "used_body": obj.body is not None,
+            "used_pursuit": obj.pursuit is not None,
+            "body_profile": profile.get("describe", ""),
+            # 판정하지 못한 치수를 알려주면 프론트가 "어깨너비를 입력하면 더
+            # 정확해져요" 같은 안내를 띄울 수 있다.
+            "missing_measurements": profile.get("missing", []),
+            "candidate_count": len(obj.candidates or []),
+        }
+
+    def get_poll_after_ms(self, obj: DailyLook) -> int | None:
+        return settings.OUTFIT_POLL_AFTER_MS if obj.is_pending else None
+
+    def get_detail(self, obj: DailyLook) -> str | None:
+        """상태별 사용자 문구. 내부 error는 그대로 노출하지 않는다."""
+        if obj.status in DailyLook.PENDING_STATUSES:
+            return "오늘의 룩을 만들고 있어요. 잠시만 기다려주세요."
+        if obj.status == DailyLook.Status.EMPTY:
+            # 재시도해도 같은 결과다. 프론트는 프로필 입력을 유도해야 한다.
+            return (
+                "조건에 맞는 추천을 찾지 못했어요. "
+                "신체치수나 추구미를 입력하면 더 잘 찾을 수 있어요."
+            )
+        if obj.status == DailyLook.Status.FAILED:
+            return "오늘의 룩을 만들지 못했어요. 잠시 후 다시 확인해주세요."
+        return None

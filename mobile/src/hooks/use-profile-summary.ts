@@ -51,8 +51,8 @@ export function useProfileSummary(): ProfileSummary {
     ]).then(([body, pursuit]) => {
       if (!alive) return;
       setSummary({
-        height: body.status === 'fulfilled' ? (body.value?.height ?? null) : null,
-        weight: body.status === 'fulfilled' ? (body.value?.weight ?? null) : null,
+        height: body.status === 'fulfilled' ? body.value.height : null,
+        weight: body.status === 'fulfilled' ? body.value.weight : null,
         pursuitCount: pursuit.status === 'fulfilled' ? countSelections(pursuit.value) : 0,
       });
       setLoading(false);

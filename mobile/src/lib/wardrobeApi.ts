@@ -1,9 +1,10 @@
-import { File, Paths, UploadType } from 'expo-file-system';
+import { UploadType } from 'expo-file-system';
 import { Platform } from 'react-native';
 
 import { API_BASE_URL, WardrobeEndpoints } from '@/constants/config';
 import { api, apiFetch, ApiError } from '@/lib/apiClient';
 import { getImageSource } from '@/lib/resolveImageUri';
+import { guessFileName, guessMimeType, isRemote, toLocalFile } from '@/lib/uploadFile';
 import { getAccessToken } from '@/lib/secureStore';
 
 /**
@@ -89,7 +90,7 @@ export async function uploadWardrobePhoto(
   uri: string,
   opts: { name?: string; mimeType?: string } = {},
 ): Promise<{ job_id: string; status: UploadJobStatus }> {
-  const name = opts.name ?? guessFileName(uri);
+  const name = opts.name ?? guessFileName(uri, 'wardrobe.jpg');
   const type = opts.mimeType ?? guessMimeType(name);
 
   if (Platform.OS === 'web') {
@@ -132,35 +133,6 @@ export async function uploadWardrobePhoto(
   }
 }
 
-function isRemote(uri: string): boolean {
-  return /^https?:/i.test(uri);
-}
-
-/**
- * 업로드에 쓸 로컬 파일을 만든다.
- *
- * `File` 은 기기 안의 파일을 가리키는 것이라 `https://...` 주소를 그대로 넣으면 올라가지 않는다.
- * 룩의 구성 아이템이나 쇼핑몰에서 가져온 사진은 전부 원격 주소라, 캐시에 한 번 내려받아
- * 진짜 파일로 만든 뒤 올린다.
- */
-async function toLocalFile(
-  uri: string,
-  name: string,
-): Promise<{ file: File; downloaded: boolean }> {
-  if (!isRemote(uri)) return { file: new File(uri), downloaded: false };
-
-  /* 이름이 겹치면 내려받기가 실패하므로 매번 다른 이름을 쓴다.
-     (핀터레스트처럼 핫링크를 막는 곳은 화면에서 쓰는 것과 같은 헤더를 붙여야 받아진다) */
-  const dest = new File(Paths.cache, `upload-${Date.now()}-${name}`);
-  const source = getImageSource(uri);
-  const file = await File.downloadFileAsync(uri, dest, {
-    headers: (source && 'headers' in source ? source.headers : undefined) as
-      | Record<string, string>
-      | undefined,
-  });
-  return { file, downloaded: true };
-}
-
 function parseUploadResponse(res: {
   status: number;
   body?: string;
@@ -183,6 +155,98 @@ function parseUploadResponse(res: {
 /** 처리 상태 조회 — DONE 이 되면 items 가 채워진다. */
 export function getUploadJob(jobId: string): Promise<UploadJob> {
   return api.get<UploadJob>(WardrobeEndpoints.uploadJob(jobId));
+}
+
+/* ── 일괄 등록(batch) — 인앱 브라우저에서 긁어온 외부 상품 ────────────────
+   사진을 올리는 대신 **이미지 주소**를 넘긴다. 이미지는 서버가 받아 S3 에 저장하고
+   Qwen VL 태깅 워커를 태운다. 자세한 계약은 constants/config.ts 의 WardrobeEndpoints 주석. */
+
+/** 백엔드 WARDROBE_BATCH_MAX_ITEMS 기본값. 넘겨 보내면 요청 전체가 400 이다. */
+export const WARDROBE_BATCH_MAX_ITEMS = 30;
+
+/** URLField(max_length=2048) — 더 긴 주소는 400 을 부른다. */
+export const WARDROBE_BATCH_MAX_LINK_LENGTH = 2048;
+
+/** CharField(max_length=120) */
+export const WARDROBE_BATCH_MAX_NAME_LENGTH = 120;
+
+/**
+ * 일괄 등록에 넣는 상품 1건.
+ * image_link 만 필수고, 나머지는 **아는 것만** 넣는다 — 비워 둔 자리는 서버 모델이 채운다.
+ * 값이 taxonomy 와 어긋나면 배치 전체가 400 이므로 추측으로 채우지 말 것.
+ */
+export type WardrobeBatchItemInput = {
+  image_link: string;
+  item_name?: string;
+  category_large?: string;
+  category_small?: string;
+  season?: string[];
+  style?: string[];
+  color?: string;
+  pattern?: string;
+  fit?: string;
+  material?: string;
+  sleeve?: string;
+  length?: string;
+  usage?: string[];
+  layer_role?: string;
+  layer_order?: number | null;
+  confirmed?: boolean;
+};
+
+/** PARTIAL = 일부만 성공. DONE/PARTIAL/FAILED 가 종료 상태다. */
+export type WardrobeBatchStatus = 'PENDING' | 'PROCESSING' | 'DONE' | 'PARTIAL' | 'FAILED';
+
+/** 배치 안의 job 1개 = 이미지 1장. 단건 업로드 job 에 원본 파일명이 붙은 형태. */
+export type WardrobeBatchJob = UploadJob & {
+  job_id: string;
+  /** 이미지 주소에서 뽑은 원본 파일명 — 처리 중에는 이것 말고 보여줄 게 없다 */
+  file_name: string;
+};
+
+/** POST 응답(202). 접수 결과일 뿐 아직 아이템은 없다. */
+export type WardrobeBatchCreated = {
+  batch_id: string;
+  status: WardrobeBatchStatus;
+  total_count: number;
+  accepted: { job_id: string; image_link: string }[];
+  /** 이미지를 못 받았거나 큐 적재에 실패한 건. reason: image_fetch_failed | upload_failed | enqueue_failed */
+  rejected: { image_link: string; reason: string }[];
+  poll_url: string;
+  poll_after_ms: number;
+  estimated_seconds: number;
+};
+
+export type WardrobeBatch = {
+  batch_id: string;
+  status: WardrobeBatchStatus;
+  source: string;
+  counts: { total: number; pending: number; done: number; failed: number };
+  /** 0~1 */
+  progress: number;
+  /** null 이면 더 물어볼 필요 없다(종료) */
+  poll_after_ms: number | null;
+  created_at: string;
+  finished_at: string | null;
+  jobs: WardrobeBatchJob[];
+};
+
+/**
+ * 상품 여러 건을 한 번에 접수(202).
+ *
+ * source 는 등록 경로 꼬리표다(백엔드 정규식 `^[a-z][a-z0-9_-]{0,19}$`).
+ * 나중에 "어디서 들어온 옷인지"를 세는 데 쓰이므로 화면마다 다른 값을 넣지 말 것.
+ */
+export function createWardrobeBatch(
+  items: WardrobeBatchItemInput[],
+  source = 'in_app_browser',
+): Promise<WardrobeBatchCreated> {
+  return api.post<WardrobeBatchCreated>(WardrobeEndpoints.batches, { source, items });
+}
+
+/** 배치 진행 상태. 종료되면 poll_after_ms 가 null 로 온다. */
+export function getWardrobeBatch(batchId: string): Promise<WardrobeBatch> {
+  return api.get<WardrobeBatch>(WardrobeEndpoints.batch(batchId));
 }
 
 export function listWardrobeItems(query: WardrobeItemQuery = {}): Promise<WardrobeApiItem[]> {
@@ -239,20 +303,3 @@ export function itemDisplayName(item: WardrobeApiItem): string {
 /* ── 파일 이름·형식 추정 ─────────────────────────────────
    백엔드가 확장자·content-type 으로 형식을 거르므로(jpeg/png/webp/heic) 최소한은 맞춰 보낸다. */
 
-const MIME_BY_EXT: Record<string, string> = {
-  jpg: 'image/jpeg',
-  jpeg: 'image/jpeg',
-  png: 'image/png',
-  webp: 'image/webp',
-  heic: 'image/heic',
-};
-
-function guessFileName(uri: string): string {
-  const last = uri.split('?')[0].split('/').pop() ?? '';
-  return /\.[a-zA-Z0-9]+$/.test(last) ? last : 'wardrobe.jpg';
-}
-
-function guessMimeType(name: string): string {
-  const ext = name.split('.').pop()?.toLowerCase() ?? '';
-  return MIME_BY_EXT[ext] ?? 'image/jpeg';
-}
