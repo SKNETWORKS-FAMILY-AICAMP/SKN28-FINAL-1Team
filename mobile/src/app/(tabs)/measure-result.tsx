@@ -196,10 +196,7 @@ export default function MeasureResult() {
           {/* 추정 치수 — 값 탭하여 직접 수정. 처음엔 4개만 보이고 나머지는 '더보기' */}
           <View style={styles.sectionHead}>
             <Text style={styles.sectionTitlePlain}>추정 치수</Text>
-            <Pressable style={styles.guideLink} onPress={() => setGuideKey('shoulder')}>
-              <Icon name="questionmark.circle" tintColor={ink(0.5)} size={14} />
-              <Text style={styles.guideLinkText}>재는 법</Text>
-            </Pressable>
+            <Text style={styles.editHint}>탭하여 수정</Text>
           </View>
           <View style={styles.measureGrid}>
             {shown.map((spec) => (
@@ -255,6 +252,21 @@ export default function MeasureResult() {
               {invalid.length === 1 ? ` (${invalid[0].min} ~ ${invalid[0].max})` : ''}.
             </Text>
           ) : null}
+
+          {/* 재는 법 — 치수를 보고 '이상한데' 싶은 자리, 사이즈 매칭으로 넘어가기 직전에 둔다.
+              가장 흔한 오차인 어깨너비부터 연다. */}
+          <Pressable style={styles.guideBanner} onPress={() => setGuideKey('shoulder')}>
+            <View style={styles.guideBannerIcon}>
+              <Icon name="questionmark.circle" tintColor={INK} size={16} />
+            </View>
+            <View style={styles.guideBannerTexts}>
+              <Text style={styles.guideBannerTitle}>값이 실제와 다른가요?</Text>
+              <Text style={styles.guideBannerBody}>
+                어디서 어디까지 재는지 그림으로 확인하고 직접 고칠 수 있어요.
+              </Text>
+            </View>
+            <Icon name="chevron.right" tintColor={ink(0.35)} size={16} />
+          </Pressable>
 
           {/* 사이즈 매칭 */}
           <Text style={styles.sectionTitle}>브랜드 사이즈 매칭</Text>
@@ -344,8 +356,31 @@ const styles = StyleSheet.create({
     marginBottom: 12,
   },
   sectionTitlePlain: { fontSize: Type.label, fontWeight: '600', color: INK },
-  guideLink: { flexDirection: 'row', alignItems: 'center', gap: 5, paddingVertical: 4 },
-  guideLinkText: { fontSize: Type.caption, color: Editorial.textCaption },
+  editHint: { fontSize: Type.micro, color: Editorial.textCaption },
+
+  guideBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    marginTop: 18,
+    paddingVertical: 14,
+    paddingHorizontal: 16,
+    borderWidth: 1,
+    borderColor: Editorial.line,
+    borderRadius: 14,
+  },
+  guideBannerIcon: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: Editorial.line,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  guideBannerTexts: { flex: 1, gap: 3 },
+  guideBannerTitle: { fontSize: Type.footnote, fontWeight: '600', color: INK },
+  guideBannerBody: { fontSize: Type.micro, color: Editorial.textCaption, lineHeight: 17 },
 
   measureGrid: {
     flexDirection: 'row',
