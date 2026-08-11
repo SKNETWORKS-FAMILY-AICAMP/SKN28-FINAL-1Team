@@ -24,11 +24,7 @@ import { ContentMax, Editorial, Fonts, ink, Type } from '@/constants/theme';
 import { useBottomTabInset } from '@/hooks/use-bottom-tab-inset';
 import { useBreakpoint } from '@/hooks/use-breakpoint';
 import { ApiError } from '@/lib/apiClient';
-<<<<<<< HEAD
-import { MEASURE_KEYS, measureStore, useMeasure, type Measurement } from '@/state/measure';
-=======
 import { measureStore, useMeasure, type Measurement } from '@/state/measure';
->>>>>>> db5c47691787116167cf0458ea994b13cfed418c
 
 const INK = Editorial.ink;
 
@@ -42,37 +38,16 @@ function Steps({ active }: { active: number }) {
   );
 }
 
-<<<<<<< HEAD
-/* 추정 치수 표시 순서·라벨 (값은 measureStore 결과에서).
-   서버(ml/body_measurement)가 상세 7개를 모두 채워 보내므로 7개를 다 보여준다 —
-   예전엔 앞의 4개만 렌더링해 허벅지·종아리·팔뚝은 저장돼 있는데도 화면에 없었다. */
-const MEASURE_ROWS: { key: (typeof MEASURE_KEYS)[number]; label: string }[] = [
-  { key: 'shoulder', label: '어깨너비' },
-  { key: 'chest', label: '가슴둘레' },
-  { key: 'waist', label: '허리둘레' },
-  { key: 'hip', label: '엉덩이둘레' },
-  { key: 'thigh', label: '허벅지둘레' },
-  { key: 'calf', label: '종아리둘레' },
-  { key: 'arm', label: '팔뚝둘레' },
-];
-=======
 /** 입력칸 문자열이 백엔드 허용 범위 안의 수인지 (벗어나면 PATCH detail 이 400 이 된다) */
 function isValid(spec: BodyMeasureSpec, raw: string | undefined): boolean {
   const n = parseFloat(raw ?? '');
   return Number.isFinite(n) && n >= spec.min && n <= spec.max;
 }
->>>>>>> db5c47691787116167cf0458ea994b13cfed418c
 
 // G3 치수 결과·사이즈 매칭 — measureStore 결과를 구독. 완료 시 측정 플로우 닫기
 export default function MeasureResult() {
   const { contentStyle } = useBreakpoint();
   const tabInset = useBottomTabInset();
-<<<<<<< HEAD
-  const { returnTo } = useLocalSearchParams<{ returnTo?: string }>();
-  const { status, result, photos, error, needsBasicInfo } = useMeasure();
-  const toast = useToast();
-  const [savingDone, setSavingDone] = useState(false);
-=======
   /* guide 파라미터로 '재는 법'을 바로 열 수 있다 (mobile:///measure-result?guide=shoulder).
      화면을 거치지 않고 특정 항목 안내로 보낼 때 쓴다 — 도움말 링크·QA 확인용. */
   const { returnTo, guide } = useLocalSearchParams<{ returnTo?: string; guide?: string }>();
@@ -84,7 +59,6 @@ export default function MeasureResult() {
   /** 접힘 상태 — 처음엔 어깨·가슴·허리·엉덩이 4개만 */
   const [expanded, setExpanded] = useState(false);
   const shown = expanded ? BODY_MEASURES : BODY_MEASURES.slice(0, PREVIEW_COUNT);
->>>>>>> db5c47691787116167cf0458ea994b13cfed418c
 
   // 플로우를 거치지 않고 직접 진입했으면(status idle) 추정을 시작한다.
   useEffect(() => {
@@ -94,15 +68,6 @@ export default function MeasureResult() {
   /* 초기값이 아니라 effect 로 여는 이유: 이미 이 화면이 떠 있는 상태에서 guide 만 다른
      링크가 오면 컴포넌트가 다시 마운트되지 않아 useState 초기화가 실행되지 않는다. */
   useEffect(() => {
-<<<<<<< HEAD
-    if (!result) return;
-    // 소수점 1자리로 표기 (예: 78 → "78.0")
-    setValues(
-      MEASURE_KEYS.reduce<Record<string, string>>((acc, key) => {
-        acc[key] = result.measures[key].toFixed(1);
-        return acc;
-      }, {}),
-=======
     const key = BODY_MEASURES.find((m) => m.key === guide)?.key;
     if (key) setGuideKey(key);
   }, [guide]);
@@ -122,7 +87,6 @@ export default function MeasureResult() {
       Object.fromEntries(
         BODY_MEASURES.map((spec) => [spec.key, result.measures[spec.key].toFixed(spec.decimals)]),
       ),
->>>>>>> db5c47691787116167cf0458ea994b13cfed418c
     );
   }, [result]);
 
@@ -140,15 +104,9 @@ export default function MeasureResult() {
         <SafeAreaView edges={['top', 'bottom']} style={styles.safe}>
           <View style={styles.stateWrap}>
             <Steps active={2} />
-<<<<<<< HEAD
-            {/* 기본 정보가 없어서 실패한 경우엔 재시도 버튼을 주면 안 된다 —
-                같은 요청이 같은 400 으로 돌아와 사용자가 빠져나갈 수 없다. */}
-            {status === 'error' && needsBasicInfo ? (
-=======
             {/* 입력이 없어서 못 한 것과 그 밖의 실패(로그인 만료·서버 장애)는 갈 곳이 다르다 —
                 전자만 STEP1 로 돌려보내고, 나머지는 그 자리에서 다시 시도하게 한다. */}
             {status === 'error' && needsInput ? (
->>>>>>> db5c47691787116167cf0458ea994b13cfed418c
               <ErrorState
                 title="추정할 정보가 없어요"
                 description={error ?? '키·몸무게를 입력하거나 사진을 등록해 주세요.'}
@@ -163,17 +121,7 @@ export default function MeasureResult() {
               <ErrorState
                 title="치수 추정에 실패했어요"
                 description={error ?? undefined}
-<<<<<<< HEAD
-                /* 사진으로 온 실패는 사진으로 다시 시도해야 한다 — estimate() 로 재시도하면
-                   사용자가 올린 사진을 무시하고 키·몸무게 기반 결과를 돌려준다. */
-                onRetry={() =>
-                  photos.front && photos.side
-                    ? measureStore.startPhotoMeasurement()
-                    : measureStore.estimate()
-                }
-=======
                 onRetry={retry}
->>>>>>> db5c47691787116167cf0458ea994b13cfed418c
                 style={styles.stateFill}
               />
             ) : (
@@ -194,20 +142,11 @@ export default function MeasureResult() {
 
   // 완료 — 수정한 값을 서버에 저장(PATCH detail)하고 플로우 닫기
   const onDone = async () => {
-<<<<<<< HEAD
-    // 사용자가 지우거나 숫자가 아닌 값을 넣었으면 추정값을 그대로 쓴다.
-    const measures = MEASURE_KEYS.reduce((acc, key) => {
-      const parsed = parseFloat(values[key]);
-      acc[key] = Number.isFinite(parsed) ? parsed : result.measures[key];
-      return acc;
-    }, {} as Measurement);
-=======
     if (invalid.length > 0) return;
     const measures = Object.fromEntries(
       BODY_MEASURES.map((spec) => [spec.key, parseFloat(values[spec.key] as string)]),
     ) as Measurement;
 
->>>>>>> db5c47691787116167cf0458ea994b13cfed418c
     setSavingDone(true);
     try {
       await measureStore.saveDetail(measures);
