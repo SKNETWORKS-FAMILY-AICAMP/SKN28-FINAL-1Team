@@ -50,6 +50,9 @@ ENV/
 db.sqlite3
 staticfiles/
 static/
+# 골든셋 확인용 웹의 단일 페이지는 소스다 (Django collectstatic 산출물이 아님).
+!ml/golden_set/web/static/
+!ml/golden_set/web/static/**
 media/
 
 # ============================================================

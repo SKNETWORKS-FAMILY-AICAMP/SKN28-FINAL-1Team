@@ -14,6 +14,53 @@ import uuid
 from django.conf import settings
 from django.contrib.postgres.fields import ArrayField
 from django.db import models
+from django.db.models import Count, Q
+from django.utils import timezone
+
+
+class WardrobeItemBatch(models.Model):
+    class Status(models.TextChoices):
+        PENDING = "PENDING", "대기"
+        PROCESSING = "PROCESSING", "처리중"
+        DONE = "DONE", "완료"
+        PARTIAL = "PARTIAL", "일부실패"
+        FAILED = "FAILED", "실패"
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False,
+                          db_comment="배치 UUID (외부 노출 식별자)")
+    user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE,
+                             related_name="wardrobe_batches",
+                             db_comment="등록 사용자 FK (users.id)")
+    status = models.CharField(max_length=16, choices=Status.choices, default=Status.PENDING,
+                              db_comment="배치 상태 (PENDING/PROCESSING/DONE/PARTIAL/FAILED)")
+    total_count = models.PositiveSmallIntegerField(default=0, db_comment="접수된 이미지 장수")
+    done_count = models.PositiveSmallIntegerField(default=0, db_comment="태깅 성공 job 수")
+    failed_count = models.PositiveSmallIntegerField(default=0, db_comment="태깅 실패 job 수")
+    source = models.CharField(max_length=20, default="onboarding",
+                              db_comment="등록 경로 (onboarding/manual 등)")
+    created_at = models.DateTimeField(auto_now_add=True, db_comment="배치 접수 시각")
+    finished_at = models.DateTimeField(null=True, blank=True, db_comment="모든 job 종료 시각")
+
+    class Meta:
+        db_table = "wardrobe_item_batch"
+        db_table_comment = "옷장 아이템 일괄 등록 요청과 처리 진행률"
+        ordering = ["-created_at"]
+        indexes = [models.Index(fields=["user", "status"], name="wardrobe_b_user_status_idx")]
+
+    def refresh_status(self) -> None:
+        counts = self.jobs.aggregate(
+            done=Count("id", filter=Q(status="DONE")),
+            failed=Count("id", filter=Q(status="FAILED")),
+        )
+        self.done_count, self.failed_count = counts["done"], counts["failed"]
+        finished = self.done_count + self.failed_count
+        if finished == self.total_count:
+            self.status = (self.Status.DONE if not self.failed_count else
+                           self.Status.FAILED if not self.done_count else self.Status.PARTIAL)
+            self.finished_at = self.finished_at or timezone.now()
+        elif finished:
+            self.status = self.Status.PROCESSING
+        self.save(update_fields=["done_count", "failed_count", "status", "finished_at"])
 
 
 class WardrobeUploadJob(models.Model):
@@ -36,6 +83,20 @@ class WardrobeUploadJob(models.Model):
         on_delete=models.CASCADE,
         related_name="wardrobe_jobs",
         db_comment="업로드 사용자 FK (users.id)",
+    )
+    batch = models.ForeignKey(
+        WardrobeItemBatch, on_delete=models.CASCADE, null=True, blank=True,
+        related_name="jobs",
+        db_comment="일괄 등록 배치 FK (wardrobe_item_batch.id, 단건 업로드는 NULL)",
+    )
+    pipeline = models.CharField(max_length=20, default="gemini-edit",
+                                db_comment="처리 파이프라인 식별자 (gemini-edit/qwen-tag)")
+    original_file_name = models.CharField(max_length=255, blank=True, default="",
+                                          db_comment="업로드 원본 파일명")
+    input_metadata = models.JSONField(
+        default=dict,
+        blank=True,
+        db_comment="외부 수집 시 클라이언트가 제공한 옷장 부분 태그 JSON",
     )
     source_s3_key = models.CharField(
         "원본 S3 키", max_length=512, db_comment="업로드 원본 이미지 S3 키"

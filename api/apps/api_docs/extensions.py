@@ -2,6 +2,7 @@ from drf_spectacular.extensions import (
     OpenApiAuthenticationExtension,
     OpenApiViewExtension,
 )
+from rest_framework import serializers
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import (
     OpenApiExample,
@@ -42,6 +43,10 @@ from apps.users.serializers import (
     BodyMeasurementSerializer,
     BodyPhotoTransactionSerializer,
     BodyPhotoUploadSerializer,
+    EmailLoginSerializer,
+    EmailSignupSerializer,
+    EmailVerificationResendSerializer,
+    EmailVerificationSerializer,
     BudgetSerializer,
     PursuitPayloadInputSerializer,
     PursuitPayloadResponseSerializer,
@@ -50,6 +55,7 @@ from apps.users.serializers import (
 )
 from apps.wardrobe.serializers import (
     CallbackSerializer,
+    WardrobeBatchCreateSerializer,
     WardrobeItemSerializer,
     WardrobeItemUpdateSerializer,
     WardrobeJobSerializer,
@@ -75,7 +81,7 @@ class JWTAuthenticationExtension(OpenApiAuthenticationExtension):
             "scheme": "bearer",
             "bearerFormat": "JWT",
             "description": (
-                "소셜 로그인(`POST /api/v1/auth/{provider}/login/`)이 발급한 "
+                "이메일 또는 소셜 로그인 API가 발급한 "
                 "**access 토큰**을 `Authorization: Bearer <access>` 헤더로 전달합니다.\n\n"
                 "- access 토큰 만료 시 401이 반환되며, "
                 "`POST /api/v1/auth/token/refresh/`로 재발급합니다.\n"
@@ -109,6 +115,114 @@ class TokenRefreshViewExtension(OpenApiViewExtension):
             pass
 
         return DocumentedTokenRefreshView
+
+
+class EmailSignupViewExtension(OpenApiViewExtension):
+    target_class = "apps.users.views.EmailSignupView"
+
+    def view_replacement(self):
+        @extend_schema_view(
+            post=extend_schema(
+                operation_id="email_signup",
+                tags=["Authentication"],
+                summary="이메일 회원가입",
+                description="비활성 이메일 계정을 생성하고 6자리 소유 확인 코드를 발송합니다.",
+                request=EmailSignupSerializer,
+                responses={
+                    202: inline_serializer(
+                        name="EmailSignupPendingResponse",
+                        fields={
+                            "email": serializers.EmailField(),
+                            "verification_required": serializers.BooleanField(),
+                            "retry_after": serializers.IntegerField(),
+                        },
+                    ),
+                    400: OpenApiResponse(description="이메일 중복 또는 비밀번호 정책 오류"),
+                },
+            )
+        )
+        class DocumentedEmailSignupView(self.target_class):
+            pass
+
+        return DocumentedEmailSignupView
+
+
+class EmailVerificationViewExtension(OpenApiViewExtension):
+    target_class = "apps.users.views.EmailVerificationView"
+
+    def view_replacement(self):
+        @extend_schema_view(
+            post=extend_schema(
+                operation_id="email_verify",
+                tags=["Authentication"],
+                summary="이메일 인증 코드 확인",
+                description=(
+                    "이메일 소유를 확인하고 계정을 활성화합니다. "
+                    "**토큰은 발급하지 않으므로** 인증 후 로그인 API를 호출해야 합니다."
+                ),
+                request=EmailVerificationSerializer,
+                responses={
+                    200: inline_serializer(
+                        name="EmailVerifiedResponse",
+                        fields={
+                            "email": serializers.EmailField(),
+                            "verified": serializers.BooleanField(),
+                        },
+                    ),
+                    400: OpenApiResponse(description="코드 오류·만료·이미 인증된 이메일"),
+                },
+            )
+        )
+        class DocumentedEmailVerificationView(self.target_class):
+            pass
+
+        return DocumentedEmailVerificationView
+
+
+class EmailVerificationResendViewExtension(OpenApiViewExtension):
+    target_class = "apps.users.views.EmailVerificationResendView"
+
+    def view_replacement(self):
+        @extend_schema_view(
+            post=extend_schema(
+                operation_id="email_verification_resend",
+                tags=["Authentication"],
+                summary="이메일 인증 코드 재발송",
+                request=EmailVerificationResendSerializer,
+                responses={200: OpenApiResponse(description="재발송 완료"), 400: OpenApiResponse(description="재발송 대기 중")},
+            )
+        )
+        class DocumentedEmailVerificationResendView(self.target_class):
+            pass
+
+        return DocumentedEmailVerificationResendView
+
+
+class EmailLoginViewExtension(OpenApiViewExtension):
+    target_class = "apps.users.views.EmailLoginView"
+
+    def view_replacement(self):
+        @extend_schema_view(
+            post=extend_schema(
+                operation_id="email_login",
+                tags=["Authentication"],
+                summary="이메일 로그인",
+                description=(
+                    "이메일과 비밀번호를 확인하고 서비스 JWT를 발급합니다. "
+                    "`is_new_user`는 가입 후 첫 로그인(`last_login`이 NULL)일 때 true이며, "
+                    "앱은 이 값으로 온보딩(권한 → 체형 측정 → 추구미) 진입을 분기합니다."
+                ),
+                request=EmailLoginSerializer,
+                responses={
+                    200: SocialLoginResponseSerializer,
+                    400: OpenApiResponse(description="이메일 또는 비밀번호 불일치"),
+                },
+            )
+        )
+        class DocumentedEmailLoginView(self.target_class):
+            pass
+
+        return DocumentedEmailLoginView
 
 
 # apple은 백엔드 코드는 있으나 서비스 구현 보류 상태라 문서에서 제외한다.
@@ -699,6 +813,125 @@ from rest_framework import serializers as drf_serializers  # noqa: E402
 
 from apps.wardrobe import taxonomy as wardrobe_taxonomy  # noqa: E402
 
+BATCH_STATUSES = ["PENDING", "PROCESSING", "DONE", "PARTIAL", "FAILED"]
+
+class WardrobeBatchCountsSerializer(drf_serializers.Serializer):
+    total = drf_serializers.IntegerField()
+    pending = drf_serializers.IntegerField()
+    done = drf_serializers.IntegerField()
+    failed = drf_serializers.IntegerField()
+
+
+class WardrobeBatchResponseSerializer(drf_serializers.Serializer):
+    batch_id = drf_serializers.UUIDField()
+    status = drf_serializers.ChoiceField(choices=BATCH_STATUSES)
+    source = drf_serializers.CharField()
+    counts = WardrobeBatchCountsSerializer()
+    progress = drf_serializers.FloatField()
+    poll_after_ms = drf_serializers.IntegerField(allow_null=True)
+    created_at = drf_serializers.DateTimeField()
+    finished_at = drf_serializers.DateTimeField(allow_null=True)
+    jobs = WardrobeJobSerializer(many=True)
+
+
+class WardrobeBatchCreateResponseSerializer(drf_serializers.Serializer):
+    batch_id = drf_serializers.UUIDField()
+    status = drf_serializers.ChoiceField(choices=BATCH_STATUSES)
+    total_count = drf_serializers.IntegerField()
+    accepted = drf_serializers.ListField(child=drf_serializers.DictField())
+    rejected = drf_serializers.ListField(child=drf_serializers.DictField())
+    poll_url = drf_serializers.CharField()
+    poll_after_ms = drf_serializers.IntegerField()
+    estimated_seconds = drf_serializers.IntegerField()
+
+
+class WardrobeBatchViewExtension(OpenApiViewExtension):
+    target_class = "apps.wardrobe.views.WardrobeBatchView"
+
+    def view_replacement(self):
+        @extend_schema_view(
+            get=extend_schema(
+                operation_id="wardrobe_batches",
+                tags=["Wardrobe"],
+                summary="옷장 일괄 등록 목록",
+                parameters=[
+                    OpenApiParameter(
+                        name="status",
+                        type=OpenApiTypes.STR,
+                        location=OpenApiParameter.QUERY,
+                        required=False,
+                        enum=BATCH_STATUSES,
+                    ),
+                    OpenApiParameter(
+                        name="limit",
+                        type=OpenApiTypes.INT,
+                        location=OpenApiParameter.QUERY,
+                        required=False,
+                        default=20,
+                    ),
+                    OpenApiParameter(
+                        name="offset",
+                        type=OpenApiTypes.INT,
+                        location=OpenApiParameter.QUERY,
+                        required=False,
+                        default=0,
+                    ),
+                ],
+                responses={
+                    200: WardrobeBatchResponseSerializer(many=True),
+                    400: DetailResponseSerializer,
+                    401: DetailResponseSerializer,
+                },
+            ),
+            post=extend_schema(
+                operation_id="wardrobe_batch_create",
+                tags=["Wardrobe"],
+                summary="외부 상품 여러 건 옷장 일괄 등록",
+                description=(
+                    "인앱 브라우저 등에서 수집한 items를 JSON으로 1~30건 전달합니다. "
+                    "각 item은 image_link와 알고 있는 옷장 태그를 포함하며, "
+                    "서버가 이미지를 S3에 저장하고 Qwen 태깅 큐에 등록합니다."
+                ),
+                request=WardrobeBatchCreateSerializer,
+                responses={
+                    202: WardrobeBatchCreateResponseSerializer,
+                    400: DetailResponseSerializer,
+                    401: DetailResponseSerializer,
+                    503: DetailResponseSerializer,
+                },
+            ),
+        )
+        class DocumentedWardrobeBatchView(self.target_class):
+            pass
+
+        return DocumentedWardrobeBatchView
+
+
+class WardrobeBatchDetailViewExtension(OpenApiViewExtension):
+    target_class = "apps.wardrobe.views.WardrobeBatchDetailView"
+
+    def view_replacement(self):
+        @extend_schema_view(
+            get=extend_schema(
+                operation_id="wardrobe_batch_detail",
+                tags=["Wardrobe"],
+                summary="옷장 일괄 등록 상태 조회",
+                description=(
+                    "각 job의 PENDING/PROCESSING/DONE/FAILED 상태와 error_message를 반환합니다. "
+                    "PENDING이 20분을 초과하면 FAILED(processing_timeout)로 종료합니다."
+                ),
+                responses={
+                    200: WardrobeBatchResponseSerializer,
+                    401: DetailResponseSerializer,
+                    404: DetailResponseSerializer,
+                },
+            )
+        )
+        class DocumentedWardrobeBatchDetailView(self.target_class):
+            pass
+
+        return DocumentedWardrobeBatchDetailView
+
 WARDROBE_UPLOAD_DESCRIPTION = """사진 1장을 접수해 옷장 아이템 등록을 **비동기로** 시작합니다.
 
 1. 원본이 S3에 저장되고 처리 job이 생성됩니다 (`202 + job_id`).
@@ -764,7 +997,8 @@ class WardrobeUploadJobViewExtension(OpenApiViewExtension):
                 description=(
                     "처리 상태(PENDING/PROCESSING/DONE/FAILED)를 반환합니다.\n\n"
                     "DONE이면 분리된 아이템 목록(presigned 이미지 URL 포함)이 "
-                    "`items`에 담깁니다."
+                    "`items`에 담깁니다. PENDING이 20분을 초과하면 "
+                    "FAILED(processing_timeout)로 종료합니다."
                 ),
                 responses={
                     200: WardrobeJobSerializer,
@@ -791,6 +1025,7 @@ class WardrobeCallbackViewExtension(OpenApiViewExtension):
                 description=(
                     "이미지 프로세서 전용 내부 엔드포인트입니다 (프론트 사용 금지).\n\n"
                     "- 인증: `X-Internal-Token` 헤더 (JWT 아님)\n"
+                    "- `processing`: GPU 워커가 작업을 가져간 상태를 기록합니다.\n"
                     "- 멱등: 이미 DONE/FAILED인 job은 재처리 없이 200을 반환합니다.\n"
                     "- 벡터(`image_vector`/`text_vector`)는 DB가 아닌 Qdrant로 적재됩니다."
                 ),

@@ -6,7 +6,7 @@
  * 사용자의 홈'과 '비회원 둘러보기'를 구분해 보여주기 위한 자리다.
  *
  * JWT 가 없어 홈 API 를 호출할 수 없으므로 홈 데이터도 여기 고정값을 쓴다.
- * 이메일/비번 로그인 API 가 생기면 이 파일과 authStore.signInDemo 를 함께 걷어낸다.
+ * 과거 데모 로그인 세션과 목업 홈 화면의 하위 호환을 위해 유지한다.
  */
 import type { HomeData } from '@/hooks/use-home';
 import type { AuthUser } from '@/state/auth';

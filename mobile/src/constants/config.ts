@@ -57,6 +57,19 @@ export const GOOGLE_WEB_CLIENT_ID = process.env.EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID
 export const GOOGLE_IOS_CLIENT_ID = process.env.EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID ?? '';
 
 /**
+ * 웹 소셜 로그인(브라우저 인가 코드 방식)에 쓰는 **클라이언트 ID**.
+ * 인가 URL 쿼리에 그대로 실려 주소창에 노출되는 준공개값이다 — client_secret 은
+ * 백엔드 전용이며 앱에 절대 넣지 않는다 (토큰 교환은 백엔드가 한다).
+ *
+ * 네이티브 키와 다른 값이라는 점에 주의:
+ *   카카오 — 네이티브는 '네이티브 앱 키', 웹은 **REST API 키**
+ *   네이버 — 네이티브는 consumerKey, 웹은 OAuth client_id (백엔드 NAVER_OAUTH_CLIENT_ID 와 같은 값)
+ *   구글  — 웹 클라이언트 ID 하나를 앱·웹이 같이 쓴다
+ */
+export const KAKAO_REST_API_KEY = process.env.EXPO_PUBLIC_KAKAO_REST_API_KEY ?? '';
+export const NAVER_OAUTH_CLIENT_ID = process.env.EXPO_PUBLIC_NAVER_OAUTH_CLIENT_ID ?? '';
+
+/**
  * 키가 채워졌을 때만 해당 SDK 를 초기화/호출한다.
  * 미설정(스캐폴딩) 상태에선 네이티브 SDK 를 건드리지 않아, 재빌드 전에도 앱이 안전하게 뜬다.
  */
@@ -79,8 +92,20 @@ export const isGoogleConfigured = (): boolean =>
  *   GET/PATCH /api/v1/users/me/           내 정보 (Bearer 필요)
  *
  * ※ simplejwt(stateless)라 서버 로그아웃 엔드포인트는 없다 → 로그아웃은 클라이언트 토큰 폐기.
+ *
+ * 이메일 가입/로그인 흐름:
+ *   POST /api/v1/auth/signup/        { email, password } → 202 { email, verification_required, retry_after }
+ *   POST /api/v1/auth/email/verify/  { email, code }     → 200 { email, verified }
+ *     ⚠️ 인증 API 는 **토큰을 주지 않는다**. 계정만 활성화되므로 이어서 로그인해야 세션이 열린다.
+ *   POST /api/v1/auth/email/resend/  { email }           → 200 { retry_after }
+ *   POST /api/v1/auth/login/         { email, password } → 200 { access, refresh, user, is_new_user }
+ *     is_new_user=true 는 가입 후 첫 로그인 → 온보딩(권한 → 체형 측정 → 추구미)으로 보낸다.
  */
 export const AuthEndpoints = {
+  signup: '/api/v1/auth/signup/',
+  login: '/api/v1/auth/login/',
+  verifyEmail: '/api/v1/auth/email/verify/',
+  resendEmail: '/api/v1/auth/email/resend/',
   socialLogin: (provider: SocialProvider) => `/api/v1/auth/${provider}/login/`,
   refresh: '/api/v1/auth/token/refresh/',
   me: '/api/v1/users/me/',
@@ -119,16 +144,26 @@ export const OutfitHistoryEndpoints = {
 /**
  * 신체치수 (api/apps/users/urls.py 기준). 전부 JWT 필요.
  *   GET   /api/v1/users/me/body/         → 전체 치수 (미입력 필드는 null)
- *   PUT   /api/v1/users/me/body/basic/   { height, weight }  (둘 다 필수)
- *   PATCH /api/v1/users/me/body/detail/  { chest,waist,hip,thigh,calf,arm,shoulder }  (전부 선택)
+ *   PUT   /api/v1/users/me/body/basic/   { gender, height, weight }  (셋 다 필수, gender=male|female)
+ *   PATCH /api/v1/users/me/body/detail/  상세 **10개** (전부 선택)
+ *   POST  /api/v1/users/me/body/estimate/  { gender?, height?, weight? } → 상세 10개 추정·저장 (동기)
  *   POST  /api/v1/users/me/body/photos/  multipart front_image/side_image → 202 { transaction_id, status }
- *   GET   /api/v1/users/me/body/photos/{id}/  → { status: in_progress|succeeded|failed } (폴링)
- *   ※ 수치는 Decimal 소수 1자리(1~999.9). 사진 접수 후 백엔드가 상세치수를 채우면 GET body 로 읽는다.
+ *   GET   /api/v1/users/me/body/photos/{id}/  → 트랜잭션 조회 (폴링)
+ *
+ *   상세 10개 = 둘레·너비 7개(chest,waist,hip,thigh,calf,arm,shoulder)
+ *             + 체형 지표 3개(neck_length, thigh_calf_ratio, torso_leg_ratio).
+ *   지표 3개는 2026-08-10 백엔드에 추가됐다(users 마이그레이션 0014~0016, PR#10).
+ *   항목별 라벨·단위·범위는 constants/body-measures.ts 가 단일 출처다.
+ *   ※ 수치는 Decimal 소수 1자리(1~999.9), 비율 2개는 3자리(thigh_calf 0.8~1.3 · torso_leg 0.6~1.0).
+ *   ※ estimate 와 photos/{id} 는 같은 결과 형식을 준다 —
+ *     { status, source, transaction_id, measurement, error_message }. 추정 치수가 응답에 들어 있어
+ *     따로 GET body 를 부를 필요가 없다. estimate 는 본문을 비우면 저장된 기본 정보를 쓴다.
  */
 export const BodyEndpoints = {
   me: '/api/v1/users/me/body/',
   basic: '/api/v1/users/me/body/basic/',
   detail: '/api/v1/users/me/body/detail/',
+  estimate: '/api/v1/users/me/body/estimate/',
   photos: '/api/v1/users/me/body/photos/',
   photo: (transactionId: string) => `/api/v1/users/me/body/photos/${transactionId}/`,
 } as const;

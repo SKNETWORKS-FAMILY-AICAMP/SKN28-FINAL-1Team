@@ -17,10 +17,10 @@ api/
 └── apps/
     ├── catalog/               # naver_product / naver_product_size (collector/naver가 사용)
     ├── weather/               # weather_* 6개 테이블 (collector/weather가 사용)
-    └── users/                 # 사용자 + 소셜 로그인
+    └── users/                 # 사용자 + 이메일/소셜 인증
         ├── models.py          # User(커스텀), SocialAccount
         ├── serializers.py
-        ├── views.py           # SocialLoginView, MeView
+        ├── views.py           # EmailSignup/LoginView, SocialLoginView, MeView
         ├── urls.py
         ├── services/
         │   ├── oauth.py       # naver/kakao/google code→token→profile
@@ -73,13 +73,21 @@ docker compose --profile all up -d --build      # db + api + collector 2종
 로컬 http 테스트 시 `.env`에 `DJANGO_SECURE_SSL_REDIRECT=false`
 (또는 `DJANGO_SETTINGS_MODULE=config.settings.dev`)를 설정한다.
 
-## 소셜 로그인 API
+## 인증 API
 
 | 메서드 | 경로 | 설명 |
 | --- | --- | --- |
+| POST | `/api/v1/auth/signup/` | body `{email, password}` → 비활성 이메일 계정 생성 + 6자리 인증 코드 발송 |
+| POST | `/api/v1/auth/email/verify/` | body `{email, code}` → 이메일 인증 완료 `{email, verified}`. **토큰은 발급하지 않는다** — 이어서 로그인 API를 호출한다 |
+| POST | `/api/v1/auth/email/resend/` | body `{email}` → 인증 코드 재발송 (기본 60초 제한) |
+| POST | `/api/v1/auth/login/` | body `{email, password}` → JWT(access/refresh) + user. `is_new_user`는 가입 후 첫 로그인(`last_login` NULL)일 때 true |
 | POST | `/api/v1/auth/{naver\|kakao\|google}/login/` | body `{code, redirect_uri, state}` → JWT(access/refresh) + user. kakao/google은 `redirect_uri` 필수, naver는 `state` 필수 |
 | POST | `/api/v1/auth/token/refresh/` | body `{refresh}` → 새 access |
 | GET/PATCH | `/api/v1/users/me/` | 내 정보 조회/수정 (Bearer 토큰 필요) |
+
+이메일 흐름: 가입(202, 비활성 계정 + 코드 발송) → 코드 인증(200, 계정 활성화·**토큰 없음**) →
+로그인(200, JWT + `is_new_user`) → 첫 로그인이면 앱이 온보딩(권한 → 체형 측정 → 추구미)으로 분기.
+인증 API가 토큰을 주지 않는 이유는 이메일 주소만 아는 사람이 비밀번호 없이 세션을 얻는 경로를 막기 위해서다.
 
 흐름: 프론트가 제공사 로그인 → authorization code 수신 → 백엔드로 전달 →
 백엔드가 토큰 교환·프로필 조회 → `SocialAccount` upsert → 자체 JWT 발급.

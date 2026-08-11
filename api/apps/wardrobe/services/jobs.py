@@ -32,6 +32,7 @@ REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379/0")
 # requirepass 비밀번호 (Infisical: REDIS_PASSWORD). URL에 내장하지 않고 별도 주입한다.
 REDIS_PASSWORD = os.getenv("REDIS_PASSWORD", "")
 QUEUE_KEY = os.getenv("WARDROBE_JOB_QUEUE", "wardrobe:jobs")
+ITEM_QUEUE_KEY = os.getenv("WARDROBE_ITEM_JOB_QUEUE", "wardrobe:item-jobs")
 CALLBACK_URL = os.getenv("WARDROBE_CALLBACK_URL", "")
 
 
@@ -77,3 +78,30 @@ def enqueue(
     if exclude_categories:
         payload["exclude_categories"] = list(exclude_categories)
     _redis().lpush(QUEUE_KEY, json.dumps(payload, ensure_ascii=False))
+
+
+def enqueue_item(job) -> None:
+    payload = {
+        "job_id": str(job.id),
+        "batch_id": str(job.batch_id),
+        "user_id": job.user_id,
+        "source": {"bucket": storage.BUCKET, "key": job.source_s3_key},
+        "output_prefix": storage.output_prefix(job.user_id, job.id),
+        "input_mode": "photo",
+        "callback_url": CALLBACK_URL,
+    }
+    _redis().lpush(ITEM_QUEUE_KEY, json.dumps(payload, ensure_ascii=False))
+
+
+def cancel_pending(job) -> bool:
+    """아직 소비되지 않은 job을 해당 Redis 대기열에서 제거한다."""
+    queue_key = ITEM_QUEUE_KEY if job.pipeline == "qwen-tag" else QUEUE_KEY
+    redis_client = _redis()
+    for raw in redis_client.lrange(queue_key, 0, -1):
+        try:
+            queued_job_id = json.loads(raw).get("job_id")
+        except (json.JSONDecodeError, AttributeError):
+            continue
+        if queued_job_id == str(job.pk):
+            return bool(redis_client.lrem(queue_key, 1, raw))
+    return False

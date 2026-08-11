@@ -50,7 +50,7 @@ export default function MeasureInput() {
     let alive = true;
     fetchBodyBasic()
       .then((b) => {
-        if (!alive || !b) return;
+        if (!alive) return;
         if (b.height != null) setHeight(String(b.height));
         if (b.weight != null) setWeight(String(b.weight));
       })
@@ -182,9 +182,11 @@ export default function MeasureInput() {
             <Text style={styles.sexHint}>성별까지 골라야 저장돼요</Text>
           ) : null}
 
-          <Pressable style={styles.skipWrap} hitSlop={8} onPress={goCapture}>
-            <Text style={styles.skipText}>입력 없이 건너뛰기</Text>
-          </Pressable>
+          {returnTo !== 'onboarding' ? (
+            <Pressable style={styles.skipWrap} hitSlop={8} onPress={goCapture}>
+              <Text style={styles.skipText}>입력 없이 건너뛰기</Text>
+            </Pressable>
+          ) : null}
         </ScrollView>
 
         <View style={[styles.bottomBar, { paddingBottom: tabInset }, contentStyle(ContentMax.narrow)]}>
@@ -195,15 +197,15 @@ export default function MeasureInput() {
               setSaving(true);
               try {
                 await measureStore.saveBasic({ height: h, weight: w, sex: sex ?? 'none' });
+                goCapture();
               } catch (e) {
-                // 저장 실패해도 로컬 입력은 반영돼 있어 플로우는 계속 진행한다.
                 toast(
-                  e instanceof ApiError ? e.message : '키·몸무게 저장에 실패했어요. 임시로 진행할게요.',
+                  e instanceof ApiError ? e.message : '키·몸무게 저장에 실패했어요. 다시 시도해 주세요.',
                   { variant: 'error' },
                 );
+                if (returnTo !== 'onboarding') goCapture();
               } finally {
                 setSaving(false);
-                goCapture();
               }
             }}>
             <Text style={styles.ctaText}>다음</Text>

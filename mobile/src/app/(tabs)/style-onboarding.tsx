@@ -243,8 +243,8 @@ export default function StyleOnboarding() {
   const hasSelection = preferredCount + avoidedCount > 0;
 
   const goHome = () => {
-    if (returnTo === 'my') router.replace('/(tabs)/my');
-    else router.replace('/(tabs)/home');
+    if (returnTo === 'my') router.navigate('/my');
+    else router.navigate('/home');
   };
 
   /* "저장하고 시작하기" — 선호/기피 선택(11개 카테고리)을 통째로 저장(PUT)하고 이동한다.
@@ -257,14 +257,15 @@ export default function StyleOnboarding() {
         preferred: toPayload(preferred),
         avoided: toPayload(avoided),
       });
+      goHome();
     } catch (e) {
       toast(
-        e instanceof ApiError ? e.message : '선호도 저장에 실패했어요. 임시로 진행할게요.',
+        e instanceof ApiError ? e.message : '선호도 저장에 실패했어요. 다시 시도해 주세요.',
         { variant: 'error' },
       );
+      if (returnTo !== 'onboarding') goHome();
     } finally {
       setSaving(false);
-      goHome();
     }
   };
 
