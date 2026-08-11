@@ -8,6 +8,7 @@ import {
   getCalendarEntry,
   getCalendarProcessingStatus,
   listCalendarEntries,
+  patchCalendarEntry,
   type CalendarEntryDto,
 } from '@/lib/calendarApi';
 import type { WardrobeItem, WardrobeSource } from '@/constants/wardrobe';
@@ -199,6 +200,28 @@ function overlayFor(date: string): Overlay {
   return overlays[date];
 }
 
+/** 사진과 옷 구성이 그대로인가 — 그렇다면 서버 기록을 다시 만들 이유가 없다. */
+function sameComposition(prev: CalendarEntry, photo: string | undefined, items: EntryItem[]): boolean {
+  if ((prev.photo ?? '') !== (photo ?? '')) return false;
+  if (prev.items.length !== items.length) return false;
+  const before = prev.items.map(entryItemKey).sort();
+  const after = items.map(entryItemKey).sort();
+  return before.every((key, i) => key === after[i]);
+}
+
+/** 서버에 자리가 없는 것들을 날짜별 오버레이에 반영한다. */
+function applyOverlay(input: {
+  date: string;
+  items: EntryItem[];
+  shared: boolean;
+  lookId?: string;
+}) {
+  const overlay = overlayFor(input.date);
+  overlay.shared = input.shared;
+  overlay.lookId = input.lookId ?? overlay.lookId;
+  overlay.localItems = input.items.filter((item) => !isServerItem(item));
+}
+
 /** 서버 응답 + 로컬 오버레이 → 화면이 쓰는 기록 */
 function toEntry(dto: CalendarEntryDto): CalendarEntry {
   const overlay = overlayFor(dto.date);
@@ -260,21 +283,33 @@ export const calendarStore = {
     lookId?: string;
   }): Promise<CalendarEntry> {
     const serverItems = input.items.filter(isServerItem);
-    const localItems = input.items.filter((item) => !isServerItem(item));
 
     if (!input.photo && serverItems.length === 0) {
       throw new Error('사진을 넣거나 내 옷장에서 옷을 골라주세요.');
     }
-
-    // 같은 날짜에 기록이 있으면 서버가 409 로 막는다 — 지우고 다시 만드는 게 유일한 수정 경로다.
-    const prev = entries[input.date];
-    if (prev) await deleteCalendarEntry(prev.id);
 
     const meta = {
       schedule: input.note?.trim() || '',
       hashtags: input.tags,
     };
     const wardrobeItemIds = serverItems.map((item) => item.id);
+
+    const prev = entries[input.date];
+
+    /* 사진과 옷 구성이 그대로면 메타데이터만 고치면 된다.
+       서버에 upsert 가 없어 수정 = 삭제 후 재등록인데, 그러면 일정 한 줄 고치는 데도
+       사진이 다시 올라가고 기록 id 가 바뀐다. PATCH 로 끝낼 수 있으면 그렇게 한다. */
+    if (prev && sameComposition(prev, input.photo, input.items)) {
+      const dto = await patchCalendarEntry(prev.id, meta);
+      applyOverlay(input);
+      const patched = toEntry(dto);
+      entries[input.date] = patched;
+      notify();
+      return patched;
+    }
+
+    // 같은 날짜에 기록이 있으면 서버가 409 로 막는다 — 사진·옷이 바뀌면 지우고 다시 만든다.
+    if (prev) await deleteCalendarEntry(prev.id);
 
     const dto = input.photo
       ? await createCalendarFromPhoto({
@@ -289,10 +324,7 @@ export const calendarStore = {
           ...meta,
         });
 
-    const overlay = overlayFor(input.date);
-    overlay.shared = input.shared;
-    overlay.lookId = input.lookId ?? overlay.lookId;
-    overlay.localItems = localItems;
+    applyOverlay(input);
 
     const next = toEntry(dto);
     entries[input.date] = next;
