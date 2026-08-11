@@ -69,6 +69,7 @@ def derive_session(
         parent_session=source,
         context_state=deepcopy(source.context_state),
         conversation_summary=source.conversation_summary,
+        summary_through_sequence=source.summary_through_sequence,
     )
     derived.full_clean()
     derived.save()

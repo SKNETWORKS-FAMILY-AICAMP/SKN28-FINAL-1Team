@@ -1,6 +1,6 @@
 from rest_framework import serializers
 
-from apps.chat.models import ChatAttachment, ChatMessage, ChatSession
+from apps.chat.models import ChatAttachment, ChatMessage, ChatSession, PersonaProfile
 
 
 class ChatAttachmentSerializer(serializers.ModelSerializer):
@@ -48,6 +48,7 @@ class ChatSessionSerializer(serializers.ModelSerializer):
             "parent_session_id",
             "context_state",
             "conversation_summary",
+            "summary_through_sequence",
             "last_message_at",
             "created_at",
             "updated_at",
@@ -59,6 +60,11 @@ class ChatSessionCreateSerializer(serializers.Serializer):
     mode = serializers.ChoiceField(choices=ChatSession.Mode.choices)
     title = serializers.CharField(required=False, allow_blank=True, max_length=120)
     persona_profile_id = serializers.UUIDField(required=False, allow_null=True)
+
+    def validate_persona_profile_id(self, value):
+        if value is not None and not PersonaProfile.objects.filter(pk=value).exists():
+            raise serializers.ValidationError("존재하지 않는 페르소나 프로필입니다.")
+        return value
 
 
 class ChatSessionUpdateSerializer(serializers.Serializer):

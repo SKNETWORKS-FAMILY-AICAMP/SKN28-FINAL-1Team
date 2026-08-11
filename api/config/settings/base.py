@@ -380,3 +380,32 @@ CHAT_GUEST_COOKIE_SECURE = os.getenv("CHAT_GUEST_COOKIE_SECURE", "true").lower()
     "yes",
 }
 CHAT_GUEST_COOKIE_SAMESITE = os.getenv("CHAT_GUEST_COOKIE_SAMESITE", "Lax")
+
+# 채팅 OpenAI 오케스트레이터와 Redis 컨텍스트 캐시. 대화 원문 전체를 OpenAI의
+# 원격 conversation 상태에 맡기지 않고 PostgreSQL 요약+최근 메시지로 매번 구성한다.
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "").strip()
+CHAT_OPENAI_MODEL = os.getenv("CHAT_OPENAI_MODEL", "gpt-4o-mini").strip()
+CHAT_OPENAI_TIMEOUT_SECONDS = float(os.getenv("CHAT_OPENAI_TIMEOUT_SECONDS", "30"))
+CHAT_OPENAI_MAX_OUTPUT_TOKENS = int(os.getenv("CHAT_OPENAI_MAX_OUTPUT_TOKENS", "1200"))
+CHAT_PROMPT_VERSION = os.getenv("CHAT_PROMPT_VERSION", "chat-orchestrator-v1").strip()
+CHAT_GOLDENSET_DATASET_VERSION = os.getenv("CHAT_GOLDENSET_DATASET_VERSION", "").strip()
+CHAT_GOLDENSET_DATASET_STATUSES = tuple(
+    value.strip()
+    for value in os.getenv("CHAT_GOLDENSET_DATASET_STATUSES", "").split(",")
+    if value.strip()
+)
+CHAT_PRODUCT_INDEX_VERSION = os.getenv("CHAT_PRODUCT_INDEX_VERSION", "").strip()
+CHAT_CONTEXT_RECENT_MESSAGES = int(os.getenv("CHAT_CONTEXT_RECENT_MESSAGES", "12"))
+CHAT_SUMMARY_TRIGGER_MESSAGES = int(os.getenv("CHAT_SUMMARY_TRIGGER_MESSAGES", "24"))
+CHAT_CONTEXT_CACHE_PREFIX = os.getenv(
+    "CHAT_CONTEXT_CACHE_PREFIX", "chat:context:v1"
+).strip()
+CHAT_CONTEXT_CACHE_TTL_SECONDS = int(os.getenv("CHAT_CONTEXT_CACHE_TTL_SECONDS", "900"))
+CHAT_CONTEXT_CACHE_CONNECT_TIMEOUT_SECONDS = float(
+    os.getenv("CHAT_CONTEXT_CACHE_CONNECT_TIMEOUT_SECONDS", "0.5")
+)
+CHAT_CONTEXT_CACHE_TIMEOUT_SECONDS = float(
+    os.getenv("CHAT_CONTEXT_CACHE_TIMEOUT_SECONDS", "1.0")
+)
+REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379/0")
+REDIS_PASSWORD = os.getenv("REDIS_PASSWORD", "")

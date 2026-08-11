@@ -11,6 +11,66 @@ from django.db.models import Q
 from django.utils import timezone
 
 
+class PersonaProfile(models.Model):
+    """버전이 고정된 채팅 스타일리스트 페르소나 설정."""
+
+    id = models.UUIDField(
+        primary_key=True,
+        default=uuid.uuid4,
+        editable=False,
+        db_comment="페르소나 프로필 UUID",
+    )
+    code = models.CharField(
+        max_length=64,
+        unique=True,
+        db_comment="애플리케이션에서 참조하는 페르소나 고유 코드",
+    )
+    name = models.CharField(
+        max_length=100,
+        db_comment="사용자에게 표시할 스타일리스트 이름",
+    )
+    prompt_config = models.JSONField(
+        default=dict,
+        blank=True,
+        db_comment="말투·스타일 철학·설명 길이 등 페르소나 프롬프트 설정 JSON",
+    )
+    version = models.PositiveIntegerField(
+        default=1,
+        db_comment="프롬프트 변경 시 증가시키는 페르소나 버전 (1 이상)",
+    )
+    is_active = models.BooleanField(
+        default=False,
+        db_comment="현재 기본 페르소나 여부 (전체에서 최대 1개)",
+    )
+    created_at = models.DateTimeField(
+        auto_now_add=True,
+        db_comment="페르소나 생성 시각",
+    )
+    updated_at = models.DateTimeField(
+        auto_now=True,
+        db_comment="페르소나 마지막 수정 시각",
+    )
+
+    class Meta:
+        db_table = "persona_profile"
+        db_table_comment = "채팅 말투와 스타일 철학을 버전 관리하는 페르소나 프로필"
+        ordering = ["code"]
+        constraints = [
+            models.CheckConstraint(
+                condition=Q(version__gte=1),
+                name="ck_persona_profile_version",
+            ),
+            models.UniqueConstraint(
+                fields=["is_active"],
+                condition=Q(is_active=True),
+                name="uq_persona_profile_active",
+            ),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.name} ({self.code}:v{self.version})"
+
+
 class ChatIdentity(models.Model):
     """채팅 데이터를 소유하는 회원 또는 만료 가능한 게스트 identity."""
 
@@ -148,10 +208,14 @@ class ChatSession(models.Model):
         default="",
         db_comment="사용자 지정 또는 자동 생성 세션 제목",
     )
-    persona_profile_id = models.UUIDField(
+    persona_profile = models.ForeignKey(
+        PersonaProfile,
+        on_delete=models.SET_NULL,
         null=True,
         blank=True,
-        db_comment="세션에 적용할 페르소나 프로필 UUID (미지정이면 활성 기본값)",
+        related_name="sessions",
+        db_column="persona_profile_id",
+        db_comment="세션에 적용할 페르소나 프로필 FK (미지정이면 활성 기본값)",
     )
     parent_session = models.ForeignKey(
         "self",
@@ -170,6 +234,10 @@ class ChatSession(models.Model):
         blank=True,
         default="",
         db_comment="오래된 메시지를 압축한 대화 요약",
+    )
+    summary_through_sequence = models.PositiveBigIntegerField(
+        default=0,
+        db_comment="conversation_summary에 반영된 마지막 메시지 sequence (미요약이면 0)",
     )
     last_message_at = models.DateTimeField(
         null=True,
@@ -378,3 +446,158 @@ class ChatAttachment(models.Model):
 
     def __str__(self) -> str:
         return f"chat-attachment {self.id} ({self.mime_type})"
+
+
+class ChatRun(models.Model):
+    """사용자 메시지 하나를 처리하는 오케스트레이터 실행 단위."""
+
+    class Status(models.TextChoices):
+        PENDING = "PENDING", "처리 대기"
+        RUNNING = "RUNNING", "처리 중"
+        NEEDS_CLARIFICATION = "NEEDS_CLARIFICATION", "추가 질문"
+        SUCCEEDED = "SUCCEEDED", "성공"
+        FAILED = "FAILED", "실패"
+
+    id = models.UUIDField(
+        primary_key=True,
+        default=uuid.uuid4,
+        editable=False,
+        db_comment="채팅 실행 UUID (큐·추천 결과·SSE의 공통 추적 ID)",
+    )
+    session = models.ForeignKey(
+        ChatSession,
+        on_delete=models.CASCADE,
+        related_name="runs",
+        db_comment="실행이 속한 채팅 세션 FK (chat_session.id)",
+    )
+    request_message = models.OneToOneField(
+        ChatMessage,
+        on_delete=models.CASCADE,
+        related_name="run",
+        db_comment="실행을 시작한 사용자 메시지 FK (메시지당 실행 최대 1개)",
+    )
+    response_message = models.ForeignKey(
+        ChatMessage,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="responded_runs",
+        db_comment="실행이 생성한 최종 AI 메시지 FK (미완료이면 NULL)",
+    )
+    status = models.CharField(
+        max_length=24,
+        choices=Status.choices,
+        default=Status.PENDING,
+        db_comment=("실행 상태 (PENDING/RUNNING/NEEDS_CLARIFICATION/SUCCEEDED/FAILED)"),
+    )
+    context_fingerprint = models.CharField(
+        max_length=64,
+        blank=True,
+        default="",
+        db_comment="요청·프로필·옷장·날씨·인덱스·세션 조건 기반 SHA-256 지문",
+    )
+    context_cache_hit = models.BooleanField(
+        default=False,
+        db_comment="Redis 기본 컨텍스트 캐시 적중 여부",
+    )
+    provider = models.CharField(
+        max_length=32,
+        default="openai",
+        db_comment="텍스트 LLM 제공자 코드 (기본 openai)",
+    )
+    model = models.CharField(
+        max_length=128,
+        blank=True,
+        default="",
+        db_comment="실행에 사용한 텍스트 LLM 모델명",
+    )
+    prompt_version = models.CharField(
+        max_length=64,
+        blank=True,
+        default="",
+        db_comment="실행에 사용한 오케스트레이터 프롬프트 버전",
+    )
+    provider_response_id = models.CharField(
+        max_length=128,
+        blank=True,
+        default="",
+        db_comment="마지막 OpenAI Responses API 응답 ID",
+    )
+    input_tokens = models.PositiveIntegerField(
+        default=0,
+        db_comment="실행 전체 OpenAI 입력 토큰 수",
+    )
+    cached_input_tokens = models.PositiveIntegerField(
+        default=0,
+        db_comment="실행 전체 OpenAI 캐시 적중 입력 토큰 수",
+    )
+    output_tokens = models.PositiveIntegerField(
+        default=0,
+        db_comment="실행 전체 OpenAI 출력 토큰 수",
+    )
+    latency_ms = models.PositiveIntegerField(
+        default=0,
+        db_comment="오케스트레이터 실행 전체 지연시간 (ms)",
+    )
+    error_code = models.CharField(
+        max_length=64,
+        blank=True,
+        default="",
+        db_comment="실패 오류 코드 (성공이면 빈 문자열)",
+    )
+    error_message = models.CharField(
+        max_length=500,
+        blank=True,
+        default="",
+        db_comment="민감정보를 제거한 운영용 실패 요약 (성공이면 빈 문자열)",
+    )
+    started_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        db_comment="오케스트레이터 처리를 시작한 시각",
+    )
+    completed_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        db_comment="성공·추가질문·실패로 처리가 종료된 시각",
+    )
+    created_at = models.DateTimeField(
+        auto_now_add=True,
+        db_comment="채팅 실행 생성 시각",
+    )
+    updated_at = models.DateTimeField(
+        auto_now=True,
+        db_comment="채팅 실행 마지막 수정 시각",
+    )
+
+    class Meta:
+        db_table = "chat_run"
+        db_table_comment = "사용자 메시지별 채팅 오케스트레이터 실행·LLM·캐시·오류 추적"
+        ordering = ["-created_at"]
+        indexes = [
+            models.Index(
+                fields=["session", "status", "-created_at"],
+                name="ix_chat_run_session_status",
+            ),
+            models.Index(
+                fields=["context_fingerprint"],
+                name="ix_chat_run_context_fp",
+            ),
+        ]
+        constraints = [
+            models.CheckConstraint(
+                condition=Q(
+                    status__in=[
+                        "PENDING",
+                        "RUNNING",
+                        "NEEDS_CLARIFICATION",
+                        "SUCCEEDED",
+                        "FAILED",
+                    ]
+                ),
+                name="ck_chat_run_status",
+            ),
+        ]
+
+    def __str__(self) -> str:
+        return f"chat-run {self.id} ({self.status})"

@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import uuid
 from datetime import timedelta
 from io import StringIO
 from unittest.mock import patch
@@ -14,7 +13,13 @@ from django.utils import timezone
 from rest_framework import status
 from rest_framework.test import APITestCase
 
-from apps.chat.models import ChatAttachment, ChatIdentity, ChatMessage, ChatSession
+from apps.chat.models import (
+    ChatAttachment,
+    ChatIdentity,
+    ChatMessage,
+    ChatRun,
+    ChatSession,
+)
 from apps.chat.services import identity as identity_service
 from apps.chat.services import sessions as session_service
 from apps.recommend.models import RecommendationResult
@@ -64,10 +69,15 @@ class GuestIdentityServiceTests(APITestCase):
             size=1234,
             sha256="a" * 64,
         )
+        run = ChatRun.objects.create(
+            session=session,
+            request_message=message,
+            status=ChatRun.Status.SUCCEEDED,
+        )
         recommendation = RecommendationResult.objects.create(
             identity=credential.identity,
             session=session,
-            run_id=uuid.uuid4(),
+            run=run,
             mode=RecommendationResult.Mode.NEW_ITEM,
             dataset_version="goldenset-v1",
         )

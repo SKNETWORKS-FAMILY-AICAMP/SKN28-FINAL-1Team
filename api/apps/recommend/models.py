@@ -280,9 +280,12 @@ class RecommendationResult(models.Model):
         db_column="session_id",
         db_comment="추천이 생성된 채팅 세션 FK (chat_session.id)",
     )
-    run_id = models.UUIDField(
-        unique=True,
-        db_comment="추천을 생성한 채팅 실행 UUID (실행당 결과 최대 1개)",
+    run = models.OneToOneField(
+        "chat.ChatRun",
+        on_delete=models.CASCADE,
+        related_name="recommendation_result",
+        db_column="run_id",
+        db_comment="추천을 생성한 채팅 실행 FK (chat_run.id, 실행당 결과 최대 1개)",
     )
     mode = models.CharField(
         max_length=24,

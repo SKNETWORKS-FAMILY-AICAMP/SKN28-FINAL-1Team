@@ -8,7 +8,7 @@ from django.db import IntegrityError, transaction
 from django.test import TestCase
 from django.utils import timezone
 
-from apps.chat.models import ChatIdentity, ChatSession
+from apps.chat.models import ChatIdentity, ChatMessage, ChatRun, ChatSession
 from apps.recommend.models import (
     GoldenTemplateSnapshot,
     OutfitComposition,
@@ -30,10 +30,22 @@ class RecommendationModelTests(TestCase):
             expires_at=timezone.now() + timedelta(days=7),
         )
         session = ChatSession.objects.create(identity=identity, mode=mode)
+        message = ChatMessage.objects.create(
+            session=session,
+            sequence=1,
+            role=ChatMessage.Role.USER,
+            content="추천 요청",
+        )
+        run = ChatRun.objects.create(
+            id=run_id or uuid.uuid4(),
+            session=session,
+            request_message=message,
+            status=ChatRun.Status.SUCCEEDED,
+        )
         return RecommendationResult.objects.create(
             identity=identity,
             session=session,
-            run_id=run_id or uuid.uuid4(),
+            run=run,
             mode=mode,
             dataset_version="goldenset-2026-08-01",
         )
@@ -146,11 +158,16 @@ class RecommendationModelTests(TestCase):
             item.save(force_insert=True)
 
     def test_one_chat_run_cannot_create_duplicate_results(self):
-        run_id = uuid.uuid4()
-        self._result(run_id=run_id)
+        result = self._result()
 
         with self.assertRaises(IntegrityError), transaction.atomic():
-            self._result(run_id=run_id)
+            RecommendationResult.objects.create(
+                identity=result.identity,
+                session=result.session,
+                run=result.run,
+                mode=result.mode,
+                dataset_version=result.dataset_version,
+            )
 
     def test_composition_rank_is_limited_to_one_through_three(self):
         result = self._result()
