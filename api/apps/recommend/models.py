@@ -1,4 +1,4 @@
-"""코디 사진 AI 평가 기록 모델.
+"""코디 사진 평가와 대화형 추천 결과 영속 모델.
 
 `POST /api/v1/outfits/analyze/` 요청 1건 = `OutfitAnalysis` 1행.
 
@@ -28,6 +28,7 @@ import uuid
 
 from django.conf import settings
 from django.db import models
+from django.db.models import Q
 
 
 class OutfitAnalysis(models.Model):
@@ -83,10 +84,14 @@ class OutfitAnalysis(models.Model):
         null=True, blank=True, db_comment="업로드 이미지 크기 (bytes)"
     )
     requested_lat = models.FloatField(
-        null=True, blank=True, db_comment="요청 위도 (클라이언트가 보낸 값, 미전달 시 NULL)"
+        null=True,
+        blank=True,
+        db_comment="요청 위도 (클라이언트가 보낸 값, 미전달 시 NULL)",
     )
     requested_lon = models.FloatField(
-        null=True, blank=True, db_comment="요청 경도 (클라이언트가 보낸 값, 미전달 시 NULL)"
+        null=True,
+        blank=True,
+        db_comment="요청 경도 (클라이언트가 보낸 값, 미전달 시 NULL)",
     )
     resolved_lat = models.FloatField(
         null=True,
@@ -190,9 +195,7 @@ class OutfitAnalysis(models.Model):
         blank=True, default="", db_comment="실패 시 오류 메시지"
     )
 
-    created_at = models.DateTimeField(
-        auto_now_add=True, db_comment="요청 접수 시각"
-    )
+    created_at = models.DateTimeField(auto_now_add=True, db_comment="요청 접수 시각")
     started_at = models.DateTimeField(
         null=True,
         blank=True,
@@ -207,13 +210,15 @@ class OutfitAnalysis(models.Model):
     class Meta:
         # 프로젝트 규칙: db_table 명시 (기본값이면 recommend_outfitanalysis)
         db_table = "outfit_analysis"
-        db_table_comment = (
-            "코디 사진 AI 평가 기록 (질의에 쓴 날씨·체형·추구미 스냅샷과 LLM 요청·응답 원본 보관)"
-        )
+        db_table_comment = "코디 사진 AI 평가 기록 (질의에 쓴 날씨·체형·추구미 스냅샷과 LLM 요청·응답 원본 보관)"
         ordering = ["-created_at"]
         indexes = [
-            models.Index(fields=["user", "-created_at"], name="ix_outfit_analysis_user"),
-            models.Index(fields=["status", "-created_at"], name="ix_outfit_analysis_stat"),
+            models.Index(
+                fields=["user", "-created_at"], name="ix_outfit_analysis_user"
+            ),
+            models.Index(
+                fields=["status", "-created_at"], name="ix_outfit_analysis_stat"
+            ),
         ]
 
     def __str__(self) -> str:
@@ -246,3 +251,310 @@ class OutfitAnalysis(models.Model):
             "body": self.body,
             "personalized": self.personalized,
         }
+
+
+class RecommendationResult(models.Model):
+    """한 번의 채팅 추천 실행에서 확정된 추천 결과 묶음."""
+
+    class Mode(models.TextChoices):
+        WARDROBE_BASED = "WARDROBE_BASED", "옷장 기반 추천"
+        NEW_ITEM = "NEW_ITEM", "신규 상품 포함 추천"
+
+    id = models.UUIDField(
+        primary_key=True,
+        default=uuid.uuid4,
+        editable=False,
+        db_comment="추천 결과 UUID (외부 노출 식별자)",
+    )
+    identity_id = models.UUIDField(
+        db_comment="추천 결과를 소유한 회원 또는 게스트 채팅 identity UUID",
+    )
+    session_id = models.UUIDField(
+        db_comment="추천이 생성된 채팅 세션 UUID",
+    )
+    run_id = models.UUIDField(
+        unique=True,
+        db_comment="추천을 생성한 채팅 실행 UUID (실행당 결과 최대 1개)",
+    )
+    mode = models.CharField(
+        max_length=24,
+        choices=Mode.choices,
+        db_comment="추천 모드 (WARDROBE_BASED/NEW_ITEM)",
+    )
+    dataset_version = models.CharField(
+        max_length=128,
+        db_comment="추천에 사용한 골든셋 데이터 버전",
+    )
+    created_at = models.DateTimeField(
+        auto_now_add=True,
+        db_comment="추천 결과 생성 시각",
+    )
+    updated_at = models.DateTimeField(
+        auto_now=True,
+        db_comment="추천 결과 마지막 수정 시각",
+    )
+
+    class Meta:
+        db_table = "recommendation_result"
+        db_table_comment = (
+            "채팅과 독립적으로 조회하는 추천 결과 묶음 "
+            "(소유 identity·세션·실행·모드·골든셋 버전 보관)"
+        )
+        ordering = ["-created_at"]
+        indexes = [
+            models.Index(
+                fields=["identity_id", "-created_at"],
+                name="ix_reco_result_identity",
+            ),
+            models.Index(
+                fields=["session_id", "-created_at"],
+                name="ix_reco_result_session",
+            ),
+        ]
+
+    def __str__(self) -> str:
+        return f"recommendation-result {self.id} ({self.mode})"
+
+
+class GoldenTemplateSnapshot(models.Model):
+    """추천 당시 선택한 골든 코디와 검색 근거의 불변 스냅샷."""
+
+    id = models.UUIDField(
+        primary_key=True,
+        default=uuid.uuid4,
+        editable=False,
+        db_comment="골든 템플릿 스냅샷 UUID",
+    )
+    result = models.OneToOneField(
+        RecommendationResult,
+        on_delete=models.CASCADE,
+        related_name="golden_template",
+        db_comment="추천 결과 FK (recommendation_result.id, 결과당 선택 템플릿 1개)",
+    )
+    golden_id = models.CharField(
+        max_length=128,
+        db_comment="골든셋 원본 코디 식별자",
+    )
+    point_id = models.CharField(
+        max_length=128,
+        db_comment="outfit_goldenset Qdrant point 식별자",
+    )
+    retrieval_score = models.FloatField(
+        db_comment="최종 선택 시 골든 코디 검색·재정렬 점수",
+    )
+    payload_snapshot = models.JSONField(
+        default=dict,
+        db_comment="추천 당시 골든 코디 Qdrant payload JSON 스냅샷",
+    )
+    reasons = models.JSONField(
+        default=list,
+        db_comment="골든 코디 선택 점수와 근거 JSON 배열",
+    )
+    created_at = models.DateTimeField(
+        auto_now_add=True,
+        db_comment="골든 템플릿 스냅샷 생성 시각",
+    )
+
+    class Meta:
+        db_table = "golden_template_snapshot"
+        db_table_comment = (
+            "추천 결과가 선택한 골든 코디 템플릿과 검색 점수·근거·payload 스냅샷"
+        )
+
+    def __str__(self) -> str:
+        return f"golden-template {self.golden_id} for {self.result_id}"
+
+
+class OutfitComposition(models.Model):
+    """추천 결과 안에서 순위가 매겨진 하나의 최종 코디 조합."""
+
+    class Status(models.TextChoices):
+        CANDIDATE = "CANDIDATE", "검증 전 후보"
+        VALIDATED = "VALIDATED", "검증 통과"
+        REJECTED = "REJECTED", "검증 실패"
+
+    id = models.UUIDField(
+        primary_key=True,
+        default=uuid.uuid4,
+        editable=False,
+        db_comment="코디 조합 UUID",
+    )
+    result = models.ForeignKey(
+        RecommendationResult,
+        on_delete=models.CASCADE,
+        related_name="compositions",
+        db_comment="추천 결과 FK (recommendation_result.id)",
+    )
+    rank = models.PositiveSmallIntegerField(
+        db_comment="추천 결과 안의 코디 노출 순위 (1~3)",
+    )
+    status = models.CharField(
+        max_length=16,
+        choices=Status.choices,
+        default=Status.CANDIDATE,
+        db_comment="코디 검증 상태 (CANDIDATE/VALIDATED/REJECTED)",
+    )
+    composition_fingerprint = models.CharField(
+        max_length=64,
+        blank=True,
+        default="",
+        db_comment="최종 아이템·순서·이미지 버전 기반 SHA-256 지문 (검증 전이면 빈 문자열)",
+    )
+    total_product_price = models.PositiveBigIntegerField(
+        default=0,
+        db_comment="코디에 포함된 신규 상품 가격 합계 (원)",
+    )
+    validation_reasons = models.JSONField(
+        default=list,
+        db_comment="Validator의 통과·실패 근거 JSON 배열",
+    )
+    warnings = models.JSONField(
+        default=list,
+        db_comment="추천은 가능하지만 사용자에게 안내할 검증 경고 JSON 배열",
+    )
+    created_at = models.DateTimeField(
+        auto_now_add=True,
+        db_comment="코디 조합 생성 시각",
+    )
+    updated_at = models.DateTimeField(
+        auto_now=True,
+        db_comment="코디 조합 마지막 수정 시각",
+    )
+
+    class Meta:
+        db_table = "outfit_composition"
+        db_table_comment = (
+            "추천 결과별 최종 코디 조합 (순위·검증 상태·가격·이미지 캐시 지문 보관)"
+        )
+        ordering = ["rank", "created_at"]
+        indexes = [
+            models.Index(
+                fields=["composition_fingerprint"],
+                name="ix_outfit_comp_fingerprint",
+            ),
+        ]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["result", "rank"],
+                name="uq_outfit_comp_result_rank",
+            ),
+            models.CheckConstraint(
+                condition=Q(rank__gte=1, rank__lte=3),
+                name="ck_outfit_comp_rank",
+            ),
+        ]
+
+    def __str__(self) -> str:
+        return f"outfit-composition {self.result_id}#{self.rank} ({self.status})"
+
+
+class OutfitCompositionItem(models.Model):
+    """코디 슬롯에 최종 선택된 옷장 또는 실제 상품 아이템."""
+
+    class SourceType(models.TextChoices):
+        WARDROBE = "WARDROBE", "옷장 아이템"
+        PRODUCT = "PRODUCT", "판매 상품"
+
+    id = models.UUIDField(
+        primary_key=True,
+        default=uuid.uuid4,
+        editable=False,
+        db_comment="코디 구성 아이템 UUID",
+    )
+    composition = models.ForeignKey(
+        OutfitComposition,
+        on_delete=models.CASCADE,
+        related_name="items",
+        db_comment="코디 조합 FK (outfit_composition.id)",
+    )
+    position = models.PositiveSmallIntegerField(
+        db_comment="코디 내부 아이템 순서 (1부터 시작, 이미지 지문 계산에 사용)",
+    )
+    slot = models.CharField(
+        max_length=64,
+        db_comment="골든 템플릿에서 정한 코디 슬롯 식별자",
+    )
+    source_type = models.CharField(
+        max_length=16,
+        choices=SourceType.choices,
+        db_comment="최종 아이템 출처 (WARDROBE/PRODUCT)",
+    )
+    source_id = models.CharField(
+        max_length=128,
+        db_comment="옷장 또는 상품 원본 레코드 식별자",
+    )
+    source_collection = models.CharField(
+        max_length=128,
+        db_comment="후보를 조회한 Qdrant 컬렉션명",
+    )
+    source_point_id = models.CharField(
+        max_length=128,
+        db_comment="후보 아이템의 Qdrant point 식별자",
+    )
+    template_item_point_id = models.CharField(
+        max_length=128,
+        db_comment="이 슬롯의 교체 기준이 된 goldenset_items Qdrant point 식별자",
+    )
+    replacement_score = models.FloatField(
+        null=True,
+        blank=True,
+        db_comment="골든 기준 아이템과 최종 아이템의 교체 적합 점수 (미산정 시 NULL)",
+    )
+    image_ref = models.CharField(
+        max_length=1024,
+        db_comment="추천·렌더에 사용한 아이템 이미지 S3 키 또는 검증된 URL",
+    )
+    price_snapshot = models.PositiveBigIntegerField(
+        null=True,
+        blank=True,
+        db_comment="추천 당시 상품 가격 (원, 옷장 아이템이면 NULL)",
+    )
+    reasons = models.JSONField(
+        default=list,
+        db_comment="아이템 선택·교체 근거 JSON 배열",
+    )
+    item_snapshot = models.JSONField(
+        default=dict,
+        db_comment="추천 당시 아이템 표시 정보·태그·구매 링크 JSON 스냅샷",
+    )
+    created_at = models.DateTimeField(
+        auto_now_add=True,
+        db_comment="코디 구성 아이템 생성 시각",
+    )
+
+    class Meta:
+        db_table = "outfit_composition_item"
+        db_table_comment = (
+            "최종 코디의 슬롯별 옷장·상품 아이템과 교체 근거·표시 정보 스냅샷"
+        )
+        ordering = ["position", "created_at"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["composition", "slot"],
+                name="uq_outfit_comp_item_slot",
+            ),
+            models.UniqueConstraint(
+                fields=["composition", "position"],
+                name="uq_outfit_comp_item_pos",
+            ),
+            models.UniqueConstraint(
+                fields=[
+                    "composition",
+                    "source_type",
+                    "source_collection",
+                    "source_id",
+                ],
+                name="uq_outfit_comp_item_source",
+            ),
+            models.CheckConstraint(
+                condition=Q(position__gte=1),
+                name="ck_outfit_comp_item_pos",
+            ),
+            models.CheckConstraint(
+                condition=Q(source_type__in=["WARDROBE", "PRODUCT"]),
+                name="ck_outfit_comp_item_source",
+            ),
+        ]
+
+    def __str__(self) -> str:
+        return f"outfit-item {self.composition_id}:{self.slot} ({self.source_type})"
