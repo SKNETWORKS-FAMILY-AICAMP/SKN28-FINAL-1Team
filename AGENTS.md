@@ -51,6 +51,7 @@ SKN28-FINAL-1Team/
 │       ├── weather/       # 날씨 (weather_* 테이블, collector/weather가 사용)
 │       ├── home/          # 홈 화면 조합 API
 │       ├── wardrobe/      # 사용자 옷장·비동기 이미지 등록
+│       ├── chat/          # 채팅 identity·세션·메시지·게스트 대화 이전
 │       ├── style_calendar/ # 착장 캘린더 API·비동기 이미지 처리 연동 (골자)
 │       └── recommend/     # 추천 API·로직 (예정)
 ├── collector/             # 독립 실행 데이터 수집기 (스키마는 Django migration이 소유)

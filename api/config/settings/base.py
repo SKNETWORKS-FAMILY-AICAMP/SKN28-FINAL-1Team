@@ -51,6 +51,7 @@ INSTALLED_APPS = [
     "apps.weather",
     "apps.home",
     "apps.wardrobe",
+    "apps.chat",
     "apps.recommend",
     "apps.style_calendar",
     "apps.lookbook",
@@ -128,6 +129,7 @@ MIDDLEWARE = [
     "django.middleware.common.CommonMiddleware",
     "django.middleware.csrf.CsrfViewMiddleware",
     "django.contrib.auth.middleware.AuthenticationMiddleware",
+    "apps.chat.middleware.ChatGuestCookieRefreshMiddleware",
     "django.contrib.messages.middleware.MessageMiddleware",
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
 ]
@@ -169,7 +171,9 @@ DATABASES = {
 AUTH_USER_MODEL = "users.User"
 
 AUTH_PASSWORD_VALIDATORS = [
-    {"NAME": "django.contrib.auth.password_validation.UserAttributeSimilarityValidator"},
+    {
+        "NAME": "django.contrib.auth.password_validation.UserAttributeSimilarityValidator"
+    },
     {"NAME": "django.contrib.auth.password_validation.MinimumLengthValidator"},
     {"NAME": "django.contrib.auth.password_validation.CommonPasswordValidator"},
     {"NAME": "django.contrib.auth.password_validation.NumericPasswordValidator"},
@@ -204,9 +208,7 @@ SIMPLE_JWT = {
     "ACCESS_TOKEN_LIFETIME": timedelta(
         minutes=int(os.getenv("JWT_ACCESS_MINUTES", "30"))
     ),
-    "REFRESH_TOKEN_LIFETIME": timedelta(
-        days=int(os.getenv("JWT_REFRESH_DAYS", "14"))
-    ),
+    "REFRESH_TOKEN_LIFETIME": timedelta(days=int(os.getenv("JWT_REFRESH_DAYS", "14"))),
     "ROTATE_REFRESH_TOKENS": True,
     # 회전된 이전 refresh 토큰 재사용 차단 (token_blacklist 앱 필요)
     "BLACKLIST_AFTER_ROTATION": True,
@@ -225,7 +227,9 @@ OAUTH_PROVIDERS = {
     },
     "kakao": {
         "client_id": os.getenv("KAKAO_OAUTH_REST_API_KEY", ""),
-        "client_secret": os.getenv("KAKAO_OAUTH_CLIENT_SECRET", ""),  # 선택(보안 강화 시)
+        "client_secret": os.getenv(
+            "KAKAO_OAUTH_CLIENT_SECRET", ""
+        ),  # 선택(보안 강화 시)
         # token 방식 로그인(네이티브 앱 SDK) 검증용 앱 ID (숫자).
         # 다른 카카오 앱에서 발급된 access_token으로 로그인하는 것을 차단한다.
         "app_id": os.getenv("KAKAO_APP_ID", ""),
@@ -255,11 +259,11 @@ OAUTH_PROVIDERS = {
     # 애플은 client_secret을 정적 문자열이 아닌 ES256 JWT로 동적 생성한다.
     # profile_url 없음 — 사용자 정보는 id_token(JWT) 디코딩으로 획득한다.
     "apple": {
-        "client_id":   os.getenv("APPLE_CLIENT_ID", ""),    # Service ID (com.example.app)
-        "team_id":     os.getenv("APPLE_TEAM_ID", ""),      # 10자리 팀 ID
-        "key_id":      os.getenv("APPLE_KEY_ID", ""),       # 개인키 Key ID
+        "client_id": os.getenv("APPLE_CLIENT_ID", ""),  # Service ID (com.example.app)
+        "team_id": os.getenv("APPLE_TEAM_ID", ""),  # 10자리 팀 ID
+        "key_id": os.getenv("APPLE_KEY_ID", ""),  # 개인키 Key ID
         "private_key": os.getenv("APPLE_PRIVATE_KEY", ""),  # PEM 전체 문자열 (\n 포함)
-        "token_url":   "https://appleid.apple.com/auth/token",
+        "token_url": "https://appleid.apple.com/auth/token",
     },
 }
 
@@ -332,9 +336,7 @@ QDRANT_KNOWLEDGE_COLLECTION = os.getenv(
 # 내부 엔드포인트를 제공하고, AWS 이관 시 URL만 교체한다.
 TEXT_EMBEDDING_API_URL = os.getenv("TEXT_EMBEDDING_API_URL", "").strip()
 TEXT_EMBEDDING_API_TOKEN = os.getenv("TEXT_EMBEDDING_API_TOKEN", "").strip()
-TEXT_EMBEDDING_TIMEOUT_SECONDS = int(
-    os.getenv("TEXT_EMBEDDING_TIMEOUT_SECONDS", "15")
-)
+TEXT_EMBEDDING_TIMEOUT_SECONDS = int(os.getenv("TEXT_EMBEDDING_TIMEOUT_SECONDS", "15"))
 TEXT_EMBEDDING_EXPECTED_DIM = int(
     os.getenv("TEXT_EMBEDDING_EXPECTED_DIM", str(QDRANT_TEXT_VECTOR_DIM))
 )
@@ -367,3 +369,14 @@ OUTFIT_STALE_AFTER_MINUTES = int(os.getenv("OUTFIT_STALE_AFTER_MINUTES", "5"))
 # 프론트가 폴링 간격을 하드코딩하지 않도록 서버가 응답에 실어 보낸다
 OUTFIT_POLL_AFTER_MS = int(os.getenv("OUTFIT_POLL_AFTER_MS", "2000"))
 OUTFIT_ESTIMATED_SECONDS = int(os.getenv("OUTFIT_ESTIMATED_SECONDS", "30"))
+
+# 대화형 추천 채팅의 비회원 identity. 원문 토큰은 HttpOnly 쿠키에만 두고
+# DB에는 SHA-256 HMAC 해시만 저장한다. 마지막 활동마다 TTL을 연장한다.
+CHAT_GUEST_TTL_DAYS = int(os.getenv("CHAT_GUEST_TTL_DAYS", "7"))
+CHAT_GUEST_COOKIE_NAME = os.getenv("CHAT_GUEST_COOKIE_NAME", "fashion_guest_chat")
+CHAT_GUEST_COOKIE_SECURE = os.getenv("CHAT_GUEST_COOKIE_SECURE", "true").lower() in {
+    "1",
+    "true",
+    "yes",
+}
+CHAT_GUEST_COOKIE_SAMESITE = os.getenv("CHAT_GUEST_COOKIE_SAMESITE", "Lax")

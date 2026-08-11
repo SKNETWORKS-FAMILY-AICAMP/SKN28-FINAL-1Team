@@ -1,11 +1,14 @@
 from __future__ import annotations
 
 import uuid
+from datetime import timedelta
 
 from django.core.exceptions import ValidationError
 from django.db import IntegrityError, transaction
 from django.test import TestCase
+from django.utils import timezone
 
+from apps.chat.models import ChatIdentity, ChatSession
 from apps.recommend.models import (
     GoldenTemplateSnapshot,
     OutfitComposition,
@@ -21,9 +24,15 @@ class RecommendationModelTests(TestCase):
         mode: str = RecommendationResult.Mode.NEW_ITEM,
         run_id: uuid.UUID | None = None,
     ) -> RecommendationResult:
+        identity = ChatIdentity.objects.create(
+            identity_type=ChatIdentity.IdentityType.GUEST,
+            guest_token_hash=uuid.uuid4().hex + uuid.uuid4().hex,
+            expires_at=timezone.now() + timedelta(days=7),
+        )
+        session = ChatSession.objects.create(identity=identity, mode=mode)
         return RecommendationResult.objects.create(
-            identity_id=uuid.uuid4(),
-            session_id=uuid.uuid4(),
+            identity=identity,
+            session=session,
             run_id=run_id or uuid.uuid4(),
             mode=mode,
             dataset_version="goldenset-2026-08-01",

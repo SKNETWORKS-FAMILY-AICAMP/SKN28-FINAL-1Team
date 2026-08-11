@@ -1,5 +1,6 @@
 import logging
 
+from django.conf import settings
 from django.contrib.auth.models import update_last_login
 from django.db import IntegrityError
 from rest_framework import status
@@ -9,6 +10,7 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 from rest_framework_simplejwt.tokens import RefreshToken
 
+from apps.chat.services import identity as chat_identity
 from apps.users.models import BodyMeasurement, BodyPhotoTransaction, SocialAccount
 from apps.users.serializers import (
     BodyBasicInputSerializer,
@@ -18,12 +20,12 @@ from apps.users.serializers import (
     BodyMeasurementSerializer,
     BodyPhotoTransactionSerializer,
     BodyPhotoUploadSerializer,
+    BudgetSerializer,
     PreferenceCategorySerializer,
     PursuitPayloadInputSerializer,
     PursuitPayloadResponseSerializer,
     SocialLoginSerializer,
     UserSerializer,
-    BudgetSerializer,
 )
 from apps.users.services import accounts, body_inference, oauth, pursuit
 
@@ -60,13 +62,17 @@ class SocialLoginView(APIView):
         if not use_token_login:
             # 제공사별 필수 파라미터: 카카오/구글은 인가 요청과 동일한 redirect_uri를
             # 토큰 교환에 다시 보내야 하고, 네이버는 state가 필수다.
-            if provider in ("kakao", "google", "apple") and not data.get("redirect_uri"):
+            if provider in ("kakao", "google", "apple") and not data.get(
+                "redirect_uri"
+            ):
                 return Response(
-                    {"detail": "redirect_uri가 필요합니다."}, status=status.HTTP_400_BAD_REQUEST
+                    {"detail": "redirect_uri가 필요합니다."},
+                    status=status.HTTP_400_BAD_REQUEST,
                 )
             if provider == "naver" and not data.get("state"):
                 return Response(
-                    {"detail": "state가 필요합니다."}, status=status.HTTP_400_BAD_REQUEST
+                    {"detail": "state가 필요합니다."},
+                    status=status.HTTP_400_BAD_REQUEST,
                 )
 
         try:
@@ -87,7 +93,9 @@ class SocialLoginView(APIView):
             # 제공사 원본 응답에 내부 정보가 포함될 수 있어 로그에만 남긴다.
             logger.warning("소셜 로그인 실패 (%s): %s", provider, exc)
             return Response(
-                {"detail": "소셜 로그인에 실패했습니다. 인가 코드 또는 토큰을 확인해주세요."},
+                {
+                    "detail": "소셜 로그인에 실패했습니다. 인가 코드 또는 토큰을 확인해주세요."
+                },
                 status=status.HTTP_401_UNAUTHORIZED,
             )
 
@@ -95,15 +103,32 @@ class SocialLoginView(APIView):
         refresh = RefreshToken.for_user(user)
         update_last_login(None, user)
 
-        return Response(
+        guest_claim = None
+        guest_token = request.COOKIES.get(settings.CHAT_GUEST_COOKIE_NAME, "")
+        if created and guest_token:
+            try:
+                guest_claim = chat_identity.claim_guest_identity(user, guest_token)
+            except chat_identity.ChatIdentityError as exc:
+                # 게스트 토큰 오류가 소셜 로그인 자체를 실패시키면 계정 접근까지 막힌다.
+                logger.info("신규 회원 게스트 채팅 이전 생략: code=%s", exc.code)
+
+        response = Response(
             {
                 "access": str(refresh.access_token),
                 "refresh": str(refresh),
                 "user": UserSerializer(user).data,
                 "is_new_user": created,
+                "guest_chat_claim": guest_claim.__dict__ if guest_claim else None,
             },
             status=status.HTTP_201_CREATED if created else status.HTTP_200_OK,
         )
+        if guest_claim is not None:
+            response.delete_cookie(
+                settings.CHAT_GUEST_COOKIE_NAME,
+                path="/api/v1/",
+                samesite=settings.CHAT_GUEST_COOKIE_SAMESITE,
+            )
+        return response
 
 
 class MeView(APIView):
@@ -134,7 +159,9 @@ class BodyMeasurementView(APIView):
     def get(self, request):
         measurement = BodyMeasurement.objects.filter(user=request.user).first()
         # 아직 입력 전이면 모든 필드가 null인 빈 치수를 반환한다 (404 대신).
-        return Response(BodyMeasurementSerializer(measurement or BodyMeasurement()).data)
+        return Response(
+            BodyMeasurementSerializer(measurement or BodyMeasurement()).data
+        )
 
 
 class BodyBasicView(APIView):

@@ -266,11 +266,19 @@ class RecommendationResult(models.Model):
         editable=False,
         db_comment="추천 결과 UUID (외부 노출 식별자)",
     )
-    identity_id = models.UUIDField(
-        db_comment="추천 결과를 소유한 회원 또는 게스트 채팅 identity UUID",
+    identity = models.ForeignKey(
+        "chat.ChatIdentity",
+        on_delete=models.CASCADE,
+        related_name="recommendation_results",
+        db_column="identity_id",
+        db_comment="추천 결과를 소유한 회원 또는 게스트 채팅 identity FK (chat_identity.id)",
     )
-    session_id = models.UUIDField(
-        db_comment="추천이 생성된 채팅 세션 UUID",
+    session = models.ForeignKey(
+        "chat.ChatSession",
+        on_delete=models.CASCADE,
+        related_name="recommendation_results",
+        db_column="session_id",
+        db_comment="추천이 생성된 채팅 세션 FK (chat_session.id)",
     )
     run_id = models.UUIDField(
         unique=True,
@@ -303,11 +311,11 @@ class RecommendationResult(models.Model):
         ordering = ["-created_at"]
         indexes = [
             models.Index(
-                fields=["identity_id", "-created_at"],
+                fields=["identity", "-created_at"],
                 name="ix_reco_result_identity",
             ),
             models.Index(
-                fields=["session_id", "-created_at"],
+                fields=["session", "-created_at"],
                 name="ix_reco_result_session",
             ),
         ]
