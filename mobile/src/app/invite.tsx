@@ -103,29 +103,6 @@ export default function InviteScreen() {
     }
   };
 
-  const handleCopyCode = async () => {
-    if (!inviteCode) {
-      toast('초대 코드가 유효하지 않습니다.', { variant: 'error' });
-      return;
-    }
-
-    // expo-clipboard 미설치라 네이티브에서는 안내 문구로 대체한다
-    if (Platform.OS === 'web' && typeof navigator !== 'undefined' && navigator.clipboard) {
-      try {
-        await navigator.clipboard.writeText(inviteCode);
-        toast('참여 코드를 복사했어요', { variant: 'success' });
-        return;
-      } catch (err) {
-        console.error('참여 코드 복사 실패:', err);
-      }
-    }
-    toast(
-      Platform.OS === 'web'
-        ? '복사에 실패했어요. 화면의 참여 코드를 직접 입력해 주세요'
-        : `참여 코드를 길게 눌러 복사해 주세요 (${inviteCode})`,
-    );
-  };
-
   const goHome = () => router.replace('/(tabs)/closet');
 
   // 코드 없이 들어온 경우 — 조회할 것이 없으니 바로 '없는 초대장'으로 본다
@@ -254,34 +231,34 @@ export default function InviteScreen() {
           </Text>
         </View>
 
-        <Text style={styles.sectionTitle}>옷장 미리보기</Text>
-        {preview.items.length === 0 ? (
-          <Text style={styles.emptyItems}>아직 공유된 옷이 없어요</Text>
-        ) : (
-          <View style={styles.grid}>
-            {/* 읽기 전용 — 미리보기 아이템에는 id 가 없어 상세로 들어갈 수 없다 */}
-            {preview.items.map((it, i) => (
-              <View key={`${it.owner_index}-${i}`} style={[styles.tile, { width: tileW }]}>
-                <View>
-                  <SmartImage uri={it.image_url} width="100%" aspectRatio={1} radius={12} />
-                  <View
-                    style={[styles.ownerBadge, { backgroundColor: avatarColor(it.owner_index) }]}>
-                    <Text
-                      style={[
-                        styles.ownerText,
-                        it.owner_index === 0 && { color: LIGHT_AVATAR_TEXT },
-                      ]}>
-                      {it.owner_label}
-                    </Text>
+        {preview.items.length > 0 ? (
+          <>
+            <Text style={styles.sectionTitle}>옷장 미리보기</Text>
+            <View style={styles.grid}>
+              {/* 읽기 전용 — 미리보기 아이템에는 id 가 없어 상세로 들어갈 수 없다 */}
+              {preview.items.map((it, i) => (
+                <View key={`${it.owner_index}-${i}`} style={[styles.tile, { width: tileW }]}>
+                  <View>
+                    <SmartImage uri={it.image_url} width="100%" aspectRatio={1} radius={12} />
+                    <View
+                      style={[styles.ownerBadge, { backgroundColor: avatarColor(it.owner_index) }]}>
+                      <Text
+                        style={[
+                          styles.ownerText,
+                          it.owner_index === 0 && { color: LIGHT_AVATAR_TEXT },
+                        ]}>
+                        {it.owner_label}
+                      </Text>
+                    </View>
                   </View>
+                  <Text style={styles.tileName} numberOfLines={1}>
+                    {it.item_name || it.category_large}
+                  </Text>
                 </View>
-                <Text style={styles.tileName} numberOfLines={1}>
-                  {it.item_name || it.category_large}
-                </Text>
-              </View>
-            ))}
-          </View>
-        )}
+              ))}
+            </View>
+          </>
+        ) : null}
 
         <Pressable
           style={[styles.primaryBtn, (loading || joinBlocked) && styles.disabledBtn]}
@@ -293,16 +270,6 @@ export default function InviteScreen() {
           </Text>
         </Pressable>
         {!preview.can_join ? <Text style={styles.blockedHint}>정원이 가득 찼어요</Text> : null}
-
-        <View style={styles.fallbackBox}>
-          <Pressable style={styles.outlineBtn} onPress={handleCopyCode}>
-            <Text style={styles.outlineBtnText}>참여 코드 복사</Text>
-          </Pressable>
-
-          <Text style={styles.fallbackHint}>
-            앱이 설치되어 있지 않다면 코드를 복사해 앱에서 직접 입력할 수 있어요
-          </Text>
-        </View>
 
         <Pressable style={styles.secondaryBtn} onPress={goHome}>
           <Text style={styles.secondaryBtnText}>취소하고 홈으로</Text>
@@ -422,12 +389,6 @@ const styles = StyleSheet.create({
     alignSelf: 'flex-start',
     marginBottom: 10,
   },
-  emptyItems: {
-    fontSize: 13,
-    color: ink(0.4),
-    alignSelf: 'flex-start',
-    marginBottom: 24,
-  },
   grid: {
     flexDirection: 'row',
     flexWrap: 'wrap',
@@ -467,35 +428,6 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: Editorial.wine,
     marginBottom: 8,
-  },
-  fallbackBox: {
-    width: '100%',
-    borderTopWidth: 1,
-    borderTopColor: '#F3F4F6',
-    marginTop: 8,
-    paddingTop: 16,
-  },
-  outlineBtn: {
-    borderWidth: 1,
-    borderColor: '#E5E7EB',
-    borderRadius: 16,
-    height: 48,
-    width: '100%',
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginBottom: 8,
-  },
-  outlineBtnText: {
-    color: Editorial.ink,
-    fontSize: 14,
-    fontWeight: '600',
-  },
-  fallbackHint: {
-    fontSize: 12,
-    color: ink(0.4),
-    lineHeight: 18,
-    textAlign: 'center',
-    marginTop: 4,
   },
   secondaryBtn: {
     height: 48,

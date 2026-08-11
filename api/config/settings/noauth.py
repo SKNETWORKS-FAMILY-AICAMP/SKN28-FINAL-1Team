@@ -22,3 +22,11 @@ REST_FRAMEWORK = {
         "apps.users.authentication.AutoLoginAuthentication",
     ],
 }
+
+# Expo 웹 개발 서버(localhost:8001)에서 API(localhost:8000)를 호출할 수 있게 한다.
+# noauth 설정은 DEBUG 로컬 전용이므로 프로덕션 CORS 정책에는 영향을 주지 않는다.
+CORS_ALLOW_ALL_ORIGINS = True
+
+# 같은 Wi-Fi의 휴대폰에서 PC의 Expo 웹 화면을 열어도 Django가 Host를 거부하지 않게 한다.
+# 이 설정 파일은 DEBUG 로컬 전용이며 프로덕션에는 사용하지 않는다.
+ALLOWED_HOSTS = ["*"]

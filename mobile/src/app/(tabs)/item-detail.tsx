@@ -352,7 +352,7 @@ const styles = StyleSheet.create({
     backgroundColor: Editorial.surfaceSoft,
     borderRadius: 16,
     padding: 14,
-    marginBottom: 16,
+    marginTop: 22,
     borderWidth: 1,
     borderColor: Editorial.line,
   },

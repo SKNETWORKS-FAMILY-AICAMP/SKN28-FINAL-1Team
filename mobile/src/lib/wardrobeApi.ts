@@ -298,6 +298,12 @@ export function renameSharedRoom(roomId: string, title: string): Promise<SharedR
   return api.patch<SharedRoom>(`/api/v1/shared-wardrobes/${roomId}/`, { title });
 }
 
+export function deleteSharedRoom(roomId: string, deletePersonalItems = false): Promise<unknown> {
+  return api.delete(
+    `/api/v1/shared-wardrobes/${roomId}/?delete_personal_items=${deletePersonalItems}`,
+  );
+}
+
 export function joinSharedRoom(inviteCode: string): Promise<{ room_id: string; title: string; status: string }> {
   return api.post<{ room_id: string; title: string; status: string }>('/api/v1/shared-wardrobes/join/', { invite_code: inviteCode });
 }

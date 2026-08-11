@@ -510,6 +510,39 @@ class SharedWardrobeViewSet(viewsets.ModelViewSet):
         return Response(data, status=status.HTTP_201_CREATED)
 
     @extend_schema(
+        summary="공유 옷장 삭제",
+        parameters=[
+            OpenApiParameter(
+                name="delete_personal_items",
+                type=OpenApiTypes.BOOL,
+                location=OpenApiParameter.QUERY,
+                description="현재 사용자가 이 방에 공유한 개인 옷도 함께 삭제할지 여부",
+            ),
+        ],
+        responses={204: OpenApiResponse(description="삭제 완료")},
+    )
+    def destroy(self, request, *args, **kwargs):
+        room = self.get_object()
+        delete_personal_items = request.query_params.get("delete_personal_items", "false").lower() == "true"
+
+        with transaction.atomic():
+            personal_item_ids = list(
+                SharedWardrobeItem.objects.filter(room=room, registered_by=request.user)
+                .values_list("wardrobe_item_id", flat=True)
+                .distinct()
+            )
+            room.delete()
+
+            if delete_personal_items:
+                WardrobeItem.objects.filter(pk__in=personal_item_ids, user=request.user).delete()
+
+        if delete_personal_items:
+            for item_id in personal_item_ids:
+                vectors.delete_item(item_id)
+
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+    @extend_schema(
         summary="초대코드로 공유 옷장 참여",
         request=SharedWardrobeJoinSerializer,
         responses={

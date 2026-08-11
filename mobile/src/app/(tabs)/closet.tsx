@@ -22,6 +22,7 @@ import {
   ScrollView,
   StyleSheet,
   Text,
+  TextInput,
   View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -33,7 +34,7 @@ import { useBottomTabInset } from '@/hooks/use-bottom-tab-inset';
 import { useBreakpoint } from '@/hooks/use-breakpoint';
 import { useRefresh } from '@/hooks/use-refresh';
 import { useWardrobeItems } from '@/hooks/use-wardrobe';
-import { itemDisplayName, getMySharedRooms, createSharedRoom, joinSharedRoom, listSharedRoomMembers, listSharedRoomItems, renameSharedRoom, unregisterItemFromSharedRoom } from '@/lib/wardrobeApi';
+import { itemDisplayName, getMySharedRooms, createSharedRoom, joinSharedRoom, listSharedRoomMembers, listSharedRoomItems, renameSharedRoom, deleteSharedRoom, unregisterItemFromSharedRoom } from '@/lib/wardrobeApi';
 import { Icon } from '@/components/icon';
 import { useAuth } from '@/state/auth';
 import { uploadJobs, useUploadCompleted, useUploadJobs, useBatchTotal, useBatchCompletedCount } from '@/state/upload-jobs';
@@ -106,6 +107,8 @@ export default function ClosetScreen() {
   const [sharedItems, setSharedItems] = useState<Card[]>([]);
   const [inviteOpen, setInviteOpen] = useState(false);
   const [joinOpen, setJoinOpen] = useState(false);
+  const [manageRoom, setManageRoom] = useState<{ id: string; title: string; draftTitle: string } | null>(null);
+  const [deleteRoom, setDeleteRoom] = useState<{ id: string; title: string } | null>(null);
   const [categories, setCategories] = useState<string[]>(DEFAULT_CATEGORIES);
   const [editOpen, setEditOpen] = useState(false);
   const [sourceOpen, setSourceOpen] = useState(false);
@@ -255,25 +258,57 @@ export default function ClosetScreen() {
     }
   };
 
-  const handleRenameSpace = async (roomId: string, currentTitle: string) => {
-    if (Platform.OS === 'web') {
-      const input = window.prompt('수정할 공유 옷장의 이름을 입력해주세요:', currentTitle);
-      if (input === null) return; // 취소 누른 경우
-      const newTitle = input.trim();
-      if (newTitle && newTitle !== currentTitle) {
-        try {
-          await renameSharedRoom(roomId, newTitle);
-          toast('옷장 이름을 수정했어요', { variant: 'success' });
-          const rooms = await getMySharedRooms();
-          setSharedRooms(rooms || []);
-          if (sharedSpace?.id === roomId) {
-            setSharedSpace((prev) => (prev ? { ...prev, name: newTitle } : null));
-          }
-        } catch (err) {
-          console.error('공유 옷장 이름 수정 실패:', err);
-          toast('이름을 수정하지 못했습니다.', { variant: 'error' });
-        }
+  const openRoomManager = (roomId: string, title: string) => {
+    setManageRoom({ id: roomId, title, draftTitle: title });
+  };
+
+  const handleRenameSpace = async () => {
+    if (!manageRoom) return;
+    const newTitle = manageRoom.draftTitle.trim();
+    if (!newTitle) {
+      toast('옷장 이름을 입력해 주세요.', { variant: 'error' });
+      return;
+    }
+    if (newTitle === manageRoom.title) {
+      setManageRoom(null);
+      return;
+    }
+
+    try {
+      await renameSharedRoom(manageRoom.id, newTitle);
+      setManageRoom(null);
+      const rooms = await getMySharedRooms();
+      setSharedRooms(rooms);
+      if (sharedSpace?.id === manageRoom.id) {
+        setSharedSpace((prev) => (prev ? { ...prev, name: newTitle } : null));
       }
+      toast('옷장 이름을 수정했어요', { variant: 'success' });
+    } catch (err) {
+      console.error('공유 옷장 이름 수정 실패:', err);
+      toast('이름을 수정하지 못했습니다.', { variant: 'error' });
+    }
+  };
+
+  const handleDeleteSpace = async (deletePersonalItems: boolean) => {
+    if (!deleteRoom) return;
+    const room = deleteRoom;
+
+    try {
+      await deleteSharedRoom(room.id, deletePersonalItems);
+      setDeleteRoom(null);
+      const rooms = await getMySharedRooms();
+      setSharedRooms(rooms);
+
+      if (rooms.length > 0) {
+        await loadRoomData(rooms[0].id, rooms);
+      } else {
+        setSharedSpace(null);
+        setSharedItems([]);
+      }
+      toast('공유 옷장을 삭제했어요', { variant: 'success' });
+    } catch (err) {
+      console.error('공유 옷장 삭제 실패:', err);
+      toast(err instanceof Error ? err.message : '공유 옷장을 삭제하지 못했습니다.', { variant: 'error' });
     }
   };
 
@@ -401,19 +436,20 @@ export default function ClosetScreen() {
                     { flexDirection: 'row', alignItems: 'center' }
                   ]}
                   onPress={() => loadRoomData(room.id)}
-                  onLongPress={() => handleRenameSpace(room.id, room.title)}
+                  onLongPress={() => openRoomManager(room.id, room.title)}
                 >
                   <Text style={[styles.roomTabText, isSelected && styles.roomTabTextActive]}>
                     {room.title}
                   </Text>
                   {isSelected && (
-                    <Pressable
-                      hitSlop={8}
-                      style={{ marginLeft: 6 }}
-                      onPress={() => handleRenameSpace(room.id, room.title)}
-                    >
-                      <Icon name="pencil" tintColor="#FFFFFF" size={12} />
-                    </Pressable>
+                    <View style={styles.roomTabActions}>
+                      <Pressable
+                        hitSlop={8}
+                        onPress={() => openRoomManager(room.id, room.title)}
+                        accessibilityLabel="공유 옷장 이름 수정">
+                        <Icon name="pencil" tintColor="#FFFFFF" size={12} />
+                      </Pressable>
+                    </View>
                   )}
                 </Pressable>
               );
@@ -570,6 +606,71 @@ export default function ClosetScreen() {
         />
         <PhotoSourceSheet visible={sourceOpen} onClose={() => setSourceOpen(false)} />
 
+        <Modal
+          visible={!!manageRoom}
+          transparent
+          animationType="fade"
+          onRequestClose={() => setManageRoom(null)}>
+          <Pressable style={styles.dialogBackdrop} onPress={() => setManageRoom(null)}>
+            <Pressable style={styles.dialogCard} onPress={() => {}}>
+              <Text style={styles.dialogTitle}>공유 옷장 관리</Text>
+              <Text style={styles.dialogMessage}>옷장 이름을 수정하거나 삭제할 수 있어요.</Text>
+              <TextInput
+                style={styles.dialogInput}
+                value={manageRoom?.draftTitle ?? ''}
+                onChangeText={(draftTitle) =>
+                  setManageRoom((room) => (room ? { ...room, draftTitle } : room))
+                }
+                maxLength={100}
+                autoFocus
+                returnKeyType="done"
+                onSubmitEditing={handleRenameSpace}
+              />
+              <View style={styles.dialogActions}>
+                <Pressable style={[styles.dialogButton, styles.dialogCancel]} onPress={() => setManageRoom(null)}>
+                  <Text style={styles.dialogCancelText}>취소</Text>
+                </Pressable>
+                <Pressable style={[styles.dialogButton, styles.dialogSave]} onPress={handleRenameSpace}>
+                  <Text style={styles.dialogConfirmText}>이름 수정</Text>
+                </Pressable>
+              </View>
+              <Pressable
+                style={styles.dialogDelete}
+                onPress={() => {
+                  if (!manageRoom) return;
+                  setDeleteRoom({ id: manageRoom.id, title: manageRoom.title });
+                  setManageRoom(null);
+                }}>
+                <Text style={styles.dialogDeleteText}>이 옷장 삭제</Text>
+              </Pressable>
+            </Pressable>
+          </Pressable>
+        </Modal>
+
+        <Modal
+          visible={!!deleteRoom}
+          transparent
+          animationType="fade"
+          onRequestClose={() => setDeleteRoom(null)}>
+          <Pressable style={styles.dialogBackdrop} onPress={() => setDeleteRoom(null)}>
+            <Pressable style={styles.dialogCard} onPress={() => {}}>
+              <Text style={styles.dialogTitle}>공유 옷장을 삭제할까요?</Text>
+              <Text style={styles.dialogMessage}>
+                공유 목록과 초대 링크는 삭제됩니다.{"\n"}개인 옷장에 있는 내가 공유한 옷은 어떻게 할까요?
+              </Text>
+              <Pressable style={styles.keepItemsButton} onPress={() => handleDeleteSpace(false)}>
+                <Text style={styles.keepItemsText}>옷은 내 옷장에 유지</Text>
+              </Pressable>
+              <Pressable style={styles.deleteItemsButton} onPress={() => handleDeleteSpace(true)}>
+                <Text style={styles.dialogConfirmText}>공유한 내 옷도 삭제</Text>
+              </Pressable>
+              <Pressable style={styles.dialogCancelOnly} onPress={() => setDeleteRoom(null)}>
+                <Text style={styles.dialogCancelText}>취소</Text>
+              </Pressable>
+            </Pressable>
+          </Pressable>
+        </Modal>
+
         <CategoryEditSheet
           visible={editOpen}
           title="카테고리 관리"
@@ -725,4 +826,69 @@ const styles = StyleSheet.create({
   roomTabTextActive: {
     color: '#FFFFFF',
   },
+  roomTabActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginLeft: 7,
+  },
+  dialogBackdrop: {
+    flex: 1,
+    backgroundColor: 'rgba(28,25,23,0.42)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 32,
+  },
+  dialogCard: {
+    width: '100%',
+    maxWidth: 360,
+    backgroundColor: Editorial.surface,
+    borderRadius: 20,
+    paddingHorizontal: 24,
+    paddingTop: 26,
+    paddingBottom: 16,
+  },
+  dialogTitle: { fontSize: 19, fontWeight: '700', color: Editorial.ink, textAlign: 'center' },
+  dialogMessage: {
+    fontSize: 13,
+    color: Editorial.textCaption,
+    textAlign: 'center',
+    marginTop: 10,
+    lineHeight: 21,
+  },
+  dialogInput: {
+    height: 48,
+    marginTop: 20,
+    paddingHorizontal: 14,
+    borderWidth: 1,
+    borderColor: Editorial.line,
+    borderRadius: 12,
+    color: Editorial.ink,
+    fontSize: 15,
+  },
+  dialogActions: { flexDirection: 'row', gap: 10, marginTop: 16 },
+  dialogButton: { flex: 1, height: 48, borderRadius: 14, alignItems: 'center', justifyContent: 'center' },
+  dialogCancel: { backgroundColor: Editorial.surface, borderWidth: 1, borderColor: Editorial.line },
+  dialogSave: { backgroundColor: Editorial.cta },
+  dialogCancelText: { fontSize: 14, fontWeight: '600', color: Editorial.textCaption },
+  dialogConfirmText: { fontSize: 14, fontWeight: '600', color: '#fff' },
+  dialogDelete: { height: 44, marginTop: 12, alignItems: 'center', justifyContent: 'center' },
+  dialogDeleteText: { fontSize: 14, fontWeight: '600', color: Editorial.danger },
+  keepItemsButton: {
+    height: 48,
+    marginTop: 22,
+    borderRadius: 14,
+    backgroundColor: Editorial.cta,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  keepItemsText: { fontSize: 14, fontWeight: '600', color: '#fff' },
+  deleteItemsButton: {
+    height: 48,
+    marginTop: 10,
+    borderRadius: 14,
+    backgroundColor: Editorial.danger,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  dialogCancelOnly: { height: 44, marginTop: 4, alignItems: 'center', justifyContent: 'center' },
 });

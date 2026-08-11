@@ -78,6 +78,13 @@ def collection_specs() -> list[CollectionSpec]:
             vectors={IMAGE_VECTOR: _image_dim(), TEXT_VECTOR: _text_dim()},
             payload_indexes={**_ITEM_TAG_INDEXES, "user_id": "keyword"},
         ),
+        # apps.wardrobe.services.vectors가 사용자별 등록 아이템을 적재하는 컬렉션.
+        # 추천용 wardrobe 컬렉션과는 소유자 필터의 타입·적재 경로가 달라 분리한다.
+        CollectionSpec(
+            name="wardrobe_items",
+            vectors={IMAGE_VECTOR: _image_dim(), TEXT_VECTOR: _text_dim()},
+            payload_indexes={**_ITEM_TAG_INDEXES, "user_id": "integer"},
+        ),
         CollectionSpec(
             name="knowledge",
             vectors={TEXT_VECTOR: _text_dim()},
