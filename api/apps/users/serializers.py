@@ -1,3 +1,7 @@
+import uuid
+
+from django.contrib.auth.password_validation import validate_password
+from django.db import transaction
 from rest_framework import serializers
 
 from apps.users.constants import PREFERENCE_CATEGORIES, category_keys
@@ -53,6 +57,66 @@ class SocialLoginSerializer(serializers.Serializer):
     def validate(self, attrs):
         if not attrs.get("code") and not attrs.get("access_token"):
             raise serializers.ValidationError("code 또는 access_token 중 하나가 필요합니다.")
+        return attrs
+
+
+class EmailSignupSerializer(serializers.Serializer):
+    """이메일·비밀번호 회원가입 요청."""
+
+    email = serializers.EmailField()
+    password = serializers.CharField(write_only=True, trim_whitespace=False)
+
+    def validate_email(self, value: str) -> str:
+        email = value.strip().lower()
+        # 소셜 계정은 unusable password를 사용하므로 같은 이메일의 이메일 계정과
+        # 자동 연결하지 않는다. 실제 비밀번호 계정의 중복만 차단한다.
+        if User.objects.filter(email__iexact=email).exclude(password__startswith="!").exists():
+            raise serializers.ValidationError("이미 가입된 이메일입니다.")
+        return email
+
+    def validate_password(self, value: str) -> str:
+        validate_password(value)
+        return value
+
+    @transaction.atomic
+    def create(self, validated_data: dict) -> User:
+        return User.objects.create_user(
+            username=f"email_{uuid.uuid4().hex}",
+            email=validated_data["email"],
+            password=validated_data["password"],
+            is_active=False,
+        )
+
+
+class EmailVerificationSerializer(serializers.Serializer):
+    email = serializers.EmailField()
+    code = serializers.RegexField(r"^\d{6}$", error_messages={"invalid": "6자리 숫자 인증 코드를 입력해 주세요."})
+
+    def validate_email(self, value: str) -> str:
+        return value.strip().lower()
+
+
+class EmailVerificationResendSerializer(serializers.Serializer):
+    email = serializers.EmailField()
+
+    def validate_email(self, value: str) -> str:
+        return value.strip().lower()
+
+
+class EmailLoginSerializer(serializers.Serializer):
+    """이메일·비밀번호 로그인 요청."""
+
+    email = serializers.EmailField()
+    password = serializers.CharField(write_only=True, trim_whitespace=False)
+
+    def validate(self, attrs):
+        email = attrs["email"].strip().lower()
+        user = User.objects.filter(email__iexact=email).exclude(password__startswith="!").first()
+        if user is None or not user.check_password(attrs["password"]):
+            raise serializers.ValidationError("이메일 또는 비밀번호가 올바르지 않습니다.")
+        if not user.is_active:
+            raise serializers.ValidationError("이메일 인증을 완료해 주세요.")
+        attrs["user"] = user
         return attrs
 
 

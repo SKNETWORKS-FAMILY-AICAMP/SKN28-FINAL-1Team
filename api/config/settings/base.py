@@ -213,6 +213,27 @@ SIMPLE_JWT = {
     "BLACKLIST_AFTER_ROTATION": True,
 }
 
+# 이메일 소유 인증. 로컬에서는 콘솔 출력으로 코드를 확인하고,
+# 배포 환경에서는 EMAIL_BACKEND/SMTP 값을 주입한다.
+EMAIL_BACKEND = os.getenv(
+    "EMAIL_BACKEND", "django.core.mail.backends.console.EmailBackend"
+)
+EMAIL_HOST = os.getenv("EMAIL_HOST", "")
+EMAIL_PORT = int(os.getenv("EMAIL_PORT", "587"))
+EMAIL_HOST_USER = os.getenv("EMAIL_HOST_USER", "")
+EMAIL_HOST_PASSWORD = os.getenv("EMAIL_HOST_PASSWORD", "")
+EMAIL_USE_TLS = os.getenv("EMAIL_USE_TLS", "true").lower() == "true"
+DEFAULT_FROM_EMAIL = os.getenv("DEFAULT_FROM_EMAIL", "COZY <no-reply@cozy.local>")
+EMAIL_VERIFICATION_CODE_TTL_SECONDS = int(
+    os.getenv("EMAIL_VERIFICATION_CODE_TTL_SECONDS", "600")
+)
+EMAIL_VERIFICATION_RESEND_SECONDS = int(
+    os.getenv("EMAIL_VERIFICATION_RESEND_SECONDS", "60")
+)
+EMAIL_VERIFICATION_MAX_ATTEMPTS = int(
+    os.getenv("EMAIL_VERIFICATION_MAX_ATTEMPTS", "5")
+)
+
 # ------------------------------------------------------------
 # 소셜 로그인 (naver / kakao / google)
 # 검색 API용 NAVER_CLIENT_ID와 혼동하지 않도록 *_OAUTH_* 접두사를 쓴다.

@@ -92,8 +92,20 @@ export const isGoogleConfigured = (): boolean =>
  *   GET/PATCH /api/v1/users/me/           내 정보 (Bearer 필요)
  *
  * ※ simplejwt(stateless)라 서버 로그아웃 엔드포인트는 없다 → 로그아웃은 클라이언트 토큰 폐기.
+ *
+ * 이메일 가입/로그인 흐름:
+ *   POST /api/v1/auth/signup/        { email, password } → 202 { email, verification_required, retry_after }
+ *   POST /api/v1/auth/email/verify/  { email, code }     → 200 { email, verified }
+ *     ⚠️ 인증 API 는 **토큰을 주지 않는다**. 계정만 활성화되므로 이어서 로그인해야 세션이 열린다.
+ *   POST /api/v1/auth/email/resend/  { email }           → 200 { retry_after }
+ *   POST /api/v1/auth/login/         { email, password } → 200 { access, refresh, user, is_new_user }
+ *     is_new_user=true 는 가입 후 첫 로그인 → 온보딩(권한 → 체형 측정 → 추구미)으로 보낸다.
  */
 export const AuthEndpoints = {
+  signup: '/api/v1/auth/signup/',
+  login: '/api/v1/auth/login/',
+  verifyEmail: '/api/v1/auth/email/verify/',
+  resendEmail: '/api/v1/auth/email/resend/',
   socialLogin: (provider: SocialProvider) => `/api/v1/auth/${provider}/login/`,
   refresh: '/api/v1/auth/token/refresh/',
   me: '/api/v1/users/me/',

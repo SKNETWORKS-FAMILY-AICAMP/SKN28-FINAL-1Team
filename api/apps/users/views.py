@@ -1,7 +1,7 @@
 import logging
 
 from django.contrib.auth.models import update_last_login
-from django.db import IntegrityError
+from django.db import IntegrityError, transaction
 from rest_framework import status
 from rest_framework.parsers import FormParser, MultiPartParser
 from rest_framework.permissions import AllowAny
@@ -18,16 +18,115 @@ from apps.users.serializers import (
     BodyMeasurementSerializer,
     BodyPhotoTransactionSerializer,
     BodyPhotoUploadSerializer,
+    BudgetSerializer,
+    EmailLoginSerializer,
+    EmailSignupSerializer,
+    EmailVerificationResendSerializer,
+    EmailVerificationSerializer,
     PreferenceCategorySerializer,
     PursuitPayloadInputSerializer,
     PursuitPayloadResponseSerializer,
     SocialLoginSerializer,
     UserSerializer,
-    BudgetSerializer,
 )
-from apps.users.services import accounts, body_inference, oauth, pursuit
+from apps.users.services import accounts, body_inference, email_verification, oauth, pursuit
 
 logger = logging.getLogger(__name__)
+
+
+def _token_response(user, *, created: bool, is_new_user: bool | None = None) -> Response:
+    """JWT 발급 공통 응답.
+
+    is_new_user를 따로 넘기면 HTTP 상태(created)와 분리해서 내려보낸다. 이메일
+    로그인은 계정 생성 시점이 회원가입이라 항상 200이지만, '가입 후 첫 로그인'이면
+    앱이 온보딩으로 분기해야 해서 두 값이 갈린다.
+    """
+    refresh = RefreshToken.for_user(user)
+    update_last_login(None, user)
+    return Response(
+        {
+            "access": str(refresh.access_token),
+            "refresh": str(refresh),
+            "user": UserSerializer(user).data,
+            "is_new_user": created if is_new_user is None else is_new_user,
+        },
+        status=status.HTTP_201_CREATED if created else status.HTTP_200_OK,
+    )
+
+
+class EmailSignupView(APIView):
+    """POST /api/v1/auth/signup/ — 이메일·비밀번호 계정 생성 및 JWT 발급."""
+
+    permission_classes = [AllowAny]
+    authentication_classes: list = []
+
+    def post(self, request):
+        serializer = EmailSignupSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        with transaction.atomic():
+            user = serializer.save()
+            retry_after = email_verification.issue_code(user)
+        return Response(
+            {
+                "email": user.email,
+                "verification_required": True,
+                "retry_after": retry_after,
+            },
+            status=status.HTTP_202_ACCEPTED,
+        )
+
+
+class EmailVerificationView(APIView):
+    """POST /api/v1/auth/email/verify/ — 인증 코드 확인 후 계정 활성화.
+
+    **토큰은 발급하지 않는다.** 코드 검증만으로 세션을 열어 주면 인증 상태를
+    되짚는 실수 하나가 곧 비밀번호 없는 로그인이 된다. 소유 확인은 계정 활성화까지만
+    하고, 세션은 비밀번호를 아는 사람만 로그인 API로 열게 한다.
+    """
+
+    permission_classes = [AllowAny]
+    authentication_classes: list = []
+
+    def post(self, request):
+        serializer = EmailVerificationSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        user = email_verification.verify_code(**serializer.validated_data)
+        return Response(
+            {"email": user.email, "verified": True}, status=status.HTTP_200_OK
+        )
+
+
+class EmailVerificationResendView(APIView):
+    """POST /api/v1/auth/email/resend/ — 만료 또는 미수신 인증 코드 재발송."""
+
+    permission_classes = [AllowAny]
+    authentication_classes: list = []
+
+    def post(self, request):
+        serializer = EmailVerificationResendSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        with transaction.atomic():
+            retry_after = email_verification.resend_code(serializer.validated_data["email"])
+        return Response({"retry_after": retry_after}, status=status.HTTP_200_OK)
+
+
+class EmailLoginView(APIView):
+    """POST /api/v1/auth/login/ — 이메일·비밀번호 확인 및 JWT 발급.
+
+    응답의 is_new_user는 가입 후 첫 로그인일 때 true다 (앱의 온보딩 진입 분기용).
+    """
+
+    permission_classes = [AllowAny]
+    authentication_classes: list = []
+
+    def post(self, request):
+        serializer = EmailLoginSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        user = serializer.validated_data["user"]
+        # last_login은 _token_response의 update_last_login이 채우므로 그 전에 읽는다.
+        # NULL이면 가입 후 첫 로그인 → 앱이 온보딩(권한→체형 측정→추구미)으로 보낸다.
+        is_first_login = user.last_login is None
+        return _token_response(user, created=False, is_new_user=is_first_login)
 
 
 class SocialLoginView(APIView):
@@ -92,19 +191,11 @@ class SocialLoginView(APIView):
             )
 
         user, created = accounts.get_or_create_user(profile)
-        refresh = RefreshToken.for_user(user)
-        update_last_login(None, user)
+        # 토큰 발급은 _token_response로 일원화됐다(이메일 로그인과 같은 응답 모양).
+        # 오늘의 룩 선반영은 그 전에 건다 — 사용자가 첫 화면에 도착할 때쯤
+        # 완성돼 있게 하려는 것이고, 실패해도 예외를 삼키므로 로그인을 막지 않는다.
         _kick_off_daily_look(user)
-
-        return Response(
-            {
-                "access": str(refresh.access_token),
-                "refresh": str(refresh),
-                "user": UserSerializer(user).data,
-                "is_new_user": created,
-            },
-            status=status.HTTP_201_CREATED if created else status.HTTP_200_OK,
-        )
+        return _token_response(user, created=created)
 
 
 def _kick_off_daily_look(user) -> None:
