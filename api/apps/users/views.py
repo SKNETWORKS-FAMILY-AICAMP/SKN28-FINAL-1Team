@@ -103,6 +103,15 @@ class SocialLoginView(APIView):
         refresh = RefreshToken.for_user(user)
         update_last_login(None, user)
 
+        # 오늘의 룩은 로그인 응답의 부가기능이다. 날씨/Qdrant/Redis 장애가 계정
+        # 접근을 막지 않도록 접수 실패는 격리하고 조회 API에서도 다시 접수한다.
+        try:
+            from apps.recommend.services.daily_look import ensure_today_look
+
+            ensure_today_look(user)
+        except Exception:
+            logger.warning("소셜 로그인 오늘의 룩 사전 접수 실패", exc_info=True)
+
         guest_claim = None
         guest_token = request.COOKIES.get(settings.CHAT_GUEST_COOKIE_NAME, "")
         if created and guest_token:

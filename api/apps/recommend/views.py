@@ -28,6 +28,7 @@ from apps.chat.services import identity as identity_service
 
 from .models import OutfitAnalysis, OutfitRenderJob
 from .serializers import (
+    DailyLookSerializer,
     OutfitAnalysisAcceptedSerializer,
     OutfitAnalysisClaimRequestSerializer,
     OutfitAnalysisClaimResponseSerializer,
@@ -47,6 +48,7 @@ from .serializers import (
 )
 from .services import analysis as analysis_service
 from .services import claim as claim_service
+from .services import daily_look as daily_look_service
 from .services import recommendation_results as recommendation_service
 from .services import render_jobs
 from .services.render_events import (
@@ -61,6 +63,40 @@ logger = logging.getLogger(__name__)
 DEFAULT_HISTORY_LIMIT = 20
 MAX_HISTORY_LIMIT = 100
 _REDIS_STREAM_ID = re.compile(r"^(?:0|[1-9]\d*)-(?:0|[1-9]\d*)$")
+
+
+class DailyLookTodayView(APIView):
+    """오늘 행이 없으면 접수하고, 있으면 현재 결과와 렌더 URL을 반환한다."""
+
+    permission_classes = [IsAuthenticated]
+
+    @extend_schema(
+        operation_id="daily_look_today",
+        tags=["Daily Look"],
+        summary="오늘의 룩 조회",
+        parameters=[
+            OpenApiParameter(name="lat", type=float, required=False),
+            OpenApiParameter(name="lon", type=float, required=False),
+        ],
+        responses={200: DailyLookSerializer},
+    )
+    def get(self, request: Request) -> Response:
+        look, _ = daily_look_service.ensure_today_look(
+            request.user,
+            lat=_float_or_none(request.query_params.get("lat")),
+            lon=_float_or_none(request.query_params.get("lon")),
+        )
+        daily_look_service.refresh_render(look)
+        return Response(DailyLookSerializer(look).data)
+
+
+def _float_or_none(raw: str | None) -> float | None:
+    if raw in (None, ""):
+        return None
+    try:
+        return float(raw)
+    except (TypeError, ValueError):
+        return None
 
 
 def _recommendation_identity(request: Request):
@@ -192,7 +228,9 @@ OWNER_WARDROBE_DONE_EXAMPLE = OpenApiExample(
         },
         "llm_model": "gemini-3.5-flash",
         "request_payload": {
-            "systemInstruction": {"parts": [{"text": "당신은 패션 스타일리스트입니다…"}]},
+            "systemInstruction": {
+                "parts": [{"text": "당신은 패션 스타일리스트입니다…"}]
+            },
             "contents": [
                 {
                     "parts": [
@@ -208,7 +246,9 @@ OWNER_WARDROBE_DONE_EXAMPLE = OpenApiExample(
             ],
         },
         "response_payload": {
-            "candidates": [{"content": {"parts": [{"text": "{\"overall_score\": 88, …}"}]}}],
+            "candidates": [
+                {"content": {"parts": [{"text": '{"overall_score": 88, …}'}]}}
+            ],
             "usageMetadata": {"totalTokenCount": 1234},
         },
         "evaluation": _EVALUATION_EXAMPLE,
@@ -383,7 +423,9 @@ class OutfitAnalysisHistoryView(APIView):
             queryset = queryset.filter(status=status_filter.upper())
 
         limit = min(
-            _positive_int(request.query_params.get("limit"), default=DEFAULT_HISTORY_LIMIT),
+            _positive_int(
+                request.query_params.get("limit"), default=DEFAULT_HISTORY_LIMIT
+            ),
             MAX_HISTORY_LIMIT,
         )
         offset = _positive_int(request.query_params.get("offset"), default=0)
@@ -447,7 +489,9 @@ class OutfitAnalysisDetailView(APIView):
                 ],
                 resource_type_field_name=None,
             ),
-            404: OpenApiResponse(description="존재하지 않거나, 본인 기록이 아니거나, 조회 기간이 지남"),
+            404: OpenApiResponse(
+                description="존재하지 않거나, 본인 기록이 아니거나, 조회 기간이 지남"
+            ),
         },
         examples=[
             OWNER_WARDROBE_DONE_EXAMPLE,
@@ -469,9 +513,7 @@ class OutfitAnalysisDetailView(APIView):
             raise NotFound("평가 기록을 찾을 수 없습니다.")
 
         if analysis.user_id is None:
-            deadline = timezone.now() - timedelta(
-                hours=settings.OUTFIT_ANON_TTL_HOURS
-            )
+            deadline = timezone.now() - timedelta(hours=settings.OUTFIT_ANON_TTL_HOURS)
             if analysis.created_at < deadline:
                 raise NotFound("조회 기간이 지난 평가 기록입니다.")
             return Response(OutfitAnalysisPublicSerializer(analysis).data)
@@ -540,7 +582,9 @@ class RecommendationHistoryView(APIView):
         parameters=[RecommendationHistoryQuerySerializer],
         responses={
             200: RecommendationHistoryResponseSerializer,
-            401: OpenApiResponse(description="회원 JWT 또는 유효한 게스트 채팅 쿠키 필요"),
+            401: OpenApiResponse(
+                description="회원 JWT 또는 유효한 게스트 채팅 쿠키 필요"
+            ),
         },
     )
     def get(self, request: Request) -> Response:
@@ -578,7 +622,9 @@ class RecommendationResultDetailView(APIView):
         summary="추천 결과와 카드 목록 조회",
         responses={
             200: RecommendationResultDetailSerializer,
-            404: OpenApiResponse(description="결과가 없거나 요청 identity의 소유가 아님"),
+            404: OpenApiResponse(
+                description="결과가 없거나 요청 identity의 소유가 아님"
+            ),
         },
     )
     def get(self, request: Request, result_id) -> Response:
@@ -603,7 +649,9 @@ class RecommendationCardDetailView(APIView):
         summary="추천 카드 상세 조회",
         responses={
             200: RecommendationCardSerializer,
-            404: OpenApiResponse(description="카드가 없거나 요청 identity의 소유가 아님"),
+            404: OpenApiResponse(
+                description="카드가 없거나 요청 identity의 소유가 아님"
+            ),
         },
     )
     def get(self, request: Request, result_id, card_id) -> Response:
@@ -631,7 +679,9 @@ class RecommendationFeedbackView(APIView):
         responses={
             200: RecommendationFeedbackSerializer,
             201: RecommendationFeedbackSerializer,
-            404: OpenApiResponse(description="카드가 없거나 요청 identity의 소유가 아님"),
+            404: OpenApiResponse(
+                description="카드가 없거나 요청 identity의 소유가 아님"
+            ),
         },
     )
     def put(self, request: Request, result_id, card_id) -> Response:
@@ -658,7 +708,9 @@ class RecommendationFeedbackView(APIView):
         summary="추천 카드 피드백 삭제",
         responses={
             204: None,
-            404: OpenApiResponse(description="카드가 없거나 요청 identity의 소유가 아님"),
+            404: OpenApiResponse(
+                description="카드가 없거나 요청 identity의 소유가 아님"
+            ),
         },
     )
     def delete(self, request: Request, result_id, card_id) -> Response:
@@ -700,7 +752,9 @@ class RecommendationCardRenderView(APIView):
         summary="추천 카드 이미지 생성 상태 조회",
         responses={
             200: OutfitRenderJobSerializer,
-            404: OpenApiResponse(description="카드·작업이 없거나 요청 identity의 소유가 아님"),
+            404: OpenApiResponse(
+                description="카드·작업이 없거나 요청 identity의 소유가 아님"
+            ),
         },
     )
     def get(self, request: Request, result_id, card_id) -> Response:
@@ -708,7 +762,9 @@ class RecommendationCardRenderView(APIView):
         job = OutfitRenderJob.objects.filter(composition=card).first()
         if job is None:
             raise NotFound("이미지 생성 작업을 찾을 수 없습니다.")
-        return Response(OutfitRenderJobSerializer(job, context={"request": request}).data)
+        return Response(
+            OutfitRenderJobSerializer(job, context={"request": request}).data
+        )
 
     @extend_schema(
         operation_id="recommendation_card_render_create",
@@ -718,7 +774,9 @@ class RecommendationCardRenderView(APIView):
         responses={
             200: OutfitRenderJobSerializer,
             202: OutfitRenderJobSerializer,
-            404: OpenApiResponse(description="카드가 없거나 요청 identity의 소유가 아님"),
+            404: OpenApiResponse(
+                description="카드가 없거나 요청 identity의 소유가 아님"
+            ),
             503: OpenApiResponse(description="이미지 생성 큐를 사용할 수 없음"),
         },
     )
@@ -731,9 +789,7 @@ class RecommendationCardRenderView(APIView):
             except render_jobs.RenderQueueUnavailable:
                 job.refresh_from_db()
                 return Response(
-                    OutfitRenderJobSerializer(
-                        job, context={"request": request}
-                    ).data,
+                    OutfitRenderJobSerializer(job, context={"request": request}).data,
                     status=status.HTTP_503_SERVICE_UNAVAILABLE,
                 )
         response_status = (
@@ -800,7 +856,9 @@ class OutfitRenderEventStreamView(APIView):
                     block_milliseconds=0,
                 )
             except redis.RedisError:
-                logger.warning("코디 이미지 SSE 재생 실패: job=%s", job.pk, exc_info=True)
+                logger.warning(
+                    "코디 이미지 SSE 재생 실패: job=%s", job.pk, exc_info=True
+                )
                 terminal = _render_terminal_event(job, request)
                 if terminal is not None:
                     yield encode_sse(terminal)

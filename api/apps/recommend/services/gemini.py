@@ -38,6 +38,43 @@ class GeminiResult:
     latency_ms: int
 
 
+@dataclass(frozen=True)
+class DailyLookResult:
+    parsed: dict[str, Any]
+    request: dict[str, Any]
+    response: dict[str, Any]
+    model: str
+    latency_ms: int
+
+
+DAILY_LOOK_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "headline": {"type": "string"},
+        "rationale_ko": {"type": "string"},
+        "styling_tips": {"type": "array", "items": {"type": "string"}},
+        "items": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "item_key": {"type": "string"},
+                    "note": {"type": "string"},
+                },
+                "required": ["item_key"],
+            },
+        },
+    },
+    "required": ["headline", "rationale_ko"],
+}
+
+DAILY_LOOK_SYSTEM_INSTRUCTION = (
+    "당신은 한국어 패션 스타일리스트입니다. 이미 확정된 오늘의 착장에 설명만 붙입니다. "
+    "코디나 아이템을 바꾸거나 없는 아이템을 만들지 마세요. 체형은 평가하지 말고 균형을 "
+    "살리는 표현을 사용하며, 날씨가 있으면 실용적인 레이어링 안내를 덧붙이세요."
+)
+
+
 # 저장용 요청 본문에서 이미지 base64 자리에 넣는 표시자.
 # 원본 사진은 S3에 있으므로 요청 본문에 base64를 남길 이유가 없다 (행 크기 폭증).
 IMAGE_PLACEHOLDER = "<image omitted: {size} bytes, stored in S3>"
@@ -225,6 +262,70 @@ def evaluate_outfit(
     return GeminiResult(
         evaluation=evaluation,
         response_payload=response_payload,
+        model=model,
+        latency_ms=int((time.monotonic() - started) * 1000),
+    )
+
+
+def write_daily_look_copy(
+    *, outfit: dict[str, Any], context: dict[str, Any]
+) -> DailyLookResult:
+    """리트리버가 확정한 코디는 유지하고 사용자용 설명만 생성한다."""
+    api_key = settings.GEMINI_API_KEY
+    if not api_key:
+        raise GeminiConfigurationError("GEMINI_API_KEY가 설정되지 않았습니다.")
+    request_body = {
+        "systemInstruction": {"parts": [{"text": DAILY_LOOK_SYSTEM_INSTRUCTION}]},
+        "contents": [
+            {
+                "role": "user",
+                "parts": [
+                    {
+                        "text": (
+                            "다음 사용자 컨텍스트와 이미 확정된 착장을 설명해 주세요.\n"
+                            f"컨텍스트: {json.dumps(context, ensure_ascii=False, default=str)}\n"
+                            f"착장: {json.dumps(outfit, ensure_ascii=False, default=str)}"
+                        )
+                    }
+                ],
+            }
+        ],
+        "generationConfig": {
+            "temperature": 0.7,
+            "responseMimeType": "application/json",
+            "responseSchema": DAILY_LOOK_SCHEMA,
+        },
+    }
+    model = settings.GEMINI_MODEL
+    url = f"{settings.GEMINI_API_BASE_URL}/v1beta/models/{model}:generateContent"
+    started = time.monotonic()
+    try:
+        response = requests.post(
+            url,
+            headers={"x-goog-api-key": api_key, "Content-Type": "application/json"},
+            json=request_body,
+            timeout=settings.GEMINI_TIMEOUT_SECONDS,
+        )
+        response.raise_for_status()
+        response_payload = response.json()
+        parsed = json.loads(_extract_text(response_payload))
+    except requests.Timeout as exc:
+        raise GeminiServiceError("Gemini 응답 시간이 초과되었습니다.") from exc
+    except GeminiServiceError:
+        raise
+    except (requests.RequestException, ValueError, json.JSONDecodeError) as exc:
+        raise GeminiServiceError("오늘의 룩 설명 생성에 실패했습니다.") from exc
+
+    known_keys = {str(item.get("item_key")) for item in outfit.get("items", [])}
+    parsed["items"] = [
+        row
+        for row in parsed.get("items") or []
+        if str(row.get("item_key")) in known_keys
+    ]
+    return DailyLookResult(
+        parsed=parsed,
+        request=request_body,
+        response=response_payload,
         model=model,
         latency_ms=int((time.monotonic() - started) * 1000),
     )

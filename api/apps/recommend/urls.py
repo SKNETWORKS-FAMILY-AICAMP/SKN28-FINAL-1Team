@@ -1,6 +1,7 @@
 from django.urls import path
 
 from .views import (
+    DailyLookTodayView,
     OutfitAnalysisClaimView,
     OutfitAnalysisDetailView,
     OutfitAnalysisHistoryView,
@@ -16,6 +17,7 @@ from .views import (
 app_name = "recommend"
 
 urlpatterns = [
+    path("looks/today/", DailyLookTodayView.as_view(), name="daily-look-today"),
     path(
         "recommendations/",
         RecommendationHistoryView.as_view(),

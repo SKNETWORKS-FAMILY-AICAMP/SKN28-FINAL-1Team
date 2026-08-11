@@ -153,6 +153,23 @@ def exists_for(bucket_name: str, key: str) -> bool:
     return True
 
 
+def metadata_for(bucket_name: str, key: str) -> dict | None:
+    """공통 렌더의 결정적 S3 키에서 캐시 메타데이터를 복원한다."""
+    if not bucket_name or not key:
+        return None
+    try:
+        response = _client().head_object(Bucket=bucket_name, Key=key)
+    except ClientError as exc:
+        code = str(exc.response.get("Error", {}).get("Code", ""))
+        if code in {"404", "NoSuchKey", "NotFound"}:
+            return None
+        raise
+    return {
+        "content_type": str(response.get("ContentType") or "image/jpeg"),
+        "content_length": int(response.get("ContentLength") or 0),
+    }
+
+
 def presigned_get_for(bucket_name: str, key: str, *, ttl: int) -> str:
     """소유권 확인이 끝난 결과 객체에 한해서 짧은 GET URL을 발급한다."""
     if not bucket_name or not key:

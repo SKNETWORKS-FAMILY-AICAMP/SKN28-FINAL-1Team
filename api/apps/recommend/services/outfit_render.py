@@ -24,7 +24,7 @@ from apps.recommend.services import storage
 
 logger = logging.getLogger(__name__)
 
-PROMPT_VERSION = "mixed-outfit-render-v1"
+PROMPT_VERSION = "mixed-outfit-render-v2"
 BASE_PROMPT = (
     "첨부한 참조 이미지들은 한 벌의 코디에 최종 선택된 개별 의상입니다.\n"
     "참조 이미지의 의상을 모두 착용하고 정면을 바라보는 한 사람의 전신 패션 사진을 "
@@ -87,6 +87,7 @@ class OutfitRenderRequest:
     composition_id: str
     composition_fingerprint: str
     items: tuple[RenderItemReference, ...]
+    subject_presentation: str = ""
 
 
 @dataclass(frozen=True)
@@ -145,11 +146,15 @@ def _validate_public_image_url(value: str) -> str:
     if parsed.scheme.lower() != "https" or not parsed.hostname:
         raise ReferenceImageError("외부 참조 이미지는 유효한 HTTPS URL이어야 합니다.")
     if parsed.username or parsed.password:
-        raise ReferenceImageError("인증정보가 포함된 외부 이미지 URL은 허용하지 않습니다.")
+        raise ReferenceImageError(
+            "인증정보가 포함된 외부 이미지 URL은 허용하지 않습니다."
+        )
     try:
         port = parsed.port
     except ValueError as exc:
-        raise ReferenceImageError("외부 이미지 URL의 포트가 올바르지 않습니다.") from exc
+        raise ReferenceImageError(
+            "외부 이미지 URL의 포트가 올바르지 않습니다."
+        ) from exc
     if port not in (None, 443):
         raise ReferenceImageError("외부 이미지 URL은 HTTPS 기본 포트만 허용합니다.")
 
@@ -315,7 +320,9 @@ class OpenRouterQwenImageProvider:
             try:
                 payload = response.json()
             except ValueError as exc:
-                raise RenderProviderError("이미지 생성 응답이 JSON이 아닙니다.") from exc
+                raise RenderProviderError(
+                    "이미지 생성 응답이 JSON이 아닙니다."
+                ) from exc
         finally:
             response.close()
         if not isinstance(payload, dict):
@@ -335,7 +342,9 @@ class OpenRouterQwenImageProvider:
         try:
             media_type = _detect_media_type(image)
         except ReferenceImageError as exc:
-            raise RenderProviderError("생성 결과가 지원하는 이미지 형식이 아닙니다.") from exc
+            raise RenderProviderError(
+                "생성 결과가 지원하는 이미지 형식이 아닙니다."
+            ) from exc
         usage = payload.get("usage")
         return image, media_type, usage if isinstance(usage, dict) else {}
 
@@ -425,6 +434,13 @@ class OutfitRenderService:
             raise RenderInputError("유효한 코디 조합 fingerprint가 필요합니다.")
         if fingerprint != request.composition_fingerprint:
             request = replace(request, composition_fingerprint=fingerprint)
+        presentation = request.subject_presentation.strip().lower()
+        if presentation not in {"", "man", "woman", "unisex"}:
+            raise RenderInputError(
+                "subject_presentation은 man/woman/unisex 중 하나여야 합니다."
+            )
+        if presentation != request.subject_presentation:
+            request = replace(request, subject_presentation=presentation)
         if not request.items:
             raise RenderInputError("최소 하나의 코디 아이템 이미지가 필요합니다.")
         if len(request.items) > settings.OUTFIT_RENDER_MAX_REFERENCES:
@@ -434,13 +450,17 @@ class OutfitRenderService:
             )
         positions = [item.position for item in request.items]
         if positions != sorted(positions) or len(positions) != len(set(positions)):
-            raise RenderInputError("코디 아이템 position은 중복 없이 오름차순이어야 합니다.")
+            raise RenderInputError(
+                "코디 아이템 position은 중복 없이 오름차순이어야 합니다."
+            )
         slots = [item.slot for item in request.items]
         if len(slots) != len(set(slots)):
             raise RenderInputError("코디 아이템 slot은 중복될 수 없습니다.")
         for item in request.items:
             if not item.slot.strip() or not item.image_ref.strip():
-                raise RenderInputError("모든 코디 아이템에 slot과 image_ref가 필요합니다.")
+                raise RenderInputError(
+                    "모든 코디 아이템에 slot과 image_ref가 필요합니다."
+                )
         return request
 
     @staticmethod
@@ -449,7 +469,15 @@ class OutfitRenderService:
             f"{index}. slot={item.slot}, source={item.source_type.value}"
             for index, item in enumerate(request.items, start=1)
         )
-        return f"{BASE_PROMPT}\n\n참조 이미지 순서:\n{reference_map}"
+        presentation = {
+            "man": "남성 모델",
+            "woman": "여성 모델",
+            "unisex": "중성적인 모델",
+        }.get(request.subject_presentation, "사용자 성별을 특정하지 않은 모델")
+        return (
+            f"{BASE_PROMPT}\n\n착용 모델 표현: {presentation}\n"
+            f"참조 이미지 순서:\n{reference_map}"
+        )
 
 
 def _extract_generated_image(payload: dict[str, Any]) -> bytes | None:
@@ -460,9 +488,7 @@ def _extract_generated_image(payload: dict[str, Any]) -> bytes | None:
             decoded := _decode_base64(str(encoded))
         ):
             return decoded
-        if (url := row.get("url")) and (
-            decoded := _decode_data_url(str(url))
-        ):
+        if (url := row.get("url")) and (decoded := _decode_data_url(str(url))):
             return decoded
 
     for choice in payload.get("choices") or []:

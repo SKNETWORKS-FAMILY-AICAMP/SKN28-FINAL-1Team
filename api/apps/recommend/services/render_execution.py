@@ -2,10 +2,8 @@
 
 from __future__ import annotations
 
-from django.conf import settings
-
 from apps.recommend.models import OutfitRenderJob
-from apps.recommend.services import render_jobs, storage
+from apps.recommend.services import render_artifacts, render_jobs
 from apps.recommend.services.outfit_render import OutfitRenderService, RenderInputError
 from apps.recommend.services.render_cache import RenderCacheEntry, RenderResultCache
 
@@ -24,30 +22,6 @@ def _entry_values(entry: RenderCacheEntry) -> dict:
     }
 
 
-def _job_entry(job: OutfitRenderJob) -> RenderCacheEntry:
-    return RenderCacheEntry(
-        render_fingerprint=job.render_fingerprint,
-        output_s3_bucket=job.output_s3_bucket,
-        output_s3_key=job.output_s3_key,
-        output_media_type=job.output_media_type,
-        output_bytes=job.output_bytes or 0,
-        provider=job.provider,
-        model=job.model,
-        prompt_version=job.prompt_version,
-        reference_count=job.reference_count,
-        usage=job.usage or {},
-    )
-
-
-def _usable(entry: RenderCacheEntry) -> bool:
-    return bool(
-        entry.output_s3_bucket
-        and entry.output_s3_key
-        and entry.output_media_type
-        and storage.exists_for(entry.output_s3_bucket, entry.output_s3_key)
-    )
-
-
 def execute(
     job: OutfitRenderJob,
     *,
@@ -62,56 +36,18 @@ def execute(
     ):
         raise RenderInputError("작업 접수 후 코디 구성이 변경되었습니다.")
 
-    result_cache = cache or RenderResultCache()
-    cached = result_cache.get(job.render_fingerprint)
-    if cached is not None and _usable(cached):
-        return render_jobs.mark_succeeded(
-            job.pk,
-            values=_entry_values(cached),
-            cache_hit=True,
-        )
-
-    durable = (
-        OutfitRenderJob.objects.filter(
-            render_fingerprint=job.render_fingerprint,
-            status=OutfitRenderJob.Status.SUCCEEDED,
-        )
-        .exclude(pk=job.pk)
-        .order_by("-finished_at")
-        .first()
+    request = OutfitRenderService().build_request(job.composition)
+    service = renderer or OutfitRenderService()
+    entry, cache_hit = render_artifacts.get_or_render(
+        request,
+        renderer=service,
+        cache=cache,
     )
-    if durable is not None:
-        entry = _job_entry(durable)
-        if _usable(entry):
-            result_cache.set(entry)
-            return render_jobs.mark_succeeded(
-                job.pk,
-                values=_entry_values(entry),
-                cache_hit=True,
-            )
-
-    bucket = settings.OUTFIT_RENDER_RESULT_BUCKET
-    if not bucket:
-        raise RenderInputError("OUTFIT_RENDER_RESULT_BUCKET이 설정되지 않았습니다.")
-    rendered = (renderer or OutfitRenderService()).render(job.composition)
-    key = render_jobs.output_key(job.render_fingerprint)
-    storage.put_bytes_for(bucket, key, rendered.content, rendered.media_type)
-    entry = RenderCacheEntry(
-        render_fingerprint=job.render_fingerprint,
-        output_s3_bucket=bucket,
-        output_s3_key=key,
-        output_media_type=rendered.media_type,
-        output_bytes=len(rendered.content),
-        provider=rendered.provider,
-        model=rendered.model,
-        prompt_version=rendered.prompt_version,
-        reference_count=rendered.reference_count,
-        usage=rendered.usage,
-    )
+    if entry.render_fingerprint != job.render_fingerprint:
+        raise RenderInputError("작업의 렌더 계약 지문이 현재 공통 계약과 다릅니다.")
     completed = render_jobs.mark_succeeded(
         job.pk,
         values=_entry_values(entry),
-        cache_hit=False,
+        cache_hit=cache_hit,
     )
-    result_cache.set(entry)
     return completed

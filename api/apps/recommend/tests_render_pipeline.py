@@ -185,11 +185,14 @@ class RenderExecutionTests(RenderFixtureMixin, TestCase):
         self.job = render_jobs.start(self.job.pk)
         assert self.job is not None
 
-    @patch("apps.recommend.services.render_execution.storage.put_bytes_for")
-    @patch("apps.recommend.services.render_execution.storage.exists_for", return_value=False)
-    def test_generates_stores_and_caches_result(self, _exists, put_bytes) -> None:
+    @patch(
+        "apps.recommend.services.render_artifacts.storage.metadata_for",
+        return_value=None,
+    )
+    @patch("apps.recommend.services.render_artifacts.storage.put_bytes_for")
+    def test_generates_stores_and_caches_result(self, put_bytes, _metadata) -> None:
         renderer = Mock()
-        renderer.render.return_value = RenderedOutfit(
+        renderer.render_request.return_value = RenderedOutfit(
             content=PNG,
             media_type="image/png",
             provider="openrouter",
@@ -220,7 +223,9 @@ class RenderExecutionTests(RenderFixtureMixin, TestCase):
         )
         cache.set.assert_called_once()
 
-    @patch("apps.recommend.services.render_execution.storage.exists_for", return_value=True)
+    @patch(
+        "apps.recommend.services.render_artifacts.storage.exists_for", return_value=True
+    )
     def test_redis_cache_hit_skips_provider(self, _exists) -> None:
         entry = RenderCacheEntry(
             render_fingerprint=self.job.render_fingerprint,
@@ -246,7 +251,7 @@ class RenderExecutionTests(RenderFixtureMixin, TestCase):
 
         self.assertTrue(completed.cache_hit)
         self.assertEqual(completed.output_s3_key, "cached/render")
-        renderer.render.assert_not_called()
+        renderer.render_request.assert_not_called()
 
 
 class RenderApiTests(RenderFixtureMixin, TestCase):
@@ -268,7 +273,9 @@ class RenderApiTests(RenderFixtureMixin, TestCase):
 
     @patch("apps.recommend.services.render_events.RenderEventStore")
     @patch("apps.recommend.services.render_queue.enqueue")
-    def test_post_is_idempotent_and_enqueues_job_reference(self, enqueue, events) -> None:
+    def test_post_is_idempotent_and_enqueues_job_reference(
+        self, enqueue, events
+    ) -> None:
         first = self.client.post(self.url, {}, format="json")
         second = self.client.post(self.url, {}, format="json")
 
@@ -317,14 +324,18 @@ class RenderApiTests(RenderFixtureMixin, TestCase):
 
         jobs = render_jobs.schedule_result(self.card.result_id)
 
-        self.assertEqual({job.composition_id for job in jobs}, {self.card.pk, second.pk})
+        self.assertEqual(
+            {job.composition_id for job in jobs}, {self.card.pk, second.pk}
+        )
         self.assertEqual(enqueue.call_count, 2)
 
     @patch(
         "apps.recommend.serializers.storage.presigned_get_for",
         return_value="https://signed.example/render",
     )
-    def test_success_response_exposes_signed_url_but_not_s3_location(self, _signed) -> None:
+    def test_success_response_exposes_signed_url_but_not_s3_location(
+        self, _signed
+    ) -> None:
         job, _ = render_jobs.prepare_job(self.card)
         job.status = OutfitRenderJob.Status.SUCCEEDED
         job.output_s3_bucket = "private-bucket"
@@ -345,7 +356,9 @@ class RenderApiTests(RenderFixtureMixin, TestCase):
         return_value="https://signed.example/render",
     )
     @patch("apps.recommend.views.RenderEventStore")
-    def test_terminal_sse_falls_back_to_owned_database_job(self, events, _signed) -> None:
+    def test_terminal_sse_falls_back_to_owned_database_job(
+        self, events, _signed
+    ) -> None:
         job, _ = render_jobs.prepare_job(self.card)
         job.status = OutfitRenderJob.Status.SUCCEEDED
         job.output_s3_bucket = "private-bucket"
@@ -384,8 +397,12 @@ class RenderWorkerTests(RenderFixtureMixin, TestCase):
         self.card = self.create_card(identity)
         self.job, _ = render_jobs.prepare_job(self.card)
 
-    @patch("apps.recommend.management.commands.run_outfit_render_worker.RenderEventStore")
-    @patch("apps.recommend.management.commands.run_outfit_render_worker.render_execution.execute")
+    @patch(
+        "apps.recommend.management.commands.run_outfit_render_worker.RenderEventStore"
+    )
+    @patch(
+        "apps.recommend.management.commands.run_outfit_render_worker.render_execution.execute"
+    )
     @patch("apps.recommend.management.commands.run_outfit_render_worker.render_queue")
     def test_worker_processes_and_acks_success(self, queue, execute, _events) -> None:
         raw = json.dumps({"job_id": str(self.job.pk)})
@@ -417,7 +434,9 @@ class RenderWorkerTests(RenderFixtureMixin, TestCase):
         self.assertEqual(self.job.status, OutfitRenderJob.Status.SUCCEEDED)
         queue.ack.assert_called_once_with(raw, str(self.job.pk))
 
-    @patch("apps.recommend.management.commands.run_outfit_render_worker.RenderEventStore")
+    @patch(
+        "apps.recommend.management.commands.run_outfit_render_worker.RenderEventStore"
+    )
     @patch("apps.recommend.management.commands.run_outfit_render_worker.render_queue")
     def test_worker_recovery_resets_processing_job(self, queue, _events) -> None:
         OutfitRenderJob.objects.filter(pk=self.job.pk).update(

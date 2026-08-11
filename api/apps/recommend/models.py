@@ -729,6 +729,147 @@ class OutfitRenderJob(models.Model):
         return f"outfit-render {self.id} ({self.status})"
 
 
+class DailyLook(models.Model):
+    """사용자별 하루 한 건의 골든셋 기반 오늘의 룩 추천."""
+
+    class Status(models.TextChoices):
+        QUEUED = "QUEUED", "대기중"
+        PROCESSING = "PROCESSING", "생성 진행중"
+        SUCCEEDED = "SUCCEEDED", "생성 완료"
+        FAILED = "FAILED", "생성 실패"
+        EMPTY = "EMPTY", "추천 후보 없음"
+
+    PENDING_STATUSES = (Status.QUEUED, Status.PROCESSING)
+    TERMINAL_STATUSES = (Status.SUCCEEDED, Status.FAILED, Status.EMPTY)
+
+    id = models.UUIDField(
+        primary_key=True,
+        default=uuid.uuid4,
+        editable=False,
+        db_comment="오늘의 룩 UUID (외부 노출 식별자)",
+    )
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name="daily_looks",
+        db_index=False,
+        db_comment="추천 대상 사용자 FK (users.id)",
+    )
+    look_date = models.DateField(
+        "추천 날짜",
+        db_comment="추천이 속한 날짜 (서비스 로컬 기준, Asia/Seoul)",
+    )
+    status = models.CharField(
+        max_length=16,
+        choices=Status.choices,
+        default=Status.QUEUED,
+        db_comment="생성 상태 (QUEUED/PROCESSING/SUCCEEDED/FAILED/EMPTY)",
+    )
+    weather = models.JSONField(
+        "날씨 스냅샷",
+        default=dict,
+        blank=True,
+        db_comment="추천에 사용한 날씨 JSON (지역·기온·하늘 상태 등)",
+    )
+    body = models.JSONField(
+        "신체치수 스냅샷",
+        null=True,
+        blank=True,
+        db_comment="추천에 사용한 신체치수 JSON (미등록이면 NULL)",
+    )
+    body_profile = models.JSONField(
+        "체형 판정 스냅샷",
+        default=dict,
+        blank=True,
+        db_comment="치수에서 판정한 실루엣·BMI·비율 JSON",
+    )
+    pursuit = models.JSONField(
+        "추구미 스냅샷",
+        null=True,
+        blank=True,
+        db_comment="추천에 사용한 추구미 JSON (미등록이면 NULL)",
+    )
+    candidates = models.JSONField(
+        "리트리버 후보",
+        default=list,
+        blank=True,
+        db_comment="리트리버가 뽑은 골든 코디 후보 요약 배열",
+    )
+    rules_version = models.CharField(
+        max_length=40,
+        blank=True,
+        default="",
+        db_comment="추천에 사용한 체형 규칙표 스키마 버전",
+    )
+    llm_model = models.CharField(
+        max_length=120,
+        blank=True,
+        default="",
+        db_comment="오늘의 룩 설명 생성에 사용한 Gemini 모델명",
+    )
+    llm_request = models.JSONField(
+        default=dict,
+        blank=True,
+        db_comment="Gemini에 보낸 오늘의 룩 설명 생성 요청 JSON",
+    )
+    llm_response = models.JSONField(
+        default=dict,
+        blank=True,
+        db_comment="Gemini가 반환한 오늘의 룩 설명 원본 응답 JSON",
+    )
+    llm_latency_ms = models.PositiveIntegerField(
+        null=True,
+        blank=True,
+        db_comment="오늘의 룩 설명 생성 소요 시간 (ms)",
+    )
+    result = models.JSONField(
+        "추천 결과",
+        default=dict,
+        blank=True,
+        db_comment="오늘의 룩 결과 JSON (코디·아이템·공통 렌더 S3 참조)",
+    )
+    error = models.TextField(
+        blank=True,
+        default="",
+        db_comment="내부 실패 사유 (성공 시 빈 문자열)",
+    )
+    created_at = models.DateTimeField(
+        auto_now_add=True,
+        db_comment="오늘의 룩 생성 접수 시각",
+    )
+    updated_at = models.DateTimeField(
+        auto_now=True,
+        db_comment="오늘의 룩 마지막 수정 시각",
+    )
+
+    class Meta:
+        db_table = "daily_looks"
+        db_table_comment = "사용자별 하루 1건의 오늘의 룩 추천"
+        ordering = ["-look_date"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=("user", "look_date"),
+                name="uq_daily_look_user_date",
+            ),
+        ]
+        indexes = [models.Index(fields=["status"], name="idx_daily_look_status")]
+
+    @property
+    def is_pending(self) -> bool:
+        return self.status in self.PENDING_STATUSES
+
+    def retrieval_context(self) -> dict:
+        return {
+            "weather": self.weather or {},
+            "body": self.body,
+            "body_profile": self.body_profile or {},
+            "pursuit": self.pursuit,
+        }
+
+    def __str__(self) -> str:
+        return f"{self.look_date} / {self.user_id} ({self.status})"
+
+
 class RecommendationFeedback(models.Model):
     """사용자가 추천 카드 하나에 남긴 최신 평가.
 

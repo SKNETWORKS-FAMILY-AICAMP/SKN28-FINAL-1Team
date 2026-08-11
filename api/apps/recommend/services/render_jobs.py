@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import hashlib
 import logging
 import uuid
 
@@ -14,7 +13,7 @@ from django.utils import timezone
 
 from apps.chat.models import ChatIdentity
 from apps.recommend.models import OutfitComposition, OutfitRenderJob
-from apps.recommend.services.outfit_render import PROMPT_VERSION
+from apps.recommend.services import render_artifacts
 
 logger = logging.getLogger(__name__)
 
@@ -24,22 +23,11 @@ class RenderQueueUnavailable(RuntimeError):
 
 
 def render_fingerprint(composition_fingerprint: str) -> str:
-    contract = "|".join(
-        (
-            composition_fingerprint.strip().lower(),
-            settings.OUTFIT_RENDER_MODEL,
-            PROMPT_VERSION,
-            settings.OUTFIT_RENDER_ASPECT_RATIO,
-            settings.OUTFIT_RENDER_RESOLUTION,
-        )
-    )
-    return hashlib.sha256(contract.encode("utf-8")).hexdigest()
+    return render_artifacts.fingerprint(composition_fingerprint)
 
 
 def output_key(render_fingerprint_value: str) -> str:
-    prefix = settings.OUTFIT_RENDER_RESULT_PREFIX.strip("/")
-    leaf = f"{render_fingerprint_value[:2]}/{render_fingerprint_value}/render"
-    return f"{prefix}/{leaf}" if prefix else leaf
+    return render_artifacts.output_key(render_fingerprint_value)
 
 
 def owned_job(*, identity: ChatIdentity, job_id: uuid.UUID) -> OutfitRenderJob | None:

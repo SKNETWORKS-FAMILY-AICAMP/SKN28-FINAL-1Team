@@ -1,3 +1,5 @@
+import logging
+
 from django.conf import settings
 from django.core.files.uploadedfile import UploadedFile
 from django.urls import reverse
@@ -5,6 +7,7 @@ from drf_spectacular.utils import extend_schema_field
 from rest_framework import serializers
 
 from .models import (
+    DailyLook,
     OutfitAnalysis,
     OutfitComposition,
     OutfitCompositionItem,
@@ -20,6 +23,107 @@ ALLOWED_OUTFIT_IMAGE_CONTENT_TYPES = {
     "image/png",
     "image/webp",
 }
+
+logger = logging.getLogger(__name__)
+
+
+def _daily_image_url(row: dict | None) -> str | None:
+    if not row or not row.get("s3_bucket") or not row.get("s3_key"):
+        return None
+    try:
+        return storage.presigned_get_for(
+            str(row["s3_bucket"]),
+            str(row["s3_key"]),
+            ttl=settings.OUTFIT_RENDER_PRESIGNED_GET_TTL_SECONDS,
+        )
+    except Exception:
+        logger.warning("오늘의 룩 이미지 URL 서명 실패", exc_info=True)
+        return None
+
+
+class DailyLookItemSerializer(serializers.Serializer):
+    item_key = serializers.CharField()
+    name = serializers.CharField(required=False, allow_blank=True)
+    category = serializers.CharField(required=False, allow_blank=True)
+    sub_category = serializers.CharField(required=False, allow_blank=True)
+    layer_role = serializers.CharField(required=False, allow_blank=True)
+    color = serializers.CharField(required=False, allow_blank=True)
+    note = serializers.CharField(required=False, allow_blank=True)
+    image_url = serializers.SerializerMethodField()
+
+    @extend_schema_field(serializers.URLField(allow_null=True))
+    def get_image_url(self, obj: dict) -> str | None:
+        return _daily_image_url(obj)
+
+
+class DailyLookResultSerializer(serializers.Serializer):
+    headline = serializers.CharField()
+    golden_id = serializers.CharField()
+    rationale_ko = serializers.CharField()
+    styling_tips = serializers.ListField(child=serializers.CharField(), required=False)
+    generated_by = serializers.CharField(required=False)
+    items = DailyLookItemSerializer(many=True, required=False)
+    render_image_url = serializers.SerializerMethodField()
+    outfit_image_url = serializers.SerializerMethodField()
+
+    @extend_schema_field(serializers.URLField(allow_null=True))
+    def get_render_image_url(self, obj: dict) -> str | None:
+        return _daily_image_url(obj.get("render_image"))
+
+    @extend_schema_field(serializers.URLField(allow_null=True))
+    def get_outfit_image_url(self, obj: dict) -> str | None:
+        return _daily_image_url(obj.get("outfit_image"))
+
+
+class DailyLookSerializer(serializers.ModelSerializer):
+    look_id = serializers.UUIDField(source="id", read_only=True)
+    result = serializers.SerializerMethodField()
+    context = serializers.SerializerMethodField()
+    poll_after_ms = serializers.SerializerMethodField()
+    detail = serializers.SerializerMethodField()
+
+    class Meta:
+        model = DailyLook
+        fields = [
+            "look_id",
+            "look_date",
+            "status",
+            "result",
+            "context",
+            "poll_after_ms",
+            "detail",
+            "created_at",
+            "updated_at",
+        ]
+
+    def get_context(self, obj: DailyLook) -> dict:
+        profile = obj.body_profile or {}
+        return {
+            "weather": obj.weather,
+            "used_body": obj.body is not None,
+            "used_pursuit": obj.pursuit is not None,
+            "body_profile": profile.get("describe", ""),
+            "missing_measurements": profile.get("missing", []),
+            "candidate_count": len(obj.candidates or []),
+        }
+
+    @extend_schema_field(DailyLookResultSerializer(allow_null=True))
+    def get_result(self, obj: DailyLook) -> dict | None:
+        return DailyLookResultSerializer(obj.result).data if obj.result else None
+
+    def get_poll_after_ms(self, obj: DailyLook) -> int | None:
+        return settings.OUTFIT_POLL_AFTER_MS if obj.is_pending else None
+
+    def get_detail(self, obj: DailyLook) -> str | None:
+        if obj.status in DailyLook.PENDING_STATUSES:
+            return "오늘의 룩을 만들고 있어요. 잠시만 기다려주세요."
+        if obj.status == DailyLook.Status.EMPTY:
+            return (
+                "조건에 맞는 추천을 찾지 못했어요. 신체치수나 추구미를 확인해 주세요."
+            )
+        if obj.status == DailyLook.Status.FAILED:
+            return "오늘의 룩을 만들지 못했어요. 잠시 후 다시 확인해 주세요."
+        return None
 
 
 class OutfitAnalysisRequestSerializer(serializers.Serializer):
@@ -216,7 +320,9 @@ class WardrobeLinkSerializer(serializers.Serializer):
     """save_to_wardrobe로 연계된 옷장 등록 job의 진행 상황과 결과."""
 
     job_id = serializers.UUIDField(help_text="옷장 등록 job UUID")
-    status = serializers.CharField(help_text="등록 상태 (PENDING/PROCESSING/DONE/FAILED)")
+    status = serializers.CharField(
+        help_text="등록 상태 (PENDING/PROCESSING/DONE/FAILED)"
+    )
     error_message = serializers.CharField(
         allow_blank=True, help_text="등록 실패 사유 (FAILED가 아니면 빈 문자열)"
     )
