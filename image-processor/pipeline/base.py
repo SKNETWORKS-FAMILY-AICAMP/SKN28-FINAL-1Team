@@ -53,6 +53,10 @@ class ProcessedItem:
         return self.error is None and self.image_png is not None and self.tags is not None
 
 
+class RetryablePipelineError(RuntimeError):
+    pass
+
+
 class ItemEnumerator(ABC):
     """원본 사진 → 아이템 목록."""
 

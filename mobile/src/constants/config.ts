@@ -57,6 +57,19 @@ export const GOOGLE_WEB_CLIENT_ID = process.env.EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID
 export const GOOGLE_IOS_CLIENT_ID = process.env.EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID ?? '';
 
 /**
+ * 웹 소셜 로그인(브라우저 인가 코드 방식)에 쓰는 **클라이언트 ID**.
+ * 인가 URL 쿼리에 그대로 실려 주소창에 노출되는 준공개값이다 — client_secret 은
+ * 백엔드 전용이며 앱에 절대 넣지 않는다 (토큰 교환은 백엔드가 한다).
+ *
+ * 네이티브 키와 다른 값이라는 점에 주의:
+ *   카카오 — 네이티브는 '네이티브 앱 키', 웹은 **REST API 키**
+ *   네이버 — 네이티브는 consumerKey, 웹은 OAuth client_id (백엔드 NAVER_OAUTH_CLIENT_ID 와 같은 값)
+ *   구글  — 웹 클라이언트 ID 하나를 앱·웹이 같이 쓴다
+ */
+export const KAKAO_REST_API_KEY = process.env.EXPO_PUBLIC_KAKAO_REST_API_KEY ?? '';
+export const NAVER_OAUTH_CLIENT_ID = process.env.EXPO_PUBLIC_NAVER_OAUTH_CLIENT_ID ?? '';
+
+/**
  * 키가 채워졌을 때만 해당 SDK 를 초기화/호출한다.
  * 미설정(스캐폴딩) 상태에선 네이티브 SDK 를 건드리지 않아, 재빌드 전에도 앱이 안전하게 뜬다.
  */
@@ -118,22 +131,21 @@ export const OutfitHistoryEndpoints = {
 
 /**
  * 신체치수 (api/apps/users/urls.py 기준). 전부 JWT 필요.
- *   GET   /api/v1/users/me/body/          → 전체 치수 (미입력 필드는 null)
- *   PUT   /api/v1/users/me/body/basic/    { gender, height, weight }  (셋 다 필수, gender 는 male|female)
- *   PATCH /api/v1/users/me/body/detail/   { chest,waist,hip,thigh,calf,arm,shoulder }  (전부 선택)
- *   POST  /api/v1/users/me/body/estimate/ { gender?, height?, weight? } → 200 EstimationResult (동기)
- *   POST  /api/v1/users/me/body/photos/   multipart front_image/side_image (+gender/height/weight 선택)
- *                                         → 202 { transaction_id, status }
- *   GET   /api/v1/users/me/body/photos/{id}/ → EstimationResult (폴링)
+ *   GET   /api/v1/users/me/body/         → 전체 치수 (미입력 필드는 null)
+ *   PUT   /api/v1/users/me/body/basic/   { gender, height, weight }  (셋 다 필수, gender=male|female)
+ *   PATCH /api/v1/users/me/body/detail/  상세 **10개** (전부 선택)
+ *   POST  /api/v1/users/me/body/estimate/  { gender?, height?, weight? } → 상세 10개 추정·저장 (동기)
+ *   POST  /api/v1/users/me/body/photos/  multipart front_image/side_image → 202 { transaction_id, status }
+ *   GET   /api/v1/users/me/body/photos/{id}/  → 트랜잭션 조회 (폴링)
  *
- * EstimationResult (estimate 와 photos/{id} 가 공유 — api/apps/users/serializers.py
- * BodyEstimationResultSerializer):
- *   { status: in_progress|succeeded|failed, source: basic_info|photo,
- *     transaction_id: uuid|null, measurement: {…상세 7개 포함 전체 치수}, error_message: string|null }
- *
- * ※ 수치는 Decimal 소수 1자리(1~999.9) → JSON 에 문자열로 내려올 수 있다.
- * ※ estimate/photos 는 gender·height·weight 를 생략하면 **저장된 기본 정보**를 쓴다.
- *    저장된 값도 없으면 400 이므로, 로컬 입력이 있으면 항상 같이 보낸다.
+ *   상세 10개 = 둘레·너비 7개(chest,waist,hip,thigh,calf,arm,shoulder)
+ *             + 체형 지표 3개(neck_length, thigh_calf_ratio, torso_leg_ratio).
+ *   지표 3개는 2026-08-10 백엔드에 추가됐다(users 마이그레이션 0014~0016, PR#10).
+ *   항목별 라벨·단위·범위는 constants/body-measures.ts 가 단일 출처다.
+ *   ※ 수치는 Decimal 소수 1자리(1~999.9), 비율 2개는 3자리(thigh_calf 0.8~1.3 · torso_leg 0.6~1.0).
+ *   ※ estimate 와 photos/{id} 는 같은 결과 형식을 준다 —
+ *     { status, source, transaction_id, measurement, error_message }. 추정 치수가 응답에 들어 있어
+ *     따로 GET body 를 부를 필요가 없다. estimate 는 본문을 비우면 저장된 기본 정보를 쓴다.
  */
 export const BodyEndpoints = {
   me: '/api/v1/users/me/body/',
