@@ -93,3 +93,26 @@ def presigned_get(key: str, ttl: int = PRESIGNED_GET_TTL) -> str:
     return _client().generate_presigned_url(
         "get_object", Params={"Bucket": bucket(), "Key": key}, ExpiresIn=ttl
     )
+
+
+def download_for(bucket_name: str, key: str, *, max_bytes: int | None = None) -> bytes:
+    """명시한 버킷의 객체를 제한 크기로 읽는다.
+
+    추천 코디는 옷장·상품 등 서로 다른 버킷의 이미지를 한 요청에 섞어 쓰므로
+    기본 코디 평가 버킷에 묶이지 않는 읽기 함수가 필요하다.
+    """
+    if not bucket_name or not key:
+        raise ValueError("S3 bucket과 key가 모두 필요합니다.")
+    if max_bytes is not None and max_bytes < 1:
+        raise ValueError("max_bytes는 1 이상이어야 합니다.")
+
+    body = _client().get_object(Bucket=bucket_name, Key=key)["Body"]
+    try:
+        data = body.read(max_bytes + 1 if max_bytes is not None else None)
+    finally:
+        close = getattr(body, "close", None)
+        if callable(close):
+            close()
+    if max_bytes is not None and len(data) > max_bytes:
+        raise ValueError(f"S3 이미지가 허용 크기 {max_bytes} bytes를 초과합니다.")
+    return data

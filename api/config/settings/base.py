@@ -354,6 +354,50 @@ GEMINI_API_BASE_URL = os.getenv(
 # (전송본은 apps/recommend/services/imaging.py가 1024px로 축소한다).
 GEMINI_TIMEOUT_SECONDS = int(os.getenv("GEMINI_TIMEOUT_SECONDS", "60"))
 
+# 최종 코디 착용 이미지 생성 (apps.recommend.services.outfit_render)
+# 옷장·상품·골든셋 이미지가 섞여도 각각의 버킷 또는 검증된 HTTPS URL에서 읽어
+# OpenRouter 이미지 전용 엔드포인트의 Qwen Image 3 Pro에 한 번에 전달한다.
+OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY", "").strip()
+OUTFIT_RENDER_ENABLED = os.getenv("OUTFIT_RENDER_ENABLED", "1").strip().lower() in {
+    "1",
+    "true",
+    "yes",
+    "y",
+}
+OUTFIT_RENDER_MODEL = os.getenv(
+    "OUTFIT_RENDER_MODEL", "qwen/qwen-image-3-pro"
+).strip()
+OUTFIT_RENDER_URL = os.getenv(
+    "OUTFIT_RENDER_URL", "https://openrouter.ai/api/v1/images"
+).strip()
+OUTFIT_RENDER_ASPECT_RATIO = os.getenv("OUTFIT_RENDER_ASPECT_RATIO", "9:16").strip()
+OUTFIT_RENDER_RESOLUTION = os.getenv("OUTFIT_RENDER_RESOLUTION", "1K").strip()
+OUTFIT_RENDER_TIMEOUT_SECONDS = float(
+    os.getenv("OUTFIT_RENDER_TIMEOUT_SECONDS", "180")
+)
+OUTFIT_RENDER_REFERENCE_TIMEOUT_SECONDS = float(
+    os.getenv("OUTFIT_RENDER_REFERENCE_TIMEOUT_SECONDS", "30")
+)
+OUTFIT_RENDER_MAX_REFERENCES = int(os.getenv("OUTFIT_RENDER_MAX_REFERENCES", "8"))
+OUTFIT_RENDER_MAX_REFERENCE_BYTES = int(
+    os.getenv("OUTFIT_RENDER_MAX_REFERENCE_BYTES", str(10 * 1024 * 1024))
+)
+OUTFIT_RENDER_MAX_TOTAL_REFERENCE_BYTES = int(
+    os.getenv("OUTFIT_RENDER_MAX_TOTAL_REFERENCE_BYTES", str(40 * 1024 * 1024))
+)
+OUTFIT_RENDER_MAX_OUTPUT_BYTES = int(
+    os.getenv("OUTFIT_RENDER_MAX_OUTPUT_BYTES", str(20 * 1024 * 1024))
+)
+OUTFIT_RENDER_WARDROBE_BUCKET = os.getenv(
+    "OUTFIT_RENDER_WARDROBE_BUCKET", os.getenv("WARDROBE_S3_BUCKET", "")
+).strip()
+OUTFIT_RENDER_PRODUCT_BUCKET = os.getenv(
+    "OUTFIT_RENDER_PRODUCT_BUCKET", os.getenv("PRODUCT_IMAGE_S3_BUCKET", "")
+).strip()
+OUTFIT_RENDER_GOLDENSET_BUCKET = os.getenv(
+    "OUTFIT_RENDER_GOLDENSET_BUCKET", os.getenv("GOLDEN_S3_BUCKET", "")
+).strip()
+
 # 코디 평가 비동기 처리 (접수 API ↔ outfit-worker)
 # 큐 키·재시도는 apps/recommend/services/queue.py가 환경변수로 직접 읽는다.
 # 비로그인 접수 건은 UUID를 아는 사람이 조회한다 — 무기한 열어두지 않는다.
