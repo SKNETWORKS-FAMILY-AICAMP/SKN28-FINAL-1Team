@@ -57,6 +57,19 @@ export const GOOGLE_WEB_CLIENT_ID = process.env.EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID
 export const GOOGLE_IOS_CLIENT_ID = process.env.EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID ?? '';
 
 /**
+ * 웹 소셜 로그인(브라우저 인가 코드 방식)에 쓰는 **클라이언트 ID**.
+ * 인가 URL 쿼리에 그대로 실려 주소창에 노출되는 준공개값이다 — client_secret 은
+ * 백엔드 전용이며 앱에 절대 넣지 않는다 (토큰 교환은 백엔드가 한다).
+ *
+ * 네이티브 키와 다른 값이라는 점에 주의:
+ *   카카오 — 네이티브는 '네이티브 앱 키', 웹은 **REST API 키**
+ *   네이버 — 네이티브는 consumerKey, 웹은 OAuth client_id (백엔드 NAVER_OAUTH_CLIENT_ID 와 같은 값)
+ *   구글  — 웹 클라이언트 ID 하나를 앱·웹이 같이 쓴다
+ */
+export const KAKAO_REST_API_KEY = process.env.EXPO_PUBLIC_KAKAO_REST_API_KEY ?? '';
+export const NAVER_OAUTH_CLIENT_ID = process.env.EXPO_PUBLIC_NAVER_OAUTH_CLIENT_ID ?? '';
+
+/**
  * 키가 채워졌을 때만 해당 SDK 를 초기화/호출한다.
  * 미설정(스캐폴딩) 상태에선 네이티브 SDK 를 건드리지 않아, 재빌드 전에도 앱이 안전하게 뜬다.
  */
