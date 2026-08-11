@@ -569,3 +569,66 @@ class OutfitCompositionItem(models.Model):
 
     def __str__(self) -> str:
         return f"outfit-item {self.composition_id}:{self.slot} ({self.source_type})"
+
+
+class RecommendationFeedback(models.Model):
+    """사용자가 추천 카드 하나에 남긴 최신 평가.
+
+    소유 identity를 중복 저장하지 않고 코디 조합을 통해 따라간다. 게스트 대화가
+    회원 identity로 이전될 때 추천 결과의 소유권만 바뀌어도 피드백이 함께 보존된다.
+    """
+
+    class Reaction(models.TextChoices):
+        LIKE = "LIKE", "좋아요"
+        DISLIKE = "DISLIKE", "싫어요"
+
+    id = models.UUIDField(
+        primary_key=True,
+        default=uuid.uuid4,
+        editable=False,
+        db_comment="추천 피드백 UUID",
+    )
+    composition = models.OneToOneField(
+        OutfitComposition,
+        on_delete=models.CASCADE,
+        related_name="feedback",
+        db_comment="평가 대상 코디 조합 FK (outfit_composition.id, 조합당 피드백 최대 1개)",
+    )
+    reaction = models.CharField(
+        max_length=8,
+        choices=Reaction.choices,
+        db_comment="추천 카드 반응 (LIKE/DISLIKE)",
+    )
+    reason_codes = models.JSONField(
+        default=list,
+        blank=True,
+        db_comment="피드백 사유 코드 문자열 배열 (최대 5개)",
+    )
+    comment = models.CharField(
+        max_length=500,
+        blank=True,
+        default="",
+        db_comment="사용자 자유 의견 (최대 500자, 미입력 시 빈 문자열)",
+    )
+    created_at = models.DateTimeField(
+        auto_now_add=True,
+        db_comment="피드백 최초 생성 시각",
+    )
+    updated_at = models.DateTimeField(
+        auto_now=True,
+        db_comment="피드백 마지막 수정 시각",
+    )
+
+    class Meta:
+        db_table = "recommendation_feedback"
+        db_table_comment = "추천 카드별 사용자 최신 반응과 선택 사유"
+        ordering = ["-updated_at"]
+        constraints = [
+            models.CheckConstraint(
+                condition=Q(reaction__in=["LIKE", "DISLIKE"]),
+                name="ck_reco_feedback_reaction",
+            ),
+        ]
+
+    def __str__(self) -> str:
+        return f"recommendation-feedback {self.composition_id} ({self.reaction})"

@@ -5,11 +5,35 @@ from .views import (
     OutfitAnalysisDetailView,
     OutfitAnalysisHistoryView,
     OutfitAnalysisView,
+    RecommendationCardDetailView,
+    RecommendationFeedbackView,
+    RecommendationHistoryView,
+    RecommendationResultDetailView,
 )
 
 app_name = "recommend"
 
 urlpatterns = [
+    path(
+        "recommendations/",
+        RecommendationHistoryView.as_view(),
+        name="recommendation-list",
+    ),
+    path(
+        "recommendations/<uuid:result_id>/",
+        RecommendationResultDetailView.as_view(),
+        name="recommendation-detail",
+    ),
+    path(
+        "recommendations/<uuid:result_id>/cards/<uuid:card_id>/",
+        RecommendationCardDetailView.as_view(),
+        name="recommendation-card-detail",
+    ),
+    path(
+        "recommendations/<uuid:result_id>/cards/<uuid:card_id>/feedback/",
+        RecommendationFeedbackView.as_view(),
+        name="recommendation-feedback",
+    ),
     path("outfits/analyze/", OutfitAnalysisView.as_view(), name="outfit-analysis"),
     path(
         "outfits/analyses/",
