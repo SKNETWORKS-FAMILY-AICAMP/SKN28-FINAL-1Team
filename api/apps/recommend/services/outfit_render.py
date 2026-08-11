@@ -31,6 +31,7 @@ import requests
 from django.conf import settings
 
 from apps.recommend.services import storage
+from apps.recommend.services.gender import GENDER_TO_PRESENTATION, normalize_gender
 
 logger = logging.getLogger(__name__)
 
@@ -94,6 +95,14 @@ _CATEGORY_FALLBACK = 4.5
 #: 응답에서 이미지 데이터를 찾을 때 쓰는 data URL 형식
 _DATA_URL = re.compile(r"^data:image/(?P<ext>[a-zA-Z0-9.+-]+);base64,(?P<data>.+)$", re.S)
 
+#: 모델의 성별 표현. 유니섹스 코디는 남녀 모두에게 추천되므로, 요청한
+#: 사용자의 성별에 맞는 사람으로 그려야 한다. 같은 코디라도 성별마다 다른
+#: 이미지가 되므로 저장 키도 성별로 갈린다 (render_key_for 참고).
+_MODEL_SENTENCE = {
+    "male": "성인 남성 모델이 착용한 모습으로 그립니다.\n",
+    "female": "성인 여성 모델이 착용한 모습으로 그립니다.\n",
+}
+
 PROMPT = (
     "첨부한 이미지들은 한 벌의 코디를 구성하는 개별 의상 아이템입니다.\n"
     "이 옷들을 모두 착용하고 정면을 바라보는 사람의 전신 사진을 만들어 주세요.\n"
@@ -119,10 +128,36 @@ class RenderRef:
         return {"s3_bucket": self.s3_bucket, "s3_key": self.s3_key}
 
 
-def render_key_for(item_s3_key: str, extension: str = DEFAULT_RENDER_EXTENSION) -> str:
-    """아이템 이미지 키에서 착용 이미지 키를 유도한다."""
+def prompt_for(gender: str = "") -> str:
+    """성별에 맞는 생성 지시문. 성별을 모르면 사람을 특정하지 않는다."""
+    if sentence := _MODEL_SENTENCE.get(normalize_gender(gender)):
+        return PROMPT + "- " + sentence.rstrip("\n") + "\n"
+    return PROMPT
+
+
+def render_key_for(
+    item_s3_key: str,
+    extension: str = DEFAULT_RENDER_EXTENSION,
+    gender: str = "",
+) -> str:
+    """아이템 이미지 키에서 착용 이미지 키를 유도한다.
+
+    **성별마다 다른 키를 쓴다.** 유니섹스 코디는 남녀 모두에게 추천되는데,
+    키가 하나면 먼저 만든 쪽의 이미지가 반대 성별에게 그대로 나간다 — 남성
+    사용자가 여성 모델 사진을 보는 일이 벌어진다.
+
+        .../render_frontal_men.jpg
+        .../render_frontal_women.jpg
+        .../render_frontal.png        ← 성별 없이 만들던 시절의 키
+
+    성별을 모르면 옛 키를 쓴다. 옛 키의 이미지는 모델 성별이 무엇인지 알 수
+    없으므로 **성별을 아는 요청에서는 재사용하지 않는다.**
+    """
+    suffix = ""
+    if presentation := GENDER_TO_PRESENTATION.get(normalize_gender(gender)):
+        suffix = f"_{presentation}"
     return posixpath.join(
-        posixpath.dirname(item_s3_key), RENDER_BASENAME + extension
+        posixpath.dirname(item_s3_key), RENDER_BASENAME + suffix + extension
     )
 
 
@@ -137,16 +172,22 @@ def _sniff(image: bytes) -> tuple[str, str]:
     return DEFAULT_RENDER_EXTENSION, "image/png"
 
 
-def _find_existing(bucket: str, item_s3_key: str) -> str | None:
-    """이미 만들어 둔 착용 이미지가 있으면 그 키. 확장자 후보를 모두 본다."""
+def _find_existing(bucket: str, item_s3_key: str, gender: str = "") -> str | None:
+    """이미 만들어 둔 착용 이미지가 있으면 그 키. 확장자 후보를 모두 본다.
+
+    성별을 아는 요청은 **그 성별의 키만** 본다. 옛 키(render_frontal.png)는
+    모델 성별을 알 수 없어서, 재사용하면 남성에게 여성 모델이 나갈 수 있다.
+    """
     for extension in RENDER_EXTENSIONS:
-        key = render_key_for(item_s3_key, extension)
+        key = render_key_for(item_s3_key, extension, gender)
         if storage.exists_for(bucket, key):
             return key
     return None
 
 
-def existing_render(bucket: str, item_s3_key: str) -> RenderRef | None:
+def existing_render(
+    bucket: str, item_s3_key: str, gender: str = ""
+) -> RenderRef | None:
     """**생성하지 않고** 이미 있는 착용 이미지만 찾는다.
 
     조회 경로에서 쓴다. 생성은 수십 초가 걸려 요청을 잡아둘 수 없지만, 이미
@@ -158,7 +199,7 @@ def existing_render(bucket: str, item_s3_key: str) -> RenderRef | None:
     """
     if not bucket or not item_s3_key:
         return None
-    key = _find_existing(bucket, item_s3_key)
+    key = _find_existing(bucket, item_s3_key, gender)
     return RenderRef(bucket, key) if key else None
 
 
@@ -228,8 +269,13 @@ def _reference_keys(items: list[dict[str, Any]]) -> list[str]:
     return plan_references(items).keys
 
 
-def ensure_render(*, bucket: str, items: list[dict[str, Any]]) -> RenderRef | None:
+def ensure_render(
+    *, bucket: str, items: list[dict[str, Any]], gender: str = ""
+) -> RenderRef | None:
     """착용 이미지를 보장한다. 이미 있으면 만들지 않고 그 참조만 돌려준다.
+
+    `gender`는 **요청한 사용자의 성별**이다. 유니섹스 코디는 남녀 모두에게
+    추천되므로 그 사용자에 맞는 모델로 그리고, 성별별로 따로 저장·재사용한다.
 
     Returns: 참조. 만들 수 없으면(참조 이미지 없음·기능 끔) None.
     Raises: RenderError — 생성을 시도했는데 실패한 경우.
@@ -241,7 +287,7 @@ def ensure_render(*, bucket: str, items: list[dict[str, Any]]) -> RenderRef | No
         return None
 
     # ── 재사용 ──
-    if existing := _find_existing(bucket, reference_keys[0]):
+    if existing := _find_existing(bucket, reference_keys[0], gender):
         logger.info("착용 이미지 재사용: s3://%s/%s", bucket, existing)
         return RenderRef(bucket, existing)
 
@@ -250,31 +296,43 @@ def ensure_render(*, bucket: str, items: list[dict[str, Any]]) -> RenderRef | No
         return None
 
     image = _generate(
-        bucket=bucket, reference_keys=reference_keys, backend=plan.backend
+        bucket=bucket,
+        reference_keys=reference_keys,
+        backend=plan.backend,
+        gender=gender,
     )
     # 확장자와 Content-Type은 받은 바이트가 정한다. .png 키에 JPEG를 넣어 두면
     # S3가 Content-Type: image/png으로 내려보내고, 일부 클라이언트는 못 연다.
     extension, content_type = _sniff(image)
-    key = render_key_for(reference_keys[0], extension)
+    key = render_key_for(reference_keys[0], extension, gender)
     storage.put_bytes_for(bucket, key, image, content_type)
     logger.info(
-        "착용 이미지 생성: s3://%s/%s (%s, %s, 참조 %d장, %d bytes)",
-        bucket, key, plan.backend, content_type, len(reference_keys), len(image),
+        "착용 이미지 생성: s3://%s/%s (%s, %s, 성별=%s, 참조 %d장, %d bytes)",
+        bucket, key, plan.backend, content_type,
+        normalize_gender(gender) or "(미지정)", len(reference_keys), len(image),
     )
     return RenderRef(bucket, key)
 
 
-def _generate(*, bucket: str, reference_keys: list[str], backend: str) -> bytes:
+def _generate(
+    *, bucket: str, reference_keys: list[str], backend: str, gender: str = ""
+) -> bytes:
     if backend == BACKEND_GEMINI:
-        return _generate_gemini(bucket=bucket, reference_keys=reference_keys)
-    return _generate_openrouter(bucket=bucket, reference_keys=reference_keys)
+        return _generate_gemini(
+            bucket=bucket, reference_keys=reference_keys, gender=gender
+        )
+    return _generate_openrouter(
+        bucket=bucket, reference_keys=reference_keys, gender=gender
+    )
 
 
 def _load_references(bucket: str, reference_keys: list[str]) -> list[bytes]:
     return [storage.download_for(bucket, key) for key in reference_keys]
 
 
-def _generate_gemini(*, bucket: str, reference_keys: list[str]) -> bytes:
+def _generate_gemini(
+    *, bucket: str, reference_keys: list[str], gender: str = ""
+) -> bytes:
     """Gemini 3.1 Flash Image로 만든다. 참조를 14장까지 받는다.
 
     OpenRouter가 아니라 Google API를 직접 부른다. 이미지 모델은 generateContent가
@@ -288,7 +346,9 @@ def _generate_gemini(*, bucket: str, reference_keys: list[str]) -> bytes:
             "(참조 5장 이상인 코디는 Gemini로 만듭니다)."
         )
 
-    payload_input: list[dict[str, Any]] = [{"type": "text", "text": PROMPT}]
+    payload_input: list[dict[str, Any]] = [
+        {"type": "text", "text": prompt_for(gender)}
+    ]
     for blob in _load_references(bucket, reference_keys):
         payload_input.append(
             {
@@ -337,7 +397,9 @@ def _generate_gemini(*, bucket: str, reference_keys: list[str]) -> bytes:
     return image
 
 
-def _generate_openrouter(*, bucket: str, reference_keys: list[str]) -> bytes:
+def _generate_openrouter(
+    *, bucket: str, reference_keys: list[str], gender: str = ""
+) -> bytes:
     api_key = settings.OPENROUTER_API_KEY
     if not api_key:
         raise RenderError("OPENROUTER_API_KEY가 설정되지 않았습니다.")
@@ -365,7 +427,7 @@ def _generate_openrouter(*, bucket: str, reference_keys: list[str]) -> bytes:
             },
             json={
                 "model": settings.DAILY_LOOK_RENDER_MODEL,
-                "prompt": PROMPT,
+                "prompt": prompt_for(gender),
                 "input_references": references,
                 # 전신이 담겨야 하므로 세로로 긴 비율을 지정한다.
                 "aspect_ratio": settings.DAILY_LOOK_RENDER_ASPECT_RATIO,

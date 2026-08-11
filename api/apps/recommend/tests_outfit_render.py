@@ -29,7 +29,9 @@ from apps.recommend.services.outfit_render import (
     _generate,
     _reference_keys,
     ensure_render,
+    existing_render,
     plan_references,
+    prompt_for,
     render_key_for,
 )
 
@@ -515,3 +517,68 @@ class GeminiOutputFormatTests(TestCase):
         # 입력은 PNG 그대로다 — 400은 출력에만 걸린 제약이었다.
         images = [p for p in body["input"] if p["type"] == "image"]
         self.assertEqual(images[0]["mime_type"], "image/png")
+
+
+class RenderGenderTests(TestCase):
+    """유니섹스 코디는 남녀 모두에게 추천된다. 그러면 이미지도 갈려야 한다.
+
+    키가 하나면 먼저 만든 쪽의 이미지가 반대 성별에게 그대로 나간다 — 남성
+    사용자가 여성 모델 사진을 보게 된다. 성별 하드 룰을 검색에서만 지키고
+    화면에서 깨뜨리는 셈이다.
+    """
+
+    ITEM = "goldenset/derived/v1/095/item_000.png"
+
+    def test_key_differs_by_gender(self) -> None:
+        men = render_key_for(self.ITEM, ".jpg", "male")
+        women = render_key_for(self.ITEM, ".jpg", "female")
+        self.assertNotEqual(men, women)
+        self.assertTrue(men.endswith("render_frontal_men.jpg"), men)
+        self.assertTrue(women.endswith("render_frontal_women.jpg"), women)
+
+    def test_unknown_gender_uses_the_legacy_key(self) -> None:
+        self.assertTrue(render_key_for(self.ITEM, ".png").endswith("render_frontal.png"))
+
+    @patch("apps.recommend.services.outfit_render.storage.exists_for")
+    def test_legacy_image_is_not_reused_when_gender_is_known(self, exists) -> None:
+        """옛 키의 이미지는 모델 성별을 알 수 없다. 재사용하면 사고가 반복된다."""
+        exists.side_effect = lambda bucket, key: key.endswith("render_frontal.png")
+        self.assertIsNone(existing_render(BUCKET, self.ITEM, "male"))
+        # 성별을 모를 때는 그대로 쓴다 (기존 자산을 버리지 않는다)
+        self.assertIsNotNone(existing_render(BUCKET, self.ITEM, ""))
+
+    @patch("apps.recommend.services.outfit_render.storage.exists_for")
+    def test_each_gender_reuses_its_own_image(self, exists) -> None:
+        exists.side_effect = lambda bucket, key: key.endswith("render_frontal_men.jpg")
+        self.assertIsNotNone(existing_render(BUCKET, self.ITEM, "male"))
+        self.assertIsNone(existing_render(BUCKET, self.ITEM, "female"))
+
+    def test_prompt_names_the_model_gender(self) -> None:
+        self.assertIn("남성", prompt_for("male"))
+        self.assertNotIn("여성 모델", prompt_for("male"))
+        self.assertIn("여성", prompt_for("female"))
+        # 성별을 모르면 사람을 특정하지 않는다
+        self.assertNotIn("남성", prompt_for(""))
+        self.assertNotIn("여성", prompt_for(""))
+
+    @override_settings(DAILY_LOOK_RENDER_MAX_REFERENCES=8,
+                       DAILY_LOOK_RENDER_GEMINI_THRESHOLD=99)
+    @patch("apps.recommend.services.outfit_render.storage.put_bytes_for")
+    @patch("apps.recommend.services.outfit_render.storage.exists_for",
+           return_value=False)
+    @patch("apps.recommend.services.outfit_render.storage.download_for",
+           return_value=PNG)
+    @patch("apps.recommend.services.outfit_render.requests.post")
+    def test_generated_image_is_stored_under_the_gender_key(
+        self, post, _download, _exists, put
+    ) -> None:
+        post.return_value = Mock(
+            status_code=200,
+            json=Mock(return_value={"data": [{"b64_json": base64.b64encode(PNG).decode()}]}),
+        )
+        ref = ensure_render(bucket=BUCKET, items=ITEMS, gender="male")
+
+        self.assertTrue(ref.s3_key.endswith("render_frontal_men.png"), ref.s3_key)
+        self.assertTrue(put.call_args.args[1].endswith("render_frontal_men.png"))
+        # 프롬프트에도 성별이 실렸는가
+        self.assertIn("남성", post.call_args.kwargs["json"]["prompt"])

@@ -16,8 +16,11 @@
 
 from __future__ import annotations
 
+import json
 import logging
-from typing import Any
+from functools import lru_cache
+from pathlib import Path
+from typing import Any, Iterable
 
 logger = logging.getLogger(__name__)
 
@@ -70,3 +73,87 @@ def allowed_presentation_groups(raw: Any) -> tuple[str, ...]:
     # 라벨이 없는 코디(presentation_group="")는 여기 없으므로 함께 빠진다.
     # 미분류를 unisex로 취급하면 여성 코디가 그대로 남성에게 나간다.
     return (presentation, PRESENTATION_UNISEX)
+
+
+# ── 아이템 단위 성별 검증 (마지막 방어선) ────────────────
+#
+# presentation_group은 LLM이 사진을 보고 붙인 라벨이다. 틀릴 수 있고,
+# "unisex"는 특히 애매한 코디의 도피처가 된다. 실제로 여성 코디가 unisex로
+# 태깅돼 남성 사용자에게 추천됐다 — 라벨만 믿는 한 이 사고는 반복된다.
+#
+# 그래서 라벨과 별개로 "이 옷이 그 성별의 옷인가"를 아이템 단위로 본다.
+# 규칙은 rules/gender_rules.json이 단일 출처다.
+
+_RULES_PATH = Path(__file__).resolve().parent.parent / "rules" / "gender_rules.json"
+
+#: presentation_group -> 그 성별 전용 아이템 판정 재료
+_ExclusiveSpec = dict[str, Any]
+
+
+@lru_cache(maxsize=1)
+def load_gender_rules() -> dict[str, _ExclusiveSpec]:
+    """gender_rules.json을 읽어 {presentation: {categories, keywords}}로 만든다."""
+    try:
+        raw = json.loads(_RULES_PATH.read_text(encoding="utf-8"))
+    except FileNotFoundError:
+        logger.error(
+            "gender_rules.json이 없습니다 (%s). 아이템 단위 성별 검증이 꺼집니다.",
+            _RULES_PATH,
+        )
+        return {}
+    except json.JSONDecodeError as exc:
+        # 여기서 죽으면 추천 전체가 멎는다. 대신 크게 남긴다 — 이 규칙이 빠지면
+        # 남성에게 여성복이 나갈 수 있다.
+        logger.error("gender_rules.json 파싱 실패: %s. 성별 검증이 꺼집니다.", exc)
+        return {}
+
+    rules: dict[str, _ExclusiveSpec] = {}
+    for presentation, block in (raw.get("exclusive") or {}).items():
+        rules[presentation] = {
+            "label": str(block.get("label") or presentation),
+            "categories": frozenset(
+                str(v).strip() for v in (block.get("category_small") or []) if str(v).strip()
+            ),
+            "keywords": tuple(
+                str(v).strip() for v in (block.get("name_keywords") or []) if str(v).strip()
+            ),
+        }
+    return rules
+
+
+def _matches_exclusive(item: dict[str, Any], spec: _ExclusiveSpec) -> str:
+    """이 아이템이 해당 성별 전용인가. 걸린 근거 문자열, 아니면 빈 문자열."""
+    category = str(item.get("category_small") or "").strip()
+    if category and category in spec["categories"]:
+        return category
+
+    name = str(item.get("item_name") or item.get("name") or "")
+    for keyword in spec["keywords"]:
+        if keyword in name:
+            return keyword
+    return ""
+
+
+def conflicting_item(items: Iterable[dict[str, Any]], raw_gender: Any) -> str:
+    """이 코디에 사용자 성별과 충돌하는 아이템이 있으면 그 근거를 돌려준다.
+
+    Returns: "여성 전용 '스커트'" 같은 설명, 없으면 빈 문자열.
+
+    성별을 모르면 검사하지 않는다 — 그 판단은 호출부(오늘의 룩은 아예 추천을
+    만들지 않는다)의 몫이다.
+    """
+    gender = normalize_gender(raw_gender)
+    if not gender:
+        return ""
+
+    mine = GENDER_TO_PRESENTATION.get(gender)
+    rules = load_gender_rules()
+    for presentation, spec in rules.items():
+        if presentation == mine:
+            continue  # 내 성별의 옷은 당연히 통과
+        for item in items or ():
+            if not isinstance(item, dict):
+                continue
+            if reason := _matches_exclusive(item, spec):
+                return f"{spec['label']} '{reason}'"
+    return ""

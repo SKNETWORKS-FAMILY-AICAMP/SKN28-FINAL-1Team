@@ -30,6 +30,8 @@ from apps.recommend.services.body_profile import (
 )
 from apps.recommend.services.gender import (
     allowed_presentation_groups,
+    conflicting_item,
+    load_gender_rules,
     normalize_gender,
 )
 from django.test import TestCase, override_settings
@@ -914,3 +916,103 @@ class ListValuedTagTests(unittest.TestCase):
         self.assertTrue(rule.matches(item))
         total, _ = self._score(item, preferred={"style": {"미니멀"}})
         self.assertGreater(total, 0)
+
+
+class ItemLevelGenderGuardTests(unittest.TestCase):
+    """성별은 이 시스템에서 가장 강한 규칙이다.
+
+    presentation_group은 LLM이 사진을 보고 붙인 라벨이라 틀릴 수 있고, 특히
+    "unisex"는 애매한 코디의 도피처가 된다. 실제로 여성 코디가 unisex로
+    태깅돼 남성 사용자에게 '캉캉 끈나시 탑'이 추천됐다. 라벨만 믿는 한 이
+    사고는 반복되므로, 옷 자체를 아이템 단위로 한 번 더 본다.
+    """
+
+    def test_the_actual_incident_is_caught(self) -> None:
+        """실제로 나갔던 아이템. 소분류가 '민소매'라 라벨로는 안 걸린다."""
+        items = [{"item_name": "캉캉 끈나시 탑", "category_small": "민소매"}]
+        self.assertTrue(conflicting_item(items, "male"))
+
+    def test_female_only_categories_are_blocked_for_men(self) -> None:
+        for category in ("스커트", "원피스", "브라"):
+            items = [{"item_name": "무언가", "category_small": category}]
+            self.assertTrue(conflicting_item(items, "male"), category)
+
+    def test_female_only_keywords_are_blocked_for_men(self) -> None:
+        for name in ("플로럴 원피스", "미디 스커트", "레이스 블라우스", "새틴 캐미솔"):
+            items = [{"item_name": name, "category_small": "기타"}]
+            self.assertTrue(conflicting_item(items, "male"), name)
+
+    def test_the_same_items_are_fine_for_women(self) -> None:
+        items = [{"item_name": "플로럴 원피스", "category_small": "원피스"}]
+        self.assertEqual(conflicting_item(items, "female"), "")
+
+    def test_ordinary_items_pass(self) -> None:
+        items = [
+            {"item_name": "옥스퍼드 셔츠", "category_small": "셔츠/블라우스"},
+            {"item_name": "데님 팬츠", "category_small": "데님 팬츠"},
+            {"item_name": "스니커즈", "category_small": "스니커즈"},
+        ]
+        self.assertEqual(conflicting_item(items, "male"), "")
+        self.assertEqual(conflicting_item(items, "female"), "")
+
+    def test_one_bad_item_sinks_the_whole_outfit(self) -> None:
+        """코디는 한 벌이다. 치마가 하나 섞이면 그 코디는 남성용이 아니다."""
+        items = [
+            {"item_name": "옥스퍼드 셔츠", "category_small": "셔츠/블라우스"},
+            {"item_name": "플리츠 스커트", "category_small": "스커트"},
+        ]
+        self.assertTrue(conflicting_item(items, "male"))
+
+    def test_unknown_gender_is_not_checked_here(self) -> None:
+        """성별을 모를 때 무엇을 할지는 호출부가 정한다 (오늘의 룩은 EMPTY)."""
+        items = [{"item_name": "플로럴 원피스", "category_small": "원피스"}]
+        self.assertEqual(conflicting_item(items, ""), "")
+
+    def test_reason_is_human_readable(self) -> None:
+        items = [{"item_name": "플리츠 스커트", "category_small": "스커트"}]
+        reason = conflicting_item(items, "male")
+        self.assertIn("여성 전용", reason)
+        self.assertIn("스커트", reason)
+
+    def test_rules_file_is_loaded(self) -> None:
+        """파일이 없거나 깨지면 이 규칙이 통째로 꺼진다 — 조용히 넘어가면 안 된다."""
+        rules = load_gender_rules()
+        self.assertIn("women", rules)
+        self.assertTrue(rules["women"]["categories"])
+        self.assertTrue(rules["women"]["keywords"])
+
+
+class MislabelledUnisexTests(TestCase):
+    """라벨이 unisex여도 여성복이면 남성에게 나가지 않는다."""
+
+    @override_settings(RETRIEVER_SCROLL_CAP=100, RETRIEVER_SCROLL_PAGE=50,
+                       RETRIEVER_ITEM_TAG_JOIN=False)
+    def test_womens_outfit_tagged_unisex_is_dropped(self) -> None:
+        outfits = [
+            {   # 태깅이 틀린 코디 — 라벨은 unisex인데 내용은 여성복
+                "golden_id": "bad", "presentation_group": "unisex",
+                "items": [{"item_name": "캉캉 끈나시 탑", "category_small": "민소매"},
+                          {"item_name": "플리츠 스커트", "category_small": "스커트"}],
+            },
+            {   # 정상적인 남녀 공용 코디
+                "golden_id": "ok", "presentation_group": "unisex",
+                "items": [{"item_name": "옥스퍼드 셔츠", "category_small": "셔츠/블라우스"},
+                          {"item_name": "데님 팬츠", "category_small": "데님 팬츠"}],
+            },
+        ]
+        client = _FakeQdrant(outfits, page=50)
+        got = retrieve_outfits(RetrievalRequest(gender="male", limit=10), client=client)
+        self.assertEqual([c.golden_id for c in got], ["ok"])
+
+    @override_settings(RETRIEVER_SCROLL_CAP=100, RETRIEVER_SCROLL_PAGE=50,
+                       RETRIEVER_ITEM_TAG_JOIN=False)
+    def test_women_still_see_that_outfit(self) -> None:
+        outfits = [{
+            "golden_id": "dress", "presentation_group": "unisex",
+            "items": [{"item_name": "플로럴 원피스", "category_small": "원피스"}],
+        }]
+        got = retrieve_outfits(
+            RetrievalRequest(gender="female", limit=10),
+            client=_FakeQdrant(outfits, page=50),
+        )
+        self.assertEqual([c.golden_id for c in got], ["dress"])

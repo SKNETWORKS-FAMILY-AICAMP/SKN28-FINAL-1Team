@@ -32,6 +32,7 @@ from apps.recommend.services.gender import (
     GENDER_TO_PRESENTATION,
     PRESENTATION_UNISEX,
     allowed_presentation_groups,
+    conflicting_item,
     normalize_gender,
 )
 from apps.recommend.services.qdrant import (
@@ -556,6 +557,7 @@ def retrieve_outfits(
     # 코디가 나가서는 안 된다. 통과하지 못한 건수는 로그로 드러낸다.
     allowed_groups = allowed_presentation_groups(request.gender)
     blocked_by_gender = 0
+    blocked_by_item = 0
 
     axis = rules.for_profile(profile)
     preferred = (
@@ -579,6 +581,21 @@ def retrieve_outfits(
             continue
         if allowed_groups and str(payload.get("presentation_group") or "") not in allowed_groups:
             blocked_by_gender += 1
+            continue
+
+        # 라벨을 통과했어도 **옷 자체**를 한 번 더 본다.
+        #
+        # presentation_group은 LLM이 사진을 보고 붙인 값이라 틀릴 수 있고,
+        # 특히 "unisex"는 애매한 코디의 도피처가 된다. 실제로 여성 코디가
+        # unisex로 태깅돼 남성 사용자에게 나갔다. 라벨만 믿는 한 반복된다.
+        if conflict := conflicting_item(payload.get("items") or [], request.gender):
+            blocked_by_item += 1
+            logger.info(
+                "성별 충돌로 제외: golden_id=%s group=%s 사유=%s",
+                payload.get("golden_id"),
+                payload.get("presentation_group") or "(미분류)",
+                conflict,
+            )
             continue
         delta, reasons = _score_items(
             list(payload.get("items", [])),
@@ -623,6 +640,16 @@ def retrieve_outfits(
             blocked_by_gender,
             normalize_gender(request.gender) or "(미지정)",
             list(allowed_groups),
+        )
+
+    if blocked_by_item:
+        # 라벨이 틀린 코디가 몇 건인지 남긴다. 이 수가 크면 태깅을 다시
+        # 돌려야 한다는 뜻이다 — 매번 파이썬으로 걸러내는 건 임시방편이다.
+        logger.warning(
+            "presentation_group을 통과했지만 아이템이 성별과 충돌해 제외한 코디 "
+            "%d건 (성별=%s). 태깅 정확도를 확인하세요.",
+            blocked_by_item,
+            normalize_gender(request.gender) or "(미지정)",
         )
 
     if not candidates:

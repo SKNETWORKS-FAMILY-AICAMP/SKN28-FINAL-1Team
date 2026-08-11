@@ -197,17 +197,22 @@ def run(look: DailyLook) -> None:
 
     # ── 여기부터는 있으면 좋은 것 ────────────────────────────
     # 둘 다 실패해도 추천은 이미 SUCCEEDED다. 화면은 아이템 카드로 성립한다.
-    _attach_render(look, chosen)
+    _attach_render(look, chosen, gender)
     _enrich_with_copy(look, chosen, snapshot)
 
 
-def _attach_render(look: DailyLook, candidate) -> None:
-    """정면 착용 이미지를 붙인다. 이미 만들어 둔 코디면 생성 없이 참조만 얻는다."""
+def _attach_render(look: DailyLook, candidate, gender: str = "") -> None:
+    """정면 착용 이미지를 붙인다. 이미 만들어 둔 코디면 생성 없이 참조만 얻는다.
+
+    성별을 함께 넘긴다. 유니섹스 코디는 남녀 모두에게 추천되므로 그 사용자에
+    맞는 모델로 그려야 하고, 성별별로 따로 저장·재사용한다.
+    """
     payload = candidate.payload
     try:
         reference = outfit_render.ensure_render(
             bucket=str(payload.get("source_bucket", "")),
             items=list(payload.get("items", [])),
+            gender=gender,
         )
     except Exception as exc:  # noqa: BLE001 — 이미지 실패가 추천을 되돌리면 안 된다
         logger.warning("오늘의 룩 %s 착용 이미지 실패: %s", look.pk, exc)
@@ -294,9 +299,12 @@ def refresh_render(look: DailyLook) -> bool:
     if not bucket or not items:
         return False
 
-    reference = outfit_render.existing_render(bucket, str(items[0]["s3_key"]))
+    gender = normalize_gender((look.body or {}).get("gender"))
+    reference = outfit_render.existing_render(
+        bucket, str(items[0]["s3_key"]), gender
+    )
     if reference is None:
-        _schedule_render_retry(look, bucket, str(items[0]["s3_key"]))
+        _schedule_render_retry(look, bucket, str(items[0]["s3_key"]), gender)
         return False
 
     result = dict(result)
@@ -316,7 +324,9 @@ def refresh_render(look: DailyLook) -> bool:
     return True
 
 
-def _schedule_render_retry(look: DailyLook, bucket: str, item_key: str) -> None:
+def _schedule_render_retry(
+    look: DailyLook, bucket: str, item_key: str, gender: str = ""
+) -> None:
     """아직 없으면 재생성을 큐에 건다. 쿨다운 안에서는 한 번만.
 
     락이 없으면 프론트 폴링(기본 2초)마다 생성 작업이 쌓여 요금이 폭주한다.
@@ -325,7 +335,9 @@ def _schedule_render_retry(look: DailyLook, bucket: str, item_key: str) -> None:
     """
     if not settings.DAILY_LOOK_RENDER_ENABLED:
         return
-    lock_key = f"daily_look:render_retry:{bucket}:{item_key}"
+    # 성별을 키에 넣는다. 같은 코디라도 남성용·여성용 이미지는 별개라,
+    # 하나로 묶으면 한쪽이 쿨다운에 막혀 영영 안 만들어진다.
+    lock_key = f"daily_look:render_retry:{bucket}:{item_key}:{gender or 'none'}"
     try:
         client = queue_service.get_client()
         acquired = client.set(
@@ -363,7 +375,11 @@ def run_render_only(look_id: str) -> bool:
         return False
 
     try:
-        reference = outfit_render.ensure_render(bucket=bucket, items=items)
+        reference = outfit_render.ensure_render(
+            bucket=bucket,
+            items=items,
+            gender=normalize_gender((look.body or {}).get("gender")),
+        )
     except Exception as exc:  # noqa: BLE001 — 이미지 실패가 추천을 되돌리면 안 된다
         logger.warning("오늘의 룩 %s 착용 이미지 재생성 실패: %s", look.pk, exc)
         look.error = f"착용 이미지 생성 실패(추천은 정상): {exc}"[:2000]
