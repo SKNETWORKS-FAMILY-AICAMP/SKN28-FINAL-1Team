@@ -20,6 +20,7 @@ import os
 from functools import lru_cache
 
 import redis
+from dataclasses import dataclass
 
 logger = logging.getLogger(__name__)
 
@@ -31,6 +32,39 @@ PENDING_KEY = os.getenv("OUTFIT_QUEUE_PENDING", "outfit:analysis:pending")
 PROCESSING_KEY = os.getenv("OUTFIT_QUEUE_PROCESSING", "outfit:analysis:processing")
 DEAD_KEY = os.getenv("OUTFIT_QUEUE_DEAD", "outfit:analysis:dead")
 RETRY_HASH = os.getenv("OUTFIT_QUEUE_RETRY", "outfit:analysis:retry")
+
+
+@dataclass(frozen=True)
+class QueueSpec:
+    """큐 하나가 쓰는 Redis 키 묶음.
+
+    같은 신뢰성 패턴을 쓰는 큐가 둘 이상이 되면서 키를 파라미터로 뺐다. 모듈
+    수준 함수들은 기본 스펙(코디 평가)을 그대로 쓰므로 기존 호출부는 바뀌지 않는다.
+    """
+
+    pending: str
+    processing: str
+    dead: str
+    retry: str
+
+
+#: 코디 평가 (기존). 모듈 함수의 기본값이다.
+OUTFIT_ANALYSIS = QueueSpec(
+    pending=PENDING_KEY,
+    processing=PROCESSING_KEY,
+    dead=DEAD_KEY,
+    retry=RETRY_HASH,
+)
+
+#: 오늘의 룩 생성. 평가와 큐를 나눈 이유는 소비 속도와 실패 성격이 다르기
+#: 때문이다 — 평가는 사용자가 화면에서 기다리고, 오늘의 룩은 로그인 직후
+#: 백그라운드로 돈다. 한 큐에 섞으면 룩 생성이 밀릴 때 평가까지 같이 밀린다.
+DAILY_LOOK = QueueSpec(
+    pending=os.getenv("DAILY_LOOK_QUEUE_PENDING", "daily:look:pending"),
+    processing=os.getenv("DAILY_LOOK_QUEUE_PROCESSING", "daily:look:processing"),
+    dead=os.getenv("DAILY_LOOK_QUEUE_DEAD", "daily:look:dead"),
+    retry=os.getenv("DAILY_LOOK_QUEUE_RETRY", "daily:look:retry"),
+)
 
 BLOCK_SEC = int(os.getenv("OUTFIT_QUEUE_BLOCK_SEC", "5"))
 MAX_RETRIES = int(os.getenv("OUTFIT_QUEUE_MAX_RETRIES", "3"))
@@ -55,54 +89,63 @@ def enqueue(analysis) -> None:
         "analysis_id": str(analysis.pk),
         "s3_key": analysis.image_s3_key,
     }
-    get_client().lpush(PENDING_KEY, json.dumps(payload, ensure_ascii=False))
+    push(payload, spec=OUTFIT_ANALYSIS)
 
 
-def fetch(timeout: int = BLOCK_SEC) -> str | None:
+def push(payload: dict, *, spec: QueueSpec = OUTFIT_ANALYSIS) -> None:
+    """임의 페이로드를 큐에 적재한다. 실패 시 redis.RedisError를 그대로 올린다."""
+    get_client().lpush(spec.pending, json.dumps(payload, ensure_ascii=False))
+
+
+def fetch(
+    timeout: int = BLOCK_SEC, *, spec: QueueSpec = OUTFIT_ANALYSIS
+) -> str | None:
     """pending 오른쪽 끝(가장 오래된 작업)을 processing으로 옮기며 가져온다."""
     return get_client().blmove(
-        PENDING_KEY, PROCESSING_KEY, timeout, src="RIGHT", dest="LEFT"
+        spec.pending, spec.processing, timeout, src="RIGHT", dest="LEFT"
     )
 
 
-def ack(raw: str, analysis_id: str) -> None:
+def ack(raw: str, analysis_id: str, *, spec: QueueSpec = OUTFIT_ANALYSIS) -> None:
     """처리 완료 — processing에서 제거하고 재시도 카운터를 정리한다."""
     client = get_client()
-    client.lrem(PROCESSING_KEY, 1, raw)
-    client.hdel(RETRY_HASH, analysis_id)
+    client.lrem(spec.processing, 1, raw)
+    client.hdel(spec.retry, analysis_id)
 
 
-def retry_or_dead(raw: str, analysis_id: str, error: str) -> bool:
+def retry_or_dead(
+    raw: str, analysis_id: str, error: str, *, spec: QueueSpec = OUTFIT_ANALYSIS
+) -> bool:
     """실패 처리.
 
     Returns: dead queue로 보냈으면 True (호출부가 행을 FAILED로 마킹해야 한다),
              재시도 예약이면 False.
     """
     client = get_client()
-    retries = client.hincrby(RETRY_HASH, analysis_id, 1)
-    client.lrem(PROCESSING_KEY, 1, raw)
+    retries = client.hincrby(spec.retry, analysis_id, 1)
+    client.lrem(spec.processing, 1, raw)
     if retries >= MAX_RETRIES:
         client.lpush(
-            DEAD_KEY,
+            spec.dead,
             json.dumps(
                 {"payload": raw, "error": error[:2000], "retries": retries},
                 ensure_ascii=False,
             ),
         )
-        client.hdel(RETRY_HASH, analysis_id)
+        client.hdel(spec.retry, analysis_id)
         logger.error(
             "평가 %s → dead queue (retries=%s): %s", analysis_id, retries, error
         )
         return True
     # LPUSH(왼쪽) = 큐의 맨 뒤 → 다른 대기 작업을 먼저 처리한 뒤 자연스럽게 재시도
-    client.lpush(PENDING_KEY, raw)
+    client.lpush(spec.pending, raw)
     logger.warning(
         "평가 %s 재시도 예약 (%s/%s): %s", analysis_id, retries, MAX_RETRIES, error
     )
     return False
 
 
-def recover_stale() -> int:
+def recover_stale(*, spec: QueueSpec = OUTFIT_ANALYSIS) -> int:
     """워커 재시작 시 processing에 남은 작업을 pending으로 되돌린다.
 
     단일 워커 전제. 워커를 여러 대로 늘리면 다른 워커가 진행 중인 작업까지
@@ -110,7 +153,7 @@ def recover_stale() -> int:
     """
     client = get_client()
     moved = 0
-    while client.lmove(PROCESSING_KEY, PENDING_KEY, src="RIGHT", dest="RIGHT"):
+    while client.lmove(spec.processing, spec.pending, src="RIGHT", dest="RIGHT"):
         moved += 1
     if moved:
         logger.info("재시작 복구: processing → pending %d건", moved)
