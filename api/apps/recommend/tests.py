@@ -1,5 +1,6 @@
 import json
 from datetime import datetime, timedelta, timezone as dt_timezone
+from decimal import Decimal
 from io import BytesIO, StringIO
 from types import SimpleNamespace
 from unittest.mock import Mock, patch
@@ -1165,12 +1166,18 @@ class OutfitContextTests(SimpleTestCase):
             calf=None,
             arm=None,
             shoulder=None,
+            neck_length=Decimal("9.6"),
+            thigh_calf_ratio=Decimal("1.112"),
+            torso_leg_ratio=Decimal("0.786"),
         )
 
         context = build_analysis_context(user, lat=37.5, lon=127.0)
 
         self.assertTrue(context["personalized"])
         self.assertEqual(context["body"]["gender"], "female")
+        self.assertEqual(context["body"]["neck_length"], 9.6)
+        self.assertEqual(context["body"]["thigh_calf_ratio"], 1.112)
+        self.assertEqual(context["body"]["torso_leg_ratio"], 0.786)
         self.assertEqual(context["pursuit"]["preferred"]["styles"], ["minimal"])
 
 

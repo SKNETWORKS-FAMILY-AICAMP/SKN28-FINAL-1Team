@@ -42,7 +42,8 @@ COLUMN_CANDIDATES: dict[str, list[str]] = {
     # 바지길이(아웃심) 유도용 높이 항목 (설계 2-1절 — 아웃심 정의 채택)
     "waist_height": ["허리높이"],
     "ankle_height": ["가쪽복사높이", "발목높이"],
-    # 체형 특징(torso_ratio) 유도용 — 없으면 balanced 처리
+    # 아웃심 유도와 후속 비율 분석을 위한 보조 높이 항목. 현재
+    # body_measurement의 시각적 비율 target을 이 파서에서 직접 계산하지는 않는다.
     "sitting_height": ["앉은키"],
 }
 

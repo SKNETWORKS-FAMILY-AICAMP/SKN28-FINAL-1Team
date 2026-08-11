@@ -50,7 +50,7 @@ export default function MeasureInput() {
     let alive = true;
     fetchBodyBasic()
       .then((b) => {
-        if (!alive || !b) return;
+        if (!alive) return;
         if (b.height != null) setHeight(String(b.height));
         if (b.weight != null) setWeight(String(b.weight));
       })

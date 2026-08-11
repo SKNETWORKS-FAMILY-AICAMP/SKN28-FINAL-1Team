@@ -5,6 +5,8 @@
 """
 from __future__ import annotations
 
+import os
+
 from rest_framework import serializers
 
 from . import taxonomy as T
@@ -13,6 +15,8 @@ from .services import storage
 
 MAX_UPLOAD_MB = 15
 ALLOWED_CONTENT_TYPES = {"image/jpeg", "image/png", "image/webp", "image/heic"}
+MAX_BATCH_ITEMS = int(os.getenv("WARDROBE_BATCH_MAX_ITEMS", "30"))
+MAX_BATCH_TOTAL_MB = int(os.getenv("WARDROBE_BATCH_MAX_TOTAL_MB", "100"))
 
 
 # ── 업로드 ────────────────────────────────────────────────
@@ -29,6 +33,50 @@ class WardrobeUploadSerializer(serializers.Serializer):
                 "지원하지 않는 이미지 형식입니다 (jpeg/png/webp/heic)."
             )
         return image
+
+
+class WardrobeBatchItemSerializer(serializers.Serializer):
+    image_link = serializers.URLField(max_length=2048)
+    item_name = serializers.CharField(max_length=120, required=False, allow_blank=True, default="")
+    category_large = serializers.ChoiceField(
+        choices=[""] + T.CATEGORY_LARGE, required=False, allow_blank=True, default="",
+    )
+    category_small = serializers.ChoiceField(
+        choices=[""] + T.ALL_SMALL, required=False, allow_blank=True, default="",
+    )
+    season = serializers.ListField(
+        child=serializers.ChoiceField(choices=T.SEASONS), required=False, default=list,
+    )
+    style = serializers.ListField(
+        child=serializers.ChoiceField(choices=T.STYLES), required=False, default=list,
+    )
+    color = serializers.ChoiceField(choices=[""] + T.COLORS, required=False, allow_blank=True, default="")
+    pattern = serializers.ChoiceField(choices=[""] + T.PATTERNS, required=False, allow_blank=True, default="")
+    fit = serializers.ChoiceField(choices=[""] + T.FITS, required=False, allow_blank=True, default="")
+    material = serializers.ChoiceField(choices=[""] + T.MATERIALS, required=False, allow_blank=True, default="")
+    sleeve = serializers.ChoiceField(choices=[""] + T.SLEEVES, required=False, allow_blank=True, default="")
+    length = serializers.ChoiceField(choices=[""] + T.LENGTHS, required=False, allow_blank=True, default="")
+    usage = serializers.ListField(child=serializers.CharField(max_length=20), required=False, default=list)
+    layer_role = serializers.ChoiceField(
+        choices=[""] + T.LAYER_ROLES, required=False, allow_blank=True, default="",
+    )
+    layer_order = serializers.IntegerField(required=False, allow_null=True, min_value=1, max_value=3)
+    confirmed = serializers.BooleanField(required=False, default=False)
+
+    def validate(self, attrs):
+        large, small = attrs.get("category_large", ""), attrs.get("category_small", "")
+        if small and (not large or not T.is_valid_pair(large, small)):
+            raise serializers.ValidationError({"category_small": "대분류와 맞지 않는 소분류입니다."})
+        return attrs
+
+
+class WardrobeBatchCreateSerializer(serializers.Serializer):
+    items = serializers.ListField(
+        child=WardrobeBatchItemSerializer(), allow_empty=False, max_length=MAX_BATCH_ITEMS,
+    )
+    source = serializers.RegexField(
+        r"^[a-z][a-z0-9_-]{0,19}$", required=False, default="in_app_browser",
+    )
 
 
 # ── 아이템 조회/수정 ──────────────────────────────────────
@@ -74,11 +122,14 @@ class WardrobeItemUpdateSerializer(serializers.ModelSerializer):
 
 # ── job 상태 조회 ─────────────────────────────────────────
 class WardrobeJobSerializer(serializers.ModelSerializer):
+    job_id = serializers.UUIDField(source="id", read_only=True)
+    file_name = serializers.CharField(source="original_file_name", read_only=True)
     items = WardrobeItemSerializer(many=True, read_only=True)
 
     class Meta:
         model = WardrobeUploadJob
-        fields = ["id", "status", "error_message", "created_at", "finished_at", "items"]
+        fields = ["id", "job_id", "file_name", "status", "error_message",
+                  "created_at", "finished_at", "items"]
 
 
 # ── 이미지 프로세서 콜백 ──────────────────────────────────
@@ -128,6 +179,6 @@ class CallbackItemSerializer(serializers.Serializer):
 
 class CallbackSerializer(serializers.Serializer):
     job_id = serializers.UUIDField()
-    status = serializers.ChoiceField(choices=["success", "failed"])
+    status = serializers.ChoiceField(choices=["processing", "success", "failed"])
     error = serializers.CharField(allow_blank=True, default="")
     items = CallbackItemSerializer(many=True, default=list)

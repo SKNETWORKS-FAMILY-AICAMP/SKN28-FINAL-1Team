@@ -48,11 +48,18 @@ def _serialize_measurement(measurement: BodyMeasurement | None) -> dict | None:
         "calf",
         "arm",
         "shoulder",
+        "neck_length",
+        "thigh_calf_ratio",
+        "torso_leg_ratio",
     )
     data: dict[str, Any] = {
-        field: float(value) if isinstance(value, Decimal) else (value or None)
+        field: (
+            float(value)
+            if isinstance(value, Decimal)
+            else (value or None)
+        )
         for field in fields
-        if (value := getattr(measurement, field)) is not None
+        if (value := getattr(measurement, field, None)) is not None
     }
     data["gender"] = normalize_gender(measurement.gender)
     return data

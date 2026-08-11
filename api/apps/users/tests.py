@@ -458,6 +458,24 @@ class BodyMeasurementTests(TestCase):
         )
         self.assertEqual(response.status_code, 400)
 
+    def test_detail_patch_rejects_legacy_ratio_ranges(self):
+        for field, value in (
+            ("thigh_calf_ratio", "0.724"),
+            ("torso_leg_ratio", "1.213"),
+        ):
+            response = self.client.patch(
+                reverse("users:body-detail"), {field: value}, format="json"
+            )
+            self.assertEqual(response.status_code, 400, field)
+
+    def test_detail_patch_accepts_redefined_ratio_ranges(self):
+        response = self.client.patch(
+            reverse("users:body-detail"),
+            {"thigh_calf_ratio": "1.112", "torso_leg_ratio": "0.786"},
+            format="json",
+        )
+        self.assertEqual(response.status_code, 200)
+
     # ---- 사진 접수 ----
 
     def _save_basic(self):
@@ -595,7 +613,7 @@ class BodyMeasurementTests(TestCase):
         self.assertEqual(response.status_code, 400)
 
 
-ESTIMATED_SEVEN = {
+ESTIMATED_MEASUREMENTS = {
     "chest": 98.3,
     "waist": 82.0,
     "hip": 94.9,
@@ -603,11 +621,14 @@ ESTIMATED_SEVEN = {
     "calf": 37.7,
     "arm": 31.8,
     "shoulder": 40.2,
+    "neck_length": 9.6,
+    "thigh_calf_ratio": 1.112,
+    "torso_leg_ratio": 0.786,
 }
 
 
 class BodyEstimateTests(TestCase):
-    """POST /users/me/body/estimate — 사진 없이 성별·키·몸무게로 상세 7개 추정."""
+    """POST /users/me/body/estimate — 사진 없이 상세 치수·체형 지표를 추정."""
 
     def setUp(self):
         self.client = APIClient()
@@ -620,7 +641,7 @@ class BodyEstimateTests(TestCase):
 
     @patch("apps.users.services.body_inference.inference.estimate_from_basic")
     def test_estimate_with_request_body(self, mock_estimate):
-        mock_estimate.return_value = dict(ESTIMATED_SEVEN)
+        mock_estimate.return_value = dict(ESTIMATED_MEASUREMENTS)
 
         response = self.client.post(
             self.url, {"gender": "male", "height": "175.5", "weight": "70.0"}
@@ -632,14 +653,14 @@ class BodyEstimateTests(TestCase):
         self.assertEqual(response.data["source"], "basic_info")
         self.assertIsNone(response.data["transaction_id"])
         self.assertIsNone(response.data["error_message"])
-        # 상세 7개가 전부 채워져 내려간다.
+        # 상세 7개와 체형 지표 3개가 전부 채워져 내려간다.
         measurement = response.data["measurement"]
-        for field, value in ESTIMATED_SEVEN.items():
+        for field, value in ESTIMATED_MEASUREMENTS.items():
             self.assertEqual(float(measurement[field]), value, field)
 
     @patch("apps.users.services.body_inference.inference.estimate_from_basic")
     def test_estimate_falls_back_to_saved_basic_info(self, mock_estimate):
-        mock_estimate.return_value = dict(ESTIMATED_SEVEN)
+        mock_estimate.return_value = dict(ESTIMATED_MEASUREMENTS)
         BodyMeasurement.objects.create(
             user=self.user, gender="female", height="160.0", weight="55.0"
         )
@@ -651,7 +672,7 @@ class BodyEstimateTests(TestCase):
 
     @patch("apps.users.services.body_inference.inference.estimate_from_basic")
     def test_estimate_persists_result(self, mock_estimate):
-        mock_estimate.return_value = dict(ESTIMATED_SEVEN)
+        mock_estimate.return_value = dict(ESTIMATED_MEASUREMENTS)
 
         self.client.post(
             self.url, {"gender": "male", "height": "175.5", "weight": "70.0"}
@@ -678,7 +699,7 @@ class BodyEstimateTests(TestCase):
     @patch("apps.users.services.body_inference.inference.estimate_from_basic")
     def test_estimate_overwrites_user_entered_detail(self, mock_estimate):
         """추정은 사용자가 직접 입력한 상세 값을 덮어쓴다 (합의된 동작)."""
-        mock_estimate.return_value = dict(ESTIMATED_SEVEN)
+        mock_estimate.return_value = dict(ESTIMATED_MEASUREMENTS)
         BodyMeasurement.objects.create(
             user=self.user, gender="male", height="175.5", weight="70.0", chest="90.0"
         )
@@ -686,6 +707,42 @@ class BodyEstimateTests(TestCase):
         self.client.post(self.url)
 
         self.assertEqual(str(BodyMeasurement.objects.get(user=self.user).chest), "98.3")
+
+    @patch("apps.users.services.body_inference.inference.estimate_from_basic")
+    def test_estimate_returns_error_message_when_result_is_incomplete(self, mock_estimate):
+        mock_estimate.return_value = {"chest": 98.3}
+
+        response = self.client.post(
+            self.url, {"gender": "male", "height": "175.5", "weight": "70.0"}
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("추정 결과에 필수 값이 없습니다", response.data["detail"])
+
+    @patch("apps.users.services.body_inference.inference.estimate_from_basic")
+    def test_estimate_returns_error_message_for_invalid_result(self, mock_estimate):
+        invalid = dict(ESTIMATED_MEASUREMENTS, neck_length=float("nan"))
+        mock_estimate.return_value = invalid
+
+        response = self.client.post(
+            self.url, {"gender": "male", "height": "175.5", "weight": "70.0"}
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("neck_length 추정값이 유효하지 않습니다", response.data["detail"])
+
+    @patch("apps.users.services.body_inference.inference.estimate_from_basic")
+    def test_estimate_returns_error_message_for_unexpected_inference_error(
+        self, mock_estimate
+    ):
+        mock_estimate.side_effect = RuntimeError("모델 내부 오류")
+
+        response = self.client.post(
+            self.url, {"gender": "male", "height": "175.5", "weight": "70.0"}
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("추정하는 중 오류가 발생했습니다", response.data["detail"])
 
 
 class BodyPhotoTransactionTests(TestCase):
@@ -735,7 +792,7 @@ class BodyPhotoTransactionTests(TestCase):
         photo = self.client.get(self._tx_url(tx.pk))
         with patch(
             "apps.users.services.body_inference.inference.estimate_from_basic",
-            return_value=dict(ESTIMATED_SEVEN),
+            return_value=dict(ESTIMATED_MEASUREMENTS),
         ):
             basic = self.client.post(reverse("users:body-estimate"))
 
@@ -752,6 +809,20 @@ class BodyPhotoTransactionTests(TestCase):
         self.assertEqual(response.data["status"], "failed")
         self.assertEqual(response.data["error_message"], "VLM 호출 실패 (HTTP 429)")
 
+    def test_failed_transaction_without_error_message_gets_fallback(self):
+        tx = BodyPhotoTransaction.objects.create(
+            user=self.user,
+            status=BodyPhotoTransaction.Status.FAILED,
+        )
+
+        response = self.client.get(self._tx_url(tx.pk))
+
+        self.assertEqual(response.data["status"], "failed")
+        self.assertEqual(
+            response.data["error_message"],
+            "신체 측정에 실패했습니다. 다시 시도해주세요.",
+        )
+
     def test_status_unknown_id_returns_404(self):
         import uuid  # noqa: PLC0415
 
@@ -767,8 +838,8 @@ class BodyPhotoTransactionTests(TestCase):
     # ---- 완료 처리 (스레드 없이 로직만 직접 검증) ----
 
     @patch("apps.users.services.body_inference.inference.estimate_from_photos")
-    def test_complete_saves_all_seven_measurements(self, mock_estimate):
-        mock_estimate.return_value = dict(ESTIMATED_SEVEN)
+    def test_complete_saves_all_measurements(self, mock_estimate):
+        mock_estimate.return_value = dict(ESTIMATED_MEASUREMENTS)
         BodyMeasurement.objects.create(
             user=self.user, gender="male", height="175.5", weight="70.0", chest="90.0"
         )
@@ -779,14 +850,14 @@ class BodyPhotoTransactionTests(TestCase):
         tx.refresh_from_db()
         self.assertEqual(tx.status, BodyPhotoTransaction.Status.SUCCEEDED)
         measurement = BodyMeasurement.objects.get(user=self.user)
-        for field, value in ESTIMATED_SEVEN.items():
+        for field, value in ESTIMATED_MEASUREMENTS.items():
             self.assertEqual(float(getattr(measurement, field)), value, field)
         # 사진 바이트가 추론 함수까지 전달된다.
         self.assertEqual(mock_estimate.call_args.args[3], b"front-bytes")
 
     @patch("apps.users.services.body_inference.inference.estimate_from_photos")
     def test_complete_skips_already_finished_transaction(self, mock_estimate):
-        mock_estimate.return_value = dict(ESTIMATED_SEVEN)
+        mock_estimate.return_value = dict(ESTIMATED_MEASUREMENTS)
         tx = BodyPhotoTransaction.objects.create(
             user=self.user, status=BodyPhotoTransaction.Status.FAILED
         )

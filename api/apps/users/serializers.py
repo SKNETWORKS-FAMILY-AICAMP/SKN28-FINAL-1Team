@@ -102,7 +102,10 @@ class UserSerializer(serializers.ModelSerializer):
 
 
 BODY_BASIC_FIELDS = ["gender", "height", "weight"]
-BODY_DETAIL_FIELDS = ["chest", "waist", "hip", "thigh", "calf", "arm", "shoulder"]
+BODY_DETAIL_FIELDS = [
+    "chest", "waist", "hip", "thigh", "calf", "arm", "shoulder",
+    "neck_length", "thigh_calf_ratio", "torso_leg_ratio"
+]
 
 
 class BodyMeasurementSerializer(serializers.ModelSerializer):
@@ -141,7 +144,7 @@ class BodyBasicInputSerializer(serializers.ModelSerializer):
 
 
 class BodyDetailInputSerializer(serializers.ModelSerializer):
-    """PATCH /users/me/body/detail — 상세 둘레 수치. 전부 선택 입력.
+    """PATCH /users/me/body/detail — 상세 치수·체형 지표. 전부 선택 입력.
 
     보낸 필드만 갱신하며(partial), null을 보내면 해당 값을 지운다.
     """
@@ -231,7 +234,7 @@ class BodyEstimationResultSerializer(serializers.Serializer):
         allow_null=True, help_text="사진 측정일 때만 값이 있다. 무사진 추정은 null."
     )
     measurement = BodyMeasurementSerializer(
-        help_text="추정된 신체치수 전체. 상세 7개는 항상 채워져 있다."
+        help_text="추정된 신체치수 전체. 상세 7개와 체형 지표 3개가 포함된다."
     )
     error_message = serializers.CharField(
         allow_null=True, help_text="실패했을 때만 사유가 들어간다."
