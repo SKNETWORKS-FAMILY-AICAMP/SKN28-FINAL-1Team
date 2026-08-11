@@ -323,6 +323,15 @@ export function SharedSpaceJoinSheet({
   );
 }
 
+function makeInviteCode(): string {
+  const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
+  let code = '';
+  for (let i = 0; i < 6; i++) {
+    code += chars.charAt(Math.floor(Math.random() * chars.length));
+  }
+  return code;
+}
+
 export function createSharedSpace(name = '우리 옷장'): SharedSpace {
   return {
     id: `space-${Date.now()}`,

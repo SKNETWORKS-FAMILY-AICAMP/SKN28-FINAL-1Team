@@ -261,25 +261,27 @@ export function ChatConversation({
       style={styles.flex}
       behavior={Platform.OS === 'ios' ? 'padding' : undefined}
       keyboardVerticalOffset={0}
-      // Web HTML5 Drag and drop
-      onDragOver={(e: any) => {
-        if (Platform.OS === 'web') {
-          e.preventDefault();
-        }
-      }}
-      onDrop={(e: any) => {
-        if (Platform.OS === 'web') {
-          e.preventDefault();
-          try {
-            const dataStr = e.dataTransfer.getData('text/plain');
-            if (dataStr) {
-              const item = JSON.parse(dataStr);
-              if (item && item.id && item.image) {
-                handleSelectClosetItems([item]);
+      {...{
+        // Web HTML5 Drag and drop
+        onDragOver: (e: any) => {
+          if (Platform.OS === 'web') {
+            e.preventDefault();
+          }
+        },
+        onDrop: (e: any) => {
+          if (Platform.OS === 'web') {
+            e.preventDefault();
+            try {
+              const dataStr = e.dataTransfer.getData('text/plain');
+              if (dataStr) {
+                const item = JSON.parse(dataStr);
+                if (item && item.id && item.image) {
+                  handleSelectClosetItems([item]);
+                }
               }
+            } catch (err) {
+              console.error('Drop parsing error:', err);
             }
-          } catch (err) {
-            console.error('Drop parsing error:', err);
           }
         }
       }}>
@@ -288,7 +290,7 @@ export function ChatConversation({
         style={styles.flex}
         contentContainerStyle={[styles.messages, widthStyle]}
         keyboardShouldPersistTaps="handled">
-        {messages.map((m) => {
+        {messages.map((m: any) => {
           if (m.role === 'user') {
             return (
               <View key={m.id} style={styles.userRow}>

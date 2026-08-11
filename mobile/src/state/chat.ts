@@ -33,7 +33,8 @@ export type ChatMessage =
   | { id: string; role: 'user'; kind: 'image'; uri?: string }
   /** 첨부한 사진에서 읽어낸 무드 — 추구미로 삼을지 묻는 카드 */
   | { id: string; role: 'ai'; kind: 'mood'; tags: string[] }
-  | { id: string; role: 'ai'; kind: 'rec'; title: string; tags: string[] };
+  | { id: string; role: 'ai'; kind: 'rec'; title: string; tags: string[] }
+  | { id: string; role: 'user'; kind: 'closet_items'; items: { id: string; image: string; name: string }[] };
 
 export type ChatSession = {
   id: string;
