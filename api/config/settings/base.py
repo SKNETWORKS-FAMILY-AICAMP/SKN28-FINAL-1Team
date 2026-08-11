@@ -390,3 +390,13 @@ DAILY_LOOK_RENDER_GEMINI_MODEL = os.getenv(
 DAILY_LOOK_RENDER_GEMINI_URL = os.getenv(
     "DAILY_LOOK_RENDER_GEMINI_URL", f"{GEMINI_API_BASE_URL}/v1beta/interactions"
 )
+# 결과 이미지 형식. Gemini는 JPEG만 내준다.
+#
+#     The value 'image/png' is not supported for 'response_format.mime_type'.
+#     Supported values: 'image/jpeg'.
+#
+# 입력은 PNG로 받는다 — 이 제약은 출력에만 걸린다. 백엔드마다 형식이 다르므로
+# 저장할 때 실제 바이트를 보고 확장자와 Content-Type을 정한다 (outfit_render).
+DAILY_LOOK_RENDER_GEMINI_MIME_TYPE = os.getenv(
+    "DAILY_LOOK_RENDER_GEMINI_MIME_TYPE", "image/jpeg"
+)

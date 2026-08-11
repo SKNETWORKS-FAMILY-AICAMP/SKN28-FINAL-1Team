@@ -34,7 +34,26 @@ from apps.recommend.services import storage
 
 logger = logging.getLogger(__name__)
 
-RENDER_OBJECT_NAME = "render_frontal.png"
+RENDER_BASENAME = "render_frontal"
+
+#: 착용 이미지의 형식은 백엔드가 정한다. OpenRouter(Qwen)는 PNG를 주고 Gemini는
+#: JPEG만 준다 — response_format.mime_type에 image/png을 넣으면 400이다.
+#: 그래서 확장자를 하나로 못 박지 않고, **저장할 때 실제 바이트를 보고** 정한다.
+#: 재사용 검사는 두 확장자를 모두 본다. 한쪽만 보면 이미 만들어 둔 이미지를
+#: 못 찾고 매번 다시 만들어 요금이 사용자 수만큼 붙는다.
+RENDER_EXTENSIONS = (".png", ".jpg")
+DEFAULT_RENDER_EXTENSION = ".png"
+
+#: 확장자·Content-Type을 정하기 위한 매직 바이트. 응답이 알려준 mime을 믿지
+#: 않는다 — 백엔드가 헤더와 다른 바이트를 준 적이 있고, 틀리면 브라우저가
+#: 못 여는 파일이 S3에 영구히 남는다.
+_MAGIC = (
+    (b"\x89PNG\r\n\x1a\n", ".png", "image/png"),
+    (b"\xff\xd8\xff", ".jpg", "image/jpeg"),
+    (b"RIFF", ".webp", "image/webp"),
+)
+
+RENDER_OBJECT_NAME = RENDER_BASENAME + DEFAULT_RENDER_EXTENSION  # 하위호환
 
 #: 백엔드 이름. 참조 장수만 보고 고른다.
 BACKEND_OPENROUTER = "openrouter"
@@ -100,9 +119,31 @@ class RenderRef:
         return {"s3_bucket": self.s3_bucket, "s3_key": self.s3_key}
 
 
-def render_key_for(item_s3_key: str) -> str:
+def render_key_for(item_s3_key: str, extension: str = DEFAULT_RENDER_EXTENSION) -> str:
     """아이템 이미지 키에서 착용 이미지 키를 유도한다."""
-    return posixpath.join(posixpath.dirname(item_s3_key), RENDER_OBJECT_NAME)
+    return posixpath.join(
+        posixpath.dirname(item_s3_key), RENDER_BASENAME + extension
+    )
+
+
+def _sniff(image: bytes) -> tuple[str, str]:
+    """이미지 바이트에서 (확장자, Content-Type)을 알아낸다."""
+    for magic, extension, content_type in _MAGIC:
+        if image.startswith(magic):
+            return extension, content_type
+    logger.warning(
+        "착용 이미지 형식을 알 수 없어 PNG로 저장합니다 (앞 8바이트: %r)", image[:8]
+    )
+    return DEFAULT_RENDER_EXTENSION, "image/png"
+
+
+def _find_existing(bucket: str, item_s3_key: str) -> str | None:
+    """이미 만들어 둔 착용 이미지가 있으면 그 키. 확장자 후보를 모두 본다."""
+    for extension in RENDER_EXTENSIONS:
+        key = render_key_for(item_s3_key, extension)
+        if storage.exists_for(bucket, key):
+            return key
+    return None
 
 
 def _ordered_items(items: list[dict[str, Any]]) -> list[tuple[int, dict[str, Any]]]:
@@ -183,12 +224,10 @@ def ensure_render(*, bucket: str, items: list[dict[str, Any]]) -> RenderRef | No
         logger.info("착용 이미지 생략: 버킷 또는 참조 아이템 이미지가 없습니다")
         return None
 
-    key = render_key_for(reference_keys[0])
-
     # ── 재사용 ──
-    if storage.exists_for(bucket, key):
-        logger.info("착용 이미지 재사용: s3://%s/%s", bucket, key)
-        return RenderRef(bucket, key)
+    if existing := _find_existing(bucket, reference_keys[0]):
+        logger.info("착용 이미지 재사용: s3://%s/%s", bucket, existing)
+        return RenderRef(bucket, existing)
 
     if not settings.DAILY_LOOK_RENDER_ENABLED:
         logger.info("착용 이미지 생성이 꺼져 있습니다 (DAILY_LOOK_RENDER_ENABLED=0)")
@@ -197,10 +236,14 @@ def ensure_render(*, bucket: str, items: list[dict[str, Any]]) -> RenderRef | No
     image = _generate(
         bucket=bucket, reference_keys=reference_keys, backend=plan.backend
     )
-    storage.put_bytes_for(bucket, key, image, "image/png")
+    # 확장자와 Content-Type은 받은 바이트가 정한다. .png 키에 JPEG를 넣어 두면
+    # S3가 Content-Type: image/png으로 내려보내고, 일부 클라이언트는 못 연다.
+    extension, content_type = _sniff(image)
+    key = render_key_for(reference_keys[0], extension)
+    storage.put_bytes_for(bucket, key, image, content_type)
     logger.info(
-        "착용 이미지 생성: s3://%s/%s (%s, 참조 %d장, %d bytes)",
-        bucket, key, plan.backend, len(reference_keys), len(image),
+        "착용 이미지 생성: s3://%s/%s (%s, %s, 참조 %d장, %d bytes)",
+        bucket, key, plan.backend, content_type, len(reference_keys), len(image),
     )
     return RenderRef(bucket, key)
 
@@ -234,7 +277,9 @@ def _generate_gemini(*, bucket: str, reference_keys: list[str]) -> bytes:
         payload_input.append(
             {
                 "type": "image",
-                "mime_type": "image/png",
+                # 입력 형식도 바이트로 판단한다. 파이프라인이 PNG를 쓰지만,
+                # 헤더와 실제가 어긋나면 여기서도 400이 난다.
+                "mime_type": _sniff(blob)[1],
                 "data": base64.b64encode(blob).decode(),
             }
         )
@@ -248,7 +293,8 @@ def _generate_gemini(*, bucket: str, reference_keys: list[str]) -> bytes:
                 "input": payload_input,
                 "response_format": {
                     "type": "image",
-                    "mime_type": "image/png",
+                    # 출력 형식. Gemini는 JPEG만 받는다 (image/png은 400).
+                    "mime_type": settings.DAILY_LOOK_RENDER_GEMINI_MIME_TYPE,
                     "aspect_ratio": settings.DAILY_LOOK_RENDER_ASPECT_RATIO,
                     "image_size": settings.DAILY_LOOK_RENDER_RESOLUTION,
                 },
@@ -287,7 +333,8 @@ def _generate_openrouter(*, bucket: str, reference_keys: list[str]) -> bytes:
         {
             "type": "image_url",
             "image_url": {
-                "url": "data:image/png;base64," + base64.b64encode(blob).decode()
+                "url": f"data:{_sniff(blob)[1]};base64,"
+                + base64.b64encode(blob).decode()
             },
         }
         for blob in _load_references(bucket, reference_keys)

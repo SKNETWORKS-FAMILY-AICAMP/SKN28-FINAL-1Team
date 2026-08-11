@@ -21,9 +21,11 @@ from apps.recommend.services.outfit_render import (
     BACKEND_OPENROUTER,
     GEMINI_MAX_REFERENCES,
     OPENROUTER_MAX_REFERENCES,
+    DEFAULT_RENDER_EXTENSION,
     RenderError,
     RenderRef,
     _extract_image,
+    _sniff,
     _generate,
     _reference_keys,
     ensure_render,
@@ -367,7 +369,7 @@ class GeminiRequestTests(TestCase):
         DAILY_LOOK_RENDER_RESOLUTION="1K",
     )
     @patch("apps.recommend.services.outfit_render.storage.download_for",
-           return_value=b"\x89PNG-fake")
+           return_value=PNG)
     @patch("apps.recommend.services.outfit_render.requests.post")
     def test_five_items_go_to_gemini_with_all_references(self, post, _download) -> None:
         post.return_value = Mock(
@@ -411,3 +413,105 @@ class GeminiRequestTests(TestCase):
     def test_openrouter_shape_still_works(self) -> None:
         payload = {"data": [{"b64_json": base64.b64encode(b"legacy").decode()}]}
         self.assertEqual(_extract_image(payload), b"legacy")
+
+
+JPEG = b"\xff\xd8\xff\xe0" + b"fake-jpeg-bytes"
+RENDER_KEY_JPG = "goldenset/derived/v1/095/render_frontal.jpg"
+
+
+class RenderFormatTests(TestCase):
+    """착용 이미지의 형식은 백엔드가 정한다.
+
+    Gemini는 JPEG만 내준다:
+
+        The value 'image/png' is not supported for 'response_format.mime_type'.
+        Supported values: 'image/jpeg'.
+
+    (입력은 PNG 그대로 받는다. 이 제약은 출력에만 걸린다.)
+
+    그래서 확장자를 .png로 못 박을 수 없다. .png 키에 JPEG를 넣어 두면 S3가
+    Content-Type: image/png으로 내려보내고 일부 클라이언트가 못 연다.
+    """
+
+    ITEMS_5 = [
+        {"s3_key": f"goldenset/derived/v1/095/item_{n:03d}.png",
+         "category_large": "상의"}
+        for n in range(5)
+    ]
+
+    def test_sniff_reads_the_bytes_not_the_header(self) -> None:
+        self.assertEqual(_sniff(PNG), (".png", "image/png"))
+        self.assertEqual(_sniff(JPEG), (".jpg", "image/jpeg"))
+
+    def test_unknown_bytes_fall_back_without_crashing(self) -> None:
+        """형식을 몰라도 추천은 살아남아야 한다."""
+        self.assertEqual(_sniff(b"???")[0], DEFAULT_RENDER_EXTENSION)
+
+    @override_settings(DAILY_LOOK_RENDER_GEMINI_THRESHOLD=5,
+                       DAILY_LOOK_RENDER_MAX_REFERENCES=8)
+    @patch("apps.recommend.services.outfit_render.storage.put_bytes_for")
+    @patch("apps.recommend.services.outfit_render.storage.exists_for",
+           return_value=False)
+    @patch("apps.recommend.services.outfit_render._generate", return_value=JPEG)
+    def test_jpeg_is_stored_as_jpg_with_the_right_content_type(
+        self, _generate_mock, _exists, put
+    ) -> None:
+        ref = ensure_render(bucket=BUCKET, items=self.ITEMS_5)
+        put.assert_called_once_with(BUCKET, RENDER_KEY_JPG, JPEG, "image/jpeg")
+        self.assertEqual(ref.s3_key, RENDER_KEY_JPG)
+
+    @patch("apps.recommend.services.outfit_render._generate")
+    @patch("apps.recommend.services.outfit_render.storage.put_bytes_for")
+    def test_existing_jpg_is_reused_even_though_png_is_the_default(
+        self, put, generate
+    ) -> None:
+        """확장자 후보를 하나만 보면 이미 만든 이미지를 못 찾고 매번 다시 만든다.
+
+        착용 이미지는 코디당 한 번만 만드는 게 이 기능의 요금 설계다. 여기가
+        새면 비용이 사용자 수만큼 붙는다.
+        """
+        with patch(
+            "apps.recommend.services.outfit_render.storage.exists_for",
+            side_effect=lambda bucket, key: key.endswith(".jpg"),
+        ):
+            ref = ensure_render(bucket=BUCKET, items=ITEMS)
+
+        self.assertEqual(ref.s3_key, RENDER_KEY_JPG)
+        generate.assert_not_called()
+        put.assert_not_called()
+
+    def test_key_helper_takes_an_extension(self) -> None:
+        self.assertEqual(render_key_for(ITEMS[0]["s3_key"], ".jpg"), RENDER_KEY_JPG)
+        # 기본값은 그대로 .png — 기존에 저장된 이미지를 계속 찾을 수 있어야 한다.
+        self.assertEqual(render_key_for(ITEMS[0]["s3_key"]), RENDER_KEY)
+
+
+class GeminiOutputFormatTests(TestCase):
+    @override_settings(
+        GEMINI_API_KEY="test-key",
+        DAILY_LOOK_RENDER_GEMINI_MIME_TYPE="image/jpeg",
+    )
+    @patch("apps.recommend.services.outfit_render.storage.download_for",
+           return_value=PNG)
+    @patch("apps.recommend.services.outfit_render.requests.post")
+    def test_output_is_requested_as_jpeg_while_input_stays_png(
+        self, post, _download
+    ) -> None:
+        """실제로 난 400을 그대로 못 박는다.
+
+            The value 'image/png' is not supported for
+            'response_format.mime_type'. Supported values: 'image/jpeg'.
+        """
+        post.return_value = Mock(
+            status_code=200,
+            json=Mock(return_value={"steps": [{"content": [
+                {"type": "image", "data": base64.b64encode(JPEG).decode()}
+            ]}]}),
+        )
+        _generate(bucket=BUCKET, reference_keys=["a.png"], backend=BACKEND_GEMINI)
+
+        body = post.call_args.kwargs["json"]
+        self.assertEqual(body["response_format"]["mime_type"], "image/jpeg")
+        # 입력은 PNG 그대로다 — 400은 출력에만 걸린 제약이었다.
+        images = [p for p in body["input"] if p["type"] == "image"]
+        self.assertEqual(images[0]["mime_type"], "image/png")
