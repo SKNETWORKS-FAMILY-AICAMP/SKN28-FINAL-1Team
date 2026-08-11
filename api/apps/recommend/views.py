@@ -1,7 +1,11 @@
 import logging
+import re
 from datetime import timedelta
 
+import redis
 from django.conf import settings
+from django.db import close_old_connections
+from django.http import StreamingHttpResponse
 from django.urls import reverse
 from django.utils import timezone
 from drf_spectacular.utils import (
@@ -12,15 +16,19 @@ from drf_spectacular.utils import (
     extend_schema,
 )
 from rest_framework import status
-from rest_framework.exceptions import NotFound
+from rest_framework.exceptions import NotAuthenticated, NotFound
 from rest_framework.parsers import FormParser, MultiPartParser
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from .models import OutfitAnalysis
+from apps.chat.renderers import ServerSentEventRenderer
+from apps.chat.services import identity as identity_service
+
+from .models import OutfitAnalysis, OutfitRenderJob
 from .serializers import (
+    DailyLookSerializer,
     OutfitAnalysisAcceptedSerializer,
     OutfitAnalysisClaimRequestSerializer,
     OutfitAnalysisClaimResponseSerializer,
@@ -29,16 +37,51 @@ from .serializers import (
     OutfitAnalysisListResponseSerializer,
     OutfitAnalysisPublicSerializer,
     OutfitAnalysisRequestSerializer,
+    OutfitRenderJobSerializer,
+    RecommendationCardSerializer,
+    RecommendationFeedbackRequestSerializer,
+    RecommendationFeedbackSerializer,
+    RecommendationHistoryItemSerializer,
+    RecommendationHistoryQuerySerializer,
+    RecommendationHistoryResponseSerializer,
+    RecommendationResultDetailSerializer,
 )
-from .serializers import DailyLookSerializer
 from .services import analysis as analysis_service
 from .services import claim as claim_service
 from .services import daily_look as daily_look_service
+from .services import recommendation_results as recommendation_service
+from .services import render_jobs
+from .services.render_events import (
+    RenderEvent,
+    RenderEventStore,
+    encode_sse,
+    heartbeat,
+)
 
 logger = logging.getLogger(__name__)
 
 DEFAULT_HISTORY_LIMIT = 20
 MAX_HISTORY_LIMIT = 100
+_REDIS_STREAM_ID = re.compile(r"^(?:0|[1-9]\d*)-(?:0|[1-9]\d*)$")
+
+
+def _recommendation_identity(request: Request):
+    """회원 JWT 또는 게스트 채팅 쿠키를 같은 추천 소유자로 해석한다."""
+    guest_token = request.COOKIES.get(settings.CHAT_GUEST_COOKIE_NAME, "")
+    try:
+        identity = identity_service.resolve_identity(
+            user=request.user,
+            guest_token=guest_token,
+        )
+    except identity_service.ChatIdentityError as exc:
+        raise NotAuthenticated(
+            {"code": exc.code, "detail": "유효한 채팅 identity가 필요합니다."}
+        ) from exc
+
+    if identity.identity_type == identity.IdentityType.GUEST:
+        django_request = getattr(request, "_request", request)
+        django_request.chat_guest_cookie_refresh_token = guest_token
+    return identity
 
 
 def _positive_int(raw: str | None, *, default: int) -> int:
@@ -485,6 +528,354 @@ class OutfitAnalysisClaimView(APIView):
         )
         response_serializer.is_valid(raise_exception=True)
         return Response(response_serializer.validated_data)
+
+
+class RecommendationHistoryView(APIView):
+    """회원과 게스트가 자기 채팅 추천 이력을 조회한다."""
+
+    permission_classes = [AllowAny]
+
+    @extend_schema(
+        operation_id="recommendation_history_list",
+        tags=["Chat Recommendation"],
+        summary="내 추천 이력 목록",
+        parameters=[RecommendationHistoryQuerySerializer],
+        responses={
+            200: RecommendationHistoryResponseSerializer,
+            401: OpenApiResponse(
+                description="회원 JWT 또는 유효한 게스트 채팅 쿠키 필요"
+            ),
+        },
+    )
+    def get(self, request: Request) -> Response:
+        identity = _recommendation_identity(request)
+        query = RecommendationHistoryQuerySerializer(data=request.query_params)
+        query.is_valid(raise_exception=True)
+        data = query.validated_data
+
+        queryset = recommendation_service.owned_results(identity)
+        if mode := data.get("mode"):
+            queryset = queryset.filter(mode=mode)
+
+        total = queryset.count()
+        offset = data["offset"]
+        limit = data["limit"]
+        page = queryset[offset : offset + limit]
+        return Response(
+            {
+                "count": total,
+                "limit": limit,
+                "offset": offset,
+                "results": RecommendationHistoryItemSerializer(page, many=True).data,
+            }
+        )
+
+
+class RecommendationResultDetailView(APIView):
+    """한 번의 추천 실행에서 확정된 카드들을 조회한다."""
+
+    permission_classes = [AllowAny]
+
+    @extend_schema(
+        operation_id="recommendation_result_retrieve",
+        tags=["Chat Recommendation"],
+        summary="추천 결과와 카드 목록 조회",
+        responses={
+            200: RecommendationResultDetailSerializer,
+            404: OpenApiResponse(
+                description="결과가 없거나 요청 identity의 소유가 아님"
+            ),
+        },
+    )
+    def get(self, request: Request, result_id) -> Response:
+        identity = _recommendation_identity(request)
+        result = recommendation_service.owned_result(
+            identity=identity,
+            result_id=result_id,
+        )
+        if result is None:
+            raise NotFound("추천 결과를 찾을 수 없습니다.")
+        return Response(RecommendationResultDetailSerializer(result).data)
+
+
+class RecommendationCardDetailView(APIView):
+    """추천 결과 안의 검증 통과 카드 한 장을 조회한다."""
+
+    permission_classes = [AllowAny]
+
+    @extend_schema(
+        operation_id="recommendation_card_retrieve",
+        tags=["Chat Recommendation"],
+        summary="추천 카드 상세 조회",
+        responses={
+            200: RecommendationCardSerializer,
+            404: OpenApiResponse(
+                description="카드가 없거나 요청 identity의 소유가 아님"
+            ),
+        },
+    )
+    def get(self, request: Request, result_id, card_id) -> Response:
+        identity = _recommendation_identity(request)
+        card = recommendation_service.owned_card(
+            identity=identity,
+            result_id=result_id,
+            card_id=card_id,
+        )
+        if card is None:
+            raise NotFound("추천 카드를 찾을 수 없습니다.")
+        return Response(RecommendationCardSerializer(card).data)
+
+
+class RecommendationFeedbackView(APIView):
+    """추천 카드의 최신 피드백을 멱등 생성·교체·삭제한다."""
+
+    permission_classes = [AllowAny]
+
+    @extend_schema(
+        operation_id="recommendation_feedback_put",
+        tags=["Chat Recommendation"],
+        summary="추천 카드 피드백 생성 또는 교체",
+        request=RecommendationFeedbackRequestSerializer,
+        responses={
+            200: RecommendationFeedbackSerializer,
+            201: RecommendationFeedbackSerializer,
+            404: OpenApiResponse(
+                description="카드가 없거나 요청 identity의 소유가 아님"
+            ),
+        },
+    )
+    def put(self, request: Request, result_id, card_id) -> Response:
+        identity = _recommendation_identity(request)
+        serializer = RecommendationFeedbackRequestSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        feedback, created = recommendation_service.put_feedback(
+            identity=identity,
+            result_id=result_id,
+            card_id=card_id,
+            **serializer.validated_data,
+        )
+        if feedback is None:
+            raise NotFound("추천 카드를 찾을 수 없습니다.")
+        return Response(
+            RecommendationFeedbackSerializer(feedback).data,
+            status=status.HTTP_201_CREATED if created else status.HTTP_200_OK,
+        )
+
+    @extend_schema(
+        operation_id="recommendation_feedback_delete",
+        tags=["Chat Recommendation"],
+        summary="추천 카드 피드백 삭제",
+        responses={
+            204: None,
+            404: OpenApiResponse(
+                description="카드가 없거나 요청 identity의 소유가 아님"
+            ),
+        },
+    )
+    def delete(self, request: Request, result_id, card_id) -> Response:
+        identity = _recommendation_identity(request)
+        card = recommendation_service.owned_card(
+            identity=identity,
+            result_id=result_id,
+            card_id=card_id,
+        )
+        if card is None:
+            raise NotFound("추천 카드를 찾을 수 없습니다.")
+        recommendation_service.delete_feedback(
+            identity=identity,
+            result_id=result_id,
+            card_id=card_id,
+        )
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+
+class RecommendationCardRenderView(APIView):
+    """소유한 추천 카드의 이미지 생성 접수와 현재 상태 조회."""
+
+    permission_classes = [AllowAny]
+
+    def _card(self, request: Request, result_id, card_id):
+        identity = _recommendation_identity(request)
+        card = recommendation_service.owned_card(
+            identity=identity,
+            result_id=result_id,
+            card_id=card_id,
+        )
+        if card is None:
+            raise NotFound("추천 카드를 찾을 수 없습니다.")
+        return card
+
+    @extend_schema(
+        operation_id="recommendation_card_render_retrieve",
+        tags=["Chat Recommendation"],
+        summary="추천 카드 이미지 생성 상태 조회",
+        responses={
+            200: OutfitRenderJobSerializer,
+            404: OpenApiResponse(
+                description="카드·작업이 없거나 요청 identity의 소유가 아님"
+            ),
+        },
+    )
+    def get(self, request: Request, result_id, card_id) -> Response:
+        card = self._card(request, result_id, card_id)
+        job = OutfitRenderJob.objects.filter(composition=card).first()
+        if job is None:
+            raise NotFound("이미지 생성 작업을 찾을 수 없습니다.")
+        return Response(
+            OutfitRenderJobSerializer(job, context={"request": request}).data
+        )
+
+    @extend_schema(
+        operation_id="recommendation_card_render_create",
+        tags=["Chat Recommendation"],
+        summary="추천 카드 이미지 생성 접수",
+        request=None,
+        responses={
+            200: OutfitRenderJobSerializer,
+            202: OutfitRenderJobSerializer,
+            404: OpenApiResponse(
+                description="카드가 없거나 요청 identity의 소유가 아님"
+            ),
+            503: OpenApiResponse(description="이미지 생성 큐를 사용할 수 없음"),
+        },
+    )
+    def post(self, request: Request, result_id, card_id) -> Response:
+        card = self._card(request, result_id, card_id)
+        job, should_enqueue = render_jobs.prepare_job(card)
+        if should_enqueue:
+            try:
+                job = render_jobs.enqueue_prepared(job)
+            except render_jobs.RenderQueueUnavailable:
+                job.refresh_from_db()
+                return Response(
+                    OutfitRenderJobSerializer(job, context={"request": request}).data,
+                    status=status.HTTP_503_SERVICE_UNAVAILABLE,
+                )
+        response_status = (
+            status.HTTP_200_OK
+            if job.status == OutfitRenderJob.Status.SUCCEEDED
+            else status.HTTP_202_ACCEPTED
+        )
+        return Response(
+            OutfitRenderJobSerializer(job, context={"request": request}).data,
+            status=response_status,
+        )
+
+
+def _owned_render_job(request: Request, job_id) -> OutfitRenderJob:
+    identity = _recommendation_identity(request)
+    job = render_jobs.owned_job(identity=identity, job_id=job_id)
+    if job is None:
+        raise NotFound("이미지 생성 작업을 찾을 수 없습니다.")
+    return job
+
+
+def _render_terminal_event(
+    job: OutfitRenderJob,
+    request: Request,
+    *,
+    event_id: str = "",
+) -> RenderEvent | None:
+    event_type = {
+        OutfitRenderJob.Status.SUCCEEDED: "completed",
+        OutfitRenderJob.Status.FAILED: "failed",
+    }.get(job.status)
+    if event_type is None:
+        return None
+    return RenderEvent(
+        id=event_id,
+        event=event_type,
+        data=OutfitRenderJobSerializer(job, context={"request": request}).data,
+    )
+
+
+class OutfitRenderEventStreamView(APIView):
+    """소유권을 확인한 이미지 작업의 진행 이벤트를 재생한다."""
+
+    permission_classes = [AllowAny]
+    renderer_classes = [ServerSentEventRenderer]
+
+    def get(self, request: Request, job_id):
+        job = _owned_render_job(request, job_id)
+        requested_cursor = request.headers.get(
+            "Last-Event-ID"
+        ) or request.query_params.get("last_event_id", "")
+        cursor = (
+            requested_cursor if _REDIS_STREAM_ID.fullmatch(requested_cursor) else "0-0"
+        )
+        store = RenderEventStore()
+
+        def stream():
+            nonlocal cursor
+            yield f"retry: {settings.OUTFIT_RENDER_SSE_RETRY_MILLISECONDS}\n\n"
+            try:
+                replay = store.read(
+                    job.pk,
+                    last_event_id=cursor,
+                    block_milliseconds=0,
+                )
+            except redis.RedisError:
+                logger.warning(
+                    "코디 이미지 SSE 재생 실패: job=%s", job.pk, exc_info=True
+                )
+                terminal = _render_terminal_event(job, request)
+                if terminal is not None:
+                    yield encode_sse(terminal)
+                else:
+                    yield 'event: stream_error\ndata: {"retryable":true}\n\n'
+                return
+
+            for event in replay:
+                cursor = event.id
+                if event.terminal:
+                    current = OutfitRenderJob.objects.get(pk=job.pk)
+                    terminal = _render_terminal_event(
+                        current, request, event_id=event.id
+                    )
+                    yield encode_sse(terminal or event)
+                    return
+                yield encode_sse(event)
+
+            terminal = _render_terminal_event(job, request)
+            if terminal is not None:
+                yield encode_sse(terminal)
+                return
+
+            while True:
+                try:
+                    events = store.read(job.pk, last_event_id=cursor)
+                except redis.RedisError:
+                    logger.warning(
+                        "코디 이미지 SSE 읽기 실패: job=%s", job.pk, exc_info=True
+                    )
+                    yield 'event: stream_error\ndata: {"retryable":true}\n\n'
+                    return
+                if events:
+                    for event in events:
+                        cursor = event.id
+                        if event.terminal:
+                            current = OutfitRenderJob.objects.get(pk=job.pk)
+                            terminal = _render_terminal_event(
+                                current, request, event_id=event.id
+                            )
+                            yield encode_sse(terminal or event)
+                            return
+                        yield encode_sse(event)
+                    continue
+
+                close_old_connections()
+                current = OutfitRenderJob.objects.get(pk=job.pk)
+                terminal = _render_terminal_event(current, request)
+                if terminal is not None:
+                    yield encode_sse(terminal)
+                    return
+                yield heartbeat()
+
+        response = StreamingHttpResponse(stream(), content_type="text/event-stream")
+        response["Cache-Control"] = "no-cache, no-transform"
+        response["X-Accel-Buffering"] = "no"
+        return response
 
 
 DAILY_LOOK_PENDING_EXAMPLE = OpenApiExample(

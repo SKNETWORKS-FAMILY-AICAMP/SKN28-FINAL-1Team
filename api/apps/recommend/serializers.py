@@ -2,12 +2,20 @@ import logging
 
 from django.conf import settings
 from django.core.files.uploadedfile import UploadedFile
+from django.urls import reverse
 from drf_spectacular.utils import extend_schema_field
 from rest_framework import serializers
 
-from .models import DailyLook, OutfitAnalysis
+from .models import (
+    DailyLook,
+    OutfitAnalysis,
+    OutfitComposition,
+    OutfitCompositionItem,
+    OutfitRenderJob,
+    RecommendationFeedback,
+    RecommendationResult,
+)
 from .services import storage, wardrobe_link
-
 
 MAX_OUTFIT_IMAGE_SIZE_MB = 15
 ALLOWED_OUTFIT_IMAGE_CONTENT_TYPES = {
@@ -401,7 +409,7 @@ class DailyLookSerializer(serializers.ModelSerializer):
     """
 
     look_id = serializers.UUIDField(source="id", read_only=True)
-    result = DailyLookResultSerializer(read_only=True)
+    result = serializers.SerializerMethodField()
     context = serializers.SerializerMethodField()
     poll_after_ms = serializers.SerializerMethodField()
     detail = serializers.SerializerMethodField()
@@ -419,6 +427,13 @@ class DailyLookSerializer(serializers.ModelSerializer):
             "created_at",
             "updated_at",
         ]
+
+    @extend_schema_field(DailyLookResultSerializer(allow_null=True))
+    def get_result(self, obj: DailyLook) -> dict | None:
+        """완성 전의 빈 JSON을 완성 결과 스키마로 직렬화하지 않는다."""
+        if obj.status != DailyLook.Status.SUCCEEDED or not obj.result:
+            return None
+        return DailyLookResultSerializer(obj.result).data
 
     def get_context(self, obj: DailyLook) -> dict:
         """무엇이 개인화에 쓰였는지만 알려준다 (값 자체는 프로필 API에 있다)."""
@@ -450,3 +465,258 @@ class DailyLookSerializer(serializers.ModelSerializer):
         if obj.status == DailyLook.Status.FAILED:
             return "오늘의 룩을 만들지 못했어요. 잠시 후 다시 확인해주세요."
         return None
+
+class RecommendationHistoryQuerySerializer(serializers.Serializer):
+    """추천 이력 필터와 offset 페이지네이션 입력."""
+
+    mode = serializers.ChoiceField(
+        choices=RecommendationResult.Mode.choices,
+        required=False,
+    )
+    limit = serializers.IntegerField(default=20, min_value=1, max_value=100)
+    offset = serializers.IntegerField(default=0, min_value=0)
+
+
+class RecommendationFeedbackRequestSerializer(serializers.Serializer):
+    """카드별 최신 피드백 입력. PUT할 때 전체 상태를 교체한다."""
+
+    reaction = serializers.ChoiceField(choices=RecommendationFeedback.Reaction.choices)
+    reason_codes = serializers.ListField(
+        child=serializers.RegexField(r"^[A-Z][A-Z0-9_]{0,49}$"),
+        required=False,
+        default=list,
+        max_length=5,
+    )
+    comment = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        default="",
+        max_length=500,
+        trim_whitespace=True,
+    )
+
+    def validate_reason_codes(self, value: list[str]) -> list[str]:
+        if len(value) != len(set(value)):
+            raise serializers.ValidationError("피드백 사유 코드는 중복될 수 없습니다.")
+        return value
+
+
+class RecommendationFeedbackSerializer(serializers.ModelSerializer):
+    feedback_id = serializers.UUIDField(source="id", read_only=True)
+
+    class Meta:
+        model = RecommendationFeedback
+        fields = [
+            "feedback_id",
+            "reaction",
+            "reason_codes",
+            "comment",
+            "created_at",
+            "updated_at",
+        ]
+
+
+def _snapshot_text(snapshot: object, *keys: str) -> str | None:
+    if not isinstance(snapshot, dict):
+        return None
+    for key in keys:
+        value = snapshot.get(key)
+        if value not in (None, ""):
+            return str(value)
+    return None
+
+
+class RecommendationCardItemSerializer(serializers.ModelSerializer):
+    item_id = serializers.UUIDField(source="id", read_only=True)
+    display_name = serializers.SerializerMethodField()
+    category = serializers.SerializerMethodField()
+    color = serializers.SerializerMethodField()
+    purchase_url = serializers.SerializerMethodField()
+
+    class Meta:
+        model = OutfitCompositionItem
+        fields = [
+            "item_id",
+            "position",
+            "slot",
+            "source_type",
+            "source_id",
+            "display_name",
+            "category",
+            "color",
+            "image_ref",
+            "price_snapshot",
+            "purchase_url",
+            "reasons",
+        ]
+
+    def get_display_name(self, obj: OutfitCompositionItem) -> str:
+        return (
+            _snapshot_text(
+                obj.item_snapshot,
+                "display_name",
+                "item_name",
+                "product_name",
+                "name",
+                "title",
+            )
+            or obj.slot
+        )
+
+    def get_category(self, obj: OutfitCompositionItem) -> str | None:
+        return _snapshot_text(
+            obj.item_snapshot,
+            "category_small",
+            "category",
+            "category_name",
+            "category_large",
+        )
+
+    def get_color(self, obj: OutfitCompositionItem) -> str | None:
+        return _snapshot_text(obj.item_snapshot, "color", "base_color")
+
+    def get_purchase_url(self, obj: OutfitCompositionItem) -> str | None:
+        if obj.source_type != OutfitCompositionItem.SourceType.PRODUCT:
+            return None
+        return _snapshot_text(
+            obj.item_snapshot,
+            "purchase_url",
+            "product_url",
+            "link",
+            "url",
+        )
+
+
+class RecommendationCardSerializer(serializers.ModelSerializer):
+    card_id = serializers.UUIDField(source="id", read_only=True)
+    items = RecommendationCardItemSerializer(many=True, read_only=True)
+    feedback = serializers.SerializerMethodField()
+
+    class Meta:
+        model = OutfitComposition
+        fields = [
+            "card_id",
+            "rank",
+            "total_product_price",
+            "validation_reasons",
+            "warnings",
+            "items",
+            "feedback",
+        ]
+
+    @extend_schema_field(RecommendationFeedbackSerializer(allow_null=True))
+    def get_feedback(self, obj: OutfitComposition) -> dict | None:
+        try:
+            feedback = obj.feedback
+        except RecommendationFeedback.DoesNotExist:
+            return None
+        return RecommendationFeedbackSerializer(feedback).data
+
+
+class OutfitRenderJobSerializer(serializers.ModelSerializer):
+    job_id = serializers.UUIDField(source="id", read_only=True)
+    card_id = serializers.UUIDField(source="composition_id", read_only=True)
+    image_url = serializers.SerializerMethodField()
+    events_url = serializers.SerializerMethodField()
+    error = serializers.SerializerMethodField()
+
+    class Meta:
+        model = OutfitRenderJob
+        fields = [
+            "job_id",
+            "card_id",
+            "status",
+            "cache_hit",
+            "image_url",
+            "output_media_type",
+            "output_bytes",
+            "provider",
+            "model",
+            "prompt_version",
+            "reference_count",
+            "attempts",
+            "error",
+            "events_url",
+            "enqueued_at",
+            "started_at",
+            "finished_at",
+            "created_at",
+            "updated_at",
+        ]
+
+    def get_image_url(self, obj: OutfitRenderJob) -> str | None:
+        if (
+            obj.status != OutfitRenderJob.Status.SUCCEEDED
+            or not obj.output_s3_bucket
+            or not obj.output_s3_key
+        ):
+            return None
+        return storage.presigned_get_for(
+            obj.output_s3_bucket,
+            obj.output_s3_key,
+            ttl=settings.OUTFIT_RENDER_PRESIGNED_GET_TTL_SECONDS,
+        )
+
+    def get_events_url(self, obj: OutfitRenderJob) -> str:
+        path = reverse("recommend:outfit-render-events", args=[obj.pk])
+        request = self.context.get("request")
+        return request.build_absolute_uri(path) if request is not None else path
+
+    def get_error(self, obj: OutfitRenderJob) -> dict | None:
+        if obj.status != OutfitRenderJob.Status.FAILED:
+            return None
+        return {"code": obj.error_code, "message": obj.error_message}
+
+
+class RecommendationHistoryItemSerializer(serializers.ModelSerializer):
+    result_id = serializers.UUIDField(source="id", read_only=True)
+    card_count = serializers.SerializerMethodField()
+    top_card = serializers.SerializerMethodField()
+
+    class Meta:
+        model = RecommendationResult
+        fields = [
+            "result_id",
+            "session_id",
+            "mode",
+            "created_at",
+            "card_count",
+            "top_card",
+        ]
+
+    def get_card_count(self, obj: RecommendationResult) -> int:
+        return len(getattr(obj, "public_compositions", ()))
+
+    @extend_schema_field(RecommendationCardSerializer(allow_null=True))
+    def get_top_card(self, obj: RecommendationResult) -> dict | None:
+        cards = getattr(obj, "public_compositions", ())
+        return RecommendationCardSerializer(cards[0]).data if cards else None
+
+
+class RecommendationHistoryResponseSerializer(serializers.Serializer):
+    count = serializers.IntegerField()
+    limit = serializers.IntegerField()
+    offset = serializers.IntegerField()
+    results = RecommendationHistoryItemSerializer(many=True)
+
+
+class RecommendationResultDetailSerializer(serializers.ModelSerializer):
+    result_id = serializers.UUIDField(source="id", read_only=True)
+    cards = serializers.SerializerMethodField()
+
+    class Meta:
+        model = RecommendationResult
+        fields = [
+            "result_id",
+            "session_id",
+            "run_id",
+            "mode",
+            "dataset_version",
+            "created_at",
+            "cards",
+        ]
+
+    @extend_schema_field(RecommendationCardSerializer(many=True))
+    def get_cards(self, obj: RecommendationResult) -> list[dict]:
+        cards = getattr(obj, "public_compositions", ())
+        return RecommendationCardSerializer(cards, many=True).data

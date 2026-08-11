@@ -19,15 +19,15 @@ from apps.recommend.services import outfit_render
 from apps.recommend.services.outfit_render import (
     BACKEND_GEMINI,
     BACKEND_OPENROUTER,
+    DEFAULT_RENDER_EXTENSION,
     GEMINI_MAX_REFERENCES,
     OPENROUTER_MAX_REFERENCES,
-    DEFAULT_RENDER_EXTENSION,
     RenderError,
     RenderRef,
     _extract_image,
-    _sniff,
     _generate,
     _reference_keys,
+    _sniff,
     ensure_render,
     existing_render,
     plan_references,
@@ -242,6 +242,7 @@ class ImageApiResponseTests(unittest.TestCase):
         self.assertIsNone(_extract_image({"data": [{"b64_json": "@@@@"}]}))
 
 
+@override_settings(OPENROUTER_API_KEY="test-key")
 class RequestShapeTests(TestCase):
     """요청이 이미지 API 규약대로 나가는지."""
 
@@ -561,8 +562,11 @@ class RenderGenderTests(TestCase):
         self.assertNotIn("남성", prompt_for(""))
         self.assertNotIn("여성", prompt_for(""))
 
-    @override_settings(DAILY_LOOK_RENDER_MAX_REFERENCES=8,
-                       DAILY_LOOK_RENDER_GEMINI_THRESHOLD=99)
+    @override_settings(
+        DAILY_LOOK_RENDER_MAX_REFERENCES=8,
+        DAILY_LOOK_RENDER_GEMINI_THRESHOLD=99,
+        OPENROUTER_API_KEY="test-key",
+    )
     @patch("apps.recommend.services.outfit_render.storage.put_bytes_for")
     @patch("apps.recommend.services.outfit_render.storage.exists_for",
            return_value=False)

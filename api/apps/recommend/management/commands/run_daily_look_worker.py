@@ -132,7 +132,8 @@ class Command(BaseCommand):
             else:
                 # 재시도 예약됐으니 다시 집을 수 있게 QUEUED로 되돌린다.
                 look.status = DailyLook.Status.QUEUED
-                look.save(update_fields=["status", "updated_at"])
+                look.enqueued_at = timezone.now()
+                look.save(update_fields=["status", "enqueued_at", "updated_at"])
             return
 
         queue_service.ack(raw, look_id, spec=SPEC)
@@ -143,7 +144,11 @@ class Command(BaseCommand):
         cutoff = timezone.now() - timedelta(minutes=STALE_MINUTES)
         count = DailyLook.objects.filter(
             status=DailyLook.Status.PROCESSING, updated_at__lt=cutoff
-        ).update(status=DailyLook.Status.QUEUED, updated_at=timezone.now())
+        ).update(
+            status=DailyLook.Status.QUEUED,
+            enqueued_at=None,
+            updated_at=timezone.now(),
+        )
         if count:
             logger.warning("정체된 오늘의 룩 %d건을 QUEUED로 되돌림", count)
         return count
@@ -161,6 +166,11 @@ class Command(BaseCommand):
         for look_id in orphans:
             try:
                 queue_service.push({"look_id": str(look_id)}, spec=SPEC)
+                now = timezone.now()
+                DailyLook.objects.filter(pk=look_id).update(
+                    enqueued_at=now,
+                    updated_at=now,
+                )
                 count += 1
             except Exception:  # noqa: BLE001
                 logger.exception("오늘의 룩 %s 재적재 실패", look_id)

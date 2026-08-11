@@ -52,6 +52,7 @@ INSTALLED_APPS = [
     "apps.home",
     "apps.wardrobe",
     "apps.recommend",
+    "apps.chat",
     "apps.goldenset",
     "apps.style_calendar",
     "apps.lookbook",
@@ -121,6 +122,7 @@ LOGGING = {
 }
 
 MIDDLEWARE = [
+    "config.middleware.RequestIdMiddleware",
     "django.middleware.security.SecurityMiddleware",
     # CORS: 응답을 생성할 수 있는 미들웨어(CommonMiddleware 등)보다 위에 있어야
     # preflight(OPTIONS)와 에러 응답에도 CORS 헤더가 붙는다.
@@ -129,9 +131,12 @@ MIDDLEWARE = [
     "django.middleware.common.CommonMiddleware",
     "django.middleware.csrf.CsrfViewMiddleware",
     "django.contrib.auth.middleware.AuthenticationMiddleware",
+    "apps.chat.middleware.ChatGuestCookieRefreshMiddleware",
     "django.contrib.messages.middleware.MessageMiddleware",
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
 ]
+
+HEALTHCHECK_TIMEOUT_SECONDS = float(os.getenv("HEALTHCHECK_TIMEOUT_SECONDS", "1.0"))
 
 ROOT_URLCONF = "config.urls"
 
@@ -328,6 +333,32 @@ QDRANT_TIMEOUT = int(os.getenv("QDRANT_TIMEOUT", "10"))
 # 임베딩 모델 차원 (FashionSigLIP=768, BGE-M3=1024). 모델 교체 시에만 변경.
 QDRANT_IMAGE_VECTOR_DIM = int(os.getenv("QDRANT_IMAGE_VECTOR_DIM", "768"))
 QDRANT_TEXT_VECTOR_DIM = int(os.getenv("QDRANT_TEXT_VECTOR_DIM", "1024"))
+QDRANT_GOLDEN_OUTFIT_COLLECTION = os.getenv(
+    "QDRANT_GOLDEN_OUTFIT_COLLECTION", "outfit_goldenset"
+).strip()
+QDRANT_GOLDEN_ITEM_COLLECTION = os.getenv(
+    "QDRANT_GOLDEN_ITEM_COLLECTION", "goldenset_items"
+).strip()
+QDRANT_WARDROBE_COLLECTION = os.getenv(
+    "QDRANT_WARDROBE_COLLECTION", "wardrobe_items"
+).strip()
+PRODUCT_NAVER_QDRANT_COLLECTION = os.getenv(
+    "PRODUCT_NAVER_QDRANT_COLLECTION", "products_naver_v1"
+).strip()
+PRODUCT_ELEVEN_QDRANT_COLLECTION = os.getenv(
+    "PRODUCT_ELEVEN_QDRANT_COLLECTION", "products_eleven_v1"
+).strip()
+QDRANT_KNOWLEDGE_COLLECTION = os.getenv(
+    "QDRANT_KNOWLEDGE_COLLECTION", "knowledge"
+).strip()
+
+# BGE-M3 질의 임베딩은 골든셋 적재와 같은 벡터 공간을 사용한다.
+TEXT_EMBEDDING_API_URL = os.getenv("TEXT_EMBEDDING_API_URL", "").strip()
+TEXT_EMBEDDING_API_TOKEN = os.getenv("TEXT_EMBEDDING_API_TOKEN", "").strip()
+TEXT_EMBEDDING_TIMEOUT_SECONDS = int(os.getenv("TEXT_EMBEDDING_TIMEOUT_SECONDS", "15"))
+TEXT_EMBEDDING_EXPECTED_DIM = int(
+    os.getenv("TEXT_EMBEDDING_EXPECTED_DIM", str(QDRANT_TEXT_VECTOR_DIM))
+)
 
 # Gemini 기반 코디 사진 평가 (apps.recommend)
 # 요청/응답과 질의 컨텍스트는 outfit_analysis 테이블에 기록한다.
@@ -445,4 +476,213 @@ DAILY_LOOK_RENDER_GEMINI_URL = os.getenv(
 # 저장할 때 실제 바이트를 보고 확장자와 Content-Type을 정한다 (outfit_render).
 DAILY_LOOK_RENDER_GEMINI_MIME_TYPE = os.getenv(
     "DAILY_LOOK_RENDER_GEMINI_MIME_TYPE", "image/jpeg"
+)
+
+# ── 채팅 추천·혼합 출처 렌더링 ─────────────────────────────
+# main의 오늘의 룩 렌더 설정은 그대로 두고, 채팅 추천 카드용 비동기 렌더가
+# 같은 Qwen 모델과 결과 저장소를 독립된 작업 큐로 사용한다.
+OUTFIT_RENDER_ENABLED = os.getenv("OUTFIT_RENDER_ENABLED", "1").strip().lower() in {
+    "1", "true", "yes", "y",
+}
+OUTFIT_RENDER_MODEL = os.getenv(
+    "OUTFIT_RENDER_MODEL", DAILY_LOOK_RENDER_MODEL
+).strip()
+OUTFIT_RENDER_URL = os.getenv("OUTFIT_RENDER_URL", DAILY_LOOK_RENDER_URL).strip()
+OUTFIT_RENDER_ASPECT_RATIO = os.getenv(
+    "OUTFIT_RENDER_ASPECT_RATIO", DAILY_LOOK_RENDER_ASPECT_RATIO
+).strip()
+OUTFIT_RENDER_RESOLUTION = os.getenv(
+    "OUTFIT_RENDER_RESOLUTION", DAILY_LOOK_RENDER_RESOLUTION
+).strip()
+OUTFIT_RENDER_TIMEOUT_SECONDS = float(
+    os.getenv("OUTFIT_RENDER_TIMEOUT_SECONDS", str(DAILY_LOOK_RENDER_TIMEOUT_SECONDS))
+)
+OUTFIT_RENDER_REFERENCE_TIMEOUT_SECONDS = float(
+    os.getenv("OUTFIT_RENDER_REFERENCE_TIMEOUT_SECONDS", "30")
+)
+OUTFIT_RENDER_MAX_REFERENCES = int(
+    os.getenv("OUTFIT_RENDER_MAX_REFERENCES", str(DAILY_LOOK_RENDER_MAX_REFERENCES))
+)
+OUTFIT_RENDER_MAX_REFERENCE_BYTES = int(
+    os.getenv("OUTFIT_RENDER_MAX_REFERENCE_BYTES", str(10 * 1024 * 1024))
+)
+OUTFIT_RENDER_MAX_TOTAL_REFERENCE_BYTES = int(
+    os.getenv("OUTFIT_RENDER_MAX_TOTAL_REFERENCE_BYTES", str(40 * 1024 * 1024))
+)
+OUTFIT_RENDER_MAX_OUTPUT_BYTES = int(
+    os.getenv("OUTFIT_RENDER_MAX_OUTPUT_BYTES", str(20 * 1024 * 1024))
+)
+OUTFIT_RENDER_WARDROBE_BUCKET = os.getenv(
+    "OUTFIT_RENDER_WARDROBE_BUCKET", os.getenv("WARDROBE_S3_BUCKET", "")
+).strip()
+OUTFIT_RENDER_PRODUCT_BUCKET = os.getenv(
+    "OUTFIT_RENDER_PRODUCT_BUCKET", os.getenv("PRODUCT_IMAGE_S3_BUCKET", "")
+).strip()
+OUTFIT_RENDER_GOLDENSET_BUCKET = os.getenv(
+    "OUTFIT_RENDER_GOLDENSET_BUCKET", os.getenv("GOLDEN_S3_BUCKET", "")
+).strip()
+OUTFIT_RENDER_RESULT_BUCKET = (
+    os.getenv("OUTFIT_RENDER_RESULT_BUCKET", "").strip()
+    or os.getenv("OUTFIT_S3_BUCKET", "").strip()
+    or os.getenv("WARDROBE_S3_BUCKET", "").strip()
+)
+OUTFIT_RENDER_RESULT_PREFIX = os.getenv(
+    "OUTFIT_RENDER_RESULT_PREFIX", "outfit-renders/v1"
+).strip("/")
+OUTFIT_RENDER_PRESIGNED_GET_TTL_SECONDS = int(
+    os.getenv("OUTFIT_RENDER_PRESIGNED_GET_TTL_SECONDS", "3600")
+)
+OUTFIT_RENDER_QUEUE_PENDING_KEY = os.getenv(
+    "OUTFIT_RENDER_QUEUE_PENDING_KEY", "outfit:render:pending"
+)
+OUTFIT_RENDER_QUEUE_PROCESSING_KEY = os.getenv(
+    "OUTFIT_RENDER_QUEUE_PROCESSING_KEY", "outfit:render:processing"
+)
+OUTFIT_RENDER_QUEUE_DEAD_KEY = os.getenv(
+    "OUTFIT_RENDER_QUEUE_DEAD_KEY", "outfit:render:dead"
+)
+OUTFIT_RENDER_QUEUE_RETRY_KEY = os.getenv(
+    "OUTFIT_RENDER_QUEUE_RETRY_KEY", "outfit:render:retry"
+)
+OUTFIT_RENDER_QUEUE_BLOCK_SECONDS = int(
+    os.getenv("OUTFIT_RENDER_QUEUE_BLOCK_SECONDS", "5")
+)
+OUTFIT_RENDER_QUEUE_MAX_RETRIES = int(
+    os.getenv("OUTFIT_RENDER_QUEUE_MAX_RETRIES", "3")
+)
+OUTFIT_RENDER_QUEUE_CONNECT_TIMEOUT_SECONDS = float(
+    os.getenv("OUTFIT_RENDER_QUEUE_CONNECT_TIMEOUT_SECONDS", "1.0")
+)
+OUTFIT_RENDER_QUEUE_ORPHAN_AGE_SECONDS = int(
+    os.getenv("OUTFIT_RENDER_QUEUE_ORPHAN_AGE_SECONDS", "30")
+)
+OUTFIT_RENDER_QUEUE_ORPHAN_SWEEP_SECONDS = int(
+    os.getenv("OUTFIT_RENDER_QUEUE_ORPHAN_SWEEP_SECONDS", "60")
+)
+OUTFIT_RENDER_QUEUE_ORPHAN_SWEEP_LIMIT = int(
+    os.getenv("OUTFIT_RENDER_QUEUE_ORPHAN_SWEEP_LIMIT", "100")
+)
+OUTFIT_RENDER_CACHE_PREFIX = os.getenv(
+    "OUTFIT_RENDER_CACHE_PREFIX", "outfit:render:cache:v1"
+)
+OUTFIT_RENDER_CACHE_TTL_SECONDS = int(
+    os.getenv("OUTFIT_RENDER_CACHE_TTL_SECONDS", "604800")
+)
+OUTFIT_RENDER_EVENT_STREAM_PREFIX = os.getenv(
+    "OUTFIT_RENDER_EVENT_STREAM_PREFIX", "outfit:render:events"
+)
+OUTFIT_RENDER_EVENT_STREAM_TTL_SECONDS = int(
+    os.getenv("OUTFIT_RENDER_EVENT_STREAM_TTL_SECONDS", "86400")
+)
+OUTFIT_RENDER_EVENT_STREAM_MAX_LENGTH = int(
+    os.getenv("OUTFIT_RENDER_EVENT_STREAM_MAX_LENGTH", "100")
+)
+OUTFIT_RENDER_SSE_BLOCK_MILLISECONDS = int(
+    os.getenv("OUTFIT_RENDER_SSE_BLOCK_MILLISECONDS", "15000")
+)
+OUTFIT_RENDER_SSE_READ_COUNT = int(os.getenv("OUTFIT_RENDER_SSE_READ_COUNT", "50"))
+OUTFIT_RENDER_SSE_RETRY_MILLISECONDS = int(
+    os.getenv("OUTFIT_RENDER_SSE_RETRY_MILLISECONDS", "3000")
+)
+
+# 오늘의 룩 실행 메타데이터와 큐 복구 설정. 기존 큐 키 기본값과 맞춘다.
+DAILY_LOOK_QUEUE_PENDING_KEY = os.getenv(
+    "DAILY_LOOK_QUEUE_PENDING_KEY", "daily:look:pending"
+)
+DAILY_LOOK_QUEUE_PROCESSING_KEY = os.getenv(
+    "DAILY_LOOK_QUEUE_PROCESSING_KEY", "daily:look:processing"
+)
+DAILY_LOOK_QUEUE_DEAD_KEY = os.getenv(
+    "DAILY_LOOK_QUEUE_DEAD_KEY", "daily:look:dead"
+)
+DAILY_LOOK_QUEUE_RETRY_KEY = os.getenv(
+    "DAILY_LOOK_QUEUE_RETRY_KEY", "daily:look:retry"
+)
+DAILY_LOOK_QUEUE_BLOCK_SECONDS = int(os.getenv("DAILY_LOOK_QUEUE_BLOCK_SECONDS", "5"))
+DAILY_LOOK_QUEUE_MAX_RETRIES = int(os.getenv("DAILY_LOOK_QUEUE_MAX_RETRIES", "3"))
+DAILY_LOOK_QUEUE_CONNECT_TIMEOUT_SECONDS = float(
+    os.getenv("DAILY_LOOK_QUEUE_CONNECT_TIMEOUT_SECONDS", "1.0")
+)
+DAILY_LOOK_QUEUE_ORPHAN_AGE_SECONDS = int(
+    os.getenv("DAILY_LOOK_QUEUE_ORPHAN_AGE_SECONDS", "30")
+)
+DAILY_LOOK_QUEUE_ORPHAN_SWEEP_SECONDS = int(
+    os.getenv("DAILY_LOOK_QUEUE_ORPHAN_SWEEP_SECONDS", "60")
+)
+DAILY_LOOK_QUEUE_ORPHAN_SWEEP_LIMIT = int(
+    os.getenv("DAILY_LOOK_QUEUE_ORPHAN_SWEEP_LIMIT", "100")
+)
+DAILY_LOOK_RENDER_RETRY_COOLDOWN_SECONDS = int(
+    os.getenv("DAILY_LOOK_RENDER_RETRY_COOLDOWN_SECONDS", "600")
+)
+
+# 비회원 대화는 HttpOnly 쿠키 토큰으로 이어지고 회원가입·로그인 시 회원 identity로
+# 원자적으로 이전된다. 원문 토큰은 저장하지 않고 HMAC 해시만 DB에 남긴다.
+CHAT_GUEST_TTL_DAYS = int(os.getenv("CHAT_GUEST_TTL_DAYS", "7"))
+CHAT_GUEST_COOKIE_NAME = os.getenv("CHAT_GUEST_COOKIE_NAME", "fashion_guest_chat")
+CHAT_GUEST_COOKIE_SECURE = os.getenv("CHAT_GUEST_COOKIE_SECURE", "true").lower() in {
+    "1", "true", "yes",
+}
+CHAT_GUEST_COOKIE_SAMESITE = os.getenv("CHAT_GUEST_COOKIE_SAMESITE", "Lax")
+
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "").strip()
+CHAT_OPENAI_MODEL = os.getenv("CHAT_OPENAI_MODEL", "gpt-4o-mini").strip()
+CHAT_OPENAI_TIMEOUT_SECONDS = float(os.getenv("CHAT_OPENAI_TIMEOUT_SECONDS", "30"))
+CHAT_OPENAI_MAX_OUTPUT_TOKENS = int(
+    os.getenv("CHAT_OPENAI_MAX_OUTPUT_TOKENS", "1200")
+)
+CHAT_PROMPT_VERSION = os.getenv("CHAT_PROMPT_VERSION", "chat-orchestrator-v1").strip()
+CHAT_GOLDENSET_DATASET_VERSION = os.getenv(
+    "CHAT_GOLDENSET_DATASET_VERSION", ""
+).strip()
+CHAT_GOLDENSET_DATASET_STATUSES = tuple(
+    value.strip()
+    for value in os.getenv("CHAT_GOLDENSET_DATASET_STATUSES", "").split(",")
+    if value.strip()
+)
+CHAT_PRODUCT_INDEX_VERSION = os.getenv("CHAT_PRODUCT_INDEX_VERSION", "").strip()
+CHAT_CONTEXT_RECENT_MESSAGES = int(os.getenv("CHAT_CONTEXT_RECENT_MESSAGES", "12"))
+CHAT_SUMMARY_TRIGGER_MESSAGES = int(os.getenv("CHAT_SUMMARY_TRIGGER_MESSAGES", "24"))
+CHAT_CONTEXT_CACHE_PREFIX = os.getenv(
+    "CHAT_CONTEXT_CACHE_PREFIX", "chat:context:v1"
+).strip()
+CHAT_CONTEXT_CACHE_TTL_SECONDS = int(os.getenv("CHAT_CONTEXT_CACHE_TTL_SECONDS", "900"))
+CHAT_CONTEXT_CACHE_CONNECT_TIMEOUT_SECONDS = float(
+    os.getenv("CHAT_CONTEXT_CACHE_CONNECT_TIMEOUT_SECONDS", "0.5")
+)
+CHAT_CONTEXT_CACHE_TIMEOUT_SECONDS = float(
+    os.getenv("CHAT_CONTEXT_CACHE_TIMEOUT_SECONDS", "1.0")
+)
+REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379/0")
+REDIS_PASSWORD = os.getenv("REDIS_PASSWORD", "")
+CHAT_MESSAGE_MAX_CHARS = int(os.getenv("CHAT_MESSAGE_MAX_CHARS", "4000"))
+CHAT_QUEUE_PENDING_KEY = os.getenv("CHAT_QUEUE_PENDING_KEY", "chat:runs:pending")
+CHAT_QUEUE_PROCESSING_KEY = os.getenv(
+    "CHAT_QUEUE_PROCESSING_KEY", "chat:runs:processing"
+)
+CHAT_QUEUE_DEAD_KEY = os.getenv("CHAT_QUEUE_DEAD_KEY", "chat:runs:dead")
+CHAT_QUEUE_RETRY_KEY = os.getenv("CHAT_QUEUE_RETRY_KEY", "chat:runs:retry")
+CHAT_QUEUE_BLOCK_SECONDS = int(os.getenv("CHAT_QUEUE_BLOCK_SECONDS", "5"))
+CHAT_QUEUE_MAX_RETRIES = int(os.getenv("CHAT_QUEUE_MAX_RETRIES", "3"))
+CHAT_QUEUE_ORPHAN_AGE_SECONDS = int(os.getenv("CHAT_QUEUE_ORPHAN_AGE_SECONDS", "30"))
+CHAT_QUEUE_ORPHAN_SWEEP_SECONDS = int(
+    os.getenv("CHAT_QUEUE_ORPHAN_SWEEP_SECONDS", "60")
+)
+CHAT_QUEUE_ORPHAN_SWEEP_LIMIT = int(
+    os.getenv("CHAT_QUEUE_ORPHAN_SWEEP_LIMIT", "100")
+)
+CHAT_QUEUE_CONNECT_TIMEOUT_SECONDS = float(
+    os.getenv("CHAT_QUEUE_CONNECT_TIMEOUT_SECONDS", "1.0")
+)
+CHAT_EVENT_STREAM_PREFIX = os.getenv(
+    "CHAT_EVENT_STREAM_PREFIX", "chat:run:events"
+).strip()
+CHAT_EVENT_STREAM_TTL_SECONDS = int(
+    os.getenv("CHAT_EVENT_STREAM_TTL_SECONDS", "86400")
+)
+CHAT_EVENT_STREAM_MAX_LENGTH = int(os.getenv("CHAT_EVENT_STREAM_MAX_LENGTH", "100"))
+CHAT_SSE_BLOCK_MILLISECONDS = int(os.getenv("CHAT_SSE_BLOCK_MILLISECONDS", "15000"))
+CHAT_SSE_READ_COUNT = int(os.getenv("CHAT_SSE_READ_COUNT", "50"))
+CHAT_SSE_RETRY_MILLISECONDS = int(
+    os.getenv("CHAT_SSE_RETRY_MILLISECONDS", "3000")
 )

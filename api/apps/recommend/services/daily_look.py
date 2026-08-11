@@ -14,6 +14,8 @@ select 후 insert하는 방식은 그 사이에 다른 요청이 끼어들면 �
 
 from __future__ import annotations
 
+import hashlib
+import json
 import logging
 import os
 from datetime import date
@@ -24,11 +26,15 @@ from django.db import IntegrityError, transaction
 from django.utils import timezone
 
 from apps.recommend.models import DailyLook
-from apps.recommend.services import gemini
-from apps.recommend.services import outfit_render
+from apps.recommend.services import gemini, outfit_render, render_artifacts
 from apps.recommend.services import queue as queue_service
 from apps.recommend.services.body_profile import build_profile
 from apps.recommend.services.gender import normalize_gender
+from apps.recommend.services.mixed_outfit_render import (
+    OutfitRenderRequest,
+    RenderItemReference,
+    RenderSource,
+)
 from apps.recommend.services.outfit_context import build_analysis_context
 from apps.recommend.services.retriever import RetrievalRequest, retrieve_outfits
 from apps.recommend.services.style_rules import load_body_rules
@@ -84,6 +90,8 @@ def ensure_today_look(user, *, lat: float | None = None, lon: float | None = Non
         queue_service.push(
             {"look_id": str(look.pk)}, spec=queue_service.DAILY_LOOK
         )
+        look.enqueued_at = timezone.now()
+        look.save(update_fields=["enqueued_at", "updated_at"])
     except Exception:  # noqa: BLE001 — 큐가 죽어도 행은 남기고 워커가 쓸어담는다
         logger.exception("오늘의 룩 %s 큐 적재 실패", look.pk)
     return look, True
@@ -107,11 +115,22 @@ def claim(look_id: str) -> DailyLook | None:
         look = DailyLook.objects.select_for_update().filter(pk=look_id).first()
         if look is None:
             return None
-        if look.status == DailyLook.Status.SUCCEEDED:
-            # 재시도로 같은 작업이 두 번 올 수 있다. 성공한 건은 다시 만들지 않는다.
+        if look.status in DailyLook.TERMINAL_STATUSES:
+            # 재시도로 같은 작업이 두 번 올 수 있다. 끝난 건은 다시 만들지 않는다.
             return None
         look.status = DailyLook.Status.PROCESSING
-        look.save(update_fields=["status", "updated_at"])
+        look.attempts += 1
+        look.started_at = timezone.now()
+        look.finished_at = None
+        look.save(
+            update_fields=[
+                "status",
+                "attempts",
+                "started_at",
+                "finished_at",
+                "updated_at",
+            ]
+        )
         return look
 
 
@@ -139,6 +158,7 @@ def run(look: DailyLook) -> None:
     # 제약을 스스로 만들지 않으므로, 그 판단은 오늘의 룩이 여기서 내린다.
     if not gender:
         look.status = DailyLook.Status.EMPTY
+        look.finished_at = timezone.now()
         look.rules_version = rules.schema_version
         look.candidates = []
         look.error = (
@@ -146,7 +166,7 @@ def run(look: DailyLook) -> None:
             "체형 정보(PUT /users/me/body/basic)에 성별을 저장한 뒤 다시 로그인하세요."
         )
         look.save(update_fields=["candidates", "rules_version", "status", "error",
-                                 "updated_at"])
+                                 "finished_at", "updated_at"])
         logger.warning("오늘의 룩 %s: 성별 미상으로 생성 중단", look.pk)
         return
 
@@ -168,6 +188,7 @@ def run(look: DailyLook) -> None:
         # 실패와 구분한다. 프론트는 "잠시 후 다시"가 아니라 "프로필을 채워주세요"를
         # 띄워야 하고, 워커는 재시도해봐야 같은 결과다.
         look.status = DailyLook.Status.EMPTY
+        look.finished_at = timezone.now()
         # 무엇이 없어서 0건인지 남긴다. 사용자에게는 다 똑같이 "추천 없음"이지만,
         # 운영자에게는 '적재가 안 됐다'와 '이 사용자 조건이 좁다'가 전혀 다른 문제다.
         avoided = (snapshot.get("pursuit") or {}).get("avoided") or {}
@@ -178,7 +199,7 @@ def run(look: DailyLook) -> None:
             f"기피축={sorted(k for k, v in avoided.items() if v) or '없음'})"
         )
         look.save(update_fields=["candidates", "rules_version", "status", "error",
-                                 "updated_at"])
+                                 "finished_at", "updated_at"])
         logger.info("오늘의 룩 %s: 후보 0건", look.pk)
         return
 
@@ -189,10 +210,11 @@ def run(look: DailyLook) -> None:
     chosen = candidates[0]
     look.result = _build_result(chosen, snapshot)
     look.status = DailyLook.Status.SUCCEEDED
+    look.finished_at = timezone.now()
     look.error = ""
     look.save(
         update_fields=["candidates", "rules_version", "result", "status", "error",
-                       "updated_at"]
+                       "finished_at", "updated_at"]
     )
 
     # ── 여기부터는 있으면 좋은 것 ────────────────────────────
@@ -201,12 +223,96 @@ def run(look: DailyLook) -> None:
     _enrich_with_copy(look, chosen, snapshot)
 
 
+def _daily_render_request(
+    look: DailyLook,
+    gender: str,
+) -> OutfitRenderRequest | None:
+    result = look.result or {}
+    items = result.get("items") or []
+    references = []
+    for position, item in enumerate(items, start=1):
+        image_ref = str(item.get("s3_key") or "").strip()
+        if not image_ref:
+            continue
+        references.append(
+            RenderItemReference(
+                item_id=str(item.get("item_key") or position),
+                position=position,
+                slot=f"{item.get('category') or 'ITEM'}:{position}",
+                source_type=RenderSource.GOLDENSET_ITEM,
+                image_ref=image_ref,
+                source_bucket=str(item.get("s3_bucket") or ""),
+            )
+        )
+    if not references:
+        return None
+
+    presentation = {"male": "man", "female": "woman"}.get(
+        normalize_gender(gender),
+        "",
+    )
+    contract = {
+        "golden_id": result.get("golden_id", ""),
+        "presentation": presentation,
+        "items": [
+            {
+                "position": row.position,
+                "item_id": row.item_id,
+                "image_ref": row.image_ref,
+                "source_bucket": row.source_bucket,
+            }
+            for row in references
+        ],
+    }
+    raw = json.dumps(
+        contract,
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    )
+    return OutfitRenderRequest(
+        composition_id=f"daily-look:{look.pk}",
+        composition_fingerprint=hashlib.sha256(raw.encode("utf-8")).hexdigest(),
+        items=tuple(references),
+        subject_presentation=presentation,
+    )
+
+
+def _attach_common_render(look: DailyLook, gender: str) -> bool:
+    """채팅 추천과 같은 결과 S3·지문 캐시 계약으로 오늘의 룩을 렌더한다."""
+    request = _daily_render_request(look, gender)
+    if request is None or not settings.OUTFIT_RENDER_RESULT_BUCKET:
+        return False
+    try:
+        entry, _ = render_artifacts.get_or_render(request)
+    except Exception:
+        logger.warning(
+            "오늘의 룩 %s 공통 렌더 실패, 기존 daily 렌더러로 대체합니다.",
+            look.pk,
+            exc_info=True,
+        )
+        return False
+    result = dict(look.result)
+    result["render_image"] = {
+        "s3_bucket": entry.output_s3_bucket,
+        "s3_key": entry.output_s3_key,
+        "media_type": entry.output_media_type,
+        "render_fingerprint": entry.render_fingerprint,
+    }
+    look.result = result
+    look.save(update_fields=["result", "updated_at"])
+    return True
+
+
 def _attach_render(look: DailyLook, candidate, gender: str = "") -> None:
     """정면 착용 이미지를 붙인다. 이미 만들어 둔 코디면 생성 없이 참조만 얻는다.
 
     성별을 함께 넘긴다. 유니섹스 코디는 남녀 모두에게 추천되므로 그 사용자에
     맞는 모델로 그려야 하고, 성별별로 따로 저장·재사용한다.
     """
+    if _attach_common_render(look, gender):
+        return
+
     payload = candidate.payload
     try:
         reference = outfit_render.ensure_render(
@@ -295,6 +401,37 @@ def refresh_render(look: DailyLook) -> bool:
     if not result or result.get("render_image"):
         return False
 
+    common_request = _daily_render_request(
+        look,
+        normalize_gender((look.body or {}).get("gender")),
+    )
+    if common_request is not None and settings.OUTFIT_RENDER_RESULT_BUCKET:
+        try:
+            render_fingerprint = render_artifacts.fingerprint(
+                common_request.composition_fingerprint,
+                common_request.subject_presentation,
+            )
+            if entry := render_artifacts.find_cached(render_fingerprint):
+                result = dict(result)
+                result["render_image"] = {
+                    "s3_bucket": entry.output_s3_bucket,
+                    "s3_key": entry.output_s3_key,
+                    "media_type": entry.output_media_type,
+                    "render_fingerprint": entry.render_fingerprint,
+                }
+                look.result = result
+                look.error = (
+                    ""
+                    if look.error.startswith("착용 이미지 생성 실패")
+                    else look.error
+                )
+                look.save(update_fields=["result", "error", "updated_at"])
+                return True
+        except Exception:
+            logger.warning(
+                "오늘의 룩 %s 공통 렌더 캐시 확인 실패", look.pk, exc_info=True
+            )
+
     bucket, items = _render_source(result)
     if not bucket or not items:
         return False
@@ -370,6 +507,10 @@ def run_render_only(look_id: str) -> bool:
     if result.get("render_image"):
         return False
 
+    gender = normalize_gender((look.body or {}).get("gender"))
+    if _attach_common_render(look, gender):
+        return True
+
     bucket, items = _render_source(result)
     if not bucket or not items:
         return False
@@ -378,7 +519,7 @@ def run_render_only(look_id: str) -> bool:
         reference = outfit_render.ensure_render(
             bucket=bucket,
             items=items,
-            gender=normalize_gender((look.body or {}).get("gender")),
+            gender=gender,
         )
     except Exception as exc:  # noqa: BLE001 — 이미지 실패가 추천을 되돌리면 안 된다
         logger.warning("오늘의 룩 %s 착용 이미지 재생성 실패: %s", look.pk, exc)
@@ -571,4 +712,5 @@ def _candidate_for_llm(candidate) -> dict[str, Any]:
 def mark_failed(look: DailyLook, error: str) -> None:
     look.status = DailyLook.Status.FAILED
     look.error = error[:2000]
-    look.save(update_fields=["status", "error", "updated_at"])
+    look.finished_at = timezone.now()
+    look.save(update_fields=["status", "error", "finished_at", "updated_at"])

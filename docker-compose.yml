@@ -100,6 +100,28 @@ services:
       - ./ml:/ml:ro
     command: python manage.py migrate --noinput
 
+  # 추천 검색 컬렉션 계약 초기화. 기존 데이터의 벡터 차원·인덱스 타입이
+  # 다르면 자동 삭제하지 않고 실패하며, 누락 payload index만 보완한다.
+  qdrant-init:
+    image: skn28-api:local
+    build:
+      context: ./api
+    container_name: skn28-qdrant-init
+    restart: "no"
+    profiles: ["api", "all"]
+    depends_on:
+      qdrant:
+        condition: service_healthy
+    env_file:
+      - .env
+    environment:
+      TZ: Asia/Seoul
+      QDRANT_URL: http://qdrant:6333
+      DJANGO_SETTINGS_MODULE: ${DJANGO_SETTINGS_MODULE:-config.settings.prod}
+    volumes:
+      - ./ml:/ml:ro
+    command: python manage.py init_qdrant
+
   api:
     image: skn28-api:local          # migrate와 같은 이미지 (위 주석 참고)
     build:
@@ -112,6 +134,10 @@ services:
         condition: service_healthy
       migrate:
         condition: service_completed_successfully
+      qdrant-init:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
     env_file:
       - .env                  # DJANGO_*, *_OAUTH_*, POSTGRES_* 등
     environment:
@@ -157,6 +183,10 @@ services:
         condition: service_healthy
       migrate:
         condition: service_completed_successfully
+      qdrant-init:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
     env_file:
       - .env
     environment:
@@ -175,6 +205,74 @@ services:
       - ./ml:/ml:ro
     command: python manage.py run_outfit_worker
 
+  # 대화 분석·OpenAI 응답·추천 조합을 처리하고 Redis Stream에 SSE 이벤트를 남긴다.
+  # processing 리스트 복구가 단일 소비자 전제이므로 현재는 한 인스턴스로 운영한다.
+  chat-worker:
+    image: skn28-api:local
+    build:
+      context: ./api
+    container_name: skn28-chat-worker
+    restart: unless-stopped
+    profiles: ["api", "all"]
+    depends_on:
+      db:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+      qdrant-init:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
+    env_file:
+      - .env
+    environment:
+      TZ: Asia/Seoul
+      POSTGRES_HOST: db
+      POSTGRES_PORT: 5432
+      REDIS_URL: redis://redis:6379/0
+      QDRANT_URL: http://qdrant:6333
+      DJANGO_SETTINGS_MODULE: ${DJANGO_SETTINGS_MODULE:-config.settings.prod}
+      SERVICE_NAME: chat-worker
+    volumes:
+      - ./ml:/ml:ro
+    command: python manage.py run_chat_worker
+    init: true
+    stop_grace_period: 3m
+
+  # 검증 완료 추천 카드의 옷장·상품 혼합 아이템으로 최종 코디 이미지를 생성한다.
+  outfit-render-worker:
+    image: skn28-api:local
+    build:
+      context: ./api
+    container_name: skn28-outfit-render-worker
+    restart: unless-stopped
+    profiles: ["api", "all"]
+    depends_on:
+      db:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+      qdrant-init:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
+    env_file:
+      - .env
+    environment:
+      TZ: Asia/Seoul
+      POSTGRES_HOST: db
+      POSTGRES_PORT: 5432
+      REDIS_URL: redis://redis:6379/0
+      QDRANT_URL: http://qdrant:6333
+      DJANGO_SETTINGS_MODULE: ${DJANGO_SETTINGS_MODULE:-config.settings.prod}
+      OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
+      SERVICE_NAME: outfit-render-worker
+    volumes:
+      - ./ml:/ml:ro
+    command: python manage.py run_outfit_render_worker
+    init: true
+    stop_grace_period: 5m
+
   # 오늘의 룩 생성 워커. 평가 워커와 큐가 분리돼 있어 서로 밀리지 않는다.
   #
   # 워커는 1대만 띄운다. 기동 시 recover_stale()이 processing에 남은 작업을 전부
@@ -191,6 +289,10 @@ services:
         condition: service_healthy
       migrate:
         condition: service_completed_successfully
+      qdrant-init:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
     env_file:
       - .env
     environment:
@@ -288,6 +390,8 @@ services:
     image: redis:7
     container_name: redis
     restart: always
+    environment:
+      REDIS_PASSWORD: ${REDIS_PASSWORD:?REDIS_PASSWORD를 루트 .env에 설정해야 합니다}
     ports:
       - "6379:6379"
     volumes:
@@ -295,7 +399,12 @@ services:
     command: >
       redis-server
       --appendonly yes
-      --requirepass "${REDIS_PASSWORD:?REDIS_PASSWORD를 루트 .env에 설정해야 합니다}"
+      --requirepass "$${REDIS_PASSWORD}"
+    healthcheck:
+      test: ["CMD-SHELL", "redis-cli -a \"$${REDIS_PASSWORD}\" ping | grep PONG"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
 
 volumes:
   postgres_data:

@@ -1,5 +1,6 @@
 import logging
 
+from django.conf import settings
 from django.contrib.auth.models import update_last_login
 from django.db import IntegrityError, transaction
 from rest_framework import status
@@ -9,6 +10,7 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 from rest_framework_simplejwt.tokens import RefreshToken
 
+from apps.chat.services import identity as chat_identity
 from apps.users.models import BodyMeasurement, BodyPhotoTransaction, SocialAccount
 from apps.users.serializers import (
     BodyBasicInputSerializer,
@@ -16,7 +18,6 @@ from apps.users.serializers import (
     BodyEstimateInputSerializer,
     BodyEstimationResultSerializer,
     BodyMeasurementSerializer,
-    BodyPhotoTransactionSerializer,
     BodyPhotoUploadSerializer,
     BudgetSerializer,
     EmailLoginSerializer,
@@ -29,12 +30,24 @@ from apps.users.serializers import (
     SocialLoginSerializer,
     UserSerializer,
 )
-from apps.users.services import accounts, body_inference, email_verification, oauth, pursuit
+from apps.users.services import (
+    accounts,
+    body_inference,
+    email_verification,
+    oauth,
+    pursuit,
+)
 
 logger = logging.getLogger(__name__)
 
 
-def _token_response(user, *, created: bool, is_new_user: bool | None = None) -> Response:
+def _token_response(
+    user,
+    *,
+    created: bool,
+    request=None,
+    is_new_user: bool | None = None,
+) -> Response:
     """JWT 발급 공통 응답.
 
     is_new_user를 따로 넘기면 HTTP 상태(created)와 분리해서 내려보낸다. 이메일
@@ -43,15 +56,36 @@ def _token_response(user, *, created: bool, is_new_user: bool | None = None) -> 
     """
     refresh = RefreshToken.for_user(user)
     update_last_login(None, user)
-    return Response(
+    guest_claim = None
+    guest_token = (
+        request.COOKIES.get(settings.CHAT_GUEST_COOKIE_NAME, "")
+        if request is not None
+        else ""
+    )
+    if guest_token:
+        try:
+            guest_claim = chat_identity.claim_guest_identity(user, guest_token)
+        except chat_identity.ChatIdentityError as exc:
+            # 게스트 토큰 문제로 정상적인 회원 로그인을 막지 않는다.
+            logger.info("게스트 채팅 이전 생략: code=%s", exc.code)
+
+    response = Response(
         {
             "access": str(refresh.access_token),
             "refresh": str(refresh),
             "user": UserSerializer(user).data,
             "is_new_user": created if is_new_user is None else is_new_user,
+            "guest_chat_claim": guest_claim.__dict__ if guest_claim else None,
         },
         status=status.HTTP_201_CREATED if created else status.HTTP_200_OK,
     )
+    if guest_claim is not None:
+        response.delete_cookie(
+            settings.CHAT_GUEST_COOKIE_NAME,
+            path="/api/v1/",
+            samesite=settings.CHAT_GUEST_COOKIE_SAMESITE,
+        )
+    return response
 
 
 class EmailSignupView(APIView):
@@ -126,7 +160,12 @@ class EmailLoginView(APIView):
         # last_login은 _token_response의 update_last_login이 채우므로 그 전에 읽는다.
         # NULL이면 가입 후 첫 로그인 → 앱이 온보딩(권한→체형 측정→추구미)으로 보낸다.
         is_first_login = user.last_login is None
-        return _token_response(user, created=False, is_new_user=is_first_login)
+        return _token_response(
+            user,
+            created=False,
+            request=request,
+            is_new_user=is_first_login,
+        )
 
 
 class SocialLoginView(APIView):
@@ -195,7 +234,7 @@ class SocialLoginView(APIView):
         # 오늘의 룩 선반영은 그 전에 건다 — 사용자가 첫 화면에 도착할 때쯤
         # 완성돼 있게 하려는 것이고, 실패해도 예외를 삼키므로 로그인을 막지 않는다.
         _kick_off_daily_look(user)
-        return _token_response(user, created=created)
+        return _token_response(user, created=created, request=request)
 
 
 def _kick_off_daily_look(user) -> None:

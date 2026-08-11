@@ -15,6 +15,7 @@ from functools import lru_cache
 
 import boto3
 from botocore.config import Config
+from botocore.exceptions import ClientError
 
 
 def bucket() -> str:
@@ -116,8 +117,6 @@ def exists_for(bucket_name: str, key: str) -> bool:
 
     권한 문제(403)를 '없음'으로 삼키면 매번 다시 만들게 되므로 구분한다.
     """
-    from botocore.exceptions import ClientError
-
     try:
         _client().head_object(Bucket=bucket_name, Key=key)
     except ClientError as exc:
@@ -131,11 +130,55 @@ def put_bytes_for(
     bucket_name: str, key: str, data: bytes, content_type: str = "image/png"
 ) -> None:
     """다른 버킷에 객체를 올린다 (골든셋 산출물용)."""
+    if not bucket_name or not key:
+        raise ValueError("S3 bucket과 key가 모두 필요합니다.")
+    if not data:
+        raise ValueError("저장할 이미지 데이터가 필요합니다.")
     _client().put_object(
-        Bucket=bucket_name, Key=key, Body=data, ContentType=content_type
+        Bucket=bucket_name,
+        Key=key,
+        Body=data,
+        ContentType=content_type,
+        CacheControl="private, max-age=31536000, immutable",
     )
 
 
-def download_for(bucket_name: str, key: str) -> bytes:
-    """다른 버킷의 객체를 읽는다."""
-    return _client().get_object(Bucket=bucket_name, Key=key)["Body"].read()
+def download_for(
+    bucket_name: str,
+    key: str,
+    *,
+    max_bytes: int | None = None,
+) -> bytes:
+    """다른 버킷의 객체를 선택적으로 크기 제한을 두고 읽는다."""
+    if not bucket_name or not key:
+        raise ValueError("S3 bucket과 key가 모두 필요합니다.")
+    if max_bytes is not None and max_bytes < 1:
+        raise ValueError("max_bytes는 1 이상이어야 합니다.")
+
+    body = _client().get_object(Bucket=bucket_name, Key=key)["Body"]
+    try:
+        data = body.read(max_bytes + 1 if max_bytes is not None else None)
+    finally:
+        close = getattr(body, "close", None)
+        if callable(close):
+            close()
+    if max_bytes is not None and len(data) > max_bytes:
+        raise ValueError(f"S3 이미지가 허용 크기 {max_bytes} bytes를 초과합니다.")
+    return data
+
+
+def metadata_for(bucket_name: str, key: str) -> dict | None:
+    """결정적 렌더 키에 저장된 객체의 캐시 복원용 메타데이터를 조회한다."""
+    if not bucket_name or not key:
+        return None
+    try:
+        response = _client().head_object(Bucket=bucket_name, Key=key)
+    except ClientError as exc:
+        code = str(exc.response.get("Error", {}).get("Code", ""))
+        if code in {"404", "NoSuchKey", "NotFound"}:
+            return None
+        raise
+    return {
+        "content_type": str(response.get("ContentType") or "image/jpeg"),
+        "content_length": int(response.get("ContentLength") or 0),
+    }
