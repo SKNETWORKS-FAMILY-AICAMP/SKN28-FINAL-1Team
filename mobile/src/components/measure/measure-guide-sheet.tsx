@@ -97,6 +97,8 @@ export function MeasureGuideSheet({
             {/* 재는 순서는 고른 항목 것만 편다 (기본은 어깨너비) */}
             <View style={styles.detail}>
               <Text style={styles.detailHead}>{noted.label} 자세히</Text>
+              {/* 이 값이 추천의 무엇을 바꾸는지 — 비율 3개는 이걸 모르면 왜 재는지 알 수 없다 */}
+              {noted.caption ? <Text style={styles.detailUsage}>{noted.caption}</Text> : null}
               {noted.steps.map((step, i) => (
                 <View key={step} style={styles.stepRow}>
                   <Text style={styles.stepNo}>{i + 1}</Text>
@@ -205,6 +207,7 @@ const styles = StyleSheet.create({
     gap: 9,
   },
   detailHead: { fontSize: Type.footnote, fontWeight: '600', color: INK, marginBottom: 1 },
+  detailUsage: { fontSize: Type.caption, color: Editorial.textCaption, lineHeight: 19 },
   stepRow: { flexDirection: 'row', alignItems: 'flex-start', gap: 10 },
   stepNo: {
     width: 19,
