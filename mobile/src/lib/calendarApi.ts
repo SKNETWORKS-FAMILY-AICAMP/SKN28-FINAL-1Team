@@ -1,10 +1,15 @@
-import { UploadType } from 'expo-file-system';
 import { Platform } from 'react-native';
 
 import { API_BASE_URL, CalendarEndpoints } from '@/constants/config';
 import { api, apiFetch, ApiError } from '@/lib/apiClient';
 import { getAccessToken } from '@/lib/secureStore';
-import { toLocalFile, guessFileName, guessMimeType } from '@/lib/uploadFile';
+import {
+  guessFileName,
+  guessMimeType,
+  isRemote,
+  toLocalFile,
+  uploadMultipart,
+} from '@/lib/uploadFile';
 
 /** 사진 등록은 옷 추출이 끝나야 COMPLETED 가 된다. 옷만 고른 기록은 처음부터 COMPLETED. */
 export type CalendarStatus = 'REGISTERED' | 'PROCESSING' | 'COMPLETED' | 'FAILED';
@@ -133,46 +138,39 @@ export async function createCalendarFromPhoto(input: {
 } & CalendarMetadata): Promise<CalendarEntryDto> {
   const name = input.name ?? guessFileName(input.photoUri);
   const mimeType = input.mimeType ?? guessMimeType(name);
-  const fields = photoFields(input);
+
+  const form = new FormData();
 
   if (Platform.OS === 'web') {
     const blob = await fetch(input.photoUri).then((response) => {
       if (!response.ok) throw new Error('선택한 사진을 불러오지 못했어요.');
       return response.blob();
     });
-    const form = new FormData();
     form.append('image', blob, name);
-    for (const [key, value] of Object.entries(fields)) form.append(key, value);
-    return apiFetch<CalendarEntryDto>(CalendarEndpoints.photo, { method: 'POST', body: form });
+    appendPhotoFields(form, input);
+    return withUploadTimeout(
+      apiFetch<CalendarEntryDto>(CalendarEndpoints.photo, { method: 'POST', body: form }),
+    );
   }
 
-  /* 네이티브 업로드는 apiClient 를 타지 않으므로 인증 헤더를 직접 붙인다.
-     (옷장 업로드와 같은 경로 — iOS 는 foreground 세션이어야 실패하지 않는다) */
-  const token = await getAccessToken();
-  const { file, downloaded } = await toLocalFile(input.photoUri, name);
+  /* 원격 주소는 기기 안의 파일이 아니라 그대로 못 올린다 — 캐시에 한 번 내려받는다. */
+  const local = isRemote(input.photoUri) ? await toLocalFile(input.photoUri, name) : null;
+  const uri = local ? local.file.uri : input.photoUri;
   try {
-    const response = await withUploadTimeout(
-      file.upload(`${API_BASE_URL}${CalendarEndpoints.photo}`, {
-        httpMethod: 'POST',
-        uploadType: UploadType.MULTIPART,
-        fieldName: 'image',
-        mimeType,
-        parameters: fields,
-        headers: {
-          Accept: 'application/json',
-          ...(token ? { Authorization: `Bearer ${token}` } : {}),
-        },
-        /* iOS 기본값은 백그라운드 URLSession 이라 앱이 응답을 못 받고 조용히 멈춘다 —
-           오류도 안 나서 화면에서는 "아무 일도 안 일어남"으로 보인다. */
-        sessionType: 'foreground',
-      }),
-    );
+    // React Native 의 FormData 는 파일을 { uri, name, type } 로 받는다(XHR 전용).
+    form.append('image', { uri, name, type: mimeType } as unknown as Blob);
+    appendPhotoFields(form, input);
+    const token = await getAccessToken();
+    const response = await uploadMultipart(`${API_BASE_URL}${CalendarEndpoints.photo}`, form, {
+      token,
+      timeoutMs: UPLOAD_TIMEOUT_MS,
+    });
     return parseUploadResponse<CalendarEntryDto>(response);
   } finally {
     // 내려받은 임시 파일만 지운다. 사용자가 고른 사진은 우리 것이 아니다.
-    if (downloaded) {
+    if (local?.downloaded) {
       try {
-        file.delete();
+        local.file.delete();
       } catch {
         // 캐시 파일이라 못 지워도 그냥 둔다.
       }
@@ -194,28 +192,21 @@ export function deleteCalendarEntry(calendarId: string): Promise<unknown> {
 }
 
 /**
- * multipart 는 값이 전부 문자열이라 배열을 그대로 못 싣는다.
- * `expo-file-system` 의 parameters 도 Record<string, string> 이라 같은 키를 반복할 수 없어,
- * DRF 가 HTML 폼 입력에서 인식하는 `필드[인덱스]` 표기로 편다.
+ * multipart 는 값이 전부 문자열이라 배열은 **같은 키를 여러 번** 붙여 보낸다.
+ *
+ * `필드[0]` 같은 인덱스 표기는 쓸 수 없다 — 서버 시리얼라이저가 StrictObjectInputMixin 이라
+ * 선언되지 않은 이름을 먼저 걷어내고(`"허용되지 않은 필드입니다"`), DRF 의 HTML 리스트
+ * 파싱까지 가지도 못한다. 2026-08-11 실측으로 확인.
  */
-function photoFields(input: {
-  date: string;
-  wardrobeItemIds?: string[];
-} & CalendarMetadata): Record<string, string> {
-  const fields: Record<string, string> = {
-    date: input.date,
-    schedule: input.schedule ?? '',
-  };
-  appendList(fields, 'wardrobe_item_ids', input.wardrobeItemIds);
-  appendList(fields, 'tpo', input.tpo);
-  appendList(fields, 'hashtags', input.hashtags);
-  return fields;
-}
-
-function appendList(fields: Record<string, string>, key: string, values?: string[]) {
-  values?.forEach((value, index) => {
-    fields[`${key}[${index}]`] = value;
-  });
+function appendPhotoFields(
+  form: FormData,
+  input: { date: string; wardrobeItemIds?: string[] } & CalendarMetadata,
+) {
+  form.append('date', input.date);
+  form.append('schedule', input.schedule ?? '');
+  input.wardrobeItemIds?.forEach((id) => form.append('wardrobe_item_ids', id));
+  input.tpo?.forEach((value) => form.append('tpo', value));
+  input.hashtags?.forEach((value) => form.append('hashtags', value));
 }
 
 /** 업로드 상한. 없으면 응답이 안 올 때 화면이 영영 "저장 중"으로 남는다. */
@@ -230,7 +221,8 @@ function withUploadTimeout<T>(request: Promise<T>): Promise<T> {
   });
 }
 
-function parseUploadResponse<T>(response: { status: number; body?: string }): T {
+/** XHR 응답을 DTO 로. 실패면 서버가 준 본문을 그대로 ApiError 에 실어 보낸다. */
+function parseUploadResponse<T>(response: { status: number; body: string }): T {
   let data: unknown = null;
   try {
     data = response.body ? JSON.parse(response.body) : null;
@@ -239,29 +231,12 @@ function parseUploadResponse<T>(response: { status: number; body?: string }): T 
   }
 
   if (response.status < 200 || response.status >= 300) {
-    throw new ApiError(uploadErrorMessage(data, response.status), response.status, data);
+    const detail = (data as { detail?: string } | null)?.detail;
+    throw new ApiError(
+      detail ?? `캘린더 기록 저장에 실패했어요. (${response.status})`,
+      response.status,
+      data,
+    );
   }
-
   return data as T;
-}
-
-/**
- * DRF 검증 오류는 `{ "필드": ["설명"] }` 로 온다 — `detail` 만 보면 원인이 통째로 사라진다.
- * 어느 필드가 왜 거절됐는지가 고칠 단서라 그대로 꺼내 보여준다.
- */
-function uploadErrorMessage(data: unknown, status: number): string {
-  const fallback = `캘린더 기록 저장에 실패했어요. (${status})`;
-  if (!data || typeof data !== 'object') return fallback;
-
-  const detail = (data as { detail?: unknown }).detail;
-  if (typeof detail === 'string') return detail;
-
-  const messages = Object.entries(data as Record<string, unknown>)
-    .map(([field, value]) => {
-      const text = Array.isArray(value) ? value.join(' ') : String(value);
-      return `${field}: ${text}`;
-    })
-    .filter(Boolean);
-
-  return messages.length > 0 ? messages.join('\n') : fallback;
 }

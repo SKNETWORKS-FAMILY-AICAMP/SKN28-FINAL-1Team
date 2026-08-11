@@ -396,6 +396,14 @@ export function calendarErrorMessage(error: unknown): string {
   if (error instanceof ApiError && error.status === 413) {
     return '사진 용량이 너무 커요. 15MB 이하로 올려주세요.';
   }
+  /* DRF 검증 오류는 `{ 필드: [설명] }` 로 온다. apiClient 는 detail/message 만 보고
+     "요청 실패 (400)" 으로 뭉개므로, 어느 필드가 왜 거절됐는지는 여기서 풀어준다. */
+  if (error instanceof ApiError && error.data && typeof error.data === 'object') {
+    const fields = Object.entries(error.data as Record<string, unknown>)
+      .filter(([key]) => key !== 'detail' && key !== 'message')
+      .map(([key, value]) => `${key}: ${Array.isArray(value) ? value.join(' ') : String(value)}`);
+    if (fields.length > 0) return fields.join('\n');
+  }
   return error instanceof Error && error.message
     ? error.message
     : '기록을 저장하지 못했어요. 잠시 후 다시 시도해 주세요.';
