@@ -366,6 +366,24 @@ def _hard_excluded_outfits(
     return excluded
 
 
+def _tag_values(item: dict[str, Any], field: str) -> set[str]:
+    """아이템 태그 하나를 **항상 집합으로** 읽는다.
+
+    같은 축이라도 값이 하나일 수도(fit="오버핏") 여럿일 수도(style=["미니멀",
+    "캐주얼"]) 있다. 아이템 컬렉션의 style·season이 리스트라, 태그 조인을
+    붙인 뒤 `value in labels`가 리스트를 집합에 넣으려다 죽었다:
+
+        TypeError: unhashable type: 'list'
+
+    Rule.matches()는 이미 리스트를 다루고 있었는데 취향 매칭만 스칼라를
+    가정하고 있었다. 두 곳이 같은 방식으로 읽도록 여기서 통일한다.
+    """
+    value = item.get(field)
+    if isinstance(value, (list, tuple, set)):
+        return {v for v in value if isinstance(v, str) and v}
+    return {value} if isinstance(value, str) and value else set()
+
+
 def _score_items(
     items: list[dict[str, Any]],
     *,
@@ -400,16 +418,14 @@ def _score_items(
 
     for item in items:
         for tag_field, labels in avoided_tags.items():
-            value = item.get(tag_field)
-            if value in labels:
+            for value in sorted(labels & _tag_values(item, tag_field)):
                 add(
                     weights.preference_avoid,
                     "preference",
                     f"기피 항목 '{value}'이(가) 포함됨",
                 )
         for tag_field, labels in preferred_tags.items():
-            value = item.get(tag_field)
-            if value in labels:
+            for value in sorted(labels & _tag_values(item, tag_field)):
                 add(weights.preference_match, "preference", f"선호 항목 '{value}' 일치")
 
         for rule in rules_avoid:

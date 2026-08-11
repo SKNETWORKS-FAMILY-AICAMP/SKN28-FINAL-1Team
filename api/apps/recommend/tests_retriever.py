@@ -850,3 +850,67 @@ class ItemTagJoinTests(TestCase):
                 retriever.attach_item_tags(_Broken([]), [("p0", 0.0, payload)]), 0
             )
         self.assertNotIn("fit", payload["items"][0])
+
+
+class ListValuedTagTests(unittest.TestCase):
+    """아이템 태그는 스칼라일 수도 리스트일 수도 있다.
+
+    아이템 컬렉션의 style·season은 리스트다. 태그 조인을 붙인 뒤 취향 매칭이
+    `value in labels`로 리스트를 집합에 넣으려다 죽었다:
+
+        TypeError: unhashable type: 'list'
+
+    조인 이전에는 아이템에 style 키 자체가 없어(None) 조용히 넘어갔기 때문에
+    드러나지 않았다.
+    """
+
+    def setUp(self):
+        self.rules = load_body_rules()
+        self.w = self.rules.weights
+
+    def _score(self, item, **kwargs):
+        return _score_items(
+            [item], rules_prefer=(), rules_avoid=(),
+            preferred_tags=kwargs.get("preferred", {}),
+            avoided_tags=kwargs.get("avoided", {}),
+            weights=self.w,
+        )
+
+    def test_list_valued_tag_does_not_crash(self):
+        item = {"category_large": "상의", "style": ["미니멀", "캐주얼"]}
+        total, reasons = self._score(item, preferred={"style": {"미니멀"}})
+        self.assertEqual(total, self.w.preference_match)
+        self.assertIn("미니멀", reasons[0].text)
+
+    def test_scalar_tag_still_works(self):
+        item = {"category_large": "상의", "fit": "오버핏"}
+        total, _ = self._score(item, avoided={"fit": {"오버핏"}})
+        self.assertEqual(total, self.w.preference_avoid)
+
+    def test_multiple_matches_in_one_list_are_all_counted(self):
+        item = {"style": ["미니멀", "캐주얼", "스트릿"]}
+        total, reasons = self._score(item, preferred={"style": {"미니멀", "스트릿"}})
+        self.assertEqual(total, self.w.preference_match * 2)
+        self.assertEqual(len(reasons), 2)
+
+    def test_no_overlap_scores_nothing(self):
+        item = {"style": ["포멀"]}
+        total, reasons = self._score(item, preferred={"style": {"미니멀"}})
+        self.assertEqual(total, 0.0)
+        self.assertEqual(reasons, [])
+
+    def test_missing_or_empty_values_are_ignored(self):
+        for value in (None, "", [], ["", None]):
+            item = {"style": value} if value is not None else {}
+            total, _ = self._score(item, preferred={"style": {"미니멀"}})
+            self.assertEqual(total, 0.0, repr(value))
+
+    def test_rules_and_preferences_read_tags_the_same_way(self):
+        """Rule.matches()는 리스트를 다뤘는데 취향 매칭만 스칼라를 가정했다."""
+        item = {"category_large": "상의", "style": ["미니멀"]}
+        from apps.recommend.services.style_rules import Rule
+
+        rule = Rule(match={"style": "미니멀"}, reason="테스트")
+        self.assertTrue(rule.matches(item))
+        total, _ = self._score(item, preferred={"style": {"미니멀"}})
+        self.assertGreater(total, 0)
