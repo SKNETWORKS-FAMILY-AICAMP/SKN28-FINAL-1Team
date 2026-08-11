@@ -111,9 +111,11 @@ def resolve_basic_info(
         if not value
     ]
     if missing:
+        # 이 문구는 400 응답의 detail 로 나가 앱 화면에 그대로 표시된다.
+        # 엔드포인트 경로 같은 개발자용 안내를 넣으면 사용자가 그걸 읽게 되므로
+        # 무엇이 빠졌는지와 무엇을 하면 되는지만 남긴다.
         raise BodyEstimationError(
-            f"{', '.join(missing)} 정보가 필요합니다. "
-            "PUT /api/v1/users/me/body/basic/ 으로 먼저 입력하거나 요청 본문에 담아주세요."
+            f"{', '.join(missing)} 정보가 필요합니다. 체형 정보를 먼저 입력해 주세요."
         )
     return gender, height, weight
 
