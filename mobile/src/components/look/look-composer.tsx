@@ -20,6 +20,7 @@ import { useBreakpoint } from '@/hooks/use-breakpoint';
 import { goBack } from '@/lib/goBack';
 import { pickFromAlbum, pickFromCamera } from '@/lib/pickItemPhoto';
 import {
+  calendarErrorMessage,
   calendarStore,
   entryItemKey,
   formatDateLabel,
@@ -60,12 +61,18 @@ export function LookComposer({ date }: { date?: string }) {
   const twoCol = primaryWidth >= 560;
 
   const [photo, setPhoto] = useState<string | undefined>(existing?.photo);
-  const [items, setItems] = useState<EntryItem[]>(existing?.items ?? []);
+  /* 인사이트에서 옷을 눌러 들어오면 그 옷이 담긴 채로 시작한다.
+     기존 기록을 여는 경우엔 그쪽이 먼저다 — 수정하러 왔는데 다른 옷이 끼면 안 된다. */
+  const [items, setItems] = useState<EntryItem[]>(
+    () => existing?.items ?? calendarStore.takeSeededItems() ?? [],
+  );
   const [note, setNote] = useState(existing?.note ?? '');
   const [tags, setTags] = useState<AllowedHashtag[]>(existing?.tags ?? []);
   const [shared, setShared] = useState(existing?.shared ?? false);
   const [pickerOpen, setPickerOpen] = useState(false);
   const [loading, setLoading] = useState(false);
+  /* 사진 업로드는 몇 초 걸린다 — 버튼이 아무 반응 없어 보이면 사용자가 다시 누른다. */
+  const [saving, setSaving] = useState(false);
 
   /* 반대편에도 남길지 — 캘린더 모드면 '룩북에도', 룩북 모드면 '캘린더에도'.
      이미 이어져 있는 기록(existing.lookId)은 토글이 아니라 사실 표시로 그린다. */
@@ -154,11 +161,26 @@ export function LookComposer({ date }: { date?: string }) {
     });
 
   const handleSave = async () => {
-    if (!canSave) return;
+    if (!canSave || saving) return;
+    setSaving(true);
+    try {
+      await runSave();
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const runSave = async () => {
 
     if (mode === 'calendar' && date) {
       const lookId = linkOn && !alreadyLinked ? makeLook(date).id : undefined;
-      calendarStore.saveEntry({ date, photo, items, note, tags, shared, lookId });
+      /* 저장은 서버 왕복이라 끝난 뒤에 알린다 — 먼저 토스트를 띄우면 실패해도 성공처럼 보인다. */
+      try {
+        await calendarStore.saveEntry({ date, photo, items, note, tags, shared, lookId });
+      } catch (error) {
+        toast(calendarErrorMessage(error), { variant: 'error' });
+        return;
+      }
       toast(
         lookId
           ? '착장을 기록하고 룩북에도 올렸어요'
@@ -171,8 +193,9 @@ export function LookComposer({ date }: { date?: string }) {
       return;
     }
 
-    /* 룩북 모드 — 고른 날에 이미 기록이 있으면 조용히 덮지 않고 먼저 묻는다. */
-    if (linkOn && calendarStore.getEntry(linkDate)) {
+    /* 룩북 모드 — 고른 날에 이미 기록이 있으면 조용히 덮지 않고 먼저 묻는다.
+       스토어에는 보고 있는 달만 있어서 다른 달 날짜는 서버까지 확인해야 한다. */
+    if (linkOn && (await calendarStore.findEntry(linkDate).catch(() => undefined))) {
       const ok = await confirm({
         title: `${formatDateLabel(linkDate)}에 이미 기록이 있어요`,
         message: '이 룩으로 그날 기록을 바꿀까요?',
@@ -183,15 +206,24 @@ export function LookComposer({ date }: { date?: string }) {
 
     const look = makeLook(linkOn ? linkDate : undefined);
     if (linkOn) {
-      calendarStore.saveEntry({
-        date: linkDate,
-        photo,
-        items,
-        note,
-        tags,
-        shared,
-        lookId: look.id,
-      });
+      try {
+        await calendarStore.saveEntry({
+          date: linkDate,
+          photo,
+          items,
+          note,
+          tags,
+          shared,
+          lookId: look.id,
+        });
+      } catch (error) {
+        /* 룩북에는 이미 올라갔으니 그건 살리고 캘린더 실패만 알린다. */
+        toast(`룩북에 올렸어요. 캘린더 기록은 실패했어요 — ${calendarErrorMessage(error)}`, {
+          variant: 'error',
+        });
+        router.navigate('/(tabs)/lookbook?tab=saved');
+        return;
+      }
     }
     toast(linkOn ? '룩북에 올리고 캘린더에도 기록했어요' : '룩북에 올렸어요', {
       variant: 'success',
@@ -208,7 +240,12 @@ export function LookComposer({ date }: { date?: string }) {
       destructive: true,
     });
     if (!ok) return;
-    calendarStore.removeEntry(date);
+    try {
+      await calendarStore.removeEntry(date);
+    } catch (error) {
+      toast(calendarErrorMessage(error), { variant: 'error' });
+      return;
+    }
     toast('기록을 지웠어요');
     goBack('/(tabs)/calendar');
   };
@@ -427,11 +464,12 @@ export function LookComposer({ date }: { date?: string }) {
 
           <View style={styles.footer}>
             <Pressable
-              style={[styles.saveBtn, !canSave && styles.saveBtnDisabled]}
+              style={[styles.saveBtn, (!canSave || saving) && styles.saveBtnDisabled]}
               onPress={handleSave}
-              disabled={!canSave}>
+              disabled={!canSave || saving}>
+              {saving ? <ActivityIndicator size="small" color="#fff" /> : null}
               <Text style={styles.saveText}>
-                {mode === 'calendar' ? '저장하기' : '룩북에 올리기'}
+                {saving ? '저장 중…' : mode === 'calendar' ? '저장하기' : '룩북에 올리기'}
               </Text>
             </Pressable>
           </View>
@@ -656,6 +694,8 @@ const styles = StyleSheet.create({
     height: 48,
     borderRadius: 999,
     backgroundColor: Editorial.cta,
+    flexDirection: 'row',
+    gap: 8,
     alignItems: 'center',
     justifyContent: 'center',
   },

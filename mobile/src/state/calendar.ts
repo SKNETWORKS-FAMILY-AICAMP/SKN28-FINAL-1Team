@@ -1,6 +1,18 @@
 import { useSyncExternalStore } from 'react';
 
-import { CLOSET_ITEMS, SHARED_CLOSET_ITEMS, type WardrobeItem, type WardrobeSource } from '@/constants/wardrobe';
+import { ApiError } from '@/lib/apiClient';
+import {
+  createCalendarFromPhoto,
+  createCalendarFromWardrobe,
+  deleteCalendarEntry,
+  getCalendarEntry,
+  getCalendarEntryByDate,
+  getCalendarProcessingStatus,
+  listCalendarEntries,
+  patchCalendarEntry,
+  type CalendarEntryDto,
+} from '@/lib/calendarApi';
+import type { WardrobeItem, WardrobeSource } from '@/constants/wardrobe';
 import type { AllowedHashtag } from '@/state/lookbook';
 
 /**
@@ -8,9 +20,11 @@ import type { AllowedHashtag } from '@/state/lookbook';
  *
  * 한 기록은 '그날의 룩 사진'과 '입은 옷 목록'을 **함께** 담는다. 둘은 배타적 선택이 아니라
  * 같은 하루를 다른 각도로 남긴 것이라, 사진만 있는 날도 옷만 있는 날도 유효하다.
- * 옷은 내 옷장·앱 카탈로그·친구 옷장 어디서 왔는지(source)까지 같이 저장해 나중에 되짚을 수 있게 한다.
  *
- * 저장은 아직 메모리(룩북 스토어와 동일) — 백엔드가 붙으면 이 스토어의 함수만 API 호출로 바꾼다.
+ * **서버가 진실이다.** 다만 서버 스키마에 자리가 없는 개념이 셋 있다 —
+ * 친구 공개(`shared`), 룩북 연결(`lookId`), 그리고 내 옷장이 아닌 옷(친구 옷장·앱 카탈로그).
+ * 이것들은 날짜별 로컬 오버레이에 둔다. 전에도 스토어 전체가 메모리였으니 세션 한정인 건
+ * 그대로고, 서버가 가진 것과 프론트에만 있는 것이 섞이지 않는다는 점만 달라졌다.
  */
 
 export type EntryItem = {
@@ -23,24 +37,24 @@ export type EntryItem = {
 };
 
 export type CalendarEntry = {
+  /** 서버 기록 id(UUID). 수정·삭제에 쓴다. */
+  id: string;
   /** 'YYYY-MM-DD' */
   date: string;
   photo?: string;
   items: EntryItem[];
   /**
    * 그날 무슨 일정이었는지 — '팀 회의', '친구 결혼식'처럼 자유롭게 적는다.
-   * 해시태그(무드·상황)와 따로 두는 이유: 태그는 고르는 것이고 일정은 그날에만 있는 사실이다.
-   * "왜 이 옷을 입었나"를 나중에 되짚는 단서라 남의 태그 체계에 끼워 맞출 수 없다.
+   * 서버의 `schedule` 이다. 해시태그와 따로 두는 이유: 태그는 고르는 것이고
+   * 일정은 그날에만 있는 사실이라 남의 태그 체계에 끼워 맞출 수 없다.
    */
   note?: string;
   tags: AllowedHashtag[];
-  /** 함께 쓰는 옷장 친구에게 공개 여부 */
+  /** 사진 등록은 옷 추출이 끝나야 COMPLETED 다. 옷만 고른 기록은 처음부터 완료. */
+  status: CalendarEntryDto['status'];
+  /** 함께 쓰는 옷장 친구에게 공개 여부 — 서버에 자리가 없어 로컬 전용 */
   shared: boolean;
-  /**
-   * 같이 만들어진 룩북 룩(state/saved.ts SavedLook.id).
-   * 한 번 이어 붙이면 끊지 않는다 — 룩북에서 그 룩을 지우면 여기 값만 남는데,
-   * 캘린더 화면은 실제 룩을 찾지 못하면 연결 줄을 그리지 않는다.
-   */
+  /** 같이 만들어진 룩북 룩(state/saved.ts SavedLook.id) — 서버에 자리가 없어 로컬 전용 */
   lookId?: string;
   /** 외부 공유 링크용 코드 — 기록당 한 번 만들어 고정한다(링크가 매번 바뀌면 안 되므로) */
   shareCode: string;
@@ -93,66 +107,25 @@ export function entryItemKey(item: { source: WardrobeSource; id: string }): stri
   return `${item.source}:${item.id}`;
 }
 
-function seed(
-  date: string,
-  photo: string,
-  tags: AllowedHashtag[],
-  picks: EntryItem[],
-  note?: string,
-  shared = false,
-  lookId?: string,
-): CalendarEntry {
-  return {
-    date,
-    photo,
-    items: picks,
-    note,
-    tags,
-    shared,
-    lookId,
-    shareCode: makeShareCode(),
-    updatedAt: 0,
-  };
+/** 서버에 보낼 수 있는 건 내 옷장 옷뿐이다 — 친구 옷장·앱 카탈로그는 백엔드가 없다. */
+function isServerItem(item: EntryItem): boolean {
+  return item.source === 'closet';
 }
 
-const mine = (id: string) => toEntryItem(CLOSET_ITEMS.find((i) => i.id === id)!, 'closet');
-const friend = (id: string) => toEntryItem(SHARED_CLOSET_ITEMS.find((i) => i.id === id)!, 'shared');
+/** 서버 스키마에 자리가 없어 날짜별로 따로 들고 있는 것들 */
+type Overlay = {
+  shared: boolean;
+  lookId?: string;
+  /** 내 옷장이 아니라 서버로 못 보낸 옷 */
+  localItems: EntryItem[];
+  shareCode: string;
+};
 
-const SEED_ENTRIES: CalendarEntry[] = [
-  seed(
-    '2026-07-03',
-    'https://i.pinimg.com/736x/c1/ae/c8/c1aec88282cee841eca0f6e0da5d1174.jpg',
-    ['출근', '미니멀'],
-    [mine('2'), mine('3')],
-    '분기 보고 발표',
-  ),
-  seed(
-    '2026-07-07',
-    'https://i.pinimg.com/736x/55/26/0d/55260de328aec1e50740655fd4b5fdc5.jpg',
-    ['데이트'],
-    [mine('1'), mine('4'), mine('6')],
-    '기념일 저녁 약속',
-    true,
-    's3',
-  ),
-  seed(
-    '2026-07-12',
-    'https://i.pinimg.com/736x/b4/cd/22/b4cd22015add333e10cd2ba06067406b.jpg',
-    ['나들이', '캐주얼'],
-    [mine('3'), mine('4')],
-  ),
-  seed(
-    '2026-07-20',
-    'https://i.pinimg.com/736x/ec/96/f3/ec96f39eb800d19290736c17f0253ed9.jpg',
-    ['여행'],
-    [friend('s1'), mine('5')],
-    '제주 2박 3일',
-  ),
-];
-
-let entries: Record<string, CalendarEntry> = Object.fromEntries(
-  SEED_ENTRIES.map((e) => [e.date, e]),
-);
+let entries: Record<string, CalendarEntry> = {};
+const overlays: Record<string, Overlay> = {};
+/* 빈 날 인사이트에서 옷을 눌러 기록 화면을 열 때 그 옷을 실어 보내는 자리.
+   URL 파라미터로 옷 전체를 넘기면 이름·사진까지 붙어 지저분해진다(draft-item.ts 와 같은 방식). */
+let seededItems: EntryItem[] | null = null;
 
 const listeners = new Set<() => void>();
 
@@ -161,12 +134,147 @@ function notify() {
   listeners.forEach((l) => l());
 }
 
+/** 사진에서 옷을 뽑아내는 건 GPU 파이프라인이라 몇 분이 걸린다. */
+const PROCESSING_POLL_MS = 5_000;
+/** 무한 폴링 방지 상한. 여기 걸리면 지켜보기를 접고, 다음에 달을 불러올 때 다시 본다. */
+const MAX_PROCESSING_POLL_MS = 10 * 60 * 1000;
+
+/** 지금 지켜보고 있는 기록 id — 같은 기록에 감시자가 둘 붙지 않게 한다. */
+const watching = new Set<string>();
+
+function isProcessing(status: CalendarEntryDto['status']): boolean {
+  return status === 'REGISTERED' || status === 'PROCESSING';
+}
+
+/**
+ * 사진 등록 뒤 옷 추출이 끝날 때까지 지켜본다.
+ *
+ * 화면이 아니라 스토어가 맡는 이유: 저장하고 캘린더로 돌아가는 게 정상 흐름이라
+ * 화면에 걸어두면 그 화면을 벗어나는 순간 추적이 끊긴다. 끝나면 기록을 다시 받아
+ * 담긴 옷을 채워 넣는다.
+ */
+function watchProcessing(calendarId: string, date: string) {
+  if (watching.has(calendarId)) return;
+  watching.add(calendarId);
+  const startedAt = Date.now();
+
+  const tick = async () => {
+    // 지켜보는 사이에 지워졌거나 다른 기록으로 바뀌었으면 그만둔다.
+    if (entries[date]?.id !== calendarId) {
+      watching.delete(calendarId);
+      return;
+    }
+    if (Date.now() - startedAt > MAX_PROCESSING_POLL_MS) {
+      watching.delete(calendarId);
+      return;
+    }
+
+    try {
+      const status = await getCalendarProcessingStatus(calendarId);
+      if (status.is_terminal) {
+        watching.delete(calendarId);
+        // 상태만으로는 어떤 옷이 나왔는지 모른다 — 기록을 다시 받아야 목록이 채워진다.
+        const fresh = await getCalendarEntry(calendarId);
+        if (entries[date]?.id === calendarId) {
+          entries[date] = toEntry(fresh);
+          notify();
+        }
+        return;
+      }
+      // 상태 문구가 REGISTERED → PROCESSING 으로 바뀌는 것도 화면에 비친다.
+      const current = entries[date];
+      if (current && current.status !== status.status) {
+        entries[date] = { ...current, status: status.status };
+        notify();
+      }
+    } catch {
+      // 일시적인 실패로 추적을 끝내지 않는다 — 다음 회차에 복구된다.
+    }
+    setTimeout(() => void tick(), PROCESSING_POLL_MS);
+  };
+
+  setTimeout(() => void tick(), PROCESSING_POLL_MS);
+}
+
+function overlayFor(date: string): Overlay {
+  overlays[date] ??= { shared: false, localItems: [], shareCode: makeShareCode() };
+  return overlays[date];
+}
+
+/** 사진과 옷 구성이 그대로인가 — 그렇다면 서버 기록을 다시 만들 이유가 없다. */
+function sameComposition(prev: CalendarEntry, photo: string | undefined, items: EntryItem[]): boolean {
+  if ((prev.photo ?? '') !== (photo ?? '')) return false;
+  if (prev.items.length !== items.length) return false;
+  const before = prev.items.map(entryItemKey).sort();
+  const after = items.map(entryItemKey).sort();
+  return before.every((key, i) => key === after[i]);
+}
+
+/** 서버에 자리가 없는 것들을 날짜별 오버레이에 반영한다. */
+function applyOverlay(input: {
+  date: string;
+  items: EntryItem[];
+  shared: boolean;
+  lookId?: string;
+}) {
+  const overlay = overlayFor(input.date);
+  overlay.shared = input.shared;
+  overlay.lookId = input.lookId ?? overlay.lookId;
+  overlay.localItems = input.items.filter((item) => !isServerItem(item));
+}
+
+/** 서버 응답 + 로컬 오버레이 → 화면이 쓰는 기록 */
+function toEntry(dto: CalendarEntryDto): CalendarEntry {
+  const overlay = overlayFor(dto.date);
+  const serverItems: EntryItem[] = dto.wardrobe_items.map((link) => ({
+    id: link.wardrobe_item_id,
+    source: 'closet',
+    name: (link.snapshot.item_name as string) || '이름 없는 아이템',
+    image: link.image_url || undefined,
+  }));
+
+  return {
+    id: dto.id,
+    date: dto.date,
+    photo: dto.image_url || undefined,
+    items: [...serverItems, ...overlay.localItems],
+    note: dto.schedule || undefined,
+    tags: dto.hashtags as AllowedHashtag[],
+    status: dto.status,
+    shared: overlay.shared,
+    lookId: overlay.lookId,
+    shareCode: overlay.shareCode,
+    updatedAt: Date.parse(dto.updated_at) || 0,
+  };
+}
+
 export const calendarStore = {
   getEntries: () => entries,
   getEntry: (date: string): CalendarEntry | undefined => entries[date],
 
-  /** 새 기록 저장 또는 기존 기록 덮어쓰기. shareCode 와 룩북 연결은 기존 것을 유지한다. */
-  saveEntry(input: {
+  /** 기간(보통 한 달)을 서버에서 받아 반영한다. 그 기간에 없는 날은 지운다. */
+  async loadRange(startDate: string, endDate: string): Promise<void> {
+    const list = await listCalendarEntries(startDate, endDate);
+    const loaded = new Set(list.map((dto) => dto.date));
+    for (const date of Object.keys(entries)) {
+      if (date >= startDate && date <= endDate && !loaded.has(date)) delete entries[date];
+    }
+    for (const dto of list) entries[dto.date] = toEntry(dto);
+    notify();
+    /* 앱을 껐다 켰거나 한참 만에 들어오면 아직 처리 중인 기록이 있을 수 있다 —
+       그때도 스스로 채워지도록 여기서 다시 지켜보기를 건다. */
+    for (const dto of list) {
+      if (isProcessing(dto.status)) watchProcessing(dto.id, dto.date);
+    }
+  },
+
+  /**
+   * 기록 저장. 사진이 있으면 사진 경로로, 없으면 옷장 경로로 등록한다.
+   *
+   * 서버에 upsert 가 없어 **이미 있는 날짜는 지우고 다시 만든다.** 그래서 수정이어도
+   * 기록 id 는 새로 발급된다(처리 중인 기록은 서버가 삭제를 409 로 막는다).
+   */
+  async saveEntry(input: {
     date: string;
     photo?: string;
     items: EntryItem[];
@@ -174,32 +282,102 @@ export const calendarStore = {
     tags: AllowedHashtag[];
     shared: boolean;
     lookId?: string;
-  }): CalendarEntry {
-    const prev = entries[input.date];
-    const next: CalendarEntry = {
-      date: input.date,
-      photo: input.photo,
-      items: input.items,
-      note: input.note?.trim() || undefined,
-      tags: input.tags,
-      shared: input.shared,
-      lookId: input.lookId ?? prev?.lookId,
-      shareCode: prev?.shareCode ?? makeShareCode(),
-      updatedAt: Date.now(),
+  }): Promise<CalendarEntry> {
+    const serverItems = input.items.filter(isServerItem);
+
+    if (!input.photo && serverItems.length === 0) {
+      throw new Error('사진을 넣거나 내 옷장에서 옷을 골라주세요.');
+    }
+
+    const meta = {
+      schedule: input.note?.trim() || '',
+      hashtags: input.tags,
     };
+    const wardrobeItemIds = serverItems.map((item) => item.id);
+
+    /* 메모리에 없어도 서버에는 있을 수 있다(다른 달 날짜). 확인하지 않고 만들면 409 다. */
+    const prev = await calendarStore.findEntry(input.date);
+
+    /* 사진과 옷 구성이 그대로면 메타데이터만 고치면 된다.
+       서버에 upsert 가 없어 수정 = 삭제 후 재등록인데, 그러면 일정 한 줄 고치는 데도
+       사진이 다시 올라가고 기록 id 가 바뀐다. PATCH 로 끝낼 수 있으면 그렇게 한다. */
+    if (prev && sameComposition(prev, input.photo, input.items)) {
+      const dto = await patchCalendarEntry(prev.id, meta);
+      applyOverlay(input);
+      const patched = toEntry(dto);
+      entries[input.date] = patched;
+      notify();
+      return patched;
+    }
+
+    // 같은 날짜에 기록이 있으면 서버가 409 로 막는다 — 사진·옷이 바뀌면 지우고 다시 만든다.
+    if (prev) await deleteCalendarEntry(prev.id);
+
+    const dto = input.photo
+      ? await createCalendarFromPhoto({
+          date: input.date,
+          photoUri: input.photo,
+          wardrobeItemIds,
+          ...meta,
+        })
+      : await createCalendarFromWardrobe({
+          date: input.date,
+          wardrobeItemIds,
+          ...meta,
+        });
+
+    applyOverlay(input);
+
+    const next = toEntry(dto);
     entries[input.date] = next;
     notify();
+    /* 사진 등록은 202 로 돌아오고 옷 목록이 비어 있다 — 추출이 끝나면 채워 넣는다. */
+    if (isProcessing(dto.status)) watchProcessing(dto.id, dto.date);
     return next;
   },
 
-  removeEntry(date: string) {
+  async removeEntry(date: string): Promise<void> {
+    const entry = entries[date];
+    if (!entry) return;
+    await deleteCalendarEntry(entry.id);
     delete entries[date];
+    delete overlays[date];
     notify();
   },
 
+  /**
+   * 그 날짜의 기록을 찾는다 — 메모리에 없으면 서버까지 확인한다.
+   *
+   * 스토어에는 보고 있는 달만 올라와 있어서, 룩북에서 다른 달 날짜를 고르면
+   * 기록이 있는데도 없는 것처럼 보인다. 그대로 저장하면 서버가 409 로 막는다.
+   */
+  async findEntry(date: string): Promise<CalendarEntry | undefined> {
+    const known = entries[date];
+    if (known) return known;
+    const dto = await getCalendarEntryByDate(date);
+    if (!dto) return undefined;
+    entries[date] = toEntry(dto);
+    notify();
+    return entries[date];
+  },
+
+  /** 기록 화면을 열면서 미리 담아둘 옷을 넘긴다. */
+  seedItems(items: EntryItem[]) {
+    seededItems = items;
+  },
+
+  /** 담아둔 옷을 꺼낸다. 한 번 쓰면 비운다 — 다음에 빈손으로 열었을 때 남아 있으면 안 된다. */
+  takeSeededItems(): EntryItem[] | null {
+    const taken = seededItems;
+    seededItems = null;
+    return taken;
+  },
+
+  /** 친구 공개 여부 — 서버에 자리가 없어 로컬에만 남는다. */
   setShared(date: string, shared: boolean) {
     const prev = entries[date];
     if (!prev) return;
+    overlayFor(date).shared = shared;
     entries[date] = { ...prev, shared };
     notify();
   },
@@ -209,6 +387,27 @@ export const calendarStore = {
     return () => listeners.delete(listener);
   },
 };
+
+/** 등록 실패를 사용자 문구로 — 날짜 충돌만 따로 짚어준다. */
+export function calendarErrorMessage(error: unknown): string {
+  if (error instanceof ApiError && error.status === 409) {
+    return '그 날짜에 이미 기록이 있어요. 새로고침한 뒤 다시 시도해 주세요.';
+  }
+  if (error instanceof ApiError && error.status === 413) {
+    return '사진 용량이 너무 커요. 15MB 이하로 올려주세요.';
+  }
+  /* DRF 검증 오류는 `{ 필드: [설명] }` 로 온다. apiClient 는 detail/message 만 보고
+     "요청 실패 (400)" 으로 뭉개므로, 어느 필드가 왜 거절됐는지는 여기서 풀어준다. */
+  if (error instanceof ApiError && error.data && typeof error.data === 'object') {
+    const fields = Object.entries(error.data as Record<string, unknown>)
+      .filter(([key]) => key !== 'detail' && key !== 'message')
+      .map(([key, value]) => `${key}: ${Array.isArray(value) ? value.join(' ') : String(value)}`);
+    if (fields.length > 0) return fields.join('\n');
+  }
+  return error instanceof Error && error.message
+    ? error.message
+    : '기록을 저장하지 못했어요. 잠시 후 다시 시도해 주세요.';
+}
 
 export function useCalendarEntries(): Record<string, CalendarEntry> {
   return useSyncExternalStore(
