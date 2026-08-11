@@ -113,7 +113,7 @@ class OutfitComposerTests(SimpleTestCase):
         self.assertEqual(result.items, ())
         self.assertEqual(result.missing_slot_ids, ("BOTTOM:golden-bottom",))
 
-    def test_pursuit_mode_prioritizes_product_then_wardrobe(self) -> None:
+    def test_new_item_mode_includes_product_with_owned_items(self) -> None:
         top = _slot(
             _template("golden-top", layer_role="TOP", image_ref="golden/top.jpg"),
             _candidate(ItemSource.WARDROBE, "owned-top", score=0.99),
@@ -130,7 +130,7 @@ class OutfitComposerTests(SimpleTestCase):
 
         result = self.composer.compose(
             CompositionRequest(
-                mode=RecommendationMode.PURSUIT_BASED,
+                mode=RecommendationMode.NEW_ITEM,
                 slot_results=(top, bottom),
             )
         )
@@ -160,7 +160,7 @@ class OutfitComposerTests(SimpleTestCase):
 
         result = self.composer.compose(
             CompositionRequest(
-                mode=RecommendationMode.PURSUIT_BASED,
+                mode=RecommendationMode.NEW_ITEM,
                 slot_results=(top, bottom),
                 total_budget=100_000,
             )

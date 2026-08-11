@@ -37,6 +37,7 @@ class CompositionPolicy:
     total_budget: int | None = None
     require_image: bool = True
     candidates_per_slot: int = 6
+    minimum_source_counts: tuple[tuple[ItemSource, int], ...] = ()
 
 
 @dataclass(frozen=True)
@@ -124,9 +125,9 @@ def _selection_reason(mode: RecommendationMode, source: ItemSource) -> str:
             ItemSource.PRODUCT: "옷장 기반 정책 외 상품 선택",
         }[source]
     return {
-        ItemSource.WARDROBE: "추구미 기반: 보유 아이템으로 교체",
-        ItemSource.PRODUCT: "추구미 기반: 구매 가능한 상품으로 교체",
-        ItemSource.GOLDENSET_ITEM: "대체 후보 부족: 골든셋 참고 아이템 유지",
+        ItemSource.WARDROBE: "신규 아이템 추천: 기존 보유 아이템 활용",
+        ItemSource.PRODUCT: "신규 아이템 추천: 구매 가능한 상품 추가",
+        ItemSource.GOLDENSET_ITEM: "신규 아이템 정책 외 골든셋 선택",
     }[source]
 
 
@@ -183,6 +184,11 @@ class CompositionEngine:
         compositions: list[OutfitComposition] = []
         seen: set[tuple[tuple[str, str, str], ...]] = set()
         for state in sorted(states, key=self._state_sort_key):
+            if not self._meets_minimum_source_counts(
+                state,
+                policy.minimum_source_counts,
+            ):
+                continue
             fingerprint = tuple(item.identity for item in state.items)
             if fingerprint in seen:
                 continue
@@ -219,6 +225,14 @@ class CompositionEngine:
             raise ValueError("최소 하나의 아이템 출처가 필요합니다.")
         if len(policy.source_priority) != len(set(policy.source_priority)):
             raise ValueError("아이템 출처 우선순위가 중복되었습니다.")
+        minimum_sources = [source for source, _ in policy.minimum_source_counts]
+        if len(minimum_sources) != len(set(minimum_sources)):
+            raise ValueError("최소 출처 개수 조건이 중복되었습니다.")
+        for source, count in policy.minimum_source_counts:
+            if source not in policy.source_priority:
+                raise ValueError("최소 개수 조건의 출처가 허용 대상이 아닙니다.")
+            if not isinstance(count, int) or isinstance(count, bool) or count < 1:
+                raise ValueError("최소 출처 개수는 1 이상의 정수여야 합니다.")
         if policy.total_budget is not None and (
             not isinstance(policy.total_budget, int)
             or isinstance(policy.total_budget, bool)
@@ -346,6 +360,16 @@ class CompositionEngine:
             tuple(item.identity for item in state.items),
         )
 
+    @staticmethod
+    def _meets_minimum_source_counts(
+        state: _PartialComposition,
+        requirements: tuple[tuple[ItemSource, int], ...],
+    ) -> bool:
+        return all(
+            sum(item.source_type is source for item in state.items) >= minimum
+            for source, minimum in requirements
+        )
+
 
 class OutfitComposer:
     """기존 단일 조합 인터페이스. 신규 코드는 모드별 Composer를 사용한다."""
@@ -358,13 +382,12 @@ class OutfitComposer:
             raise TypeError("유효한 추천 모드가 필요합니다.")
         priority = {
             RecommendationMode.WARDROBE_BASED: (ItemSource.WARDROBE,),
-            RecommendationMode.PURSUIT_BASED: (
-                ItemSource.PRODUCT,
+            RecommendationMode.NEW_ITEM: (
                 ItemSource.WARDROBE,
-                ItemSource.GOLDENSET_ITEM,
+                ItemSource.PRODUCT,
             ),
         }[request.mode]
-        return self.engine.compose(
+        compositions = self.engine.compose(
             request.slot_results,
             policy=CompositionPolicy(
                 mode=request.mode,
@@ -372,5 +395,13 @@ class OutfitComposer:
                 composition_count=1,
                 total_budget=request.total_budget,
                 require_image=request.require_image,
+                minimum_source_counts=(
+                    ((ItemSource.PRODUCT, 1),)
+                    if request.mode is RecommendationMode.NEW_ITEM
+                    else ()
+                ),
             ),
-        )[0]
+        )
+        if not compositions:
+            raise CompositionError("신규 상품을 포함한 코디를 구성할 수 없습니다.")
+        return compositions[0]

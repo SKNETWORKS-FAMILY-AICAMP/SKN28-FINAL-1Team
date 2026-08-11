@@ -13,7 +13,7 @@ class RecommendationMode(StrEnum):
     """서로 다른 후보 선택 정책을 사용하는 추천 모드."""
 
     WARDROBE_BASED = "WARDROBE_BASED"
-    PURSUIT_BASED = "PURSUIT_BASED"
+    NEW_ITEM = "NEW_ITEM"
 
 
 @dataclass(frozen=True)
