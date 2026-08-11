@@ -6,6 +6,7 @@ import {
   createCalendarFromWardrobe,
   deleteCalendarEntry,
   getCalendarEntry,
+  getCalendarEntryByDate,
   getCalendarProcessingStatus,
   listCalendarEntries,
   patchCalendarEntry,
@@ -294,7 +295,8 @@ export const calendarStore = {
     };
     const wardrobeItemIds = serverItems.map((item) => item.id);
 
-    const prev = entries[input.date];
+    /* 메모리에 없어도 서버에는 있을 수 있다(다른 달 날짜). 확인하지 않고 만들면 409 다. */
+    const prev = await calendarStore.findEntry(input.date);
 
     /* 사진과 옷 구성이 그대로면 메타데이터만 고치면 된다.
        서버에 upsert 가 없어 수정 = 삭제 후 재등록인데, 그러면 일정 한 줄 고치는 데도
@@ -341,6 +343,22 @@ export const calendarStore = {
     delete entries[date];
     delete overlays[date];
     notify();
+  },
+
+  /**
+   * 그 날짜의 기록을 찾는다 — 메모리에 없으면 서버까지 확인한다.
+   *
+   * 스토어에는 보고 있는 달만 올라와 있어서, 룩북에서 다른 달 날짜를 고르면
+   * 기록이 있는데도 없는 것처럼 보인다. 그대로 저장하면 서버가 409 로 막는다.
+   */
+  async findEntry(date: string): Promise<CalendarEntry | undefined> {
+    const known = entries[date];
+    if (known) return known;
+    const dto = await getCalendarEntryByDate(date);
+    if (!dto) return undefined;
+    entries[date] = toEntry(dto);
+    notify();
+    return entries[date];
   },
 
   /** 기록 화면을 열면서 미리 담아둘 옷을 넘긴다. */

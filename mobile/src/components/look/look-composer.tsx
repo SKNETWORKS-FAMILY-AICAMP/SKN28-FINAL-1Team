@@ -182,8 +182,9 @@ export function LookComposer({ date }: { date?: string }) {
       return;
     }
 
-    /* 룩북 모드 — 고른 날에 이미 기록이 있으면 조용히 덮지 않고 먼저 묻는다. */
-    if (linkOn && calendarStore.getEntry(linkDate)) {
+    /* 룩북 모드 — 고른 날에 이미 기록이 있으면 조용히 덮지 않고 먼저 묻는다.
+       스토어에는 보고 있는 달만 있어서 다른 달 날짜는 서버까지 확인해야 한다. */
+    if (linkOn && (await calendarStore.findEntry(linkDate).catch(() => undefined))) {
       const ok = await confirm({
         title: `${formatDateLabel(linkDate)}에 이미 기록이 있어요`,
         message: '이 룩으로 그날 기록을 바꿀까요?',
