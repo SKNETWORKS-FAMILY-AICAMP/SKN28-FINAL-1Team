@@ -612,6 +612,11 @@ class DailyLookTodayView(APIView):
             "대표 이미지는 `result.render_image_url`이다. 골든 코디당 한 번만 만들어 "
             "재사용하므로 같은 코디를 받은 사용자끼리 같은 이미지를 본다. 생성 전이거나 "
             "실패하면 null이며, 그때는 `result.items[].image_url` 카드로 화면을 구성한다.\n\n"
+            "이 값이 비어 있으면 조회할 때마다 다시 확인한다. 생성이 한 번 실패해도 "
+            "다음 시행에서 성공하는 일이 잦아, 그때 이미 만들어져 있으면 이 응답에서 "
+            "바로 채워진다. 아직 없으면 재생성을 예약한다(쿨다운 있음). 즉 "
+            "`SUCCEEDED`인데 `render_image_url`이 null이면, 잠시 뒤 다시 조회할 때 "
+            "값이 생길 수 있다 — 폴링을 계속할 필요는 없고 다음 진입에서 채워진다.\n\n"
             "위경도를 주면 그 위치의 날씨로 추천한다. 생성은 하루 한 번뿐이라 "
             "이미 만들어진 뒤의 좌표는 반영되지 않는다."
         ),
@@ -640,6 +645,13 @@ class DailyLookTodayView(APIView):
         )
         if created:
             logger.info("오늘의 룩 생성 접수: user=%s look=%s", request.user.pk, look.pk)
+
+        # 착용 이미지는 생성 시점에 실패해도 다음 시행에서 성공하는 일이 잦다.
+        # 결과 JSON은 생성이 끝날 때 한 번만 쓰이므로, 그 사이에 이미지가 생겨도
+        # 행은 비어 있는 채로 남는다. 조회할 때마다 한 번 더 확인해 붙인다.
+        # 생성은 하지 않는다 — 수십 초가 걸려 이 요청을 잡아둘 수 없다.
+        daily_look_service.refresh_render(look)
+
         return Response(DailyLookSerializer(look).data)
 
 

@@ -22,6 +22,7 @@ from rest_framework.test import APIClient
 
 from apps.recommend.models import DailyLook
 from apps.recommend.services import daily_look as service
+from apps.recommend.services import outfit_render
 
 User = get_user_model()
 
@@ -294,3 +295,212 @@ class TodayLookApiTests(TestCase):
         body = self.client.get(self.url).json()
         self.assertIn("thigh", body["context"]["missing_measurements"])
         self.assertTrue(body["context"]["used_body"])
+
+
+RESULT_WITHOUT_RENDER = {
+    "headline": "가볍게",
+    "golden_id": "095",
+    "rationale_ko": "...",
+    "render_image": None,
+    "items": [
+        {"item_key": "095#000", "name": "셔츠", "category": "상의",
+         "s3_bucket": "skn28-cozy3",
+         "s3_key": "goldenset/derived/v1/095/item_000.png"},
+        {"item_key": "095#001", "name": "슬랙스", "category": "하의",
+         "s3_bucket": "skn28-cozy3",
+         "s3_key": "goldenset/derived/v1/095/item_001.png"},
+    ],
+}
+
+
+class RefreshRenderTests(TestCase):
+    """조회 시점의 착용 이미지 보정.
+
+    생성이 한 번 실패해도 다음 시행에서 성공하는 일이 잦다(제공자 일시 오류·
+    타임아웃). 그런데 결과 JSON은 생성이 끝날 때 한 번만 쓰이므로, 그 뒤에
+    이미지가 S3에 생겨도 행은 비어 있는 채로 남고 사용자는 그날 내내 대표
+    이미지를 못 본다. 그래서 조회할 때마다 한 번 더 본다.
+    """
+
+    def setUp(self):
+        self.user = User.objects.create(username="u5")
+        self.look = DailyLook.objects.create(
+            user=self.user,
+            look_date=service.today(),
+            status=DailyLook.Status.SUCCEEDED,
+            result=dict(RESULT_WITHOUT_RENDER),
+            error="착용 이미지 생성 실패(추천은 정상): 400 ...",
+        )
+
+    @patch("apps.recommend.services.daily_look._schedule_render_retry")
+    @patch("apps.recommend.services.daily_look.outfit_render.existing_render")
+    def test_image_created_by_a_later_attempt_gets_attached(self, existing, schedule):
+        existing.return_value = outfit_render.RenderRef(
+            "skn28-cozy3", "goldenset/derived/v1/095/render_frontal.jpg"
+        )
+        self.assertTrue(service.refresh_render(self.look))
+
+        self.look.refresh_from_db()
+        self.assertEqual(
+            self.look.result["render_image"],
+            {"s3_bucket": "skn28-cozy3",
+             "s3_key": "goldenset/derived/v1/095/render_frontal.jpg"},
+        )
+        schedule.assert_not_called()
+
+    @patch("apps.recommend.services.daily_look._schedule_render_retry")
+    @patch("apps.recommend.services.daily_look.outfit_render.existing_render")
+    def test_stale_failure_message_is_cleared(self, existing, _schedule):
+        """이미지가 붙었는데 실패 메시지가 남으면 멀쩡한 행을 문제로 읽는다."""
+        existing.return_value = outfit_render.RenderRef("b", "k.png")
+        service.refresh_render(self.look)
+        self.look.refresh_from_db()
+        self.assertEqual(self.look.error, "")
+
+    @patch("apps.recommend.services.daily_look._schedule_render_retry")
+    @patch("apps.recommend.services.daily_look.outfit_render.existing_render",
+           return_value=None)
+    def test_missing_image_schedules_a_retry_instead_of_generating(
+        self, _existing, schedule
+    ):
+        """조회는 사용자 요청 스레드다. 수십 초짜리 생성을 여기서 하면 안 된다."""
+        self.assertFalse(service.refresh_render(self.look))
+        schedule.assert_called_once()
+        self.look.refresh_from_db()
+        self.assertIsNone(self.look.result["render_image"])
+
+    @patch("apps.recommend.services.daily_look.outfit_render.existing_render")
+    def test_already_attached_look_is_not_touched(self, existing):
+        """S3 HEAD는 싸지만 공짜는 아니다. 폴링마다 부를 이유가 없다."""
+        self.look.result = {**RESULT_WITHOUT_RENDER,
+                            "render_image": {"s3_bucket": "b", "s3_key": "k.png"}}
+        self.look.save()
+        self.assertFalse(service.refresh_render(self.look))
+        existing.assert_not_called()
+
+    @patch("apps.recommend.services.daily_look.outfit_render.existing_render")
+    def test_unfinished_look_is_skipped(self, existing):
+        self.look.status = DailyLook.Status.QUEUED
+        self.look.save()
+        self.assertFalse(service.refresh_render(self.look))
+        existing.assert_not_called()
+
+    @patch("apps.recommend.services.daily_look.outfit_render.existing_render")
+    def test_result_without_item_images_is_skipped(self, existing):
+        self.look.result = {"headline": "x", "golden_id": "095", "items": []}
+        self.look.save()
+        self.assertFalse(service.refresh_render(self.look))
+        existing.assert_not_called()
+
+    def test_category_is_restored_for_reference_priority(self):
+        """_build_result가 category_large를 category로 줄여 담는다.
+
+        되돌리지 않으면 참조를 고를 때 모든 아이템이 '분류 없음'이 되어, 가방이
+        남고 바지가 빠지는 조합이 나온다.
+        """
+        _bucket, items = service._render_source(RESULT_WITHOUT_RENDER)
+        self.assertEqual([i["category_large"] for i in items], ["상의", "하의"])
+
+
+class ScheduleRenderRetryTests(TestCase):
+    """재생성 예약은 쿨다운으로 묶는다. 없으면 폴링마다 생성이 쌓인다."""
+
+    def setUp(self):
+        self.user = User.objects.create(username="u6")
+        self.look = DailyLook.objects.create(
+            user=self.user, look_date=service.today(),
+            status=DailyLook.Status.SUCCEEDED, result=dict(RESULT_WITHOUT_RENDER),
+        )
+
+    @patch("apps.recommend.services.daily_look.queue_service.push")
+    @patch("apps.recommend.services.daily_look.queue_service.get_client")
+    def test_lock_is_taken_before_pushing(self, get_client, push):
+        client = get_client.return_value
+        client.set.return_value = True
+        service._schedule_render_retry(self.look, "bucket", "k/item_000.png")
+
+        # 락 키는 사용자가 아니라 코디 단위다 — 같은 코디를 받은 사용자가
+        # 여럿이어도 만들 이미지는 하나다.
+        lock_key = client.set.call_args.args[0]
+        self.assertIn("bucket", lock_key)
+        self.assertIn("k/item_000.png", lock_key)
+        self.assertNotIn(str(self.user.pk), lock_key)
+        self.assertTrue(client.set.call_args.kwargs["nx"])
+        push.assert_called_once()
+        self.assertEqual(push.call_args.args[0]["job"], service.JOB_RENDER)
+
+    @patch("apps.recommend.services.daily_look.queue_service.push")
+    @patch("apps.recommend.services.daily_look.queue_service.get_client")
+    def test_second_call_within_cooldown_does_not_push(self, get_client, push):
+        get_client.return_value.set.return_value = False   # 이미 잡혀 있음
+        service._schedule_render_retry(self.look, "bucket", "k/item_000.png")
+        push.assert_not_called()
+
+    @patch("apps.recommend.services.daily_look.queue_service.get_client",
+           side_effect=RuntimeError("redis down"))
+    def test_redis_failure_does_not_break_the_read(self, _client):
+        """보정은 부가 기능이다. Redis가 죽어도 조회는 200이어야 한다."""
+        service._schedule_render_retry(self.look, "bucket", "k/item_000.png")
+
+
+class RunRenderOnlyTests(TestCase):
+    def setUp(self):
+        self.user = User.objects.create(username="u7")
+        self.look = DailyLook.objects.create(
+            user=self.user, look_date=service.today(),
+            status=DailyLook.Status.SUCCEEDED, result=dict(RESULT_WITHOUT_RENDER),
+        )
+
+    @patch("apps.recommend.services.daily_look.outfit_render.ensure_render")
+    def test_generates_and_attaches_without_changing_status(self, ensure):
+        ensure.return_value = outfit_render.RenderRef("b", "k.jpg")
+        self.assertTrue(service.run_render_only(str(self.look.pk)))
+        self.look.refresh_from_db()
+        # 이미지가 없다고 사용자에게 '생성 중'을 다시 보여줄 이유는 없다
+        self.assertEqual(self.look.status, DailyLook.Status.SUCCEEDED)
+        self.assertEqual(self.look.result["render_image"]["s3_key"], "k.jpg")
+
+    @patch("apps.recommend.services.daily_look.outfit_render.ensure_render",
+           side_effect=RuntimeError("again 400"))
+    def test_failure_is_recorded_but_recommendation_survives(self, _ensure):
+        self.assertFalse(service.run_render_only(str(self.look.pk)))
+        self.look.refresh_from_db()
+        self.assertEqual(self.look.status, DailyLook.Status.SUCCEEDED)
+        self.assertIn("again 400", self.look.error)
+
+    @patch("apps.recommend.services.daily_look.outfit_render.ensure_render")
+    def test_already_attached_is_a_no_op(self, ensure):
+        self.look.result = {**RESULT_WITHOUT_RENDER,
+                            "render_image": {"s3_bucket": "b", "s3_key": "k.png"}}
+        self.look.save()
+        self.assertFalse(service.run_render_only(str(self.look.pk)))
+        ensure.assert_not_called()
+
+
+class TodayLookApiRefreshTests(TestCase):
+    def setUp(self):
+        self.user = User.objects.create(username="u8")
+        self.client = APIClient()
+        self.client.force_authenticate(self.user)
+        self.url = reverse("recommend:daily-look-today")
+
+    @patch("apps.recommend.services.daily_look._schedule_render_retry")
+    @patch("apps.recommend.services.daily_look.outfit_render.existing_render")
+    @patch("apps.recommend.serializers._image_url", return_value="https://signed/x")
+    @patch("apps.recommend.services.daily_look.queue_service.push")
+    @patch("apps.recommend.services.daily_look.build_analysis_context",
+           return_value=CONTEXT)
+    def test_get_fills_in_an_image_that_appeared_later(
+        self, _ctx, _push, _sign, existing, _schedule
+    ):
+        look, _ = service.ensure_today_look(self.user)
+        look.status = DailyLook.Status.SUCCEEDED
+        look.result = dict(RESULT_WITHOUT_RENDER)
+        look.save()
+        existing.return_value = outfit_render.RenderRef("b", "k.jpg")
+
+        body = self.client.get(self.url).json()
+
+        self.assertEqual(body["result"]["render_image_url"], "https://signed/x")
+        look.refresh_from_db()
+        self.assertEqual(look.result["render_image"]["s3_key"], "k.jpg")

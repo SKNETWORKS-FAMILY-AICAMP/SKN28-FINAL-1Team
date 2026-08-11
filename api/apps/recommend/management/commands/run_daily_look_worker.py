@@ -104,6 +104,18 @@ class Command(BaseCommand):
             queue_service.retry_or_dead(raw, "unknown", "malformed payload", spec=SPEC)
             return
 
+        # 착용 이미지만 다시 만드는 작업. 추천은 이미 성공했으므로 claim()을
+        # 거치지 않는다 (그 함수는 SUCCEEDED면 None을 돌려준다).
+        if payload.get("job") == service.JOB_RENDER:
+            try:
+                service.run_render_only(look_id)
+            except Exception as exc:  # noqa: BLE001
+                logger.exception("오늘의 룩 %s 착용 이미지 재생성 실패", look_id)
+                queue_service.retry_or_dead(raw, look_id, str(exc), spec=SPEC)
+                return
+            queue_service.ack(raw, look_id, spec=SPEC)
+            return
+
         look = service.claim(look_id)
         if look is None:
             # 이미 성공했거나 행이 지워졌다. 재시도 대상이 아니다.

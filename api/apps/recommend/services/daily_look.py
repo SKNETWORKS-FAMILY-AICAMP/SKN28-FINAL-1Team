@@ -15,9 +15,11 @@ select 후 insert하는 방식은 그 사이에 다른 요청이 끼어들면 �
 from __future__ import annotations
 
 import logging
+import os
 from datetime import date
 from typing import Any
 
+from django.conf import settings
 from django.db import IntegrityError, transaction
 from django.utils import timezone
 
@@ -219,6 +221,168 @@ def _attach_render(look: DailyLook, candidate) -> None:
     result["render_image"] = reference.as_dict()
     look.result = result
     look.save(update_fields=["result", "updated_at"])
+
+
+# ── 조회 시점의 착용 이미지 보정 ──────────────────────────
+#
+# 착용 이미지 생성은 생성 시점에 실패해도 다음 시행에서 성공하는 일이 잦다
+# (제공자 일시 오류·타임아웃). 그런데 결과 JSON은 생성이 끝날 때 한 번만 쓰이므로,
+# 그 한 번이 실패하면 이미지가 S3에 생긴 뒤에도 행은 계속 비어 있다. 사용자는
+# 그날 내내 대표 이미지를 못 본다.
+#
+# 그래서 조회할 때마다 한 번 더 본다. 조회는 폴링으로 자주 들어오므로 두 가지를
+# 분리했다.
+#
+#   1. 이미 S3에 있는가  → HEAD 한두 번. 조회 경로에서 바로 확인하고 붙인다.
+#   2. 아직 없다         → 생성은 수십 초라 요청을 잡아둘 수 없다. 큐에 넣되
+#                          쿨다운을 걸어 폴링마다 재생성이 쌓이지 않게 한다.
+
+#: 같은 코디의 재생성을 다시 걸기까지의 최소 간격. 프론트가 2초마다 폴링해도
+#: 이 간격 안에서는 한 번만 걸린다. 락은 코디(= 착용 이미지 키) 단위라 같은
+#: 코디를 받은 여러 사용자가 동시에 눌러도 생성은 한 번이다.
+RENDER_RETRY_COOLDOWN_SECONDS = int(
+    os.getenv("DAILY_LOOK_RENDER_RETRY_COOLDOWN_SECONDS", "600")
+)
+
+#: 큐 페이로드의 작업 종류. 없으면 기존처럼 전체 생성이다 (하위호환).
+JOB_RENDER = "render"
+
+
+def _render_source(result: dict[str, Any]) -> tuple[str, list[dict[str, Any]]]:
+    """결과 JSON에서 착용 이미지 생성에 필요한 재료를 되살린다.
+
+    Qdrant를 다시 조회하지 않는다. 결과에 이미 아이템의 버킷·키·분류가 들어
+    있고, 벡터스토어는 재적재로 내용이 바뀔 수 있어 그때의 기록이 더 정확하다.
+
+    _build_result()가 category_large를 `category`로 줄여 담으므로 여기서 원래
+    이름으로 되돌린다 — 참조를 고를 때 그 값으로 우선순위를 매긴다.
+    """
+    items = result.get("items") or []
+    bucket = ""
+    restored: list[dict[str, Any]] = []
+    for item in items:
+        if not item.get("s3_key"):
+            continue
+        bucket = bucket or str(item.get("s3_bucket") or "")
+        restored.append(
+            {
+                "s3_key": item.get("s3_key"),
+                "s3_bucket": item.get("s3_bucket"),
+                "category_large": item.get("category"),
+                "item_name": item.get("name"),
+            }
+        )
+    return bucket, restored
+
+
+def refresh_render(look: DailyLook) -> bool:
+    """조회 시점에 착용 이미지를 한 번 더 확인해 붙인다.
+
+    Returns: 행을 갱신했으면 True.
+
+    생성은 하지 않는다. 이 함수는 사용자의 요청 스레드에서 돌고, 이미지 생성은
+    수십 초가 걸린다. 대신 이미 만들어져 있으면 붙이고, 없으면 재생성을 큐에
+    맡긴다.
+    """
+    if look.status != DailyLook.Status.SUCCEEDED:
+        return False
+    result = look.result or {}
+    if not result or result.get("render_image"):
+        return False
+
+    bucket, items = _render_source(result)
+    if not bucket or not items:
+        return False
+
+    reference = outfit_render.existing_render(bucket, str(items[0]["s3_key"]))
+    if reference is None:
+        _schedule_render_retry(look, bucket, str(items[0]["s3_key"]))
+        return False
+
+    result = dict(result)
+    result["render_image"] = reference.as_dict()
+    look.result = result
+    fields = ["result", "updated_at"]
+    # 이미지가 붙었으면 그때의 실패 메시지는 사실이 아니다. 남겨두면 운영자가
+    # 멀쩡한 행을 계속 문제로 읽는다.
+    if look.error.startswith("착용 이미지 생성 실패"):
+        look.error = ""
+        fields.append("error")
+    look.save(update_fields=fields)
+    logger.info(
+        "오늘의 룩 %s 착용 이미지 보정: s3://%s/%s",
+        look.pk, reference.s3_bucket, reference.s3_key,
+    )
+    return True
+
+
+def _schedule_render_retry(look: DailyLook, bucket: str, item_key: str) -> None:
+    """아직 없으면 재생성을 큐에 건다. 쿨다운 안에서는 한 번만.
+
+    락이 없으면 프론트 폴링(기본 2초)마다 생성 작업이 쌓여 요금이 폭주한다.
+    락 키를 사용자가 아니라 **착용 이미지 키**로 잡는 이유는, 같은 골든 코디를
+    받은 사용자가 여럿이어도 만들 이미지는 하나이기 때문이다.
+    """
+    if not settings.DAILY_LOOK_RENDER_ENABLED:
+        return
+    lock_key = f"daily_look:render_retry:{bucket}:{item_key}"
+    try:
+        client = queue_service.get_client()
+        acquired = client.set(
+            lock_key, "1", nx=True, ex=RENDER_RETRY_COOLDOWN_SECONDS
+        )
+        if not acquired:
+            return
+        queue_service.push(
+            {"look_id": str(look.pk), "job": JOB_RENDER}, spec=queue_service.DAILY_LOOK
+        )
+    except Exception:  # noqa: BLE001 — 보정 실패가 조회를 막으면 안 된다
+        logger.warning("오늘의 룩 %s 착용 이미지 재생성 예약 실패", look.pk, exc_info=True)
+        return
+    logger.info("오늘의 룩 %s 착용 이미지 재생성 예약", look.pk)
+
+
+def run_render_only(look_id: str) -> bool:
+    """워커에서: 추천은 건드리지 않고 착용 이미지만 다시 만든다.
+
+    claim()을 쓰지 않는다. 그 함수는 SUCCEEDED면 None을 돌려주는데, 여기서
+    다루는 건 정확히 **이미 성공한 행**이다. 상태도 바꾸지 않는다 — 이미지가
+    없다고 해서 사용자에게 '생성 중'을 다시 보여줄 이유가 없다.
+
+    Returns: 이미지를 붙였으면 True.
+    """
+    look = DailyLook.objects.filter(pk=look_id).first()
+    if look is None or look.status != DailyLook.Status.SUCCEEDED:
+        return False
+    result = look.result or {}
+    if result.get("render_image"):
+        return False
+
+    bucket, items = _render_source(result)
+    if not bucket or not items:
+        return False
+
+    try:
+        reference = outfit_render.ensure_render(bucket=bucket, items=items)
+    except Exception as exc:  # noqa: BLE001 — 이미지 실패가 추천을 되돌리면 안 된다
+        logger.warning("오늘의 룩 %s 착용 이미지 재생성 실패: %s", look.pk, exc)
+        look.error = f"착용 이미지 생성 실패(추천은 정상): {exc}"[:2000]
+        look.save(update_fields=["error", "updated_at"])
+        return False
+
+    if reference is None:
+        return False
+
+    result = dict(result)
+    result["render_image"] = reference.as_dict()
+    look.result = result
+    fields = ["result", "updated_at"]
+    if look.error.startswith("착용 이미지 생성 실패"):
+        look.error = ""
+        fields.append("error")
+    look.save(update_fields=fields)
+    logger.info("오늘의 룩 %s 착용 이미지 재생성 완료", look.pk)
+    return True
 
 
 def _build_result(candidate, snapshot: dict[str, Any]) -> dict[str, Any]:

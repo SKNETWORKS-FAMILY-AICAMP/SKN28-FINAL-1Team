@@ -146,6 +146,22 @@ def _find_existing(bucket: str, item_s3_key: str) -> str | None:
     return None
 
 
+def existing_render(bucket: str, item_s3_key: str) -> RenderRef | None:
+    """**생성하지 않고** 이미 있는 착용 이미지만 찾는다.
+
+    조회 경로에서 쓴다. 생성은 수십 초가 걸려 요청을 잡아둘 수 없지만, 이미
+    만들어져 있는지 보는 건 HEAD 한두 번이라 조회에서 해도 된다.
+
+    같은 골든 코디를 받은 다른 사용자의 워커가 그 사이에 만들어 뒀을 수도 있고,
+    한 번 실패한 생성이 다음 시행에서 성공했을 수도 있다. 그때 결과 JSON만
+    비어 있는 채로 남으면 사용자는 영원히 대표 이미지를 못 본다.
+    """
+    if not bucket or not item_s3_key:
+        return None
+    key = _find_existing(bucket, item_s3_key)
+    return RenderRef(bucket, key) if key else None
+
+
 def _ordered_items(items: list[dict[str, Any]]) -> list[tuple[int, dict[str, Any]]]:
     """이미지가 있는 아이템을 **중요도 순**으로 정렬한다 (원래 인덱스를 함께 들고).
 
