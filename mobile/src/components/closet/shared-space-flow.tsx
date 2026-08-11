@@ -276,18 +276,18 @@ export function SharedSpaceJoinSheet({
 }: {
   visible: boolean;
   onClose: () => void;
-  onJoin: (code: string) => boolean;
+  onJoin: (code: string) => Promise<boolean> | boolean;
 }) {
   const [code, setCode] = useState('');
   const toast = useToast();
 
-  const submit = () => {
+  const submit = async () => {
     const trimmed = code.trim().toUpperCase();
     if (!trimmed) {
       toast('초대 코드를 입력해 주세요', { variant: 'error' });
       return;
     }
-    const ok = onJoin(trimmed);
+    const ok = await onJoin(trimmed);
     if (ok) {
       setCode('');
       onClose();

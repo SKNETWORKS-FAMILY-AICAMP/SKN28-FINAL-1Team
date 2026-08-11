@@ -312,7 +312,7 @@ export function ChatConversation({
                   <View style={styles.attachedItemsContainer}>
                     <Text style={styles.attachedTitle}>내가 선택한 옷들로 코디 추천해줘 :</Text>
                     <View style={styles.attachedGrid}>
-                      {m.items?.map((it) => (
+                      {m.items?.map((it: any) => (
                         <View key={it.id} style={styles.attachedCard}>
                           <SmartImage uri={it.image} width="100%" height={52} contentFit="cover" />
                           <Text style={styles.attachedCardName} numberOfLines={1}>{it.name}</Text>
@@ -342,7 +342,7 @@ export function ChatConversation({
                     <View style={styles.recBody}>
                       <Text style={styles.recTitle}>{m.title}</Text>
                       <View style={styles.recTags}>
-                        {m.tags.map((t) => (
+                        {m.tags.map((t: any) => (
                           <View key={t} style={styles.recTag}>
                             <Text style={styles.recTagText}>{t}</Text>
                           </View>
@@ -358,7 +358,7 @@ export function ChatConversation({
                   <View style={styles.moodCard}>
                     <Text style={styles.moodLead}>사진에서 이런 무드가 보여요</Text>
                     <View style={styles.recTags}>
-                      {m.tags.map((t) => (
+                      {m.tags.map((t: any) => (
                         <View key={t} style={styles.recTag}>
                           <Text style={styles.recTagText}>{t}</Text>
                         </View>

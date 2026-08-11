@@ -9,7 +9,7 @@ import {
   type SharedSpace,
 } from '@/components/closet/shared-space-flow';
 import { PhotoSourceSheet } from '@/components/closet/photo-source-sheet';
-import { CategoryEditSheet, EmptyState, ErrorState, LoadingState, LoginGate, SearchFilterBar, SegmentedToggle, SmartImage, useToast } from '@/components/ui';
+import { CategoryEditSheet, EmptyState, ErrorState, LoadingState, LoginGate, SearchFilterBar, SegmentedToggle, SmartImage, useConfirm, useToast } from '@/components/ui';
 import { useMultiSelectFilter } from '@/hooks/useMultiSelectFilter';
 import { router, useLocalSearchParams } from 'expo-router';
 import { useEffect, useMemo, useRef, useState } from 'react';
@@ -59,6 +59,7 @@ const DEFAULT_CATEGORIES = WARDROBE_FILTER_OPTIONS;
 /** 그리드 카드가 쓰는 최소 형태 — 내 옷장(API)과 공유 옷장(목업)을 한 모양으로 맞춘다. */
 type Card = {
   id: string;
+  wardrobeItemId?: string;
   name: string;
   category: string;
   image?: string;
@@ -88,6 +89,7 @@ export default function ClosetScreen() {
   const tabInset = useBottomTabInset();
 
   const toast = useToast();
+  const confirm = useConfirm();
   const params = useLocalSearchParams<{ tab?: 'mine' | 'shared' }>();
   const [tab, setTab] = useState<'mine' | 'shared'>('mine');
 
@@ -147,7 +149,7 @@ export default function ClosetScreen() {
     try {
       if (!sharedSpace) return;
       const target = sharedItems.find((x) => x.id === itemId);
-      if (target) {
+      if (target && target.wardrobeItemId) {
         await unregisterItemFromSharedRoom(sharedSpace.id, target.wardrobeItemId);
         toast('공유를 해제했어요', { variant: 'success' });
         await loadRoomData(sharedSpace.id);
@@ -494,15 +496,17 @@ export default function ClosetScreen() {
                   onPress={() =>
                     router.push({ pathname: '/item-detail', params: { id: it.id } })
                   }
-                  // Web HTML5 Drag and drop
-                  draggable={true}
-                  onDragStart={(e: any) => {
-                    if (Platform.OS === 'web') {
-                      e.dataTransfer.setData('text/plain', JSON.stringify({
-                        id: it.id,
-                        name: it.name || it.category_large,
-                        image: it.image
-                      }));
+                  {...{
+                    // Web HTML5 Drag and drop
+                    draggable: true,
+                    onDragStart: (e: any) => {
+                      if (Platform.OS === 'web') {
+                        e.dataTransfer.setData('text/plain', JSON.stringify({
+                          id: it.id,
+                          name: it.name || it.category,
+                          image: it.image
+                        }));
+                      }
                     }
                   }}>
                   <View style={[styles.cardImage, { height: cardH }]}>

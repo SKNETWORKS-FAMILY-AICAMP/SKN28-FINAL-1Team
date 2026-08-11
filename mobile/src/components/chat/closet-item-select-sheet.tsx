@@ -33,7 +33,7 @@ export function ClosetItemSelectSheet({
             for (const r of rooms || []) {
               try {
                 const sItems = await listSharedRoomItems(r.id);
-                sItems.forEach((si) => {
+                sItems.forEach((si: any) => {
                   allShared.push({
                     id: si.id,
                     image: si.wardrobe_item.image_url || si.wardrobe_item.image,

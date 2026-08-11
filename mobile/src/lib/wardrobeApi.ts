@@ -361,9 +361,7 @@ export function registerItemToSharedRoom(roomId: string, wardrobeItemId: string,
 }
 
 export function unregisterItemFromSharedRoom(roomId: string, wardrobeItemId: string): Promise<unknown> {
-  return api.delete(`/api/v1/shared-wardrobes/${roomId}/items/`, {
-    params: { wardrobe_item_id: wardrobeItemId },
-  });
+  return api.delete(`/api/v1/shared-wardrobes/${roomId}/items/?wardrobe_item_id=${wardrobeItemId}`);
 }
 
 export function listSharedRoomMembers(roomId: string): Promise<SharedRoomMember[]> {

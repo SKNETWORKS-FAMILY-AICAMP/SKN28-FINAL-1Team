@@ -13,6 +13,10 @@ export const draftItem = {
     photos = next.slice(0, 3);
     listeners.forEach((l) => l());
   },
+  setPhoto(photo: string) {
+    photos = [photo];
+    listeners.forEach((l) => l());
+  },
   addPhoto(photo: string) {
     if (photos.length < 3 && !photos.includes(photo)) {
       photos = [...photos, photo];
