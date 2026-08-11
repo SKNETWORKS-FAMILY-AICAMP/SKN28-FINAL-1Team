@@ -45,6 +45,17 @@ class Command(BaseCommand):
         )
 
     def handle(self, *args: Any, **options: Any) -> None:
+        from apps.recommend.services import build_stamp
+
+        self.stdout.write(
+            self.style.MIGRATE_HEADING("0. 이 컨테이너의 추천 코드 지문")
+        )
+        self.stdout.write(OK + build_stamp.describe())
+        self.stdout.write(
+            "        → daily-look-worker 기동 로그의 지문과 다르면 로직이 아니라 "
+            "배포 문제입니다 (docker compose logs daily-look-worker | head)."
+        )
+
         steps = [
             ("1. 배포된 코드", self._check_code),
             ("2. daily_looks 테이블", self._check_table),

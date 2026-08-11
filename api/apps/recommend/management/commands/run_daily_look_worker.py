@@ -52,6 +52,15 @@ class Command(BaseCommand):
         )
 
     def handle(self, *args: Any, **options: Any) -> None:
+        # 어느 코드로 도는지 먼저 찍는다. 이 워커는 api와 다른 이미지로 빌드된
+        # 적이 있어, api만 다시 만들고 워커는 옛 코드로 몇 시간을 돌았다.
+        # 증상은 "추천 로직이 틀렸다"로 보였다 — 스냅샷은 새 코드가 쓰고 추천은
+        # 옛 코드가 만들었으니. api 쪽 지문(check_daily_look)과 비교하면 된다.
+        from apps.recommend.services import build_stamp
+
+        logger.info("daily-look-worker 기동: %s", build_stamp.describe())
+        self.stdout.write(f"daily-look-worker 기동: {build_stamp.describe()}")
+
         if options["sweep"]:
             self.stdout.write(f"재적재: {self._requeue_orphans()}건")
             return

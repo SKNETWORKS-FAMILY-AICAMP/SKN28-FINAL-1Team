@@ -51,7 +51,15 @@ class Command(BaseCommand):
         났던 실패다. 파일을 읽어 문자열을 찾는 방식은 그걸 못 잡는다 —
         컨테이너 안의 파일은 이미지에 구워진 옛 파일이기 때문이다.
         """
+        from apps.recommend.services import build_stamp
+
         self.stdout.write(self.style.MIGRATE_HEADING("1. 지금 이 컨테이너의 코드"))
+        self.stdout.write(OK + build_stamp.describe())
+        self.stdout.write(
+            "        ※ 이 커맨드는 api 컨테이너에서 돕니다. 추천을 실제로 만드는 건 "
+            "daily-look-worker입니다 — 두 지문이 같은지 반드시 확인하세요:\n"
+            "          docker compose logs daily-look-worker | grep 기동"
+        )
         try:
             from apps.recommend.services.retriever import RetrievalRequest, build_filter
 
