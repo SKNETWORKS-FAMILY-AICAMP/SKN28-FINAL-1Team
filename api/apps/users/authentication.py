@@ -4,6 +4,12 @@
 모든 요청을 개발용 유저로 자동 인증해, 소셜 로그인 절차 없이 보호된
 API를 호출할 수 있게 한다. 헤더에 JWT가 있으면 기존 JWT 인증이 우선한다.
 
+`X-Dev-User` 헤더가 있으면 그 username으로 인증한다 — Swagger에서 다중
+사용자 시나리오(정원 6명, owner 위임, 중복 가입 방지 등)를 한 호스트에서
+검증할 때 사용한다. 헤더가 없거나 빈 문자열이면 기존 dev_autologin으로
+폴백한다. AUTO_LOGIN_ENABLED=True 환경에서만 동작하므로 프로덕션에 노출
+될 일은 없다.
+
 프로덕션 유입 방지를 위해 DEBUG=True + AUTO_LOGIN_ENABLED=True가 아니면
 명시적으로 기동을 실패시킨다.
 """
@@ -19,6 +25,10 @@ from apps.users.models import User
 DEV_USERNAME = "dev_autologin"
 DEV_NICKNAME = "개발용유저"
 
+# Swagger에서 다른 사용자로 요청을 보낼 때 쓰는 헤더. AUTO_LOGIN_ENABLED일
+# 때만 의미를 가지며, 그 외 환경에서는 그냥 무시된다 (JWT가 우선이므로).
+DEV_USER_HEADER = "HTTP_X_DEV_USER"
+
 
 class AutoLoginAuthentication(BaseAuthentication):
     """모든 요청을 개발용 유저로 인증한다 (noauth 설정 전용)."""
@@ -31,9 +41,19 @@ class AutoLoginAuthentication(BaseAuthentication):
                 "환경(config.settings.noauth)에서만 사용할 수 있습니다."
             )
 
+        # X-Dev-User 헤더가 있으면 그 username으로 인증 — 다중 사용자 시나리오 검증용.
+        # 헤더가 없거나 공백만이면 기존 dev_autologin으로 폴백.
+        requested = (request.META.get(DEV_USER_HEADER) or "").strip()
+        if requested:
+            username = requested
+            nickname = requested
+        else:
+            username = DEV_USERNAME
+            nickname = DEV_NICKNAME
+
         user, created = User.objects.get_or_create(
-            username=DEV_USERNAME,
-            defaults={"nickname": DEV_NICKNAME},
+            username=username,
+            defaults={"nickname": nickname},
         )
         if created:
             # 소셜 전용 계정과 동일하게 password 로그인 불가 처리
