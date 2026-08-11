@@ -81,6 +81,12 @@ GEMINI_ENUM_MODEL = os.getenv("GEMINI_ENUM_MODEL", "gemini-3.5-flash")
 GEMINI_IMAGE_MODEL = os.getenv("GEMINI_FLASH_IMAGE_MODEL", "gemini-3.1-flash-image")
 GEMINI_TAG_MODEL = os.getenv("GEMINI_TAG_MODEL", "gemini-3.5-flash")
 
+QWEN_MODEL = os.getenv("WORKER_QWEN_MODEL", "Qwen/Qwen3-VL-8B-Instruct")
+QWEN_MAX_NEW_TOKENS = int(os.getenv("WORKER_QWEN_MAX_NEW_TOKENS", "768"))
+QWEN_MIN_PIXELS = int(os.getenv("WORKER_QWEN_MIN_PIXELS", str(256 * 28 * 28)))
+QWEN_MAX_PIXELS = int(os.getenv("WORKER_QWEN_MAX_PIXELS", str(1024 * 28 * 28)))
+ITEM_NORMALIZE_MAX_PX = int(os.getenv("WORKER_ITEM_NORMALIZE_MAX_PX", "1024"))
+
 # ── 임베딩 (설계서에 없던 단계 — 조율안에 따라 Worker 책임으로 추가) ──
 EMBED_ENABLED = os.getenv("WORKER_EMBED_ENABLED", "1") == "1"
 IMAGE_EMBED_MODEL = os.getenv("WORKER_IMAGE_EMBED_MODEL", "hf-hub:Marqo/marqo-fashionSigLIP")
