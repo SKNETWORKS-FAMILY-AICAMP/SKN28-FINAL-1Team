@@ -19,9 +19,11 @@
 from __future__ import annotations
 
 import logging
+import time
 from dataclasses import dataclass, field
 from typing import Any, Iterable
 
+from django.conf import settings
 from qdrant_client import models as qm
 
 from apps.recommend.services import vocabulary
@@ -190,6 +192,137 @@ def _season_from_weather(weather: dict[str, Any] | None) -> str:
     return "겨울"
 
 
+#: 코디 payload의 아이템 요약에 없는 태그. 체형 규칙이 정확히 이 축으로 조건을
+#: 건다 (body_fit_rules.json의 fit·length·pattern).
+#:
+#: sync_qdrant의 ITEM_SUMMARY_FIELDS는 화면 구성에 필요한 최소치만 담는다 —
+#: item_key·item_name·category_large·category_small·layer_role·color·s3_key.
+#: 그래서 `Rule.matches()`가 item.get("fit") == None을 보고 전부 False를
+#: 돌려주었고, **모든 체형에서 규칙 점수가 0**이었다. 실루엣이 뭐든 순위가
+#: 같으니 체형을 바꿔도 같은 룩이 나온다.
+#:
+#: 태그 자체는 아이템 컬렉션에 이미 있으므로 조회 시점에 합친다. 재적재로
+#: 코디 payload를 늘리면 이 왕복은 사라지고, 그때는 여기가 그냥 무해해진다
+#: (이미 값이 있으면 덮어쓰지 않는다).
+JOINED_ITEM_TAG_FIELDS = (
+    "fit",
+    "length",
+    "pattern",
+    "material",
+    "sleeve",
+    "style",
+    "season",
+)
+
+#: point_id -> 태그. 프로세스 수명 동안만 산다.
+_ITEM_TAG_CACHE: dict[str, tuple[float, dict[str, Any]]] = {}
+_ITEM_TAG_CACHE_MAX = 20000
+
+
+def _cache_get(point_id: str, now: float) -> dict[str, Any] | None:
+    ttl = settings.RETRIEVER_ITEM_TAG_CACHE_SECONDS
+    if ttl <= 0:
+        return None
+    entry = _ITEM_TAG_CACHE.get(point_id)
+    if entry is None or now - entry[0] > ttl:
+        return None
+    return entry[1]
+
+
+def _cache_put(point_id: str, tags: dict[str, Any], now: float) -> None:
+    if settings.RETRIEVER_ITEM_TAG_CACHE_SECONDS <= 0:
+        return
+    if len(_ITEM_TAG_CACHE) >= _ITEM_TAG_CACHE_MAX:
+        # 정교한 축출은 필요 없다. 골든셋 크기를 넘으면 그냥 비운다.
+        _ITEM_TAG_CACHE.clear()
+    _ITEM_TAG_CACHE[point_id] = (now, tags)
+
+
+def clear_item_tag_cache() -> None:
+    """테스트와 재적재 직후에 쓴다."""
+    _ITEM_TAG_CACHE.clear()
+
+
+def _fetch_item_tags(client, point_ids: list[str]) -> dict[str, dict[str, Any]]:
+    """아이템 포인트에서 태그만 가져온다. 캐시에 있는 건 건너뛴다."""
+    now = time.monotonic()
+    found: dict[str, dict[str, Any]] = {}
+    missing: list[str] = []
+    for point_id in point_ids:
+        cached = _cache_get(point_id, now)
+        if cached is None:
+            missing.append(point_id)
+        else:
+            found[point_id] = cached
+
+    batch = max(1, settings.RETRIEVER_ITEM_TAG_BATCH)
+    for start in range(0, len(missing), batch):
+        chunk = missing[start : start + batch]
+        try:
+            points = client.retrieve(
+                collection_name=GOLDEN_ITEM_COLLECTION,
+                ids=chunk,
+                with_payload=list(JOINED_ITEM_TAG_FIELDS),
+                with_vectors=False,
+            )
+        except Exception:  # noqa: BLE001 — 태그를 못 붙여도 추천은 나가야 한다
+            logger.warning(
+                "아이템 태그 조회 실패 (%d건). 체형 규칙이 이번 요청에서는 "
+                "적용되지 않습니다.", len(chunk), exc_info=True,
+            )
+            continue
+        for point in points:
+            tags = {
+                field: value
+                for field, value in (point.payload or {}).items()
+                if field in JOINED_ITEM_TAG_FIELDS and value not in (None, "", [])
+            }
+            found[str(point.id)] = tags
+            _cache_put(str(point.id), tags, now)
+
+    return found
+
+
+def attach_item_tags(client, records: list[tuple[str, float, dict[str, Any]]]) -> int:
+    """코디 payload의 아이템 요약에 핏·기장·패턴 태그를 채워 넣는다.
+
+    Returns: 태그를 붙인 아이템 수 (진단용).
+
+    payload를 제자리에서 고친다. 이 dict는 방금 Qdrant에서 받아온 사본이고
+    호출부(`_build_result`)도 같은 값을 쓰므로, 복사본을 따로 두면 화면과
+    점수가 서로 다른 아이템을 보게 된다.
+    """
+    if not settings.RETRIEVER_ITEM_TAG_JOIN:
+        return 0
+
+    wanted: list[str] = []
+    for _point_id, _similarity, payload in records:
+        for item in payload.get("items") or []:
+            point_id = str(item.get("point_id") or "")
+            # 이미 태그가 있으면(재적재 이후) 굳이 조회하지 않는다.
+            if point_id and not any(item.get(f) for f in JOINED_ITEM_TAG_FIELDS):
+                wanted.append(point_id)
+    if not wanted:
+        return 0
+
+    tags_by_point = _fetch_item_tags(client, sorted(set(wanted)))
+    if not tags_by_point:
+        return 0
+
+    attached = 0
+    for _point_id, _similarity, payload in records:
+        for item in payload.get("items") or []:
+            tags = tags_by_point.get(str(item.get("point_id") or ""))
+            if not tags:
+                continue
+            for field, value in tags.items():
+                # 코디 payload의 값이 우선이다. 재적재로 값이 생기면 그쪽이
+                # 그 시점의 진실이다.
+                item.setdefault(field, value)
+            attached += 1
+    return attached
+
+
 def _hard_excluded_outfits(
     client, rules: BodyRules, profile: BodyProfile, limit: int
 ) -> set[str]:
@@ -251,11 +384,19 @@ def _score_items(
     seen: set[str] = set()
 
     def add(delta: float, source: str, text: str) -> None:
+        """같은 근거는 코디당 한 번만 센다.
+
+        예전에는 점수만 아이템마다 누적하고 이유는 한 번만 남겼다. 그래서
+        상의가 셋인 코디는 같은 규칙으로 +45를 받는데 설명에는 +15 한 줄만
+        보였다 — 점수와 설명이 서로 다른 말을 했다. 게다가 순위가 '규칙에
+        얼마나 맞는가'가 아니라 '아이템이 몇 개인가'로 정해진다.
+        """
         nonlocal total
+        if text in seen:
+            return
+        seen.add(text)
         total += delta
-        if text not in seen:
-            seen.add(text)
-            reasons.append(Reason(source=source, delta=delta, text=text))
+        reasons.append(Reason(source=source, delta=delta, text=text))
 
     for item in items:
         for tag_field, labels in avoided_tags.items():
@@ -311,11 +452,13 @@ def _score_weather(
     seen: set[str] = set()
 
     def add(delta: float, text: str) -> None:
+        """_score_items와 같은 규칙 — 같은 근거는 코디당 한 번만."""
         nonlocal total
+        if text in seen:
+            return
+        seen.add(text)
         total += delta
-        if text not in seen:
-            seen.add(text)
-            reasons.append(Reason(source="weather", delta=delta, text=text))
+        reasons.append(Reason(source="weather", delta=delta, text=text))
 
     for item in items:
         for rule in band.discourage:
@@ -379,6 +522,16 @@ def retrieve_outfits(
         excluded = _hard_excluded_outfits(client, rules, profile, fetch * 4)
 
     records = _fetch(client, request, search_filter, fetch)
+
+    # 체형 규칙은 fit·length·pattern으로 조건을 거는데 코디 payload의 아이템
+    # 요약에는 그 축이 없다. 붙이지 않으면 모든 체형에서 규칙 점수가 0이 되어
+    # 순위가 똑같아진다 — 체형을 바꿔도 같은 룩이 나오던 가장 큰 원인이다.
+    attached = attach_item_tags(client, records)
+    if records and not attached and settings.RETRIEVER_ITEM_TAG_JOIN:
+        logger.info(
+            "아이템 태그를 하나도 붙이지 못했습니다 (코디 %d건). 이미 payload에 "
+            "있거나(재적재 완료) 아이템 컬렉션이 비어 있습니다.", len(records),
+        )
 
     # 성별은 Qdrant 필터로도 걸지만, 파이썬에서 **한 번 더** 검사한다. 중복이
     # 아니라 다른 실패에 대비한 것이다: presentation_group 인덱스가 없거나,
@@ -467,7 +620,17 @@ def retrieve_outfits(
             search_filter,
         )
 
-    candidates.sort(key=lambda c: c.score, reverse=True)
+    # 동점일 때 무엇이 1등인지 못 박는다. 예전에는 파이썬의 안정 정렬 때문에
+    # **스크롤 순서 1등이 그대로 1등**이었다. 유사도 기준선이 0인 지금(적재된
+    # 코디에 human_score가 없다) 동점은 흔하다. 태그 신뢰도를 2순위로 두고,
+    # 그것도 같으면 golden_id로 갈라 조회 순서와 무관하게 재현되게 한다.
+    candidates.sort(
+        key=lambda c: (
+            -c.score,
+            -float(c.payload.get("tag_confidence") or 0),
+            c.golden_id,
+        )
+    )
     return candidates[: request.limit]
 
 
@@ -484,15 +647,17 @@ def _fetch(
         )
         return [(str(h.id), float(h.score), h.payload or {}) for h in hits]
 
-    points, _ = client.scroll(
-        collection_name=GOLDEN_OUTFIT_COLLECTION,
-        scroll_filter=search_filter,
-        with_payload=True,
-        with_vectors=False,
-        limit=fetch,
-    )
-    # 벡터 질의가 없으면 유사도가 없다. 사람 점수(human_score)가 있으면 그걸
-    # 0~1로 정규화해 기준선으로 쓰고, 없으면 0으로 두어 규칙 점수만 남긴다.
+    # 벡터 질의가 없으면 scroll이다. scroll은 관련도가 아니라 **포인트 ID
+    # 순서**로 돌려준다. 예전에는 여기서 앞 20건만 끊었는데, 그러면 골든셋이
+    # 몇 건이든 언제나 같은 20건만 후보가 된다 — 체형·취향을 바꿔도 결과가
+    # 안 변하던 원인 중 하나다. 이제 필터를 통과한 코디를 전부 훑는다.
+    #
+    # `fetch`는 무시한다. 그 값은 "상위 N의 재정렬 여유"를 뜻하는데, 순서가
+    # 없는 스크롤에는 상위라는 개념이 없다.
+    points = _scroll_all(client, search_filter)
+    # 사람 점수(human_score)가 있으면 0~1로 정규화해 기준선으로 쓰고, 없으면
+    # 0으로 두어 규칙 점수만 남긴다. sync_qdrant로 적재한 코디에는 이 값이
+    # 없으므로 사실상 규칙 점수가 순위를 정한다.
     return [
         (
             str(point.id),
@@ -501,6 +666,38 @@ def _fetch(
         )
         for point in points
     ]
+
+
+def _scroll_all(client, search_filter) -> list[Any]:
+    """필터를 통과한 코디를 페이지네이션으로 전부 모은다.
+
+    상한(RETRIEVER_SCROLL_CAP)에 걸리면 **경고를 남긴다.** 조용히 잘리면
+    "골든셋을 다 봤다"고 오해하게 되고, 그 오해가 이번 버그를 오래 숨겼다.
+    """
+    cap = max(1, settings.RETRIEVER_SCROLL_CAP)
+    page = max(1, settings.RETRIEVER_SCROLL_PAGE)
+
+    collected: list[Any] = []
+    offset = None
+    while len(collected) < cap:
+        points, offset = client.scroll(
+            collection_name=GOLDEN_OUTFIT_COLLECTION,
+            scroll_filter=search_filter,
+            with_payload=True,
+            with_vectors=False,
+            limit=min(page, cap - len(collected)),
+            offset=offset,
+        )
+        collected.extend(points)
+        if offset is None or not points:
+            break
+
+    if len(collected) >= cap and offset is not None:
+        logger.warning(
+            "코디 후보를 %d건에서 잘랐습니다 (RETRIEVER_SCROLL_CAP). 남은 코디는 "
+            "이번 추천에서 아예 고려되지 않습니다.", cap,
+        )
+    return collected
 
 
 def retrieve_substitutes(

@@ -32,8 +32,13 @@ from apps.recommend.services.gender import (
     allowed_presentation_groups,
     normalize_gender,
 )
+from django.test import TestCase, override_settings
+
+from apps.recommend.services import retriever
 from apps.recommend.services.retriever import (
     Reason,
+    RetrievalRequest,
+    retrieve_outfits,
     _score_context,
     _score_items,
     _score_weather,
@@ -165,13 +170,22 @@ class ScoringTests(unittest.TestCase):
             rules_prefer=axis.prefer, rules_avoid=axis.avoid,
             preferred_tags={}, avoided_tags={}, weights=self.w)
         self.assertEqual(len(reasons), len({r.text for r in reasons}))
-    def test_score_still_accumulates_when_reason_deduped(self):
+    def test_same_rule_counts_once_per_outfit(self):
+        """아이템 수가 순위를 정하면 안 된다.
+
+        예전에는 점수만 아이템마다 누적하고 이유는 한 번만 남겼다. 상의가 셋인
+        코디는 같은 규칙으로 +45를 받는데 설명에는 +15 한 줄만 보였다 — 점수와
+        설명이 서로 다른 말을 했고, 순위가 '규칙에 얼마나 맞는가'가 아니라
+        '아이템이 몇 개인가'로 정해졌다.
+        """
         axis = self.rules.for_profile(BodyProfile(silhouette=TRIANGLE))
         one, _ = _score_items([{"category_large":"상의","fit":"오버핏"}],
             rules_prefer=axis.prefer, rules_avoid=(), preferred_tags={}, avoided_tags={}, weights=self.w)
-        three, _ = _score_items([{"category_large":"상의","fit":"오버핏"}]*3,
+        three, reasons = _score_items([{"category_large":"상의","fit":"오버핏"}]*3,
             rules_prefer=axis.prefer, rules_avoid=(), preferred_tags={}, avoided_tags={}, weights=self.w)
-        self.assertEqual(three, one*3)
+        self.assertEqual(three, one)
+        # 점수와 설명이 같은 말을 하는가
+        self.assertEqual(three, sum(r.delta for r in reasons))
     def test_empty_profile_scores_nothing(self):
         total, reasons = _score_items([{"category_large":"상의","fit":"슬림핏"}],
             rules_prefer=(), rules_avoid=(), preferred_tags={}, avoided_tags={}, weights=self.w)
@@ -543,3 +557,233 @@ class GenderSecondLineOfDefenceTests(unittest.TestCase):
         # 다만 "None"이 성별로 해석되지 않는다는 점은 여기서 못 박는다.
         self.assertIsNone(client.last_filter)
         self.assertEqual([c.golden_id for c in got], ["w1"])
+
+
+class _Point:
+    def __init__(self, pid, payload):
+        self.id, self.payload = pid, payload
+
+
+class _FakeQdrant:
+    """코디 컬렉션은 scroll로, 아이템 컬렉션은 retrieve로 응답한다."""
+
+    def __init__(self, outfits, item_tags=None, page=2):
+        self.outfits = outfits
+        self.item_tags = item_tags or {}
+        self.page = page
+        self.scroll_calls = 0
+        self.retrieved: list[str] = []
+
+    def scroll(self, *, collection_name, limit, offset=None, **kwargs):
+        if collection_name != "outfit_goldenset":
+            return [], None            # 하드 규칙용 아이템 조회
+        self.scroll_calls += 1
+        start = int(offset or 0)
+        chunk = self.outfits[start : start + min(limit, self.page)]
+        nxt = start + len(chunk)
+        return (
+            [_Point(f"p{i + start}", p) for i, p in enumerate(chunk)],
+            nxt if nxt < len(self.outfits) else None,
+        )
+
+    def retrieve(self, *, collection_name, ids, **kwargs):
+        self.retrieved.extend(ids)
+        return [
+            _Point(i, self.item_tags[i]) for i in ids if i in self.item_tags
+        ]
+
+
+def _outfit(golden_id, *items, **payload):
+    return {
+        "golden_id": golden_id,
+        "presentation_group": "unisex",
+        "items": [dict(i) for i in items],
+        **payload,
+    }
+
+
+TOP_OVER = {"point_id": "t-over", "category_large": "상의", "item_name": "오버핏 티"}
+TOP_SLIM = {"point_id": "t-slim", "category_large": "상의", "item_name": "슬림 니트"}
+PANTS_WIDE = {"point_id": "b-wide", "category_large": "하의", "item_name": "와이드 팬츠"}
+PANTS_REG = {"point_id": "b-reg", "category_large": "하의", "item_name": "레귤러 슬랙스"}
+
+ITEM_TAGS = {
+    "t-over": {"fit": "오버핏", "length": "기본"},
+    "t-slim": {"fit": "슬림핏", "length": "기본"},
+    "b-wide": {"fit": "와이드핏", "length": "롱"},
+    "b-reg": {"fit": "레귤러핏", "length": "기본"},
+}
+
+
+class BodyChangesTheRecommendationTests(TestCase):
+    """체형을 바꾸면 1등이 바뀌어야 한다.
+
+    이 클래스가 없어서 다음 결함이 조용히 살아 있었다.
+
+    1. 코디 payload의 아이템 요약에 fit·length·pattern이 없어서 체형 규칙이
+       **하나도 매칭되지 않았다.** 모든 체형에서 규칙 점수가 0이라 순위가
+       똑같았다. 규칙이 0점이어도 아무 테스트가 실패하지 않았다.
+    2. scroll이 앞에서 20건만 끊어 후보 풀이 고정이었다.
+    3. 동점일 때 안정 정렬이 스크롤 순서 1등을 그대로 1등으로 만들었다.
+
+    셋 다 "추천이 하나로 고정된다"는 같은 증상을 낸다.
+    """
+
+    def setUp(self):
+        outfit_render_cache = getattr(retriever, "clear_item_tag_cache", None)
+        if outfit_render_cache:
+            outfit_render_cache()
+
+    def _top(self, profile, client):
+        got = retrieve_outfits(
+            RetrievalRequest(body=profile, gender="male", limit=3), client=client
+        )
+        return [c.golden_id for c in got]
+
+    @override_settings(RETRIEVER_SCROLL_CAP=100, RETRIEVER_SCROLL_PAGE=2,
+                       RETRIEVER_ITEM_TAG_JOIN=True,
+                       RETRIEVER_ITEM_TAG_CACHE_SECONDS=0)
+    def test_triangle_and_inverted_get_different_looks(self):
+        client = _FakeQdrant(
+            [
+                _outfit("wide", TOP_SLIM, PANTS_WIDE),   # 역삼각형에 맞는 조합
+                _outfit("over", TOP_OVER, PANTS_REG),    # 삼각형에 맞는 조합
+            ],
+            ITEM_TAGS,
+        )
+        triangle = self._top(BodyProfile(silhouette=TRIANGLE), client)
+        inverted = self._top(BodyProfile(silhouette=INVERTED_TRIANGLE), client)
+
+        self.assertEqual(triangle[0], "over", f"삼각형 1등: {triangle}")
+        self.assertEqual(inverted[0], "wide", f"역삼각형 1등: {inverted}")
+
+    @override_settings(RETRIEVER_SCROLL_CAP=100, RETRIEVER_SCROLL_PAGE=2,
+                       RETRIEVER_ITEM_TAG_JOIN=True,
+                       RETRIEVER_ITEM_TAG_CACHE_SECONDS=0)
+    def test_without_the_tag_join_every_body_scores_the_same(self):
+        """조인을 끄면 실제로 났던 증상이 그대로 재현된다 — 회귀 감시용."""
+        client = _FakeQdrant(
+            [_outfit("wide", TOP_SLIM, PANTS_WIDE), _outfit("over", TOP_OVER, PANTS_REG)],
+            ITEM_TAGS,
+        )
+        with override_settings(RETRIEVER_ITEM_TAG_JOIN=False):
+            triangle = retrieve_outfits(
+                RetrievalRequest(body=BodyProfile(silhouette=TRIANGLE), gender="male"),
+                client=client,
+            )
+            inverted = retrieve_outfits(
+                RetrievalRequest(
+                    body=BodyProfile(silhouette=INVERTED_TRIANGLE), gender="male"
+                ),
+                client=client,
+            )
+        self.assertEqual([c.score for c in triangle], [c.score for c in inverted])
+
+    @override_settings(RETRIEVER_SCROLL_CAP=100, RETRIEVER_SCROLL_PAGE=2,
+                       RETRIEVER_ITEM_TAG_JOIN=True,
+                       RETRIEVER_ITEM_TAG_CACHE_SECONDS=0)
+    def test_bmi_band_alone_changes_the_ranking(self):
+        """실루엣을 모르는 사용자도 체중은 반영돼야 한다."""
+        client = _FakeQdrant(
+            [_outfit("slim", TOP_SLIM), _outfit("reg", dict(TOP_OVER, point_id="b-reg"))],
+            ITEM_TAGS,
+        )
+        obese = self._top(BodyProfile(bmi_band=OBESE), client)
+        self.assertEqual(obese[0], "reg", f"비만 1등: {obese}")
+
+
+class ScrollCoverageTests(TestCase):
+    """후보 풀이 골든셋 전체여야 한다."""
+
+    @override_settings(RETRIEVER_SCROLL_CAP=1000, RETRIEVER_SCROLL_PAGE=7,
+                       RETRIEVER_ITEM_TAG_JOIN=False)
+    def test_every_matching_outfit_is_considered(self):
+        outfits = [_outfit(f"g{n}") for n in range(50)]
+        client = _FakeQdrant(outfits, page=7)
+        got = retrieve_outfits(RetrievalRequest(gender="male", limit=50), client=client)
+        self.assertEqual(len(got), 50)
+        self.assertGreater(client.scroll_calls, 1, "페이지네이션을 돌지 않았다")
+
+    @override_settings(RETRIEVER_SCROLL_CAP=10, RETRIEVER_SCROLL_PAGE=4,
+                       RETRIEVER_ITEM_TAG_JOIN=False)
+    def test_cap_is_honoured_and_warned(self):
+        client = _FakeQdrant([_outfit(f"g{n}") for n in range(50)], page=4)
+        with self.assertLogs("apps.recommend.services.retriever", "WARNING") as logs:
+            got = retrieve_outfits(
+                RetrievalRequest(gender="male", limit=50), client=client
+            )
+        self.assertEqual(len(got), 10)
+        self.assertTrue(any("잘랐습니다" in line for line in logs.output))
+
+
+class TieBreakTests(TestCase):
+    @override_settings(RETRIEVER_SCROLL_CAP=100, RETRIEVER_SCROLL_PAGE=50,
+                       RETRIEVER_ITEM_TAG_JOIN=False)
+    def test_ties_do_not_depend_on_scroll_order(self):
+        """동점이면 조회 순서가 1등을 정했다. 적재 순서가 바뀌면 추천도 바뀐다."""
+        a = _outfit("aaa")
+        b = _outfit("bbb")
+        first = retrieve_outfits(
+            RetrievalRequest(gender="male"), client=_FakeQdrant([a, b], page=50)
+        )
+        second = retrieve_outfits(
+            RetrievalRequest(gender="male"), client=_FakeQdrant([b, a], page=50)
+        )
+        self.assertEqual([c.golden_id for c in first], [c.golden_id for c in second])
+
+    @override_settings(RETRIEVER_SCROLL_CAP=100, RETRIEVER_SCROLL_PAGE=50,
+                       RETRIEVER_ITEM_TAG_JOIN=False)
+    def test_tag_confidence_breaks_ties_before_golden_id(self):
+        low = _outfit("aaa", tag_confidence=1)
+        high = _outfit("zzz", tag_confidence=9)
+        got = retrieve_outfits(
+            RetrievalRequest(gender="male"), client=_FakeQdrant([low, high], page=50)
+        )
+        self.assertEqual(got[0].golden_id, "zzz")
+
+
+class ItemTagJoinTests(TestCase):
+    def setUp(self):
+        retriever.clear_item_tag_cache()
+
+    @override_settings(RETRIEVER_ITEM_TAG_JOIN=True, RETRIEVER_ITEM_TAG_BATCH=256,
+                       RETRIEVER_ITEM_TAG_CACHE_SECONDS=0)
+    def test_tags_are_merged_into_the_outfit_payload(self):
+        payload = _outfit("g1", TOP_OVER)
+        records = [("p0", 0.0, payload)]
+        client = _FakeQdrant([], ITEM_TAGS)
+        self.assertEqual(retriever.attach_item_tags(client, records), 1)
+        self.assertEqual(payload["items"][0]["fit"], "오버핏")
+
+    @override_settings(RETRIEVER_ITEM_TAG_JOIN=True,
+                       RETRIEVER_ITEM_TAG_CACHE_SECONDS=0)
+    def test_existing_payload_values_win(self):
+        """재적재로 코디 payload에 값이 생기면 그쪽이 그 시점의 진실이다."""
+        payload = _outfit("g1", dict(TOP_OVER, fit="레귤러핏"))
+        client = _FakeQdrant([], ITEM_TAGS)
+        retriever.attach_item_tags(client, [("p0", 0.0, payload)])
+        self.assertEqual(payload["items"][0]["fit"], "레귤러핏")
+        self.assertEqual(client.retrieved, [], "이미 값이 있는데 조회했다")
+
+    @override_settings(RETRIEVER_ITEM_TAG_JOIN=True,
+                       RETRIEVER_ITEM_TAG_CACHE_SECONDS=600)
+    def test_cache_avoids_refetching_the_same_items(self):
+        """워커는 같은 코디를 사용자 수만큼 반복해서 본다."""
+        client = _FakeQdrant([], ITEM_TAGS)
+        for _ in range(3):
+            retriever.attach_item_tags(client, [("p0", 0.0, _outfit("g1", TOP_OVER))])
+        self.assertEqual(client.retrieved, ["t-over"])
+
+    @override_settings(RETRIEVER_ITEM_TAG_JOIN=True,
+                       RETRIEVER_ITEM_TAG_CACHE_SECONDS=0)
+    def test_qdrant_failure_does_not_break_the_recommendation(self):
+        class _Broken(_FakeQdrant):
+            def retrieve(self, **kwargs):
+                raise RuntimeError("item collection down")
+
+        payload = _outfit("g1", TOP_OVER)
+        with self.assertLogs("apps.recommend.services.retriever", "WARNING"):
+            self.assertEqual(
+                retriever.attach_item_tags(_Broken([]), [("p0", 0.0, payload)]), 0
+            )
+        self.assertNotIn("fit", payload["items"][0])

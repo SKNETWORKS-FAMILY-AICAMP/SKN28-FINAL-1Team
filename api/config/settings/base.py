@@ -337,6 +337,31 @@ OUTFIT_STALE_AFTER_MINUTES = int(os.getenv("OUTFIT_STALE_AFTER_MINUTES", "5"))
 OUTFIT_POLL_AFTER_MS = int(os.getenv("OUTFIT_POLL_AFTER_MS", "2000"))
 OUTFIT_ESTIMATED_SECONDS = int(os.getenv("OUTFIT_ESTIMATED_SECONDS", "30"))
 
+# ── 리트리버: 후보 수집 ────────────────────────────────────
+# 벡터 질의가 없는 경로(오늘의 룩)는 scroll로 후보를 모은다. scroll은 관련도가
+# 아니라 **포인트 ID 순서**라, 예전처럼 앞에서 20건만 끊으면 골든셋이 몇 건이든
+# 언제나 같은 20건만 후보가 된다. 체형·취향을 바꿔도 결과가 안 변하던 원인이다.
+# 이제 필터를 통과한 코디를 전부 훑고 파이썬에서 점수화한다.
+#
+# 하루 한 번, 사용자당 한 번 도는 작업이라 이 비용은 감당할 수 있다.
+RETRIEVER_SCROLL_CAP = int(os.getenv("RETRIEVER_SCROLL_CAP", "2000"))
+RETRIEVER_SCROLL_PAGE = int(os.getenv("RETRIEVER_SCROLL_PAGE", "256"))
+
+# 코디 payload의 아이템 요약에는 fit·length·pattern이 없다. 체형 규칙은 정확히
+# 그 축으로 조건을 걸기 때문에, 붙이지 않으면 모든 체형 규칙이 0점이 된다.
+# 태그는 아이템 컬렉션(goldenset_items)에 이미 있으므로 조회 시점에 합친다.
+# 재적재로 payload를 늘리면 이 왕복이 사라진다.
+RETRIEVER_ITEM_TAG_JOIN = os.getenv("RETRIEVER_ITEM_TAG_JOIN", "1").strip().lower() in {
+    "1", "true", "yes", "y",
+}
+# 한 번의 retrieve에 넣을 아이템 포인트 id 수.
+RETRIEVER_ITEM_TAG_BATCH = int(os.getenv("RETRIEVER_ITEM_TAG_BATCH", "256"))
+# 프로세스 안에서 아이템 태그를 재사용하는 시간(초). 골든셋은 자주 안 바뀌고
+# 워커는 같은 코디를 사용자 수만큼 반복해서 본다. 0이면 캐시하지 않는다.
+RETRIEVER_ITEM_TAG_CACHE_SECONDS = int(
+    os.getenv("RETRIEVER_ITEM_TAG_CACHE_SECONDS", "300")
+)
+
 # ── 오늘의 룩: 착용 이미지 생성 (OpenRouter) ──────────────
 # 지금까지 신체치수 추정(ml/body_measurement)이 os.getenv로 직접 읽고 있었다.
 # settings로 올려 두 곳이 같은 출처를 보게 한다.

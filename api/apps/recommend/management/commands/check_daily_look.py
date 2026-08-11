@@ -251,6 +251,29 @@ class Command(BaseCommand):
             )
         return True
 
+    def _report_body_rules(self, profile) -> None:
+        """이 체형에 어떤 규칙이 걸리는지, 그 규칙이 쓰는 축이 무엇인지 보여준다.
+
+        규칙이 아무리 많아도 코디 payload에 그 축이 없으면 전부 0점이다.
+        실제로 그래서 모든 체형이 같은 추천을 받았다 — 규칙 수만 보면 멀쩡해
+        보이므로 **어떤 축을 쓰는지**까지 같이 찍는다.
+        """
+        from apps.recommend.services.style_rules import load_body_rules
+
+        axis = load_body_rules().for_profile(profile)
+        fields: set[str] = set()
+        for rule in axis.prefer + axis.avoid:
+            fields.update(rule.match.keys())
+        self.stdout.write(
+            f"        적용 규칙: 선호 {len(axis.prefer)}개 / 기피 {len(axis.avoid)}개 "
+            f"(사용 축: {sorted(fields) or '없음'})"
+        )
+        if not axis.prefer and not axis.avoid:
+            self.stdout.write(
+                WARN + "이 체형에 걸리는 규칙이 없습니다. 실루엣·BMI가 모두 "
+                "미판정이면 체형은 추천에 전혀 반영되지 않습니다."
+            )
+
     # ── 6 ──────────────────────────────────────────────
     def _check_queue(self, options) -> bool:
         from apps.recommend.services import queue as queue_service
@@ -314,6 +337,7 @@ class Command(BaseCommand):
         self.stdout.write(f"        체형: {profile.describe()}")
         self.stdout.write(f"        판정에 쓴 치수: {list(profile.known) or '없음'}")
         self.stdout.write(f"        빠진 치수: {list(profile.missing) or '없음'}")
+        self._report_body_rules(profile)
         self.stdout.write(f"        날씨: {context.get('weather')}")
         self.stdout.write(
             f"        추구미: {'있음' if context.get('pursuit') else '없음'}"
@@ -347,13 +371,26 @@ class Command(BaseCommand):
         )
         self.stdout.write(f"        이 사용자 기준 후보: {len(candidates)}건")
         for candidate in candidates:
-            reasons = "; ".join(r.text for r in candidate.reasons[:2])
             group = str(candidate.payload.get("presentation_group") or "(미분류)")
             self.stdout.write(
                 f"          golden_id={candidate.golden_id} score={candidate.score} "
                 f"group={group}"
-                + (f" ({reasons})" if reasons else "")
             )
+            # 축별 합계를 보여준다. 가중치를 조정하려면 "무엇이 순위를
+            # 정하고 있는지"를 숫자로 봐야 한다 — 체형 점수가 계절·날씨에
+            # 묻히는지 여기서 바로 갈린다.
+            by_source: dict[str, float] = {}
+            for reason in candidate.reasons:
+                by_source[reason.source] = by_source.get(reason.source, 0.0) + reason.delta
+            if by_source:
+                summary = " ".join(f"{k}={v:+.0f}" for k, v in sorted(by_source.items()))
+                self.stdout.write(f"            축별: {summary}")
+            for reason in candidate.reasons[:4]:
+                self.stdout.write(f"            {reason.delta:+5.0f} [{reason.source}] {reason.text}")
+            if not candidate.reasons:
+                self.stdout.write(
+                    "            (근거 없음 — 체형 규칙이 하나도 매칭되지 않았습니다)"
+                )
         if not candidates:
             self.stdout.write(
                 WARN + "후보 0건 → 오늘의 룩은 EMPTY로 끝납니다. 4번의 포인트 수와 "
