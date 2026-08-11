@@ -151,17 +151,22 @@ export async function createCalendarFromPhoto(input: {
   const token = await getAccessToken();
   const { file, downloaded } = await toLocalFile(input.photoUri, name);
   try {
-    const response = await file.upload(`${API_BASE_URL}${CalendarEndpoints.photo}`, {
-      httpMethod: 'POST',
-      uploadType: UploadType.MULTIPART,
-      fieldName: 'image',
-      mimeType,
-      parameters: fields,
-      headers: {
-        Accept: 'application/json',
-        ...(token ? { Authorization: `Bearer ${token}` } : {}),
-      },
-    });
+    const response = await withUploadTimeout(
+      file.upload(`${API_BASE_URL}${CalendarEndpoints.photo}`, {
+        httpMethod: 'POST',
+        uploadType: UploadType.MULTIPART,
+        fieldName: 'image',
+        mimeType,
+        parameters: fields,
+        headers: {
+          Accept: 'application/json',
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+        /* iOS 기본값은 백그라운드 URLSession 이라 앱이 응답을 못 받고 조용히 멈춘다 —
+           오류도 안 나서 화면에서는 "아무 일도 안 일어남"으로 보인다. */
+        sessionType: 'foreground',
+      }),
+    );
     return parseUploadResponse<CalendarEntryDto>(response);
   } finally {
     // 내려받은 임시 파일만 지운다. 사용자가 고른 사진은 우리 것이 아니다.
@@ -213,6 +218,18 @@ function appendList(fields: Record<string, string>, key: string, values?: string
   });
 }
 
+/** 업로드 상한. 없으면 응답이 안 올 때 화면이 영영 "저장 중"으로 남는다. */
+const UPLOAD_TIMEOUT_MS = 60_000;
+
+function withUploadTimeout<T>(request: Promise<T>): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const timer = setTimeout(() => {
+      reject(new Error('사진 저장이 오래 걸리고 있어요. 잠시 후 다시 시도해 주세요.'));
+    }, UPLOAD_TIMEOUT_MS);
+    request.then(resolve, reject).finally(() => clearTimeout(timer));
+  });
+}
+
 function parseUploadResponse<T>(response: { status: number; body?: string }): T {
   let data: unknown = null;
   try {
@@ -222,9 +239,29 @@ function parseUploadResponse<T>(response: { status: number; body?: string }): T 
   }
 
   if (response.status < 200 || response.status >= 300) {
-    const detail = (data as { detail?: string } | null)?.detail;
-    throw new ApiError(detail ?? `캘린더 기록 저장에 실패했어요. (${response.status})`, response.status, data);
+    throw new ApiError(uploadErrorMessage(data, response.status), response.status, data);
   }
 
   return data as T;
+}
+
+/**
+ * DRF 검증 오류는 `{ "필드": ["설명"] }` 로 온다 — `detail` 만 보면 원인이 통째로 사라진다.
+ * 어느 필드가 왜 거절됐는지가 고칠 단서라 그대로 꺼내 보여준다.
+ */
+function uploadErrorMessage(data: unknown, status: number): string {
+  const fallback = `캘린더 기록 저장에 실패했어요. (${status})`;
+  if (!data || typeof data !== 'object') return fallback;
+
+  const detail = (data as { detail?: unknown }).detail;
+  if (typeof detail === 'string') return detail;
+
+  const messages = Object.entries(data as Record<string, unknown>)
+    .map(([field, value]) => {
+      const text = Array.isArray(value) ? value.join(' ') : String(value);
+      return `${field}: ${text}`;
+    })
+    .filter(Boolean);
+
+  return messages.length > 0 ? messages.join('\n') : fallback;
 }

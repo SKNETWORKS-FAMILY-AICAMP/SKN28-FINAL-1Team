@@ -71,6 +71,8 @@ export function LookComposer({ date }: { date?: string }) {
   const [shared, setShared] = useState(existing?.shared ?? false);
   const [pickerOpen, setPickerOpen] = useState(false);
   const [loading, setLoading] = useState(false);
+  /* 사진 업로드는 몇 초 걸린다 — 버튼이 아무 반응 없어 보이면 사용자가 다시 누른다. */
+  const [saving, setSaving] = useState(false);
 
   /* 반대편에도 남길지 — 캘린더 모드면 '룩북에도', 룩북 모드면 '캘린더에도'.
      이미 이어져 있는 기록(existing.lookId)은 토글이 아니라 사실 표시로 그린다. */
@@ -159,7 +161,16 @@ export function LookComposer({ date }: { date?: string }) {
     });
 
   const handleSave = async () => {
-    if (!canSave) return;
+    if (!canSave || saving) return;
+    setSaving(true);
+    try {
+      await runSave();
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const runSave = async () => {
 
     if (mode === 'calendar' && date) {
       const lookId = linkOn && !alreadyLinked ? makeLook(date).id : undefined;
@@ -453,11 +464,12 @@ export function LookComposer({ date }: { date?: string }) {
 
           <View style={styles.footer}>
             <Pressable
-              style={[styles.saveBtn, !canSave && styles.saveBtnDisabled]}
+              style={[styles.saveBtn, (!canSave || saving) && styles.saveBtnDisabled]}
               onPress={handleSave}
-              disabled={!canSave}>
+              disabled={!canSave || saving}>
+              {saving ? <ActivityIndicator size="small" color="#fff" /> : null}
               <Text style={styles.saveText}>
-                {mode === 'calendar' ? '저장하기' : '룩북에 올리기'}
+                {saving ? '저장 중…' : mode === 'calendar' ? '저장하기' : '룩북에 올리기'}
               </Text>
             </Pressable>
           </View>
@@ -682,6 +694,8 @@ const styles = StyleSheet.create({
     height: 48,
     borderRadius: 999,
     backgroundColor: Editorial.cta,
+    flexDirection: 'row',
+    gap: 8,
     alignItems: 'center',
     justifyContent: 'center',
   },
