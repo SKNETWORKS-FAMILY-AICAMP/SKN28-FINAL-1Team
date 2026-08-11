@@ -57,6 +57,19 @@ export const GOOGLE_WEB_CLIENT_ID = process.env.EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID
 export const GOOGLE_IOS_CLIENT_ID = process.env.EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID ?? '';
 
 /**
+ * 웹 소셜 로그인(브라우저 인가 코드 방식)에 쓰는 **클라이언트 ID**.
+ * 인가 URL 쿼리에 그대로 실려 주소창에 노출되는 준공개값이다 — client_secret 은
+ * 백엔드 전용이며 앱에 절대 넣지 않는다 (토큰 교환은 백엔드가 한다).
+ *
+ * 네이티브 키와 다른 값이라는 점에 주의:
+ *   카카오 — 네이티브는 '네이티브 앱 키', 웹은 **REST API 키**
+ *   네이버 — 네이티브는 consumerKey, 웹은 OAuth client_id (백엔드 NAVER_OAUTH_CLIENT_ID 와 같은 값)
+ *   구글  — 웹 클라이언트 ID 하나를 앱·웹이 같이 쓴다
+ */
+export const KAKAO_REST_API_KEY = process.env.EXPO_PUBLIC_KAKAO_REST_API_KEY ?? '';
+export const NAVER_OAUTH_CLIENT_ID = process.env.EXPO_PUBLIC_NAVER_OAUTH_CLIENT_ID ?? '';
+
+/**
  * 키가 채워졌을 때만 해당 SDK 를 초기화/호출한다.
  * 미설정(스캐폴딩) 상태에선 네이티브 SDK 를 건드리지 않아, 재빌드 전에도 앱이 안전하게 뜬다.
  */
@@ -79,8 +92,20 @@ export const isGoogleConfigured = (): boolean =>
  *   GET/PATCH /api/v1/users/me/           내 정보 (Bearer 필요)
  *
  * ※ simplejwt(stateless)라 서버 로그아웃 엔드포인트는 없다 → 로그아웃은 클라이언트 토큰 폐기.
+ *
+ * 이메일 가입/로그인 흐름:
+ *   POST /api/v1/auth/signup/        { email, password } → 202 { email, verification_required, retry_after }
+ *   POST /api/v1/auth/email/verify/  { email, code }     → 200 { email, verified }
+ *     ⚠️ 인증 API 는 **토큰을 주지 않는다**. 계정만 활성화되므로 이어서 로그인해야 세션이 열린다.
+ *   POST /api/v1/auth/email/resend/  { email }           → 200 { retry_after }
+ *   POST /api/v1/auth/login/         { email, password } → 200 { access, refresh, user, is_new_user }
+ *     is_new_user=true 는 가입 후 첫 로그인 → 온보딩(권한 → 체형 측정 → 추구미)으로 보낸다.
  */
 export const AuthEndpoints = {
+  signup: '/api/v1/auth/signup/',
+  login: '/api/v1/auth/login/',
+  verifyEmail: '/api/v1/auth/email/verify/',
+  resendEmail: '/api/v1/auth/email/resend/',
   socialLogin: (provider: SocialProvider) => `/api/v1/auth/${provider}/login/`,
   refresh: '/api/v1/auth/token/refresh/',
   me: '/api/v1/users/me/',

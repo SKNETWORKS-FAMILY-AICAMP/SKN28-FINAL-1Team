@@ -228,3 +228,200 @@ def evaluate_outfit(
         model=model,
         latency_ms=int((time.monotonic() - started) * 1000),
     )
+
+
+# ────────────────────────────────────────────────────────────
+# 오늘의 룩
+# ────────────────────────────────────────────────────────────
+
+@dataclass(frozen=True)
+class DailyLookResult:
+    """오늘의 룩 조합 1건의 호출 결과."""
+
+    parsed: dict[str, Any]
+    request: dict[str, Any]
+    response: dict[str, Any]
+    model: str
+    latency_ms: int
+
+
+DAILY_LOOK_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "headline": {
+            "type": "string",
+            "description": "한 줄 요약. 20자 내외의 자연스러운 한국어.",
+        },
+        "rationale_ko": {
+            "type": "string",
+            "description": "왜 이 코디인지. 체형 근거와 날씨를 함께 언급한다.",
+        },
+        "styling_tips": {
+            "type": "array",
+            "items": {"type": "string"},
+            "description": "착장 팁 1~3개.",
+        },
+        "items": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "item_key": {"type": "string"},
+                    "note": {"type": "string", "description": "이 아이템을 고른 이유"},
+                },
+                "required": ["item_key"],
+            },
+        },
+    },
+    "required": ["headline", "rationale_ko"],
+}
+
+DAILY_LOOK_SYSTEM_INSTRUCTION = (
+    "당신은 한국어로 답하는 패션 스타일리스트입니다. "
+    "**이미 정해진** 오늘의 착장에 설명을 붙이는 일을 합니다.\n"
+    "규칙:\n"
+    "1. 코디를 고르거나 바꾸지 않습니다. 다른 코디를 제안하지 않습니다.\n"
+    "2. rule_notes는 사용자 체형에 근거한 스타일링 원칙입니다. 그대로 옮기지 말고 "
+    "자연스러운 문장으로 풀어 씁니다.\n"
+    "3. 체형을 지적하거나 평가하지 않습니다. '단점을 가린다'가 아니라 "
+    "'균형을 살린다'처럼 씁니다.\n"
+    "4. 날씨 정보가 있으면 기온에 맞는 레이어링을 한 문장으로 덧붙입니다. "
+    "기온은 섭씨이며, 주어진 값과 기온대 판정을 다르게 표현하지 않습니다. "
+    "착장이 그 기온에 다소 맞지 않으면 억지로 맞다고 쓰지 말고 "
+    "'겉옷은 벗어 들고 다녀도 좋아요' 처럼 실용적인 안내로 풀어 씁니다.\n"
+    "5. items의 note는 주어진 item_key에 대해서만 씁니다. 없는 아이템을 만들지 않습니다."
+)
+
+
+def build_daily_look_prompt(
+    *, outfit: dict[str, Any], context: dict[str, Any]
+) -> str:
+    from apps.recommend.services.retriever import celsius_of
+    from apps.recommend.services.style_rules import load_weather_rules
+
+    profile = context.get("body_profile") or {}
+    weather = context.get("weather") or {}
+
+    # 단위를 명시한다. "27.4도"만 주면 모델이 화씨로 읽을 여지가 남는다.
+    celsius = celsius_of(weather)
+    temperature = f"{celsius}°C (섭씨)" if celsius is not None else "정보 없음"
+
+    lines = [
+        "## 사용자",
+        f"- 체형: {profile.get('describe') or '정보 없음'}",
+        f"- 날씨: {weather.get('region', '')} {temperature}"
+        f" {weather.get('sky_state', '')}".strip(),
+    ]
+
+    # 기온대 판정을 미리 내려서 준다. 모델이 스스로 판단하게 두면, 착장에 아우터가
+    # 있고 기온이 높을 때 "말이 되게" 만들려고 날씨 쪽을 굽힌다 — 27도를 두고
+    # "선선한 날씨"라고 쓴 사고가 실제로 있었다. 판정을 사실로 못 박아 둔다.
+    if (band := load_weather_rules().band_for(celsius)) is not None:
+        lines.append(f"- 기온대: {band.label} — {band.hint}")
+    pursuit = context.get("pursuit") or {}
+    if pursuit:
+        lines.append(f"- 선호: {json.dumps(pursuit.get('preferred', {}), ensure_ascii=False)}")
+        lines.append(f"- 기피: {json.dumps(pursuit.get('avoided', {}), ensure_ascii=False)}")
+    lines.append("")
+    lines.append("## 오늘의 착장 (이미 확정됨 — 바꾸지 마세요)")
+    lines.append(json.dumps(outfit, ensure_ascii=False, indent=2))
+    return "\n".join(lines)
+
+
+def _build_daily_look_body(
+    *, outfit: dict[str, Any], context: dict[str, Any]
+) -> dict[str, Any]:
+    return {
+        "systemInstruction": {"parts": [{"text": DAILY_LOOK_SYSTEM_INSTRUCTION}]},
+        "contents": [
+            {
+                "role": "user",
+                "parts": [
+                    {
+                        "text": build_daily_look_prompt(
+                            outfit=outfit, context=context
+                        )
+                    }
+                ],
+            }
+        ],
+        "generationConfig": {
+            # 평가(0.4)보다 조금 높게 둔다. 매일 같은 사용자에게 같은 문장이 나오면
+            # 추천이 아니라 템플릿처럼 읽힌다.
+            "temperature": 0.7,
+            "responseMimeType": "application/json",
+            "responseSchema": DAILY_LOOK_SCHEMA,
+        },
+    }
+
+
+def write_daily_look_copy(
+    *, outfit: dict[str, Any], context: dict[str, Any]
+) -> DailyLookResult:
+    """**이미 정해진** 착장에 사람이 읽을 문장을 붙인다.
+
+    코디 선택은 리트리버가 결정적으로 끝낸다. 여기서 다시 고르게 하면 체형·취향
+    점수 계산을 버리는 셈이고, 같은 입력에 다른 결과가 나와 재현도 채점도 못 한다.
+    그래서 LLM의 역할을 설명 생성으로만 좁혔다.
+
+    이미지를 보내지 않는다. 골든 원본은 대개 노출 불가이고, 조합을 말로 풀어내는
+    일이라 태그만으로 충분하다 — 멀티모달 호출보다 훨씬 싸고 빠르다.
+    """
+    api_key = settings.GEMINI_API_KEY
+    if not api_key:
+        raise GeminiConfigurationError("GEMINI_API_KEY가 설정되지 않았습니다.")
+
+    request_body = _build_daily_look_body(outfit=outfit, context=context)
+    model = settings.GEMINI_MODEL
+    url = f"{settings.GEMINI_API_BASE_URL}/v1beta/models/{model}:generateContent"
+
+    started = time.monotonic()
+    error_payload: Any = None
+    try:
+        response = requests.post(
+            url,
+            headers={"x-goog-api-key": api_key, "Content-Type": "application/json"},
+            json=request_body,
+            timeout=settings.GEMINI_TIMEOUT_SECONDS,
+        )
+        if response.status_code >= 400:
+            error_payload = _error_payload(response)
+            logger.error(
+                "Gemini 오늘의 룩 실패 %s: %s",
+                response.status_code,
+                response.text[:2000],
+            )
+        response.raise_for_status()
+        response_payload = response.json()
+        parsed = json.loads(_extract_text(response_payload))
+    except requests.Timeout as exc:
+        raise GeminiServiceError("Gemini 응답 시간이 초과되었습니다.") from exc
+    except GeminiServiceError:
+        raise
+    except (requests.RequestException, ValueError, json.JSONDecodeError) as exc:
+        logger.exception("Gemini 오늘의 룩 호출 실패")
+        raise GeminiServiceError(
+            "오늘의 룩 생성에 실패했습니다.", response_payload=error_payload
+        ) from exc
+
+    # 코디는 이미 정해져 있으므로 고를 여지가 없다. 남은 환각 위험은 없는
+    # 아이템에 설명을 붙이는 것뿐이라, 모르는 item_key는 조용히 버린다.
+    # 문장 전체를 실패시킬 만한 오류는 아니다.
+    known_keys = {str(item.get("item_key")) for item in outfit.get("items", [])}
+    notes = [
+        note
+        for note in (parsed.get("items") or [])
+        if str(note.get("item_key")) in known_keys
+    ]
+    dropped = len(parsed.get("items") or []) - len(notes)
+    if dropped:
+        logger.warning("오늘의 룩 문장: 알 수 없는 item_key %d건을 버렸습니다", dropped)
+    parsed["items"] = notes
+
+    return DailyLookResult(
+        parsed=parsed,
+        request=request_body,
+        response=response_payload,
+        model=model,
+        latency_ms=int((time.monotonic() - started) * 1000),
+    )

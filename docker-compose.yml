@@ -70,6 +70,14 @@ services:
   # one-shot 마이그레이션. 모든 스택(api/collector)이 이 서비스 완료 후 시작한다.
   # 스키마 소유권: Django migration (users/catalog/weather 앱)
   migrate:
+    # ./api를 빌드하는 네 서비스(migrate·api·outfit-worker·daily-look-worker)는
+    # **같은 이미지 태그**를 공유한다. 예전엔 각자 익명 이미지를 만들었는데,
+    # 그 탓에 `docker compose build api`가 api만 새로 만들고 워커는 옛 코드를
+    # 계속 물고 돌았다. restart: unless-stopped라 재시작으로도 안 바뀐다.
+    # 겉으로는 API 응답이 새 코드라 배포가 끝난 것처럼 보이는데, 실제로 추천을
+    # 만드는 워커만 과거에 남아 있어 원인을 찾는 데 오래 걸렸다.
+    # 태그를 공유하면 한 번 빌드가 네 서비스에 전부 적용된다.
+    image: skn28-api:local
     build:
       context: ./api
     container_name: skn28-migrate
@@ -93,6 +101,7 @@ services:
     command: python manage.py migrate --noinput
 
   api:
+    image: skn28-api:local          # migrate와 같은 이미지 (위 주석 참고)
     build:
       context: ./api
     container_name: skn28-api
@@ -137,6 +146,7 @@ services:
   # 주의: 이 서비스를 2대 이상으로 늘리지 말 것. 재시작 복구(recover_stale)가
   # processing 큐를 통째로 되돌려서, 다른 워커가 처리 중인 작업까지 회수한다.
   outfit-worker:
+    image: skn28-api:local          # migrate와 같은 이미지 (위 주석 참고)
     build:
       context: ./api
     container_name: skn28-outfit-worker
@@ -164,6 +174,39 @@ services:
       # 이 마운트가 없으면 워커가 ModuleNotFoundError로 죽는다.
       - ./ml:/ml:ro
     command: python manage.py run_outfit_worker
+
+  # 오늘의 룩 생성 워커. 평가 워커와 큐가 분리돼 있어 서로 밀리지 않는다.
+  #
+  # 워커는 1대만 띄운다. 기동 시 recover_stale()이 processing에 남은 작업을 전부
+  # pending으로 되돌리기 때문에, 2대 이상이면 다른 워커가 처리 중인 작업까지 회수한다.
+  daily-look-worker:
+    image: skn28-api:local          # migrate와 같은 이미지 (위 주석 참고)
+    build:
+      context: ./api
+    container_name: skn28-daily-look-worker
+    restart: unless-stopped
+    profiles: ["api", "all"]
+    depends_on:
+      db:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    env_file:
+      - .env
+    environment:
+      TZ: Asia/Seoul          # look_date를 Asia/Seoul 기준으로 잡는다 (UTC면 날짜가 밀린다)
+      POSTGRES_HOST: db
+      POSTGRES_PORT: 5432
+      REDIS_URL: redis://redis:6379/0  # 비밀번호는 REDIS_PASSWORD로 별도 주입
+      QDRANT_URL: http://qdrant:6333   # 리트리버가 쓴다 — 없으면 후보 0건으로 EMPTY가 된다
+      DJANGO_SETTINGS_MODULE: ${DJANGO_SETTINGS_MODULE:-config.settings.prod}
+      OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
+    volumes:
+      # outfit-worker와 같은 이유. Django system check가 config.urls를 import하고
+      # 그 경로에 body_measurement가 걸려 있어, 이 마운트가 없으면 워커가
+      # ModuleNotFoundError로 죽는다.
+      - ./ml:/ml:ro
+    command: python manage.py run_daily_look_worker
 
   weather-collector:
     build:

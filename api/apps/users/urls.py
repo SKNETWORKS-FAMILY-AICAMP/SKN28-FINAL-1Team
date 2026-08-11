@@ -12,12 +12,20 @@ from apps.users.views import (
     PreferenceOptionsView,
     PursuitView,
     SocialLoginView,
+    EmailLoginView,
+    EmailSignupView,
+    EmailVerificationResendView,
+    EmailVerificationView,
     BudgetView,
 )
 
 app_name = "users"
 
 urlpatterns = [
+    path("auth/signup/", EmailSignupView.as_view(), name="email-signup"),
+    path("auth/login/", EmailLoginView.as_view(), name="email-login"),
+    path("auth/email/verify/", EmailVerificationView.as_view(), name="email-verify"),
+    path("auth/email/resend/", EmailVerificationResendView.as_view(), name="email-resend"),
     # 소셜 로그인: naver | kakao | google
     path("auth/<str:provider>/login/", SocialLoginView.as_view(), name="social-login"),
     path("auth/token/refresh/", TokenRefreshView.as_view(), name="token-refresh"),

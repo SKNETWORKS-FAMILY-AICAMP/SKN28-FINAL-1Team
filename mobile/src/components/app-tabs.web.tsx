@@ -167,11 +167,17 @@ function ChatPanel() {
 /* ── 데스크톱: 좌측 사이드바 ─────────────────────────────── */
 
 function Sidebar({ children, ...props }: React.ComponentProps<typeof View>) {
-  const pathname = usePathname();
-
   return (
     <View {...props} style={styles.sidebar}>
-      <Text style={styles.sidebarBrand}>cozy</Text>
+      {/* 워드마크로 홈에 간다 — 웹에서 로고를 누르면 첫 화면으로 가는 게 당연한 동작이다.
+          replace 가 아니라 navigate: replace 는 탭 스택을 갈아치워 뒤로가기가 어긋난다(lib/goBack 참고). */}
+      <Pressable
+        onPress={() => router.navigate('/(tabs)/home')}
+        accessibilityRole="link"
+        accessibilityLabel="홈으로"
+        style={styles.sidebarBrandLink}>
+        <Text style={styles.sidebarBrand}>cozy</Text>
+      </Pressable>
 
       <View style={styles.sidebarNav}>{children}</View>
     </View>
@@ -275,12 +281,14 @@ const styles = StyleSheet.create({
     paddingTop: 28,
     gap: 8,
   },
+  /* 누르는 영역은 글자만큼만 — 사이드바 폭을 다 먹으면 옆 빈 자리를 눌러도 홈으로 가서
+     '잘못 눌렀나' 싶어진다. 여백(marginBottom)은 링크가 갖고, 글자는 자리만 잡는다. */
+  sidebarBrandLink: { alignSelf: 'flex-start', marginBottom: 20 },
   sidebarBrand: {
     fontFamily: Fonts.serif,
     fontSize: 24,
     color: INK,
     paddingHorizontal: 10,
-    marginBottom: 20,
   },
   sidebarNav: { gap: 2 },
   sidebarItem: {

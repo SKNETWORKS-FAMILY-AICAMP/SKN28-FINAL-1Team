@@ -99,11 +99,15 @@ def callback_payload_from_manifest(manifest: dict) -> dict:
         if it.get("error") or not it.get("s3_key") or not it.get("tags"):
             continue
         tags = dict(it["tags"])
-        tags["usage"] = [
-            value.strip()
-            for value in (tags.get("usage") or [])
-            if isinstance(value, str) and value.strip()
-        ]
+        for key in ("season", "usage"):
+            values = tags.get(key) or []
+            if isinstance(values, str):
+                values = [values]
+            tags[key] = [
+                value.strip()
+                for value in values
+                if isinstance(value, str) and value.strip()
+            ]
         missing = tags.pop("_missing_required", [])
         items.append({
             "s3_key": it["s3_key"],

@@ -150,19 +150,23 @@ export default function MeasureResult() {
     setSavingDone(true);
     try {
       await measureStore.saveDetail(measures);
+      if (returnTo === 'onboarding') {
+        router.navigate({ pathname: '/style-onboarding', params: { returnTo: 'onboarding' } });
+      } else if (returnTo === 'my') {
+        router.navigate('/my');
+      } else {
+        router.navigate('/home');
+      }
     } catch (e) {
-      // 저장 실패해도 로컬 결과엔 반영됨 — 알리고 화면은 닫는다.
       toast(
-        e instanceof ApiError ? e.message : '치수 저장에 실패했어요. 임시로 진행할게요.',
+        e instanceof ApiError ? e.message : '치수 저장에 실패했어요. 다시 시도해 주세요.',
         { variant: 'error' },
       );
+      if (returnTo !== 'onboarding') {
+        router.navigate(returnTo === 'my' ? '/my' : '/home');
+      }
     } finally {
       setSavingDone(false);
-      if (returnTo === 'my') {
-        router.replace('/(tabs)/my');
-      } else {
-        router.replace('/(tabs)/home');
-      }
     }
   };
 

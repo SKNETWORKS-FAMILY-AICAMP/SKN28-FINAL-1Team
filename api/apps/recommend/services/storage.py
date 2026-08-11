@@ -93,3 +93,49 @@ def presigned_get(key: str, ttl: int = PRESIGNED_GET_TTL) -> str:
     return _client().generate_presigned_url(
         "get_object", Params={"Bucket": bucket(), "Key": key}, ExpiresIn=ttl
     )
+
+
+def presigned_get_for(bucket_name: str, key: str, ttl: int = PRESIGNED_GET_TTL) -> str:
+    """다른 버킷의 객체에 대한 조회 URL.
+
+    골든셋 산출물은 이 앱의 버킷(OUTFIT_S3_BUCKET/WARDROBE_S3_BUCKET)이 아니라
+    GOLDEN_S3_BUCKET에 있다. 버킷을 인자로 받아 같은 자격증명·리전으로 서명한다.
+
+    URL은 만료되므로 **조회 시점에** 만들어야 한다. DB나 벡터 payload에 미리
+    구워 넣으면 며칠 뒤 죽은 링크가 남는다.
+    """
+    return _client().generate_presigned_url(
+        "get_object",
+        Params={"Bucket": bucket_name, "Key": key},
+        ExpiresIn=ttl,
+    )
+
+
+def exists_for(bucket_name: str, key: str) -> bool:
+    """다른 버킷의 객체 존재 여부. 404면 False, 그 밖의 오류는 그대로 올린다.
+
+    권한 문제(403)를 '없음'으로 삼키면 매번 다시 만들게 되므로 구분한다.
+    """
+    from botocore.exceptions import ClientError
+
+    try:
+        _client().head_object(Bucket=bucket_name, Key=key)
+    except ClientError as exc:
+        if exc.response.get("Error", {}).get("Code") in {"404", "NoSuchKey", "NotFound"}:
+            return False
+        raise
+    return True
+
+
+def put_bytes_for(
+    bucket_name: str, key: str, data: bytes, content_type: str = "image/png"
+) -> None:
+    """다른 버킷에 객체를 올린다 (골든셋 산출물용)."""
+    _client().put_object(
+        Bucket=bucket_name, Key=key, Body=data, ContentType=content_type
+    )
+
+
+def download_for(bucket_name: str, key: str) -> bytes:
+    """다른 버킷의 객체를 읽는다."""
+    return _client().get_object(Bucket=bucket_name, Key=key)["Body"].read()

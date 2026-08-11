@@ -246,3 +246,170 @@ class OutfitAnalysis(models.Model):
             "body": self.body,
             "personalized": self.personalized,
         }
+
+
+class DailyLook(models.Model):
+    """사용자 1명의 하루치 '오늘의 룩' 추천 1건.
+
+    코디 평가(OutfitAnalysis)와 결정적으로 다른 점이 하나 있다. 저쪽은 사용자가
+    사진을 올려야 시작하지만, 이쪽은 **사용자 입력이 없다.** 그날 처음 로그인하는
+    순간 자동으로 만들어지고, 재료는 미리 저장된 체형·추구미와 그 시점 날씨다.
+
+    그래서 (user, look_date)에 유니크 제약을 건다. 하루에 여러 번 로그인해도,
+    여러 기기에서 동시에 로그인해도 1건만 생긴다 — 경합은 DB가 막고 서비스는
+    IntegrityError를 '이미 있음'으로 처리한다.
+
+    스냅샷을 남기는 이유는 OutfitAnalysis와 같다. 날씨와 프로필은 계속 바뀌므로
+    참조만 두면 "왜 이 룩이 나왔는지"를 나중에 재현할 수 없다. 여기에 더해
+    리트리버가 뽑은 후보(candidates)도 남긴다 — 골든셋과 규칙표가 바뀌면 같은
+    입력으로도 다른 후보가 나오기 때문에, LLM 응답만으로는 추천 경로를 되짚을 수 없다.
+    """
+
+    class Status(models.TextChoices):
+        QUEUED = "QUEUED", "대기중"
+        PROCESSING = "PROCESSING", "생성 진행중"
+        SUCCEEDED = "SUCCEEDED", "생성 완료"
+        FAILED = "FAILED", "생성 실패"
+        #: 후보를 하나도 못 찾은 경우. 실패와 구분해야 프론트가 "잠시 후 다시"가
+        #: 아니라 "프로필을 채워달라"고 안내할 수 있다.
+        EMPTY = "EMPTY", "추천 후보 없음"
+
+    PENDING_STATUSES = (Status.QUEUED, Status.PROCESSING)
+
+    id = models.UUIDField(
+        primary_key=True,
+        default=uuid.uuid4,
+        editable=False,
+        db_comment="오늘의 룩 UUID (외부 노출 식별자)",
+    )
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name="daily_looks",
+        db_index=False,  # 아래 (user, -look_date) 유니크 제약이 선두 컬럼을 덮는다
+        db_comment="추천 대상 사용자 FK (users.id)",
+    )
+    look_date = models.DateField(
+        "추천 날짜",
+        db_comment="추천이 속한 날짜 (사용자 로컬 기준, Asia/Seoul)",
+    )
+    status = models.CharField(
+        max_length=16,
+        choices=Status.choices,
+        default=Status.QUEUED,
+        db_comment="생성 상태 (QUEUED/PROCESSING/SUCCEEDED/FAILED/EMPTY)",
+    )
+
+    # ── 생성 시점 스냅샷 ──
+    weather = models.JSONField(
+        "날씨 스냅샷",
+        default=dict,
+        blank=True,
+        db_comment="추천에 사용한 날씨 JSON (region/temperature/sky_state 등)",
+    )
+    body = models.JSONField(
+        "신체치수 스냅샷",
+        null=True,
+        blank=True,
+        db_comment="추천에 사용한 신체치수 JSON (미등록이면 NULL)",
+    )
+    body_profile = models.JSONField(
+        "체형 판정 스냅샷",
+        default=dict,
+        blank=True,
+        db_comment="치수에서 판정한 실루엣·BMI·비율 JSON (판정 못 한 축은 unknown)",
+    )
+    pursuit = models.JSONField(
+        "추구미 스냅샷",
+        null=True,
+        blank=True,
+        db_comment="추천에 사용한 추구미 JSON (preferred/avoided, 미등록이면 NULL)",
+    )
+
+    # ── 리트리버 결과 ──
+    candidates = models.JSONField(
+        "리트리버 후보",
+        default=list,
+        blank=True,
+        db_comment="리트리버가 뽑은 골든 코디 후보 요약 배열 (point_id/score/reasons)",
+    )
+    rules_version = models.CharField(
+        max_length=40,
+        blank=True,
+        default="",
+        db_comment="추천에 사용한 체형 규칙표 스키마 버전 (body_fit_rules.json)",
+    )
+
+    # ── LLM ──
+    llm_model = models.CharField(
+        max_length=120,
+        blank=True,
+        default="",
+        db_comment="호출한 Gemini 모델 이름 (미호출이면 빈 문자열)",
+    )
+    llm_request = models.JSONField(
+        "LLM 요청 본문",
+        default=dict,
+        blank=True,
+        db_comment="Gemini에 보낸 요청 본문 (프롬프트 교체 전후 비교용)",
+    )
+    llm_response = models.JSONField(
+        "LLM 원본 응답",
+        default=dict,
+        blank=True,
+        db_comment="Gemini 원본 응답 JSON (파싱 실패 시 원인 추적용)",
+    )
+    llm_latency_ms = models.PositiveIntegerField(
+        null=True, blank=True, db_comment="Gemini 호출 소요 시간 (ms)"
+    )
+
+    result = models.JSONField(
+        "추천 결과",
+        default=dict,
+        blank=True,
+        db_comment="프론트에 내려줄 추천 결과 JSON (headline/outfit/items/rationale)",
+    )
+    error = models.TextField(
+        blank=True,
+        default="",
+        db_comment="실패 사유 (성공 시 빈 문자열)",
+    )
+
+    created_at = models.DateTimeField(
+        auto_now_add=True, db_comment="행 생성 시각 (그날 첫 로그인 시각과 같다)"
+    )
+    updated_at = models.DateTimeField(auto_now=True, db_comment="행 수정 시각")
+
+    class Meta:
+        db_table = "daily_looks"
+        db_table_comment = "사용자별 하루 1건의 오늘의 룩 추천"
+        ordering = ["-look_date"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=("user", "look_date"), name="uq_daily_look_user_date"
+            ),
+        ]
+        indexes = [
+            models.Index(fields=["status"], name="idx_daily_look_status"),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.look_date} / {self.user_id} ({self.status})"
+
+    @property
+    def is_pending(self) -> bool:
+        return self.status in self.PENDING_STATUSES
+
+    def retrieval_context(self) -> dict:
+        """리트리버·LLM에 넘길 컨텍스트를 스냅샷에서 복원한다.
+
+        워커는 이 값을 쓰고 컨텍스트를 다시 만들지 않는다. 큐에서 대기하는 사이
+        날씨가 바뀌어도, 사용자가 로그인한 그 순간의 조건으로 추천해야 결과와
+        기록이 일치한다 (OutfitAnalysis.llm_context와 같은 원칙).
+        """
+        return {
+            "weather": self.weather or {},
+            "body": self.body,
+            "body_profile": self.body_profile or {},
+            "pursuit": self.pursuit,
+        }
