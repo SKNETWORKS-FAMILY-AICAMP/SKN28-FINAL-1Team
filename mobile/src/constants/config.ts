@@ -118,17 +118,28 @@ export const OutfitHistoryEndpoints = {
 
 /**
  * 신체치수 (api/apps/users/urls.py 기준). 전부 JWT 필요.
- *   GET   /api/v1/users/me/body/         → 전체 치수 (미입력 필드는 null)
- *   PUT   /api/v1/users/me/body/basic/   { height, weight }  (둘 다 필수)
- *   PATCH /api/v1/users/me/body/detail/  { chest,waist,hip,thigh,calf,arm,shoulder }  (전부 선택)
- *   POST  /api/v1/users/me/body/photos/  multipart front_image/side_image → 202 { transaction_id, status }
- *   GET   /api/v1/users/me/body/photos/{id}/  → { status: in_progress|succeeded|failed } (폴링)
- *   ※ 수치는 Decimal 소수 1자리(1~999.9). 사진 접수 후 백엔드가 상세치수를 채우면 GET body 로 읽는다.
+ *   GET   /api/v1/users/me/body/          → 전체 치수 (미입력 필드는 null)
+ *   PUT   /api/v1/users/me/body/basic/    { gender, height, weight }  (셋 다 필수, gender 는 male|female)
+ *   PATCH /api/v1/users/me/body/detail/   { chest,waist,hip,thigh,calf,arm,shoulder }  (전부 선택)
+ *   POST  /api/v1/users/me/body/estimate/ { gender?, height?, weight? } → 200 EstimationResult (동기)
+ *   POST  /api/v1/users/me/body/photos/   multipart front_image/side_image (+gender/height/weight 선택)
+ *                                         → 202 { transaction_id, status }
+ *   GET   /api/v1/users/me/body/photos/{id}/ → EstimationResult (폴링)
+ *
+ * EstimationResult (estimate 와 photos/{id} 가 공유 — api/apps/users/serializers.py
+ * BodyEstimationResultSerializer):
+ *   { status: in_progress|succeeded|failed, source: basic_info|photo,
+ *     transaction_id: uuid|null, measurement: {…상세 7개 포함 전체 치수}, error_message: string|null }
+ *
+ * ※ 수치는 Decimal 소수 1자리(1~999.9) → JSON 에 문자열로 내려올 수 있다.
+ * ※ estimate/photos 는 gender·height·weight 를 생략하면 **저장된 기본 정보**를 쓴다.
+ *    저장된 값도 없으면 400 이므로, 로컬 입력이 있으면 항상 같이 보낸다.
  */
 export const BodyEndpoints = {
   me: '/api/v1/users/me/body/',
   basic: '/api/v1/users/me/body/basic/',
   detail: '/api/v1/users/me/body/detail/',
+  estimate: '/api/v1/users/me/body/estimate/',
   photos: '/api/v1/users/me/body/photos/',
   photo: (transactionId: string) => `/api/v1/users/me/body/photos/${transactionId}/`,
 } as const;

@@ -16,7 +16,7 @@ import { Editorial, ink, Fonts , ContentMax} from '@/constants/theme';
 import { useBottomTabInset } from '@/hooks/use-bottom-tab-inset';
 import { useBreakpoint } from '@/hooks/use-breakpoint';
 import { ApiError } from '@/lib/apiClient';
-import { measureStore, useMeasure } from '@/state/measure';
+import { MEASURE_KEYS, measureStore, useMeasure, type Measurement } from '@/state/measure';
 
 const INK = Editorial.ink;
 
@@ -30,26 +30,27 @@ function Steps({ active }: { active: number }) {
   );
 }
 
-// 추정 치수 표시 순서·라벨 (값은 measureStore 결과에서). measures 키와 일치.
-const MEASURE_ROWS = [
+/* 추정 치수 표시 순서·라벨 (값은 measureStore 결과에서).
+   서버(ml/body_measurement)가 상세 7개를 모두 채워 보내므로 7개를 다 보여준다 —
+   예전엔 앞의 4개만 렌더링해 허벅지·종아리·팔뚝은 저장돼 있는데도 화면에 없었다. */
+const MEASURE_ROWS: { key: (typeof MEASURE_KEYS)[number]; label: string }[] = [
   { key: 'shoulder', label: '어깨너비' },
   { key: 'chest', label: '가슴둘레' },
   { key: 'waist', label: '허리둘레' },
   { key: 'hip', label: '엉덩이둘레' },
-] as const;
+  { key: 'thigh', label: '허벅지둘레' },
+  { key: 'calf', label: '종아리둘레' },
+  { key: 'arm', label: '팔뚝둘레' },
+];
 
 // G3 치수 결과·사이즈 매칭 — measureStore 결과를 구독. 완료 시 측정 플로우 닫기
 export default function MeasureResult() {
   const { contentStyle } = useBreakpoint();
   const tabInset = useBottomTabInset();
   const { returnTo } = useLocalSearchParams<{ returnTo?: string }>();
-  const { status, result, input, photos, error } = useMeasure();
+  const { status, result, photos, error, needsBasicInfo } = useMeasure();
   const toast = useToast();
   const [savingDone, setSavingDone] = useState(false);
-
-  /* 키·몸무게도 사진도 없으면 추정 자체가 불가능하다 — 재시도해도 결과가 달라지지 않으므로
-     STEP1 로 돌아가 입력하도록 안내한다. */
-  const hasData = Boolean(input) || Boolean(photos.front || photos.side);
 
   // 플로우를 거치지 않고 직접 진입했으면(status idle) 추정을 시작한다.
   useEffect(() => {
@@ -59,15 +60,14 @@ export default function MeasureResult() {
   // 사용자가 직접 수정하는 편집값(문자열) — 결과가 도착하면 초기화
   const [values, setValues] = useState<Record<string, string>>({});
   useEffect(() => {
-    if (result) {
-      // 소수점 1자리로 표기 (예: 78 → "78.0")
-      setValues({
-        shoulder: result.measures.shoulder.toFixed(1),
-        chest: result.measures.chest.toFixed(1),
-        waist: result.measures.waist.toFixed(1),
-        hip: result.measures.hip.toFixed(1),
-      });
-    }
+    if (!result) return;
+    // 소수점 1자리로 표기 (예: 78 → "78.0")
+    setValues(
+      MEASURE_KEYS.reduce<Record<string, string>>((acc, key) => {
+        acc[key] = result.measures[key].toFixed(1);
+        return acc;
+      }, {}),
+    );
   }, [result]);
 
   // 로딩 / 에러 — 결과가 아직 없을 때
@@ -77,7 +77,9 @@ export default function MeasureResult() {
         <SafeAreaView edges={['top', 'bottom']} style={styles.safe}>
           <View style={styles.stateWrap}>
             <Steps active={2} />
-            {status === 'error' && !hasData ? (
+            {/* 기본 정보가 없어서 실패한 경우엔 재시도 버튼을 주면 안 된다 —
+                같은 요청이 같은 400 으로 돌아와 사용자가 빠져나갈 수 없다. */}
+            {status === 'error' && needsBasicInfo ? (
               <ErrorState
                 title="추정할 정보가 없어요"
                 description={error ?? '키·몸무게를 입력하거나 사진을 등록해 주세요.'}
@@ -92,7 +94,13 @@ export default function MeasureResult() {
               <ErrorState
                 title="치수 추정에 실패했어요"
                 description={error ?? undefined}
-                onRetry={() => measureStore.estimate()}
+                /* 사진으로 온 실패는 사진으로 다시 시도해야 한다 — estimate() 로 재시도하면
+                   사용자가 올린 사진을 무시하고 키·몸무게 기반 결과를 돌려준다. */
+                onRetry={() =>
+                  photos.front && photos.side
+                    ? measureStore.startPhotoMeasurement()
+                    : measureStore.estimate()
+                }
                 style={styles.stateFill}
               />
             ) : (
@@ -113,16 +121,12 @@ export default function MeasureResult() {
 
   // 완료 — 수정한 값을 서버에 저장(PATCH detail)하고 플로우 닫기
   const onDone = async () => {
-    const num = (k: keyof typeof result.measures) => {
-      const v = parseFloat(values[k]);
-      return Number.isFinite(v) ? v : result.measures[k];
-    };
-    const measures = {
-      shoulder: num('shoulder'),
-      chest: num('chest'),
-      waist: num('waist'),
-      hip: num('hip'),
-    };
+    // 사용자가 지우거나 숫자가 아닌 값을 넣었으면 추정값을 그대로 쓴다.
+    const measures = MEASURE_KEYS.reduce((acc, key) => {
+      const parsed = parseFloat(values[key]);
+      acc[key] = Number.isFinite(parsed) ? parsed : result.measures[key];
+      return acc;
+    }, {} as Measurement);
     setSavingDone(true);
     try {
       await measureStore.saveDetail(measures);
