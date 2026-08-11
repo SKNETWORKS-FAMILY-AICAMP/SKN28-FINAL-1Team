@@ -574,7 +574,7 @@ DAILY_LOOK_EMPTY_EXAMPLE = OpenApiExample(
             "used_body": False,
             "used_pursuit": False,
             "body_profile": "미판정",
-            "missing_measurements": ["height", "weight", "shoulder", "waist", "hip"],
+            "missing_measurements": ["height", "weight", "chest", "waist", "hip"],
             "candidate_count": 0,
         },
         "poll_after_ms": None,

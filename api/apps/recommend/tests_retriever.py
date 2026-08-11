@@ -58,36 +58,99 @@ translate = vocabulary.translate
 
 
 class BodyProfileTests(unittest.TestCase):
-    def test_shoulder_wider_than_hip_is_inverted(self):
-        p = build_profile({"height":175,"weight":70,"shoulder":48,"hip":42,"waist":34})
+    """실루엣은 **둘레끼리** 비교해야 한다.
+
+    예전에는 어깨너비(44cm)와 엉덩이둘레(98cm)를 직접 뺐다. 둘은 애초에 비교할
+    수 있는 값이 아니라 spread가 언제나 -0.4~-0.6이 나왔고, 실제 사용자는
+    **전부 삼각형**으로 판정됐다. 체형을 바꿔도 추천이 그대로이던 원인 중
+    하나다. 아래 값은 전부 실제 사람의 cm 둘레다.
+    """
+
+    def test_real_bodies_do_not_all_collapse_to_one_silhouette(self):
+        """단위를 섞으면 여기서 걸린다 — 판정이 한 값으로 뭉친다."""
+        bodies = [
+            {"chest": 102, "waist": 92, "hip": 98, "shoulder": 44},
+            {"chest": 100, "waist": 78, "hip": 88, "shoulder": 50},
+            {"chest": 110, "waist": 108, "hip": 100, "shoulder": 43},
+            {"chest": 84, "waist": 62, "hip": 90, "shoulder": 38},
+        ]
+        got = {build_profile(b).silhouette for b in bodies}
+        self.assertGreaterEqual(len(got), 3, f"판정이 뭉쳤다: {got}")
+
+    def test_chest_wider_than_hip_is_inverted(self):
+        p = build_profile({"height": 180, "weight": 70, "chest": 100, "waist": 78, "hip": 88})
         self.assertEqual(p.silhouette, INVERTED_TRIANGLE)
-    def test_hip_wider_than_shoulder_is_triangle(self):
-        self.assertEqual(build_profile({"shoulder":38,"hip":45,"waist":32}).silhouette, TRIANGLE)
+
+    def test_hip_wider_than_chest_is_triangle(self):
+        self.assertEqual(
+            build_profile({"chest": 84, "waist": 62, "hip": 90}).silhouette, TRIANGLE
+        )
+
     def test_balanced_with_small_waist_is_hourglass(self):
-        self.assertEqual(build_profile({"shoulder":40,"hip":40,"waist":29}).silhouette, HOURGLASS)
-    def test_balanced_with_dominant_waist_is_round(self):
-        self.assertEqual(build_profile({"shoulder":40,"hip":40,"waist":39}).silhouette, ROUND)
+        self.assertEqual(
+            build_profile({"chest": 90, "waist": 64, "hip": 92}).silhouette, HOURGLASS
+        )
+
+    def test_dominant_waist_is_round(self):
+        self.assertEqual(
+            build_profile({"chest": 96, "waist": 96, "hip": 94}).silhouette, ROUND
+        )
+
+    def test_round_wins_over_chest_hip_spread(self):
+        """허리 우세는 상하 균형과 무관하게 성립한다.
+
+        예전에는 가슴-엉덩이 균형을 먼저 봐서, 허리 108에 가슴 110/엉덩이 100인
+        사람이 명백한 라운드형인데 역삼각형으로 빠졌다.
+        """
+        p = build_profile({"height": 165, "weight": 95, "chest": 110, "waist": 108, "hip": 100})
+        self.assertEqual(p.silhouette, ROUND)
+
     def test_balanced_middle_waist_is_rectangle(self):
-        self.assertEqual(build_profile({"shoulder":40,"hip":40,"waist":34}).silhouette, RECTANGLE)
+        self.assertEqual(
+            build_profile({"chest": 92, "waist": 80, "hip": 92}).silhouette, RECTANGLE
+        )
+
     def test_balanced_without_waist_stays_unknown(self):
-        p = build_profile({"shoulder":40,"hip":40})
+        p = build_profile({"chest": 92, "hip": 92})
         self.assertEqual(p.silhouette, UNKNOWN)
         self.assertIn("waist", p.missing)
+
+    def test_without_chest_there_is_no_silhouette(self):
+        """모르는 값을 메우지 않는다. 틀린 추천보다 미판정이 낫다."""
+        p = build_profile({"height": 170, "weight": 62, "waist": 70, "hip": 90, "shoulder": 44})
+        self.assertEqual(p.silhouette, UNKNOWN)
+        self.assertIn("chest", p.missing)
+
+    def test_shoulder_survives_as_a_secondary_axis(self):
+        """실루엣에서는 뺐지만 어깨 발달은 실제로 다른 축이다."""
+        broad = build_profile({"chest": 100, "hip": 96, "waist": 80, "shoulder": 50})
+        narrow = build_profile({"chest": 100, "hip": 96, "waist": 80, "shoulder": 38})
+        self.assertEqual(broad.ratios["shoulder_width"], "broad")
+        self.assertEqual(narrow.ratios["shoulder_width"], "narrow")
+        # 같은 둘레라 실루엣은 같아야 한다 — 어깨는 실루엣을 흔들지 않는다
+        self.assertEqual(broad.silhouette, narrow.silhouette)
+
     def test_bmi_bands(self):
-        for w, band in ((50,UNDERWEIGHT),(62,NORMAL),(70,OVERWEIGHT),(85,OBESE)):
-            p = build_profile({"height":170,"weight":w})
+        for w, band in ((50, UNDERWEIGHT), (62, NORMAL), (70, OVERWEIGHT), (85, OBESE)):
+            p = build_profile({"height": 170, "weight": w})
             self.assertEqual(p.bmi_band, band, f"{w}kg bmi={p.bmi}")
+
     def test_no_measurement_is_empty(self):
         self.assertTrue(build_profile(None).is_empty)
         self.assertTrue(build_profile({}).is_empty)
+
     def test_leg_volume_ratio(self):
-        self.assertEqual(build_profile({"thigh":62,"calf":38}).ratios["leg_volume"], "thigh_dominant")
-        self.assertEqual(build_profile({"thigh":52,"calf":37}).ratios["leg_volume"], "balanced")
+        self.assertEqual(build_profile({"thigh": 62, "calf": 38}).ratios["leg_volume"], "thigh_dominant")
+        self.assertEqual(build_profile({"thigh": 52, "calf": 37}).ratios["leg_volume"], "balanced")
+
     def test_garbage_values_are_ignored(self):
-        self.assertTrue(build_profile({"height":"abc","weight":-5,"shoulder":None}).is_empty)
+        self.assertTrue(build_profile({"height": "abc", "weight": -5, "chest": None}).is_empty)
+
     def test_describe_is_human_readable(self):
-        p = build_profile({"height":170,"weight":85,"shoulder":40,"hip":40,"waist":39})
-        self.assertIn("라운드형", p.describe()); self.assertIn("비만", p.describe())
+        p = build_profile({"height": 170, "weight": 85, "chest": 96, "waist": 96, "hip": 94})
+        self.assertIn("라운드형", p.describe())
+        self.assertIn("비만", p.describe())
+
 
 class VocabularyTests(unittest.TestCase):
     def test_maps_to_tag_labels(self):

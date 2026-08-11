@@ -28,7 +28,10 @@ User = get_user_model()
 
 CONTEXT = {
     "weather": {"region": "서울", "temperature": 28.4, "sky_state": "맑음"},
-    "body": {"height": 175, "weight": 70, "shoulder": 48, "hip": 42, "waist": 34},
+    # 둘레는 cm 실측값이어야 한다. 예전엔 어깨너비와 섞어 놔서 실루엣 판정이
+    # 어떤 값이든 삼각형으로 뭉치는 것을 이 픽스처가 가려 주었다.
+    "body": {"height": 175, "weight": 70, "chest": 96, "waist": 80, "hip": 94,
+             "shoulder": 44, "gender": "male"},
     "pursuit": {"preferred": {"styles": ["minimal"]}, "avoided": {}},
     "personalized": True,
 }

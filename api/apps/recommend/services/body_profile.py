@@ -46,13 +46,22 @@ BMI_LABELS = {
     UNKNOWN: "미판정",
 }
 
-#: 어깨/엉덩이 차이가 이 비율 안이면 '균형'으로 본다. 실측 오차와 옷 위에서 재는
-#: 현실을 감안한 폭이다. 좁히면 대부분이 역삼각/삼각으로 갈린다.
+#: 가슴/엉덩이 **둘레** 차이가 이 비율 안이면 '균형'으로 본다. 실측 오차와 옷
+#: 위에서 재는 현실을 감안한 폭이다. 좁히면 대부분이 역삼각/삼각으로 갈린다.
+#:
+#: 예전에는 여기에 어깨너비를 넣었다. 어깨너비(44cm)와 엉덩이둘레(98cm)는
+#: 애초에 비교할 수 있는 값이 아니라 spread가 언제나 -0.4~-0.6이 나왔고,
+#: **모든 사용자가 삼각형으로 판정**됐다. 체형을 바꿔도 추천이 그대로이던
+#: 원인 중 하나다. 표준 체형 분류가 쓰는 축도 가슴·허리·엉덩이 둘레 3개다.
 _BALANCE_TOLERANCE = 0.05
-#: 허리가 어깨·엉덩이 평균 대비 이 비율보다 작으면 '잘록'으로 본다.
+#: 허리가 가슴·엉덩이 평균 대비 이 비율보다 작으면 '잘록'으로 본다.
 _WAIST_DEFINED = 0.75
 #: 허리가 이 비율을 넘으면 허리 발달(라운드형)로 본다.
 _WAIST_DOMINANT = 0.95
+#: 어깨너비 / 가슴둘레. 어깨는 실루엣 판정에서 빠졌지만 버리지는 않는다 —
+#: 어깨 발달은 실제로 다른 축이라 ratios의 보조 신호로 남긴다.
+_SHOULDER_BROAD = 0.46
+_SHOULDER_NARROW = 0.40
 
 
 @dataclass(frozen=True)
@@ -104,24 +113,29 @@ def _bmi_band(bmi: float) -> str:
     return OBESE
 
 
-def _silhouette(shoulder: float, waist: float | None, hip: float) -> str:
-    """어깨·엉덩이 균형을 먼저 보고, 균형일 때만 허리로 갈래를 나눈다."""
-    spread = (shoulder - hip) / max(shoulder, hip)
+def _silhouette(chest: float, waist: float | None, hip: float) -> str:
+    """가슴·허리·엉덩이 **둘레**로 5대 실루엣을 가른다.
+
+    순서가 중요하다. **허리 우세를 먼저** 본다. 예전에는 가슴-엉덩이 균형을
+    먼저 봐서, 허리 108cm에 가슴 110 / 엉덩이 100인 사람이 명백한 라운드형인데
+    역삼각형으로 빠졌다. 라운드형은 상하 균형과 무관하게 성립하는 축이다.
+    """
+    reference = (chest + hip) / 2
+    if waist is not None and waist / reference >= _WAIST_DOMINANT:
+        return ROUND
+
+    spread = (chest - hip) / max(chest, hip)
     if spread > _BALANCE_TOLERANCE:
         return INVERTED_TRIANGLE
     if spread < -_BALANCE_TOLERANCE:
         return TRIANGLE
 
     if waist is None:
-        # 어깨와 엉덩이가 균형이라는 것까지만 안다. 허리를 모르면 모래시계와
+        # 가슴과 엉덩이가 균형이라는 것까지만 안다. 허리를 모르면 모래시계와
         # 직사각형을 가를 수 없어 더 흔한 쪽(직사각형)으로 두지 않고 미판정한다.
         return UNKNOWN
 
-    reference = (shoulder + hip) / 2
-    ratio = waist / reference
-    if ratio >= _WAIST_DOMINANT:
-        return ROUND
-    if ratio <= _WAIST_DEFINED:
+    if waist / reference <= _WAIST_DEFINED:
         return HOURGLASS
     return RECTANGLE
 
@@ -140,6 +154,18 @@ def _ratios(measure: dict[str, float]) -> dict[str, str]:
             else "calf_dominant"
         )
 
+    # 어깨 — 실루엣 판정에서는 뺐지만(가슴둘레와 단위가 다르다) 어깨 발달은
+    # 실제로 다른 축이다. 같은 둘레 체형이라도 어깨가 넓으면 오버핏 상의가
+    # 다르게 앉는다. 가슴둘레 대비 비율로 남겨 규칙 쪽에서 쓸 수 있게 한다.
+    shoulder, chest = measure.get("shoulder"), measure.get("chest")
+    if shoulder and chest:
+        ratio = shoulder / chest
+        result["shoulder_width"] = (
+            "broad" if ratio >= _SHOULDER_BROAD
+            else "narrow" if ratio <= _SHOULDER_NARROW
+            else "balanced"
+        )
+
     # 상하체 — 하이웨이스트 등 분할선 조절에 개입한다.
     height, hip = measure.get("height"), measure.get("hip")
     if height and hip:
@@ -155,7 +181,7 @@ def _ratios(measure: dict[str, float]) -> dict[str, str]:
 def build_profile(measurement: dict[str, Any] | None) -> BodyProfile:
     """`outfit_context._serialize_measurement()`가 만든 dict를 그대로 받는다."""
     if not measurement:
-        return BodyProfile(missing=("height", "weight", "shoulder", "waist", "hip"))
+        return BodyProfile(missing=("height", "weight", "chest", "waist", "hip"))
 
     measure = {
         name: value
@@ -171,14 +197,16 @@ def build_profile(measurement: dict[str, Any] | None) -> BodyProfile:
         bmi_band = _bmi_band(bmi)
 
     silhouette = UNKNOWN
-    if "shoulder" in measure and "hip" in measure:
+    if "chest" in measure and "hip" in measure:
         silhouette = _silhouette(
-            measure["shoulder"], measure.get("waist"), measure["hip"]
+            measure["chest"], measure.get("waist"), measure["hip"]
         )
 
     ratios = _ratios(measure)
 
-    wanted = ("height", "weight", "shoulder", "waist", "hip", "thigh", "calf")
+    # chest가 빠지면 실루엣이 통째로 미판정이 된다. 프론트가 "가슴둘레를
+    # 입력하면 더 정확해져요"를 띄울 수 있도록 목록 앞쪽에 둔다.
+    wanted = ("height", "weight", "chest", "waist", "hip", "shoulder", "thigh", "calf")
     return BodyProfile(
         silhouette=silhouette,
         bmi_band=bmi_band,
