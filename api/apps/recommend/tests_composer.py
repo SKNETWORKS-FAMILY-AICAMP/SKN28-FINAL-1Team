@@ -94,7 +94,7 @@ class OutfitComposerTests(SimpleTestCase):
         self.assertEqual(result.total_product_price, 0)
         self.assertIn("보유 아이템 우선", result.items[0].reasons[0])
 
-    def test_wardrobe_mode_falls_back_to_original_golden_item(self) -> None:
+    def test_wardrobe_mode_does_not_fall_back_to_other_sources(self) -> None:
         slot = _slot(
             _template(
                 "golden-bottom", layer_role="BOTTOM", image_ref="golden/bottom.jpg"
@@ -109,9 +109,9 @@ class OutfitComposerTests(SimpleTestCase):
             )
         )
 
-        self.assertEqual(result.items[0].source_type, ItemSource.GOLDENSET_ITEM)
-        self.assertEqual(result.items[0].source_id, "golden-bottom")
-        self.assertEqual(result.goldenset_count, 1)
+        self.assertFalse(result.complete)
+        self.assertEqual(result.items, ())
+        self.assertEqual(result.missing_slot_ids, ("BOTTOM:golden-bottom",))
 
     def test_pursuit_mode_prioritizes_product_then_wardrobe(self) -> None:
         top = _slot(
@@ -194,8 +194,9 @@ class OutfitComposerTests(SimpleTestCase):
             )
         )
 
-        self.assertEqual(result.items[0].source_id, "same-item")
-        self.assertEqual(result.items[1].source_id, "golden-bottom")
+        source_ids = [item.source_id for item in result.items]
+        self.assertEqual(source_ids.count("same-item"), 1)
+        self.assertEqual(len(result.missing_slot_ids), 1)
 
     def test_slot_without_image_eligible_candidate_is_reported_missing(self) -> None:
         slot = _slot(

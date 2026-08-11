@@ -89,3 +89,17 @@ class OutfitComposition:
     @property
     def goldenset_count(self) -> int:
         return sum(item.source_type is ItemSource.GOLDENSET_ITEM for item in self.items)
+
+
+@dataclass(frozen=True)
+class CompositionBatch:
+    """하나의 골든 템플릿에서 파생된 순위별 코디 1~3개."""
+
+    mode: RecommendationMode
+    compositions: tuple[OutfitComposition, ...]
+
+    @property
+    def complete_compositions(self) -> tuple[OutfitComposition, ...]:
+        return tuple(
+            composition for composition in self.compositions if composition.complete
+        )
