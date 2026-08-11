@@ -2,6 +2,8 @@ from django.urls import path, include
 from rest_framework.routers import DefaultRouter
 
 from apps.wardrobe.views import (
+    WardrobeBatchDetailView,
+    WardrobeBatchView,
     WardrobeCallbackView,
     WardrobeItemDetailView,
     WardrobeItemListView,
@@ -16,6 +18,8 @@ router = DefaultRouter()
 router.register(r"shared-wardrobes", SharedWardrobeViewSet, basename="shared-wardrobes")
 
 urlpatterns = [
+    path("wardrobe/batches/", WardrobeBatchView.as_view(), name="batch-list-create"),
+    path("wardrobe/batches/<uuid:batch_id>/", WardrobeBatchDetailView.as_view(), name="batch-detail"),
     # 옷장 아이템 등록 (비동기)
     path("wardrobe/uploads/", WardrobeUploadView.as_view(), name="upload"),
     path("wardrobe/uploads/<uuid:job_id>/", WardrobeUploadJobView.as_view(), name="upload-job"),

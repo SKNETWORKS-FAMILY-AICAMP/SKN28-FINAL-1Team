@@ -50,6 +50,7 @@ from apps.users.serializers import (
 )
 from apps.wardrobe.serializers import (
     CallbackSerializer,
+    WardrobeBatchCreateSerializer,
     WardrobeItemSerializer,
     WardrobeItemUpdateSerializer,
     WardrobeJobSerializer,
@@ -699,6 +700,125 @@ from rest_framework import serializers as drf_serializers  # noqa: E402
 
 from apps.wardrobe import taxonomy as wardrobe_taxonomy  # noqa: E402
 
+BATCH_STATUSES = ["PENDING", "PROCESSING", "DONE", "PARTIAL", "FAILED"]
+
+class WardrobeBatchCountsSerializer(drf_serializers.Serializer):
+    total = drf_serializers.IntegerField()
+    pending = drf_serializers.IntegerField()
+    done = drf_serializers.IntegerField()
+    failed = drf_serializers.IntegerField()
+
+
+class WardrobeBatchResponseSerializer(drf_serializers.Serializer):
+    batch_id = drf_serializers.UUIDField()
+    status = drf_serializers.ChoiceField(choices=BATCH_STATUSES)
+    source = drf_serializers.CharField()
+    counts = WardrobeBatchCountsSerializer()
+    progress = drf_serializers.FloatField()
+    poll_after_ms = drf_serializers.IntegerField(allow_null=True)
+    created_at = drf_serializers.DateTimeField()
+    finished_at = drf_serializers.DateTimeField(allow_null=True)
+    jobs = WardrobeJobSerializer(many=True)
+
+
+class WardrobeBatchCreateResponseSerializer(drf_serializers.Serializer):
+    batch_id = drf_serializers.UUIDField()
+    status = drf_serializers.ChoiceField(choices=BATCH_STATUSES)
+    total_count = drf_serializers.IntegerField()
+    accepted = drf_serializers.ListField(child=drf_serializers.DictField())
+    rejected = drf_serializers.ListField(child=drf_serializers.DictField())
+    poll_url = drf_serializers.CharField()
+    poll_after_ms = drf_serializers.IntegerField()
+    estimated_seconds = drf_serializers.IntegerField()
+
+
+class WardrobeBatchViewExtension(OpenApiViewExtension):
+    target_class = "apps.wardrobe.views.WardrobeBatchView"
+
+    def view_replacement(self):
+        @extend_schema_view(
+            get=extend_schema(
+                operation_id="wardrobe_batches",
+                tags=["Wardrobe"],
+                summary="옷장 일괄 등록 목록",
+                parameters=[
+                    OpenApiParameter(
+                        name="status",
+                        type=OpenApiTypes.STR,
+                        location=OpenApiParameter.QUERY,
+                        required=False,
+                        enum=BATCH_STATUSES,
+                    ),
+                    OpenApiParameter(
+                        name="limit",
+                        type=OpenApiTypes.INT,
+                        location=OpenApiParameter.QUERY,
+                        required=False,
+                        default=20,
+                    ),
+                    OpenApiParameter(
+                        name="offset",
+                        type=OpenApiTypes.INT,
+                        location=OpenApiParameter.QUERY,
+                        required=False,
+                        default=0,
+                    ),
+                ],
+                responses={
+                    200: WardrobeBatchResponseSerializer(many=True),
+                    400: DetailResponseSerializer,
+                    401: DetailResponseSerializer,
+                },
+            ),
+            post=extend_schema(
+                operation_id="wardrobe_batch_create",
+                tags=["Wardrobe"],
+                summary="외부 상품 여러 건 옷장 일괄 등록",
+                description=(
+                    "인앱 브라우저 등에서 수집한 items를 JSON으로 1~30건 전달합니다. "
+                    "각 item은 image_link와 알고 있는 옷장 태그를 포함하며, "
+                    "서버가 이미지를 S3에 저장하고 Qwen 태깅 큐에 등록합니다."
+                ),
+                request=WardrobeBatchCreateSerializer,
+                responses={
+                    202: WardrobeBatchCreateResponseSerializer,
+                    400: DetailResponseSerializer,
+                    401: DetailResponseSerializer,
+                    503: DetailResponseSerializer,
+                },
+            ),
+        )
+        class DocumentedWardrobeBatchView(self.target_class):
+            pass
+
+        return DocumentedWardrobeBatchView
+
+
+class WardrobeBatchDetailViewExtension(OpenApiViewExtension):
+    target_class = "apps.wardrobe.views.WardrobeBatchDetailView"
+
+    def view_replacement(self):
+        @extend_schema_view(
+            get=extend_schema(
+                operation_id="wardrobe_batch_detail",
+                tags=["Wardrobe"],
+                summary="옷장 일괄 등록 상태 조회",
+                description=(
+                    "각 job의 PENDING/PROCESSING/DONE/FAILED 상태와 error_message를 반환합니다. "
+                    "PENDING이 20분을 초과하면 FAILED(processing_timeout)로 종료합니다."
+                ),
+                responses={
+                    200: WardrobeBatchResponseSerializer,
+                    401: DetailResponseSerializer,
+                    404: DetailResponseSerializer,
+                },
+            )
+        )
+        class DocumentedWardrobeBatchDetailView(self.target_class):
+            pass
+
+        return DocumentedWardrobeBatchDetailView
+
 WARDROBE_UPLOAD_DESCRIPTION = """사진 1장을 접수해 옷장 아이템 등록을 **비동기로** 시작합니다.
 
 1. 원본이 S3에 저장되고 처리 job이 생성됩니다 (`202 + job_id`).
@@ -764,7 +884,8 @@ class WardrobeUploadJobViewExtension(OpenApiViewExtension):
                 description=(
                     "처리 상태(PENDING/PROCESSING/DONE/FAILED)를 반환합니다.\n\n"
                     "DONE이면 분리된 아이템 목록(presigned 이미지 URL 포함)이 "
-                    "`items`에 담깁니다."
+                    "`items`에 담깁니다. PENDING이 20분을 초과하면 "
+                    "FAILED(processing_timeout)로 종료합니다."
                 ),
                 responses={
                     200: WardrobeJobSerializer,
@@ -791,6 +912,7 @@ class WardrobeCallbackViewExtension(OpenApiViewExtension):
                 description=(
                     "이미지 프로세서 전용 내부 엔드포인트입니다 (프론트 사용 금지).\n\n"
                     "- 인증: `X-Internal-Token` 헤더 (JWT 아님)\n"
+                    "- `processing`: GPU 워커가 작업을 가져간 상태를 기록합니다.\n"
                     "- 멱등: 이미 DONE/FAILED인 job은 재처리 없이 200을 반환합니다.\n"
                     "- 벡터(`image_vector`/`text_vector`)는 DB가 아닌 Qdrant로 적재됩니다."
                 ),

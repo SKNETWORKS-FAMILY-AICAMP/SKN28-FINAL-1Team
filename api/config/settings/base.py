@@ -52,6 +52,7 @@ INSTALLED_APPS = [
     "apps.home",
     "apps.wardrobe",
     "apps.recommend",
+    "apps.goldenset",
     "apps.style_calendar",
     "apps.lookbook",
 ]
@@ -373,3 +374,92 @@ OUTFIT_STALE_AFTER_MINUTES = int(os.getenv("OUTFIT_STALE_AFTER_MINUTES", "5"))
 # 프론트가 폴링 간격을 하드코딩하지 않도록 서버가 응답에 실어 보낸다
 OUTFIT_POLL_AFTER_MS = int(os.getenv("OUTFIT_POLL_AFTER_MS", "2000"))
 OUTFIT_ESTIMATED_SECONDS = int(os.getenv("OUTFIT_ESTIMATED_SECONDS", "30"))
+
+# ── 리트리버: 후보 수집 ────────────────────────────────────
+# 벡터 질의가 없는 경로(오늘의 룩)는 scroll로 후보를 모은다. scroll은 관련도가
+# 아니라 **포인트 ID 순서**라, 예전처럼 앞에서 20건만 끊으면 골든셋이 몇 건이든
+# 언제나 같은 20건만 후보가 된다. 체형·취향을 바꿔도 결과가 안 변하던 원인이다.
+# 이제 필터를 통과한 코디를 전부 훑고 파이썬에서 점수화한다.
+#
+# 하루 한 번, 사용자당 한 번 도는 작업이라 이 비용은 감당할 수 있다.
+RETRIEVER_SCROLL_CAP = int(os.getenv("RETRIEVER_SCROLL_CAP", "2000"))
+RETRIEVER_SCROLL_PAGE = int(os.getenv("RETRIEVER_SCROLL_PAGE", "256"))
+
+# 코디 payload의 아이템 요약에는 fit·length·pattern이 없다. 체형 규칙은 정확히
+# 그 축으로 조건을 걸기 때문에, 붙이지 않으면 모든 체형 규칙이 0점이 된다.
+# 태그는 아이템 컬렉션(goldenset_items)에 이미 있으므로 조회 시점에 합친다.
+# 재적재로 payload를 늘리면 이 왕복이 사라진다.
+RETRIEVER_ITEM_TAG_JOIN = os.getenv("RETRIEVER_ITEM_TAG_JOIN", "1").strip().lower() in {
+    "1", "true", "yes", "y",
+}
+# 한 번의 retrieve에 넣을 아이템 포인트 id 수.
+RETRIEVER_ITEM_TAG_BATCH = int(os.getenv("RETRIEVER_ITEM_TAG_BATCH", "256"))
+# 프로세스 안에서 아이템 태그를 재사용하는 시간(초). 골든셋은 자주 안 바뀌고
+# 워커는 같은 코디를 사용자 수만큼 반복해서 본다. 0이면 캐시하지 않는다.
+RETRIEVER_ITEM_TAG_CACHE_SECONDS = int(
+    os.getenv("RETRIEVER_ITEM_TAG_CACHE_SECONDS", "300")
+)
+
+# ── 오늘의 룩: 착용 이미지 생성 (OpenRouter) ──────────────
+# 지금까지 신체치수 추정(ml/body_measurement)이 os.getenv로 직접 읽고 있었다.
+# settings로 올려 두 곳이 같은 출처를 보게 한다.
+OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY", "")
+# 골든셋 아이템 이미지를 입력으로 "정면을 보는 사람이 그 옷을 입은" 이미지를 만든다.
+# 결과는 골든 코디와 같은 S3 위치에 저장하고, 이미 있으면 다시 만들지 않는다 —
+# 같은 코디가 여러 사용자·여러 날에 추천되므로 코디당 한 번만 생성하면 된다.
+DAILY_LOOK_RENDER_ENABLED = os.getenv("DAILY_LOOK_RENDER_ENABLED", "1").strip().lower() in {
+    "1", "true", "yes", "y",
+}
+DAILY_LOOK_RENDER_MODEL = os.getenv("DAILY_LOOK_RENDER_MODEL", "qwen/qwen-image-3-pro")
+# 이미지 생성은 채팅 API가 아니라 전용 엔드포인트를 쓴다. 채팅 API에
+# modalities=["image","text"]를 붙이면 404 "No endpoints found that support the
+# requested output modalities"를 받는다.
+DAILY_LOOK_RENDER_URL = os.getenv(
+    "DAILY_LOOK_RENDER_URL", "https://openrouter.ai/api/v1/images"
+)
+# 전신이 담겨야 하므로 세로로 긴 비율.
+DAILY_LOOK_RENDER_ASPECT_RATIO = os.getenv("DAILY_LOOK_RENDER_ASPECT_RATIO", "9:16")
+DAILY_LOOK_RENDER_RESOLUTION = os.getenv("DAILY_LOOK_RENDER_RESOLUTION", "1K")
+# 이미지 생성은 텍스트보다 훨씬 느리다. 워커에서 도는 작업이라 넉넉히 준다.
+DAILY_LOOK_RENDER_TIMEOUT_SECONDS = int(
+    os.getenv("DAILY_LOOK_RENDER_TIMEOUT_SECONDS", "180")
+)
+# 참조로 넘길 아이템 이미지 수의 **상한**. 늘리면 입력 토큰과 요금이 함께 오른다.
+# 백엔드별 한도(OpenRouter 4장 / Gemini 14장)는 outfit_render가 따로 적용한다.
+DAILY_LOOK_RENDER_MAX_REFERENCES = int(
+    os.getenv("DAILY_LOOK_RENDER_MAX_REFERENCES", "8")
+)
+
+# ── 착용 이미지: 참조가 많을 때 쓰는 두 번째 백엔드 (Gemini) ──
+# qwen/qwen-image-3-pro는 제공자가 Alibaba 하나뿐이고 참조 이미지가 4장까지다.
+#
+#     Provider rejections: Alibaba: input_references:
+#     must have between 0 and 4 items
+#
+# 아이템이 다섯 이상인 코디는 무엇을 버려도 그 코디가 아니게 되므로, 그때는
+# 참조를 14장까지 받는 Gemini 3.1 Flash Image로 넘긴다. 1K 기준 장당 약 $0.067로
+# Qwen($0.04~)보다 비싸지만, 착용 이미지는 코디당 한 번 만들고 재사용한다.
+#
+# 이 값 **이상**의 참조가 필요하면 Gemini를 쓴다. 4로 낮추면 4장짜리 코디도
+# Gemini로 가고, 아주 크게 두면 항상 OpenRouter만 쓴다.
+DAILY_LOOK_RENDER_GEMINI_THRESHOLD = int(
+    os.getenv("DAILY_LOOK_RENDER_GEMINI_THRESHOLD", "5")
+)
+DAILY_LOOK_RENDER_GEMINI_MODEL = os.getenv(
+    "DAILY_LOOK_RENDER_GEMINI_MODEL", "gemini-3.1-flash-image"
+)
+# 이미지 모델은 generateContent가 아니라 Interactions API를 쓴다. 화면비·해상도를
+# response_format으로 직접 지정할 수 있어야 전신 9:16을 강제할 수 있다.
+DAILY_LOOK_RENDER_GEMINI_URL = os.getenv(
+    "DAILY_LOOK_RENDER_GEMINI_URL", f"{GEMINI_API_BASE_URL}/v1beta/interactions"
+)
+# 결과 이미지 형식. Gemini는 JPEG만 내준다.
+#
+#     The value 'image/png' is not supported for 'response_format.mime_type'.
+#     Supported values: 'image/jpeg'.
+#
+# 입력은 PNG로 받는다 — 이 제약은 출력에만 걸린다. 백엔드마다 형식이 다르므로
+# 저장할 때 실제 바이트를 보고 확장자와 Content-Type을 정한다 (outfit_render).
+DAILY_LOOK_RENDER_GEMINI_MIME_TYPE = os.getenv(
+    "DAILY_LOOK_RENDER_GEMINI_MIME_TYPE", "image/jpeg"
+)

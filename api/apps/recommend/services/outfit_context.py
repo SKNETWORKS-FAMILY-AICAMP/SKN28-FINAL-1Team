@@ -4,6 +4,7 @@ from datetime import date, datetime, time
 from decimal import Decimal
 from typing import Any
 
+from apps.recommend.services.gender import normalize_gender
 from apps.users.models import BodyMeasurement
 from apps.users.services.pursuit import get_pursuit
 from apps.weather.services import get_current_weather, resolve_coordinates
@@ -28,10 +29,16 @@ def _json_safe(value: Any) -> Any:
 
 
 def _serialize_measurement(measurement: BodyMeasurement | None) -> dict | None:
+    """체형 행을 스냅샷 JSON으로 만든다.
+
+    성별만 따로 다룬다. 아래 수치 필드는 "값이 없으면 None"이 맞지만, 성별에
+    같은 규칙을 적용했다가 사고가 났다. 미입력 성별("")이 ``value or None``에
+    걸려 None이 되고, 리트리버 호출부의 ``str(...)``을 지나며 문자열 "None"으로
+    굳어, 성별 하드 필터가 아무 예외 없이 사라졌다. 성별은 언제나 문자열이다.
+    """
     if measurement is None:
         return None
     fields = (
-        "gender",
         "height",
         "weight",
         "chest",
@@ -45,7 +52,7 @@ def _serialize_measurement(measurement: BodyMeasurement | None) -> dict | None:
         "thigh_calf_ratio",
         "torso_leg_ratio",
     )
-    return {
+    data: dict[str, Any] = {
         field: (
             float(value)
             if isinstance(value, Decimal)
@@ -54,6 +61,8 @@ def _serialize_measurement(measurement: BodyMeasurement | None) -> dict | None:
         for field in fields
         if (value := getattr(measurement, field, None)) is not None
     }
+    data["gender"] = normalize_gender(measurement.gender)
+    return data
 
 
 def build_analysis_context(
