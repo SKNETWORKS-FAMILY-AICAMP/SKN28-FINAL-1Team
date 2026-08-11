@@ -5,6 +5,8 @@ import {
   createCalendarFromPhoto,
   createCalendarFromWardrobe,
   deleteCalendarEntry,
+  getCalendarEntry,
+  getCalendarProcessingStatus,
   listCalendarEntries,
   type CalendarEntryDto,
 } from '@/lib/calendarApi';
@@ -130,6 +132,68 @@ function notify() {
   listeners.forEach((l) => l());
 }
 
+/** 사진에서 옷을 뽑아내는 건 GPU 파이프라인이라 몇 분이 걸린다. */
+const PROCESSING_POLL_MS = 5_000;
+/** 무한 폴링 방지 상한. 여기 걸리면 지켜보기를 접고, 다음에 달을 불러올 때 다시 본다. */
+const MAX_PROCESSING_POLL_MS = 10 * 60 * 1000;
+
+/** 지금 지켜보고 있는 기록 id — 같은 기록에 감시자가 둘 붙지 않게 한다. */
+const watching = new Set<string>();
+
+function isProcessing(status: CalendarEntryDto['status']): boolean {
+  return status === 'REGISTERED' || status === 'PROCESSING';
+}
+
+/**
+ * 사진 등록 뒤 옷 추출이 끝날 때까지 지켜본다.
+ *
+ * 화면이 아니라 스토어가 맡는 이유: 저장하고 캘린더로 돌아가는 게 정상 흐름이라
+ * 화면에 걸어두면 그 화면을 벗어나는 순간 추적이 끊긴다. 끝나면 기록을 다시 받아
+ * 담긴 옷을 채워 넣는다.
+ */
+function watchProcessing(calendarId: string, date: string) {
+  if (watching.has(calendarId)) return;
+  watching.add(calendarId);
+  const startedAt = Date.now();
+
+  const tick = async () => {
+    // 지켜보는 사이에 지워졌거나 다른 기록으로 바뀌었으면 그만둔다.
+    if (entries[date]?.id !== calendarId) {
+      watching.delete(calendarId);
+      return;
+    }
+    if (Date.now() - startedAt > MAX_PROCESSING_POLL_MS) {
+      watching.delete(calendarId);
+      return;
+    }
+
+    try {
+      const status = await getCalendarProcessingStatus(calendarId);
+      if (status.is_terminal) {
+        watching.delete(calendarId);
+        // 상태만으로는 어떤 옷이 나왔는지 모른다 — 기록을 다시 받아야 목록이 채워진다.
+        const fresh = await getCalendarEntry(calendarId);
+        if (entries[date]?.id === calendarId) {
+          entries[date] = toEntry(fresh);
+          notify();
+        }
+        return;
+      }
+      // 상태 문구가 REGISTERED → PROCESSING 으로 바뀌는 것도 화면에 비친다.
+      const current = entries[date];
+      if (current && current.status !== status.status) {
+        entries[date] = { ...current, status: status.status };
+        notify();
+      }
+    } catch {
+      // 일시적인 실패로 추적을 끝내지 않는다 — 다음 회차에 복구된다.
+    }
+    setTimeout(() => void tick(), PROCESSING_POLL_MS);
+  };
+
+  setTimeout(() => void tick(), PROCESSING_POLL_MS);
+}
+
 function overlayFor(date: string): Overlay {
   overlays[date] ??= { shared: false, localItems: [], shareCode: makeShareCode() };
   return overlays[date];
@@ -173,6 +237,11 @@ export const calendarStore = {
     }
     for (const dto of list) entries[dto.date] = toEntry(dto);
     notify();
+    /* 앱을 껐다 켰거나 한참 만에 들어오면 아직 처리 중인 기록이 있을 수 있다 —
+       그때도 스스로 채워지도록 여기서 다시 지켜보기를 건다. */
+    for (const dto of list) {
+      if (isProcessing(dto.status)) watchProcessing(dto.id, dto.date);
+    }
   },
 
   /**
@@ -228,6 +297,8 @@ export const calendarStore = {
     const next = toEntry(dto);
     entries[input.date] = next;
     notify();
+    /* 사진 등록은 202 로 돌아오고 옷 목록이 비어 있다 — 추출이 끝나면 채워 넣는다. */
+    if (isProcessing(dto.status)) watchProcessing(dto.id, dto.date);
     return next;
   },
 

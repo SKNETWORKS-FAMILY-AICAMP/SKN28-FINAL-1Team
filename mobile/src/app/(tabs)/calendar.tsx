@@ -274,6 +274,19 @@ export default function Calendar() {
                 </View>
               ) : null}
 
+              {/* 사진에서 옷을 뽑는 중 — 목록이 비어 보이는 게 오류가 아니라는 걸 알린다.
+                  끝나면 스토어가 기록을 다시 받아 채우므로 사용자가 할 일은 없다. */}
+              {entry.status === 'REGISTERED' || entry.status === 'PROCESSING' ? (
+                <View style={styles.processingRow}>
+                  <ActivityIndicator size="small" color={Editorial.textCaption} />
+                  <Text style={styles.processingText}>사진에서 옷을 정리하고 있어요</Text>
+                </View>
+              ) : entry.status === 'FAILED' && entry.items.length === 0 ? (
+                <Text style={styles.processingText}>
+                  사진에서 옷을 찾지 못했어요. 옷은 직접 담을 수 있어요.
+                </Text>
+              ) : null}
+
               {/* 룩북에 같이 올린 룩 — 룩이 지워졌으면 줄을 그리지 않는다 */}
               {linkedLook ? (
                 <Pressable
@@ -426,6 +439,8 @@ const styles = StyleSheet.create({
   },
   frequentName: { fontSize: 11, color: INK, textAlign: 'center' },
   frequentCount: { fontSize: 10, color: Editorial.textCaption },
+  processingRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 10 },
+  processingText: { fontSize: 12, color: Editorial.textCaption },
   loadNote: {
     flexDirection: 'row',
     alignItems: 'center',
