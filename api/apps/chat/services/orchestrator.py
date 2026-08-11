@@ -266,6 +266,7 @@ class ChatOrchestrator:
             )
             summary_usage = self._maybe_refresh_summary(run.session)
             usage += summary_usage
+            duration_ms = int((time.monotonic() - started) * 1000)
             self._finish(
                 run=run,
                 status=final_status,
@@ -274,23 +275,52 @@ class ChatOrchestrator:
                 context_cache_hit=context_cache_hit,
                 usage=usage,
                 provider_response_id=provider_response_id,
-                latency_ms=int((time.monotonic() - started) * 1000),
+                latency_ms=duration_ms,
             )
             run.refresh_from_db()
+            logger.info(
+                "채팅 실행 완료: run=%s status=%s latency=%sms cache_hit=%s",
+                run.pk,
+                run.status,
+                duration_ms,
+                context_cache_hit,
+                extra={
+                    "run_id": str(run.pk),
+                    "session_id": str(run.session_id),
+                    "result_id": recommendation_result_id,
+                    "status": run.status,
+                    "duration_ms": duration_ms,
+                    "cache_hit": context_cache_hit,
+                },
+            )
             return OrchestrationResult(
                 run=run,
                 response_message=response_message,
                 recommendation_result_id=recommendation_result_id,
             )
         except Exception as exc:
+            duration_ms = int((time.monotonic() - started) * 1000)
             self._fail(
                 run=run,
                 exc=exc,
                 usage=usage,
                 provider_response_id=provider_response_id,
-                latency_ms=int((time.monotonic() - started) * 1000),
+                latency_ms=duration_ms,
                 context_fingerprint=context_fingerprint,
                 context_cache_hit=context_cache_hit,
+            )
+            logger.error(
+                "채팅 실행 종료 실패: run=%s code=%s latency=%sms",
+                run.pk,
+                getattr(exc, "code", type(exc).__name__),
+                duration_ms,
+                extra={
+                    "run_id": str(run.pk),
+                    "session_id": str(run.session_id),
+                    "status": ChatRun.Status.FAILED,
+                    "duration_ms": duration_ms,
+                    "error_code": getattr(exc, "code", type(exc).__name__),
+                },
             )
             raise
 

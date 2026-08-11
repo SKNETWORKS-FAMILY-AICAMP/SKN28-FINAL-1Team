@@ -1,9 +1,12 @@
+from datetime import timedelta
 from types import SimpleNamespace
 from unittest.mock import patch
 
 from django.contrib.auth import get_user_model
+from django.core.management import call_command
 from django.test import TestCase, override_settings
 from django.urls import reverse
+from django.utils import timezone
 from rest_framework import status
 from rest_framework.test import APIClient
 
@@ -167,3 +170,27 @@ class DailyLookApiTests(TestCase):
         self.client.force_authenticate(user=None)
         response = self.client.get(reverse("recommend:daily-look-today"))
         self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+
+
+class DailyLookWorkerTests(TestCase):
+    def setUp(self) -> None:
+        self.user = get_user_model().objects.create_user(username="daily-worker")
+
+    @override_settings(DAILY_LOOK_QUEUE_ORPHAN_AGE_SECONDS=30)
+    @patch("apps.recommend.management.commands.run_daily_look_worker.daily_look_queue")
+    def test_worker_recovers_old_database_job_missing_from_redis(self, queue) -> None:
+        look = DailyLook.objects.create(
+            user=self.user,
+            look_date=timezone.localdate(),
+        )
+        DailyLook.objects.filter(pk=look.pk).update(
+            created_at=timezone.now() - timedelta(minutes=1)
+        )
+        queue.recover_processing.return_value = []
+        queue.fetch.return_value = None
+
+        call_command("run_daily_look_worker", "--once")
+
+        look.refresh_from_db()
+        queue.enqueue.assert_called_once_with(look.pk)
+        self.assertIsNotNone(look.enqueued_at)

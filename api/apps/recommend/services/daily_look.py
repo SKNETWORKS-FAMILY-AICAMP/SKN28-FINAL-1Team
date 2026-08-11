@@ -66,6 +66,8 @@ def ensure_today_look(user, *, lat: float | None = None, lon: float | None = Non
 
     try:
         daily_look_queue.enqueue(look.pk)
+        look.enqueued_at = timezone.now()
+        look.save(update_fields=["enqueued_at", "updated_at"])
     except Exception:  # Redis 장애가 로그인·조회 자체를 막지 않는다.
         logger.exception("오늘의 룩 큐 적재 실패: look=%s", look.pk)
     return look, True
@@ -77,7 +79,18 @@ def claim(look_id: str) -> DailyLook | None:
         if look is None or look.status in DailyLook.TERMINAL_STATUSES:
             return None
         look.status = DailyLook.Status.PROCESSING
-        look.save(update_fields=["status", "updated_at"])
+        look.attempts += 1
+        look.started_at = timezone.now()
+        look.finished_at = None
+        look.save(
+            update_fields=[
+                "status",
+                "attempts",
+                "started_at",
+                "finished_at",
+                "updated_at",
+            ]
+        )
         return look
 
 
@@ -112,9 +125,18 @@ def run(look: DailyLook) -> None:
     rules = load_body_rules()
     if not presentation_groups:
         look.status = DailyLook.Status.EMPTY
+        look.finished_at = timezone.now()
         look.rules_version = rules.schema_version
         look.error = "성별 정보가 없어 오늘의 룩 후보를 검색하지 않았습니다."
-        look.save(update_fields=["status", "rules_version", "error", "updated_at"])
+        look.save(
+            update_fields=[
+                "status",
+                "rules_version",
+                "error",
+                "finished_at",
+                "updated_at",
+            ]
+        )
         return
 
     candidates = retrieve_outfits(
@@ -132,6 +154,7 @@ def run(look: DailyLook) -> None:
     look.rules_version = rules.schema_version
     if not candidates:
         look.status = DailyLook.Status.EMPTY
+        look.finished_at = timezone.now()
         look.error = "조건에 맞는 골든 코디 후보가 없습니다."
         look.save(
             update_fields=[
@@ -139,6 +162,7 @@ def run(look: DailyLook) -> None:
                 "rules_version",
                 "status",
                 "error",
+                "finished_at",
                 "updated_at",
             ]
         )
@@ -147,6 +171,7 @@ def run(look: DailyLook) -> None:
     chosen = candidates[0]
     look.result = _build_result(chosen, snapshot)
     look.status = DailyLook.Status.SUCCEEDED
+    look.finished_at = timezone.now()
     look.error = ""
     look.save(
         update_fields=[
@@ -155,6 +180,7 @@ def run(look: DailyLook) -> None:
             "result",
             "status",
             "error",
+            "finished_at",
             "updated_at",
         ]
     )
@@ -297,7 +323,8 @@ def run_render_only(look_id: str) -> bool:
 def mark_failed(look: DailyLook, error: str) -> None:
     look.status = DailyLook.Status.FAILED
     look.error = error[:2000]
-    look.save(update_fields=["status", "error", "updated_at"])
+    look.finished_at = timezone.now()
+    look.save(update_fields=["status", "error", "finished_at", "updated_at"])
 
 
 def _build_result(candidate, snapshot: dict[str, Any]) -> dict[str, Any]:

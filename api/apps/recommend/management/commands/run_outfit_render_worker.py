@@ -101,7 +101,9 @@ class Command(BaseCommand):
             try:
                 render_queue.enqueue(job)
             except redis.RedisError:
-                logger.warning("미적재 이미지 작업 복구 중 Redis 연결 실패", exc_info=True)
+                logger.warning(
+                    "미적재 이미지 작업 복구 중 Redis 연결 실패", exc_info=True
+                )
                 break
             recovered_job = render_jobs.mark_enqueued(job.pk)
             recovered += int(recovered_job is not None)
@@ -146,6 +148,18 @@ class Command(BaseCommand):
             return
 
         self._publish_terminal(completed)
+        logger.info(
+            "코디 이미지 처리 완료: job=%s card=%s status=%s",
+            completed.pk,
+            completed.composition_id,
+            completed.status,
+            extra={
+                "job_id": str(completed.pk),
+                "card_id": str(completed.composition_id),
+                "status": completed.status,
+                "cache_hit": completed.cache_hit,
+            },
+        )
         render_queue.ack(raw, job_id)
 
     def _handle_failure(self, raw: str, job: OutfitRenderJob, exc: Exception) -> None:
@@ -193,9 +207,7 @@ class Command(BaseCommand):
 
     def _publish_terminal(self, job: OutfitRenderJob) -> None:
         event = (
-            "completed"
-            if job.status == OutfitRenderJob.Status.SUCCEEDED
-            else "failed"
+            "completed" if job.status == OutfitRenderJob.Status.SUCCEEDED else "failed"
         )
         data = {
             "job_id": str(job.pk),

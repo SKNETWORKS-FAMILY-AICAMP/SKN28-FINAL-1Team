@@ -3,7 +3,11 @@
 from django.contrib import admin
 from django.urls import include, path
 
+from config import health
+
 urlpatterns = [
+    path("health/live/", health.live, name="health-live"),
+    path("health/ready/", health.ready, name="health-ready"),
     path("admin/", admin.site.urls),
     path("api/v1/", include("apps.users.urls")),
     path("api/v1/", include("apps.home.urls")),

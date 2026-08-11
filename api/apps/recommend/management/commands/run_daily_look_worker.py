@@ -6,10 +6,13 @@ import json
 import logging
 import signal
 import time
+from datetime import timedelta
 from typing import Any
 
 import redis
+from django.conf import settings
 from django.core.management.base import BaseCommand
+from django.utils import timezone
 
 from apps.recommend.models import DailyLook
 from apps.recommend.services import daily_look, daily_look_queue
@@ -32,8 +35,17 @@ class Command(BaseCommand):
         recovered = daily_look_queue.recover_processing()
         if recovered:
             logger.info("오늘의 룩 processing 복구: %s건", recovered)
+        self._recover_orphaned_pending()
+        logger.info("오늘의 룩 워커 시작")
 
+        last_orphan_sweep = time.monotonic()
         while self.running:
+            if (
+                time.monotonic() - last_orphan_sweep
+                >= settings.DAILY_LOOK_QUEUE_ORPHAN_SWEEP_SECONDS
+            ):
+                last_orphan_sweep = time.monotonic()
+                self._recover_orphaned_pending()
             try:
                 raw = daily_look_queue.fetch()
             except redis.RedisError:
@@ -49,9 +61,47 @@ class Command(BaseCommand):
             self._handle(raw)
             if options["once"]:
                 break
+        logger.info("오늘의 룩 워커 종료")
 
     def _stop(self, *_args: Any) -> None:
         self.running = False
+
+    @staticmethod
+    def _recover_orphaned_pending() -> int:
+        cutoff = timezone.now() - timedelta(
+            seconds=settings.DAILY_LOOK_QUEUE_ORPHAN_AGE_SECONDS
+        )
+        looks = list(
+            DailyLook.objects.filter(
+                status=DailyLook.Status.QUEUED,
+                enqueued_at__isnull=True,
+                created_at__lte=cutoff,
+            ).order_by("created_at")[: settings.DAILY_LOOK_QUEUE_ORPHAN_SWEEP_LIMIT]
+        )
+        recovered = 0
+        for look in looks:
+            try:
+                daily_look_queue.enqueue(look.pk)
+            except redis.RedisError:
+                logger.warning(
+                    "미적재 오늘의 룩 작업 복구 중 Redis 연결 실패",
+                    exc_info=True,
+                )
+                break
+            now = timezone.now()
+            updated = DailyLook.objects.filter(
+                pk=look.pk,
+                status=DailyLook.Status.QUEUED,
+                enqueued_at__isnull=True,
+            ).update(enqueued_at=now, updated_at=now)
+            recovered += int(bool(updated))
+        if recovered:
+            logger.info(
+                "미적재 오늘의 룩 작업 복구 완료: %s건",
+                recovered,
+                extra={"event": "daily_look_orphan_recovered"},
+            )
+        return recovered
 
     @staticmethod
     def _payload(raw: str) -> tuple[str, str] | None:
@@ -80,6 +130,13 @@ class Command(BaseCommand):
         except Exception as exc:  # noqa: BLE001 - 작업 단위 상태·큐 전이를 보장한다.
             self._failure(raw, look, exc)
             return
+        look.refresh_from_db()
+        logger.info(
+            "오늘의 룩 처리 완료: look=%s status=%s",
+            look_id,
+            look.status,
+            extra={"look_id": look_id, "status": look.status},
+        )
         daily_look_queue.ack(raw, look_id)
 
     def _run_render(self, raw: str, look_id: str) -> None:
@@ -101,7 +158,8 @@ class Command(BaseCommand):
             daily_look.mark_failed(look, f"{type(exc).__name__}: {exc}")
         else:
             look.status = DailyLook.Status.QUEUED
-            look.save(update_fields=["status", "updated_at"])
+            look.enqueued_at = timezone.now()
+            look.save(update_fields=["status", "enqueued_at", "updated_at"])
 
     @staticmethod
     def _retry_render(raw: str, look_id: str, exc: Exception) -> None:

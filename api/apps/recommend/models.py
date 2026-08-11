@@ -833,6 +833,25 @@ class DailyLook(models.Model):
         default="",
         db_comment="내부 실패 사유 (성공 시 빈 문자열)",
     )
+    attempts = models.PositiveSmallIntegerField(
+        default=0,
+        db_comment="오늘의 룩 추천 워커 처리 시도 횟수 (렌더 보정 작업 제외)",
+    )
+    enqueued_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        db_comment="오늘의 룩 Redis 큐 적재 확인 시각 (미적재이면 NULL)",
+    )
+    started_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        db_comment="오늘의 룩 추천 워커 마지막 처리 시작 시각",
+    )
+    finished_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        db_comment="오늘의 룩 추천 성공·후보 없음·최종 실패 시각",
+    )
     created_at = models.DateTimeField(
         auto_now_add=True,
         db_comment="오늘의 룩 생성 접수 시각",

@@ -70,21 +70,33 @@ INSTALLED_APPS = [
 # (docker-compose.yml / Dockerfile의 --access-logfile -).
 # ------------------------------------------------------------
 LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO").upper()
+LOG_FORMAT = os.getenv("LOG_FORMAT", "standard").strip().lower()
+_LOG_FORMATTER = (
+    {"()": "config.observability.JsonFormatter"}
+    if LOG_FORMAT == "json"
+    else {
+        "format": "%(asctime)s [%(levelname)s] %(name)s request_id=%(request_id)s: %(message)s",
+        "datefmt": "%Y-%m-%d %H:%M:%S",
+    }
+)
 
 LOGGING = {
     "version": 1,
     # Django/서드파티가 이미 만들어 둔 로거를 죽이지 않는다.
     "disable_existing_loggers": False,
     "formatters": {
-        "standard": {
-            "format": "%(asctime)s [%(levelname)s] %(name)s: %(message)s",
-            "datefmt": "%Y-%m-%d %H:%M:%S",
-        },
+        "application": _LOG_FORMATTER,
+    },
+    "filters": {
+        "request_context": {
+            "()": "config.observability.RequestContextFilter",
+        }
     },
     "handlers": {
         "console": {
             "class": "logging.StreamHandler",
-            "formatter": "standard",
+            "formatter": "application",
+            "filters": ["request_context"],
             # gunicorn --capture-output이 stdout/stderr를 에러 로그로 모은다.
             "stream": "ext://sys.stdout",
         },
@@ -121,6 +133,7 @@ LOGGING = {
 }
 
 MIDDLEWARE = [
+    "config.middleware.RequestIdMiddleware",
     "django.middleware.security.SecurityMiddleware",
     # CORS: 응답을 생성할 수 있는 미들웨어(CommonMiddleware 등)보다 위에 있어야
     # preflight(OPTIONS)와 에러 응답에도 CORS 헤더가 붙는다.
@@ -133,6 +146,8 @@ MIDDLEWARE = [
     "django.contrib.messages.middleware.MessageMiddleware",
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
 ]
+
+HEALTHCHECK_TIMEOUT_SECONDS = float(os.getenv("HEALTHCHECK_TIMEOUT_SECONDS", "1.0"))
 
 ROOT_URLCONF = "config.urls"
 
@@ -472,6 +487,15 @@ DAILY_LOOK_QUEUE_BLOCK_SECONDS = int(os.getenv("DAILY_LOOK_QUEUE_BLOCK_SECONDS",
 DAILY_LOOK_QUEUE_MAX_RETRIES = int(os.getenv("DAILY_LOOK_QUEUE_MAX_RETRIES", "3"))
 DAILY_LOOK_QUEUE_CONNECT_TIMEOUT_SECONDS = float(
     os.getenv("DAILY_LOOK_QUEUE_CONNECT_TIMEOUT_SECONDS", "1.0")
+)
+DAILY_LOOK_QUEUE_ORPHAN_AGE_SECONDS = int(
+    os.getenv("DAILY_LOOK_QUEUE_ORPHAN_AGE_SECONDS", "30")
+)
+DAILY_LOOK_QUEUE_ORPHAN_SWEEP_SECONDS = int(
+    os.getenv("DAILY_LOOK_QUEUE_ORPHAN_SWEEP_SECONDS", "60")
+)
+DAILY_LOOK_QUEUE_ORPHAN_SWEEP_LIMIT = int(
+    os.getenv("DAILY_LOOK_QUEUE_ORPHAN_SWEEP_LIMIT", "100")
 )
 DAILY_LOOK_RENDER_RETRY_COOLDOWN_SECONDS = int(
     os.getenv("DAILY_LOOK_RENDER_RETRY_COOLDOWN_SECONDS", "600")

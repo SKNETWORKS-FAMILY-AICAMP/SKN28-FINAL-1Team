@@ -172,6 +172,9 @@ claim은 쓰기이고 성공하면 소유자 응답으로 바뀌어 **사진 pre
 python manage.py migrate recommend          # outfit_analysis 테이블
 python manage.py run_outfit_worker          # 평가 워커 (compose: outfit-worker)
 python manage.py run_outfit_worker --once   # 1건만 처리하고 종료 (디버깅)
+python manage.py run_chat_worker            # 채팅 OpenAI·추천 워커 (compose: chat-worker)
+python manage.py run_outfit_render_worker   # 추천 카드 이미지 워커 (compose: outfit-render-worker)
+python manage.py run_daily_look_worker      # 오늘의 룩 워커 (compose: daily-look-worker)
 python manage.py sweep_stale_analyses --dry-run   # 방치된 작업 확인
 python manage.py test apps.recommend
 ```
@@ -199,4 +202,14 @@ collector는 raw SQL upsert만 하므로 **모델 변경 시 collector의 INSERT
 
 - prod 실행: `DJANGO_SETTINGS_MODULE=config.settings.prod` (wsgi/asgi 기본값).
 - 시크릿은 AWS Secrets Manager/SSM으로 주입. `DJANGO_SECRET_KEY` 없으면 기동 실패하도록 되어 있다.
-- 배포 전: `migrate`, `collectstatic`, 헬스체크 확인 (CLAUDE.md 8장).
+- 배포 전 `python manage.py check --deploy`를 실행한다. 이 검사는 채팅·추천 운영에 필요한
+  Redis/Qdrant/OpenAI 키, 고정 골든셋 버전·상태, 렌더 버킷 설정까지 확인한다.
+- `GET /health/live/`는 프로세스 liveness, `GET /health/ready/`는 PostgreSQL·Redis·Qdrant
+  readiness다. ALB 대상 그룹은 readiness를 사용하고, ECS 컨테이너 자체 확인은 liveness를 사용한다.
+- 모든 API 응답에는 `X-Request-ID`가 붙는다. 클라이언트가 안전한 값을 보내면 유지하고,
+  없거나 올바르지 않으면 서버가 생성한다. 장애 문의 시 이 값을 함께 수집한다.
+- 운영에서는 `LOG_FORMAT=json`, 서비스별 `SERVICE_NAME`을 설정하면 request/run/job/look ID와
+  처리시간을 CloudWatch Logs Insights에서 필드로 검색할 수 있다.
+- Compose의 `api` 프로필은 API 외에 `chat-worker`, `outfit-render-worker`,
+  `daily-look-worker`를 함께 기동하며, Redis health와 마이그레이션·Qdrant 계약 초기화를 기다린다.
+- 배포 전: `migrate`, `collectstatic`, `check --deploy`, 헬스체크를 순서대로 확인한다.
