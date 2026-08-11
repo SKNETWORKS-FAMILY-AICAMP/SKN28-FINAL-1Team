@@ -1,3 +1,4 @@
+import { useEffect, useState } from 'react';
 import { Modal, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 
 import { Icon } from '@/components/icon';
@@ -19,9 +20,9 @@ const INK = Editorial.ink;
  * 값만 보여주면 사용자는 어깨너비를 등을 돌아 재고 4~5cm 크게 적는다(가장 흔한 오차).
  * 숫자를 고칠 수 있게 열어 둔 이상, 기준을 그림으로 같이 줘야 고친 값이 쓸모 있다.
  *
- * 항목을 하나씩 넘겨 보는 방식을 쓰지 않는다 — 열 곳의 위아래 관계가 안 보이고,
- * 자기가 찾는 항목까지 몇 번을 넘겨야 하는지 모른 채 넘기게 된다.
- * 특정 항목으로 열면(ⓘ) 그 번호만 진하게 남기고 나머지는 흐리게 해서 눈이 바로 간다.
+ * 항목을 하나씩 넘겨 보게 하지 않는다 — 열 곳의 위아래 관계가 안 보이고, 찾는 항목까지
+ * 몇 번을 넘겨야 하는지 모른 채 넘기게 된다. 대신 **목록을 누르면** 그 번호만 진해지고
+ * 재는 순서도 그 항목 것으로 바뀐다. 같은 항목을 다시 누르면 전체 보기로 돌아온다.
  */
 export function MeasureGuideSheet({
   visible,
@@ -29,15 +30,21 @@ export function MeasureGuideSheet({
   onClose,
 }: {
   visible: boolean;
-  /** 강조할 항목. null 이면 10개를 같은 세기로 보여준다 */
+  /** 열 때 강조할 항목. null 이면 10개를 같은 세기로 보여준다 */
   measureKey: BodyMeasureKey | null;
   onClose: () => void;
 }) {
   const { isDesktop } = useBreakpoint();
+  const [selected, setSelected] = useState<BodyMeasureKey | null>(measureKey);
 
-  /* 주의사항은 강조된 항목 것을 보여주고, 특정 항목 없이 열렸으면 어깨너비 것을 쓴다 —
-     10개 주의사항을 한 번에 늘어놓으면 정작 가장 많이 틀리는 어깨가 묻힌다. */
-  const noted = BODY_MEASURE_BY_KEY[measureKey ?? 'shoulder'];
+  // 열 때마다 호출부가 지정한 항목으로 되돌린다 (지난번에 눌러 둔 항목이 남지 않게).
+  useEffect(() => {
+    if (visible) setSelected(measureKey);
+  }, [visible, measureKey]);
+
+  /* 재는 순서는 고른 항목 것을 보여주고, 아무것도 안 골랐으면 어깨너비 것을 쓴다 —
+     10개 순서를 한 번에 늘어놓으면 30줄이 되어 정작 가장 많이 틀리는 어깨가 묻힌다. */
+  const noted = BODY_MEASURE_BY_KEY[selected ?? 'shoulder'];
 
   return (
     <Modal
@@ -45,10 +52,12 @@ export function MeasureGuideSheet({
       transparent
       animationType={isDesktop ? 'fade' : 'slide'}
       onRequestClose={onClose}>
-      <Pressable style={[styles.backdrop, isDesktop && styles.backdropCenter]} onPress={onClose}>
-        <Pressable
-          style={[styles.sheet, isDesktop && styles.dialog]}
-          onPress={(e) => e.stopPropagation()}>
+      {/* 배경 닫기는 **뒤에 깔린** Pressable 이 받는다. 시트를 Pressable 로 감싸면
+          그 responder 가 ScrollView 의 스크롤 제스처를 먼저 채 가서 목록이 안 움직인다. */}
+      <View style={[styles.root, isDesktop && styles.rootCenter]}>
+        <Pressable style={StyleSheet.absoluteFill} onPress={onClose} />
+
+        <View style={[styles.sheet, isDesktop && styles.dialog]}>
           {isDesktop ? null : <View style={styles.handle} />}
 
           <View style={styles.head}>
@@ -58,16 +67,21 @@ export function MeasureGuideSheet({
             </Pressable>
           </View>
 
-          <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.body}>
+          <ScrollView style={styles.scroll} contentContainerStyle={styles.body}>
             <View style={styles.figureWrap}>
-              <BodyFigureAll highlight={measureKey} width={228} />
+              <BodyFigureAll highlight={selected} width={228} />
             </View>
+
+            <Text style={styles.listHint}>항목을 누르면 그 위치만 진하게 보여요</Text>
 
             <View style={styles.list}>
               {BODY_MEASURES.map((spec, i) => {
-                const on = spec.key === measureKey;
+                const on = spec.key === selected;
                 return (
-                  <View key={spec.key} style={[styles.row, on && styles.rowOn]}>
+                  <Pressable
+                    key={spec.key}
+                    style={[styles.row, on && styles.rowOn]}
+                    onPress={() => setSelected(on ? null : spec.key)}>
                     <View style={[styles.no, on && styles.noOn]}>
                       <Text style={[styles.noText, on && styles.noTextOn]}>{i + 1}</Text>
                     </View>
@@ -75,13 +89,12 @@ export function MeasureGuideSheet({
                       <Text style={[styles.rowLabel, on && styles.rowLabelOn]}>{spec.label}</Text>
                       <Text style={styles.rowSummary}>{spec.summary}</Text>
                     </View>
-                  </View>
+                  </Pressable>
                 );
               })}
             </View>
 
-            {/* 재는 순서는 한 항목 것만 편다 — 10개를 다 늘어놓으면 30줄이 되어 목록이 묻힌다.
-                ⓘ 로 연 항목이 있으면 그 항목, 그냥 열었으면 가장 많이 틀리는 어깨너비. */}
+            {/* 재는 순서는 고른 항목 것만 편다 (기본은 어깨너비) */}
             <View style={styles.detail}>
               <Text style={styles.detailHead}>{noted.label} 자세히</Text>
               {noted.steps.map((step, i) => (
@@ -98,15 +111,15 @@ export function MeasureGuideSheet({
               ) : null}
             </View>
           </ScrollView>
-        </Pressable>
-      </Pressable>
+        </View>
+      </View>
     </Modal>
   );
 }
 
 const styles = StyleSheet.create({
-  backdrop: { flex: 1, backgroundColor: ink(0.42), justifyContent: 'flex-end' },
-  backdropCenter: { justifyContent: 'center', alignItems: 'center', padding: 24 },
+  root: { flex: 1, backgroundColor: ink(0.42), justifyContent: 'flex-end' },
+  rootCenter: { justifyContent: 'center', alignItems: 'center', padding: 24 },
 
   sheet: {
     backgroundColor: Editorial.surface,
@@ -143,6 +156,9 @@ const styles = StyleSheet.create({
   },
   title: { fontSize: Type.lead, fontWeight: '600', color: INK },
 
+  /* 시트 높이가 maxHeight 로 잘리는 구조라, 스크롤 영역이 남은 자리만큼 줄어들 수 있어야 한다.
+     flexShrink 가 없으면 내용 높이 그대로 커져 아래가 잘리고 스크롤도 안 먹는다. */
+  scroll: { flexShrink: 1 },
   body: { paddingTop: 12, paddingBottom: 8 },
   figureWrap: {
     alignItems: 'center',
@@ -152,12 +168,13 @@ const styles = StyleSheet.create({
     borderRadius: 16,
   },
 
-  list: { marginTop: 16, gap: 2 },
+  listHint: { fontSize: Type.micro, color: Editorial.textCaption, marginTop: 14 },
+  list: { marginTop: 6, gap: 2 },
   row: {
     flexDirection: 'row',
     alignItems: 'flex-start',
     gap: 10,
-    paddingVertical: 7,
+    paddingVertical: 8,
     paddingHorizontal: 8,
     borderRadius: 10,
   },
