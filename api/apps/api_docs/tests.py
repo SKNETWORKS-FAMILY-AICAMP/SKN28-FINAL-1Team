@@ -194,3 +194,66 @@ class SwaggerEndpointTests(SimpleTestCase):
                         self.assertEqual(operation["tags"], ["캘린더"])
                     else:
                         self.assertNotIn("캘린더", operation.get("tags", []))
+
+    def test_lookbook_schema_is_executable_with_examples(self) -> None:
+        response = self.client.get(
+            reverse("api-schema"),
+            headers={"accept": "application/json"},
+        )
+        self.assertEqual(response.status_code, 200)
+        schema = json.loads(response.content)
+        paths = schema["paths"]
+
+        photo = paths["/api/v1/lookbooks/photo/"]["post"]
+        photo_multipart = photo["requestBody"]["content"]["multipart/form-data"]
+        self.assertIn("룩사진업로드", photo_multipart["examples"])
+        # 겹치는 부위를 건너뛴다는 계약이 문서에 남아 있어야 프론트가 왜
+        # 상의가 안 뽑혔는지 되묻지 않는다.
+        self.assertIn("exclude_categories", photo["description"])
+        self.assertEqual(set(photo["responses"]), {"202", "400", "401", "409", "503"})
+
+        wardrobe = paths["/api/v1/lookbooks/wardrobe/"]["post"]
+        wardrobe_json = wardrobe["requestBody"]["content"]["application/json"]
+        self.assertIn("옷장아이템만골라올리기", wardrobe_json["examples"])
+
+        listing = paths["/api/v1/lookbooks/"]["get"]
+        parameters = {parameter["name"]: parameter for parameter in listing["parameters"]}
+        self.assertEqual(set(parameters), {"hashtag", "status", "limit", "offset"})
+        self.assertEqual(
+            listing["responses"]["200"]["content"]["application/json"]["schema"],
+            {"$ref": "#/components/schemas/LookbookListResponse"},
+        )
+        self.assertEqual(
+            set(schema["components"]["schemas"]["LookbookListResponse"]["properties"]),
+            {"count", "next_offset", "results"},
+        )
+
+        detail_path = "/api/v1/lookbooks/{lookbook_id}/"
+        self.assertEqual(set(paths[detail_path]), {"get", "patch", "delete"})
+        patch_json = paths[detail_path]["patch"]["requestBody"]["content"][
+            "application/json"
+        ]
+        self.assertEqual(
+            set(patch_json["examples"]),
+            {"전체메타데이터수정", "해시태그만부분수정"},
+        )
+
+        status_path = "/api/v1/lookbooks/{lookbook_id}/processing-status/"
+        self.assertIn(status_path, paths)
+
+        lookbook_paths = {
+            "/api/v1/lookbooks/photo/",
+            "/api/v1/lookbooks/wardrobe/",
+            "/api/v1/lookbooks/",
+            detail_path,
+            status_path,
+        }
+        for path, path_item in paths.items():
+            for method, operation in path_item.items():
+                if method not in {"get", "post", "patch", "delete", "put"}:
+                    continue
+                with self.subTest(path=path, method=method):
+                    if path in lookbook_paths:
+                        self.assertEqual(operation["tags"], ["룩북"])
+                    else:
+                        self.assertNotIn("룩북", operation.get("tags", []))

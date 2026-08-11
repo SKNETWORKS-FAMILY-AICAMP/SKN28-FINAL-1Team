@@ -26,7 +26,7 @@ urlpatterns = [
     path("users/me/body/", BodyMeasurementView.as_view(), name="body"),
     path("users/me/body/basic/", BodyBasicView.as_view(), name="body-basic"),
     path("users/me/body/detail/", BodyDetailView.as_view(), name="body-detail"),
-    # 사진 없이 상세 치수 추정 (성별·키·몸무게 → 7개). 사진 경로와 결과 형식이 같다.
+    # 사진 없이 상세 치수·체형 지표 추정. 사진 경로와 결과 형식이 같다.
     path("users/me/body/estimate/", BodyEstimateView.as_view(), name="body-estimate"),
     path("users/me/body/photos/", BodyPhotoView.as_view(), name="body-photos"),
     path(

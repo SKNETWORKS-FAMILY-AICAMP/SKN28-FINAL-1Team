@@ -1,0 +1,344 @@
+{
+  "version": "3.0.0",
+  "generated_by": "golden-set/body/tools/derive_body_thresholds.py",
+  "source": "ml/body_measurement/data/processed/sizekorea_measurements_clean.csv",
+  "source_survey": "사이즈코리아 8차 한국인 인체치수조사(2020~2024) 직접측정",
+  "taxonomy": {
+    "basis": "Rasband(1994) 상반신 8체형 — 사이즈코리아 '성별 및 연령별 체형'이 채택한 분류법",
+    "reference_url": "https://sizekorea.kr/human-info/body-shape-class/age-gender-body",
+    "operational": {
+      "round": "둥근체형",
+      "inverted_triangle": "역삼각체형",
+      "triangle": "삼각체형",
+      "hourglass": "모래시계체형",
+      "rectangle": "사각체형",
+      "standard": "표준체형(이상체형)"
+    },
+    "excluded": {
+      "diamond": "마름모꼴체형",
+      "tube": "튜브체형"
+    },
+    "excluded_reason": "사이즈코리아 원문: '모래시계형~튜브체형에 이르는 체형으로의 상세한 분류는 추가적인 분석이 필요합니다.' 우리 표본에서도 마름모꼴은 1퍼센트 미만, 튜브는 0퍼센트라 배정 자체가 불가능하다. 추론기가 절대 못 내놓는 라벨을 스키마에 넣지 않는다.",
+    "excluded_evidence": {
+      "F": {
+        "n": 2773,
+        "diamond_허리가_가슴·엉덩이보다_큼": {
+          "n": 12,
+          "pct": 0.43
+        },
+        "tube_BMI18.5미만_그리고_허리굴곡없음": {
+          "n": 1,
+          "pct": 0.04
+        }
+      },
+      "M": {
+        "n": 2319,
+        "diamond_허리가_가슴·엉덩이보다_큼": {
+          "n": 22,
+          "pct": 0.95
+        },
+        "tube_BMI18.5미만_그리고_허리굴곡없음": {
+          "n": 0,
+          "pct": 0.0
+        }
+      }
+    }
+  },
+  "method": "성별 × 연령대 내 백분위(p33/p67/p90). 임계값은 절대 기준이 아니라 표본 상대 위치다. 연령대 임계값이 없거나 표본이 얇으면 같은 성별의 'all'로 폴백한다.",
+  "ratios": {
+    "shoulder_hip": "shoulder/hip",
+    "waist_hip": "waist/hip",
+    "thigh_calf_ratio": "visual thigh length (outer hip/pelvis to knee) / visual knee-to-ankle length",
+    "torso_leg_ratio": "visual shoulder-to-outer-hip length / visual outer-hip-to-ankle/floor length"
+  },
+  "vertical_ratio_contract": {
+    "thigh_calf_ratio": {"minimum": 0.8, "maximum": 1.3},
+    "torso_leg_ratio": {"minimum": 0.6, "maximum": 1.0},
+    "basic_fallback": {"torso_leg_ratio": 0.786, "classification": "balanced"},
+    "note": "기본 정보 경로에는 시각 랜드마크가 없어 torso_leg_ratio는 0.786 baseline을 사용한다. 사진 VLM이 유효 범위 값을 반환할 때만 시각 비율로 대체한다."
+  },
+  "ratio_caveat": "⚠️ shoulder는 너비(cm), hip은 둘레(cm)라 shoulder_hip은 차원이 섞인 비율이다. Rasband의 원래 정의는 어깨너비 대 엉덩이너비 비교인데 우리 입력에 엉덩이너비가 없다. 임계값이 같은 표본의 백분위라 내부적으로는 일관되지만, 절대값을 다른 데이터셋과 비교하면 안 된다.",
+  "priority": [
+    "round",
+    "inverted_triangle",
+    "triangle",
+    "hourglass",
+    "rectangle",
+    "standard"
+  ],
+  "age_band_status": "⚠️ 연령대별 임계값은 산출해 뒀지만 현재 서빙에서는 쓸 수 없다. BodyMeasurement·User 어디에도 나이/생년 컬럼이 없어 추론 시 연령을 알 수 없다. 그래서 실제 판정은 전부 thresholds[gender]['all']을 쓴다. 연령대 값은 나이 입력이 추가되는 즉시 켤 수 있도록 미리 만들어 둔 것이다.",
+  "active_threshold_key": "all",
+  "sample_size": {
+    "F": {
+      "all": 2773
+    },
+    "M": {
+      "all": 2319
+    }
+  },
+  "thresholds": {
+    "F": {
+      "all": {
+        "shoulder_hip": {
+          "p10": 0.3471,
+          "p33": 0.3665,
+          "p50": 0.3767,
+          "p67": 0.3863,
+          "p90": 0.4038
+        },
+        "waist_hip": {
+          "p10": 0.7404,
+          "p33": 0.785,
+          "p50": 0.8151,
+          "p67": 0.8491,
+          "p90": 0.921
+        },
+        "neck_length": {
+          "p10": 5.9,
+          "p33": 7.2,
+          "p50": 7.9,
+          "p67": 8.5,
+          "p90": 9.9
+        },
+        "thigh_calf_ratio": {
+          "p10": 1.099,
+          "p33": 1.116,
+          "p50": 1.123,
+          "p67": 1.13,
+          "p90": 1.14
+        },
+        "torso_leg_ratio": {
+          "p10": 0.786,
+          "p33": 0.786,
+          "p50": 0.786,
+          "p67": 0.786,
+          "p90": 0.786
+        }
+      }
+    },
+    "M": {
+      "all": {
+        "shoulder_hip": {
+          "p10": 0.3801,
+          "p33": 0.4018,
+          "p50": 0.4116,
+          "p67": 0.4216,
+          "p90": 0.4404
+        },
+        "waist_hip": {
+          "p10": 0.8185,
+          "p33": 0.8685,
+          "p50": 0.8979,
+          "p67": 0.9256,
+          "p90": 0.9834
+        },
+        "neck_length": {
+          "p10": 6.5,
+          "p33": 8.1,
+          "p50": 9.0,
+          "p67": 9.7,
+          "p90": 11.2
+        },
+        "thigh_calf_ratio": {
+          "p10": 1.084,
+          "p33": 1.097,
+          "p50": 1.103,
+          "p67": 1.109,
+          "p90": 1.12
+        },
+        "torso_leg_ratio": {
+          "p10": 0.786,
+          "p33": 0.786,
+          "p50": 0.786,
+          "p67": 0.786,
+          "p90": 0.786
+        }
+      }
+    }
+  },
+  "distribution_active": {
+    "F": {
+      "inverted_triangle": 845,
+      "triangle": 806,
+      "hourglass": 332,
+      "standard": 291,
+      "round": 278,
+      "rectangle": 221
+    },
+    "M": {
+      "inverted_triangle": 732,
+      "triangle": 658,
+      "standard": 269,
+      "hourglass": 253,
+      "round": 232,
+      "rectangle": 175
+    }
+  },
+  "distribution_active_pct": {
+    "F": {
+      "inverted_triangle": 30.5,
+      "triangle": 29.1,
+      "hourglass": 12.0,
+      "standard": 10.5,
+      "round": 10.0,
+      "rectangle": 8.0
+    },
+    "M": {
+      "inverted_triangle": 31.6,
+      "triangle": 28.4,
+      "standard": 11.6,
+      "hourglass": 10.9,
+      "round": 10.0,
+      "rectangle": 7.5
+    }
+  },
+  "distribution_active_note": "현재 서빙 기준. 나이를 모르므로 모든 사용자에게 'all' 임계값을 적용했을 때의 분포다. 문서에 싣는 숫자는 이것이다.",
+  "distribution": {
+    "F": {
+      "all": {
+        "inverted_triangle": 845,
+        "triangle": 806,
+        "hourglass": 332,
+        "standard": 291,
+        "round": 278,
+        "rectangle": 221
+      }
+    },
+    "M": {
+      "all": {
+        "inverted_triangle": 732,
+        "triangle": 658,
+        "standard": 269,
+        "hourglass": 253,
+        "round": 232,
+        "rectangle": 175
+      }
+    }
+  },
+  "distribution_pct": {
+    "F": {
+      "all": {
+        "inverted_triangle": 30.5,
+        "triangle": 29.1,
+        "hourglass": 12.0,
+        "standard": 10.5,
+        "round": 10.0,
+        "rectangle": 8.0
+      }
+    },
+    "M": {
+      "all": {
+        "inverted_triangle": 31.6,
+        "triangle": 28.4,
+        "standard": 11.6,
+        "hourglass": 10.9,
+        "round": 10.0,
+        "rectangle": 7.5
+      }
+    }
+  },
+  "distribution_note": "연령대 임계값을 각자 적용했을 때의 분포. 나이 입력이 추가되면 이렇게 바뀐다. 지금은 참고용이다.",
+  "centroids_cm": {
+    "F": {
+      "hourglass": {
+        "height": 161.2,
+        "weight": 53.2,
+        "chest": 84.2,
+        "waist": 69.6,
+        "hip": 92.6,
+        "shoulder": 34.9
+      },
+      "inverted_triangle": {
+        "height": 160.5,
+        "weight": 52.4,
+        "chest": 85.5,
+        "waist": 71.8,
+        "hip": 89.7,
+        "shoulder": 35.9
+      },
+      "rectangle": {
+        "height": 157.8,
+        "weight": 60.5,
+        "chest": 91.9,
+        "waist": 83.4,
+        "hip": 94.5,
+        "shoulder": 35.6
+      },
+      "round": {
+        "height": 155.7,
+        "weight": 65.2,
+        "chest": 95.7,
+        "waist": 91.7,
+        "hip": 95.5,
+        "shoulder": 35.4
+      },
+      "standard": {
+        "height": 160.0,
+        "weight": 57.3,
+        "chest": 88.5,
+        "waist": 76.8,
+        "hip": 94.0,
+        "shoulder": 35.4
+      },
+      "triangle": {
+        "height": 159.8,
+        "weight": 63.1,
+        "chest": 91.3,
+        "waist": 81.0,
+        "hip": 98.9,
+        "shoulder": 34.7
+      }
+    },
+    "M": {
+      "hourglass": {
+        "height": 174.1,
+        "weight": 71.4,
+        "chest": 99.0,
+        "waist": 80.4,
+        "hip": 96.5,
+        "shoulder": 39.8
+      },
+      "inverted_triangle": {
+        "height": 172.7,
+        "weight": 68.0,
+        "chest": 98.1,
+        "waist": 81.2,
+        "hip": 93.0,
+        "shoulder": 40.6
+      },
+      "rectangle": {
+        "height": 171.3,
+        "weight": 76.3,
+        "chest": 102.3,
+        "waist": 92.3,
+        "hip": 97.0,
+        "shoulder": 39.9
+      },
+      "round": {
+        "height": 170.1,
+        "weight": 81.4,
+        "chest": 104.9,
+        "waist": 99.9,
+        "hip": 98.5,
+        "shoulder": 39.4
+      },
+      "standard": {
+        "height": 172.7,
+        "weight": 73.3,
+        "chest": 100.5,
+        "waist": 86.7,
+        "hip": 96.5,
+        "shoulder": 39.7
+      },
+      "triangle": {
+        "height": 172.7,
+        "weight": 80.7,
+        "chest": 103.7,
+        "waist": 91.3,
+        "hip": 101.3,
+        "shoulder": 38.9
+      }
+    }
+  },
+  "centroids_note": "distribution_active(=서빙 기준) 배정으로 계산한 체형별 실측 평균(cm). 일러스트 재생성·검증의 기준값."
+}

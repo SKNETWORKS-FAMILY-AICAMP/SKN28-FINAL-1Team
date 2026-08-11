@@ -37,6 +37,10 @@ def normalize_payload(payload: dict) -> dict:
 
     api:  {job_id, user_id, source{bucket,key}, output_prefix, callback_url}
     설계서: {job_id, input{bucket,key}, output{bucket,prefix}, ...}
+
+    exclude_categories는 룩북 등록에서만 실려 온다 — 사용자가 '입은 옷'으로 이미
+    지정해 둔 대분류다. 키가 없으면 빈 목록이 되어 기존 옷장·캘린더 페이로드와
+    동작이 완전히 같다.
     """
     source = payload.get("source") or payload.get("input") or {}
     output_prefix = payload.get("output_prefix") \
@@ -49,21 +53,28 @@ def normalize_payload(payload: dict) -> dict:
         "src_key": source.get("key", ""),
         "out_bucket": out_bucket,
         "out_prefix": output_prefix,
+        "exclude_categories": list(payload.get("exclude_categories") or []),
         "callback_url": payload.get("callback_url", ""),
     }
 
 
 def build_manifest(job: dict, pipeline_key: str,
-                   items: list[ProcessedItem], total_sec: float) -> dict:
+                   items: list[ProcessedItem], total_sec: float,
+                   excluded: list | None = None) -> dict:
     """설계서 5장 manifest. 벡터도 포함해 '콜백만 재시도'가 가능하게 한다."""
     ok = [it for it in items if it.ok]
+    excluded = excluded or []
     return {
         "schema_version": config.SCHEMA_VERSION,
         "job_id": job["job_id"],
         "pipeline": {"impl": pipeline_key, "version": config.PIPELINE_VERSION,
                      "embedding_version": config.EMBEDDING_VERSION},
         "counts": {"detected": len(items), "succeeded": len(ok),
-                   "failed": len(items) - len(ok)},
+                   "failed": len(items) - len(ok), "excluded": len(excluded)},
+        # 어떤 아이템이 왜 빠졌는지 남긴다. 사용자 눈에는 "사진에 분명 있는데
+        # 안 뽑혔다"로 보이므로, 의도된 제외였는지 나중에 확인할 수 있어야 한다.
+        "excluded_categories": job.get("exclude_categories", []),
+        "excluded_items": [it.meta() for it in excluded],
         "total_sec": round(total_sec, 3),
         "items": [
             {
@@ -88,6 +99,11 @@ def callback_payload_from_manifest(manifest: dict) -> dict:
         if it.get("error") or not it.get("s3_key") or not it.get("tags"):
             continue
         tags = dict(it["tags"])
+        tags["usage"] = [
+            value.strip()
+            for value in (tags.get("usage") or [])
+            if isinstance(value, str) and value.strip()
+        ]
         missing = tags.pop("_missing_required", [])
         items.append({
             "s3_key": it["s3_key"],
@@ -103,11 +119,17 @@ def callback_payload_from_manifest(manifest: dict) -> dict:
             "image_vector": it.get("image_vector") or [],
             "text_vector": it.get("text_vector") or [],
         })
+    excluded = manifest.get("counts", {}).get("excluded", 0)
     if items:
         status, error = "success", ""
         failed = manifest["counts"]["failed"]
         if failed:  # API가 partial을 지원하기 전까지는 success + error 메모
             error = f"partial: {failed}개 아이템 처리 실패 (manifest 참조)"
+    elif excluded and not manifest["items"]:
+        # 룩북에서 입은 옷으로 사진 속 부위를 전부 지정한 경우다. 뽑을 것이
+        # 남지 않은 것이 정상이므로 실패로 올리면 안 된다 — 실패로 보내면
+        # 사용자가 제대로 등록한 룩이 '이미지 처리 실패'로 표시된다.
+        status, error = "success", ""
     else:
         status, error = "failed", "처리 성공한 아이템이 없습니다 (manifest 참조)"
     return {"job_id": manifest["job_id"], "status": status,
@@ -129,7 +151,9 @@ def process_job(job: dict, pipeline) -> dict:
         mime = mimetypes.guess_type(local.name)[0] or "image/jpeg"
         image_bytes = local.read_bytes()
 
-    items = pipeline.process(image_bytes, mime)
+    items, excluded = pipeline.process(
+        image_bytes, mime, job.get("exclude_categories", ())
+    )
 
     # 아이템 이미지를 먼저 업로드하고, manifest는 마지막에 저장 (설계서 5장)
     import io as _io
@@ -143,7 +167,7 @@ def process_job(job: dict, pipeline) -> dict:
                             s3io.item_key(job["out_prefix"], it.index), img)
 
     manifest = build_manifest(job, pipeline.key, items,
-                              time.perf_counter() - t0)
+                              time.perf_counter() - t0, excluded)
     s3io.put_json(job["out_bucket"], m_key, manifest)
     return manifest
 
@@ -159,21 +183,37 @@ def main() -> None:
         if raw is None:
             continue
         job_id = "?"
+        job = {}
         try:
             job = normalize_payload(json.loads(raw))
             job_id = job["job_id"]
             logger.info("job %s 시작 (%s/%s)", job_id, job["src_bucket"], job["src_key"])
+
+            try:
+                callback.post(job["callback_url"], {
+                    "job_id": job_id, "status": "processing", "error": "", "items": [],
+                })
+            except Exception:  # noqa: BLE001 — 시작 알림 실패로 GPU 작업을 버리지 않는다
+                logger.warning("job %s 처리 시작 콜백 실패", job_id, exc_info=True)
 
             manifest = process_job(job, pipeline)
             callback.post(job["callback_url"], callback_payload_from_manifest(manifest))
 
             queue.ack(raw, job_id)
             c = manifest["counts"]
-            logger.info("job %s 완료: 검출 %d / 성공 %d / 실패 %d",
-                        job_id, c["detected"], c["succeeded"], c["failed"])
+            logger.info("job %s 완료: 검출 %d / 성공 %d / 실패 %d / 제외 %d",
+                        job_id, c["detected"], c["succeeded"], c["failed"],
+                        c.get("excluded", 0))
         except Exception as e:  # noqa: BLE001 — job 단위 격리 후 재시도/dead 처리
             logger.exception("job %s 실패", job_id)
-            queue.retry_or_dead(raw, job_id, f"{type(e).__name__}: {e}")
+            error = f"{type(e).__name__}: {e}"
+            if queue.retry_or_dead(raw, job_id, error) and job_id != "?":
+                try:
+                    callback.post(job.get("callback_url", ""), {
+                        "job_id": job_id, "status": "failed", "error": error, "items": [],
+                    })
+                except Exception:  # noqa: BLE001 — dead queue 원본은 보존한다
+                    logger.exception("job %s 최종 실패 콜백 실패", job_id)
 
 
 if __name__ == "__main__":
