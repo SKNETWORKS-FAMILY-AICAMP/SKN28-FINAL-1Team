@@ -1,6 +1,8 @@
 from django.urls import path
 
 from apps.chat.views import (
+    ChatRunDetailView,
+    ChatRunEventStreamView,
     ChatSessionDeriveView,
     ChatSessionDetailView,
     ChatSessionListCreateView,
@@ -29,5 +31,15 @@ urlpatterns = [
         "chat/sessions/<uuid:session_id>/messages/",
         ChatSessionMessageListView.as_view(),
         name="session-messages",
+    ),
+    path(
+        "chat/runs/<uuid:run_id>/",
+        ChatRunDetailView.as_view(),
+        name="run-detail",
+    ),
+    path(
+        "chat/runs/<uuid:run_id>/events/",
+        ChatRunEventStreamView.as_view(),
+        name="run-events",
     ),
 ]

@@ -409,3 +409,32 @@ CHAT_CONTEXT_CACHE_TIMEOUT_SECONDS = float(
 )
 REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379/0")
 REDIS_PASSWORD = os.getenv("REDIS_PASSWORD", "")
+
+# 채팅 실행 큐는 처리 도중 워커가 종료돼도 작업을 복구할 수 있도록 pending과
+# processing 리스트를 분리한다. SSE 이벤트는 Redis Stream에 짧게 보존해
+# Last-Event-ID 재연결 시 누락 구간을 재생한다.
+CHAT_MESSAGE_MAX_CHARS = int(os.getenv("CHAT_MESSAGE_MAX_CHARS", "4000"))
+CHAT_QUEUE_PENDING_KEY = os.getenv("CHAT_QUEUE_PENDING_KEY", "chat:runs:pending")
+CHAT_QUEUE_PROCESSING_KEY = os.getenv(
+    "CHAT_QUEUE_PROCESSING_KEY", "chat:runs:processing"
+)
+CHAT_QUEUE_DEAD_KEY = os.getenv("CHAT_QUEUE_DEAD_KEY", "chat:runs:dead")
+CHAT_QUEUE_RETRY_KEY = os.getenv("CHAT_QUEUE_RETRY_KEY", "chat:runs:retry")
+CHAT_QUEUE_BLOCK_SECONDS = int(os.getenv("CHAT_QUEUE_BLOCK_SECONDS", "5"))
+CHAT_QUEUE_MAX_RETRIES = int(os.getenv("CHAT_QUEUE_MAX_RETRIES", "3"))
+CHAT_QUEUE_ORPHAN_AGE_SECONDS = int(os.getenv("CHAT_QUEUE_ORPHAN_AGE_SECONDS", "30"))
+CHAT_QUEUE_ORPHAN_SWEEP_SECONDS = int(
+    os.getenv("CHAT_QUEUE_ORPHAN_SWEEP_SECONDS", "60")
+)
+CHAT_QUEUE_ORPHAN_SWEEP_LIMIT = int(os.getenv("CHAT_QUEUE_ORPHAN_SWEEP_LIMIT", "100"))
+CHAT_QUEUE_CONNECT_TIMEOUT_SECONDS = float(
+    os.getenv("CHAT_QUEUE_CONNECT_TIMEOUT_SECONDS", "1.0")
+)
+CHAT_EVENT_STREAM_PREFIX = os.getenv(
+    "CHAT_EVENT_STREAM_PREFIX", "chat:run:events"
+).strip()
+CHAT_EVENT_STREAM_TTL_SECONDS = int(os.getenv("CHAT_EVENT_STREAM_TTL_SECONDS", "86400"))
+CHAT_EVENT_STREAM_MAX_LENGTH = int(os.getenv("CHAT_EVENT_STREAM_MAX_LENGTH", "100"))
+CHAT_SSE_BLOCK_MILLISECONDS = int(os.getenv("CHAT_SSE_BLOCK_MILLISECONDS", "15000"))
+CHAT_SSE_READ_COUNT = int(os.getenv("CHAT_SSE_READ_COUNT", "50"))
+CHAT_SSE_RETRY_MILLISECONDS = int(os.getenv("CHAT_SSE_RETRY_MILLISECONDS", "3000"))

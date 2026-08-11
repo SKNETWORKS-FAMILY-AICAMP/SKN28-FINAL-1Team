@@ -16,6 +16,10 @@ import os
 # ------------------------------------------------------------
 bind = os.getenv("GUNICORN_BIND", "0.0.0.0:8000")
 workers = int(os.getenv("GUNICORN_WORKERS", "3"))
+# sync worker는 열린 SSE 연결 하나가 프로세스 하나를 독점한다. gthread로 짧은
+# 일반 API와 장기 SSE 연결을 함께 처리하고, 스레드 수는 환경별로 조절한다.
+worker_class = os.getenv("GUNICORN_WORKER_CLASS", "gthread")
+threads = int(os.getenv("GUNICORN_THREADS", "8"))
 timeout = int(os.getenv("GUNICORN_TIMEOUT", "60"))
 
 # ------------------------------------------------------------
@@ -35,8 +39,7 @@ capture_output = True
 #   %({x-forwarded-for}i)s  프록시(Cloudflare tunnel / ALB) 뒤의 실제 클라이언트 IP
 #   %(M)s                   응답 소요 시간(ms)
 access_log_format = (
-    '%(h)s xff=%({x-forwarded-for}i)s "%(r)s" %(s)s %(b)s %(M)sms '
-    '"%(f)s" "%(a)s"'
+    '%(h)s xff=%({x-forwarded-for}i)s "%(r)s" %(s)s %(b)s %(M)sms "%(f)s" "%(a)s"'
 )
 
 # 프록시가 보낸 X-Forwarded-* 를 신뢰할 IP 대역.
@@ -57,7 +60,7 @@ if _skip:
             url = path.get("U", "") if isinstance(path, dict) else ""
             return not any(p.search(url) for p in _patterns)
 
-    def on_starting(server):  # noqa: D103
+    def on_starting(server):
         import logging
 
         logging.getLogger("gunicorn.access").addFilter(_SkipPaths())

@@ -191,6 +191,37 @@ services:
       - ./ml:/ml:ro
     command: python manage.py run_outfit_worker
 
+  # 채팅 OpenAI 오케스트레이터 워커 — API가 만든 ChatRun UUID만 Redis에서 받아
+  # PostgreSQL 컨텍스트·추천 파이프라인을 실행하고 Redis Stream에 SSE 이벤트를 남긴다.
+  # processing 큐 복구가 단일 워커 전제이므로 현재는 replicas=1로 운영한다.
+  chat-worker:
+    build:
+      context: ./api
+    container_name: skn28-chat-worker
+    restart: unless-stopped
+    profiles: ["api", "all"]
+    depends_on:
+      db:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+      qdrant-init:
+        condition: service_completed_successfully
+      redis:
+        condition: service_started
+    env_file:
+      - .env
+    environment:
+      TZ: Asia/Seoul
+      POSTGRES_HOST: db
+      POSTGRES_PORT: 5432
+      REDIS_URL: redis://redis:6379/0
+      QDRANT_URL: http://qdrant:6333
+      DJANGO_SETTINGS_MODULE: ${DJANGO_SETTINGS_MODULE:-config.settings.prod}
+    volumes:
+      - ./ml:/ml:ro
+    command: python manage.py run_chat_worker
+
   weather-collector:
     build:
       context: ./collector/weather

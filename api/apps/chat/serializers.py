@@ -1,6 +1,13 @@
+from django.conf import settings
 from rest_framework import serializers
 
-from apps.chat.models import ChatAttachment, ChatMessage, ChatSession, PersonaProfile
+from apps.chat.models import (
+    ChatAttachment,
+    ChatMessage,
+    ChatRun,
+    ChatSession,
+    PersonaProfile,
+)
 
 
 class ChatAttachmentSerializer(serializers.ModelSerializer):
@@ -31,6 +38,52 @@ class ChatMessageSerializer(serializers.ModelSerializer):
             "client_message_id",
             "metadata",
             "attachments",
+            "created_at",
+            "updated_at",
+        ]
+        read_only_fields = fields
+
+
+class ChatMessageCreateSerializer(serializers.Serializer):
+    content = serializers.CharField(
+        allow_blank=False,
+        trim_whitespace=True,
+        max_length=settings.CHAT_MESSAGE_MAX_CHARS,
+    )
+    client_message_id = serializers.CharField(
+        allow_blank=False,
+        trim_whitespace=True,
+        max_length=128,
+    )
+    metadata = serializers.JSONField(required=False)
+
+    def validate_metadata(self, value):
+        if not isinstance(value, dict):
+            raise serializers.ValidationError("metadata는 JSON 객체여야 합니다.")
+        return value
+
+    def validate_client_message_id(self, value: str) -> str:
+        if value.startswith("run:"):
+            raise serializers.ValidationError(
+                "서버 예약 메시지 ID 접두사는 사용할 수 없습니다."
+            )
+        return value
+
+
+class ChatRunSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = ChatRun
+        fields = [
+            "id",
+            "session_id",
+            "request_message_id",
+            "response_message_id",
+            "status",
+            "enqueued_at",
+            "error_code",
+            "error_message",
+            "started_at",
+            "completed_at",
             "created_at",
             "updated_at",
         ]

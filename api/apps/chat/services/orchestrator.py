@@ -40,6 +40,10 @@ class ChatRunInvalid(ChatOrchestrationError):
     code = "CHAT_RUN_INVALID"
 
 
+class ChatQueueUnavailable(ChatOrchestrationError):
+    code = "CHAT_QUEUE_UNAVAILABLE"
+
+
 @dataclass(frozen=True)
 class OrchestrationResult:
     run: ChatRun
@@ -91,8 +95,80 @@ def create_run(
     return run, created
 
 
+@transaction.atomic
+def mark_enqueue_failed(run_id) -> ChatRun | None:
+    """DB 접수 후 Redis 적재에 실패한 실행을 무한 대기 대신 실패로 종료한다."""
+    run = ChatRun.objects.select_for_update().filter(pk=run_id).first()
+    if run is None or run.status != ChatRun.Status.PENDING:
+        return run
+    now = timezone.now()
+    run.status = ChatRun.Status.FAILED
+    run.error_code = ChatQueueUnavailable.code
+    run.error_message = "채팅 실행 큐에 연결할 수 없습니다. 잠시 후 다시 시도해 주세요."
+    run.completed_at = now
+    run.save(
+        update_fields=[
+            "status",
+            "error_code",
+            "error_message",
+            "completed_at",
+            "updated_at",
+        ]
+    )
+    ChatMessage.objects.filter(pk=run.request_message_id).update(
+        status=ChatMessage.Status.FAILED,
+        updated_at=now,
+    )
+    return run
+
+
+@transaction.atomic
+def reset_run_for_retry(run_id) -> bool:
+    """단일 워커가 실패·중단된 실행을 같은 ID로 안전하게 재시도하게 만든다."""
+    run = ChatRun.objects.select_for_update().filter(pk=run_id).first()
+    if run is None or run.status not in {ChatRun.Status.RUNNING, ChatRun.Status.FAILED}:
+        return False
+    if run.response_message_id is not None:
+        return False
+    now = timezone.now()
+    run.status = ChatRun.Status.PENDING
+    run.context_fingerprint = ""
+    run.context_cache_hit = False
+    run.provider_response_id = ""
+    run.input_tokens = 0
+    run.cached_input_tokens = 0
+    run.output_tokens = 0
+    run.latency_ms = 0
+    run.error_code = ""
+    run.error_message = ""
+    run.started_at = None
+    run.completed_at = None
+    run.save(
+        update_fields=[
+            "status",
+            "context_fingerprint",
+            "context_cache_hit",
+            "provider_response_id",
+            "input_tokens",
+            "cached_input_tokens",
+            "output_tokens",
+            "latency_ms",
+            "error_code",
+            "error_message",
+            "started_at",
+            "completed_at",
+            "updated_at",
+        ]
+    )
+    ChatMessage.objects.filter(pk=run.request_message_id).update(
+        status=ChatMessage.Status.PENDING,
+        updated_at=now,
+    )
+    return True
+
+
 class ChatOrchestrator:
-    """큐 워커가 실행 ID로 호출할 동기 코어. 큐와 SSE는 다음 작업의 책임이다."""
+    """Redis 큐 워커가 실행 ID로 호출하는 동기 오케스트레이션 코어."""
 
     def __init__(
         self,
@@ -185,6 +261,7 @@ class ChatOrchestrator:
                 role=ChatMessage.Role.ASSISTANT,
                 content=response_text,
                 status=ChatMessage.Status.COMPLETED,
+                client_message_id=f"run:{run.pk}:response",
                 metadata=response_metadata,
             )
             summary_usage = self._maybe_refresh_summary(run.session)

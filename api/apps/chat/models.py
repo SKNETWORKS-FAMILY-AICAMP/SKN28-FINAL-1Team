@@ -490,6 +490,11 @@ class ChatRun(models.Model):
         default=Status.PENDING,
         db_comment=("실행 상태 (PENDING/RUNNING/NEEDS_CLARIFICATION/SUCCEEDED/FAILED)"),
     )
+    enqueued_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        db_comment="Redis pending 큐 적재 확인 시각 (미적재 또는 적재 확인 전이면 NULL)",
+    )
     context_fingerprint = models.CharField(
         max_length=64,
         blank=True,
