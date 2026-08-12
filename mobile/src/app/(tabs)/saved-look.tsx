@@ -9,7 +9,6 @@ import { EmptyState, SmartImage, useConfirm, useToast } from '@/components/ui';
 import { Editorial, ink, Fonts , ContentMax} from '@/constants/theme';
 import { TODAY_LOOK } from '@/constants/today-look';
 import type { WardrobeSource } from '@/constants/wardrobe';
-import { useBottomTabInset } from '@/hooks/use-bottom-tab-inset';
 import { useBreakpoint } from '@/hooks/use-breakpoint';
 import { useAuth } from '@/state/auth';
 import { draftItem } from '@/state/draft-item';
@@ -39,7 +38,6 @@ function savedAtLabel(savedAt: number): string | null {
 // E2 저장 룩 상세 — 구성·추천이유 재확인·메모/해시태그
 export default function SavedLook() {
   const { contentStyle } = useBreakpoint();
-  const tabInset = useBottomTabInset();
   const toast = useToast();
   const confirm = useConfirm();
   const { isLoggedIn } = useAuth();
@@ -65,9 +63,14 @@ export default function SavedLook() {
     setEditing(true);
   };
 
-  const save = () => {
+  const save = async () => {
     if (!look) return;
-    savedLookStore.updateLook(look.id, { memo, tags });
+    try {
+      await savedLookStore.updateLook(look.id, { memo, tags });
+    } catch (error) {
+      toast(error instanceof Error ? error.message : '저장하지 못했어요', { variant: 'error' });
+      return;
+    }
     setEditing(false);
     toast('저장했어요', { variant: 'success' });
   };
@@ -85,7 +88,13 @@ export default function SavedLook() {
       destructive: true,
     });
     if (!ok) return;
-    savedLookStore.removeLook(look.id);
+    try {
+      await savedLookStore.removeLook(look.id);
+    } catch (error) {
+      /* 처리 중인 룩은 서버가 409 로 막는다 — 왜 안 지워지는지 알려야 다시 누르지 않는다. */
+      toast(error instanceof Error ? error.message : '빼지 못했어요', { variant: 'error' });
+      return;
+    }
     toast('저장됨에서 뺐어요');
     back();
   };
@@ -307,7 +316,7 @@ export default function SavedLook() {
       </ScrollView>
 
       <View style={styles.bottomDivider} />
-      <View style={[styles.bottomBar, { paddingBottom: tabInset }, contentStyle(ContentMax.card)]}>
+      <View style={[styles.bottomBar, { paddingBottom: 12 }, contentStyle(ContentMax.card)]}>
         <Pressable style={styles.cta} onPress={() => router.push('/chat-room')}>
           <Icon name="sparkles" tintColor="#fff" size={15} />
           <Text style={styles.ctaText}>비슷하게 추천받기</Text>

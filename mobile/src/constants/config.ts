@@ -120,6 +120,17 @@ export const AuthEndpoints = {
 export const HomeEndpoint = '/api/v1/home/';
 
 /**
+ * 오늘의 룩 (api/apps/recommend/urls.py 기준). JWT 필요.
+ *   GET /api/v1/looks/today/?lat=&lon=  → { look_id, look_date, status, result, context, poll_after_ms, detail }
+ *   - 그날 첫 호출이 곧 생성 트리거다 (홈 API 진입 시 백엔드가 미리 걸어 두므로 보통은 완성돼 있다).
+ *   - status 분기: QUEUED/PROCESSING → poll_after_ms 뒤 재조회 | SUCCEEDED → result 표시
+ *                  | EMPTY → 폴링 중단(프로필 입력 유도) | FAILED → 자동 재시도 없음
+ *   - result 의 이미지 URL 은 조회마다 새로 서명된다 — 캐시하면 만료된다.
+ *   - 대표 이미지는 result.render_image_url, null 이면 items[].image_url 카드로 화면을 만든다.
+ */
+export const DailyLookEndpoint = '/api/v1/looks/today/';
+
+/**
  * 착장 사진 분석. 인증 없이 호출할 수 있고, JWT가 있으면 개인화 정보를 반영한다.
  * POST multipart { image, lat?, lon? } → { status, evaluation, context }
  */
@@ -245,4 +256,39 @@ export const CalendarEndpoints = {
   wardrobe: '/api/v1/calendars/wardrobe/',
   detail: (calendarId: string) => `/api/v1/calendars/${calendarId}/`,
   processingStatus: (calendarId: string) => `/api/v1/calendars/${calendarId}/processing-status/`,
+} as const;
+
+/**
+ * 룩북 — 캘린더와 거의 같은 모양이지만 **날짜에 매이지 않아 여러 건**을 올릴 수 있다.
+ *
+ *   GET    /api/v1/lookbooks/?hashtag=&status=&limit=&offset=  → { count, next_offset, results[] }
+ *   POST   /api/v1/lookbooks/photo/                    multipart → 202 (사진 처리는 비동기)
+ *   POST   /api/v1/lookbooks/wardrobe/                 json      → 201 (옷만 고르면 즉시 완료)
+ *   GET    /api/v1/lookbooks/{id}/                     → LookbookPost
+ *   PATCH  /api/v1/lookbooks/{id}/                     → schedule·tpo·hashtags 만
+ *   DELETE /api/v1/lookbooks/{id}/                     → 204
+ *   GET    /api/v1/lookbooks/{id}/processing-status/   사진 처리 폴링
+ *
+ * ⚠️ **이 목록은 '내 룩북'이다.** 남들이 올린 피드(둘러보기)는 서버에 없다 —
+ *    state/lookbook.ts 의 로컬 시드가 계속 그 자리를 맡는다.
+ * ⚠️ 등록 요청이 `calendar_date`·`overwrite_calendar` 를 받는다. 켜면 **한 번의 호출로**
+ *    룩북과 캘린더가 함께 남는다 — 캘린더를 따로 부르지 않는다.
+ * ⚠️ PATCH 는 캘린더와 같은 제약: schedule·tpo·hashtags 만. 사진·옷 구성은 못 바꾼다.
+ */
+/**
+ * 월 의류 구매 예산 — 상품 추천에서 '예산 내' 표시를 가르는 값.
+ *
+ *   GET /api/v1/users/me/budget/  → { monthly_budget: number | null }   미설정이면 null
+ *   PUT /api/v1/users/me/budget/    { monthly_budget }  전체 교체
+ *
+ * ⚠️ **1만원 단위, 10,000 이상**만 받는다. 지울 때는 키를 빼는 게 아니라 **명시적으로 null**.
+ */
+export const BudgetEndpoint = '/api/v1/users/me/budget/';
+
+export const LookbookEndpoints = {
+  list: '/api/v1/lookbooks/',
+  photo: '/api/v1/lookbooks/photo/',
+  wardrobe: '/api/v1/lookbooks/wardrobe/',
+  detail: (lookbookId: string) => `/api/v1/lookbooks/${lookbookId}/`,
+  processingStatus: (lookbookId: string) => `/api/v1/lookbooks/${lookbookId}/processing-status/`,
 } as const;

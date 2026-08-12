@@ -6,7 +6,6 @@ import { ChatSessionSheet } from '@/components/chat/session-sheet';
 import { Icon } from '@/components/icon';
 import { EmptyState } from '@/components/ui';
 import { ContentMax, Editorial, ink } from '@/constants/theme';
-import { useBottomTabInset } from '@/hooks/use-bottom-tab-inset';
 import { useBreakpoint } from '@/hooks/use-breakpoint';
 import {
   CHAT_MODE_META,
@@ -87,7 +86,6 @@ export function SessionList({
 }) {
   const isPanel = variant === 'panel';
   const { contentStyle } = useBreakpoint();
-  const tabInset = useBottomTabInset();
   // 패널은 폭이 이미 고정이라 최대 폭 제한이 필요 없다.
   const widthStyle = isPanel ? null : contentStyle(ContentMax.wide);
 
@@ -162,7 +160,7 @@ export function SessionList({
         keyboardShouldPersistTaps="handled"
         contentContainerStyle={[
           styles.content,
-          { paddingBottom: isPanel ? 24 : tabInset + 24 },
+          { paddingBottom: 24 },
           isPanel && styles.contentPanel,
           widthStyle,
         ]}>

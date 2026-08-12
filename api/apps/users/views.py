@@ -231,26 +231,11 @@ class SocialLoginView(APIView):
 
         user, created = accounts.get_or_create_user(profile)
         # 토큰 발급은 _token_response로 일원화됐다(이메일 로그인과 같은 응답 모양).
-        # 오늘의 룩 선반영은 그 전에 건다 — 사용자가 첫 화면에 도착할 때쯤
-        # 완성돼 있게 하려는 것이고, 실패해도 예외를 삼키므로 로그인을 막지 않는다.
-        _kick_off_daily_look(user)
+        # 오늘의 룩 선반영은 여기가 아니라 홈 API(GET /api/v1/home/)가 건다 —
+        # 홈 요청에는 위경도가 실려 와 사용자 위치의 날씨로 만들 수 있다
+        # (apps/home/views.py의 _kick_off_daily_look).
+        # request는 같은 브라우저의 게스트 채팅을 로그인 회원에게 이전하는 데 쓴다.
         return _token_response(user, created=created, request=request)
-
-
-def _kick_off_daily_look(user) -> None:
-    """그날 첫 로그인이면 오늘의 룩 생성을 미리 걸어둔다.
-
-    사용자가 첫 화면에 도착할 때쯤 이미 완성돼 있게 하려는 선반영이다. 조회
-    엔드포인트도 같은 함수를 부르므로 여기서 실패해도 기능이 사라지지는 않는다 —
-    그래서 예외를 삼킨다. 로그인은 추천보다 훨씬 중요하고, 추천 생성이 로그인을
-    막아서는 안 된다.
-    """
-    try:
-        from apps.recommend.services.daily_look import ensure_today_look
-
-        ensure_today_look(user)
-    except Exception:  # noqa: BLE001
-        logger.exception("오늘의 룩 선반영 실패 (로그인은 계속 진행): user=%s", user.pk)
 
 
 class MeView(APIView):

@@ -213,3 +213,5 @@ nohup.out
 collector/eleven/tests/test_category_mapping.py
 
 _parse_*.py
+
+_to_delete/

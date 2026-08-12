@@ -430,8 +430,13 @@ class DailyLookSerializer(serializers.ModelSerializer):
 
     @extend_schema_field(DailyLookResultSerializer(allow_null=True))
     def get_result(self, obj: DailyLook) -> dict | None:
-        """완성 전의 빈 JSON을 완성 결과 스키마로 직렬화하지 않는다."""
-        if obj.status != DailyLook.Status.SUCCEEDED or not obj.result:
+        """생성 전(result={})에는 null. 프론트는 status로 분기한다.
+
+        중첩 시리얼라이저를 필드로 직접 붙이면 빈 dict가 들어올 때 필수
+        필드(headline)에서 KeyError가 나 조회 전체가 500이 된다 — 생성 전
+        행은 result가 {}인 것이 정상 상태라서 여기서 걸러 null로 내린다.
+        """
+        if not obj.result:
             return None
         return DailyLookResultSerializer(obj.result).data
 
@@ -465,6 +470,7 @@ class DailyLookSerializer(serializers.ModelSerializer):
         if obj.status == DailyLook.Status.FAILED:
             return "오늘의 룩을 만들지 못했어요. 잠시 후 다시 확인해주세요."
         return None
+
 
 class RecommendationHistoryQuerySerializer(serializers.Serializer):
     """추천 이력 필터와 offset 페이지네이션 입력."""
