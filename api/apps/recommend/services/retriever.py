@@ -88,6 +88,12 @@ class RetrievalRequest:
     hard_filter: bool = True
     #: 노출 가능한 원본만 (기본은 제한 없음 — 골든 원본은 대개 exposable=False다)
     exposable_only: bool = False
+    #: 결과에서 뺄 골든 코디 id. 오늘의 룩이 "최근 며칠 안에 이미 나간 코디"를
+    #: 넘겨 같은 추천이 반복되는 것을 막는다. 점수화가 끝난 뒤 상위 N을 자르기
+    #: 직전에 빼므로, 빠진 자리는 다음 순위가 자연스럽게 채운다. 단 후보가
+    #: **전부** 여기 걸리면 제외를 풀고 그대로 돌려준다 — 골든셋이 작을 때
+    #: 반복 추천이 '추천 없음'보다 낫다.
+    exclude_golden_ids: frozenset[str] = frozenset()
 
 
 @dataclass(frozen=True)
@@ -674,6 +680,31 @@ def retrieve_outfits(
             c.golden_id,
         )
     )
+
+    # 최근에 이미 나간 코디는 상위 N을 자르기 직전에 뺀다 — 그래야 빠진 자리를
+    # 다음 순위가 채워 top k가 온전히 '새 코디'로 만들어진다. 점수화 앞에서 빼지
+    # 않는 이유는 없음: 결과가 같고, 여기 두면 "몇 건이 걸러졌는지"를 한 곳에서
+    # 셀 수 있다.
+    if request.exclude_golden_ids:
+        fresh = [
+            c for c in candidates if c.golden_id not in request.exclude_golden_ids
+        ]
+        if fresh:
+            if len(fresh) < len(candidates):
+                logger.info(
+                    "최근 추천분 %d건을 후보에서 제외 (남은 후보 %d건)",
+                    len(candidates) - len(fresh),
+                    len(fresh),
+                )
+            candidates = fresh
+        elif candidates:
+            # 전부 최근 추천분이면 제외를 풀어 반복을 허용한다. 조용히 EMPTY가
+            # 되면 사용자는 "며칠 잘 나오다가 갑자기 추천이 사라졌다"를 겪는다.
+            logger.warning(
+                "후보 %d건이 전부 최근 추천분 — 제외를 풀고 반복 추천을 허용한다 "
+                "(골든셋이 작거나 이 사용자 조건이 좁다)",
+                len(candidates),
+            )
     return candidates[: request.limit]
 
 
