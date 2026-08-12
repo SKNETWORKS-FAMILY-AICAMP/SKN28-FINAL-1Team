@@ -25,6 +25,8 @@ from apps.chat.serializers import (
     ChatAttachmentUploadResponseSerializer,
     ChatAttachmentUploadSerializer,
     ChatMessageCreateSerializer,
+    ChatMessagePageQuerySerializer,
+    ChatMessagePageResponseSerializer,
     ChatMessageSerializer,
     ChatMoodAnalysisResponseSerializer,
     ChatMoodDecisionResponseSerializer,
@@ -32,11 +34,15 @@ from apps.chat.serializers import (
     ChatRunSerializer,
     ChatSessionCreateSerializer,
     ChatSessionDeriveSerializer,
+    ChatSessionSearchItemSerializer,
+    ChatSessionSearchQuerySerializer,
+    ChatSessionSearchResponseSerializer,
     ChatSessionSerializer,
     ChatSessionUpdateSerializer,
     GuestClaimSerializer,
 )
 from apps.chat.services import attachments as attachment_service
+from apps.chat.services import history as history_service
 from apps.chat.services import identity as identity_service
 from apps.chat.services import mood_analysis
 from apps.chat.services import queue as chat_queue
@@ -159,6 +165,54 @@ class ChatSessionListCreateView(APIView):
         return Response(
             ChatSessionSerializer(session).data,
             status=status.HTTP_201_CREATED,
+        )
+
+
+class ChatSessionSearchView(APIView):
+    """세션 제목과 메시지 본문을 소유자 범위에서 검색한다."""
+
+    permission_classes = [AllowAny]
+
+    @extend_schema(
+        operation_id="chat_session_search",
+        tags=["Chat"],
+        summary="대화 내용 검색",
+        description=(
+            "세션 제목과 저장된 메시지 본문을 부분 일치로 검색합니다. "
+            "결과는 최근 수정 순이며 search_match에 일치 메시지 미리보기가 포함됩니다."
+        ),
+        parameters=[ChatSessionSearchQuerySerializer],
+        responses={
+            200: ChatSessionSearchResponseSerializer,
+            400: OpenApiResponse(description="검색어·limit·cursor 검증 실패"),
+        },
+    )
+    def get(self, request):
+        identity = _identity(request)
+        serializer = ChatSessionSearchQuerySerializer(data=request.query_params)
+        serializer.is_valid(raise_exception=True)
+        values = serializer.validated_data
+        try:
+            page = history_service.search_sessions(
+                identity=identity,
+                query=values["query"],
+                limit=values["limit"],
+                cursor=values["cursor"],
+            )
+        except history_service.ChatHistoryCursorInvalid as exc:
+            return Response(
+                {"code": exc.code, "detail": str(exc)},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        normalized_query = " ".join(values["query"].split())
+        return Response(
+            {
+                "query": normalized_query,
+                "items": ChatSessionSearchItemSerializer(page.items, many=True).data,
+                "total_count": page.total_count,
+                "next_cursor": page.next_cursor,
+                "has_more": page.has_more,
+            }
         )
 
 
@@ -303,6 +357,58 @@ class ChatSessionMessageListView(APIView):
                 ),
             },
             status=response_status,
+        )
+
+
+class ChatSessionMessagePageView(APIView):
+    """최신 메시지 묶음부터 커서로 과거 메시지를 추가 조회한다."""
+
+    permission_classes = [AllowAny]
+
+    @extend_schema(
+        operation_id="chat_session_message_page",
+        tags=["Chat"],
+        summary="대화 메시지 페이지 조회",
+        description=(
+            "첫 요청은 가장 최근 메시지를 반환합니다. next_cursor를 다음 요청에 "
+            "전달하면 더 오래된 메시지를 조회하며, 각 응답의 items는 시간순입니다."
+        ),
+        parameters=[ChatMessagePageQuerySerializer],
+        responses={
+            200: ChatMessagePageResponseSerializer,
+            400: OpenApiResponse(description="limit·cursor 검증 실패"),
+            404: OpenApiResponse(description="세션이 없거나 요청 identity의 소유가 아님"),
+        },
+    )
+    def get(self, request, session_id):
+        identity = _identity(request)
+        serializer = ChatMessagePageQuerySerializer(data=request.query_params)
+        serializer.is_valid(raise_exception=True)
+        values = serializer.validated_data
+        try:
+            page = history_service.page_messages(
+                identity=identity,
+                session_id=session_id,
+                limit=values["limit"],
+                cursor=values["cursor"],
+            )
+        except history_service.ChatHistorySessionNotFound as exc:
+            return Response(
+                {"code": exc.code, "detail": str(exc)},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+        except history_service.ChatHistoryCursorInvalid as exc:
+            return Response(
+                {"code": exc.code, "detail": str(exc)},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        return Response(
+            {
+                "items": ChatMessageSerializer(page.items, many=True).data,
+                "total_count": page.total_count,
+                "next_cursor": page.next_cursor,
+                "has_more": page.has_more,
+            }
         )
 
 

@@ -10,6 +10,8 @@ from apps.chat.views import (
     ChatSessionDetailView,
     ChatSessionListCreateView,
     ChatSessionMessageListView,
+    ChatSessionMessagePageView,
+    ChatSessionSearchView,
     GuestClaimView,
     GuestIdentityView,
 )
@@ -20,6 +22,11 @@ urlpatterns = [
     path("chat/guest/", GuestIdentityView.as_view(), name="guest-identity"),
     path("chat/guest/claim/", GuestClaimView.as_view(), name="guest-claim"),
     path("chat/sessions/", ChatSessionListCreateView.as_view(), name="session-list"),
+    path(
+        "chat/sessions/search/",
+        ChatSessionSearchView.as_view(),
+        name="session-search",
+    ),
     path(
         "chat/sessions/<uuid:session_id>/",
         ChatSessionDetailView.as_view(),
@@ -34,6 +41,11 @@ urlpatterns = [
         "chat/sessions/<uuid:session_id>/messages/",
         ChatSessionMessageListView.as_view(),
         name="session-messages",
+    ),
+    path(
+        "chat/sessions/<uuid:session_id>/messages/page/",
+        ChatSessionMessagePageView.as_view(),
+        name="session-message-page",
     ),
     path(
         "chat/sessions/<uuid:session_id>/attachments/",

@@ -5,9 +5,11 @@ from __future__ import annotations
 import uuid
 
 from django.conf import settings
+from django.contrib.postgres.indexes import GinIndex, OpClass
 from django.core.exceptions import ValidationError
 from django.db import models
 from django.db.models import Q
+from django.db.models.functions import Upper
 from django.utils import timezone
 
 
@@ -267,6 +269,10 @@ class ChatSession(models.Model):
                 fields=["identity", "deleted_at", "-updated_at"],
                 name="ix_chat_session_owner",
             ),
+            GinIndex(
+                OpClass(Upper("title"), name="gin_trgm_ops"),
+                name="ix_chat_session_title_trgm",
+            ),
         ]
         constraints = [
             models.CheckConstraint(
@@ -376,6 +382,12 @@ class ChatMessage(models.Model):
             models.CheckConstraint(
                 condition=Q(sequence__gte=1),
                 name="ck_chat_message_sequence",
+            ),
+        ]
+        indexes = [
+            GinIndex(
+                OpClass(Upper("content"), name="gin_trgm_ops"),
+                name="ix_chat_message_content_trgm",
             ),
         ]
 

@@ -203,6 +203,57 @@ class ChatSessionSerializer(serializers.ModelSerializer):
         read_only_fields = fields
 
 
+class ChatHistoryCursorSerializer(serializers.Serializer):
+    cursor = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        max_length=2048,
+        default="",
+    )
+
+
+class ChatMessagePageQuerySerializer(ChatHistoryCursorSerializer):
+    limit = serializers.IntegerField(required=False, min_value=1, max_value=100, default=50)
+
+
+class ChatMessagePageResponseSerializer(serializers.Serializer):
+    items = ChatMessageSerializer(many=True, read_only=True)
+    total_count = serializers.IntegerField(read_only=True)
+    next_cursor = serializers.CharField(read_only=True, allow_null=True)
+    has_more = serializers.BooleanField(read_only=True)
+
+
+class ChatSessionSearchQuerySerializer(ChatHistoryCursorSerializer):
+    query = serializers.CharField(
+        allow_blank=False,
+        trim_whitespace=True,
+        max_length=100,
+    )
+    limit = serializers.IntegerField(required=False, min_value=1, max_value=50, default=20)
+
+
+class ChatSessionSearchMatchSerializer(serializers.Serializer):
+    message_id = serializers.UUIDField(read_only=True)
+    sequence = serializers.IntegerField(read_only=True)
+    role = serializers.ChoiceField(choices=ChatMessage.Role.choices, read_only=True)
+    preview = serializers.CharField(read_only=True)
+
+
+class ChatSessionSearchItemSerializer(ChatSessionSerializer):
+    search_match = ChatSessionSearchMatchSerializer(read_only=True, allow_null=True)
+
+    class Meta(ChatSessionSerializer.Meta):
+        fields = [*ChatSessionSerializer.Meta.fields, "search_match"]
+        read_only_fields = fields
+
+class ChatSessionSearchResponseSerializer(serializers.Serializer):
+    query = serializers.CharField(read_only=True)
+    items = ChatSessionSearchItemSerializer(many=True, read_only=True)
+    total_count = serializers.IntegerField(read_only=True)
+    next_cursor = serializers.CharField(read_only=True, allow_null=True)
+    has_more = serializers.BooleanField(read_only=True)
+
+
 class ChatSessionCreateSerializer(serializers.Serializer):
     mode = serializers.ChoiceField(choices=ChatSession.Mode.choices)
     title = serializers.CharField(required=False, allow_blank=True, max_length=120)
