@@ -55,8 +55,22 @@ export default function Budget() {
     }
   };
 
-  const save = () => {
-    prefsStore.setBudget(sel);
+  const [saving, setSaving] = useState(false);
+
+  const save = async () => {
+    if (saving) return;
+    setSaving(true);
+    /* 서버 왕복이라 끝난 뒤에 알린다 — 먼저 토스트를 띄우면 실패해도 저장된 것처럼 보인다. */
+    try {
+      await prefsStore.saveBudget(sel);
+    } catch (error) {
+      toast(error instanceof Error ? error.message : '예산을 저장하지 못했어요', {
+        variant: 'error',
+      });
+      return;
+    } finally {
+      setSaving(false);
+    }
     toast('예산을 저장했어요', { variant: 'success' });
     goBack('/(tabs)/my');
   };

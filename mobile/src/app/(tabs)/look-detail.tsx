@@ -114,35 +114,47 @@ export default function LookDetail() {
   /* 북마크 = 저장 토글. 켜면 '저장됨'에 담고, 끄면 뺀다.
      하트를 안 쓰는 이유 — 하트는 룩북 피드의 '좋아요'가 가져갔다. 한 아이콘이 화면마다
      다른 뜻이면 누르기 전에 무슨 일이 생길지 알 수 없다. */
-  const toggleSave = () => {
-    if (saved) {
-      const found = savedLookStore
-        .getLooks()
-        .find((l) => (look.image ? l.image === look.image : l.asset === TODAY_LOOK_IMAGE));
-      if (found) savedLookStore.removeLook(found.id);
-      setSaved(false);
-    } else {
-      savedLookStore.addLook({
+  /* 서버 왕복이라 먼저 켜 두고 실패하면 되돌린다 — 저장은 한 번 누르면 끝나야 하는 동작이라
+     응답을 기다리는 동안 아이콘이 꺼져 있으면 눌리지 않은 것처럼 보인다. */
+  const saveLook = async (): Promise<boolean> => {
+    setSaved(true);
+    try {
+      await savedLookStore.addLook({
         ...lookKey,
         comment: look.title,
         tags: lookTags,
         reason: look.reasons[0],
       });
-      setSaved(true);
-      toast('저장됨에 담았어요');
+      return true;
+    } catch (error) {
+      setSaved(false);
+      toast(error instanceof Error ? error.message : '저장하지 못했어요', { variant: 'error' });
+      return false;
     }
   };
 
+  const toggleSave = async () => {
+    if (saved) {
+      const found = savedLookStore
+        .getLooks()
+        .find((l) => (look.image ? l.image === look.image : l.asset === TODAY_LOOK_IMAGE));
+      setSaved(false);
+      if (found) {
+        try {
+          await savedLookStore.removeLook(found.id);
+        } catch (error) {
+          setSaved(true);
+          toast(error instanceof Error ? error.message : '빼지 못했어요', { variant: 'error' });
+        }
+      }
+      return;
+    }
+    if (await saveLook()) toast('저장됨에 담았어요');
+  };
+
   // 하단 '룩북에 저장' = 담고 룩북 저장됨 탭으로 이동.
-  const saveAndGoLookbook = () => {
-    savedLookStore.addLook({
-      ...lookKey,
-      comment: look.title,
-      tags: lookTags,
-      reason: look.reasons[0],
-    });
-    setSaved(true);
-    router.push('/(tabs)/lookbook?tab=saved');
+  const saveAndGoLookbook = async () => {
+    if (await saveLook()) router.push('/(tabs)/lookbook?tab=saved');
   };
 
   /* 서브텍스트의 날씨는 홈과 같은 출처(useHome)에서 실시간 값을 가져와 통일한다.

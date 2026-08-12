@@ -246,3 +246,38 @@ export const CalendarEndpoints = {
   detail: (calendarId: string) => `/api/v1/calendars/${calendarId}/`,
   processingStatus: (calendarId: string) => `/api/v1/calendars/${calendarId}/processing-status/`,
 } as const;
+
+/**
+ * 룩북 — 캘린더와 거의 같은 모양이지만 **날짜에 매이지 않아 여러 건**을 올릴 수 있다.
+ *
+ *   GET    /api/v1/lookbooks/?hashtag=&status=&limit=&offset=  → { count, next_offset, results[] }
+ *   POST   /api/v1/lookbooks/photo/                    multipart → 202 (사진 처리는 비동기)
+ *   POST   /api/v1/lookbooks/wardrobe/                 json      → 201 (옷만 고르면 즉시 완료)
+ *   GET    /api/v1/lookbooks/{id}/                     → LookbookPost
+ *   PATCH  /api/v1/lookbooks/{id}/                     → schedule·tpo·hashtags 만
+ *   DELETE /api/v1/lookbooks/{id}/                     → 204
+ *   GET    /api/v1/lookbooks/{id}/processing-status/   사진 처리 폴링
+ *
+ * ⚠️ **이 목록은 '내 룩북'이다.** 남들이 올린 피드(둘러보기)는 서버에 없다 —
+ *    state/lookbook.ts 의 로컬 시드가 계속 그 자리를 맡는다.
+ * ⚠️ 등록 요청이 `calendar_date`·`overwrite_calendar` 를 받는다. 켜면 **한 번의 호출로**
+ *    룩북과 캘린더가 함께 남는다 — 캘린더를 따로 부르지 않는다.
+ * ⚠️ PATCH 는 캘린더와 같은 제약: schedule·tpo·hashtags 만. 사진·옷 구성은 못 바꾼다.
+ */
+/**
+ * 월 의류 구매 예산 — 상품 추천에서 '예산 내' 표시를 가르는 값.
+ *
+ *   GET /api/v1/users/me/budget/  → { monthly_budget: number | null }   미설정이면 null
+ *   PUT /api/v1/users/me/budget/    { monthly_budget }  전체 교체
+ *
+ * ⚠️ **1만원 단위, 10,000 이상**만 받는다. 지울 때는 키를 빼는 게 아니라 **명시적으로 null**.
+ */
+export const BudgetEndpoint = '/api/v1/users/me/budget/';
+
+export const LookbookEndpoints = {
+  list: '/api/v1/lookbooks/',
+  photo: '/api/v1/lookbooks/photo/',
+  wardrobe: '/api/v1/lookbooks/wardrobe/',
+  detail: (lookbookId: string) => `/api/v1/lookbooks/${lookbookId}/`,
+  processingStatus: (lookbookId: string) => `/api/v1/lookbooks/${lookbookId}/processing-status/`,
+} as const;
