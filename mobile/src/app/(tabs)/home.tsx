@@ -213,9 +213,9 @@ function toDisplayLook(look: DailyLook | null): DisplayLook | null {
   return {
     image,
     asset: image ? undefined : TODAY_LOOK_IMAGE,
-    /* 카드 문구는 근거 문장(rationale_ko)을 쓴다 — headline("28도, 오늘은 이렇게")은
-       바로 위 날씨 라벨과 내용이 겹친다. */
-    comment: r.rationale_ko || r.headline,
+    /* 카드 문구는 headline — 룩 상세의 제목과 같은 값이라, 카드에서 본 문장이
+       눌러서 들어간 화면의 제목으로 그대로 이어진다. 비어 있으면 근거 문장으로. */
+    comment: r.headline || r.rationale_ko,
     tags: tags.length ? tags : ['#오늘의룩'],
     variantId: 'daily',
   };
