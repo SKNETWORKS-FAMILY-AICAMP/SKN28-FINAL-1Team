@@ -2,8 +2,10 @@ import { useSyncExternalStore } from 'react';
 import { Platform } from 'react-native';
 
 import { BODY_MEASURES, type BodyMeasureKey } from '@/constants/body-measures';
-import { BodyEndpoints } from '@/constants/config';
+import { API_BASE_URL, BodyEndpoints } from '@/constants/config';
 import { ApiError, api } from '@/lib/apiClient';
+import { getAccessToken } from '@/lib/secureStore';
+import { uploadMultipart } from '@/lib/uploadFile';
 
 /**
  * 체형측정 플로우(STEP1 입력 → STEP2 촬영 → STEP3 결과) 전역 상태.
@@ -213,7 +215,36 @@ async function uploadBodyPhotos(
     form.append('height', String(input.height));
     form.append('weight', String(input.weight));
   }
-  return api.post<PhotoTxResponse>(BodyEndpoints.photos, form);
+
+  if (Platform.OS === 'web') {
+    return api.post<PhotoTxResponse>(BodyEndpoints.photos, form);
+  }
+
+  /* Expo의 전역 fetch는 네이티브 { uri, name, type } 파일 파트를 처리하지 못한다.
+     옷장·룩북과 같은 XHR 업로더를 써야 두 사진이 실제 multipart로 전달된다. */
+  const response = await uploadMultipart(`${API_BASE_URL}${BodyEndpoints.photos}`, form, {
+    token: await getAccessToken(),
+  });
+  return parsePhotoUploadResponse(response);
+}
+
+function parsePhotoUploadResponse(response: { status: number; body: string }): PhotoTxResponse {
+  let data: unknown = null;
+  try {
+    data = response.body ? JSON.parse(response.body) : null;
+  } catch {
+    data = response.body;
+  }
+
+  if (response.status < 200 || response.status >= 300) {
+    const detail = (data as { detail?: string } | null)?.detail;
+    throw new ApiError(
+      detail ?? `사진 측정 요청에 실패했어요. (${response.status})`,
+      response.status,
+      data,
+    );
+  }
+  return data as PhotoTxResponse;
 }
 
 /**
