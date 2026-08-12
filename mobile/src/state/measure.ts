@@ -145,15 +145,20 @@ function toResult(outcome: BodyEstimationResult, usedPhotos: boolean): MeasureRe
 }
 
 /**
- * STEP1 프리필용 — 저장된 키·몸무게 (미입력이면 각각 null).
+ * STEP1 프리필용 — 저장된 성별·키·몸무게 (미입력이면 각각 null).
  * 조회 자체가 실패하면 던진다. 호출부가 "값이 없음"과 "못 불러옴"을 구분해 안내해야 한다.
  */
 export async function fetchBodyBasic(): Promise<{
+  sex: 'female' | 'male' | null;
   height: number | null;
   weight: number | null;
 }> {
   const dto = await fetchBody();
-  return { height: toNum(dto.height), weight: toNum(dto.weight) };
+  return {
+    sex: dto.gender === 'female' || dto.gender === 'male' ? dto.gender : null,
+    height: toNum(dto.height),
+    weight: toNum(dto.weight),
+  };
 }
 
 // ── 사진 기반 측정 (POST photos → 폴링) ─────────────────────────

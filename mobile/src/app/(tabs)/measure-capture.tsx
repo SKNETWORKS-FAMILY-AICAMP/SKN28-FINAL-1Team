@@ -103,7 +103,7 @@ export default function MeasureCapture() {
           <View style={styles.privacy}>
             <Icon name="lock.shield" tintColor={ink(0.5)} size={15} />
             <Text style={styles.privacyText}>
-              사진은 치수 추정에만 쓰이고 90일 후 자동 삭제돼요.
+              사진은 서버에 저장하지 않고 치수 추정 후 바로 폐기해요.
             </Text>
           </View>
 
