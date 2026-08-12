@@ -1,6 +1,6 @@
 {
   "schema_version": "body-fit-rules-v2",
-  "note": "체형별 의류 매칭 규칙. schema_version은 추천 규칙 파일 내부 버전이며 백엔드 API 경로 /api/v1과 무관하다. 2026-08-12 main 기준: 과거 임의 비율 기준 -> SizeKorea 11개 지표 평균/분위수 기준. 값은 반드시 image-processor/pipeline/taxonomy.py의 태그 라벨만 쓴다 — 오타는 조용히 '규칙 없음'이 되므로 style_rules.validate_rules()가 기동 시 검사한다.",
+  "note": "체형별 의류 매칭 규칙. schema_version은 추천 규칙 파일 내부 버전이며 백엔드 API 경로 /api/v1과 무관하다. 2026-08-13 기준: SizeKorea 181명 이미지 세트 14개 지표(기존 둘레 7개 + 추가 길이 5개 + 비율 2개) 평균/분위수 기준 및 시각적 목길이 상체길이(머리~골반)-(어깨~골반)-얼굴길이(8~12cm) 반영. 값은 반드시 image-processor/pipeline/taxonomy.py의 태그 라벨만 쓴다 — 오타는 조용히 '규칙 없음'이 되므로 style_rules.validate_rules()가 기동 시 검사한다.",
   "weights": {
     "note": "취향이 1순위, 체형 규칙이 2순위 (가이드 Q2). 선호 가점이 규칙 감점보다 크도록 잡았다. context_match는 계절·상황 일치 가산 — 하드 필터가 아니다.",
     "preference_match": 30,

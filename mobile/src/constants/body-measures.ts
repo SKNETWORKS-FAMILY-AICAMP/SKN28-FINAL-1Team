@@ -1,9 +1,8 @@
 /**
- * 신체치수 11개의 표시 규칙과 '재는 법' 안내 원문.
- * 2026-08-12 main 기준: thigh/calf/arm 둘레 안내 -> 길이 4개 + 비율 2개 안내.
+ * 신체치수 10개의 표시 규칙과 '재는 법' 안내 원문.
  *
  * 백엔드(BodyMeasurement · PATCH /users/me/body/detail/)가 다루는 상세 항목은
- * **둘레·너비 4개 + 길이 5개 + 비율 2개 = 11개**다. 키 이름은 API 필드명과 1:1로 맞춰
+ * **둘레·너비 7개 + 체형 지표 3개 = 10개**다. 키 이름은 API 필드명과 1:1로 맞춰
  * 그대로 PATCH 본문에 넣을 수 있게 했다 (신규 3개만 snake_case인 이유).
  *
  * 값의 성격이 둘로 갈린다.
@@ -21,10 +20,9 @@ export type BodyMeasureKey =
   | 'chest'
   | 'waist'
   | 'hip'
-  | 'thigh_length'
-  | 'calf_length'
-  | 'torso_length'
-  | 'leg_length'
+  | 'thigh'
+  | 'calf'
+  | 'arm'
   | 'neck_length'
   | 'thigh_calf_ratio'
   | 'torso_leg_ratio';
@@ -34,13 +32,13 @@ export type BodyMeasureSpec = {
   label: string;
   /** 타일처럼 좁은 자리에 쓰는 짧은 이름. 없으면 label 을 쓴다 */
   shortLabel?: string;
-  /** 'size' = cm 실측치/길이, 'proportion' = 체형 비율 */
+  /** 'size' = cm 실측치(7개), 'proportion' = 체형 지표(3개) */
   group: 'size' | 'proportion';
   /** 값 옆에 붙는 단위. 비율은 단위가 없다 */
   unit: 'cm' | null;
   /** 표시·입력 소수 자릿수 (cm 1자리 · 비율 3자리 — 백엔드 Decimal 자릿수와 동일) */
   decimals: 1 | 3;
-  /** 입력 허용 범위. SizeKorea 정상 분포는 caption에 참고값으로 따로 적는다. */
+  /** 입력 허용 범위 (백엔드 validator 와 동일). 벗어나면 저장이 400 이 된다 */
   min: number;
   max: number;
   /** 목록에서 라벨 밑에 붙는 한 줄. 없으면 안 그린다 */
@@ -119,68 +117,50 @@ export const BODY_MEASURES: readonly BodyMeasureSpec[] = [
     ],
   },
   {
-    key: 'thigh_length',
-    label: '허벅지길이',
+    key: 'thigh',
+    label: '허벅지둘레',
     group: 'size',
     unit: 'cm',
     decimals: 1,
     min: 1,
     max: 999.9,
-    caption: 'SizeKorea 참고 분포 약 19.1 ~ 40.3cm',
-    summary: '샅선/인심 라인에서 무릎뼈까지의 세로 길이예요.',
+    summary: '허벅지에서 가장 굵은 곳의 둘레예요.',
     steps: [
-      '옆에서 봤을 때 샅선 또는 인심 라인 시작점을 잡습니다.',
-      '무릎뼈 가운데 또는 무릎 중심까지 곧게 잽니다.',
-      '둘레가 아니라 위아래 길이만 기록합니다.',
+      '두 발을 어깨너비로 벌리고 체중을 양쪽에 고르게 싣습니다.',
+      '사타구니 바로 아래, 가장 굵은 지점을 찾습니다.',
+      '바닥과 수평으로 한 바퀴 돌립니다.',
     ],
   },
   {
-    key: 'calf_length',
-    label: '종아리길이',
+    key: 'calf',
+    label: '종아리둘레',
     group: 'size',
     unit: 'cm',
     decimals: 1,
     min: 1,
     max: 999.9,
-    caption: 'SizeKorea 참고 분포 약 28.9 ~ 48.9cm',
-    summary: '무릎뼈에서 복사뼈/발목까지의 세로 길이예요.',
+    summary: '종아리에서 가장 굵은 곳의 둘레예요.',
     steps: [
-      '무릎뼈 가운데 또는 무릎 중심을 시작점으로 잡습니다.',
-      '가쪽 복사뼈 또는 발목 라인까지 곧게 잽니다.',
-      '종아리 알 둘레가 아니라 길이만 기록합니다.',
+      '맨발로 서서 체중을 양발에 고르게 싣습니다.',
+      '종아리 알이 가장 도드라지는 지점을 찾습니다.',
+      '바닥과 수평으로 한 바퀴 돌립니다.',
     ],
   },
   {
-    key: 'torso_length',
-    label: '상체길이',
+    key: 'arm',
+    label: '팔뚝둘레',
     group: 'size',
     unit: 'cm',
     decimals: 1,
     min: 1,
     max: 999.9,
-    caption: 'SizeKorea 참고 분포 약 25.0 ~ 59.0cm',
-    summary: '어깨선에서 골반점까지의 세로 길이예요.',
+    summary: '어깨와 팔꿈치 사이, 위팔에서 가장 굵은 곳의 둘레예요.',
     steps: [
-      '어깨선 또는 어깨높이를 시작점으로 잡습니다.',
-      '앞쪽 골반점(위앞엉덩뼈가시 부근)까지 곧게 잽니다.',
-      '머리 길이나 목 위쪽은 포함하지 않습니다.',
+      '팔을 자연스럽게 내리고 힘을 뺍니다.',
+      '어깨와 팔꿈치의 중간쯤에서 가장 굵은 지점을 찾습니다.',
+      '팔 축과 직각이 되게 한 바퀴 돌립니다.',
     ],
-  },
-  {
-    key: 'leg_length',
-    label: '하체길이',
-    group: 'size',
-    unit: 'cm',
-    decimals: 1,
-    min: 1,
-    max: 999.9,
-    caption: 'SizeKorea 참고 분포 약 54.3 ~ 85.3cm',
-    summary: '샅선/인심 라인에서 복사뼈/발목까지의 세로 길이예요.',
-    steps: [
-      '샅선 또는 인심 라인 시작점을 잡습니다.',
-      '가쪽 복사뼈 또는 발목 라인까지 곧게 잽니다.',
-      '골반 바깥쪽부터 재지 않습니다.',
-    ],
+    caution: '팔에 힘을 주면(알통) 실제보다 크게 나옵니다.',
   },
   {
     key: 'neck_length',
@@ -205,13 +185,13 @@ export const BODY_MEASURES: readonly BodyMeasureSpec[] = [
     group: 'proportion',
     unit: null,
     decimals: 3,
-    min: 0.1,
-    max: 9.999,
-    caption: '하의 실루엣 추천에 쓰여요 (SizeKorea 평균 0.823, 참고 분포 약 0.506 ~ 1.026)',
-    summary: '샅선에서 무릎뼈까지 길이 ÷ 무릎뼈에서 발목까지 길이예요.',
+    min: 0.8,
+    max: 1.3,
+    caption: '하의 실루엣 추천에 쓰여요 (0.8 ~ 1.3)',
+    summary: '골반에서 무릎까지 길이 ÷ 무릎에서 발목까지 길이예요.',
     steps: [
-      '샅선/인심 라인에서 무릎뼈 가운데까지를 잽니다.',
-      '무릎뼈 가운데에서 복사뼈/발목까지를 잽니다.',
+      '옆에서 봤을 때 골반 바깥쪽 지점에서 무릎 가운데까지를 잽니다.',
+      '무릎 가운데에서 복사뼈까지를 잽니다.',
       '앞의 값을 뒤의 값으로 나눕니다.',
     ],
     caution:
@@ -223,25 +203,25 @@ export const BODY_MEASURES: readonly BodyMeasureSpec[] = [
     group: 'proportion',
     unit: null,
     decimals: 3,
-    min: 0.1,
-    max: 9.999,
-    caption: '상의 기장·밑위 추천에 쓰여요 (SizeKorea 평균 0.660, 참고 분포 약 0.339 ~ 0.920)',
-    summary: '어깨선에서 골반점까지 길이 ÷ 샅선에서 발목까지 길이예요.',
+    min: 0.6,
+    max: 1.0,
+    caption: '상의 기장·밑위 추천에 쓰여요 (0.6 ~ 1.0)',
+    summary: '어깨에서 골반까지 길이 ÷ 골반에서 발목까지 길이예요.',
     steps: [
-      '어깨선에서 골반점까지를 잽니다.',
-      '샅선/인심 라인에서 복사뼈/발목까지를 잽니다.',
+      '어깨선에서 골반 바깥쪽 지점까지를 잽니다.',
+      '골반 바깥쪽에서 바닥까지를 잽니다.',
       '앞의 값을 뒤의 값으로 나눕니다.',
     ],
     caution:
-      '머리부터 재거나 골반 바깥쪽부터 하체를 재면 값이 달라집니다. 사진으로 측정하거나 직접 고치면 실제 비율이 반영됩니다.',
+      '사진 없이 추정할 때는 이 값만 개인차를 반영하지 못해 기준값(0.786)이 들어갑니다. 사진으로 측정하거나 직접 고치면 실제 비율이 반영됩니다.',
   },
 ] as const;
 
 /**
  * 접혀 있을 때 보여줄 개수 — 어깨·가슴·허리·엉덩이.
  *
- * 전체를 한 번에 펼치면 결과 화면이 숫자 벽이 되고, 정작 옷 사이즈를 정하는
- * 네 값이 묻힌다. 나머지는 '더보기'로 미룬다 (순서는 BODY_MEASURES 정의 순).
+ * 10개를 한 번에 펼치면 결과 화면이 숫자 벽이 되고, 정작 옷 사이즈를 정하는
+ * 네 값이 묻힌다. 나머지 6개는 '더보기'로 미룬다 (순서는 BODY_MEASURES 정의 순).
  */
 export const PREVIEW_COUNT = 4;
 

@@ -166,11 +166,12 @@ class UserSerializer(serializers.ModelSerializer):
 
 
 BODY_BASIC_FIELDS = ["gender", "height", "weight"]
-# 2026-08-12 main 기준: 상세 9개 응답 -> torso_length/leg_length 포함 11개 응답.
+# 2026-08-12: 기존 둘레 7개는 유지하고 길이 4개를 **추가**했다 (상세 14개).
+# 앞 7개만 화면에 보이고, *_length 는 응답에만 실린다 — 프론트는 아직 쓰지 않는다.
 BODY_DETAIL_FIELDS = [
-    "shoulder", "chest", "waist", "hip", "thigh_length", "calf_length",
-    "torso_length", "leg_length", "neck_length",
-    "thigh_calf_ratio", "torso_leg_ratio"
+    "chest", "waist", "hip", "thigh", "calf", "arm", "shoulder",
+    "thigh_length", "calf_length", "torso_length", "leg_length",
+    "neck_length", "thigh_calf_ratio", "torso_leg_ratio"
 ]
 
 

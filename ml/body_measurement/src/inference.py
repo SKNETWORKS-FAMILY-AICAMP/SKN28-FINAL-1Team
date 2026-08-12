@@ -34,19 +34,43 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 # 학습 시점과 동일해야 하는 값들 (data/hist/manifest.json / retrain_11targets.py 기준).
 # 순서가 어긋나면 예외 없이 조용히 틀린 숫자가 나오므로 임의로 바꾸지 않는다.
 FEATURES = ["gender", "height", "weight"]
-TARGETS = [
-    "shoulder",
+# 모델(hist_gradient_boosting_181.joblib)이 내놓는 값의 **순서**.
+# scripts/train_hist_181.py 의 TARGETS 와 반드시 같아야 한다 — zip(strict=True)로 묶는다.
+#
+# 학습 자료는 이미지 세트 181명(SizeKorea 8차 직접측정) 한 벌이다. 사진 경로와 무사진
+# 경로가 같은 사람·같은 계측 정의를 쓰게 하려는 것이다. 3D 측정(4,545행)에는 허벅지·
+# 종아리·팔뚝 둘레 컬럼이 없고 우리 181명이 그 조사에 들어 있지도 않다(8개 항목
+# 최근접 L1거리 최소 4.46cm, 0거리 0명).
+MEASUREMENT_TARGETS = [
     "chest",
     "waist",
     "hip",
+    "thigh",
+    "calf",
+    "arm",
+    "shoulder",
     "thigh_length",
     "calf_length",
     "torso_length",
     "leg_length",
     "neck_length",
-    "thigh_calf_ratio",
-    "torso_leg_ratio",
 ]
+
+# 길이에서 나눗셈으로 만드는 비율 2개 — 학습하지 않는다.
+# 원본에서 비율 컬럼이 길이의 몫과 100퍼센트 일치함을 확인했고, 몫을 회귀로 배우면
+# 예측 비율이 예측 길이의 몫과 어긋날 수 있어 계산으로 만든다.
+RATIO_TARGETS = ["thigh_calf_ratio", "torso_leg_ratio"]
+RATIO_SOURCES = {
+    "thigh_calf_ratio": ("thigh_length", "calf_length"),
+    "torso_leg_ratio": ("torso_length", "leg_length"),
+}
+
+# ⚠️ neck_length 는 키·몸무게로 예측되지 않는다. 정의를 4가지로 바꿔 재봐도
+#    5-겹 CV R2가 -0.36~0.10 이라 사실상 집단 평균이 나온다(main 도 성별 회귀식으로
+#    채우던 값이라 동작은 같다). 실제 값을 얻으려면 사진(VLM) 경로를 써야 한다.
+UNINFORMATIVE_TARGETS = ["neck_length"]
+
+TARGETS = MEASUREMENT_TARGETS + RATIO_TARGETS
 GENDER_CODES = {"M": 0.0, "F": 1.0}
 GENDER_ALIASES = {
     "M": "M",
@@ -71,6 +95,11 @@ PHOTO_MEASUREMENT_TARGETS = [
     "torso_length",
     "leg_length",
     "neck_length",
+    # 둘레 3종도 사진에서 직접 물어본다 — 무사진 모델은 181명으로만 학습해서
+    # 사진이 있으면 그 값을 우선 쓰는 편이 낫다.
+    "thigh",
+    "calf",
+    "arm",
 ]
 PHOTO_SUPPORT_TARGETS = ["torso_length", "leg_length"]
 PHOTO_TARGETS = TARGETS
@@ -95,14 +124,74 @@ SCHEMA_PATH = PROJECT_ROOT / "prompts" / "body_measurement_schema_full.json"
 # ⚠️ 이 아티팩트는 scikit-learn 1.8.0으로 저장됐고, 1.9.0에서 열면
 #    ModuleNotFoundError: No module named '_loss'로 실패한다. 실행 환경의
 #    scikit-learn은 반드시 1.8.0으로 고정해야 한다 (api/requirements.txt).
-DEFAULT_MODEL_PATH = PROJECT_ROOT / "data" / "hist" / "models" / "hist_gradient_boosting_11targets.joblib"
+DEFAULT_MODEL_PATH = (
+    PROJECT_ROOT / "data" / "hist" / "models" / "hist_gradient_boosting_181.joblib"
+)
 # 사진 기반 서빙 모델. validation 39명에서 평균 MAE 2.757cm로 후보 중 가장 정확했다
 # (Qwen 3.597 / Grok 3.441 / Gemini 3.962). 호출당 $0.004492로 Qwen보다 약 30배
 # 비싸지만 정확도를 우선한다.
 DEFAULT_VLM_MODEL = "moonshotai/kimi-k2.5"
 
+# 12개 예측 대상 (hist_gradient_boosting_181.joblib의 12개 output)
+LENGTH_MODEL_OUTPUTS = [
+    "chest",
+    "waist",
+    "hip",
+    "thigh",
+    "calf",
+    "arm",
+    "shoulder",
+    "thigh_length",
+    "calf_length",
+    "torso_length",
+    "leg_length",
+    "neck_length",
+]
+
+# 예측 결과에서 추출할 실제 길이/기본 지표 9개
+LENGTH_TARGETS = [
+    "shoulder",
+    "chest",
+    "waist",
+    "hip",
+    "thigh_length",
+    "calf_length",
+    "torso_length",
+    "leg_length",
+    "neck_length",
+]
+
+# 둘레 모델이 예측하는 타겟
+CIRCUMFERENCE_TARGETS = ["thigh", "calf", "arm"]
+
 _model = None
 _model_lock = threading.Lock()
+
+_circumference_model = None
+_circumference_model_lock = threading.Lock()
+
+
+def _circumference_model_path() -> Path:
+    return Path(
+        os.getenv("BODY_CIRCUMFERENCE_MODEL_PATH")
+        or (PROJECT_ROOT / "data" / "hist" / "models" / "hist_gradient_boosting_circumference.joblib")
+    )
+
+
+def load_circumference_model():
+    global _circumference_model
+    if _circumference_model is None:
+        with _circumference_model_lock:
+            if _circumference_model is None:
+                path = _circumference_model_path()
+                if not path.exists():
+                    raise BodyEstimationError(
+                        f"둘레 추정 모델 파일이 없습니다: {path}. "
+                        "BODY_CIRCUMFERENCE_MODEL_PATH 환경변수를 확인하세요."
+                    )
+                _circumference_model = joblib.load(path)
+    return _circumference_model
+
 
 
 class BodyEstimationError(Exception):
@@ -177,16 +266,46 @@ def _build_features(gender: str, height: float, weight: float) -> pd.DataFrame:
     )
 
 
-def estimate_from_basic(gender: str, height: float, weight: float) -> dict[str, float]:
-    """성별·키·몸무게로 11개 부위/비율을 추정한다."""
-    features = _build_features(gender, height, weight)
-    predicted = load_model().predict(features)[0]
-    
-    measurements = {
-        target: round(float(value), 3 if target.endswith("_ratio") else 1)
-        for target, value in zip(TARGETS, predicted, strict=True)
-    }
+def apply_ratios(measurements: dict[str, float]) -> dict[str, float]:
+    """길이에서 비율 2개를 계산해 채운다. 분모가 없거나 0이면 그 비율만 건너뛴다.
+
+    비율을 예측값으로 받지 않고 여기서 만드는 이유는, 그래야 응답의 비율이 같은 응답의
+    길이와 항상 일치하기 때문이다 (사진 경로에서 길이만 덮어써도 비율이 따라 움직인다).
+    """
+    for ratio, (numerator, denominator) in RATIO_SOURCES.items():
+        top, bottom = measurements.get(numerator), measurements.get(denominator)
+        if top is None or bottom is None or bottom <= 0:
+            continue
+        value = top / bottom
+        if math.isfinite(value):
+            measurements[ratio] = round(value, 3)
     return measurements
+
+
+def estimate_from_basic(gender: str, height: float, weight: float) -> dict[str, float]:
+    """성별·키·몸무게로 치수 12개를 추정하고 비율 2개를 계산한다 (총 14개).
+
+    길이·기본 9개와 둘레 3개는 학습 데이터가 달라 모델이 둘로 나뉘어 있다.
+    길이 모델은 비율 2개도 함께 내놓지만 그 출력은 버리고 계산값으로 대체한다.
+    """
+    features = _build_features(gender, height, weight)
+
+    predicted = load_model().predict(features)[0]
+    measurements = {
+        target: round(float(value), 1)
+        for target, value in zip(LENGTH_MODEL_OUTPUTS, predicted, strict=True)
+        if target in LENGTH_TARGETS
+    }
+
+    circumference = load_circumference_model().predict(features)[0]
+    measurements.update(
+        {
+            target: round(float(value), 1)
+            for target, value in zip(CIRCUMFERENCE_TARGETS, circumference, strict=True)
+        }
+    )
+
+    return apply_ratios(measurements)
 
 
 def _safe_ratio(numerator: float, denominator: float, field_name: str) -> float:

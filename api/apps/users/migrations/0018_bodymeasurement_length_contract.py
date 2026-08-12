@@ -1,4 +1,9 @@
-"""허벅지·종아리 둘레/팔뚝 컬럼을 제거하고 길이 계약으로 전환한다."""
+"""길이 계약(*_length) 4개를 **추가**한다.
+
+기존 둘레 컬럼(thigh/calf/arm)은 그대로 둔다 — 프론트가 계속 둘레를 보여주고
+chat/services/context.py 도 이 필드를 읽는다. 길이 값은 서버가 함께 추정해
+API 응답에 실어 주되 화면에는 아직 노출하지 않는다.
+"""
 
 from decimal import Decimal
 
@@ -26,18 +31,6 @@ class Migration(migrations.Migration):
     ]
 
     operations = [
-        migrations.RemoveField(
-            model_name="bodymeasurement",
-            name="thigh",
-        ),
-        migrations.RemoveField(
-            model_name="bodymeasurement",
-            name="calf",
-        ),
-        migrations.RemoveField(
-            model_name="bodymeasurement",
-            name="arm",
-        ),
         migrations.AddField(
             model_name="bodymeasurement",
             name="thigh_length",

@@ -12,7 +12,7 @@ import { BODY_MEASURES, type BodyMeasureKey } from '@/constants/body-measures';
 import { Editorial, ink } from '@/constants/theme';
 
 /**
- * 정면 인체 도식 — 측정 위치를 **한 그림에 전부** 표시한다.
+ * 정면 인체 도식 — 10개 측정 위치를 **한 그림에 전부** 표시한다.
  *
  * 항목을 하나씩 넘겨 보게 하면 "내 어깨가 어디서 어디까지인지"는 알아도 다른 치수와의
  * 관계가 안 보인다. 한 몸에 다 얹으면 위아래 순서와 간격이 한눈에 잡히고, 넘기는 동작도 사라진다.
@@ -33,8 +33,6 @@ import { Editorial, ink } from '@/constants/theme';
 const SHOULDER_Y = 88;
 const SHOULDER_L = 62;
 const SHOULDER_R = 138;
-const PELVIS_POINT_Y = 196;
-const CROTCH_Y = 224;
 const HIP_Y = 214;
 const KNEE_Y = 290;
 const ANKLE_Y = 356;
@@ -85,21 +83,21 @@ const MARKS: Record<BodyMeasureKey, Mark> = {
   chest: { kind: 'girth', cx: 100, cy: 120, rx: 36, ry: 7, badge: [40, 118] },
   waist: { kind: 'girth', cx: 100, cy: 164, rx: 27, ry: 6, badge: [36, 163] },
   hip: { kind: 'girth', cx: 100, cy: 206, rx: 33, ry: 7, badge: [48, 208] },
-  thigh_length: { kind: 'length', x: 70, y1: CROTCH_Y, y2: KNEE_Y, badge: [52, 256] },
-  calf_length: { kind: 'length', x: 66, y1: KNEE_Y, y2: ANKLE_Y, badge: [48, 324] },
-  torso_length: { kind: 'length', x: 146, y1: SHOULDER_Y, y2: PELVIS_POINT_Y, badge: [164, 142] },
-  leg_length: { kind: 'length', x: 132, y1: CROTCH_Y, y2: ANKLE_Y, badge: [150, 290] },
+  thigh: { kind: 'girth', cx: 85, cy: 242, rx: 14, ry: 4.5, badge: [56, 242] },
+  calf: { kind: 'girth', cx: 85, cy: 312, rx: 12, ry: 4, badge: [58, 312] },
+  // 팔뚝은 오른팔에 건다 — 왼쪽은 둘레 번호가 몰려 있어 자리가 없다.
+  arm: { kind: 'girth', cx: 143, cy: 126, rx: 10, ry: 3.5, tilt: 14, badge: [162, 122] },
   neck_length: { kind: 'length', x: 118, y1: 58, y2: SHOULDER_Y, badge: [130, 70] },
   torso_leg_ratio: {
     kind: 'spans',
     x: 152,
-    ticks: [SHOULDER_Y, PELVIS_POINT_Y, CROTCH_Y, ANKLE_Y],
-    badge: [172, 190],
+    ticks: [SHOULDER_Y, HIP_Y, ANKLE_Y],
+    badge: [160, 150],
   },
   thigh_calf_ratio: {
     kind: 'spans',
     x: 176,
-    ticks: [CROTCH_Y, KNEE_Y, ANKLE_Y],
+    ticks: [HIP_Y, KNEE_Y, ANKLE_Y],
     badge: [184, 300],
   },
 };

@@ -197,10 +197,14 @@ class BodyMeasurement(models.Model):
     weight = _measure_field("몸무게(kg)")
     # 상세 수치 (전부 선택). 추천용 체형 지표이므로 정밀 의료 실측이 아니라
     # 옷 핏과 실루엣 판단에 쓰는 길이/비율로 해석한다.
-    # 2026-08-12 main 기준: thigh/calf/arm 둘레 + 9개 지표 -> 길이 4개 포함 11개 지표.
+    # 2026-08-12: 둘레 계약(thigh/calf/arm)은 그대로 두고 길이 4개를 **추가**했다.
+    # 화면에는 둘레만 노출하고, 길이는 서버가 함께 추정해 응답에만 실어 준다.
     chest = _measure_field("가슴둘레(cm)")
     waist = _measure_field("허리둘레(cm)")
     hip = _measure_field("엉덩이둘레(cm)")
+    thigh = _measure_field("허벅지둘레(cm)")
+    calf = _measure_field("종아리둘레(cm)")
+    arm = _measure_field("팔뚝둘레(cm)")
     shoulder = _measure_field("어깨너비(cm)")
     thigh_length = _measure_field("패션용 허벅지 길이감(cm, 샅선/인심 라인→무릎뼈)")
     calf_length = _measure_field("패션용 종아리 길이감(cm, 무릎뼈→복사뼈/발목)")

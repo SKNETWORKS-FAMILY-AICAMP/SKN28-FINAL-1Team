@@ -154,23 +154,21 @@ export const OutfitHistoryEndpoints = {
 
 /**
  * 신체치수 (api/apps/users/urls.py 기준). 전부 JWT 필요.
- * 2026-08-12 main 기준: 상세 9개 -> torso_length/leg_length 포함 11개.
- *   GET   /api/v1/users/me/body/          → 전체 치수 (미입력 필드는 null)
- *   PUT   /api/v1/users/me/body/basic/    { gender, height, weight }  (셋 다 필수, gender 는 male|female)
- *   PATCH /api/v1/users/me/body/detail/   { shoulder,chest,waist,hip,thigh_length,calf_length,torso_length,leg_length,neck_length,thigh_calf_ratio,torso_leg_ratio }  (전부 선택)
- *   POST  /api/v1/users/me/body/estimate/ { gender?, height?, weight? } → 200 EstimationResult (동기)
- *   POST  /api/v1/users/me/body/photos/   multipart front_image/side_image (+gender/height/weight 선택)
- *                                         → 202 { transaction_id, status }
- *   GET   /api/v1/users/me/body/photos/{id}/ → EstimationResult (폴링)
+ *   GET   /api/v1/users/me/body/         → 전체 치수 (미입력 필드는 null)
+ *   PUT   /api/v1/users/me/body/basic/   { gender, height, weight }  (셋 다 필수, gender=male|female)
+ *   PATCH /api/v1/users/me/body/detail/  상세 **10개** (전부 선택)
+ *   POST  /api/v1/users/me/body/estimate/  { gender?, height?, weight? } → 상세 10개 추정·저장 (동기)
+ *   POST  /api/v1/users/me/body/photos/  multipart front_image/side_image → 202 { transaction_id, status }
+ *   GET   /api/v1/users/me/body/photos/{id}/  → 트랜잭션 조회 (폴링)
  *
- * EstimationResult (estimate 와 photos/{id} 가 공유 — api/apps/users/serializers.py
- * BodyEstimationResultSerializer):
- *   { status: in_progress|succeeded|failed, source: basic_info|photo,
- *     transaction_id: uuid|null, measurement: {…상세 항목 포함 전체 치수}, error_message: string|null }
- *
- * ※ 수치는 Decimal 소수 1자리(1~999.9) → JSON 에 문자열로 내려올 수 있다.
- * ※ estimate/photos 는 gender·height·weight 를 생략하면 **저장된 기본 정보**를 쓴다.
- *    저장된 값도 없으면 400 이므로, 로컬 입력이 있으면 항상 같이 보낸다.
+ *   상세 10개 = 둘레·너비 7개(chest,waist,hip,thigh,calf,arm,shoulder)
+ *             + 체형 지표 3개(neck_length, thigh_calf_ratio, torso_leg_ratio).
+ *   지표 3개는 2026-08-10 백엔드에 추가됐다(users 마이그레이션 0014~0016, PR#10).
+ *   항목별 라벨·단위·범위는 constants/body-measures.ts 가 단일 출처다.
+ *   ※ 수치는 Decimal 소수 1자리(1~999.9), 비율 2개는 3자리(thigh_calf 0.8~1.3 · torso_leg 0.6~1.0).
+ *   ※ estimate 와 photos/{id} 는 같은 결과 형식을 준다 —
+ *     { status, source, transaction_id, measurement, error_message }. 추정 치수가 응답에 들어 있어
+ *     따로 GET body 를 부를 필요가 없다. estimate 는 본문을 비우면 저장된 기본 정보를 쓴다.
  */
 export const BodyEndpoints = {
   me: '/api/v1/users/me/body/',
@@ -207,6 +205,22 @@ export const PursuitEndpoint = '/api/v1/users/me/pursuit/';
  * ⚠️ 새로 만들어진 아이템은 confirmed=false(사용자 확인 대기)이고 추천 검색에서 제외된다.
  *    사용자가 태그를 확인·수정한 뒤 PATCH 로 confirmed=true 를 보내야 옷장에 정식 편입된다.
  * ⚠️ 업로드 제한: 15MB 이하, jpeg/png/webp/heic.
+ *
+ * ── 일괄 등록(batches) — 인앱 브라우저로 긁어온 외부 상품 전용 ──
+ *   POST /api/v1/wardrobe/batches/  json { source, items[] } → 202 배치 접수
+ *         items[] 는 **이미지 주소**와 우리가 이미 아는 태그만 넣는다.
+ *         이미지는 서버가 직접 내려받아 S3 에 저장한다 — 앱이 파일을 올리지 않는다
+ *         (쇼핑몰 이미지는 핫링크 403 이 잦고, 앱에서 받아 다시 올리면 왕복이 두 배가 된다).
+ *   GET  /api/v1/wardrobe/batches/{batch_id}/  → 진행률 + job 별 상태
+ *   GET  /api/v1/wardrobe/batches/?status=&limit=&offset=  → 최근 배치 목록
+ *
+ * 서버 처리: 이미지 1장 = job 1개 → Qwen VL 태깅 워커(qwen-tag) → 콜백으로 아이템 생성.
+ * 앱이 함께 보낸 태그가 모델 결과보다 **우선**한다(구매목록의 상품명이 더 정확하므로).
+ *
+ * ⚠️ 한 번에 30건·합계 100MB 까지. 개별 이미지는 단건 업로드와 같은 15MB 제한.
+ * ⚠️ items 중 **하나라도** 값이 백엔드 taxonomy 와 어긋나면 요청 전체가 400 이다
+ *    (DRF ChoiceField). 확신 없는 태그는 아예 빼고 보낸다 — 그 자리는 모델이 채운다.
+ * ⚠️ 이미지 주소는 공개 http(s) 여야 한다. 사설망 주소·data: URL 은 서버가 거절한다.
  */
 export const WardrobeEndpoints = {
   uploads: '/api/v1/wardrobe/uploads/',

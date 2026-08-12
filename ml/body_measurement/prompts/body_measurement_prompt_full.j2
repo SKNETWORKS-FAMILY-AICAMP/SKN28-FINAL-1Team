@@ -12,22 +12,31 @@ lengths used to compute them:
 2. waist circumference (waist_cm)
 3. hip circumference (hip_cm)
 4. shoulder width (shoulder_cm)
-5. thigh length (thigh_length_cm, crotch/inseam line to kneecap/knee center)
-6. calf length (calf_length_cm, kneecap/knee center to lateral malleolus/ankle)
-7. neck length (neck_length_cm, front visual line from below jaw/chin to front neck/collarbone line)
-8. torso length (torso_length_cm, shoulder line to visible pelvis point)
-9. leg length (leg_length_cm, crotch/inseam line to lateral malleolus/ankle)
+5. thigh circumference (thigh_cm, widest horizontal girth just below the crotch line)
+6. calf circumference (calf_cm, widest horizontal girth of the lower leg)
+7. upper-arm circumference (arm_cm, widest horizontal girth of the upper arm)
+8. thigh length (thigh_length_cm, crotch/inseam line to kneecap/knee center)
+9. calf length (calf_length_cm, kneecap/knee center to lateral malleolus/ankle)
+10. neck length (neck_length_cm, front visual line from below jaw/chin to front neck/collarbone line)
+11. torso length (torso_length_cm, shoulder line to visible pelvis point)
+12. leg length (leg_length_cm, crotch/inseam line to lateral malleolus/ankle)
+
+Circumferences (5-7) and lengths (8-12) are different measurements of the same body part.
+Do not copy one into the other: thigh_cm wraps around the thigh, thigh_length_cm runs down it.
 
 Use the person's height ({{ height_cm }}cm), weight ({{ weight_kg }}kg), and the visible full-body scale to keep all centimeter values realistic.
 SizeKorea adult Korean reference values are:
 - shoulder width: average 37.1cm, common range about 34.8-39.6cm.
+- thigh circumference: average 55.4cm, common range about 48-64cm.
+- calf circumference: average 35.9cm, common range about 31-41cm.
+- upper-arm circumference: average 29.9cm, common range about 25-35cm.
 - thigh length: average 31.2cm, common range about 29.6-32.8cm.
 - calf length: average 38.0cm, common range about 35.9-40.0cm.
 - torso length: average 45.0cm, common range about 43.1-46.9cm.
 - leg length: average 68.4cm, common range about 65.3-71.4cm.
-- neck length: average 7.1cm, common range about 6.1-7.9cm.
-Do not overestimate small visual segments. For example, neck_length_cm should usually be near 7cm unless the image clearly shows an unusually long or short front neck.
+- neck length: average 9.1cm, common range about 8.0-12.0cm.
+Do not overestimate small visual segments. For example, neck_length_cm should usually be near 8.0-10.0cm unless the image clearly shows an unusually long or short front neck.
 
-Do not return thigh circumference, calf circumference, upper-arm circumference, or ratios.
+Do not return ratios. The server computes thigh_calf_ratio and torso_leg_ratio from the lengths above.
 
 Return only valid JSON matching the provided schema.
