@@ -31,6 +31,8 @@ from apps.chat.openapi import (
     CHAT_SSE_GUIDE,
     CHAT_TAG,
     CHAT_UUID_GUIDE,
+    cursor_parameter,
+    path_uuid_parameter,
 )
 from apps.chat.renderers import ServerSentEventRenderer
 from apps.chat.serializers import (
@@ -70,44 +72,53 @@ logger = logging.getLogger(__name__)
 
 _REDIS_STREAM_ID = re.compile(r"^\d+-\d+$")
 
-_SESSION_ID_PARAMETER = OpenApiParameter(
+_SESSION_ID_PARAMETER = path_uuid_parameter(
     name="session_id",
-    type=OpenApiTypes.UUID,
-    location=OpenApiParameter.PATH,
-    required=True,
-    description="세션 생성 또는 목록 조회 응답에서 받은 채팅 세션 UUID",
-    examples=[
-        OpenApiExample(
-            name="채팅 세션 UUID 형식",
-            value="11111111-1111-4111-8111-111111111111",
-        )
-    ],
+    source="POST /api/v1/chat/sessions/ 응답의 id를 입력합니다.",
+    example="11111111-1111-4111-8111-111111111111",
 )
-_ATTACHMENT_ID_PARAMETER = OpenApiParameter(
+_ATTACHMENT_ID_PARAMETER = path_uuid_parameter(
     name="attachment_id",
-    type=OpenApiTypes.UUID,
-    location=OpenApiParameter.PATH,
-    required=True,
-    description="사진 업로드 응답의 attachment.id",
-    examples=[
-        OpenApiExample(
-            name="채팅 첨부 UUID 형식",
-            value="22222222-2222-4222-8222-222222222222",
-        )
-    ],
+    source="POST .../attachments/ 응답의 attachment.id를 입력합니다.",
+    example="22222222-2222-4222-8222-222222222222",
 )
-_RUN_ID_PARAMETER = OpenApiParameter(
+_RUN_ID_PARAMETER = path_uuid_parameter(
     name="run_id",
-    type=OpenApiTypes.UUID,
-    location=OpenApiParameter.PATH,
+    source="메시지 전송 또는 사진 무드 분석 응답의 run.id를 입력합니다.",
+    example="33333333-3333-4333-8333-333333333333",
+)
+
+_SEARCH_QUERY_PARAMETER = OpenApiParameter(
+    name="query",
+    type=OpenApiTypes.STR,
+    location=OpenApiParameter.QUERY,
     required=True,
-    description="메시지 전송 또는 무드 분석 응답의 run.id",
-    examples=[
-        OpenApiExample(
-            name="채팅 실행 UUID 형식",
-            value="33333333-3333-4333-8333-333333333333",
-        )
-    ],
+    description="세션 제목과 저장된 메시지 본문에서 찾을 검색어 (1~100자)",
+    examples=[OpenApiExample(name="면접 대화 검색", value="면접")],
+)
+_SEARCH_LIMIT_PARAMETER = OpenApiParameter(
+    name="limit",
+    type=OpenApiTypes.INT,
+    location=OpenApiParameter.QUERY,
+    required=False,
+    description="한 페이지에서 조회할 세션 수 (1~50, 기본값 20)",
+    default=20,
+    examples=[OpenApiExample(name="20개 조회", value=20)],
+)
+_SEARCH_CURSOR_PARAMETER = cursor_parameter(
+    description="다음 검색 페이지는 직전 응답의 next_cursor를 그대로 입력합니다. 첫 요청은 비웁니다."
+)
+_MESSAGE_LIMIT_PARAMETER = OpenApiParameter(
+    name="limit",
+    type=OpenApiTypes.INT,
+    location=OpenApiParameter.QUERY,
+    required=False,
+    description="한 페이지에서 조회할 메시지 수 (1~100, 기본값 50)",
+    default=50,
+    examples=[OpenApiExample(name="최근 20개 조회", value=20)],
+)
+_MESSAGE_CURSOR_PARAMETER = cursor_parameter(
+    description="더 오래된 메시지는 직전 응답의 next_cursor를 그대로 입력합니다. 첫 요청은 비웁니다."
 )
 
 _SESSION_CREATE_EXAMPLES = [
@@ -345,18 +356,10 @@ class ChatSessionSearchView(APIView):
             "복사해 조회합니다. 검색어가 바뀌면 cursor 없이 첫 페이지부터 다시 "
             "조회해야 합니다."
         ),
-        parameters=[ChatSessionSearchQuerySerializer],
-        examples=[
-            OpenApiExample(
-                name="면접 관련 대화 검색",
-                value="면접",
-                parameter_only=("query", "query"),
-            ),
-            OpenApiExample(
-                name="페이지당 20개",
-                value=20,
-                parameter_only=("limit", "query"),
-            ),
+        parameters=[
+            _SEARCH_QUERY_PARAMETER,
+            _SEARCH_LIMIT_PARAMETER,
+            _SEARCH_CURSOR_PARAMETER,
         ],
         responses={
             200: ChatSessionSearchResponseSerializer,
@@ -667,13 +670,10 @@ class ChatSessionMessagePageView(APIView):
             "예를 들어 limit=20으로 첫 페이지를 받은 뒤 반환된 next_cursor 전체를 "
             "cursor 칸에 복사하면 직전 20개를 조회합니다."
         ),
-        parameters=[_SESSION_ID_PARAMETER, ChatMessagePageQuerySerializer],
-        examples=[
-            OpenApiExample(
-                name="최근 메시지 20개",
-                value=20,
-                parameter_only=("limit", "query"),
-            )
+        parameters=[
+            _SESSION_ID_PARAMETER,
+            _MESSAGE_LIMIT_PARAMETER,
+            _MESSAGE_CURSOR_PARAMETER,
         ],
         responses={
             200: ChatMessagePageResponseSerializer,

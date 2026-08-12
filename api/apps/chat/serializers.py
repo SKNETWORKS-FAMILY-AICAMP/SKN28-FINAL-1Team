@@ -79,13 +79,21 @@ class ChatMessageCreateSerializer(serializers.Serializer):
         allow_blank=False,
         trim_whitespace=True,
         max_length=settings.CHAT_MESSAGE_MAX_CHARS,
+        help_text="AI 스타일리스트에게 보낼 질문 또는 요청 문장",
     )
     client_message_id = serializers.CharField(
         allow_blank=False,
         trim_whitespace=True,
         max_length=128,
+        help_text=(
+            "클라이언트가 생성하는 메시지 고유값. 같은 요청 재시도에는 같은 값을, "
+            "새 메시지에는 새 값을 사용합니다."
+        ),
     )
-    metadata = serializers.JSONField(required=False)
+    metadata = serializers.JSONField(
+        required=False,
+        help_text='선택 입력 JSON 객체. Swagger 테스트 예: {"source": "swagger"}',
+    )
 
     def validate_metadata(self, value):
         if not isinstance(value, dict):
@@ -101,11 +109,17 @@ class ChatMessageCreateSerializer(serializers.Serializer):
 
 
 class ChatAttachmentUploadSerializer(serializers.Serializer):
-    image = serializers.ImageField(allow_empty_file=False)
+    image = serializers.ImageField(
+        allow_empty_file=False,
+        help_text="분석할 로컬 이미지 파일 (jpeg/png/webp/heic, 최대 설정 용량)",
+    )
     client_message_id = serializers.CharField(
         allow_blank=False,
         trim_whitespace=True,
         max_length=128,
+        help_text=(
+            "클라이언트가 생성하는 첨부 메시지 고유값. 재시도에는 같은 값을 사용합니다."
+        ),
     )
     content = serializers.CharField(
         required=False,
@@ -113,8 +127,13 @@ class ChatAttachmentUploadSerializer(serializers.Serializer):
         trim_whitespace=True,
         max_length=settings.CHAT_MESSAGE_MAX_CHARS,
         default="",
+        help_text="선택 입력. 사진과 함께 저장할 사용자 설명",
     )
-    metadata = serializers.JSONField(required=False, default=dict)
+    metadata = serializers.JSONField(
+        required=False,
+        default=dict,
+        help_text='선택 입력 JSON 객체. Swagger 테스트 예: {"source": "swagger"}',
+    )
 
     def validate_image(self, image):
         if image.size > settings.CHAT_ATTACHMENT_MAX_BYTES:
@@ -194,7 +213,10 @@ class ChatMoodAnalysisResponseSerializer(serializers.Serializer):
 
 
 class ChatMoodDecisionSerializer(serializers.Serializer):
-    decision = serializers.ChoiceField(choices=["APPROVE", "REJECT"])
+    decision = serializers.ChoiceField(
+        choices=["APPROVE", "REJECT"],
+        help_text="APPROVE는 분석 무드를 추천 조건에 반영하고 REJECT는 반영하지 않습니다.",
+    )
 
 
 class ChatMoodDecisionResponseSerializer(serializers.Serializer):
@@ -275,9 +297,24 @@ class ChatSessionSearchResponseSerializer(serializers.Serializer):
 
 
 class ChatSessionCreateSerializer(serializers.Serializer):
-    mode = serializers.ChoiceField(choices=ChatSession.Mode.choices)
-    title = serializers.CharField(required=False, allow_blank=True, max_length=120)
-    persona_profile_id = serializers.UUIDField(required=False, allow_null=True)
+    mode = serializers.ChoiceField(
+        choices=ChatSession.Mode.choices,
+        help_text=(
+            "WARDROBE_BASED는 내 옷장 아이템만 사용하고, NEW_ITEM은 새 상품을 "
+            "포함해 추천합니다."
+        ),
+    )
+    title = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        max_length=120,
+        help_text="선택 입력. 비우면 첫 사용자 질문을 바탕으로 제목이 자동 저장됩니다.",
+    )
+    persona_profile_id = serializers.UUIDField(
+        required=False,
+        allow_null=True,
+        help_text="선택 입력. 사용할 스타일리스트 페르소나 UUID이며 없으면 null 또는 생략합니다.",
+    )
 
     def validate_persona_profile_id(self, value):
         if value is not None and not PersonaProfile.objects.filter(pk=value).exists():
@@ -286,16 +323,30 @@ class ChatSessionCreateSerializer(serializers.Serializer):
 
 
 class ChatSessionUpdateSerializer(serializers.Serializer):
-    title = serializers.CharField(allow_blank=True, max_length=120)
+    title = serializers.CharField(
+        allow_blank=True,
+        max_length=120,
+        help_text="대화 목록에 표시할 새 제목 (최대 120자)",
+    )
 
 
 class ChatSessionDeriveSerializer(serializers.Serializer):
-    mode = serializers.ChoiceField(choices=ChatSession.Mode.choices)
-    title = serializers.CharField(required=False, allow_blank=True, max_length=120)
+    mode = serializers.ChoiceField(
+        choices=ChatSession.Mode.choices,
+        help_text="파생 세션에 적용할 추천 모드",
+    )
+    title = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        max_length=120,
+        help_text="선택 입력. 비우면 원본 세션 제목을 바탕으로 생성합니다.",
+    )
 
 
 class GuestClaimSerializer(serializers.Serializer):
-    confirm = serializers.BooleanField()
+    confirm = serializers.BooleanField(
+        help_text="게스트 대화·추천 이력을 현재 로그인 회원에게 이전하려면 true"
+    )
 
     def validate_confirm(self, value: bool) -> bool:
         if not value:

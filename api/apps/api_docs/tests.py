@@ -42,8 +42,7 @@ class SwaggerEndpointTests(SimpleTestCase):
         chat_paths = {
             path
             for path in paths
-            if path.startswith("/api/v1/chat/")
-            or path.startswith("/api/v1/recommendations/")
+            if path.startswith(("/api/v1/chat/", "/api/v1/recommendations/"))
         }
         self.assertTrue(chat_paths)
         for path in chat_paths:
@@ -95,6 +94,98 @@ class SwaggerEndpointTests(SimpleTestCase):
 
         chat_sse = paths["/api/v1/chat/runs/{run_id}/events/"]["get"]
         self.assertIn("text/event-stream", chat_sse["responses"]["200"]["content"])
+
+    def test_chat_swagger_exposes_executable_parameters(self) -> None:
+        """채팅 문서가 설명만 있고 입력칸이 사라지는 회귀를 막는다."""
+
+        response = self.client.get(
+            reverse("api-schema"),
+            headers={"accept": "application/json"},
+        )
+        self.assertEqual(response.status_code, 200)
+        schema = json.loads(response.content)
+        paths = schema["paths"]
+
+        expected_parameters = {
+            ("get", "/api/v1/chat/sessions/search/"): {
+                "query": ("query", True),
+                "limit": ("query", False),
+                "cursor": ("query", False),
+            },
+            ("get", "/api/v1/chat/sessions/{session_id}/messages/page/"): {
+                "session_id": ("path", True),
+                "limit": ("query", False),
+                "cursor": ("query", False),
+            },
+            ("get", "/api/v1/recommendations/"): {
+                "mode": ("query", False),
+                "limit": ("query", False),
+                "offset": ("query", False),
+            },
+            ("get", "/api/v1/chat/runs/{run_id}/events/"): {
+                "run_id": ("path", True),
+                "last_event_id": ("query", False),
+            },
+            (
+                "post",
+                "/api/v1/chat/sessions/{session_id}/attachments/{attachment_id}/analysis/",
+            ): {
+                "session_id": ("path", True),
+                "attachment_id": ("path", True),
+            },
+        }
+        for (method, path), expected in expected_parameters.items():
+            actual = {
+                parameter["name"]: (
+                    parameter["in"],
+                    parameter.get("required", False),
+                )
+                for parameter in paths[path][method]["parameters"]
+            }
+            with self.subTest(method=method, path=path):
+                self.assertEqual(actual, expected)
+                for parameter in paths[path][method]["parameters"]:
+                    self.assertTrue(parameter.get("description"))
+                    self.assertTrue(parameter.get("examples"))
+
+        for path, path_item in paths.items():
+            if not path.startswith(
+                ("/api/v1/chat/", "/api/v1/recommendations/")
+            ):
+                continue
+            template_names = {
+                part[1:-1]
+                for part in path.split("/")
+                if part.startswith("{") and part.endswith("}")
+            }
+            for method, operation in path_item.items():
+                if method not in {"get", "post", "patch", "put", "delete"}:
+                    continue
+                declared_path_names = {
+                    parameter["name"]
+                    for parameter in operation.get("parameters", [])
+                    if parameter["in"] == "path"
+                }
+                with self.subTest(method=method, path=path):
+                    self.assertEqual(declared_path_names, template_names)
+
+        components = schema["components"]["schemas"]
+        required_request_fields = {
+            "ChatSessionCreateRequest": {"mode"},
+            "ChatMessageCreateRequest": {"content", "client_message_id"},
+            "ChatAttachmentUploadRequest": {"image", "client_message_id"},
+            "ChatMoodDecisionRequest": {"decision"},
+            "RecommendationFeedbackRequestRequest": {"reaction"},
+        }
+        for component_name, required_fields in required_request_fields.items():
+            component = components[component_name]
+            with self.subTest(component=component_name):
+                self.assertTrue(required_fields.issubset(set(component["required"])))
+                for field_name in component["properties"]:
+                    self.assertTrue(
+                        component["properties"][field_name].get("description"),
+                        f"{component_name}.{field_name} 설명 누락",
+                    )
 
     def test_outfit_analysis_detail_documents_wardrobe(self) -> None:
         """조회 응답은 인증 여부로 모양이 갈린다 — 둘 다 문서에 남아 있어야 한다.

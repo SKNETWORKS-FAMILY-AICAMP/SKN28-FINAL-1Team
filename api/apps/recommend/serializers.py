@@ -486,12 +486,19 @@ class RecommendationHistoryQuerySerializer(serializers.Serializer):
 class RecommendationFeedbackRequestSerializer(serializers.Serializer):
     """카드별 최신 피드백 입력. PUT할 때 전체 상태를 교체한다."""
 
-    reaction = serializers.ChoiceField(choices=RecommendationFeedback.Reaction.choices)
+    reaction = serializers.ChoiceField(
+        choices=RecommendationFeedback.Reaction.choices,
+        help_text="추천 반응: LIKE 또는 DISLIKE",
+    )
     reason_codes = serializers.ListField(
         child=serializers.RegexField(r"^[A-Z][A-Z0-9_]{0,49}$"),
         required=False,
         default=list,
         max_length=5,
+        help_text=(
+            "선택 사유 코드 목록 (최대 5개). 예: STYLE, COLOR, FIT, PRICE, "
+            "ALREADY_OWNED"
+        ),
     )
     comment = serializers.CharField(
         required=False,
@@ -499,6 +506,7 @@ class RecommendationFeedbackRequestSerializer(serializers.Serializer):
         default="",
         max_length=500,
         trim_whitespace=True,
+        help_text="선택 입력 자유 의견 (최대 500자)",
     )
 
     def validate_reason_codes(self, value: list[str]) -> list[str]:

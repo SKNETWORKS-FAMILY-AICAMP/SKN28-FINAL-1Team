@@ -1,5 +1,8 @@
 """채팅과 채팅 추천 API가 공유하는 OpenAPI 문서 상수."""
 
+from drf_spectacular.types import OpenApiTypes
+from drf_spectacular.utils import OpenApiExample, OpenApiParameter
+
 CHAT_TAG = "채팅"
 
 CHAT_IDENTITY_GUIDE = (
@@ -19,3 +22,32 @@ CHAT_SSE_GUIDE = (
     "불편할 수 있습니다. Swagger 테스트에서는 먼저 상태 조회 API를 반복 호출하고, "
     "필요할 때 events URL을 브라우저 EventSource 또는 curl `-N`으로 확인합니다."
 )
+
+
+def path_uuid_parameter(*, name: str, source: str, example: str) -> OpenApiParameter:
+    """Swagger에서 선행 API 응답 UUID를 직접 입력하도록 경로 변수를 문서화한다."""
+
+    return OpenApiParameter(
+        name=name,
+        type=OpenApiTypes.UUID,
+        location=OpenApiParameter.PATH,
+        required=True,
+        description=source,
+        examples=[OpenApiExample(name=f"{name} 입력 예시", value=example)],
+    )
+
+
+def cursor_parameter(*, description: str) -> OpenApiParameter:
+    return OpenApiParameter(
+        name="cursor",
+        type=OpenApiTypes.STR,
+        location=OpenApiParameter.QUERY,
+        required=False,
+        description=description,
+        examples=[
+            OpenApiExample(
+                name="다음 페이지 조회",
+                value="앞선 응답의 next_cursor 전체를 복사",
+            )
+        ],
+    )

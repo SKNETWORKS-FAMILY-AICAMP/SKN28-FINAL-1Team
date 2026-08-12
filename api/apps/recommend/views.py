@@ -30,6 +30,7 @@ from apps.chat.openapi import (
     CHAT_SSE_GUIDE,
     CHAT_TAG,
     CHAT_UUID_GUIDE,
+    path_uuid_parameter,
 )
 from apps.chat.renderers import ServerSentEventRenderer
 from apps.chat.services import identity as identity_service
@@ -72,44 +73,48 @@ DEFAULT_HISTORY_LIMIT = 20
 MAX_HISTORY_LIMIT = 100
 _REDIS_STREAM_ID = re.compile(r"^(?:0|[1-9]\d*)-(?:0|[1-9]\d*)$")
 
-_RESULT_ID_PARAMETER = OpenApiParameter(
+_RESULT_ID_PARAMETER = path_uuid_parameter(
     name="result_id",
-    type=OpenApiTypes.UUID,
-    location=OpenApiParameter.PATH,
-    required=True,
-    description="추천 이력 또는 AI 답변 metadata에서 받은 추천 결과 UUID",
-    examples=[
-        OpenApiExample(
-            name="추천 결과 UUID 형식",
-            value="44444444-4444-4444-8444-444444444444",
-        )
-    ],
+    source="GET /api/v1/recommendations/ 또는 AI 답변 metadata의 result_id를 입력합니다.",
+    example="44444444-4444-4444-8444-444444444444",
 )
-_CARD_ID_PARAMETER = OpenApiParameter(
+_CARD_ID_PARAMETER = path_uuid_parameter(
     name="card_id",
-    type=OpenApiTypes.UUID,
-    location=OpenApiParameter.PATH,
-    required=True,
-    description="추천 결과 상세의 cards[].card_id",
-    examples=[
-        OpenApiExample(
-            name="추천 카드 UUID 형식",
-            value="55555555-5555-4555-8555-555555555555",
-        )
-    ],
+    source="GET /api/v1/recommendations/{result_id}/ 응답의 cards[].card_id를 입력합니다.",
+    example="55555555-5555-4555-8555-555555555555",
 )
-_JOB_ID_PARAMETER = OpenApiParameter(
+_JOB_ID_PARAMETER = path_uuid_parameter(
     name="job_id",
-    type=OpenApiTypes.UUID,
-    location=OpenApiParameter.PATH,
-    required=True,
-    description="추천 카드 이미지 생성 응답의 job_id",
-    examples=[
-        OpenApiExample(
-            name="이미지 작업 UUID 형식",
-            value="66666666-6666-4666-8666-666666666666",
-        )
-    ],
+    source="POST .../render/ 응답의 job_id를 입력합니다.",
+    example="66666666-6666-4666-8666-666666666666",
+)
+
+_RECOMMENDATION_MODE_PARAMETER = OpenApiParameter(
+    name="mode",
+    type=OpenApiTypes.STR,
+    enum=["WARDROBE_BASED", "NEW_ITEM"],
+    location=OpenApiParameter.QUERY,
+    required=False,
+    description="추천 모드 필터. 비우면 두 모드를 모두 조회합니다.",
+    examples=[OpenApiExample(name="새 상품 포함 추천", value="NEW_ITEM")],
+)
+_RECOMMENDATION_LIMIT_PARAMETER = OpenApiParameter(
+    name="limit",
+    type=OpenApiTypes.INT,
+    location=OpenApiParameter.QUERY,
+    required=False,
+    description="한 번에 조회할 추천 결과 수 (1~100, 기본값 20)",
+    default=20,
+    examples=[OpenApiExample(name="20개 조회", value=20)],
+)
+_RECOMMENDATION_OFFSET_PARAMETER = OpenApiParameter(
+    name="offset",
+    type=OpenApiTypes.INT,
+    location=OpenApiParameter.QUERY,
+    required=False,
+    description="건너뛸 추천 결과 수 (0 이상, 첫 페이지 기본값 0)",
+    default=0,
+    examples=[OpenApiExample(name="첫 페이지", value=0)],
 )
 
 
@@ -594,23 +599,10 @@ class RecommendationHistoryView(APIView):
             "생성 API에 사용합니다.\n\n"
             f"{CHAT_IDENTITY_GUIDE}"
         ),
-        parameters=[RecommendationHistoryQuerySerializer],
-        examples=[
-            OpenApiExample(
-                name="새 상품 포함 추천만 조회",
-                value="NEW_ITEM",
-                parameter_only=("mode", "query"),
-            ),
-            OpenApiExample(
-                name="첫 페이지 20개",
-                value=20,
-                parameter_only=("limit", "query"),
-            ),
-            OpenApiExample(
-                name="첫 페이지 시작 위치",
-                value=0,
-                parameter_only=("offset", "query"),
-            ),
+        parameters=[
+            _RECOMMENDATION_MODE_PARAMETER,
+            _RECOMMENDATION_LIMIT_PARAMETER,
+            _RECOMMENDATION_OFFSET_PARAMETER,
         ],
         responses={
             200: RecommendationHistoryResponseSerializer,
