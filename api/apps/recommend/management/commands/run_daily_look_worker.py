@@ -8,7 +8,7 @@ run_outfit_worker와 같은 구조다 (큐 → claim → 처리 → ack). 다른
 
 - 큐가 분리돼 있다. 오늘의 룩이 밀려도 코디 평가는 영향받지 않는다 —
   평가는 사용자가 화면에서 기다리지만 이쪽은 백그라운드다.
-- `--sweep`이 있다. 로그인 시점에 Redis가 죽어 있으면 행은 QUEUED로 남지만 큐에는
+- `--sweep`이 있다. 홈 진입 시점에 Redis가 죽어 있으면 행은 QUEUED로 남지만 큐에는
   없다. 그 상태를 방치하면 사용자는 종일 '생성 중'을 본다.
 
 **워커는 1대만 띄운다.** recover_stale()이 processing에 남은 작업을 전부 되돌리기
@@ -151,7 +151,7 @@ class Command(BaseCommand):
     def _requeue_orphans(self) -> int:
         """QUEUED인데 큐에 없는 행을 다시 적재한다.
 
-        로그인 시점에 Redis가 죽어 있었으면 행만 남고 작업은 없다. 그대로 두면
+        홈 진입 시점에 Redis가 죽어 있었으면 행만 남고 작업은 없다. 그대로 두면
         사용자는 종일 '생성 중'을 보게 된다.
         """
         orphans = DailyLook.objects.filter(
