@@ -6,6 +6,7 @@
  * API 응답으로 교체한다(필드명 유지).
  */
 
+import type { DailyLook } from '@/lib/dailyLookApi';
 import type { MallKey } from '@/lib/mall';
 
 export type LookRelated = {
@@ -218,4 +219,60 @@ export const LOOK_VARIANTS: LookVariant[] = [
 /** id 로 룩을 찾는다. 못 찾으면 오늘의 룩. */
 export function resolveLookVariant(id?: string | null): LookVariant {
   return LOOK_VARIANTS.find((l) => l.id === id) ?? LOOK_VARIANTS[0];
+}
+
+/**
+ * 슬롯 이름 중복 정리 — 상세 화면이 slot 을 React key·아코디언 열림 키로 쓰기 때문에
+ * '상의'가 두 벌이면 두 번째를 '상의 2'로 바꿔 충돌을 막는다.
+ */
+function dedupeSlots(pieces: LookPiece[]): LookPiece[] {
+  const seen = new Map<string, number>();
+  return pieces.map((p) => {
+    const n = (seen.get(p.slot) ?? 0) + 1;
+    seen.set(p.slot, n);
+    return n === 1 ? p : { ...p, slot: `${p.slot} ${n}` };
+  });
+}
+
+/**
+ * 오늘의 룩 API 응답(SUCCEEDED) → 룩 상세가 그리는 LookVariant.
+ *
+ * 홈 카드(home.tsx toDisplayLook)와 같은 응답으로 상세를 그리기 위한 변환.
+ * 완성 전(생성 중·EMPTY·실패)이면 null — 그때 상세는 번들 목업(TODAY_LOOK)으로
+ * 물러나, 홈 카드가 기온 템플릿으로 물러나는 것과 짝이 맞는다.
+ */
+export function dailyLookToVariant(look: DailyLook | null): LookVariant | null {
+  if (look?.status !== 'SUCCEEDED' || !look.result) return null;
+  const r = look.result;
+  /* 무드·상황 자리에는 "무엇을 반영했는지"를 쓴다 — 서브텍스트이자 저장 시
+     태그(tagsOf)가 되는 값이라, 지어낸 무드보다 실제 개인화 근거가 낫다. */
+  const persona = [
+    look.context?.used_body ? '체형 반영' : null,
+    look.context?.used_pursuit ? '취향 반영' : null,
+  ].filter((s): s is string => s != null);
+  return {
+    id: 'daily',
+    title: r.headline || '오늘의 룩',
+    subtitle: persona.length ? persona.join(' · ') : '오늘의 추천',
+    /* 대표 사진 우선순위는 홈 카드와 동일: 정면 착용 이미지 → 원본 코디 사진.
+       전부 presigned URL 이라 캐시하지 않고 받은 그대로 쓴다. */
+    image: r.render_image_url ?? r.outfit_image_url ?? undefined,
+    /* 추천 이유 = 근거 문장 + 스타일링 팁. 홈 카드는 근거 한 줄만 보여주므로
+       팁은 상세에서만 보인다. */
+    reasons: [r.rationale_ko, ...(r.styling_tips ?? [])].filter(Boolean),
+    pieces: dedupeSlots(
+      (r.items ?? []).map((it, i) => ({
+        slot: it.category || it.layer_role || `아이템 ${i + 1}`,
+        image: it.image_url ?? undefined,
+        name: it.name || it.sub_category || it.category || '추천 아이템',
+        /* 백엔드 아이템엔 브랜드가 없다 — 그 줄에 색·세부 종류를 대신 올린다. */
+        brand: [it.color, it.sub_category].filter(Boolean).join(' · '),
+        tone: 0.1,
+        /* 골든 코디에서 온 아이템이라 내 옷장 물건이 아니다 → '추천 구매' 표기. */
+        mine: false,
+        /* 비슷한 상품은 아직 백엔드가 안 내려준다. 빈 배열이면 상세가 아코디언을 잠근다. */
+        related: [],
+      })),
+    ),
+  };
 }
