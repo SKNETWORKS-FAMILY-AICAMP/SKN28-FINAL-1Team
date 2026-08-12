@@ -9,7 +9,6 @@ import { Avatar, ErrorState, LoadingState, SmartImage, useToast } from '@/compon
 import { DEMO_HOME } from '@/constants/demo';
 import { Editorial, ink, Fonts , ContentMax} from '@/constants/theme';
 import { PROFILE_IMAGE, TODAY_LOOK_IMAGE } from '@/constants/look-images';
-import { useBottomTabInset } from '@/hooks/use-bottom-tab-inset';
 import { useBreakpoint } from '@/hooks/use-breakpoint';
 import { useHome, type HomeData, type HomeWeather } from '@/hooks/use-home';
 import { useRefresh } from '@/hooks/use-refresh';
@@ -45,7 +44,6 @@ function weatherLabel(w: HomeWeather): string {
 // 홈 탭 (Figma B1) — GET /api/v1/home/ 연동
 export default function HomeScreen() {
   const { contentStyle } = useBreakpoint();
-  const tabInset = useBottomTabInset();
   const { status, isDemo } = useAuth();
   /* 비회원은 부를 것이 없어(토큰도, 옷장도 없다) 온보딩 전용 홈을 즉시 보여준다.
      데모 세션도 부른다 — 토큰이 없을 뿐 요청은 통과한다(dev 서버가 무토큰 요청을 허용).
@@ -76,7 +74,7 @@ export default function HomeScreen() {
               <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={INK} />
             ) : undefined
           }
-          contentContainerStyle={[styles.content, { paddingBottom: tabInset + 24 }, contentStyle(ContentMax.card)]}>
+          contentContainerStyle={[styles.content, { paddingBottom: 24 }, contentStyle(ContentMax.card)]}>
           {/* 헤더: 인사말 + 기록/캘린더/프로필 (한 줄) */}
           <View style={styles.header}>
             <Text style={styles.greeting} numberOfLines={1}>

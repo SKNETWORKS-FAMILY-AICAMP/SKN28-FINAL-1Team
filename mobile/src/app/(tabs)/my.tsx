@@ -6,7 +6,6 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { Avatar, LoginGate } from '@/components/ui';
 import { PROFILE_IMAGE } from '@/constants/look-images';
 import { ink, ContentMax, Editorial } from '@/constants/theme';
-import { useBottomTabInset } from '@/hooks/use-bottom-tab-inset';
 import { useBreakpoint } from '@/hooks/use-breakpoint';
 import { useProfileSummary } from '@/hooks/use-profile-summary';
 import { useAuth } from '@/state/auth';
@@ -36,7 +35,6 @@ function displayName(
 // H1 마이 탭 — 프로필 요약 + 설정 메뉴
 export default function MyScreen() {
   const { contentStyle } = useBreakpoint();
-  const tabInset = useBottomTabInset();
   const prefs = usePrefs();
   const { user, isLoggedIn, signOut } = useAuth();
   const wishlist = useWishlist();
@@ -123,7 +121,7 @@ export default function MyScreen() {
       <SafeAreaView edges={['top']} style={styles.safe}>
         <ScrollView
           showsVerticalScrollIndicator={false}
-          contentContainerStyle={[styles.content, { paddingBottom: tabInset + 24 }, contentStyle(ContentMax.wide)]}>
+          contentContainerStyle={[styles.content, { paddingBottom: 24 }, contentStyle(ContentMax.wide)]}>
           {/* 프로필 — 테두리로 감싸지 않는다. 화면에 하나뿐인 머리라 굳이 구분할 상대가 없다. */}
           <View style={styles.profile}>
             <Avatar name={name} asset={PROFILE_IMAGE} size={52} />

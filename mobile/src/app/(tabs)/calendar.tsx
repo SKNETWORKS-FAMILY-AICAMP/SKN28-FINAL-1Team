@@ -307,32 +307,27 @@ export default function Calendar() {
 
               {/* 지난 날은 채워 넣는 게 먼저고, 오늘·앞으로는 무엇을 입을지가 먼저다.
                   같은 두 버튼이라도 순서만 바꾸면 그 날짜에 맞는 행동이 앞에 온다. */}
+              {/* 지난 날은 자주 입은 옷으로 바로 채울 수 있게 지름길을 먼저 준다. */}
               {isPast ? (
-                <>
-                  <FrequentShortcut
-                    items={frequentItems}
-                    recordCount={frequentCount}
-                    onPick={fillWith}
-                  />
-                  <Pressable style={styles.addBtn} onPress={() => openEntry(selectedKey)}>
-                    <Icon name="plus" tintColor="#fff" size={18} />
-                    <Text style={styles.addText}>이 날 착장 기록하기</Text>
-                  </Pressable>
-                  <Pressable onPress={() => router.push('/chat-mode')}>
-                    <Text style={styles.subLink}>코디 추천받기</Text>
-                  </Pressable>
-                </>
-              ) : (
-                <>
-                  <Pressable style={styles.addBtn} onPress={() => router.push('/chat-mode')}>
-                    <Icon name="sparkles" tintColor="#fff" size={18} />
-                    <Text style={styles.addText}>코디 추천받기</Text>
-                  </Pressable>
-                  <Pressable onPress={() => openEntry(selectedKey)}>
-                    <Text style={styles.subLink}>이 날 착장 기록하기</Text>
-                  </Pressable>
-                </>
-              )}
+                <FrequentShortcut
+                  items={frequentItems}
+                  recordCount={frequentCount}
+                  onPick={fillWith}
+                />
+              ) : null}
+
+              {/* 이 카드가 뜬 이유는 '이 날 기록이 없어서'다. 그러니 지난 날이든 앞날이든
+                  기록하기가 먼저고, 추천은 그다음이다. */}
+              <View style={styles.actions}>
+                <Pressable style={styles.primaryBtn} onPress={() => openEntry(selectedKey)}>
+                  <Icon name="plus" tintColor="#fff" size={17} />
+                  <Text style={styles.primaryText}>이 날 착장 기록하기</Text>
+                </Pressable>
+                <Pressable style={styles.secondaryBtn} onPress={() => router.push('/chat-mode')}>
+                  <Icon name="sparkles" tintColor={INK} size={17} />
+                  <Text style={styles.secondaryText}>코디 추천받기</Text>
+                </Pressable>
+              </View>
             </View>
           )}
         </View>
@@ -465,18 +460,31 @@ const styles = StyleSheet.create({
   detailCol: { width: 400, flexShrink: 0, marginTop: 16 },
 
   grid: { flexDirection: 'row', flexWrap: 'wrap' },
-  cell: { width: `${100 / 7}%`, alignItems: 'center', justifyContent: 'center' },
+  cell: {
+    width: `${100 / 7}%`,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 4,
+    paddingVertical: 3,
+  },
   // 모바일 기본 — 높이를 정하지 않고 가로:세로 비율로 둔다.
   cellRatio: { aspectRatio: CELL_RATIO },
+  /* 칸을 부모 크기의 백분율(86%/90%)로 잡지 않는다. 부모 높이가 aspectRatio 로 뒤늦게
+     정해지는 구조라 안드로이드에서는 백분율 높이가 0으로 풀릴 때가 있는데, 그러면
+     overflow:'hidden' 이 안쪽 날짜 글자를 통째로 잘라 먹는다. 부모 패딩 + flex 로 채운다. */
   dayInner: {
-    width: '86%',
-    height: '90%',
+    flex: 1,
+    alignSelf: 'stretch',
     borderRadius: 12,
     alignItems: 'center',
     justifyContent: 'center',
     overflow: 'hidden',
+    /* 선택 표시는 테두리 '색'만 바꾼다. 누를 때마다 borderWidth 를 넣었다 뺐다 하면
+       둥근 모서리 클리핑이 다시 계산되면서(안드로이드) 글자가 사라지고, 글자도 1.5px 씩 밀린다. */
+    borderWidth: 1.5,
+    borderColor: 'transparent',
   },
-  dayInnerOn: { borderWidth: 1.5, borderColor: Editorial.selected },
+  dayInnerOn: { borderColor: Editorial.selected },
   dayThumb: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0 },
   dayScrim: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: ink(0.3) },
   /* 사진 없이 옷만 기록한 날 — 사진 대신 옅은 면으로 '기록 있음'을 표시 */
@@ -565,6 +573,7 @@ const styles = StyleSheet.create({
     borderStyle: 'dashed',
     borderRadius: 16,
     paddingVertical: 30,
+    paddingHorizontal: 20,
   },
   /* 데스크톱에선 옆 달력이 화면을 꽉 채워, 이 카드가 작으면 빈 날이 '없는 기능'처럼 보인다 */
   emptyTall: { minHeight: 360, paddingVertical: 40 },
@@ -578,16 +587,33 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   emptyText: { fontSize: Type.body, color: Editorial.textCaption },
-  addBtn: {
+  /* 두 버튼은 '무엇을 먼저 할지'가 다를 뿐 둘 다 할 수 있는 일이다. 크기를 다르게 두면
+     작은 쪽이 안내문처럼 보여 눌러도 되는지 헷갈린다 — 크기는 맞추고 채움/테두리로만 순서를 준다. */
+  /* 카드 폭을 꽉 채우면 점선 테두리에 눌린 것처럼 보인다 — 가운데로 모으고 폭을 제한한다. */
+  actions: { alignSelf: 'stretch', alignItems: 'center', gap: 8 },
+  primaryBtn: {
     flexDirection: 'row',
     alignItems: 'center',
+    justifyContent: 'center',
     gap: 7,
-    paddingHorizontal: 24,
-    height: 52,
+    width: '100%',
+    maxWidth: 280,
+    height: 46,
     borderRadius: 999,
     backgroundColor: Editorial.cta,
-    justifyContent: 'center',
   },
-  addText: { fontSize: Type.label, color: '#fff', fontWeight: '600' },
-  subLink: { fontSize: Type.footnote, color: Editorial.textCaption, textDecorationLine: 'underline' },
+  primaryText: { fontSize: Type.label, color: '#fff', fontWeight: '600' },
+  secondaryBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 7,
+    width: '100%',
+    maxWidth: 280,
+    height: 46,
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: ink(0.14),
+  },
+  secondaryText: { fontSize: Type.label, color: INK, fontWeight: '500' },
 });

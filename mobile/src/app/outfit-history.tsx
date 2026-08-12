@@ -5,7 +5,6 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { Icon } from '@/components/icon';
 import { EmptyState, ErrorState, LoadingState, LoginGate } from '@/components/ui';
 import { ContentMax, Editorial, ink } from '@/constants/theme';
-import { useBottomTabInset } from '@/hooks/use-bottom-tab-inset';
 import { useBreakpoint } from '@/hooks/use-breakpoint';
 import { useOutfitHistory } from '@/hooks/use-outfit-history';
 import { useRefresh } from '@/hooks/use-refresh';
@@ -44,7 +43,6 @@ function weatherLabel(w: AnalysisWeather | null | undefined): string | null {
 export default function OutfitHistoryScreen() {
   const { isLoggedIn, isDemo } = useAuth();
   const { contentStyle } = useBreakpoint();
-  const tabInset = useBottomTabInset();
 
   /* 데모 세션은 status='authed' 지만 토큰이 없어 목록 API 가 401 이다 — 로그인으로 보지 않는다. */
   const canRead = isLoggedIn && !isDemo;
@@ -81,7 +79,7 @@ export default function OutfitHistoryScreen() {
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={INK} />}
         contentContainerStyle={[
           styles.content,
-          { paddingBottom: tabInset + 24 },
+          { paddingBottom: 24 },
           contentStyle(ContentMax.card),
         ]}>
         {loading ? (

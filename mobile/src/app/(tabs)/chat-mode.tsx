@@ -67,7 +67,7 @@ export default function ChatMode() {
     <View style={styles.container}>
       {/* 닫기 버튼은 두지 않는다 — 이 화면에서도 탭바(데스크톱은 사이드바)가 그대로 보여
           나갈 길이 이미 있고, 화면 구석의 ✕ 는 무엇을 닫는지 읽히지 않는다. */}
-      <SafeAreaView edges={['top', 'bottom']} style={styles.safe}>
+      <SafeAreaView edges={['top']} style={styles.safe}>
         <View style={[styles.head, contentStyle(ContentMax.narrow)]}>
           <Text style={styles.eyebrow}>NEW CHAT</Text>
           <Text style={styles.title}>어떻게 추천받을까요?</Text>

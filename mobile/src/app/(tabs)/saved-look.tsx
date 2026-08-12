@@ -9,7 +9,6 @@ import { EmptyState, SmartImage, useConfirm, useToast } from '@/components/ui';
 import { Editorial, ink, Fonts , ContentMax} from '@/constants/theme';
 import { TODAY_LOOK } from '@/constants/today-look';
 import type { WardrobeSource } from '@/constants/wardrobe';
-import { useBottomTabInset } from '@/hooks/use-bottom-tab-inset';
 import { useBreakpoint } from '@/hooks/use-breakpoint';
 import { useAuth } from '@/state/auth';
 import { draftItem } from '@/state/draft-item';
@@ -39,7 +38,6 @@ function savedAtLabel(savedAt: number): string | null {
 // E2 저장 룩 상세 — 구성·추천이유 재확인·메모/해시태그
 export default function SavedLook() {
   const { contentStyle } = useBreakpoint();
-  const tabInset = useBottomTabInset();
   const toast = useToast();
   const confirm = useConfirm();
   const { isLoggedIn } = useAuth();
@@ -307,7 +305,7 @@ export default function SavedLook() {
       </ScrollView>
 
       <View style={styles.bottomDivider} />
-      <View style={[styles.bottomBar, { paddingBottom: tabInset }, contentStyle(ContentMax.card)]}>
+      <View style={[styles.bottomBar, { paddingBottom: 12 }, contentStyle(ContentMax.card)]}>
         <Pressable style={styles.cta} onPress={() => router.push('/chat-room')}>
           <Icon name="sparkles" tintColor="#fff" size={15} />
           <Text style={styles.ctaText}>비슷하게 추천받기</Text>

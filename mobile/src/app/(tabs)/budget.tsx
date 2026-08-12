@@ -1,7 +1,6 @@
 import { Icon } from '@/components/icon';
 import { useToast } from '@/components/ui';
 import { Editorial, ink, Fonts , ContentMax} from '@/constants/theme';
-import { useBottomTabInset } from '@/hooks/use-bottom-tab-inset';
 import { useBreakpoint } from '@/hooks/use-breakpoint';
 import { formatBudget, prefsStore, usePrefs } from '@/state/prefs';
 import { goBack } from '@/lib/goBack';
@@ -30,7 +29,6 @@ function parseBudgetInput(raw: string): number | null {
 // 예산 설정 — 상품 추천 시 이 예산 내 아이템을 우선 노출
 export default function Budget() {
   const { contentStyle } = useBreakpoint();
-  const tabInset = useBottomTabInset();
   const prefs = usePrefs();
   const [sel, setSel] = useState<number | null>(prefs.budget);
   const [custom, setCustom] = useState('');
@@ -125,7 +123,7 @@ export default function Budget() {
       </ScrollView>
 
       <View style={styles.bottomDivider} />
-      <View style={[styles.bottomBar, { paddingBottom: tabInset }, contentStyle(ContentMax.narrow)]}>
+      <View style={[styles.bottomBar, { paddingBottom: 12 }, contentStyle(ContentMax.narrow)]}>
         <Pressable style={styles.cta} onPress={save}>
           <Text style={styles.ctaText}>저장</Text>
         </Pressable>

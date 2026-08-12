@@ -6,7 +6,6 @@ import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { Editorial, ink, Fonts , ContentMax} from '@/constants/theme';
-import { useBottomTabInset } from '@/hooks/use-bottom-tab-inset';
 import { useBreakpoint } from '@/hooks/use-breakpoint';
 import { pickBodyPhoto } from '@/lib/pickItemPhoto';
 import { measureStore } from '@/state/measure';
@@ -34,7 +33,6 @@ const GUIDE: { icon: IconName; text: string }[] = [
 // G2 정면·측면 촬영 — 촬영 가이드 + 2컷 업로드
 export default function MeasureCapture() {
   const { contentStyle } = useBreakpoint();
-  const tabInset = useBottomTabInset();
   const { returnTo } = useLocalSearchParams<{ returnTo?: string }>();
   const [shots, setShots] = useState<{ front: boolean; side: boolean }>({
     front: false,
@@ -123,7 +121,7 @@ export default function MeasureCapture() {
           </Pressable>
         </ScrollView>
 
-        <View style={[styles.bottomBar, { paddingBottom: tabInset }, contentStyle(ContentMax.narrow)]}>
+        <View style={[styles.bottomBar, { paddingBottom: 12 }, contentStyle(ContentMax.narrow)]}>
           <Pressable
             style={[styles.cta, !both && styles.ctaDisabled]}
             disabled={!both}

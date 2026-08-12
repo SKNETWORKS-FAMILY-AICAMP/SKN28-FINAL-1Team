@@ -17,7 +17,6 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { Editorial, ink, GridCard, gridCardImageHeight, gridCardWidth , ContentMax} from '@/constants/theme';
-import { useBottomTabInset } from '@/hooks/use-bottom-tab-inset';
 import { useBreakpoint } from '@/hooks/use-breakpoint';
 
 const INK = Editorial.ink;
@@ -84,7 +83,6 @@ export default function LookbookScreen() {
   const { frameWidth, contentStyle } = useBreakpoint();
   const cardW = gridCardWidth(frameWidth);
   const cardH = gridCardImageHeight(cardW);
-  const tabInset = useBottomTabInset();
 
   const allLooks = useLookbook();
   const savedLooks = useSavedLooks();
@@ -197,7 +195,7 @@ export default function LookbookScreen() {
         <ScrollView
           style={styles.gridScroll}
           showsVerticalScrollIndicator={false}
-          contentContainerStyle={[styles.grid, { paddingBottom: tabInset + 24 }, contentStyle(ContentMax.wide)]}>
+          contentContainerStyle={[styles.grid, { paddingBottom: 24 }, contentStyle(ContentMax.wide)]}>
           {cards.length === 0 ? (
             <View style={styles.empty}>
               <Text style={styles.emptyText}>{emptyText}</Text>
@@ -286,7 +284,7 @@ export default function LookbookScreen() {
         {/* 올린 룩은 내 룩북(저장됨)에 쌓이므로 좋아요 탭에서는 내놓지 않는다 */}
         {mode === 'browse' || mineTab === 'saved' ? (
           <Pressable
-            style={[styles.addFab, { bottom: tabInset + 12 }]}
+            style={[styles.addFab, { bottom: 12 }]}
             onPress={() => router.push('/look-add')}
             accessibilityLabel="룩 올리기">
             <Icon name="plus" tintColor={INK} size={22} />
