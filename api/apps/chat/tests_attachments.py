@@ -87,6 +87,8 @@ class ChatAttachmentUploadApiTests(APITestCase):
             "https://signed.example/reference.jpg",
         )
         self.assertNotIn("s3_key", response.data["attachment"])
+        self.session.refresh_from_db()
+        self.assertEqual(self.session.title, "이 사진 같은 분위기로 추천해줘")
 
         attachment = ChatAttachment.objects.select_related("message").get()
         self.assertEqual(attachment.message.client_message_id, "photo-1")
@@ -129,7 +131,7 @@ class ChatAttachmentUploadApiTests(APITestCase):
         self.assertEqual(
             first.data["attachment"]["id"], second.data["attachment"]["id"]
         )
-        self.assertEqual(ChatMessage.objects.count(), 1)
+        self.assertEqual(ChatMessage.objects.count(), 2)
         self.assertEqual(ChatAttachment.objects.count(), 1)
         upload_fileobj.assert_called_once()
 
@@ -193,7 +195,11 @@ class ChatAttachmentUploadApiTests(APITestCase):
         self.assertEqual(
             response.data["code"], "CHAT_ATTACHMENT_STORAGE_UNAVAILABLE"
         )
-        self.assertFalse(ChatMessage.objects.exists())
+        self.assertEqual(ChatMessage.objects.count(), 1)
+        self.assertEqual(
+            ChatMessage.objects.get().metadata.get("message_kind"),
+            "greeting",
+        )
         self.assertFalse(ChatAttachment.objects.exists())
 
     @override_settings(CHAT_ATTACHMENT_MAX_BYTES=8)

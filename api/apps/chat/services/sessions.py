@@ -24,6 +24,50 @@ class ChatModeMismatch(ChatSessionError):
     code = "CHAT_MODE_MISMATCH"
 
 
+DEFAULT_SESSION_TITLE = "새 대화"
+AUTO_TITLE_MAX_CHARS = 20
+
+_INITIAL_GREETINGS = {
+    ChatSession.Mode.NEW_ITEM: (
+        "추구미를 반영해 새 룩을 골라드릴게요.\n"
+        "어떤 자리에 입을 옷이 필요하세요?"
+    ),
+    ChatSession.Mode.WARDROBE_BASED: (
+        "옷장에 있는 옷으로 코디를 짜드릴게요.\n"
+        "어떤 자리에 입을 옷이 필요하세요?"
+    ),
+}
+
+
+def _normalized_title(title: str) -> str:
+    return title.strip() or DEFAULT_SESSION_TITLE
+
+
+def _create_initial_greeting(session: ChatSession) -> ChatMessage:
+    """새 세션의 첫 메시지를 모드별 고정 인사로 한 번만 저장한다."""
+    message = ChatMessage(
+        session=session,
+        sequence=1,
+        role=ChatMessage.Role.ASSISTANT,
+        content=_INITIAL_GREETINGS[session.mode],
+        status=ChatMessage.Status.COMPLETED,
+        metadata={"message_kind": "greeting", "mode": session.mode},
+    )
+    message.full_clean()
+    message.save()
+    session.last_message_at = message.created_at
+    session.save(update_fields=["last_message_at", "updated_at"])
+    return message
+
+
+def _title_from_question(content: str) -> str:
+    normalized = " ".join(content.split())
+    if len(normalized) <= AUTO_TITLE_MAX_CHARS:
+        return normalized
+    return f"{normalized[:AUTO_TITLE_MAX_CHARS]}…"
+
+
+@transaction.atomic
 def create_session(
     *,
     identity: ChatIdentity,
@@ -34,11 +78,12 @@ def create_session(
     session = ChatSession(
         identity=identity,
         mode=mode,
-        title=title.strip(),
+        title=_normalized_title(title),
         persona_profile_id=persona_profile_id,
     )
     session.full_clean()
     session.save()
+    _create_initial_greeting(session)
     touch_identity(identity)
     return session
 
@@ -64,7 +109,7 @@ def derive_session(
     derived = ChatSession(
         identity=identity,
         mode=mode,
-        title=title.strip(),
+        title=_normalized_title(title),
         persona_profile_id=source.persona_profile_id,
         parent_session=source,
         context_state=deepcopy(source.context_state),
@@ -73,6 +118,7 @@ def derive_session(
     )
     derived.full_clean()
     derived.save()
+    _create_initial_greeting(derived)
     touch_identity(identity)
     return derived
 
@@ -112,6 +158,17 @@ def append_message(
         ]
         or 0
     )
+    should_set_auto_title = (
+        role == ChatMessage.Role.USER
+        and bool(content.strip())
+        and session.title in {"", DEFAULT_SESSION_TITLE}
+        and not ChatMessage.objects.filter(
+            session=session,
+            role=ChatMessage.Role.USER,
+        )
+        .exclude(content="")
+        .exists()
+    )
     message = ChatMessage(
         session=session,
         sequence=last_sequence + 1,
@@ -128,6 +185,10 @@ def append_message(
     message.save()
 
     session.last_message_at = message.created_at
-    session.save(update_fields=["last_message_at", "updated_at"])
+    update_fields = ["last_message_at", "updated_at"]
+    if should_set_auto_title:
+        session.title = _title_from_question(content)
+        update_fields.append("title")
+    session.save(update_fields=update_fields)
     touch_identity(identity)
     return message, True

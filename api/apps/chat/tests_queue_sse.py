@@ -114,6 +114,8 @@ class ChatQueueApiTests(APITestCase):
         self.assertEqual(
             ChatMessage.objects.filter(role=ChatMessage.Role.USER).count(), 1
         )
+        session.refresh_from_db()
+        self.assertEqual(session.title, "가을 출근룩 추천해줘")
         self.assertEqual(ChatRun.objects.count(), 1)
         self.assertIsNotNone(ChatRun.objects.get().enqueued_at)
         self.assertEqual(enqueue.call_count, 2)

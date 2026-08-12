@@ -112,7 +112,7 @@ class ChatMoodApiTests(APITestCase):
         )
         self.message = ChatMessage.objects.create(
             session=self.session,
-            sequence=1,
+            sequence=2,
             role=ChatMessage.Role.USER,
             content="이 사진 같은 느낌으로 추천해줘",
             status=ChatMessage.Status.COMPLETED,

@@ -92,7 +92,7 @@ class GuestIdentityServiceTests(APITestCase):
         self.assertEqual(session.identity, member)
         self.assertEqual(recommendation.identity, member)
         self.assertEqual(summary.session_count, 1)
-        self.assertEqual(summary.message_count, 1)
+        self.assertEqual(summary.message_count, 2)
         self.assertEqual(summary.attachment_count, 1)
         self.assertEqual(summary.recommendation_count, 1)
         self.assertEqual(credential.identity.claimed_by, member)
@@ -130,6 +130,79 @@ class ChatSessionServiceTests(APITestCase):
         self.assertEqual(derived.parent_session, source)
         self.assertEqual(derived.context_state, source.context_state)
         self.assertEqual(derived.conversation_summary, source.conversation_summary)
+        self.assertEqual(derived.messages.count(), 1)
+        self.assertEqual(
+            derived.messages.get().metadata,
+            {"message_kind": "greeting", "mode": ChatSession.Mode.NEW_ITEM},
+        )
+
+    def test_create_session_persists_mode_greeting_and_default_title(self):
+        session = session_service.create_session(
+            identity=self.credential.identity,
+            mode=ChatSession.Mode.WARDROBE_BASED,
+        )
+
+        greeting = session.messages.get()
+        session.refresh_from_db()
+        self.assertEqual(session.title, "새 대화")
+        self.assertEqual(greeting.sequence, 1)
+        self.assertEqual(greeting.role, ChatMessage.Role.ASSISTANT)
+        self.assertEqual(
+            greeting.content,
+            "옷장에 있는 옷으로 코디를 짜드릴게요.\n"
+            "어떤 자리에 입을 옷이 필요하세요?",
+        )
+        self.assertEqual(greeting.metadata["message_kind"], "greeting")
+        self.assertEqual(session.last_message_at, greeting.created_at)
+
+    def test_first_question_sets_normalized_truncated_title_only_once(self):
+        session = session_service.create_session(
+            identity=self.credential.identity,
+            mode=ChatSession.Mode.NEW_ITEM,
+        )
+        first, _ = session_service.append_message(
+            identity=self.credential.identity,
+            session_id=session.id,
+            role=ChatMessage.Role.USER,
+            content="  다음 주   금요일 면접에 입을 차분한 옷을 추천해 주세요  ",
+            client_message_id="first-question",
+        )
+        duplicate, duplicate_created = session_service.append_message(
+            identity=self.credential.identity,
+            session_id=session.id,
+            role=ChatMessage.Role.USER,
+            content="재전송 본문",
+            client_message_id="first-question",
+        )
+        session_service.append_message(
+            identity=self.credential.identity,
+            session_id=session.id,
+            role=ChatMessage.Role.USER,
+            content="두 번째 질문으로 제목을 바꾸지 마",
+            client_message_id="second-question",
+        )
+
+        session.refresh_from_db()
+        self.assertEqual(first.id, duplicate.id)
+        self.assertFalse(duplicate_created)
+        self.assertEqual(session.title, "다음 주 금요일 면접에 입을 차분한 …")
+
+    def test_explicit_session_title_is_not_overwritten_by_first_question(self):
+        session = session_service.create_session(
+            identity=self.credential.identity,
+            mode=ChatSession.Mode.NEW_ITEM,
+            title="내 면접 코디",
+        )
+
+        session_service.append_message(
+            identity=self.credential.identity,
+            session_id=session.id,
+            role=ChatMessage.Role.USER,
+            content="다음 주 면접룩 추천해줘",
+        )
+
+        session.refresh_from_db()
+        self.assertEqual(session.title, "내 면접 코디")
 
     def test_append_message_assigns_sequence_and_deduplicates_client_id(self):
         session = session_service.create_session(
@@ -161,8 +234,8 @@ class ChatSessionServiceTests(APITestCase):
         self.assertTrue(first_created)
         self.assertFalse(duplicate_created)
         self.assertEqual(duplicate.id, first.id)
-        self.assertEqual((first.sequence, second.sequence), (1, 2))
-        self.assertEqual(session.messages.count(), 2)
+        self.assertEqual((first.sequence, second.sequence), (2, 3))
+        self.assertEqual(session.messages.count(), 3)
 
     def test_other_identity_cannot_append_to_session(self):
         session = session_service.create_session(
@@ -198,6 +271,17 @@ class ChatSessionApiTests(APITestCase):
         )
         self.assertEqual(create_response.status_code, status.HTTP_201_CREATED)
         session_id = create_response.data["id"]
+
+        messages_response = self.client.get(
+            reverse("chat:session-messages", kwargs={"session_id": session_id})
+        )
+        self.assertEqual(messages_response.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(messages_response.data), 1)
+        self.assertEqual(messages_response.data[0]["sequence"], 1)
+        self.assertEqual(
+            messages_response.data[0]["metadata"]["message_kind"],
+            "greeting",
+        )
 
         derive_response = self.client.post(
             reverse("chat:session-derive", kwargs={"session_id": session_id}),
