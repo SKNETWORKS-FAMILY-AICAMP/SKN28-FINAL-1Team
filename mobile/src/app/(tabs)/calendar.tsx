@@ -460,18 +460,31 @@ const styles = StyleSheet.create({
   detailCol: { width: 400, flexShrink: 0, marginTop: 16 },
 
   grid: { flexDirection: 'row', flexWrap: 'wrap' },
-  cell: { width: `${100 / 7}%`, alignItems: 'center', justifyContent: 'center' },
+  cell: {
+    width: `${100 / 7}%`,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 4,
+    paddingVertical: 3,
+  },
   // 모바일 기본 — 높이를 정하지 않고 가로:세로 비율로 둔다.
   cellRatio: { aspectRatio: CELL_RATIO },
+  /* 칸을 부모 크기의 백분율(86%/90%)로 잡지 않는다. 부모 높이가 aspectRatio 로 뒤늦게
+     정해지는 구조라 안드로이드에서는 백분율 높이가 0으로 풀릴 때가 있는데, 그러면
+     overflow:'hidden' 이 안쪽 날짜 글자를 통째로 잘라 먹는다. 부모 패딩 + flex 로 채운다. */
   dayInner: {
-    width: '86%',
-    height: '90%',
+    flex: 1,
+    alignSelf: 'stretch',
     borderRadius: 12,
     alignItems: 'center',
     justifyContent: 'center',
     overflow: 'hidden',
+    /* 선택 표시는 테두리 '색'만 바꾼다. 누를 때마다 borderWidth 를 넣었다 뺐다 하면
+       둥근 모서리 클리핑이 다시 계산되면서(안드로이드) 글자가 사라지고, 글자도 1.5px 씩 밀린다. */
+    borderWidth: 1.5,
+    borderColor: 'transparent',
   },
-  dayInnerOn: { borderWidth: 1.5, borderColor: Editorial.selected },
+  dayInnerOn: { borderColor: Editorial.selected },
   dayThumb: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0 },
   dayScrim: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: ink(0.3) },
   /* 사진 없이 옷만 기록한 날 — 사진 대신 옅은 면으로 '기록 있음'을 표시 */
