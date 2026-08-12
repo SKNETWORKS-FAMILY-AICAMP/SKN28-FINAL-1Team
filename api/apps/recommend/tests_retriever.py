@@ -634,6 +634,51 @@ class GenderSecondLineOfDefenceTests(unittest.TestCase):
         self.assertEqual([c.golden_id for c in got], ["w1"])
 
 
+class RecentExclusionTests(unittest.TestCase):
+    """최근에 이미 나간 코디는 top k에서 빠지고, 다음 순위가 그 자리를 채운다.
+
+    오늘의 룩이 exclude_golden_ids로 최근 5일치 추천을 넘긴다. 골든셋과 규칙이
+    그대로면 순위도 그대로라, 이 제외가 없으면 매일 같은 1위가 뽑힌다.
+    """
+
+    PAYLOADS = [
+        {"golden_id": "a", "items": []},
+        {"golden_id": "b", "items": []},
+        {"golden_id": "c", "items": []},
+    ]
+
+    def _run(self, exclude: set[str], limit: int = 2):
+        from apps.recommend.services.retriever import (
+            RetrievalRequest,
+            retrieve_outfits,
+        )
+
+        client = _IgnoresFilterClient(self.PAYLOADS)
+        return retrieve_outfits(
+            RetrievalRequest(limit=limit, exclude_golden_ids=frozenset(exclude)),
+            client=client,
+        )
+
+    def test_without_exclusion_top_k_is_stable(self) -> None:
+        """전제 확인 — 점수가 같으면 golden_id 순으로 a, b가 뽑힌다."""
+        got = self._run(set())
+        self.assertEqual([c.golden_id for c in got], ["a", "b"])
+
+    def test_excluded_outfit_is_replaced_by_the_next_rank(self) -> None:
+        """1위(a)가 최근 추천분이면 빠지고, top k는 다음 순위로 다시 채워진다."""
+        got = self._run({"a"})
+        self.assertEqual([c.golden_id for c in got], ["b", "c"])
+
+    def test_all_excluded_falls_back_to_repeats_not_empty(self) -> None:
+        """후보 전부가 최근 추천분이면 제외를 풀고 반복을 허용한다.
+
+        골든셋이 작은 사용자 조건에서 조용히 EMPTY가 되면 "며칠 잘 나오다
+        추천이 사라졌다"가 된다 — 반복 추천이 그보다 낫다.
+        """
+        got = self._run({"a", "b", "c"})
+        self.assertEqual([c.golden_id for c in got], ["a", "b"])
+
+
 class _Point:
     def __init__(self, pid, payload):
         self.id, self.payload = pid, payload

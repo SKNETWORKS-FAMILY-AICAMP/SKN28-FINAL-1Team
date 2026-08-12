@@ -7,7 +7,6 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { ContentMax, Editorial, ink, Type } from '@/constants/theme';
 import { APP_VERSION, FAQ, OSS_LICENSES, SUPPORT_EMAIL } from '@/constants/support';
-import { useBottomTabInset } from '@/hooks/use-bottom-tab-inset';
 import { useBreakpoint } from '@/hooks/use-breakpoint';
 import { goBack } from '@/lib/goBack';
 
@@ -21,7 +20,6 @@ const INK = Editorial.ink;
  */
 export default function SupportScreen() {
   const { contentStyle } = useBreakpoint();
-  const tabInset = useBottomTabInset();
   const toast = useToast();
   const [openFaq, setOpenFaq] = useState<number | null>(0);
 
@@ -51,7 +49,7 @@ export default function SupportScreen() {
         showsVerticalScrollIndicator={false}
         contentContainerStyle={[
           styles.content,
-          { paddingBottom: tabInset + 24 },
+          { paddingBottom: 24 },
           contentStyle(ContentMax.narrow),
         ]}>
         <Text style={styles.sectionTitle}>자주 묻는 것</Text>

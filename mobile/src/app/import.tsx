@@ -256,34 +256,67 @@ export default function ImportScreen() {
     [goToOrders, site.loginUrlPattern, site.orderUrlPattern],
   );
 
-  const handleNav = (nav: WebViewNavigation) => handleUrl(nav.url);
-
   // http→https 로 한 번 올려본 주소. 사이트가 다시 http 로 되돌리면 무한루프가 되므로 1회만 시도한다.
   const upgraded = useRef<Set<string>>(new Set());
 
   /**
+   * 평문 http 주소면 https 로 올려 다시 태운다. 올렸으면 true.
+   *
+   * 네이버는 로그인 성공 후 복귀 주소를 `url=http%3A%2F%2Fshopping.naver.com%2Fmy%2Forder`
+   * 처럼 **http 로** 돌려준다. 두 플랫폼 모두 평문 HTTP 를 막는다 —
+   * iOS 는 ATS 가 -1022, 안드로이드는 API 28+ 기본 차단으로 ERR_CLEARTEXT_NOT_PERMITTED.
+   */
+  const upgradeCleartext = useCallback(
+    (url: string): boolean => {
+      if (!url.startsWith('http://') || upgraded.current.has(url)) return false;
+      upgraded.current.add(url);
+      const secure = `https://${url.slice('http://'.length)}`;
+      console.log('[import] http→https 승격', secure);
+      navigate(secure);
+      return true;
+    },
+    [navigate],
+  );
+
+  /* 승격을 세 군데서 노리는 이유 — 한 곳만으로는 안드로이드를 못 막는다.
+     안드로이드의 onShouldStartLoadWithRequest 는 내부적으로 shouldOverrideUrlLoading 이라
+     **서버 리다이렉트(302)에는 불리지 않는다.** 네이버 로그인 복귀가 정확히 그 경로라,
+     iOS 에서만 막히고 안드로이드는 그대로 평문 요청이 나가 에러 화면이 됐다.
+       ① onShouldStartLoadWithRequest — iOS 전 구간, 안드로이드는 링크 클릭
+       ② onNavigationStateChange     — 안드로이드 리다이렉트가 여기서 잡힌다(로드 시작 시점)
+       ③ onError                     — ①②를 다 놓쳤을 때의 마지막 그물 */
+  const handleNav = (nav: WebViewNavigation) => {
+    if (upgradeCleartext(nav.url)) return;
+    handleUrl(nav.url);
+  };
+
+  /**
    * 로드 전 가로채기.
    *  ① 평문 http 는 https 로 올려서 다시 태운다.
-   *     네이버는 로그인 성공 후 복귀 주소를 `url=http%3A%2F%2Fshopping.naver.com%2Fmy%2Forder`
-   *     처럼 **http 로** 돌려준다. iOS ATS 가 평문 HTTP 를 막아 -1022 로 로드가 실패한다.
    *  ② 커스텀 스킴(naversearchapp://, intent:// 등)은 막는다.
    *     네이버 앱으로 튀어나가면 WebView 안 로그인 세션이 끊겨 구매목록을 못 읽는다.
    */
   const handleShouldStart = (req: WebViewNavigation) => {
     const url = req.url;
 
-    if (url.startsWith('http://') && !upgraded.current.has(url)) {
-      upgraded.current.add(url);
-      const secure = `https://${url.slice('http://'.length)}`;
-      console.log('[import] http→https 승격', secure);
-      navigate(secure);
-      return false;
-    }
+    if (upgradeCleartext(url)) return false;
 
     if (/^(https?:|about:)/i.test(url)) return true;
 
     console.log('[import] 앱 전환 차단', url);
     return false;
+  };
+
+  /**
+   * 로드 실패. 평문 차단이면 https 로 올려 되살리고, 그 밖의 실패는 WebView 기본 화면에 맡긴다.
+   * 실패한 주소가 응답에 없을 수 있어(안드로이드) 지금 주소로도 한 번 시도한다.
+   */
+  /* 패키지 루트가 WebViewErrorEvent 를 다시 내보내지 않아(index.d.ts 는 세 개만) 필요한 필드만 적는다. */
+  const handleError = (e: { nativeEvent: { url?: string; description?: string; code?: number } }) => {
+    const { url, description, code } = e.nativeEvent;
+    console.log('[import] 로드 실패', code, description, url);
+    if (upgradeCleartext(url ?? '')) return;
+    if (/CLEARTEXT|-1022/i.test(description ?? '')) upgradeCleartext(currentUrl);
   };
 
   const handleMessage = (e: WebViewMessageEvent) => {
@@ -464,6 +497,7 @@ export default function ImportScreen() {
         injectedJavaScriptBeforeContentLoaded={BOOTSTRAP_JS}
         onNavigationStateChange={handleNav}
         onShouldStartLoadWithRequest={handleShouldStart}
+        onError={handleError}
         onMessage={handleMessage}
         startInLoadingState
       />

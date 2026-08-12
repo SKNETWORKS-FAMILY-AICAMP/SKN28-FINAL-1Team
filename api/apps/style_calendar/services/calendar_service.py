@@ -57,6 +57,10 @@ class CalendarDeletionConflictError(Exception):
         super().__init__("이미지 처리 중인 캘린더는 삭제할 수 없습니다.")
 
 
+class CalendarItemLinkNotFoundError(Exception):
+    """해제하려는 옷장 아이템이 그 캘린더에 연결돼 있지 않은 경우."""
+
+
 def entries_for_user(*, user) -> QuerySet[CalendarEntry]:
     """사용자 소유 캘린더와 조회 응답에 필요한 하위 데이터를 반환한다."""
 
@@ -175,6 +179,66 @@ def clear_date_for_replacement(*, user, entry_date: date) -> None:
             calendar_id=entry_id,
         )
     )
+
+
+@transaction.atomic
+def unlink_wardrobe_item(
+    *,
+    user,
+    calendar_id: UUID,
+    wardrobe_item_id: UUID,
+) -> CalendarEntry:
+    """캘린더와 옷장 아이템의 **연결만** 끊는다.
+
+    지우는 것은 calendar_wardrobe_item 연결 행 하나뿐이다. wardrobe_item 행은
+    절대 건드리지 않는다 — 옷장은 사용자의 자산이고, 캘린더는 그것을 참조만 한다.
+    캘린더 행도 그대로 남는다. 예전 프론트는 옷 하나를 빼려고 기록을 지우고 다시
+    만들었는데, 재등록이 실패하면 기록 자체가 사라졌다 — 이 API가 그 사고를 없앤다.
+
+    delete_entry와 같은 이유로 행 잠금을 걸고, 처리 중(REGISTERED/PROCESSING)인
+    캘린더는 거절한다. 추출 callback이 연결을 만드는 중이라 경합하기 때문이다.
+
+    대표 이미지(image_s3_key)가 이 아이템의 캘린더 복사본이었다면(옷장 직접 선택
+    등록은 첫 아이템 사진이 대표다) 남은 연결의 첫 사진으로 바꿔 둔다. 그대로 두면
+    지워진 사진을 가리키는 죽은 링크가 된다.
+    """
+
+    entry = (
+        CalendarEntry.objects.select_for_update()
+        .filter(pk=calendar_id, user=user)
+        .first()
+    )
+    if entry is None:
+        raise CalendarDeletionNotFoundError
+    if entry.status not in {
+        CalendarStatus.COMPLETED.value,
+        CalendarStatus.FAILED.value,
+    }:
+        raise CalendarDeletionConflictError(entry.status)
+
+    link = entry.wardrobe_links.filter(wardrobe_item_id=wardrobe_item_id).first()
+    if link is None:
+        raise CalendarItemLinkNotFoundError
+
+    removed_copy_key = str((link.snapshot or {}).get("s3_key") or "")
+    link.delete()
+
+    if entry.image_s3_key and entry.image_s3_key == removed_copy_key:
+        next_link = (
+            entry.wardrobe_links.order_by("sort_order", "created_at").first()
+        )
+        entry.image_s3_key = (
+            str((next_link.snapshot or {}).get("s3_key") or "") if next_link else ""
+        )
+        entry.save(update_fields=["image_s3_key", "updated_at"])
+
+    # 캘린더 소유 경로에 복사해 둔 아이템 사진만 지운다. 연결마다 자기 복사본을
+    # 가지므로(경로에 link id가 들어간다) 다른 연결의 사진을 건드릴 일이 없다.
+    # 원본(wardrobe 버킷)은 옷장 소유라 여기서 절대 지우지 않는다.
+    if removed_copy_key:
+        transaction.on_commit(lambda: _cleanup_s3_objects([removed_copy_key]))
+
+    return entries_for_user(user=user).get(pk=calendar_id)
 
 
 def _cleanup_deleted_calendar_s3(*, user_id: int | str, calendar_id: UUID) -> None:

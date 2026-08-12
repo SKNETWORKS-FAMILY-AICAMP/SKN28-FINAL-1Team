@@ -31,6 +31,14 @@ import {
 import { ALLOWED_HASHTAGS, type AllowedHashtag } from '@/state/lookbook';
 import { savedLookStore } from '@/state/saved';
 
+/** 'YYYY-MM-DD' 가 든 달의 첫날·끝날. 캘린더 스토어는 기간 단위로만 받아 온다. */
+function monthBounds(dateKey: string): [string, string] {
+  const [year, month] = dateKey.split('-').map(Number);
+  const last = new Date(year, month, 0).getDate();
+  const mm = String(month).padStart(2, '0');
+  return [`${year}-${mm}-01`, `${year}-${mm}-${String(last).padStart(2, '0')}`];
+}
+
 const INK = Editorial.ink;
 const PAD = 20;
 const CHIP = 76;
@@ -149,14 +157,16 @@ export function LookComposer({ date }: { date?: string }) {
   /** 룩북 카드에 쓸 대표 사진 — 룩 사진이 없으면 담은 옷의 첫 장으로 대신한다. */
   const coverImage = photo ?? items.find((i) => i.image)?.image;
 
-  const makeLook = (entryDate?: string) =>
+  const makeLook = (opts?: { entryDate?: string; createCalendar?: boolean; overwrite?: boolean }) =>
     savedLookStore.addLook({
       image: coverImage,
       comment: note.trim() || undefined,
       origin: 'closet',
       items,
       note,
-      entryDate,
+      entryDate: opts?.entryDate,
+      createCalendar: opts?.createCalendar,
+      overwriteCalendar: opts?.overwrite,
       tags,
     });
 
@@ -173,7 +183,17 @@ export function LookComposer({ date }: { date?: string }) {
   const runSave = async () => {
 
     if (mode === 'calendar' && date) {
-      const lookId = linkOn && !alreadyLinked ? makeLook(date).id : undefined;
+      /* 룩북에도 올리는 경우 캘린더 기록은 아래 saveEntry 가 만든다 —
+         룩 등록에까지 날짜를 넘기면 같은 날짜를 두 번 등록해 409 가 난다. */
+      let lookId: string | undefined;
+      if (linkOn && !alreadyLinked) {
+        try {
+          lookId = (await makeLook({ entryDate: date })).id;
+        } catch (error) {
+          toast(`룩북에 올리지 못했어요 — ${calendarErrorMessage(error)}`, { variant: 'error' });
+          return;
+        }
+      }
       /* 저장은 서버 왕복이라 끝난 뒤에 알린다 — 먼저 토스트를 띄우면 실패해도 성공처럼 보인다. */
       try {
         await calendarStore.saveEntry({ date, photo, items, note, tags, shared, lookId });
@@ -195,6 +215,7 @@ export function LookComposer({ date }: { date?: string }) {
 
     /* 룩북 모드 — 고른 날에 이미 기록이 있으면 조용히 덮지 않고 먼저 묻는다.
        스토어에는 보고 있는 달만 있어서 다른 달 날짜는 서버까지 확인해야 한다. */
+    let overwrite = false;
     if (linkOn && (await calendarStore.findEntry(linkDate).catch(() => undefined))) {
       const ok = await confirm({
         title: `${formatDateLabel(linkDate)}에 이미 기록이 있어요`,
@@ -202,29 +223,21 @@ export function LookComposer({ date }: { date?: string }) {
         confirmLabel: '바꾸기',
       });
       if (!ok) return;
+      overwrite = true;
     }
 
-    const look = makeLook(linkOn ? linkDate : undefined);
-    if (linkOn) {
-      try {
-        await calendarStore.saveEntry({
-          date: linkDate,
-          photo,
-          items,
-          note,
-          tags,
-          shared,
-          lookId: look.id,
-        });
-      } catch (error) {
-        /* 룩북에는 이미 올라갔으니 그건 살리고 캘린더 실패만 알린다. */
-        toast(`룩북에 올렸어요. 캘린더 기록은 실패했어요 — ${calendarErrorMessage(error)}`, {
-          variant: 'error',
-        });
-        router.navigate('/(tabs)/lookbook?tab=saved');
-        return;
-      }
+    /* 캘린더 기록은 서버가 룩 등록과 **한 번에** 만든다(calendar_date). 따로 부르지 않는다 —
+       두 번 부르면 한쪽만 성공하는 어중간한 상태가 생긴다. */
+    try {
+      await makeLook({ entryDate: linkOn ? linkDate : undefined, createCalendar: linkOn, overwrite });
+    } catch (error) {
+      toast(calendarErrorMessage(error), { variant: 'error' });
+      return;
     }
+
+    // 서버가 만든 캘린더 기록을 캘린더 화면도 알아야 한다 — 그 달을 다시 받는다.
+    if (linkOn) await calendarStore.loadRange(...monthBounds(linkDate)).catch(() => undefined);
+
     toast(linkOn ? '룩북에 올리고 캘린더에도 기록했어요' : '룩북에 올렸어요', {
       variant: 'success',
     });

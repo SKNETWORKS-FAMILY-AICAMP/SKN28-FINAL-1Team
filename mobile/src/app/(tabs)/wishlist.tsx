@@ -10,7 +10,6 @@ import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { ContentMax, Editorial, Fonts, ink } from '@/constants/theme';
-import { useBottomTabInset } from '@/hooks/use-bottom-tab-inset';
 import { useBreakpoint } from '@/hooks/use-breakpoint';
 
 const INK = Editorial.ink;
@@ -33,7 +32,6 @@ function formatTotal(won: number): string {
  */
 export default function WishlistScreen() {
   const { contentStyle } = useBreakpoint();
-  const tabInset = useBottomTabInset();
   const items = useWishlist();
   const { budget } = usePrefs();
   const toast = useToast();
@@ -90,7 +88,7 @@ export default function WishlistScreen() {
         showsVerticalScrollIndicator={false}
         contentContainerStyle={[
           styles.content,
-          { paddingBottom: tabInset + 24 },
+          { paddingBottom: 24 },
           contentStyle(ContentMax.narrow),
         ]}>
         {items.length === 0 ? (

@@ -8,7 +8,7 @@ run_outfit_worker와 같은 구조다 (큐 → claim → 처리 → ack). 다른
 
 - 큐가 분리돼 있다. 오늘의 룩이 밀려도 코디 평가는 영향받지 않는다 —
   평가는 사용자가 화면에서 기다리지만 이쪽은 백그라운드다.
-- `--sweep`이 있다. 로그인 시점에 Redis가 죽어 있으면 행은 QUEUED로 남지만 큐에는
+- `--sweep`이 있다. 홈 진입 시점에 Redis가 죽어 있으면 행은 QUEUED로 남지만 큐에는
   없다. 그 상태를 방치하면 사용자는 종일 '생성 중'을 본다.
 
 **워커는 1대만 띄운다.** recover_stale()이 processing에 남은 작업을 전부 되돌리기
@@ -132,7 +132,8 @@ class Command(BaseCommand):
             else:
                 # 재시도 예약됐으니 다시 집을 수 있게 QUEUED로 되돌린다.
                 look.status = DailyLook.Status.QUEUED
-                look.save(update_fields=["status", "updated_at"])
+                look.enqueued_at = timezone.now()
+                look.save(update_fields=["status", "enqueued_at", "updated_at"])
             return
 
         queue_service.ack(raw, look_id, spec=SPEC)
@@ -143,7 +144,11 @@ class Command(BaseCommand):
         cutoff = timezone.now() - timedelta(minutes=STALE_MINUTES)
         count = DailyLook.objects.filter(
             status=DailyLook.Status.PROCESSING, updated_at__lt=cutoff
-        ).update(status=DailyLook.Status.QUEUED, updated_at=timezone.now())
+        ).update(
+            status=DailyLook.Status.QUEUED,
+            enqueued_at=None,
+            updated_at=timezone.now(),
+        )
         if count:
             logger.warning("정체된 오늘의 룩 %d건을 QUEUED로 되돌림", count)
         return count
@@ -151,7 +156,7 @@ class Command(BaseCommand):
     def _requeue_orphans(self) -> int:
         """QUEUED인데 큐에 없는 행을 다시 적재한다.
 
-        로그인 시점에 Redis가 죽어 있었으면 행만 남고 작업은 없다. 그대로 두면
+        홈 진입 시점에 Redis가 죽어 있었으면 행만 남고 작업은 없다. 그대로 두면
         사용자는 종일 '생성 중'을 보게 된다.
         """
         orphans = DailyLook.objects.filter(
@@ -161,6 +166,11 @@ class Command(BaseCommand):
         for look_id in orphans:
             try:
                 queue_service.push({"look_id": str(look_id)}, spec=SPEC)
+                now = timezone.now()
+                DailyLook.objects.filter(pk=look_id).update(
+                    enqueued_at=now,
+                    updated_at=now,
+                )
                 count += 1
             except Exception:  # noqa: BLE001
                 logger.exception("오늘의 룩 %s 재적재 실패", look_id)

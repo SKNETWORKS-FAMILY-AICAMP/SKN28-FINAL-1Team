@@ -20,7 +20,7 @@ from __future__ import annotations
 
 import logging
 import time
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import Any, Iterable
 
 from django.conf import settings
@@ -29,8 +29,12 @@ from qdrant_client import models as qm
 from apps.recommend.services import vocabulary
 from apps.recommend.services.body_profile import BodyProfile
 from apps.recommend.services.gender import (
-    GENDER_TO_PRESENTATION,
-    PRESENTATION_UNISEX,
+    GENDER_TO_PRESENTATION as GENDER_TO_PRESENTATION,
+)
+from apps.recommend.services.gender import (
+    PRESENTATION_UNISEX as PRESENTATION_UNISEX,
+)
+from apps.recommend.services.gender import (
     allowed_presentation_groups,
     conflicting_item,
     normalize_gender,
@@ -39,6 +43,7 @@ from apps.recommend.services.qdrant import (
     GOLDEN_ITEM_COLLECTION,
     GOLDEN_OUTFIT_COLLECTION,
     IMAGE_VECTOR,
+    TEXT_VECTOR,
     get_client,
 )
 from apps.recommend.services.style_rules import (
@@ -47,6 +52,10 @@ from apps.recommend.services.style_rules import (
     WeatherBand,
     load_body_rules,
     load_weather_rules,
+)
+from apps.recommend.services.text_embedding import (
+    TextEmbeddingClient,
+    get_text_embedding_client,
 )
 
 logger = logging.getLogger(__name__)
@@ -79,15 +88,26 @@ class RetrievalRequest:
     #: 성별 표현이 다른 코디를 검색에서 즉시 탈락시킨다 — 가이드 6장의 하드 필터.
     gender: str = ""
     occasion: str = ""
+    season: str = ""
     #: 자유 문구 (예: "비 오는 날 출근룩"). 있으면 텍스트 벡터로 검색한다.
     query_text: str = ""
+    text_vector: list[float] | None = None
     #: 코디를 찍은 이미지 벡터로 검색할 때 (옷장 기반 추천의 '비슷한 코디')
     image_vector: list[float] | None = None
+    presentation_groups: tuple[str, ...] = ()
+    dataset_version: str = ""
+    dataset_statuses: tuple[str, ...] = ()
     limit: int = 10
     #: 기피 규칙을 하드 필터로 걸지. 가이드 6장 기본 동작.
     hard_filter: bool = True
     #: 노출 가능한 원본만 (기본은 제한 없음 — 골든 원본은 대개 exposable=False다)
     exposable_only: bool = False
+    #: 결과에서 뺄 골든 코디 id. 오늘의 룩이 "최근 며칠 안에 이미 나간 코디"를
+    #: 넘겨 같은 추천이 반복되는 것을 막는다. 점수화가 끝난 뒤 상위 N을 자르기
+    #: 직전에 빼므로, 빠진 자리는 다음 순위가 자연스럽게 채운다. 단 후보가
+    #: **전부** 여기 걸리면 제외를 풀고 그대로 돌려준다 — 골든셋이 작을 때
+    #: 반복 추천이 '추천 없음'보다 낫다.
+    exclude_golden_ids: frozenset[str] = frozenset()
 
 
 @dataclass(frozen=True)
@@ -113,8 +133,72 @@ class OutfitCandidate:
         return list(self.payload.get("items", []))
 
 
+@dataclass(frozen=True)
+class RetrievalResult:
+    candidates: tuple[OutfitCandidate, ...]
+    search_mode: str
+    embedding_model: str = ""
+    embedding_version: str = ""
+
+
+_PRESENTATION_GROUP_ALIASES = {
+    "male": "men",
+    "man": "men",
+    "men": "men",
+    "masculine": "men",
+    "남성": "men",
+    "female": "women",
+    "woman": "women",
+    "women": "women",
+    "feminine": "women",
+    "여성": "women",
+    "unisex": "unisex",
+    "유니섹스": "unisex",
+}
+
+
+def normalize_presentation_groups(values: Iterable[str]) -> tuple[str, ...]:
+    """외부 표기를 골든셋의 men/women/unisex 값으로 통일한다."""
+    normalized = {
+        mapped
+        for value in values
+        if (mapped := _PRESENTATION_GROUP_ALIASES.get(str(value).strip().casefold()))
+    }
+    return tuple(sorted(normalized))
+
+
+def _effective_presentation_groups(request: RetrievalRequest) -> tuple[str, ...]:
+    """프로필 성별 안전 필터와 대화의 명시 조건을 함께 적용한다."""
+    allowed = set(allowed_presentation_groups(request.gender))
+    requested = set(normalize_presentation_groups(request.presentation_groups))
+    if allowed and requested:
+        intersection = allowed & requested
+        # 서로 충돌할 때 필터를 빼면 반대 성별 코디가 전부 통과한다.
+        return tuple(sorted(intersection or {"__no_matching_presentation_group__"}))
+    return tuple(sorted(allowed or requested))
+
+
 def _any_of(field_name: str, values: Iterable[str]) -> qm.FieldCondition:
     return qm.FieldCondition(key=field_name, match=qm.MatchAny(any=sorted(values)))
+
+
+def _status_condition(statuses: Iterable[str]) -> qm.Filter:
+    variants = {
+        variant
+        for value in statuses
+        for variant in (
+            str(value).strip(),
+            str(value).strip().upper(),
+            str(value).strip().lower(),
+        )
+        if variant
+    }
+    return qm.Filter(
+        should=[
+            _any_of("dataset_status", variants),
+            _any_of("status", variants),
+        ]
+    )
 
 
 def build_filter(
@@ -133,13 +217,23 @@ def build_filter(
     if request.exposable_only:
         must.append(qm.FieldCondition(key="exposable", match=qm.MatchValue(value=True)))
 
+    if request.dataset_version:
+        must.append(
+            qm.FieldCondition(
+                key="dataset_version",
+                match=qm.MatchValue(value=request.dataset_version),
+            )
+        )
+    if request.dataset_statuses:
+        must.append(_status_condition(request.dataset_statuses))
+
     # 성별은 하드 필터다. 남성 사용자에게 여성 코디를 "순위만 낮춰" 보여주는 건
     # 추천이 아니라 오작동으로 읽힌다. 계절과 달리 감점으로 둘 수 없는 축이다.
     #
     # 라벨이 없는 코디(presentation_group="")는 여기서 함께 빠진다. 미분류를
     # unisex로 취급하면 여성 코디가 그대로 남성에게 나가므로, 조용히 통과시키는
     # 대신 빠지게 두고 EMPTY 사유에 그 사실을 적는다.
-    if groups := allowed_presentation_groups(request.gender):
+    if groups := _effective_presentation_groups(request):
         must.append(_any_of("presentation_group", groups))
 
     # 계절·상황은 하드 필터로 걸지 않는다.
@@ -316,10 +410,10 @@ def attach_item_tags(client, records: list[tuple[str, float, dict[str, Any]]]) -
             tags = tags_by_point.get(str(item.get("point_id") or ""))
             if not tags:
                 continue
-            for field, value in tags.items():
+            for tag_field, value in tags.items():
                 # 코디 payload의 값이 우선이다. 재적재로 값이 생기면 그쪽이
                 # 그 시점의 진실이다.
-                item.setdefault(field, value)
+                item.setdefault(tag_field, value)
             attached += 1
     return attached
 
@@ -555,7 +649,7 @@ def retrieve_outfits(
     # 재적재로 payload 키가 빠졌거나, 오래된 이미지가 필터 없는 코드를 돌고
     # 있으면 Qdrant 쪽 must는 조용히 무력해진다. 그때도 남성 사용자에게 여성
     # 코디가 나가서는 안 된다. 통과하지 못한 건수는 로그로 드러낸다.
-    allowed_groups = allowed_presentation_groups(request.gender)
+    allowed_groups = _effective_presentation_groups(request)
     blocked_by_gender = 0
     blocked_by_item = 0
 
@@ -571,7 +665,7 @@ def retrieve_outfits(
         else {}
     )
 
-    season = _season_from_weather(request.weather)
+    season = request.season.strip() or _season_from_weather(request.weather)
     weather_rules = load_weather_rules()
     band = weather_rules.band_for(celsius_of(request.weather))
 
@@ -674,6 +768,31 @@ def retrieve_outfits(
             c.golden_id,
         )
     )
+
+    # 최근에 이미 나간 코디는 상위 N을 자르기 직전에 뺀다 — 그래야 빠진 자리를
+    # 다음 순위가 채워 top k가 온전히 '새 코디'로 만들어진다. 점수화 앞에서 빼지
+    # 않는 이유는 없음: 결과가 같고, 여기 두면 "몇 건이 걸러졌는지"를 한 곳에서
+    # 셀 수 있다.
+    if request.exclude_golden_ids:
+        fresh = [
+            c for c in candidates if c.golden_id not in request.exclude_golden_ids
+        ]
+        if fresh:
+            if len(fresh) < len(candidates):
+                logger.info(
+                    "최근 추천분 %d건을 후보에서 제외 (남은 후보 %d건)",
+                    len(candidates) - len(fresh),
+                    len(fresh),
+                )
+            candidates = fresh
+        elif candidates:
+            # 전부 최근 추천분이면 제외를 풀어 반복을 허용한다. 조용히 EMPTY가
+            # 되면 사용자는 "며칠 잘 나오다가 갑자기 추천이 사라졌다"를 겪는다.
+            logger.warning(
+                "후보 %d건이 전부 최근 추천분 — 제외를 풀고 반복 추천을 허용한다 "
+                "(골든셋이 작거나 이 사용자 조건이 좁다)",
+                len(candidates),
+            )
     return candidates[: request.limit]
 
 
@@ -688,6 +807,27 @@ def _fetch(
             limit=fetch,
             with_payload=True,
         )
+        return [(str(h.id), float(h.score), h.payload or {}) for h in hits]
+
+    if request.text_vector is not None:
+        if hasattr(client, "query_points"):
+            response = client.query_points(
+                collection_name=GOLDEN_OUTFIT_COLLECTION,
+                query=request.text_vector,
+                using=TEXT_VECTOR,
+                query_filter=search_filter,
+                limit=fetch,
+                with_payload=True,
+            )
+            hits = response.points
+        else:
+            hits = client.search(
+                collection_name=GOLDEN_OUTFIT_COLLECTION,
+                query_vector=(TEXT_VECTOR, request.text_vector),
+                query_filter=search_filter,
+                limit=fetch,
+                with_payload=True,
+            )
         return [(str(h.id), float(h.score), h.payload or {}) for h in hits]
 
     # 벡터 질의가 없으면 scroll이다. scroll은 관련도가 아니라 **포인트 ID
@@ -791,3 +931,52 @@ def retrieve_substitutes(
         with_payload=True,
     )
     return [{"id": str(h.id), "score": float(h.score), **(h.payload or {})} for h in hits]
+
+
+class GoldenOutfitRetriever:
+    """main 리트리버의 성별·체형 검증을 유지하는 채팅용 인터페이스."""
+
+    def __init__(
+        self,
+        *,
+        client=None,
+        embedding_client: TextEmbeddingClient | None = None,
+        body_rules: BodyRules | None = None,
+    ) -> None:
+        self.client = client or get_client()
+        self.embedding_client = embedding_client
+        self.body_rules = body_rules
+
+    def retrieve(self, request: RetrievalRequest) -> RetrievalResult:
+        if not 1 <= request.limit <= 50:
+            raise ValueError("limit은 1 이상 50 이하여야 합니다.")
+        if request.image_vector is not None and request.query_text.strip():
+            raise ValueError("image_vector와 query_text는 동시에 사용할 수 없습니다.")
+
+        embedding_model = ""
+        embedding_version = ""
+        resolved = request
+        if request.image_vector is not None:
+            search_mode = "image"
+        elif request.query_text.strip():
+            search_mode = "text"
+            embedding = (self.embedding_client or get_text_embedding_client()).embed(
+                request.query_text
+            )
+            embedding_model = embedding.model
+            embedding_version = embedding.version
+            resolved = replace(request, text_vector=list(embedding.vector))
+        else:
+            search_mode = "filter"
+
+        candidates = retrieve_outfits(
+            resolved,
+            client=self.client,
+            rules=self.body_rules,
+        )
+        return RetrievalResult(
+            candidates=tuple(candidates),
+            search_mode=search_mode,
+            embedding_model=embedding_model,
+            embedding_version=embedding_version,
+        )

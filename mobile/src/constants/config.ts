@@ -57,6 +57,19 @@ export const GOOGLE_WEB_CLIENT_ID = process.env.EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID
 export const GOOGLE_IOS_CLIENT_ID = process.env.EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID ?? '';
 
 /**
+ * 웹 소셜 로그인(브라우저 인가 코드 방식)에 쓰는 **클라이언트 ID**.
+ * 인가 URL 쿼리에 그대로 실려 주소창에 노출되는 준공개값이다 — client_secret 은
+ * 백엔드 전용이며 앱에 절대 넣지 않는다 (토큰 교환은 백엔드가 한다).
+ *
+ * 네이티브 키와 다른 값이라는 점에 주의:
+ *   카카오 — 네이티브는 '네이티브 앱 키', 웹은 **REST API 키**
+ *   네이버 — 네이티브는 consumerKey, 웹은 OAuth client_id (백엔드 NAVER_OAUTH_CLIENT_ID 와 같은 값)
+ *   구글  — 웹 클라이언트 ID 하나를 앱·웹이 같이 쓴다
+ */
+export const KAKAO_REST_API_KEY = process.env.EXPO_PUBLIC_KAKAO_REST_API_KEY ?? '';
+export const NAVER_OAUTH_CLIENT_ID = process.env.EXPO_PUBLIC_NAVER_OAUTH_CLIENT_ID ?? '';
+
+/**
  * 키가 채워졌을 때만 해당 SDK 를 초기화/호출한다.
  * 미설정(스캐폴딩) 상태에선 네이티브 SDK 를 건드리지 않아, 재빌드 전에도 앱이 안전하게 뜬다.
  */
@@ -79,8 +92,20 @@ export const isGoogleConfigured = (): boolean =>
  *   GET/PATCH /api/v1/users/me/           내 정보 (Bearer 필요)
  *
  * ※ simplejwt(stateless)라 서버 로그아웃 엔드포인트는 없다 → 로그아웃은 클라이언트 토큰 폐기.
+ *
+ * 이메일 가입/로그인 흐름:
+ *   POST /api/v1/auth/signup/        { email, password } → 202 { email, verification_required, retry_after }
+ *   POST /api/v1/auth/email/verify/  { email, code }     → 200 { email, verified }
+ *     ⚠️ 인증 API 는 **토큰을 주지 않는다**. 계정만 활성화되므로 이어서 로그인해야 세션이 열린다.
+ *   POST /api/v1/auth/email/resend/  { email }           → 200 { retry_after }
+ *   POST /api/v1/auth/login/         { email, password } → 200 { access, refresh, user, is_new_user }
+ *     is_new_user=true 는 가입 후 첫 로그인 → 온보딩(권한 → 체형 측정 → 추구미)으로 보낸다.
  */
 export const AuthEndpoints = {
+  signup: '/api/v1/auth/signup/',
+  login: '/api/v1/auth/login/',
+  verifyEmail: '/api/v1/auth/email/verify/',
+  resendEmail: '/api/v1/auth/email/resend/',
   socialLogin: (provider: SocialProvider) => `/api/v1/auth/${provider}/login/`,
   refresh: '/api/v1/auth/token/refresh/',
   me: '/api/v1/users/me/',
@@ -93,6 +118,17 @@ export const AuthEndpoints = {
  *   - JWT 필요.
  */
 export const HomeEndpoint = '/api/v1/home/';
+
+/**
+ * 오늘의 룩 (api/apps/recommend/urls.py 기준). JWT 필요.
+ *   GET /api/v1/looks/today/?lat=&lon=  → { look_id, look_date, status, result, context, poll_after_ms, detail }
+ *   - 그날 첫 호출이 곧 생성 트리거다 (홈 API 진입 시 백엔드가 미리 걸어 두므로 보통은 완성돼 있다).
+ *   - status 분기: QUEUED/PROCESSING → poll_after_ms 뒤 재조회 | SUCCEEDED → result 표시
+ *                  | EMPTY → 폴링 중단(프로필 입력 유도) | FAILED → 자동 재시도 없음
+ *   - result 의 이미지 URL 은 조회마다 새로 서명된다 — 캐시하면 만료된다.
+ *   - 대표 이미지는 result.render_image_url, null 이면 items[].image_url 카드로 화면을 만든다.
+ */
+export const DailyLookEndpoint = '/api/v1/looks/today/';
 
 /**
  * 착장 사진 분석. 인증 없이 호출할 수 있고, JWT가 있으면 개인화 정보를 반영한다.
@@ -177,4 +213,73 @@ export const WardrobeEndpoints = {
   uploadJob: (jobId: string) => `/api/v1/wardrobe/uploads/${jobId}/`,
   items: '/api/v1/wardrobe/items/',
   item: (itemId: string) => `/api/v1/wardrobe/items/${itemId}/`,
+  batches: '/api/v1/wardrobe/batches/',
+  batch: (batchId: string) => `/api/v1/wardrobe/batches/${batchId}/`,
+} as const;
+
+/**
+ * 스타일 캘린더 — 하루에 기록 하나.
+ *
+ *   GET    /api/v1/calendars/?start_date=&end_date=   → CalendarEntry[] (배열 그대로, 페이지네이션 없음)
+ *   GET    /api/v1/calendars/by-date/?date=           → CalendarEntry · **기록이 없으면 404**
+ *   POST   /api/v1/calendars/photo/                   multipart → 202 (사진 처리는 비동기)
+ *   POST   /api/v1/calendars/wardrobe/                json      → 201 (옷만 고르면 즉시 완료)
+ *   GET    /api/v1/calendars/{id}/                    → CalendarEntry
+ *   PATCH  /api/v1/calendars/{id}/                    → CalendarEntry
+ *   DELETE /api/v1/calendars/{id}/                    → 204
+ *   DELETE /api/v1/calendars/{id}/items/{itemId}/     → CalendarEntry (옷 연결만 해제)
+ *   GET    /api/v1/calendars/{id}/processing-status/  사진 처리 폴링
+ *
+ * ⚠️ **날짜당 1건이고 서버에 upsert 가 없다.** 이미 있는 날짜로 등록하면 409 다.
+ *    사진을 바꾸거나 옷을 **더하려면** DELETE 후 다시 등록해야 한다(PATCH 로는 못 바꾼다).
+ *    옷을 **빼는 건** items DELETE 로 연결만 끊는다 — 기록과 옷장 아이템은 남는다.
+ * ⚠️ **PATCH 는 schedule·tpo·hashtags 만 받는다.** 서버가 미선언 필드를 400 으로 거절하므로
+ *    프론트에만 있는 개념(shared·lookId)을 실어 보내면 요청 전체가 실패한다.
+ * ⚠️ 업로드 제한: 15MB 이하, jpeg/png/webp/heic.
+ */
+export const CalendarEndpoints = {
+  list: '/api/v1/calendars/',
+  byDate: '/api/v1/calendars/by-date/',
+  photo: '/api/v1/calendars/photo/',
+  wardrobe: '/api/v1/calendars/wardrobe/',
+  detail: (calendarId: string) => `/api/v1/calendars/${calendarId}/`,
+  /** 입은 옷 연결 해제 — itemId 는 옷장 아이템 id(wardrobe_item_id)다. */
+  item: (calendarId: string, wardrobeItemId: string) =>
+    `/api/v1/calendars/${calendarId}/items/${wardrobeItemId}/`,
+  processingStatus: (calendarId: string) => `/api/v1/calendars/${calendarId}/processing-status/`,
+} as const;
+
+/**
+ * 룩북 — 캘린더와 거의 같은 모양이지만 **날짜에 매이지 않아 여러 건**을 올릴 수 있다.
+ *
+ *   GET    /api/v1/lookbooks/?hashtag=&status=&limit=&offset=  → { count, next_offset, results[] }
+ *   POST   /api/v1/lookbooks/photo/                    multipart → 202 (사진 처리는 비동기)
+ *   POST   /api/v1/lookbooks/wardrobe/                 json      → 201 (옷만 고르면 즉시 완료)
+ *   GET    /api/v1/lookbooks/{id}/                     → LookbookPost
+ *   PATCH  /api/v1/lookbooks/{id}/                     → schedule·tpo·hashtags 만
+ *   DELETE /api/v1/lookbooks/{id}/                     → 204
+ *   GET    /api/v1/lookbooks/{id}/processing-status/   사진 처리 폴링
+ *
+ * ⚠️ **이 목록은 '내 룩북'이다.** 남들이 올린 피드(둘러보기)는 서버에 없다 —
+ *    state/lookbook.ts 의 로컬 시드가 계속 그 자리를 맡는다.
+ * ⚠️ 등록 요청이 `calendar_date`·`overwrite_calendar` 를 받는다. 켜면 **한 번의 호출로**
+ *    룩북과 캘린더가 함께 남는다 — 캘린더를 따로 부르지 않는다.
+ * ⚠️ PATCH 는 캘린더와 같은 제약: schedule·tpo·hashtags 만. 사진·옷 구성은 못 바꾼다.
+ */
+/**
+ * 월 의류 구매 예산 — 상품 추천에서 '예산 내' 표시를 가르는 값.
+ *
+ *   GET /api/v1/users/me/budget/  → { monthly_budget: number | null }   미설정이면 null
+ *   PUT /api/v1/users/me/budget/    { monthly_budget }  전체 교체
+ *
+ * ⚠️ **1만원 단위, 10,000 이상**만 받는다. 지울 때는 키를 빼는 게 아니라 **명시적으로 null**.
+ */
+export const BudgetEndpoint = '/api/v1/users/me/budget/';
+
+export const LookbookEndpoints = {
+  list: '/api/v1/lookbooks/',
+  photo: '/api/v1/lookbooks/photo/',
+  wardrobe: '/api/v1/lookbooks/wardrobe/',
+  detail: (lookbookId: string) => `/api/v1/lookbooks/${lookbookId}/`,
+  processingStatus: (lookbookId: string) => `/api/v1/lookbooks/${lookbookId}/processing-status/`,
 } as const;

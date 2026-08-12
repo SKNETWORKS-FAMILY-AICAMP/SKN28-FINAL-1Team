@@ -178,12 +178,24 @@ export async function createCalendarFromPhoto(input: {
   }
 }
 
-/** 일정·TPO·해시태그만 고친다. 사진과 옷 구성은 PATCH 로 못 바꾼다(삭제 후 재등록). */
+/** 일정·TPO·해시태그만 고친다. 사진을 바꾸거나 옷을 더하는 건 PATCH 로 못 한다(삭제 후 재등록). */
 export function patchCalendarEntry(
   calendarId: string,
   patch: CalendarMetadata,
 ): Promise<CalendarEntryDto> {
   return api.patch<CalendarEntryDto>(CalendarEndpoints.detail(calendarId), patch);
+}
+
+/**
+ * 입은 옷 하나를 기록에서 뺀다 — **연결만 끊는다.** 캘린더 기록도 옷장 아이템도
+ * 서버에 그대로 남고, 응답으로 갱신된 기록 전체가 돌아온다.
+ * 처리 중(REGISTERED/PROCESSING)인 기록은 서버가 409 로 막는다.
+ */
+export function unlinkCalendarItem(
+  calendarId: string,
+  wardrobeItemId: string,
+): Promise<CalendarEntryDto> {
+  return api.delete<CalendarEntryDto>(CalendarEndpoints.item(calendarId, wardrobeItemId));
 }
 
 /** 처리 중인 기록은 서버가 409 로 막는다. */

@@ -353,6 +353,7 @@ HOME_DESCRIPTION = """홈 화면에 필요한 데이터를 한 번에 반환합�
 - `lat`/`lon`을 보내면 가장 가까운 예보구역의 현재 날씨를 반환합니다.
 - 좌표가 없거나 국내 범위(위도 33~39, 경도 124~132)를 벗어나면 서울시청 좌표로 대체합니다.
 - `quick_recommends`, `closet_count`, `saved_look_count`는 실제 추천·옷장 기능 연동 전까지 mock 값입니다.
+- 부수 효과: 그날 첫 호출이면 **오늘의 룩 생성을 미리 걸어둡니다** (`GET /api/v1/looks/today/`가 곧 완성된 결과를 받도록). 전달한 `lat`/`lon`이 그날 추천의 날씨 기준이 됩니다.
 """
 
 HOME_COORDINATE_PARAMETERS = [

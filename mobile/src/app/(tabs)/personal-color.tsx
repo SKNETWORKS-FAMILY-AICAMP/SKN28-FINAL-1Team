@@ -1,7 +1,6 @@
 import { Icon } from '@/components/icon';
 import { useToast } from '@/components/ui';
 import { Editorial, ink, Fonts , ContentMax} from '@/constants/theme';
-import { useBottomTabInset } from '@/hooks/use-bottom-tab-inset';
 import { useBreakpoint } from '@/hooks/use-breakpoint';
 import { prefsStore, usePrefs } from '@/state/prefs';
 import { goBack } from '@/lib/goBack';
@@ -21,7 +20,6 @@ const SEASONS = [
 // 퍼스널컬러 설정 — 4계절 톤 중 선택 (추천 색 조합의 기준)
 export default function PersonalColor() {
   const { contentStyle } = useBreakpoint();
-  const tabInset = useBottomTabInset();
   const prefs = usePrefs();
   const [sel, setSel] = useState<string | null>(prefs.personalColor);
   const toast = useToast();
@@ -77,7 +75,7 @@ export default function PersonalColor() {
       </ScrollView>
 
       <View style={styles.bottomDivider} />
-      <View style={[styles.bottomBar, { paddingBottom: tabInset }, contentStyle(ContentMax.narrow)]}>
+      <View style={[styles.bottomBar, { paddingBottom: 12 }, contentStyle(ContentMax.narrow)]}>
         <Pressable style={styles.cta} onPress={save}>
           <Text style={styles.ctaText}>저장</Text>
         </Pressable>

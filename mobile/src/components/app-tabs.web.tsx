@@ -51,18 +51,6 @@ const HIDDEN_ROUTES = [
   { name: 'measure-result', href: '/measure-result', icon: 'ruler', label: '체형결과' },
 ] as const satisfies readonly { name: string; href: string; icon: IconName; label: string }[];
 
-/* 자체 하단 CTA(다음/저장 등)를 가진 전체화면 화면들. position:absolute 로 떠 있는
-   하단 탭바가 이 CTA를 가리므로, 본문(TabSlot) 아래에 탭바 높이만큼 여백을 줘서
-   CTA가 바 '위'로 올라오게 한다(탭바는 그대로 보인다). */
-const CTA_ROUTES = [
-  '/measure-input',
-  '/measure-capture',
-  '/measure-result',
-  '/style-onboarding',
-  '/personal-color',
-  '/budget',
-];
-
 /**
  * 탭 내비게이션 (웹).
  * 창 폭에 따라 하단 탭바(모바일) ↔ 좌측 사이드바(데스크톱)로 바뀐다.
@@ -74,9 +62,10 @@ const CTA_ROUTES = [
 export default function AppTabs() {
   const { isDesktop, isWide } = useBreakpoint();
   const pathname = usePathname();
-  // 하단 CTA가 있는 화면에선 본문 아래에 탭바 높이만큼 여백을 줘 CTA를 바 위로 올린다.
+  /* 하단 바는 position:absolute 로 떠 있으므로 본문(TabSlot) 아래에 바 높이만큼 여백을 준다.
+     예전에는 하단 CTA를 가진 화면 목록(CTA_ROUTES)에만 줬는데, 목록에 없는 화면은
+     그대로 가렸다 — 화면이 늘 때마다 목록을 챙겨야 하는 구조였다. 이제 바가 보이면 항상 준다. */
   const [barHeight, setBarHeight] = useState(0);
-  const liftCta = !isDesktop && CTA_ROUTES.includes(pathname);
   /* 채팅 패널을 띄우지 않는 화면:
      - 채팅 화면 자체(chat/chat-room/chat-mode): 대화를 고르는 자리 옆에 또 다른 대화가
        열려 있으면 어느 쪽에 말하는지 알 수 없다.
@@ -135,7 +124,7 @@ export default function AppTabs() {
         )}
       </TabList>
       <TabSlot
-        style={[styles.slot, liftCta && barHeight > 0 ? { paddingBottom: barHeight } : null]}
+        style={[styles.slot, !isDesktop && barHeight > 0 ? { paddingBottom: barHeight } : null]}
       />
       {showChatPanel ? <ChatPanel /> : null}
     </Tabs>

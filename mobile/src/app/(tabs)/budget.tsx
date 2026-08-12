@@ -1,7 +1,6 @@
 import { Icon } from '@/components/icon';
 import { useToast } from '@/components/ui';
 import { Editorial, ink, Fonts , ContentMax} from '@/constants/theme';
-import { useBottomTabInset } from '@/hooks/use-bottom-tab-inset';
 import { useBreakpoint } from '@/hooks/use-breakpoint';
 import { formatBudget, prefsStore, usePrefs } from '@/state/prefs';
 import { goBack } from '@/lib/goBack';
@@ -30,7 +29,6 @@ function parseBudgetInput(raw: string): number | null {
 // 예산 설정 — 상품 추천 시 이 예산 내 아이템을 우선 노출
 export default function Budget() {
   const { contentStyle } = useBreakpoint();
-  const tabInset = useBottomTabInset();
   const prefs = usePrefs();
   const [sel, setSel] = useState<number | null>(prefs.budget);
   const [custom, setCustom] = useState('');
@@ -57,8 +55,22 @@ export default function Budget() {
     }
   };
 
-  const save = () => {
-    prefsStore.setBudget(sel);
+  const [saving, setSaving] = useState(false);
+
+  const save = async () => {
+    if (saving) return;
+    setSaving(true);
+    /* 서버 왕복이라 끝난 뒤에 알린다 — 먼저 토스트를 띄우면 실패해도 저장된 것처럼 보인다. */
+    try {
+      await prefsStore.saveBudget(sel);
+    } catch (error) {
+      toast(error instanceof Error ? error.message : '예산을 저장하지 못했어요', {
+        variant: 'error',
+      });
+      return;
+    } finally {
+      setSaving(false);
+    }
     toast('예산을 저장했어요', { variant: 'success' });
     goBack('/(tabs)/my');
   };
@@ -125,7 +137,7 @@ export default function Budget() {
       </ScrollView>
 
       <View style={styles.bottomDivider} />
-      <View style={[styles.bottomBar, { paddingBottom: tabInset }, contentStyle(ContentMax.narrow)]}>
+      <View style={[styles.bottomBar, { paddingBottom: 12 }, contentStyle(ContentMax.narrow)]}>
         <Pressable style={styles.cta} onPress={save}>
           <Text style={styles.ctaText}>저장</Text>
         </Pressable>

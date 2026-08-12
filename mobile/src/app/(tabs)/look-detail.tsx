@@ -8,7 +8,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { Editorial, ink, Fonts } from '@/constants/theme';
 import { TODAY_LOOK_IMAGE } from '@/constants/look-images';
-import { LOOK_VARIANTS, resolveLookVariant } from '@/constants/today-look';
+import { dailyLookToVariant, LOOK_VARIANTS, resolveLookVariant } from '@/constants/today-look';
 import { savedLookStore } from '@/state/saved';
 import { useAuth } from '@/state/auth';
 import { draftItem } from '@/state/draft-item';
@@ -16,8 +16,8 @@ import { brandScores, likesStore, useWishlist, wishKey } from '@/state/likes';
 import { backTo, goBack } from '@/lib/goBack';
 import { mallLabel, openExternal, productUrl } from '@/lib/mall';
 import type { LookRelated } from '@/constants/today-look';
-import { useBottomTabInset } from '@/hooks/use-bottom-tab-inset';
 import { useBreakpoint } from '@/hooks/use-breakpoint';
+import { useDailyLook } from '@/hooks/use-daily-look';
 import { useHome } from '@/hooks/use-home';
 import { DetailTwoPane } from '@/components/detail-two-pane';
 
@@ -33,12 +33,18 @@ function tagsOf(subtitle: string): string[] {
 // C4 추천 룩 상세 — 2D 가상착장 + 구성 + 추천 이유 + 피드백
 export default function LookDetail() {
   const { contentStyle, width } = useBreakpoint();
-  const tabInset = useBottomTabInset();
   // 2단(≥1280)일 땐 본문을 넓게, 세로로 쌓일 땐 좁게 잡아 사진·카드가 과하게 커지지 않게 한다.
   const maxW = width >= 1280 ? 960 : 720;
   /* 어떤 룩을 볼지는 주소가 정한다. 없으면 오늘의 룩. */
   const { id, from } = useLocalSearchParams<{ id?: string; from?: string }>();
-  const look = resolveLookVariant(id);
+  const { isLoggedIn } = useAuth();
+  /* 오늘의 룩(id 없음/'daily')은 추천 API 실데이터로 그린다. 홈이 이미 만들어 둔
+     것을 다시 조회하는 것뿐이라(하루 1건 멱등) 재생성은 없고, 생성 중이면 훅이
+     폴링해 보는 사이 완성되면 화면이 실제 추천으로 바뀐다. 완성 전·비회원이면
+     번들 목업으로 물러난다 — 홈 카드의 템플릿 폴백과 같은 규칙. */
+  const { look: dailyLook } = useDailyLook(isLoggedIn);
+  const apiVariant = useMemo(() => dailyLookToVariant(dailyLook), [dailyLook]);
+  const look = (!id || id === 'daily') && apiVariant ? apiVariant : resolveLookVariant(id);
   const PIECES = look.pieces;
   const lookTags = tagsOf(look.subtitle);
   /* 사진은 원격 URL 이 있으면 그것, 없으면 번들 목업(오늘의 룩) */
@@ -50,7 +56,6 @@ export default function LookDetail() {
   const toast = useToast();
   const { budget } = usePrefs();
   const wishlist = useWishlist();
-  const { isLoggedIn } = useAuth();
 
   /* 찜한 브랜드 = 취향. 예산 다음 순위로 써서 관련 상품 순서를 정한다(아래 sortRelated). */
   const brands = useMemo(() => brandScores(wishlist), [wishlist]);
@@ -116,35 +121,47 @@ export default function LookDetail() {
   /* 북마크 = 저장 토글. 켜면 '저장됨'에 담고, 끄면 뺀다.
      하트를 안 쓰는 이유 — 하트는 룩북 피드의 '좋아요'가 가져갔다. 한 아이콘이 화면마다
      다른 뜻이면 누르기 전에 무슨 일이 생길지 알 수 없다. */
-  const toggleSave = () => {
-    if (saved) {
-      const found = savedLookStore
-        .getLooks()
-        .find((l) => (look.image ? l.image === look.image : l.asset === TODAY_LOOK_IMAGE));
-      if (found) savedLookStore.removeLook(found.id);
-      setSaved(false);
-    } else {
-      savedLookStore.addLook({
+  /* 서버 왕복이라 먼저 켜 두고 실패하면 되돌린다 — 저장은 한 번 누르면 끝나야 하는 동작이라
+     응답을 기다리는 동안 아이콘이 꺼져 있으면 눌리지 않은 것처럼 보인다. */
+  const saveLook = async (): Promise<boolean> => {
+    setSaved(true);
+    try {
+      await savedLookStore.addLook({
         ...lookKey,
         comment: look.title,
         tags: lookTags,
         reason: look.reasons[0],
       });
-      setSaved(true);
-      toast('저장됨에 담았어요');
+      return true;
+    } catch (error) {
+      setSaved(false);
+      toast(error instanceof Error ? error.message : '저장하지 못했어요', { variant: 'error' });
+      return false;
     }
   };
 
+  const toggleSave = async () => {
+    if (saved) {
+      const found = savedLookStore
+        .getLooks()
+        .find((l) => (look.image ? l.image === look.image : l.asset === TODAY_LOOK_IMAGE));
+      setSaved(false);
+      if (found) {
+        try {
+          await savedLookStore.removeLook(found.id);
+        } catch (error) {
+          setSaved(true);
+          toast(error instanceof Error ? error.message : '빼지 못했어요', { variant: 'error' });
+        }
+      }
+      return;
+    }
+    if (await saveLook()) toast('저장됨에 담았어요');
+  };
+
   // 하단 '룩북에 저장' = 담고 룩북 저장됨 탭으로 이동.
-  const saveAndGoLookbook = () => {
-    savedLookStore.addLook({
-      ...lookKey,
-      comment: look.title,
-      tags: lookTags,
-      reason: look.reasons[0],
-    });
-    setSaved(true);
-    router.push('/(tabs)/lookbook?tab=saved');
+  const saveAndGoLookbook = async () => {
+    if (await saveLook()) router.push('/(tabs)/lookbook?tab=saved');
   };
 
   /* 서브텍스트의 날씨는 홈과 같은 출처(useHome)에서 실시간 값을 가져와 통일한다.
@@ -214,10 +231,16 @@ export default function LookDetail() {
           <Text style={styles.sectionTitle}>구성 아이템</Text>
           <View style={styles.pieces}>
             {PIECES.map((p) => {
-              const open = openSlot === p.slot;
+              /* API 룩은 아직 비슷한 상품이 없다(related=[]) — 열어도 빈 서랍이므로
+                 아코디언을 잠그고 화살표도 숨긴다. */
+              const expandable = p.related.length > 0;
+              const open = expandable && openSlot === p.slot;
               return (
                 <View key={p.slot} style={[styles.pieceWrap, open && styles.pieceWrapOpen]}>
-                  <Pressable style={styles.piece} onPress={() => setOpenSlot(open ? null : p.slot)}>
+                  <Pressable
+                    style={styles.piece}
+                    disabled={!expandable}
+                    onPress={() => setOpenSlot(open ? null : p.slot)}>
                     <View style={styles.pieceThumb}>
                       <SmartImage uri={p.image} width="100%" aspectRatio={1} radius={12} contentFit="cover" />
                     </View>
@@ -245,11 +268,13 @@ export default function LookDetail() {
                         <Text style={styles.pieceAddText}>옷장에</Text>
                       </Pressable>
                     ) : null}
-                    <Icon
-                      name={open ? 'chevron.down' : 'chevron.right'}
-                      tintColor={ink(0.3)}
-                      size={16}
-                    />
+                    {expandable ? (
+                      <Icon
+                        name={open ? 'chevron.down' : 'chevron.right'}
+                        tintColor={ink(0.3)}
+                        size={16}
+                      />
+                    ) : null}
                   </Pressable>
 
                   {open ? (
@@ -375,7 +400,7 @@ export default function LookDetail() {
 
       {/* 하단 바 */}
       <View style={styles.bottomDivider} />
-      <View style={[styles.bottomBar, { paddingBottom: tabInset }, contentStyle(maxW)]}>
+      <View style={[styles.bottomBar, { paddingBottom: 12 }, contentStyle(maxW)]}>
         <Pressable style={styles.altBtn} onPress={showAnotherLook}>
           <Text style={styles.altText}>다른 룩</Text>
         </Pressable>
