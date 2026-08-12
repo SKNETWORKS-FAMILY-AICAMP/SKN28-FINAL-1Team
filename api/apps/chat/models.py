@@ -393,6 +393,11 @@ class ChatAttachment(models.Model):
         SUCCEEDED = "SUCCEEDED", "분석 완료"
         FAILED = "FAILED", "분석 실패"
 
+    class MoodDecision(models.TextChoices):
+        UNDECIDED = "UNDECIDED", "미결정"
+        APPROVED = "APPROVED", "승인"
+        REJECTED = "REJECTED", "거절"
+
     id = models.UUIDField(
         primary_key=True,
         default=uuid.uuid4,
@@ -427,6 +432,22 @@ class ChatAttachment(models.Model):
         db_comment=(
             "첨부 이미지 분석 상태 (NOT_REQUESTED/QUEUED/PROCESSING/SUCCEEDED/FAILED)"
         ),
+    )
+    analysis_result = models.JSONField(
+        default=dict,
+        blank=True,
+        db_comment="사진에서 추출한 무드·스타일·색상·핏 분석 결과 JSON",
+    )
+    mood_decision = models.CharField(
+        max_length=12,
+        choices=MoodDecision.choices,
+        default=MoodDecision.UNDECIDED,
+        db_comment="사진 무드 반영 결정 (UNDECIDED/APPROVED/REJECTED)",
+    )
+    mood_decided_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        db_comment="사진 무드 승인 또는 거절 확정 시각 (미결정이면 NULL)",
     )
     created_at = models.DateTimeField(
         auto_now_add=True,

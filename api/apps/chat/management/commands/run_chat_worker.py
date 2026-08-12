@@ -18,6 +18,10 @@ from apps.chat.models import ChatRun
 from apps.chat.serializers import ChatMessageSerializer
 from apps.chat.services import queue
 from apps.chat.services.events import ChatEventStore
+from apps.chat.services.mood_analysis import (
+    ChatMoodAnalysisStateInvalid,
+    ChatMoodImageInvalid,
+)
 from apps.chat.services.openai_adapter import ChatLLMConfigurationError
 from apps.chat.services.orchestrator import (
     ChatOrchestrator,
@@ -194,6 +198,8 @@ class Command(BaseCommand):
             exc,
             (
                 ChatLLMConfigurationError,
+                ChatMoodAnalysisStateInvalid,
+                ChatMoodImageInvalid,
                 ChatRecommendationError,
                 ChatRunInvalid,
             ),

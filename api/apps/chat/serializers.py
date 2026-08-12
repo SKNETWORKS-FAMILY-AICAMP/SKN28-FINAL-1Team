@@ -14,6 +14,14 @@ from apps.chat.services import attachment_storage
 
 logger = logging.getLogger(__name__)
 
+# Django의 ImageField 검증 단계에서도 iPhone HEIC를 이미지로 인식하게 한다.
+try:
+    from pillow_heif import register_heif_opener
+
+    register_heif_opener()
+except ImportError:
+    logger.debug("pillow-heif 미설치: HEIC 채팅 첨부 검증을 사용할 수 없습니다.")
+
 
 class ChatAttachmentSerializer(serializers.ModelSerializer):
     image_url = serializers.SerializerMethodField()
@@ -26,6 +34,9 @@ class ChatAttachmentSerializer(serializers.ModelSerializer):
             "size",
             "sha256",
             "analysis_status",
+            "analysis_result",
+            "mood_decision",
+            "mood_decided_at",
             "image_url",
             "created_at",
         ]
@@ -154,6 +165,23 @@ class ChatRunSerializer(serializers.ModelSerializer):
             "updated_at",
         ]
         read_only_fields = fields
+
+
+class ChatMoodAnalysisResponseSerializer(serializers.Serializer):
+    attachment = ChatAttachmentSerializer(read_only=True)
+    run = ChatRunSerializer(read_only=True)
+    events_url = serializers.URLField(read_only=True)
+
+
+class ChatMoodDecisionSerializer(serializers.Serializer):
+    decision = serializers.ChoiceField(choices=["APPROVE", "REJECT"])
+
+
+class ChatMoodDecisionResponseSerializer(serializers.Serializer):
+    attachment = ChatAttachmentSerializer(read_only=True)
+    changed = serializers.BooleanField(read_only=True)
+    applied = serializers.BooleanField(read_only=True)
+    context_state = serializers.JSONField(read_only=True)
 
 
 class ChatSessionSerializer(serializers.ModelSerializer):

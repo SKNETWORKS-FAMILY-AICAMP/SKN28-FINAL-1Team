@@ -1,6 +1,8 @@
 from django.urls import path
 
 from apps.chat.views import (
+    ChatAttachmentMoodAnalysisView,
+    ChatAttachmentMoodDecisionView,
     ChatRunDetailView,
     ChatRunEventStreamView,
     ChatSessionAttachmentUploadView,
@@ -37,6 +39,16 @@ urlpatterns = [
         "chat/sessions/<uuid:session_id>/attachments/",
         ChatSessionAttachmentUploadView.as_view(),
         name="session-attachment-upload",
+    ),
+    path(
+        "chat/sessions/<uuid:session_id>/attachments/<uuid:attachment_id>/analysis/",
+        ChatAttachmentMoodAnalysisView.as_view(),
+        name="attachment-mood-analysis",
+    ),
+    path(
+        "chat/sessions/<uuid:session_id>/attachments/<uuid:attachment_id>/mood-decision/",
+        ChatAttachmentMoodDecisionView.as_view(),
+        name="attachment-mood-decision",
     ),
     path(
         "chat/runs/<uuid:run_id>/",

@@ -26,6 +26,9 @@ from apps.chat.serializers import (
     ChatAttachmentUploadSerializer,
     ChatMessageCreateSerializer,
     ChatMessageSerializer,
+    ChatMoodAnalysisResponseSerializer,
+    ChatMoodDecisionResponseSerializer,
+    ChatMoodDecisionSerializer,
     ChatRunSerializer,
     ChatSessionCreateSerializer,
     ChatSessionDeriveSerializer,
@@ -35,6 +38,7 @@ from apps.chat.serializers import (
 )
 from apps.chat.services import attachments as attachment_service
 from apps.chat.services import identity as identity_service
+from apps.chat.services import mood_analysis
 from apps.chat.services import queue as chat_queue
 from apps.chat.services import sessions as session_service
 from apps.chat.services.events import ChatEvent, ChatEventStore, encode_sse, heartbeat
@@ -361,6 +365,162 @@ class ChatSessionAttachmentUploadView(APIView):
             status=(
                 status.HTTP_201_CREATED if result.created else status.HTTP_200_OK
             ),
+        )
+
+
+class ChatAttachmentMoodAnalysisView(APIView):
+    """업로드된 사진의 비동기 무드 분석을 접수한다."""
+
+    permission_classes = [AllowAny]
+
+    @extend_schema(
+        operation_id="chat_attachment_mood_analysis_create",
+        tags=["Chat"],
+        summary="채팅 사진 무드 분석 요청",
+        description=(
+            "기존 ChatRun/Redis 워커에 사진 무드 분석을 접수합니다. "
+            "완료 결과는 run SSE의 response_message.metadata.mood_analysis와 "
+            "attachment.analysis_result에서 확인할 수 있습니다."
+        ),
+        request=None,
+        responses={
+            200: ChatMoodAnalysisResponseSerializer,
+            202: ChatMoodAnalysisResponseSerializer,
+            404: OpenApiResponse(
+                description="사진이 없거나 요청 identity의 소유가 아님"
+            ),
+            409: OpenApiResponse(description="현재 상태에서는 분석할 수 없음"),
+            503: OpenApiResponse(description="채팅 실행 큐를 사용할 수 없음"),
+        },
+    )
+    def post(self, request, session_id, attachment_id):
+        identity = _identity(request)
+        try:
+            prepared = mood_analysis.prepare_analysis(
+                identity=identity,
+                session_id=session_id,
+                attachment_id=attachment_id,
+            )
+        except mood_analysis.ChatMoodNotFound as exc:
+            return Response(
+                {"code": exc.code, "detail": str(exc)},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+        except mood_analysis.ChatMoodError as exc:
+            return Response(
+                {"code": exc.code, "detail": str(exc)},
+                status=status.HTTP_409_CONFLICT,
+            )
+
+        attachment = prepared.attachment
+        run = prepared.run
+        if run.status == ChatRun.Status.PENDING:
+            try:
+                chat_queue.enqueue(run)
+                enqueued_at = timezone.now()
+                ChatRun.objects.filter(
+                    pk=run.pk,
+                    status=ChatRun.Status.PENDING,
+                ).update(enqueued_at=enqueued_at, updated_at=enqueued_at)
+                run.enqueued_at = enqueued_at
+            except redis.RedisError:
+                logger.exception("사진 무드 분석 큐 적재 실패: run=%s", run.pk)
+                run = mark_enqueue_failed(run.pk) or run
+                attachment.refresh_from_db()
+                return Response(
+                    {
+                        "code": "CHAT_QUEUE_UNAVAILABLE",
+                        "detail": run.error_message,
+                        "attachment": ChatAttachmentSerializer(attachment).data,
+                        "run": ChatRunSerializer(run).data,
+                    },
+                    status=status.HTTP_503_SERVICE_UNAVAILABLE,
+                )
+
+            try:
+                ChatEventStore().publish(
+                    run.pk,
+                    "queued",
+                    {"run_id": str(run.pk), "status": ChatRun.Status.PENDING},
+                )
+            except redis.RedisError:
+                logger.warning(
+                    "사진 무드 queued SSE 이벤트 기록 실패: run=%s",
+                    run.pk,
+                    exc_info=True,
+                )
+
+        attachment.refresh_from_db()
+        response_status = (
+            status.HTTP_202_ACCEPTED
+            if run.status in {ChatRun.Status.PENDING, ChatRun.Status.RUNNING}
+            else status.HTTP_200_OK
+        )
+        return Response(
+            {
+                "attachment": ChatAttachmentSerializer(attachment).data,
+                "run": ChatRunSerializer(run).data,
+                "events_url": request.build_absolute_uri(
+                    reverse("chat:run-events", kwargs={"run_id": run.pk})
+                ),
+            },
+            status=response_status,
+        )
+
+
+class ChatAttachmentMoodDecisionView(APIView):
+    """분석된 사진 무드의 추천 조건 반영 여부를 한 번 확정한다."""
+
+    permission_classes = [AllowAny]
+
+    @extend_schema(
+        operation_id="chat_attachment_mood_decision_create",
+        tags=["Chat"],
+        summary="사진 무드 승인 또는 거절",
+        description=(
+            "APPROVE는 분석된 표준 스타일·색상·핏을 현재 세션 추천 조건에 "
+            "반영하고, REJECT는 분석 기록만 보존한 채 추천 조건에는 반영하지 않습니다."
+        ),
+        request=ChatMoodDecisionSerializer,
+        responses={
+            200: ChatMoodDecisionResponseSerializer,
+            400: OpenApiResponse(description="decision 값 검증 실패"),
+            404: OpenApiResponse(
+                description="사진이 없거나 요청 identity의 소유가 아님"
+            ),
+            409: OpenApiResponse(
+                description="분석 미완료 또는 이미 반대 결정으로 확정됨"
+            ),
+        },
+    )
+    def post(self, request, session_id, attachment_id):
+        identity = _identity(request)
+        serializer = ChatMoodDecisionSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        try:
+            result = mood_analysis.decide_mood(
+                identity=identity,
+                session_id=session_id,
+                attachment_id=attachment_id,
+                decision=serializer.validated_data["decision"],
+            )
+        except mood_analysis.ChatMoodNotFound as exc:
+            return Response(
+                {"code": exc.code, "detail": str(exc)},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+        except mood_analysis.ChatMoodError as exc:
+            return Response(
+                {"code": exc.code, "detail": str(exc)},
+                status=status.HTTP_409_CONFLICT,
+            )
+        return Response(
+            {
+                "attachment": ChatAttachmentSerializer(result.attachment).data,
+                "changed": result.changed,
+                "applied": result.applied,
+                "context_state": result.session.context_state,
+            }
         )
 
 

@@ -2,16 +2,19 @@
 
 from __future__ import annotations
 
+import base64
 import json
 import logging
 from dataclasses import dataclass
-from typing import Generic, Literal, TypeVar
+from typing import Any, Generic, Literal, TypeVar
 
 from django.conf import settings
 from django.core.exceptions import ImproperlyConfigured
 from django.utils.crypto import salted_hmac
 from openai import OpenAI
 from pydantic import BaseModel, Field
+
+from apps.wardrobe import taxonomy as wardrobe_taxonomy
 
 logger = logging.getLogger(__name__)
 
@@ -58,6 +61,16 @@ class RecommendationExplanation(BaseModel):
     message: str
 
 
+class PhotoMoodAnalysis(BaseModel):
+    """사진에서 읽은 사용자 표시용 무드와 추천 필터용 표준 태그."""
+
+    summary: str = Field(min_length=1, max_length=160)
+    tags: list[str] = Field(min_length=1, max_length=5)
+    styles: list[str] = Field(max_length=3)
+    colors: list[str] = Field(max_length=4)
+    fits: list[str] = Field(max_length=2)
+
+
 @dataclass(frozen=True)
 class LLMUsage:
     input_tokens: int = 0
@@ -89,6 +102,9 @@ unisex 중 하나 이상으로 채우고, 명시하지 않았으면 빈 배열�
 추천에 필수인 조건이 모호하거나 이전 조건과 충돌할 때만 CLARIFY를 선택한다.
 사용자가 현재 세션과 다른 추천 모드를 명시하면 MODE_CHANGE를 선택한다.
 일상 대화나 추천과 무관한 질문에는 RESPOND를 선택한다.
+session_conditions에 승인된 사진 무드나 이전 조건이 있으면 현재 발화와 합쳐
+유효 조건으로 반환한다.
+현재 발화가 기존 조건을 명시적으로 바꾸면 현재 발화를 우선한다.
 RECOMMEND의 search_query는 벡터 검색에 바로 쓸 수 있는 간결한 한국어 문장으로 만든다.
 상품·옷장·골든셋 ID를 만들거나 소유권·판매 상태·사이즈를 확정하지 않는다.
 응답은 지정된 구조화 출력 스키마만 따른다.
@@ -105,6 +121,18 @@ _EXPLAIN_INSTRUCTIONS = """
 제공된 코디와 아이템, 선택 근거만 언급하고 존재하지 않는 상품이나 ID를 만들지 않는다.
 옷장 기반은 보유 아이템만 사용했다는 점을, 신규 상품 포함 모드는 새 상품이 포함된다는 점을 명확히 한다.
 사이즈 데이터가 부족하면 확정 표현을 피한다. 간결하고 읽기 쉬운 한국어로 답한다.
+""".strip()
+
+_PHOTO_MOOD_INSTRUCTIONS = """
+당신은 패션 사진의 시각적 무드를 분석하는 도우미다.
+사람의 신원, 나이, 성별, 인종, 체형, 건강 상태 같은 민감하거나 개인적인
+속성을 추론하지 않는다.
+사진에서 직접 확인되는 의상 스타일, 대표 색상, 핏과 전체 분위기만 설명한다.
+tags는 사용자가 한눈에 이해할 수 있는 짧은 한국어 무드 단어이며 # 기호를 붙이지 않는다.
+styles, colors, fits에는 입력으로 제공된 서비스 표준값만 사용하고 맞는 값이
+없으면 빈 배열로 둔다.
+보이지 않는 아이템이나 브랜드를 만들지 말고 불확실한 내용은 단정하지 않는다.
+응답은 지정된 구조화 출력 스키마만 따른다.
 """.strip()
 
 
@@ -198,6 +226,43 @@ class OpenAIChatAdapter:
             },
         )
 
+    def analyze_photo_mood(
+        self,
+        *,
+        identity_id: str,
+        image_bytes: bytes,
+        mime_type: str,
+    ) -> LLMResult[PhotoMoodAnalysis]:
+        """Responses API 이미지 입력으로 시각적 패션 무드를 구조화한다."""
+        encoded = base64.b64encode(image_bytes).decode("ascii")
+        payload = {
+            "task": "analyze_photo_mood",
+            "allowed_styles": wardrobe_taxonomy.STYLES,
+            "allowed_colors": wardrobe_taxonomy.COLORS,
+            "allowed_fits": wardrobe_taxonomy.FITS,
+        }
+        return self._parse_content(
+            schema=PhotoMoodAnalysis,
+            instructions=_PHOTO_MOOD_INSTRUCTIONS,
+            identity_id=identity_id,
+            content=[
+                {
+                    "type": "input_text",
+                    "text": json.dumps(
+                        payload,
+                        ensure_ascii=False,
+                        sort_keys=True,
+                        separators=(",", ":"),
+                    ),
+                },
+                {
+                    "type": "input_image",
+                    "image_url": f"data:{mime_type};base64,{encoded}",
+                    "detail": settings.CHAT_MOOD_IMAGE_DETAIL,
+                },
+            ],
+        )
+
     def _parse(
         self,
         *,
@@ -205,6 +270,26 @@ class OpenAIChatAdapter:
         instructions: str,
         identity_id: str,
         payload: dict,
+    ) -> LLMResult[T]:
+        return self._parse_content(
+            schema=schema,
+            instructions=instructions,
+            identity_id=identity_id,
+            content=json.dumps(
+                payload,
+                ensure_ascii=False,
+                sort_keys=True,
+                separators=(",", ":"),
+            ),
+        )
+
+    def _parse_content(
+        self,
+        *,
+        schema: type[T],
+        instructions: str,
+        identity_id: str,
+        content: str | list[dict[str, Any]],
     ) -> LLMResult[T]:
         if not settings.CHAT_OPENAI_MODEL:
             raise ImproperlyConfigured("CHAT_OPENAI_MODEL이 비어 있습니다.")
@@ -215,12 +300,7 @@ class OpenAIChatAdapter:
                 input=[
                     {
                         "role": "user",
-                        "content": json.dumps(
-                            payload,
-                            ensure_ascii=False,
-                            sort_keys=True,
-                            separators=(",", ":"),
-                        ),
+                        "content": content,
                     }
                 ],
                 text_format=schema,

@@ -11,7 +11,14 @@ from django.conf import settings
 from django.db import IntegrityError, transaction
 from django.utils import timezone
 
-from apps.chat.models import ChatIdentity, ChatMessage, ChatRun, ChatSession
+from apps.chat.models import (
+    ChatAttachment,
+    ChatIdentity,
+    ChatMessage,
+    ChatRun,
+    ChatSession,
+)
+from apps.chat.services import mood_analysis
 from apps.chat.services.context import ChatContextService, fingerprint
 from apps.chat.services.openai_adapter import (
     ChatLLMError,
@@ -119,6 +126,9 @@ def mark_enqueue_failed(run_id) -> ChatRun | None:
         status=ChatMessage.Status.FAILED,
         updated_at=now,
     )
+    ChatAttachment.objects.filter(message_id=run.request_message_id).exclude(
+        analysis_status=ChatAttachment.AnalysisStatus.SUCCEEDED
+    ).update(analysis_status=ChatAttachment.AnalysisStatus.FAILED)
     return run
 
 
@@ -164,6 +174,13 @@ def reset_run_for_retry(run_id) -> bool:
         status=ChatMessage.Status.PENDING,
         updated_at=now,
     )
+    ChatAttachment.objects.filter(
+        message_id=run.request_message_id,
+        analysis_status__in={
+            ChatAttachment.AnalysisStatus.PROCESSING,
+            ChatAttachment.AnalysisStatus.FAILED,
+        },
+    ).update(analysis_status=ChatAttachment.AnalysisStatus.QUEUED)
     return True
 
 
@@ -190,7 +207,14 @@ class ChatOrchestrator:
         provider_response_id = ""
         context_fingerprint = ""
         context_cache_hit = False
+        attachment = run.request_message.attachments.first()
         try:
+            if attachment is not None:
+                return self._process_photo_mood(
+                    run=run,
+                    attachment=attachment,
+                    started=started,
+                )
             context = self.context_service.build(
                 session=run.session,
                 request_message=run.request_message,
@@ -203,7 +227,7 @@ class ChatOrchestrator:
             )
             usage += analyzed.usage
             provider_response_id = analyzed.response_id
-            analysis = analyzed.value
+            analysis = self._effective_analysis(run.session, analyzed.value)
             self._update_session_conditions(run.session, analysis)
             context_fingerprint = fingerprint(
                 {
@@ -299,6 +323,8 @@ class ChatOrchestrator:
                 recommendation_result_id=recommendation_result_id,
             )
         except Exception as exc:
+            if attachment is not None:
+                mood_analysis.mark_analysis_failed(attachment.pk)
             duration_ms = int((time.monotonic() - started) * 1000)
             self._fail(
                 run=run,
@@ -323,6 +349,66 @@ class ChatOrchestrator:
                 },
             )
             raise
+
+    def _process_photo_mood(
+        self,
+        *,
+        run: ChatRun,
+        attachment: ChatAttachment,
+        started: float,
+    ) -> OrchestrationResult:
+        processed = mood_analysis.process_attachment(
+            attachment=attachment,
+            identity_id=str(run.session.identity_id),
+            llm=self.llm,
+        )
+        tags = processed.analysis_result["tags"]
+        response_text = (
+            f"사진에서 {', '.join(tags)} 무드가 보여요. "
+            "이 분위기를 추천 조건에 반영할까요?"
+        )
+        response_message, _ = append_message(
+            identity=run.session.identity,
+            session_id=run.session_id,
+            role=ChatMessage.Role.ASSISTANT,
+            content=response_text,
+            status=ChatMessage.Status.COMPLETED,
+            client_message_id=f"run:{run.pk}:response",
+            metadata={
+                "run_id": str(run.pk),
+                "message_kind": "mood",
+                "attachment_id": str(attachment.pk),
+                "mood_analysis": processed.analysis_result,
+            },
+        )
+        duration_ms = int((time.monotonic() - started) * 1000)
+        self._finish(
+            run=run,
+            status=ChatRun.Status.SUCCEEDED,
+            response_message=response_message,
+            context_fingerprint=fingerprint(
+                {
+                    "attachment_id": str(attachment.pk),
+                    "sha256": attachment.sha256,
+                    "analysis_result": processed.analysis_result,
+                }
+            ),
+            context_cache_hit=False,
+            usage=processed.usage,
+            provider_response_id=processed.response_id,
+            latency_ms=duration_ms,
+        )
+        run.refresh_from_db()
+        logger.info(
+            "채팅 사진 무드 분석 완료: run=%s attachment=%s latency=%sms",
+            run.pk,
+            attachment.pk,
+            duration_ms,
+        )
+        return OrchestrationResult(
+            run=run,
+            response_message=response_message,
+        )
 
     @staticmethod
     def _start(run_id) -> ChatRun:
@@ -367,6 +453,23 @@ class ChatOrchestrator:
             "CURRENT",
             current_mode,
         }
+
+    @staticmethod
+    def _effective_analysis(
+        session: ChatSession,
+        analysis: TurnAnalysis,
+    ) -> TurnAnalysis:
+        """현재 발화에 없는 조건은 승인된 사진을 포함한 세션 조건에서 보충한다."""
+        saved = dict(
+            (session.context_state or {}).get("recommendation_conditions") or {}
+        )
+        conditions = analysis.conditions.model_dump()
+        for key, value in conditions.items():
+            if value in (None, "", []) and saved.get(key) not in (None, "", []):
+                conditions[key] = saved[key]
+        return analysis.model_copy(
+            update={"conditions": analysis.conditions.model_copy(update=conditions)}
+        )
 
     @staticmethod
     def _update_session_conditions(
@@ -487,7 +590,13 @@ class ChatOrchestrator:
         now = timezone.now()
         error_code = getattr(exc, "code", ChatOrchestrationError.code)
         if isinstance(
-            exc, (ChatLLMError, ChatRecommendationError, ChatOrchestrationError)
+            exc,
+            (
+                ChatLLMError,
+                ChatRecommendationError,
+                ChatOrchestrationError,
+                mood_analysis.ChatMoodError,
+            ),
         ):
             safe_message = str(exc)[:500]
         else:

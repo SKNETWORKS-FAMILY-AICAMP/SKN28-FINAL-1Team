@@ -62,6 +62,21 @@ def delete_object(key: str) -> None:
     _client().delete_object(Bucket=bucket(), Key=key)
 
 
+def download_bytes(key: str, *, max_bytes: int) -> bytes:
+    """비공개 객체를 제한 크기까지만 읽어 분석 워커에 전달한다."""
+    if not is_configured():
+        raise RuntimeError("CHAT_ATTACHMENT_S3_BUCKET이 설정되지 않았습니다.")
+    response = _client().get_object(Bucket=bucket(), Key=key)
+    body = response["Body"]
+    try:
+        data = body.read(max_bytes + 1)
+    finally:
+        body.close()
+    if len(data) > max_bytes:
+        raise ValueError("채팅 첨부 이미지가 허용 크기를 초과했습니다.")
+    return data
+
+
 def presigned_get(key: str) -> str | None:
     if not is_configured() or not key:
         return None
