@@ -2,8 +2,10 @@ import { useSyncExternalStore } from 'react';
 import { Platform } from 'react-native';
 
 import { BODY_MEASURES, type BodyMeasureKey } from '@/constants/body-measures';
-import { BodyEndpoints } from '@/constants/config';
+import { API_BASE_URL, BodyEndpoints } from '@/constants/config';
 import { ApiError, api } from '@/lib/apiClient';
+import { getAccessToken } from '@/lib/secureStore';
+import { uploadMultipart } from '@/lib/uploadFile';
 
 /**
  * 체형측정 플로우(STEP1 입력 → STEP2 촬영 → STEP3 결과) 전역 상태.
@@ -145,15 +147,20 @@ function toResult(outcome: BodyEstimationResult, usedPhotos: boolean): MeasureRe
 }
 
 /**
- * STEP1 프리필용 — 저장된 키·몸무게 (미입력이면 각각 null).
+ * STEP1 프리필용 — 저장된 성별·키·몸무게 (미입력이면 각각 null).
  * 조회 자체가 실패하면 던진다. 호출부가 "값이 없음"과 "못 불러옴"을 구분해 안내해야 한다.
  */
 export async function fetchBodyBasic(): Promise<{
+  sex: 'female' | 'male' | null;
   height: number | null;
   weight: number | null;
 }> {
   const dto = await fetchBody();
-  return { height: toNum(dto.height), weight: toNum(dto.weight) };
+  return {
+    sex: dto.gender === 'female' || dto.gender === 'male' ? dto.gender : null,
+    height: toNum(dto.height),
+    weight: toNum(dto.weight),
+  };
 }
 
 // ── 사진 기반 측정 (POST photos → 폴링) ─────────────────────────
@@ -208,7 +215,36 @@ async function uploadBodyPhotos(
     form.append('height', String(input.height));
     form.append('weight', String(input.weight));
   }
-  return api.post<PhotoTxResponse>(BodyEndpoints.photos, form);
+
+  if (Platform.OS === 'web') {
+    return api.post<PhotoTxResponse>(BodyEndpoints.photos, form);
+  }
+
+  /* Expo의 전역 fetch는 네이티브 { uri, name, type } 파일 파트를 처리하지 못한다.
+     옷장·룩북과 같은 XHR 업로더를 써야 두 사진이 실제 multipart로 전달된다. */
+  const response = await uploadMultipart(`${API_BASE_URL}${BodyEndpoints.photos}`, form, {
+    token: await getAccessToken(),
+  });
+  return parsePhotoUploadResponse(response);
+}
+
+function parsePhotoUploadResponse(response: { status: number; body: string }): PhotoTxResponse {
+  let data: unknown = null;
+  try {
+    data = response.body ? JSON.parse(response.body) : null;
+  } catch {
+    data = response.body;
+  }
+
+  if (response.status < 200 || response.status >= 300) {
+    const detail = (data as { detail?: string } | null)?.detail;
+    throw new ApiError(
+      detail ?? `사진 측정 요청에 실패했어요. (${response.status})`,
+      response.status,
+      data,
+    );
+  }
+  return data as PhotoTxResponse;
 }
 
 /**

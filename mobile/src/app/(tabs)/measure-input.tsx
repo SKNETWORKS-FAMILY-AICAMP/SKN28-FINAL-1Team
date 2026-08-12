@@ -42,13 +42,14 @@ export default function MeasureInput() {
   /** 저장된 치수를 못 불러왔을 때 — 칸이 빈 이유를 알린다(입력은 그대로 가능) */
   const [prefillFailed, setPrefillFailed] = useState(false);
 
-  // 새 측정 플로우 진입 → 이전 데이터 초기화 후, 저장된 키·몸무게가 있으면 프리필
+  // 새 측정 플로우 진입 → 이전 데이터 초기화 후, 저장된 기본 정보가 있으면 프리필
   useEffect(() => {
     measureStore.reset();
     let alive = true;
     fetchBodyBasic()
       .then((b) => {
         if (!alive) return;
+        if (b.sex != null) setSex((current) => current ?? b.sex);
         if (b.height != null) setHeight(String(b.height));
         if (b.weight != null) setWeight(String(b.weight));
       })
