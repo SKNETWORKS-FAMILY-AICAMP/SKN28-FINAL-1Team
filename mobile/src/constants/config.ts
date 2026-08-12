@@ -241,10 +241,12 @@ export const WardrobeEndpoints = {
  *   GET    /api/v1/calendars/{id}/                    → CalendarEntry
  *   PATCH  /api/v1/calendars/{id}/                    → CalendarEntry
  *   DELETE /api/v1/calendars/{id}/                    → 204
+ *   DELETE /api/v1/calendars/{id}/items/{itemId}/     → CalendarEntry (옷 연결만 해제)
  *   GET    /api/v1/calendars/{id}/processing-status/  사진 처리 폴링
  *
  * ⚠️ **날짜당 1건이고 서버에 upsert 가 없다.** 이미 있는 날짜로 등록하면 409 다.
- *    사진·옷을 바꾸려면 DELETE 후 다시 등록해야 한다(PATCH 로는 못 바꾼다).
+ *    사진을 바꾸거나 옷을 **더하려면** DELETE 후 다시 등록해야 한다(PATCH 로는 못 바꾼다).
+ *    옷을 **빼는 건** items DELETE 로 연결만 끊는다 — 기록과 옷장 아이템은 남는다.
  * ⚠️ **PATCH 는 schedule·tpo·hashtags 만 받는다.** 서버가 미선언 필드를 400 으로 거절하므로
  *    프론트에만 있는 개념(shared·lookId)을 실어 보내면 요청 전체가 실패한다.
  * ⚠️ 업로드 제한: 15MB 이하, jpeg/png/webp/heic.
@@ -255,6 +257,9 @@ export const CalendarEndpoints = {
   photo: '/api/v1/calendars/photo/',
   wardrobe: '/api/v1/calendars/wardrobe/',
   detail: (calendarId: string) => `/api/v1/calendars/${calendarId}/`,
+  /** 입은 옷 연결 해제 — itemId 는 옷장 아이템 id(wardrobe_item_id)다. */
+  item: (calendarId: string, wardrobeItemId: string) =>
+    `/api/v1/calendars/${calendarId}/items/${wardrobeItemId}/`,
   processingStatus: (calendarId: string) => `/api/v1/calendars/${calendarId}/processing-status/`,
 } as const;
 

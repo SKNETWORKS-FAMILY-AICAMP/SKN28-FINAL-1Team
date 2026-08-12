@@ -211,6 +211,43 @@ class CalendarEntryDetailView(APIView):
         return Response(status=status.HTTP_204_NO_CONTENT)
 
 
+class CalendarWardrobeItemUnlinkView(APIView):
+    """DELETE /api/v1/calendars/{calendar_id}/items/{wardrobe_item_id}/.
+
+    캘린더에서 입은 옷 하나를 뺀다 — 지워지는 것은 **연결(calendar_wardrobe_item)
+    한 행**뿐이다. 옷장 아이템(wardrobe_item)과 캘린더 기록은 그대로 남는다.
+    응답으로 갱신된 캘린더 전체를 돌려줘, 프론트가 다시 조회하지 않고 화면을
+    맞출 수 있게 한다.
+    """
+
+    def delete(self, request, calendar_id, wardrobe_item_id):
+        try:
+            entry = calendar_service.unlink_wardrobe_item(
+                user=request.user,
+                calendar_id=calendar_id,
+                wardrobe_item_id=wardrobe_item_id,
+            )
+        except calendar_service.CalendarDeletionNotFoundError:
+            return Response(
+                {"detail": "캘린더를 찾을 수 없습니다."},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+        except calendar_service.CalendarItemLinkNotFoundError:
+            return Response(
+                {"detail": "이 캘린더에 연결된 옷장 아이템이 아닙니다."},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+        except calendar_service.CalendarDeletionConflictError as exc:
+            return Response(
+                {
+                    "detail": "이미지 처리 중인 캘린더는 수정할 수 없습니다.",
+                    "status": exc.current_status,
+                },
+                status=status.HTTP_409_CONFLICT,
+            )
+        return Response(CalendarEntrySerializer(entry).data)
+
+
 class CalendarProcessingStatusView(APIView):
     """GET /api/v1/calendars/{calendar_id}/processing-status/."""
 
