@@ -71,6 +71,10 @@ class SwaggerEndpointTests(SimpleTestCase):
         message_create = paths[
             "/api/v1/chat/sessions/{session_id}/messages/"
         ]["post"]
+        self.assertEqual(
+            set(message_create["requestBody"]["content"]),
+            {"application/json"},
+        )
         message_json = message_create["requestBody"]["content"]["application/json"]
         self.assertIn("첫질문전송", message_json["examples"])
         self.assertIn("OpenAI", message_create["description"])
@@ -81,11 +85,19 @@ class SwaggerEndpointTests(SimpleTestCase):
         attachment_form = attachment_create["requestBody"]["content"][
             "multipart/form-data"
         ]
+        self.assertEqual(
+            set(attachment_create["requestBody"]["content"]),
+            {"multipart/form-data"},
+        )
         self.assertIn("채팅사진과설명업로드", attachment_form["examples"])
 
         feedback = paths[
             "/api/v1/recommendations/{result_id}/cards/{card_id}/feedback/"
         ]["put"]
+        self.assertEqual(
+            set(feedback["requestBody"]["content"]),
+            {"application/json"},
+        )
         feedback_json = feedback["requestBody"]["content"]["application/json"]
         self.assertEqual(
             set(feedback_json["examples"]),
@@ -146,7 +158,21 @@ class SwaggerEndpointTests(SimpleTestCase):
                 self.assertEqual(actual, expected)
                 for parameter in paths[path][method]["parameters"]:
                     self.assertTrue(parameter.get("description"))
-                    self.assertTrue(parameter.get("examples"))
+                    if parameter["name"] != "cursor":
+                        self.assertTrue(parameter.get("examples"))
+
+        for path in (
+            "/api/v1/chat/sessions/search/",
+            "/api/v1/chat/sessions/{session_id}/messages/page/",
+        ):
+            cursor = next(
+                parameter
+                for parameter in paths[path]["get"]["parameters"]
+                if parameter["name"] == "cursor"
+            )
+            self.assertNotIn("example", cursor)
+            self.assertNotIn("examples", cursor)
+            self.assertNotIn("default", cursor.get("schema", {}))
 
         for path, path_item in paths.items():
             if not path.startswith(

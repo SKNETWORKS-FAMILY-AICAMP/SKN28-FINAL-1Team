@@ -716,7 +716,7 @@ class RecommendationFeedbackView(APIView):
             "예시는 `COLOR`, `FIT`, `PRICE`, `STYLE`, `ALREADY_OWNED`입니다."
         ),
         parameters=[_RESULT_ID_PARAMETER, _CARD_ID_PARAMETER],
-        request=RecommendationFeedbackRequestSerializer,
+        request={"application/json": RecommendationFeedbackRequestSerializer},
         examples=[
             OpenApiExample(
                 name="추천이 마음에 듦",

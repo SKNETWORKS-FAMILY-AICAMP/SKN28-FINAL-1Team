@@ -246,7 +246,7 @@ class GuestIdentityView(APIView):
             "세션·메시지·첨부·추천 결과를 회원 identity로 이전한 뒤 게스트 쿠키를 "
             "삭제합니다."
         ),
-        request=GuestClaimSerializer,
+        request={"application/json": GuestClaimSerializer},
         examples=[
             OpenApiExample(
                 name="게스트 대화 이전 확인",
@@ -306,7 +306,7 @@ class GuestClaimView(APIView):
             "모드별 첫 인사가 메시지 1번으로 자동 저장됩니다. title을 비우면 첫 "
             "사용자 질문으로 제목이 자동 생성됩니다."
         ),
-        request=ChatSessionCreateSerializer,
+        request={"application/json": ChatSessionCreateSerializer},
         examples=_SESSION_CREATE_EXAMPLES,
         responses={
             201: ChatSessionSerializer,
@@ -413,7 +413,7 @@ class ChatSessionSearchView(APIView):
         summary="채팅 세션 제목 수정",
         description="대화 목록에 표시할 제목만 수정합니다. 추천 모드는 변경되지 않습니다.",
         parameters=[_SESSION_ID_PARAMETER],
-        request=ChatSessionUpdateSerializer,
+        request={"application/json": ChatSessionUpdateSerializer},
         examples=[
             OpenApiExample(
                 name="대화 제목 변경",
@@ -480,7 +480,7 @@ class ChatSessionDetailView(APIView):
             "`NEW_ITEM`이라면 `WARDROBE_BASED`를 입력해야 합니다."
         ),
         parameters=[_SESSION_ID_PARAMETER],
-        request=ChatSessionDeriveSerializer,
+        request={"application/json": ChatSessionDeriveSerializer},
         examples=[
             OpenApiExample(
                 name="새 상품 포함 모드로 전환",
@@ -554,7 +554,7 @@ class ChatSessionDeriveView(APIView):
             "간단합니다."
         ),
         parameters=[_SESSION_ID_PARAMETER],
-        request=ChatMessageCreateSerializer,
+        request={"application/json": ChatMessageCreateSerializer},
         examples=[_MESSAGE_CREATE_EXAMPLE],
         responses={
             200: ChatMessageSubmitResponseSerializer,
@@ -730,7 +730,7 @@ class ChatSessionAttachmentUploadView(APIView):
             "응답의 `attachment.id`는 다음 무드 분석 API에 사용합니다."
         ),
         parameters=[_SESSION_ID_PARAMETER],
-        request=ChatAttachmentUploadSerializer,
+        request={"multipart/form-data": ChatAttachmentUploadSerializer},
         examples=[
             OpenApiExample(
                 name="채팅 사진과 설명 업로드",
@@ -910,7 +910,7 @@ class ChatAttachmentMoodDecisionView(APIView):
             "무드 분석 run이 `SUCCEEDED`가 된 뒤 호출해야 합니다."
         ),
         parameters=[_SESSION_ID_PARAMETER, _ATTACHMENT_ID_PARAMETER],
-        request=ChatMoodDecisionSerializer,
+        request={"application/json": ChatMoodDecisionSerializer},
         examples=[
             OpenApiExample(
                 name="분석 무드 승인",

@@ -44,10 +44,4 @@ def cursor_parameter(*, description: str) -> OpenApiParameter:
         location=OpenApiParameter.QUERY,
         required=False,
         description=description,
-        examples=[
-            OpenApiExample(
-                name="다음 페이지 조회",
-                value="앞선 응답의 next_cursor 전체를 복사",
-            )
-        ],
     )
