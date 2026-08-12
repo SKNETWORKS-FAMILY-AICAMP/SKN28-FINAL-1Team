@@ -233,6 +233,9 @@ services:
       QDRANT_URL: http://qdrant:6333
       DJANGO_SETTINGS_MODULE: ${DJANGO_SETTINGS_MODULE:-config.settings.prod}
       SERVICE_NAME: chat-worker
+      # env_file(.env)로도 들어오지만, infisical 등 셸 주입 값이 .env보다
+      # 우선하도록 compose 보간으로 명시한다 (redis 서버와 동일한 소스 보장)
+      REDIS_PASSWORD: ${REDIS_PASSWORD:?REDIS_PASSWORD를 루트 .env에 설정해야 합니다}
     volumes:
       - ./ml:/ml:ro
     command: python manage.py run_chat_worker
@@ -399,7 +402,7 @@ services:
     command: >
       redis-server
       --appendonly yes
-      --requirepass "$${REDIS_PASSWORD}"
+      --requirepass "${REDIS_PASSWORD:?REDIS_PASSWORD를 루트 .env에 설정해야 합니다}"
     healthcheck:
       test: ["CMD-SHELL", "redis-cli -a \"$${REDIS_PASSWORD}\" ping | grep PONG"]
       interval: 10s
