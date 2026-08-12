@@ -21,7 +21,6 @@ import {
   type BodyMeasureSpec,
 } from '@/constants/body-measures';
 import { ContentMax, Editorial, Fonts, ink, Type } from '@/constants/theme';
-import { useBottomTabInset } from '@/hooks/use-bottom-tab-inset';
 import { useBreakpoint } from '@/hooks/use-breakpoint';
 import { ApiError } from '@/lib/apiClient';
 import { measureStore, useMeasure, type Measurement } from '@/state/measure';
@@ -47,7 +46,6 @@ function isValid(spec: BodyMeasureSpec, raw: string | undefined): boolean {
 // G3 치수 결과·사이즈 매칭 — measureStore 결과를 구독. 완료 시 측정 플로우 닫기
 export default function MeasureResult() {
   const { contentStyle } = useBreakpoint();
-  const tabInset = useBottomTabInset();
   /* guide 파라미터로 '재는 법'을 바로 열 수 있다 (mobile:///measure-result?guide=shoulder).
      화면을 거치지 않고 특정 항목 안내로 보낼 때 쓴다 — 도움말 링크·QA 확인용. */
   const { returnTo, guide } = useLocalSearchParams<{ returnTo?: string; guide?: string }>();
@@ -101,7 +99,7 @@ export default function MeasureResult() {
   if (status !== 'success' || !result) {
     return (
       <View style={styles.container}>
-        <SafeAreaView edges={['top', 'bottom']} style={styles.safe}>
+        <SafeAreaView edges={['top']} style={styles.safe}>
           <View style={styles.stateWrap}>
             <Steps active={2} />
             {/* 입력이 없어서 못 한 것과 그 밖의 실패(로그인 만료·서버 장애)는 갈 곳이 다르다 —
@@ -308,7 +306,7 @@ export default function MeasureResult() {
           </Pressable>
         </ScrollView>
 
-        <View style={[styles.bottomBar, { paddingBottom: tabInset }, contentStyle(ContentMax.narrow)]}>
+        <View style={[styles.bottomBar, { paddingBottom: 12 }, contentStyle(ContentMax.narrow)]}>
           <Pressable
             style={[styles.cta, (savingDone || invalid.length > 0) && styles.ctaOff]}
             onPress={onDone}

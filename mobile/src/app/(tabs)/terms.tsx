@@ -6,7 +6,6 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { ContentMax, Editorial, Type } from '@/constants/theme';
 import { PRIVACY_SECTIONS, TERMS_SECTIONS } from '@/constants/support';
-import { useBottomTabInset } from '@/hooks/use-bottom-tab-inset';
 import { useBreakpoint } from '@/hooks/use-breakpoint';
 import { goBack } from '@/lib/goBack';
 
@@ -27,7 +26,6 @@ const DOCS: { value: Doc; label: string }[] = [
  */
 export default function TermsScreen() {
   const { contentStyle } = useBreakpoint();
-  const tabInset = useBottomTabInset();
   const { doc } = useLocalSearchParams<{ doc?: string }>();
   const current: Doc = doc === 'privacy' ? 'privacy' : 'terms';
   const sections = current === 'privacy' ? PRIVACY_SECTIONS : TERMS_SECTIONS;
@@ -54,7 +52,7 @@ export default function TermsScreen() {
         showsVerticalScrollIndicator={false}
         contentContainerStyle={[
           styles.content,
-          { paddingBottom: tabInset + 24 },
+          { paddingBottom: 24 },
           contentStyle(ContentMax.narrow),
         ]}>
         <Text style={styles.title}>

@@ -6,7 +6,6 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { ContentMax, Editorial, ink, Type } from '@/constants/theme';
 import { SUPPORT_EMAIL } from '@/constants/support';
-import { useBottomTabInset } from '@/hooks/use-bottom-tab-inset';
 import { useBreakpoint } from '@/hooks/use-breakpoint';
 import { goBack } from '@/lib/goBack';
 import { useAuth } from '@/state/auth';
@@ -40,7 +39,6 @@ const DELETED_ON_WITHDRAW = [
  */
 export default function AccountScreen() {
   const { contentStyle } = useBreakpoint();
-  const tabInset = useBottomTabInset();
   const { user } = useAuth();
   const confirm = useConfirm();
   const toast = useToast();
@@ -74,7 +72,7 @@ export default function AccountScreen() {
         showsVerticalScrollIndicator={false}
         contentContainerStyle={[
           styles.content,
-          { paddingBottom: tabInset + 24 },
+          { paddingBottom: 24 },
           contentStyle(ContentMax.narrow),
         ]}>
         <Text style={styles.sectionTitle}>로그인 방법</Text>

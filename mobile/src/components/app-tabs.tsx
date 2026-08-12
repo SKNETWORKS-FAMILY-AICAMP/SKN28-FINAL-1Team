@@ -1,8 +1,7 @@
-import { GlassView, isLiquidGlassAvailable } from 'expo-glass-effect';
-
-import { Editorial, ink } from '@/constants/theme';
+import { Editorial, ink, TabBarHeight } from '@/constants/theme';
 import { Tabs, TabList, TabSlot, TabTrigger, TabTriggerSlotProps } from 'expo-router/ui';
 import { router } from 'expo-router';
+import { useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
@@ -46,11 +45,18 @@ const HIDDEN_ROUTES = [
 ] as const satisfies readonly { name: string; href: string }[];
 
 export default function AppTabs() {
+  const insets = useSafeAreaInsets();
+  /* 바가 실제로 차지하는 높이를 재서 본문 아래에 그만큼 여백을 준다.
+     화면마다 따로 여백을 챙기면 언젠가 빠뜨린다(캘린더·채팅·알림이 실제로 그랬다) —
+     여기서 한 번 주면 어떤 화면이 새로 생겨도 바에 가릴 수 없다.
+     첫 프레임이 튀지 않게 계산값으로 시작하고, onLayout 이 오면 실측으로 바로잡는다. */
+  const [barHeight, setBarHeight] = useState(TabBarHeight + Math.max(insets.bottom, 8));
+
   return (
     <Tabs style={styles.root}>
-      <TabSlot style={styles.slot} />
+      <TabSlot style={[styles.slot, { paddingBottom: barHeight }]} />
       <TabList asChild>
-        <BottomBar>
+        <BottomBar onLayout={(e) => setBarHeight(e.nativeEvent.layout.height)}>
           {TABS.slice(0, 2).map((tab) => (
             <TabTrigger key={tab.name} name={tab.name} href={tab.href} asChild>
               <TabItem icon={tab.icon} label={tab.label} />
@@ -75,25 +81,19 @@ export default function AppTabs() {
 }
 
 /**
- * 하단 바 — 콘텐츠 위에 떠 있으므로 뒤가 비쳐야 '위에 얹혀 있다'는 게 읽힌다.
+ * 하단 바 — 불투명하게 그린다.
  *
- * 리퀴드 글래스를 쓸 수 있는 기기(iOS 26+)에서만 GlassView 로 그린다.
- * 안 되는 기기에서 억지로 흉내 내지 않고 기존 불투명 바를 그대로 쓴다 —
- * 반투명 흉내는 배경이 밝은 화면에서 글자만 흐려 보이게 만든다.
- * (웹은 app-tabs.web.tsx 가 backdrop-filter 로 따로 처리한다)
+ * 예전에는 iOS 26+ 에서 리퀴드 글래스(GlassView)로 그렸는데, 뒤가 비치는 바람에
+ * 바 아래로 지나가는 본문 글자가 흐릿하게 겹쳐 보여 "글자가 깨진 것"처럼 읽혔다.
+ * 이제 본문이 바 아래로 내려가지 않으므로(AppTabs 의 paddingBottom) 비칠 것도 없다.
  */
 function BottomBar({ children, ...props }: React.ComponentProps<typeof View>) {
   const insets = useSafeAreaInsets();
-  const pad = { paddingBottom: Math.max(insets.bottom, 8) };
-
-  if (isLiquidGlassAvailable()) {
-    return (
-      <GlassView {...props} glassEffectStyle="regular" style={[styles.bar, styles.barGlass, pad]}>
-        {children}
-      </GlassView>
-    );
-  }
-  return <View {...props} style={[styles.bar, pad]}>{children}</View>;
+  return (
+    <View {...props} style={[styles.bar, { paddingBottom: Math.max(insets.bottom, 8) }]}>
+      {children}
+    </View>
+  );
 }
 
 function TabItem({ icon, label, isFocused, ...props }: TabTriggerSlotProps & { icon: IconName; label: string }) {
@@ -126,10 +126,8 @@ const styles = StyleSheet.create({
   slot: { flex: 1 },
   bar: {
     position: 'absolute', left: 0, right: 0, bottom: 0, flexDirection: 'row', alignItems: 'center',
-    backgroundColor: 'rgba(255,255,255,0.96)', borderTopWidth: 1, borderTopColor: ink(0.06), paddingTop: 8,
+    backgroundColor: Editorial.page, borderTopWidth: 1, borderTopColor: ink(0.06), paddingTop: 8,
   },
-  /* 유리가 뒤를 비추므로 흰 판을 걷어낸다 — 안 걷으면 유리 위에 불투명 종이를 덮는 꼴이 된다. */
-  barGlass: { backgroundColor: 'transparent', borderTopColor: ink(0.04) },
   item: { flex: 1, alignItems: 'center', gap: 3, paddingVertical: 2 },
   // 라우트 등록만 하고 자리는 차지하지 않는다
   hidden: { width: 0, height: 0, opacity: 0 },

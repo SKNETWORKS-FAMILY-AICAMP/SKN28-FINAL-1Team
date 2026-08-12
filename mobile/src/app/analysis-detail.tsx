@@ -5,7 +5,6 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { Icon } from '@/components/icon';
 import { ErrorState, LoadingState, LoginGate, SmartImage } from '@/components/ui';
 import { ContentMax, Editorial, ink } from '@/constants/theme';
-import { useBottomTabInset } from '@/hooks/use-bottom-tab-inset';
 import { useBreakpoint } from '@/hooks/use-breakpoint';
 import { useOutfitAnalysisDetail } from '@/hooks/use-outfit-analysis-detail';
 import { backTo, goBack } from '@/lib/goBack';
@@ -41,7 +40,6 @@ function stampLabel(iso: string): string {
 export default function AnalysisDetailScreen() {
   const { isLoggedIn, isDemo } = useAuth();
   const { contentStyle } = useBreakpoint();
-  const tabInset = useBottomTabInset();
   const { id, from } = useLocalSearchParams<{ id?: string; from?: string }>();
 
   /* 데모 세션은 토큰이 없어 본인 기록 조회가 401 이다 — 로그인으로 보지 않는다. */
@@ -77,7 +75,7 @@ export default function AnalysisDetailScreen() {
         showsVerticalScrollIndicator={false}
         contentContainerStyle={[
           styles.content,
-          { paddingBottom: tabInset + 24 },
+          { paddingBottom: 24 },
           contentStyle(ContentMax.card),
         ]}>
         {loading && !analysis ? (
