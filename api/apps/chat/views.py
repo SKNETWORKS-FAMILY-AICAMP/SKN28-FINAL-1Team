@@ -10,8 +10,10 @@ from django.http import StreamingHttpResponse
 from django.shortcuts import get_object_or_404
 from django.urls import reverse
 from django.utils import timezone
+from drf_spectacular.utils import OpenApiResponse, extend_schema
 from rest_framework import status
 from rest_framework.exceptions import NotAuthenticated
+from rest_framework.parsers import FormParser, MultiPartParser
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
@@ -19,6 +21,9 @@ from rest_framework.views import APIView
 from apps.chat.models import ChatMessage, ChatRun, ChatSession
 from apps.chat.renderers import ServerSentEventRenderer
 from apps.chat.serializers import (
+    ChatAttachmentSerializer,
+    ChatAttachmentUploadResponseSerializer,
+    ChatAttachmentUploadSerializer,
     ChatMessageCreateSerializer,
     ChatMessageSerializer,
     ChatRunSerializer,
@@ -28,6 +33,7 @@ from apps.chat.serializers import (
     ChatSessionUpdateSerializer,
     GuestClaimSerializer,
 )
+from apps.chat.services import attachments as attachment_service
 from apps.chat.services import identity as identity_service
 from apps.chat.services import queue as chat_queue
 from apps.chat.services import sessions as session_service
@@ -293,6 +299,68 @@ class ChatSessionMessageListView(APIView):
                 ),
             },
             status=response_status,
+        )
+
+
+class ChatSessionAttachmentUploadView(APIView):
+    """채팅 사진을 저장하고 첨부 전용 사용자 메시지에 연결한다."""
+
+    permission_classes = [AllowAny]
+    parser_classes = [MultiPartParser, FormParser]
+
+    @extend_schema(
+        operation_id="chat_session_attachment_create",
+        tags=["Chat"],
+        summary="채팅 사진 업로드",
+        description=(
+            "사진을 비공개 S3에 저장하고 채팅 메시지에 연결합니다. "
+            "무드 분석은 시작하지 않으며 analysis_status는 NOT_REQUESTED입니다."
+        ),
+        request=ChatAttachmentUploadSerializer,
+        responses={
+            200: ChatAttachmentUploadResponseSerializer,
+            201: ChatAttachmentUploadResponseSerializer,
+            400: OpenApiResponse(description="이미지·요청값 검증 실패"),
+            404: OpenApiResponse(description="세션이 없거나 요청 identity의 소유가 아님"),
+            409: OpenApiResponse(description="client_message_id가 다른 메시지와 충돌"),
+            503: OpenApiResponse(description="채팅 이미지 저장소를 사용할 수 없음"),
+        },
+    )
+    def post(self, request, session_id):
+        identity = _identity(request)
+        serializer = ChatAttachmentUploadSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        try:
+            result = attachment_service.upload_photo(
+                identity=identity,
+                session_id=session_id,
+                **serializer.validated_data,
+            )
+        except attachment_service.ChatAttachmentSessionNotFound as exc:
+            return Response(
+                {"code": exc.code, "detail": str(exc)},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+        except attachment_service.ChatAttachmentClientIdConflict as exc:
+            return Response(
+                {"code": exc.code, "detail": str(exc)},
+                status=status.HTTP_409_CONFLICT,
+            )
+        except attachment_service.ChatAttachmentStorageUnavailable as exc:
+            return Response(
+                {"code": exc.code, "detail": str(exc)},
+                status=status.HTTP_503_SERVICE_UNAVAILABLE,
+            )
+
+        return Response(
+            {
+                "message": ChatMessageSerializer(result.message).data,
+                "attachment": ChatAttachmentSerializer(result.attachment).data,
+                "created": result.created,
+            },
+            status=(
+                status.HTTP_201_CREATED if result.created else status.HTTP_200_OK
+            ),
         )
 
 

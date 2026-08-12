@@ -1,3 +1,5 @@
+import logging
+
 from django.conf import settings
 from rest_framework import serializers
 
@@ -8,9 +10,14 @@ from apps.chat.models import (
     ChatSession,
     PersonaProfile,
 )
+from apps.chat.services import attachment_storage
+
+logger = logging.getLogger(__name__)
 
 
 class ChatAttachmentSerializer(serializers.ModelSerializer):
+    image_url = serializers.SerializerMethodField()
+
     class Meta:
         model = ChatAttachment
         fields = [
@@ -19,9 +26,21 @@ class ChatAttachmentSerializer(serializers.ModelSerializer):
             "size",
             "sha256",
             "analysis_status",
+            "image_url",
             "created_at",
         ]
         read_only_fields = fields
+
+    def get_image_url(self, obj: ChatAttachment) -> str | None:
+        try:
+            return attachment_storage.presigned_get(obj.s3_key)
+        except Exception:
+            logger.warning(
+                "채팅 첨부 presigned URL 발급 실패: attachment=%s",
+                obj.pk,
+                exc_info=True,
+            )
+            return None
 
 
 class ChatMessageSerializer(serializers.ModelSerializer):
@@ -68,6 +87,53 @@ class ChatMessageCreateSerializer(serializers.Serializer):
                 "서버 예약 메시지 ID 접두사는 사용할 수 없습니다."
             )
         return value
+
+
+class ChatAttachmentUploadSerializer(serializers.Serializer):
+    image = serializers.ImageField(allow_empty_file=False)
+    client_message_id = serializers.CharField(
+        allow_blank=False,
+        trim_whitespace=True,
+        max_length=128,
+    )
+    content = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        trim_whitespace=True,
+        max_length=settings.CHAT_MESSAGE_MAX_CHARS,
+        default="",
+    )
+    metadata = serializers.JSONField(required=False, default=dict)
+
+    def validate_image(self, image):
+        if image.size > settings.CHAT_ATTACHMENT_MAX_BYTES:
+            max_mb = settings.CHAT_ATTACHMENT_MAX_BYTES // (1024 * 1024)
+            raise serializers.ValidationError(
+                f"이미지는 {max_mb}MB 이하여야 합니다."
+            )
+        if image.content_type not in settings.CHAT_ATTACHMENT_ALLOWED_CONTENT_TYPES:
+            raise serializers.ValidationError(
+                "지원하지 않는 이미지 형식입니다 (jpeg/png/webp/heic)."
+            )
+        return image
+
+    def validate_client_message_id(self, value: str) -> str:
+        if value.startswith("run:"):
+            raise serializers.ValidationError(
+                "서버 예약 메시지 ID 접두사는 사용할 수 없습니다."
+            )
+        return value
+
+    def validate_metadata(self, value):
+        if not isinstance(value, dict):
+            raise serializers.ValidationError("metadata는 JSON 객체여야 합니다.")
+        return value
+
+
+class ChatAttachmentUploadResponseSerializer(serializers.Serializer):
+    message = ChatMessageSerializer(read_only=True)
+    attachment = ChatAttachmentSerializer(read_only=True)
+    created = serializers.BooleanField(read_only=True)
 
 
 class ChatRunSerializer(serializers.ModelSerializer):
