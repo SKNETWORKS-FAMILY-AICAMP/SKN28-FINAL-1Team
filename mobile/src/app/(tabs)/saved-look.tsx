@@ -63,9 +63,14 @@ export default function SavedLook() {
     setEditing(true);
   };
 
-  const save = () => {
+  const save = async () => {
     if (!look) return;
-    savedLookStore.updateLook(look.id, { memo, tags });
+    try {
+      await savedLookStore.updateLook(look.id, { memo, tags });
+    } catch (error) {
+      toast(error instanceof Error ? error.message : '저장하지 못했어요', { variant: 'error' });
+      return;
+    }
     setEditing(false);
     toast('저장했어요', { variant: 'success' });
   };
@@ -83,7 +88,13 @@ export default function SavedLook() {
       destructive: true,
     });
     if (!ok) return;
-    savedLookStore.removeLook(look.id);
+    try {
+      await savedLookStore.removeLook(look.id);
+    } catch (error) {
+      /* 처리 중인 룩은 서버가 409 로 막는다 — 왜 안 지워지는지 알려야 다시 누르지 않는다. */
+      toast(error instanceof Error ? error.message : '빼지 못했어요', { variant: 'error' });
+      return;
+    }
     toast('저장됨에서 뺐어요');
     back();
   };

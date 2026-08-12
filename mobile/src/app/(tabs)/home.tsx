@@ -227,13 +227,19 @@ function HomeBody({ data }: { data: HomeData }) {
   const look = looks[idx % looks.length];
 
   // 지금 보고 있는 룩을 '저장됨'에 담고 룩북 저장됨 탭으로 이동한다.
-  const saveCurrentLook = () => {
-    savedLookStore.addLook({
-      image: look.image ?? undefined,
-      asset: look.image ? undefined : look.asset,
-      comment: look.comment,
-      tags: look.tags,
-    });
+  const saveCurrentLook = async () => {
+    /* 서버 왕복이라 끝난 뒤에 알린다 — 먼저 토스트를 띄우면 실패해도 담긴 것처럼 보인다. */
+    try {
+      await savedLookStore.addLook({
+        image: look.image ?? undefined,
+        asset: look.image ? undefined : look.asset,
+        comment: look.comment,
+        tags: look.tags,
+      });
+    } catch (error) {
+      toast(error instanceof Error ? error.message : '저장하지 못했어요', { variant: 'error' });
+      return;
+    }
     toast('저장됨에 담았어요');
     router.push('/(tabs)/lookbook?tab=saved');
   };

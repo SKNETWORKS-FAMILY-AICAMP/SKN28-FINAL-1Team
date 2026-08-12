@@ -1,14 +1,23 @@
-import { CategoryEditSheet, SearchFilterBar, SegmentedToggle, SmartImage } from '@/components/ui';
+import {
+  CategoryEditSheet,
+  ErrorState,
+  LoadingState,
+  SearchFilterBar,
+  SegmentedToggle,
+  SmartImage,
+} from '@/components/ui';
 import { Icon, type IconName } from '@/components/icon';
 import { useMultiSelectFilter } from '@/hooks/useMultiSelectFilter';
+import { useRefresh } from '@/hooks/use-refresh';
 import { LOOKBOOK_FILTER_OPTIONS, useLookbook } from '@/state/lookbook';
 import { likesStore, useLikedLooks } from '@/state/likes';
-import { useSavedLooks, type LookOrigin } from '@/state/saved';
+import { savedLookStore, useSavedLooks, useSavedLooksState, type LookOrigin } from '@/state/saved';
 import { router, useLocalSearchParams } from 'expo-router';
 import { withReturn } from '@/lib/goBack';
-import { useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   Pressable,
+  RefreshControl,
   ScrollView,
   StyleSheet,
   Text,
@@ -88,6 +97,15 @@ export default function LookbookScreen() {
   const savedLooks = useSavedLooks();
   const likedLooks = useLikedLooks();
 
+  /* 내 룩북은 서버에서 온다. 화면에 들어올 때 한 번 받고, 당겨서 다시 받을 수 있게 한다.
+     '둘러보기' 피드는 서버에 없어서(공개 피드 API 부재) 로컬 시드 그대로다. */
+  const loadSaved = useCallback(() => savedLookStore.load(), []);
+  const { loading, error, loaded } = useSavedLooksState();
+  const { refreshing, onRefresh } = useRefresh(loadSaved);
+  useEffect(() => {
+    void loadSaved();
+  }, [loadSaved]);
+
   // 홈 '저장' 등에서 ?tab=saved 로 진입하면 저장됨 탭이 열린다.
   // 모드는 URL 파라미터에서 파생하고, 세그먼트 전환은 setParams 로 파라미터를 바꾼다
   // (useState+useEffect 동기화는 불필요한 리렌더를 만들어 지양).
@@ -133,6 +151,9 @@ export default function LookbookScreen() {
       : mineTab === 'liked'
         ? likedCards
         : savedFiltered.map((l) => ({ id: l.id, uri: l.image, asset: l.asset, origin: l.origin }));
+
+  /** 서버에서 오는 목록을 보고 있는가 — 로딩·에러·당겨서 새로고침은 이 탭에서만 뜬다. */
+  const isSavedTab = mode === 'mine' && mineTab === 'saved';
 
   const likedIds = useMemo(() => new Set(likedLooks.map((l) => l.id)), [likedLooks]);
   /* 토스트를 띄우지 않는다 — 하트가 그 자리에서 바로 채워지고 비워져 결과가 이미 보인다. */
@@ -195,8 +216,22 @@ export default function LookbookScreen() {
         <ScrollView
           style={styles.gridScroll}
           showsVerticalScrollIndicator={false}
+          refreshControl={
+            isSavedTab ? (
+              <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={INK} />
+            ) : undefined
+          }
           contentContainerStyle={[styles.grid, { paddingBottom: 24 }, contentStyle(ContentMax.wide)]}>
-          {cards.length === 0 ? (
+          {isSavedTab && loading && !loaded ? (
+            <LoadingState message="룩북을 불러오는 중…" style={styles.empty} />
+          ) : isSavedTab && error && savedLooks.length === 0 ? (
+            <ErrorState
+              title="룩북을 불러오지 못했어요"
+              description={error}
+              onRetry={() => void loadSaved()}
+              style={styles.empty}
+            />
+          ) : cards.length === 0 ? (
             <View style={styles.empty}>
               <Text style={styles.emptyText}>{emptyText}</Text>
               {mode === 'browse' ? (
