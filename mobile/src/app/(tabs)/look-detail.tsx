@@ -8,7 +8,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { Editorial, ink, Fonts } from '@/constants/theme';
 import { TODAY_LOOK_IMAGE } from '@/constants/look-images';
-import { LOOK_VARIANTS, resolveLookVariant } from '@/constants/today-look';
+import { dailyLookToVariant, LOOK_VARIANTS, resolveLookVariant } from '@/constants/today-look';
 import { savedLookStore } from '@/state/saved';
 import { useAuth } from '@/state/auth';
 import { draftItem } from '@/state/draft-item';
@@ -17,6 +17,7 @@ import { backTo, goBack } from '@/lib/goBack';
 import { mallLabel, openExternal, productUrl } from '@/lib/mall';
 import type { LookRelated } from '@/constants/today-look';
 import { useBreakpoint } from '@/hooks/use-breakpoint';
+import { useDailyLook } from '@/hooks/use-daily-look';
 import { useHome } from '@/hooks/use-home';
 import { DetailTwoPane } from '@/components/detail-two-pane';
 
@@ -36,7 +37,14 @@ export default function LookDetail() {
   const maxW = width >= 1280 ? 960 : 720;
   /* 어떤 룩을 볼지는 주소가 정한다. 없으면 오늘의 룩. */
   const { id, from } = useLocalSearchParams<{ id?: string; from?: string }>();
-  const look = resolveLookVariant(id);
+  const { isLoggedIn } = useAuth();
+  /* 오늘의 룩(id 없음/'daily')은 추천 API 실데이터로 그린다. 홈이 이미 만들어 둔
+     것을 다시 조회하는 것뿐이라(하루 1건 멱등) 재생성은 없고, 생성 중이면 훅이
+     폴링해 보는 사이 완성되면 화면이 실제 추천으로 바뀐다. 완성 전·비회원이면
+     번들 목업으로 물러난다 — 홈 카드의 템플릿 폴백과 같은 규칙. */
+  const { look: dailyLook } = useDailyLook(isLoggedIn);
+  const apiVariant = useMemo(() => dailyLookToVariant(dailyLook), [dailyLook]);
+  const look = (!id || id === 'daily') && apiVariant ? apiVariant : resolveLookVariant(id);
   const PIECES = look.pieces;
   const lookTags = tagsOf(look.subtitle);
   /* 사진은 원격 URL 이 있으면 그것, 없으면 번들 목업(오늘의 룩) */
@@ -48,7 +56,6 @@ export default function LookDetail() {
   const toast = useToast();
   const { budget } = usePrefs();
   const wishlist = useWishlist();
-  const { isLoggedIn } = useAuth();
 
   /* 찜한 브랜드 = 취향. 예산 다음 순위로 써서 관련 상품 순서를 정한다(아래 sortRelated). */
   const brands = useMemo(() => brandScores(wishlist), [wishlist]);
@@ -224,10 +231,16 @@ export default function LookDetail() {
           <Text style={styles.sectionTitle}>구성 아이템</Text>
           <View style={styles.pieces}>
             {PIECES.map((p) => {
-              const open = openSlot === p.slot;
+              /* API 룩은 아직 비슷한 상품이 없다(related=[]) — 열어도 빈 서랍이므로
+                 아코디언을 잠그고 화살표도 숨긴다. */
+              const expandable = p.related.length > 0;
+              const open = expandable && openSlot === p.slot;
               return (
                 <View key={p.slot} style={[styles.pieceWrap, open && styles.pieceWrapOpen]}>
-                  <Pressable style={styles.piece} onPress={() => setOpenSlot(open ? null : p.slot)}>
+                  <Pressable
+                    style={styles.piece}
+                    disabled={!expandable}
+                    onPress={() => setOpenSlot(open ? null : p.slot)}>
                     <View style={styles.pieceThumb}>
                       <SmartImage uri={p.image} width="100%" aspectRatio={1} radius={12} contentFit="cover" />
                     </View>
@@ -255,11 +268,13 @@ export default function LookDetail() {
                         <Text style={styles.pieceAddText}>옷장에</Text>
                       </Pressable>
                     ) : null}
-                    <Icon
-                      name={open ? 'chevron.down' : 'chevron.right'}
-                      tintColor={ink(0.3)}
-                      size={16}
-                    />
+                    {expandable ? (
+                      <Icon
+                        name={open ? 'chevron.down' : 'chevron.right'}
+                        tintColor={ink(0.3)}
+                        size={16}
+                      />
+                    ) : null}
                   </Pressable>
 
                   {open ? (

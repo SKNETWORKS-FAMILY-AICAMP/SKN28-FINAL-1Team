@@ -19,7 +19,7 @@ import hashlib
 import json
 import logging
 import os
-from datetime import date
+from datetime import date, timedelta
 from typing import Any
 
 from django.conf import settings
@@ -45,6 +45,10 @@ logger = logging.getLogger(__name__)
 #: LLM에 넘길 후보 수. 너무 많으면 프롬프트가 길어지고 모델이 고르는 근거가 흐려진다.
 CANDIDATE_LIMIT = 5
 
+#: 최근 며칠간 나간 코디를 다시 추천하지 않을지. 하루 1건이므로 최대 5개
+#: 골든 코디가 제외 대상이 된다.
+RECENT_EXCLUDE_DAYS = 5
+
 
 def today(user=None) -> date:
     """추천이 속한 날짜. 서비스 타임존(Asia/Seoul) 기준의 '오늘'.
@@ -53,6 +57,29 @@ def today(user=None) -> date:
     "어제 룩이 그대로 나온다"고 느낀다.
     """
     return timezone.localdate()
+
+
+def _recent_golden_ids(user, look_date: date) -> frozenset[str]:
+    """이 사용자에게 최근 RECENT_EXCLUDE_DAYS일 동안 **실제로 나간** 골든 코디 id.
+
+    '나간 것'의 기준은 채택된 결과(result.golden_id)다. 후보 목록(candidates)까지
+    빼면 하루에 5개씩 소진돼 골든셋이 작을 때 며칠 만에 뺄 코디가 없어진다 —
+    사용자가 본 것은 1위 하나뿐이므로 그것만 반복으로 친다.
+
+    오늘 행(look_date 당일)은 넣지 않는다. FAILED 재시도로 같은 날 run()이 다시
+    돌 때, 아직 결과도 없는 자기 자신 때문에 후보가 좁아지면 안 된다.
+    """
+    rows = DailyLook.objects.filter(
+        user=user,
+        status=DailyLook.Status.SUCCEEDED,
+        look_date__gte=look_date - timedelta(days=RECENT_EXCLUDE_DAYS),
+        look_date__lt=look_date,
+    ).values_list("result", flat=True)
+    return frozenset(
+        str(row["golden_id"])
+        for row in rows
+        if isinstance(row, dict) and row.get("golden_id")
+    )
 
 
 def ensure_today_look(user, *, lat: float | None = None, lon: float | None = None):
@@ -178,6 +205,10 @@ def run(look: DailyLook) -> None:
             weather=snapshot.get("weather"),
             gender=gender,
             limit=CANDIDATE_LIMIT,
+            # 최근 며칠 안에 이미 나간 코디는 top k에서 빼고 다음 순위로 채운다.
+            # 골든셋·규칙이 그대로면 순위도 그대로라, 이게 없으면 매일 같은
+            # 코디가 1위로 뽑혀 "오늘의" 룩이 아니게 된다.
+            exclude_golden_ids=_recent_golden_ids(look.user, look.look_date),
         ),
         rules=rules,
     )
