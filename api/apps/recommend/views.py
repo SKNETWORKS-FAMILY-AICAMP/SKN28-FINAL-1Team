@@ -8,12 +8,14 @@ from django.db import close_old_connections
 from django.http import StreamingHttpResponse
 from django.urls import reverse
 from django.utils import timezone
+from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import (
     OpenApiExample,
     OpenApiParameter,
     OpenApiResponse,
     PolymorphicProxySerializer,
     extend_schema,
+    extend_schema_view,
 )
 from rest_framework import status
 from rest_framework.exceptions import NotAuthenticated, NotFound
@@ -23,6 +25,12 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
+from apps.chat.openapi import (
+    CHAT_IDENTITY_GUIDE,
+    CHAT_SSE_GUIDE,
+    CHAT_TAG,
+    CHAT_UUID_GUIDE,
+)
 from apps.chat.renderers import ServerSentEventRenderer
 from apps.chat.services import identity as identity_service
 
@@ -63,6 +71,46 @@ logger = logging.getLogger(__name__)
 DEFAULT_HISTORY_LIMIT = 20
 MAX_HISTORY_LIMIT = 100
 _REDIS_STREAM_ID = re.compile(r"^(?:0|[1-9]\d*)-(?:0|[1-9]\d*)$")
+
+_RESULT_ID_PARAMETER = OpenApiParameter(
+    name="result_id",
+    type=OpenApiTypes.UUID,
+    location=OpenApiParameter.PATH,
+    required=True,
+    description="추천 이력 또는 AI 답변 metadata에서 받은 추천 결과 UUID",
+    examples=[
+        OpenApiExample(
+            name="추천 결과 UUID 형식",
+            value="44444444-4444-4444-8444-444444444444",
+        )
+    ],
+)
+_CARD_ID_PARAMETER = OpenApiParameter(
+    name="card_id",
+    type=OpenApiTypes.UUID,
+    location=OpenApiParameter.PATH,
+    required=True,
+    description="추천 결과 상세의 cards[].card_id",
+    examples=[
+        OpenApiExample(
+            name="추천 카드 UUID 형식",
+            value="55555555-5555-4555-8555-555555555555",
+        )
+    ],
+)
+_JOB_ID_PARAMETER = OpenApiParameter(
+    name="job_id",
+    type=OpenApiTypes.UUID,
+    location=OpenApiParameter.PATH,
+    required=True,
+    description="추천 카드 이미지 생성 응답의 job_id",
+    examples=[
+        OpenApiExample(
+            name="이미지 작업 UUID 형식",
+            value="66666666-6666-4666-8666-666666666666",
+        )
+    ],
+)
 
 
 def _recommendation_identity(request: Request):
@@ -537,9 +585,33 @@ class RecommendationHistoryView(APIView):
 
     @extend_schema(
         operation_id="recommendation_history_list",
-        tags=["Chat Recommendation"],
+        tags=[CHAT_TAG],
         summary="내 추천 이력 목록",
+        description=(
+            "채팅에서 확정·저장된 추천 결과를 최신순으로 조회합니다. "
+            "`mode`에는 `WARDROBE_BASED` 또는 `NEW_ITEM`을 넣어 필터링할 수 "
+            "있습니다. 응답의 `result_id`와 `top_card.card_id`를 상세·피드백·이미지 "
+            "생성 API에 사용합니다.\n\n"
+            f"{CHAT_IDENTITY_GUIDE}"
+        ),
         parameters=[RecommendationHistoryQuerySerializer],
+        examples=[
+            OpenApiExample(
+                name="새 상품 포함 추천만 조회",
+                value="NEW_ITEM",
+                parameter_only=("mode", "query"),
+            ),
+            OpenApiExample(
+                name="첫 페이지 20개",
+                value=20,
+                parameter_only=("limit", "query"),
+            ),
+            OpenApiExample(
+                name="첫 페이지 시작 위치",
+                value=0,
+                parameter_only=("offset", "query"),
+            ),
+        ],
         responses={
             200: RecommendationHistoryResponseSerializer,
             401: OpenApiResponse(
@@ -578,8 +650,14 @@ class RecommendationResultDetailView(APIView):
 
     @extend_schema(
         operation_id="recommendation_result_retrieve",
-        tags=["Chat Recommendation"],
+        tags=[CHAT_TAG],
         summary="추천 결과와 카드 목록 조회",
+        description=(
+            "한 번의 채팅 추천 실행으로 확정된 코디 카드를 순위·구성 아이템과 함께 "
+            "조회합니다. 실제 result_id는 추천 이력 응답 또는 AI 메시지 metadata에서 "
+            f"가져옵니다.\n\n{CHAT_UUID_GUIDE}"
+        ),
+        parameters=[_RESULT_ID_PARAMETER],
         responses={
             200: RecommendationResultDetailSerializer,
             404: OpenApiResponse(
@@ -605,8 +683,13 @@ class RecommendationCardDetailView(APIView):
 
     @extend_schema(
         operation_id="recommendation_card_retrieve",
-        tags=["Chat Recommendation"],
+        tags=[CHAT_TAG],
         summary="추천 카드 상세 조회",
+        description=(
+            "코디 카드 한 장의 아이템 출처(옷장·골든셋·상품), 가격, 구매 URL, "
+            "검증 사유와 현재 피드백을 조회합니다."
+        ),
+        parameters=[_RESULT_ID_PARAMETER, _CARD_ID_PARAMETER],
         responses={
             200: RecommendationCardSerializer,
             404: OpenApiResponse(
@@ -633,9 +716,35 @@ class RecommendationFeedbackView(APIView):
 
     @extend_schema(
         operation_id="recommendation_feedback_put",
-        tags=["Chat Recommendation"],
+        tags=[CHAT_TAG],
         summary="추천 카드 피드백 생성 또는 교체",
+        description=(
+            "추천 카드에 대한 최신 반응을 저장합니다. 같은 카드에 다시 PUT하면 기존 "
+            "피드백 전체를 교체합니다. reason_codes는 최대 5개의 대문자 코드이며, "
+            "예시는 `COLOR`, `FIT`, `PRICE`, `STYLE`, `ALREADY_OWNED`입니다."
+        ),
+        parameters=[_RESULT_ID_PARAMETER, _CARD_ID_PARAMETER],
         request=RecommendationFeedbackRequestSerializer,
+        examples=[
+            OpenApiExample(
+                name="추천이 마음에 듦",
+                value={
+                    "reaction": "LIKE",
+                    "reason_codes": ["STYLE", "COLOR"],
+                    "comment": "색 조합이 마음에 들어요",
+                },
+                request_only=True,
+            ),
+            OpenApiExample(
+                name="추천이 마음에 들지 않음",
+                value={
+                    "reaction": "DISLIKE",
+                    "reason_codes": ["PRICE", "FIT"],
+                    "comment": "예산보다 비싸고 핏이 취향과 달라요",
+                },
+                request_only=True,
+            ),
+        ],
         responses={
             200: RecommendationFeedbackSerializer,
             201: RecommendationFeedbackSerializer,
@@ -664,8 +773,10 @@ class RecommendationFeedbackView(APIView):
 
     @extend_schema(
         operation_id="recommendation_feedback_delete",
-        tags=["Chat Recommendation"],
+        tags=[CHAT_TAG],
         summary="추천 카드 피드백 삭제",
+        description="해당 카드에 저장된 최신 피드백을 삭제합니다. 추천 카드 자체는 유지됩니다.",
+        parameters=[_RESULT_ID_PARAMETER, _CARD_ID_PARAMETER],
         responses={
             204: None,
             404: OpenApiResponse(
@@ -708,8 +819,14 @@ class RecommendationCardRenderView(APIView):
 
     @extend_schema(
         operation_id="recommendation_card_render_retrieve",
-        tags=["Chat Recommendation"],
+        tags=[CHAT_TAG],
         summary="추천 카드 이미지 생성 상태 조회",
+        description=(
+            "카드의 최종 코디 이미지 생성 작업 상태를 조회합니다. `SUCCEEDED`이면 "
+            "만료 시간이 있는 비공개 image_url이 반환됩니다. Swagger에서 비동기 "
+            "이미지 완료를 확인할 때 이 API를 반복 호출합니다."
+        ),
+        parameters=[_RESULT_ID_PARAMETER, _CARD_ID_PARAMETER],
         responses={
             200: OutfitRenderJobSerializer,
             404: OpenApiResponse(
@@ -728,8 +845,16 @@ class RecommendationCardRenderView(APIView):
 
     @extend_schema(
         operation_id="recommendation_card_render_create",
-        tags=["Chat Recommendation"],
+        tags=[CHAT_TAG],
         summary="추천 카드 이미지 생성 접수",
+        description=(
+            "추천 카드의 옷장·골든셋·상품 아이템 이미지를 모아 Qwen 이미지 생성 "
+            "작업을 Redis 큐에 접수합니다. 이미 완료된 동일 조합은 캐시를 재사용할 "
+            "수 있습니다. 응답의 `job_id`로 SSE 또는 상태 조회를 이어갑니다.\n\n"
+            "**로컬 테스트 전제:** Redis, 이미지 worker, S3와 이미지 모델 설정이 "
+            "필요하며 실제 모델 API 비용이 발생할 수 있습니다."
+        ),
+        parameters=[_RESULT_ID_PARAMETER, _CARD_ID_PARAMETER],
         request=None,
         responses={
             200: OutfitRenderJobSerializer,
@@ -790,6 +915,37 @@ def _render_terminal_event(
     )
 
 
+@extend_schema_view(
+    get=extend_schema(
+        operation_id="recommendation_render_event_stream",
+        tags=[CHAT_TAG],
+        summary="추천 카드 이미지 생성 진행 이벤트 SSE",
+        description=(
+            "이미지 생성 작업의 `queued`, `running`, `completed`, `failed` 이벤트를 "
+            "`text/event-stream`으로 전달합니다. 재연결할 때 마지막 이벤트 ID를 "
+            "`Last-Event-ID` 헤더 또는 `last_event_id` 쿼리에 넣습니다.\n\n"
+            f"{CHAT_SSE_GUIDE}"
+        ),
+        parameters=[
+            _JOB_ID_PARAMETER,
+            OpenApiParameter(
+                name="last_event_id",
+                type=OpenApiTypes.STR,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description="재연결 시 마지막으로 받은 Redis Stream 이벤트 ID",
+                examples=[OpenApiExample(name="처음부터 수신", value="0-0")],
+            ),
+        ],
+        responses={
+            (200, "text/event-stream"): OpenApiResponse(
+                response=OpenApiTypes.STR,
+                description="완료 또는 실패 이벤트까지 유지되는 Server-Sent Events 스트림",
+            ),
+            404: OpenApiResponse(description="작업이 없거나 현재 identity의 소유가 아님"),
+        },
+    )
+)
 class OutfitRenderEventStreamView(APIView):
     """소유권을 확인한 이미지 작업의 진행 이벤트를 재생한다."""
 

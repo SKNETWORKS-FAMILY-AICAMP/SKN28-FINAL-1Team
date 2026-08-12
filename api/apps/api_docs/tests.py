@@ -30,6 +30,72 @@ class SwaggerEndpointTests(SimpleTestCase):
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, reverse("api-schema"))
 
+    def test_chat_apis_share_one_executable_swagger_category(self) -> None:
+        response = self.client.get(
+            reverse("api-schema"),
+            headers={"accept": "application/json"},
+        )
+        self.assertEqual(response.status_code, 200)
+        schema = json.loads(response.content)
+        paths = schema["paths"]
+
+        chat_paths = {
+            path
+            for path in paths
+            if path.startswith("/api/v1/chat/")
+            or path.startswith("/api/v1/recommendations/")
+        }
+        self.assertTrue(chat_paths)
+        for path in chat_paths:
+            for method, operation in paths[path].items():
+                if method not in {"get", "post", "patch", "put", "delete"}:
+                    continue
+                with self.subTest(path=path, method=method):
+                    self.assertEqual(operation["tags"], ["채팅"])
+                    self.assertTrue(operation.get("summary"))
+                    self.assertTrue(operation.get("description"))
+
+        declared_tags = {tag["name"]: tag for tag in schema["tags"]}
+        self.assertIn("채팅", declared_tags)
+        self.assertIn("추천 카드", declared_tags["채팅"]["description"])
+
+        session_create = paths["/api/v1/chat/sessions/"]["post"]
+        session_json = session_create["requestBody"]["content"]["application/json"]
+        self.assertEqual(
+            set(session_json["examples"]),
+            {
+                "옷장아이템만사용하는추천대화",
+                "새상품을포함하는추천대화",
+            },
+        )
+
+        message_create = paths[
+            "/api/v1/chat/sessions/{session_id}/messages/"
+        ]["post"]
+        message_json = message_create["requestBody"]["content"]["application/json"]
+        self.assertIn("첫질문전송", message_json["examples"])
+        self.assertIn("OpenAI", message_create["description"])
+
+        attachment_create = paths[
+            "/api/v1/chat/sessions/{session_id}/attachments/"
+        ]["post"]
+        attachment_form = attachment_create["requestBody"]["content"][
+            "multipart/form-data"
+        ]
+        self.assertIn("채팅사진과설명업로드", attachment_form["examples"])
+
+        feedback = paths[
+            "/api/v1/recommendations/{result_id}/cards/{card_id}/feedback/"
+        ]["put"]
+        feedback_json = feedback["requestBody"]["content"]["application/json"]
+        self.assertEqual(
+            set(feedback_json["examples"]),
+            {"추천이마음에듦", "추천이마음에들지않음"},
+        )
+
+        chat_sse = paths["/api/v1/chat/runs/{run_id}/events/"]["get"]
+        self.assertIn("text/event-stream", chat_sse["responses"]["200"]["content"])
+
     def test_outfit_analysis_detail_documents_wardrobe(self) -> None:
         """조회 응답은 인증 여부로 모양이 갈린다 — 둘 다 문서에 남아 있어야 한다.
 

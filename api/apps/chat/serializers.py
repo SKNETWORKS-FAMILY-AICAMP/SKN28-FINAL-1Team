@@ -167,6 +167,26 @@ class ChatRunSerializer(serializers.ModelSerializer):
         read_only_fields = fields
 
 
+class GuestIdentityResponseSerializer(serializers.Serializer):
+    identity_id = serializers.UUIDField(read_only=True)
+    expires_at = serializers.DateTimeField(read_only=True)
+
+
+class GuestClaimResponseSerializer(serializers.Serializer):
+    guest_identity_id = serializers.UUIDField(read_only=True)
+    member_identity_id = serializers.UUIDField(read_only=True)
+    session_count = serializers.IntegerField(read_only=True)
+    message_count = serializers.IntegerField(read_only=True)
+    attachment_count = serializers.IntegerField(read_only=True)
+    recommendation_count = serializers.IntegerField(read_only=True)
+
+
+class ChatMessageSubmitResponseSerializer(serializers.Serializer):
+    message = ChatMessageSerializer(read_only=True)
+    run = ChatRunSerializer(read_only=True)
+    events_url = serializers.URLField(read_only=True)
+
+
 class ChatMoodAnalysisResponseSerializer(serializers.Serializer):
     attachment = ChatAttachmentSerializer(read_only=True)
     run = ChatRunSerializer(read_only=True)

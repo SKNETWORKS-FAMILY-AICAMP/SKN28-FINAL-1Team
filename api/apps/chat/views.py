@@ -10,7 +10,14 @@ from django.http import StreamingHttpResponse
 from django.shortcuts import get_object_or_404
 from django.urls import reverse
 from django.utils import timezone
-from drf_spectacular.utils import OpenApiResponse, extend_schema
+from drf_spectacular.types import OpenApiTypes
+from drf_spectacular.utils import (
+    OpenApiExample,
+    OpenApiParameter,
+    OpenApiResponse,
+    extend_schema,
+    extend_schema_view,
+)
 from rest_framework import status
 from rest_framework.exceptions import NotAuthenticated
 from rest_framework.parsers import FormParser, MultiPartParser
@@ -19,6 +26,12 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from apps.chat.models import ChatMessage, ChatRun, ChatSession
+from apps.chat.openapi import (
+    CHAT_IDENTITY_GUIDE,
+    CHAT_SSE_GUIDE,
+    CHAT_TAG,
+    CHAT_UUID_GUIDE,
+)
 from apps.chat.renderers import ServerSentEventRenderer
 from apps.chat.serializers import (
     ChatAttachmentSerializer,
@@ -28,6 +41,7 @@ from apps.chat.serializers import (
     ChatMessagePageQuerySerializer,
     ChatMessagePageResponseSerializer,
     ChatMessageSerializer,
+    ChatMessageSubmitResponseSerializer,
     ChatMoodAnalysisResponseSerializer,
     ChatMoodDecisionResponseSerializer,
     ChatMoodDecisionSerializer,
@@ -39,7 +53,9 @@ from apps.chat.serializers import (
     ChatSessionSearchResponseSerializer,
     ChatSessionSerializer,
     ChatSessionUpdateSerializer,
+    GuestClaimResponseSerializer,
     GuestClaimSerializer,
+    GuestIdentityResponseSerializer,
 )
 from apps.chat.services import attachments as attachment_service
 from apps.chat.services import history as history_service
@@ -53,6 +69,72 @@ from apps.chat.services.orchestrator import create_run, mark_enqueue_failed
 logger = logging.getLogger(__name__)
 
 _REDIS_STREAM_ID = re.compile(r"^\d+-\d+$")
+
+_SESSION_ID_PARAMETER = OpenApiParameter(
+    name="session_id",
+    type=OpenApiTypes.UUID,
+    location=OpenApiParameter.PATH,
+    required=True,
+    description="세션 생성 또는 목록 조회 응답에서 받은 채팅 세션 UUID",
+    examples=[
+        OpenApiExample(
+            name="채팅 세션 UUID 형식",
+            value="11111111-1111-4111-8111-111111111111",
+        )
+    ],
+)
+_ATTACHMENT_ID_PARAMETER = OpenApiParameter(
+    name="attachment_id",
+    type=OpenApiTypes.UUID,
+    location=OpenApiParameter.PATH,
+    required=True,
+    description="사진 업로드 응답의 attachment.id",
+    examples=[
+        OpenApiExample(
+            name="채팅 첨부 UUID 형식",
+            value="22222222-2222-4222-8222-222222222222",
+        )
+    ],
+)
+_RUN_ID_PARAMETER = OpenApiParameter(
+    name="run_id",
+    type=OpenApiTypes.UUID,
+    location=OpenApiParameter.PATH,
+    required=True,
+    description="메시지 전송 또는 무드 분석 응답의 run.id",
+    examples=[
+        OpenApiExample(
+            name="채팅 실행 UUID 형식",
+            value="33333333-3333-4333-8333-333333333333",
+        )
+    ],
+)
+
+_SESSION_CREATE_EXAMPLES = [
+    OpenApiExample(
+        name="옷장 아이템만 사용하는 추천 대화",
+        value={"mode": "WARDROBE_BASED", "title": "내 옷장 출근 코디"},
+        request_only=True,
+    ),
+    OpenApiExample(
+        name="새 상품을 포함하는 추천 대화",
+        value={"mode": "NEW_ITEM", "title": "새로운 데이트 룩"},
+        request_only=True,
+    ),
+]
+_MESSAGE_CREATE_EXAMPLE = OpenApiExample(
+    name="첫 질문 전송",
+    description=(
+        "client_message_id는 같은 요청의 중복 저장을 막는 클라이언트 고유값입니다. "
+        "재시도할 때는 같은 값을 사용하고 새 질문에는 새 값을 사용합니다."
+    ),
+    value={
+        "content": "이번 주 토요일 성수동 데이트에 입을 코디를 추천해줘",
+        "client_message_id": "swagger-message-001",
+        "metadata": {"source": "swagger"},
+    },
+    request_only=True,
+)
 
 
 def _guest_token(request) -> str:
@@ -95,6 +177,24 @@ def _delete_guest_cookie(response: Response) -> None:
     )
 
 
+@extend_schema_view(
+    post=extend_schema(
+        operation_id="chat_guest_identity_create",
+        tags=[CHAT_TAG],
+        summary="비회원 채팅 시작 또는 게스트 쿠키 갱신",
+        description=(
+            "비회원이 채팅을 테스트하기 위한 identity를 만들고 HttpOnly 쿠키를 "
+            "발급합니다. 같은 Swagger 브라우저에서 다시 호출하면 기존 게스트를 "
+            "재사용하고 만료 시각을 갱신합니다. 요청 본문은 없습니다.\n\n"
+            f"{CHAT_IDENTITY_GUIDE}"
+        ),
+        request=None,
+        responses={
+            200: GuestIdentityResponseSerializer,
+            201: GuestIdentityResponseSerializer,
+        },
+    )
+)
 class GuestIdentityView(APIView):
     permission_classes = [AllowAny]
     authentication_classes: list = []
@@ -124,6 +224,33 @@ class GuestIdentityView(APIView):
         return response
 
 
+@extend_schema_view(
+    post=extend_schema(
+        operation_id="chat_guest_claim_create",
+        tags=[CHAT_TAG],
+        summary="게스트 대화와 추천 이력을 회원에게 이전",
+        description=(
+            "게스트로 대화한 뒤 로그인했을 때 호출합니다. **Authorize에 회원 access "
+            "JWT가 있어야 하며**, 같은 브라우저에 게스트 쿠키가 남아 있어야 합니다. "
+            "세션·메시지·첨부·추천 결과를 회원 identity로 이전한 뒤 게스트 쿠키를 "
+            "삭제합니다."
+        ),
+        request=GuestClaimSerializer,
+        examples=[
+            OpenApiExample(
+                name="게스트 대화 이전 확인",
+                value={"confirm": True},
+                request_only=True,
+            )
+        ],
+        responses={
+            200: GuestClaimResponseSerializer,
+            400: OpenApiResponse(description="confirm 값 검증 실패"),
+            401: OpenApiResponse(description="회원 JWT 또는 게스트 쿠키가 없음"),
+            409: OpenApiResponse(description="게스트가 만료·이전됐거나 쿠키가 유효하지 않음"),
+        },
+    )
+)
 class GuestClaimView(APIView):
     permission_classes = [IsAuthenticated]
 
@@ -143,6 +270,40 @@ class GuestClaimView(APIView):
         return response
 
 
+@extend_schema_view(
+    get=extend_schema(
+        operation_id="chat_session_list",
+        tags=[CHAT_TAG],
+        summary="내 채팅 세션 목록 조회",
+        description=(
+            "현재 회원 또는 게스트 identity가 소유한 삭제되지 않은 대화를 최근 수정 "
+            "순으로 조회합니다.\n\n"
+            f"{CHAT_IDENTITY_GUIDE}"
+        ),
+        responses={
+            200: ChatSessionSerializer(many=True),
+            401: OpenApiResponse(description="유효한 회원 JWT 또는 게스트 쿠키가 없음"),
+        },
+    ),
+    post=extend_schema(
+        operation_id="chat_session_create",
+        tags=[CHAT_TAG],
+        summary="추천 모드를 선택해 채팅 세션 생성",
+        description=(
+            "`WARDROBE_BASED`는 옷장에 저장된 아이템만 사용하고, `NEW_ITEM`은 새 "
+            "상품을 포함해 추천합니다. 모드는 생성 후 바꿀 수 없습니다. 생성 시 "
+            "모드별 첫 인사가 메시지 1번으로 자동 저장됩니다. title을 비우면 첫 "
+            "사용자 질문으로 제목이 자동 생성됩니다."
+        ),
+        request=ChatSessionCreateSerializer,
+        examples=_SESSION_CREATE_EXAMPLES,
+        responses={
+            201: ChatSessionSerializer,
+            400: OpenApiResponse(description="추천 모드·제목·페르소나 검증 실패"),
+            401: OpenApiResponse(description="유효한 회원 JWT 또는 게스트 쿠키가 없음"),
+        },
+    ),
+)
 class ChatSessionListCreateView(APIView):
     permission_classes = [AllowAny]
 
@@ -175,13 +336,28 @@ class ChatSessionSearchView(APIView):
 
     @extend_schema(
         operation_id="chat_session_search",
-        tags=["Chat"],
+        tags=[CHAT_TAG],
         summary="대화 내용 검색",
         description=(
             "세션 제목과 저장된 메시지 본문을 부분 일치로 검색합니다. "
-            "결과는 최근 수정 순이며 search_match에 일치 메시지 미리보기가 포함됩니다."
+            "결과는 최근 수정 순이며 `search_match`에 일치 메시지 미리보기가 "
+            "포함됩니다. 다음 페이지는 응답의 `next_cursor`를 그대로 cursor에 "
+            "복사해 조회합니다. 검색어가 바뀌면 cursor 없이 첫 페이지부터 다시 "
+            "조회해야 합니다."
         ),
         parameters=[ChatSessionSearchQuerySerializer],
+        examples=[
+            OpenApiExample(
+                name="면접 관련 대화 검색",
+                value="면접",
+                parameter_only=("query", "query"),
+            ),
+            OpenApiExample(
+                name="페이지당 20개",
+                value=20,
+                parameter_only=("limit", "query"),
+            ),
+        ],
         responses={
             200: ChatSessionSearchResponseSerializer,
             400: OpenApiResponse(description="검색어·limit·cursor 검증 실패"),
@@ -216,6 +392,50 @@ class ChatSessionSearchView(APIView):
         )
 
 
+@extend_schema_view(
+    get=extend_schema(
+        operation_id="chat_session_retrieve",
+        tags=[CHAT_TAG],
+        summary="채팅 세션 상세 조회",
+        description=f"세션 모드·제목·추천 조건·요약 상태를 조회합니다.\n\n{CHAT_UUID_GUIDE}",
+        parameters=[_SESSION_ID_PARAMETER],
+        responses={
+            200: ChatSessionSerializer,
+            404: OpenApiResponse(description="세션이 없거나 현재 identity의 소유가 아님"),
+        },
+    ),
+    patch=extend_schema(
+        operation_id="chat_session_title_update",
+        tags=[CHAT_TAG],
+        summary="채팅 세션 제목 수정",
+        description="대화 목록에 표시할 제목만 수정합니다. 추천 모드는 변경되지 않습니다.",
+        parameters=[_SESSION_ID_PARAMETER],
+        request=ChatSessionUpdateSerializer,
+        examples=[
+            OpenApiExample(
+                name="대화 제목 변경",
+                value={"title": "토요일 성수동 데이트 룩"},
+                request_only=True,
+            )
+        ],
+        responses={
+            200: ChatSessionSerializer,
+            400: OpenApiResponse(description="제목 검증 실패"),
+            404: OpenApiResponse(description="세션이 없거나 현재 identity의 소유가 아님"),
+        },
+    ),
+    delete=extend_schema(
+        operation_id="chat_session_delete",
+        tags=[CHAT_TAG],
+        summary="채팅 세션 삭제",
+        description="대화를 소프트 삭제합니다. 이후 목록·검색·메시지 조회에서 보이지 않습니다.",
+        parameters=[_SESSION_ID_PARAMETER],
+        responses={
+            204: OpenApiResponse(description="삭제 완료"),
+            404: OpenApiResponse(description="세션이 없거나 현재 identity의 소유가 아님"),
+        },
+    ),
+)
 class ChatSessionDetailView(APIView):
     permission_classes = [AllowAny]
 
@@ -246,6 +466,37 @@ class ChatSessionDetailView(APIView):
         return Response(status=status.HTTP_204_NO_CONTENT)
 
 
+@extend_schema_view(
+    post=extend_schema(
+        operation_id="chat_session_derive_create",
+        tags=[CHAT_TAG],
+        summary="현재 조건을 이어받아 반대 추천 모드 대화 생성",
+        description=(
+            "현재 대화의 추천 조건·요약·페르소나를 복사하되 추천 모드가 다른 새 "
+            "세션을 만듭니다. 원본이 `WARDROBE_BASED`라면 `NEW_ITEM`을, 원본이 "
+            "`NEW_ITEM`이라면 `WARDROBE_BASED`를 입력해야 합니다."
+        ),
+        parameters=[_SESSION_ID_PARAMETER],
+        request=ChatSessionDeriveSerializer,
+        examples=[
+            OpenApiExample(
+                name="새 상품 포함 모드로 전환",
+                value={"mode": "NEW_ITEM", "title": "비슷한 새 상품도 찾아보기"},
+                request_only=True,
+            ),
+            OpenApiExample(
+                name="옷장 아이템만 사용하는 모드로 전환",
+                value={"mode": "WARDROBE_BASED", "title": "내 옷장으로 다시 추천"},
+                request_only=True,
+            ),
+        ],
+        responses={
+            201: ChatSessionSerializer,
+            400: OpenApiResponse(description="요청값 검증 실패"),
+            409: OpenApiResponse(description="원본과 같은 모드이거나 세션 접근 불가"),
+        },
+    )
+)
 class ChatSessionDeriveView(APIView):
     permission_classes = [AllowAny]
 
@@ -270,6 +521,47 @@ class ChatSessionDeriveView(APIView):
         )
 
 
+@extend_schema_view(
+    get=extend_schema(
+        operation_id="chat_message_list_all",
+        tags=[CHAT_TAG],
+        summary="채팅 세션의 전체 메시지 조회",
+        description=(
+            "세션에 저장된 첫 인사·사용자·AI 메시지를 sequence 오름차순으로 모두 "
+            "반환합니다. 메시지가 많아진 대화는 `/messages/page/` 커서 조회 사용을 "
+            "권장합니다."
+        ),
+        parameters=[_SESSION_ID_PARAMETER],
+        responses={
+            200: ChatMessageSerializer(many=True),
+            404: OpenApiResponse(description="세션이 없거나 현재 identity의 소유가 아님"),
+        },
+    ),
+    post=extend_schema(
+        operation_id="chat_message_create",
+        tags=[CHAT_TAG],
+        summary="사용자 메시지 전송 및 AI 답변 실행 접수",
+        description=(
+            "사용자 질문을 저장하고 Redis 실행 큐에 AI 답변 작업을 접수합니다. "
+            "응답의 `run.id`로 실행 상태를 조회합니다. 첫 사용자 질문이고 세션 제목이 "
+            "`새 대화`이면 질문 앞부분으로 제목도 자동 저장됩니다.\n\n"
+            "**로컬 테스트 전제:** Redis와 채팅 worker가 실행 중이어야 실제 AI 답변이 "
+            "완료됩니다. OpenAI 키가 설정된 환경에서는 실제 API 비용이 발생할 수 "
+            "있습니다. Swagger에서는 먼저 run 상태 조회를 반복하는 방식이 가장 "
+            "간단합니다."
+        ),
+        parameters=[_SESSION_ID_PARAMETER],
+        request=ChatMessageCreateSerializer,
+        examples=[_MESSAGE_CREATE_EXAMPLE],
+        responses={
+            200: ChatMessageSubmitResponseSerializer,
+            202: ChatMessageSubmitResponseSerializer,
+            400: OpenApiResponse(description="메시지·client_message_id 검증 실패"),
+            404: OpenApiResponse(description="세션이 없거나 현재 identity의 소유가 아님"),
+            503: OpenApiResponse(description="Redis 채팅 실행 큐를 사용할 수 없음"),
+        },
+    ),
+)
 class ChatSessionMessageListView(APIView):
     permission_classes = [AllowAny]
 
@@ -367,13 +659,22 @@ class ChatSessionMessagePageView(APIView):
 
     @extend_schema(
         operation_id="chat_session_message_page",
-        tags=["Chat"],
+        tags=[CHAT_TAG],
         summary="대화 메시지 페이지 조회",
         description=(
             "첫 요청은 가장 최근 메시지를 반환합니다. next_cursor를 다음 요청에 "
-            "전달하면 더 오래된 메시지를 조회하며, 각 응답의 items는 시간순입니다."
+            "전달하면 더 오래된 메시지를 조회하며, 각 응답의 `items`는 시간순입니다. "
+            "예를 들어 limit=20으로 첫 페이지를 받은 뒤 반환된 next_cursor 전체를 "
+            "cursor 칸에 복사하면 직전 20개를 조회합니다."
         ),
-        parameters=[ChatMessagePageQuerySerializer],
+        parameters=[_SESSION_ID_PARAMETER, ChatMessagePageQuerySerializer],
+        examples=[
+            OpenApiExample(
+                name="최근 메시지 20개",
+                value=20,
+                parameter_only=("limit", "query"),
+            )
+        ],
         responses={
             200: ChatMessagePageResponseSerializer,
             400: OpenApiResponse(description="limit·cursor 검증 실패"),
@@ -420,13 +721,30 @@ class ChatSessionAttachmentUploadView(APIView):
 
     @extend_schema(
         operation_id="chat_session_attachment_create",
-        tags=["Chat"],
+        tags=[CHAT_TAG],
         summary="채팅 사진 업로드",
         description=(
             "사진을 비공개 S3에 저장하고 채팅 메시지에 연결합니다. "
-            "무드 분석은 시작하지 않으며 analysis_status는 NOT_REQUESTED입니다."
+            "무드 분석은 시작하지 않으며 `analysis_status`는 `NOT_REQUESTED`입니다. "
+            "Swagger의 image 입력에서 로컬 jpeg/png/webp/heic 파일을 고릅니다. "
+            "응답의 `attachment.id`는 다음 무드 분석 API에 사용합니다."
         ),
+        parameters=[_SESSION_ID_PARAMETER],
         request=ChatAttachmentUploadSerializer,
+        examples=[
+            OpenApiExample(
+                name="채팅 사진과 설명 업로드",
+                description="image에는 Swagger UI의 파일 선택 버튼으로 실제 사진을 넣습니다.",
+                value={
+                    "image": "(binary)",
+                    "client_message_id": "swagger-photo-001",
+                    "content": "이 사진 같은 차분한 무드로 추천해줘",
+                    "metadata": {"source": "swagger"},
+                },
+                media_type="multipart/form-data",
+                request_only=True,
+            )
+        ],
         responses={
             200: ChatAttachmentUploadResponseSerializer,
             201: ChatAttachmentUploadResponseSerializer,
@@ -481,13 +799,16 @@ class ChatAttachmentMoodAnalysisView(APIView):
 
     @extend_schema(
         operation_id="chat_attachment_mood_analysis_create",
-        tags=["Chat"],
+        tags=[CHAT_TAG],
         summary="채팅 사진 무드 분석 요청",
         description=(
             "기존 ChatRun/Redis 워커에 사진 무드 분석을 접수합니다. "
-            "완료 결과는 run SSE의 response_message.metadata.mood_analysis와 "
-            "attachment.analysis_result에서 확인할 수 있습니다."
+            "먼저 사진 업로드 API를 호출하고 그 응답의 `attachment.id`를 사용합니다. "
+            "완료 결과는 run SSE의 `response_message.metadata.mood_analysis`와 "
+            "메시지 조회의 `attachment.analysis_result`에서 확인할 수 있습니다. "
+            "Swagger에서는 응답의 run.id로 실행 상태를 조회하세요."
         ),
+        parameters=[_SESSION_ID_PARAMETER, _ATTACHMENT_ID_PARAMETER],
         request=None,
         responses={
             200: ChatMoodAnalysisResponseSerializer,
@@ -581,13 +902,27 @@ class ChatAttachmentMoodDecisionView(APIView):
 
     @extend_schema(
         operation_id="chat_attachment_mood_decision_create",
-        tags=["Chat"],
+        tags=[CHAT_TAG],
         summary="사진 무드 승인 또는 거절",
         description=(
             "APPROVE는 분석된 표준 스타일·색상·핏을 현재 세션 추천 조건에 "
-            "반영하고, REJECT는 분석 기록만 보존한 채 추천 조건에는 반영하지 않습니다."
+            "반영하고, REJECT는 분석 기록만 보존한 채 추천 조건에는 반영하지 않습니다. "
+            "무드 분석 run이 `SUCCEEDED`가 된 뒤 호출해야 합니다."
         ),
+        parameters=[_SESSION_ID_PARAMETER, _ATTACHMENT_ID_PARAMETER],
         request=ChatMoodDecisionSerializer,
+        examples=[
+            OpenApiExample(
+                name="분석 무드 승인",
+                value={"decision": "APPROVE"},
+                request_only=True,
+            ),
+            OpenApiExample(
+                name="분석 무드 거절",
+                value={"decision": "REJECT"},
+                request_only=True,
+            ),
+        ],
         responses={
             200: ChatMoodDecisionResponseSerializer,
             400: OpenApiResponse(description="decision 값 검증 실패"),
@@ -665,6 +1000,25 @@ def _terminal_event(run: ChatRun) -> ChatEvent | None:
     return ChatEvent(id="", event=event_type, data=data)
 
 
+@extend_schema_view(
+    get=extend_schema(
+        operation_id="chat_run_retrieve",
+        tags=[CHAT_TAG],
+        summary="AI 답변 또는 사진 분석 실행 상태 조회",
+        description=(
+            "메시지 전송·사진 무드 분석 응답에서 받은 run.id의 처리 상태를 "
+            "조회합니다. `PENDING` → `RUNNING` → `SUCCEEDED`, "
+            "`NEEDS_CLARIFICATION` 또는 `FAILED`로 변합니다. `SUCCEEDED`이면 "
+            "response_message_id를 확인하고 메시지 조회 API에서 최종 답변을 읽습니다. "
+            "Swagger에서 비동기 완료를 확인할 때 권장하는 API입니다."
+        ),
+        parameters=[_RUN_ID_PARAMETER],
+        responses={
+            200: ChatRunSerializer,
+            404: OpenApiResponse(description="실행이 없거나 현재 identity의 소유가 아님"),
+        },
+    )
+)
 class ChatRunDetailView(APIView):
     permission_classes = [AllowAny]
 
@@ -672,6 +1026,37 @@ class ChatRunDetailView(APIView):
         return Response(ChatRunSerializer(_owned_run(request, run_id)).data)
 
 
+@extend_schema_view(
+    get=extend_schema(
+        operation_id="chat_run_event_stream",
+        tags=[CHAT_TAG],
+        summary="AI 답변 또는 사진 분석 진행 이벤트 SSE",
+        description=(
+            "`queued`, `running`, `completed`, `needs_clarification`, `failed` 이벤트를 "
+            "`text/event-stream`으로 전달합니다. 끊긴 뒤 재연결할 때 마지막 이벤트 "
+            "ID를 `Last-Event-ID` 헤더 또는 `last_event_id` 쿼리에 넣습니다.\n\n"
+            f"{CHAT_SSE_GUIDE}"
+        ),
+        parameters=[
+            _RUN_ID_PARAMETER,
+            OpenApiParameter(
+                name="last_event_id",
+                type=OpenApiTypes.STR,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description="재연결 시 마지막으로 받은 Redis Stream 이벤트 ID",
+                examples=[OpenApiExample(name="처음부터 수신", value="0-0")],
+            ),
+        ],
+        responses={
+            (200, "text/event-stream"): OpenApiResponse(
+                response=OpenApiTypes.STR,
+                description="종료 이벤트까지 유지되는 Server-Sent Events 스트림",
+            ),
+            404: OpenApiResponse(description="실행이 없거나 현재 identity의 소유가 아님"),
+        },
+    )
+)
 class ChatRunEventStreamView(APIView):
     permission_classes = [AllowAny]
     renderer_classes = [ServerSentEventRenderer]
