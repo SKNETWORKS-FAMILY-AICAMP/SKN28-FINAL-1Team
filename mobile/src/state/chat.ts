@@ -3,16 +3,21 @@ import { useSyncExternalStore } from 'react';
 import { Editorial } from '@/constants/theme';
 import {
   createSession as apiCreateSession,
+  decideMood as apiDecideMood,
   deleteSession as apiDeleteSession,
   listMessages as apiListMessages,
   listSessions as apiListSessions,
   newClientMessageId,
   renameSession as apiRenameSession,
+  requestMoodAnalysis as apiRequestMoodAnalysis,
   sendMessage as apiSendMessage,
+  uploadPhoto as apiUploadPhoto,
   type ApiChatMessage,
   type ApiChatMode,
   type ApiChatRun,
   type ApiChatSession,
+  type ApiMoodDecision,
+  type ApiMoodDecisionInput,
 } from '@/lib/chatApi';
 import { isAnswered, waitForRun } from '@/lib/chatStream';
 import {
@@ -75,8 +80,19 @@ export type ChatMessage =
   | { id: string; role: 'ai' | 'user'; kind: 'text'; text: string }
   /** 사용자가 올린 사진. uri 가 없던 시절(목업)에도 말풍선은 떠서 optional 로 둔다. */
   | { id: string; role: 'user'; kind: 'image'; uri?: string }
-  /** 첨부한 사진에서 읽어낸 무드 — 추구미로 삼을지 묻는 카드 */
-  | { id: string; role: 'ai'; kind: 'mood'; tags: string[] }
+  /**
+   * 첨부한 사진에서 읽어낸 무드 — 추구미로 삼을지 묻는 카드.
+   * `decision` 이 UNDECIDED 일 때만 고를 수 있다. 서버가 첫 결정만 받으므로 번복은 없다.
+   */
+  | {
+      id: string;
+      role: 'ai';
+      kind: 'mood';
+      /** 승인·거절을 보낼 대상. 카드를 만든 첨부 사진이다. */
+      attachmentId: string;
+      tags: string[];
+      decision: ApiMoodDecision;
+    }
   /**
    * 답변을 못 받은 질문 아래에 남기는 줄.
    * 토스트는 사라지므로, 대화를 다시 열었을 때 "질문만 있고 답이 없는" 상태로 보이지 않게 한다.
@@ -194,16 +210,69 @@ function toRecMessage(messageId: string, card: ApiRecommendationCard): ChatMessa
   };
 }
 
+function metaString(api: ApiChatMessage, key: string): string {
+  const value = api.metadata?.[key];
+  return typeof value === 'string' ? value : '';
+}
+
+/** 사진 무드 결정 상태는 **첨부**에 붙어 있다(무드 카드를 만든 AI 메시지가 아니라). */
+function decisionsOf(list: ApiChatMessage[]): Map<string, ApiMoodDecision> {
+  const map = new Map<string, ApiMoodDecision>();
+  for (const message of list) {
+    for (const attachment of message.attachments) {
+      map.set(attachment.id, attachment.mood_decision ?? 'UNDECIDED');
+    }
+  }
+  return map;
+}
+
+/**
+ * 사진 분석 답변 → 무드 카드.
+ * 서버가 붙인 message_kind='mood' 로 알아본다. 태그가 비어 있으면 물어볼 것이 없으니
+ * 카드를 만들지 않고 서버가 쓴 문장을 그대로 말풍선으로 보여준다.
+ */
+function toMoodMessage(
+  api: ApiChatMessage,
+  decisions: Map<string, ApiMoodDecision>,
+): ChatMessage | null {
+  if (metaString(api, 'message_kind') !== 'mood') return null;
+  const attachmentId = metaString(api, 'attachment_id');
+  const rawTags = (api.metadata?.mood_analysis as { tags?: unknown } | undefined)?.tags;
+  const tags = Array.isArray(rawTags)
+    ? rawTags.filter((tag): tag is string => typeof tag === 'string' && tag.length > 0)
+    : [];
+  if (!attachmentId || tags.length === 0) return null;
+  return {
+    id: api.id,
+    role: 'ai',
+    kind: 'mood',
+    attachmentId,
+    tags,
+    decision: decisions.get(attachmentId) ?? 'UNDECIDED',
+  };
+}
+
 /**
  * 서버 메시지 → 말풍선.
  * SYSTEM·TOOL 은 사람에게 보여줄 말이 아니라 버린다. 사진 첨부는 사진 말풍선을 따로 만들어
  * 글보다 앞에 놓는다 — 올릴 때 사진이 먼저였으니 다시 열어도 그 순서여야 한다.
  * 추천 카드는 말풍선 **뒤에** 붙는다 (먼저 말로 설명하고 그다음 코디를 보여주는 순서).
  */
-function toMessages(api: ApiChatMessage, cards: ApiRecommendationCard[] = []): ChatMessage[] {
+function toMessages(
+  api: ApiChatMessage,
+  cards: ApiRecommendationCard[] = [],
+  decisions: Map<string, ApiMoodDecision> = new Map(),
+): ChatMessage[] {
   if (api.role !== 'USER' && api.role !== 'ASSISTANT') return [];
   const role = api.role === 'USER' ? 'user' : 'ai';
   const out: ChatMessage[] = [];
+
+  /* 무드 카드는 말풍선을 대신한다 — 서버 문장("…무드가 보여요. 반영할까요?")과 카드가
+     같은 말을 하므로 둘 다 그리면 같은 질문이 두 번 나온다. */
+  if (role === 'ai') {
+    const mood = toMoodMessage(api, decisions);
+    if (mood) return [mood];
+  }
 
   if (role === 'user') {
     for (const a of api.attachments) {
@@ -307,6 +376,18 @@ function messageOf(e: unknown, fallback: string): string {
   return e instanceof Error && e.message ? e.message : fallback;
 }
 
+/**
+ * 목록을 다시 받아 서버가 정한 제목·순서에 맞춘다.
+ * 실패해도 대화는 이미 화면에 있으니 조용히 넘어간다.
+ */
+async function syncSessionList(): Promise<void> {
+  const fresh = await apiListSessions().catch(() => null);
+  if (!fresh) return;
+  const before = new Map(sessions.map((s) => [s.id, s]));
+  sessions = sortByRecent(fresh.map((s) => toSession(s, before.get(s.id))));
+  notify();
+}
+
 export const chatStore = {
   getSessions: () => sessions,
   getSession: (id: string | undefined) =>
@@ -337,9 +418,10 @@ export const chatStore = {
     if (!options.force && current?.messagesLoaded) return;
     const list = await apiListMessages(id);
     const cards = await fetchCards(list);
+    const decisions = decisionsOf(list);
     replaceSession(id, (s) => ({
       ...s,
-      messages: list.flatMap((m) => toMessages(m, cards.get(m.id))),
+      messages: list.flatMap((m) => toMessages(m, cards.get(m.id), decisions)),
       messagesLoaded: true,
     }));
   },
@@ -423,15 +505,80 @@ export const chatStore = {
       }));
     }
 
-    if (isAnswered(run.status)) {
-      const fresh = await apiListSessions().catch(() => null);
-      if (fresh) {
-        const before = new Map(sessions.map((s) => [s.id, s]));
-        sessions = sortByRecent(fresh.map((s) => toSession(s, before.get(s.id))));
-        notify();
-      }
-    }
+    if (isAnswered(run.status)) await syncSessionList();
     return run;
+  },
+
+  /**
+   * 사진 보내기. **업로드 → 무드 분석 접수 → 결과 대기** 세 단계다.
+   * 올리기만 하면 서버는 아무것도 하지 않는다(analysis_status 가 NOT_REQUESTED 로 남는다).
+   *
+   * 답변은 무드 카드로 온다 — 사진에서 읽은 태그를 추천 조건으로 쓸지 되묻는 것이라,
+   * 사용자가 카드에서 고르기 전까지는 추천 조건이 바뀌지 않는다.
+   */
+  async sendPhoto(id: string, uri: string): Promise<ApiChatRun> {
+    const draftId = nextMessageId();
+    replaceSession(id, (s) => ({
+      ...s,
+      messages: [...s.messages, { id: draftId, role: 'user', kind: 'image', uri }],
+      updatedAt: Date.now(),
+    }));
+
+    try {
+      const uploaded = await apiUploadPhoto(id, uri, newClientMessageId());
+      const submitted = await apiRequestMoodAnalysis(id, uploaded.attachment.id);
+      const run = await waitForRun(submitted.run.id);
+
+      // 사진 말풍선의 진짜 주소(presigned)와 무드 카드는 서버가 가진 대화에서 온다.
+      await this.loadMessages(id, { force: true }).catch(() => {});
+
+      if (run.status === 'FAILED' && run.error_message) {
+        const lineId = failureLineId(uploaded.message.id);
+        replaceSession(id, (s) => ({
+          ...s,
+          messages: s.messages.map((m) =>
+            m.id === lineId && m.kind === 'error' ? { ...m, text: run.error_message } : m,
+          ),
+        }));
+      }
+      if (isAnswered(run.status)) await syncSessionList();
+      return run;
+    } catch (e) {
+      /* 사진이 이미 올라갔을 수 있으니 서버 상태로 맞춘다. 그것도 안 되면 방금 띄운 사진
+         말풍선만 걷어낸다 — 올라가지 않은 사진이 보낸 것처럼 남아 있으면 안 된다. */
+      const synced = await this.loadMessages(id, { force: true }).then(
+        () => true,
+        () => false,
+      );
+      if (!synced) {
+        replaceSession(id, (s) => ({
+          ...s,
+          messages: s.messages.filter((m) => m.id !== draftId),
+        }));
+      }
+      throw e;
+    }
+  },
+
+  /**
+   * 무드 카드의 두 버튼.
+   * APPROVE 면 사진에서 읽은 표준 태그가 세션 추천 조건에 들어가고, REJECT 면 분석 기록만
+   * 남는다. 서버가 **첫 결정만** 받으므로(번복하면 409) 카드도 한 번만 바뀐다.
+   */
+  async decideMood(
+    sessionId: string,
+    attachmentId: string,
+    decision: ApiMoodDecisionInput,
+  ): Promise<void> {
+    const result = await apiDecideMood(sessionId, attachmentId, decision);
+    const decided: ApiMoodDecision =
+      result.attachment.mood_decision ?? (decision === 'APPROVE' ? 'APPROVED' : 'REJECTED');
+    replaceSession(sessionId, (s) => ({
+      ...s,
+      messages: s.messages.map((m) =>
+        m.kind === 'mood' && m.attachmentId === attachmentId ? { ...m, decision: decided } : m,
+      ),
+    }));
   },
 
   subscribe(listener: () => void) {

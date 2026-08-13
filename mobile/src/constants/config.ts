@@ -311,8 +311,15 @@ export const LookbookEndpoints = {
  *   DELETE /api/v1/chat/sessions/{id}/                                        → 204
  *   GET    /api/v1/chat/sessions/{id}/messages/                               → 메시지 배열(시간순)
  *   POST   /api/v1/chat/sessions/{id}/messages/  { content, client_message_id } → 202 { message, run, events_url }
+ *   POST   /api/v1/chat/sessions/{id}/attachments/  multipart{ image, client_message_id } → 201 { message, attachment }
+ *   POST   .../attachments/{attachmentId}/analysis/                           → 202 { attachment, run }
+ *   POST   .../attachments/{attachmentId}/mood-decision/  { decision }        → 200 { attachment, applied }
  *   GET    /api/v1/chat/runs/{runId}/                                         → run 상태(폴링용)
  *   GET    /api/v1/chat/runs/{runId}/events/                                  → SSE 진행 이벤트
+ *
+ * 사진은 **세 단계**다. 올리기만 해서는 아무 일도 일어나지 않는다 —
+ * 업로드(첨부 전용 사용자 메시지가 생김) → 무드 분석 요청(run 이 생김) →
+ * 사용자가 그 무드를 쓸지 정하기(승인해야 세션 추천 조건에 들어간다).
  *
  * 답변은 **동기 응답이 아니다.** 메시지를 POST 하면 202 와 함께 run 이 생기고,
  * 실제 답변은 별도 워커가 만들어 SSE(또는 run 폴링)로 전달된다. lib/chatStream.ts 참고.
@@ -327,6 +334,11 @@ export const ChatEndpoints = {
   sessions: '/api/v1/chat/sessions/',
   session: (sessionId: string) => `/api/v1/chat/sessions/${sessionId}/`,
   messages: (sessionId: string) => `/api/v1/chat/sessions/${sessionId}/messages/`,
+  attachments: (sessionId: string) => `/api/v1/chat/sessions/${sessionId}/attachments/`,
+  attachmentAnalysis: (sessionId: string, attachmentId: string) =>
+    `/api/v1/chat/sessions/${sessionId}/attachments/${attachmentId}/analysis/`,
+  attachmentMoodDecision: (sessionId: string, attachmentId: string) =>
+    `/api/v1/chat/sessions/${sessionId}/attachments/${attachmentId}/mood-decision/`,
   run: (runId: string) => `/api/v1/chat/runs/${runId}/`,
   runEvents: (runId: string) => `/api/v1/chat/runs/${runId}/events/`,
 } as const;

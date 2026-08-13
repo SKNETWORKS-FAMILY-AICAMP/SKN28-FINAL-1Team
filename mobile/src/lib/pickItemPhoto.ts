@@ -41,6 +41,14 @@ export async function pickOutfitPhoto(): Promise<string | null> {
   return pickBodyPhoto();
 }
 
+/**
+ * 채팅에 붙일 무드 참고 사진 1장 선택.
+ * 크롭을 강제하지 않는다 — 분위기를 읽는 용도라 4:5 로 잘라내면 옷·배경이 함께 잘린다.
+ */
+export async function pickChatPhoto(): Promise<string | null> {
+  return pickBodyPhoto();
+}
+
 /** 착장 분석용 촬영. 앨범 선택과 마찬가지로 원본 비율을 유지한다. */
 export async function takeOutfitPhoto(): Promise<string | null> {
   if (!(await ensurePermission('camera'))) return null;

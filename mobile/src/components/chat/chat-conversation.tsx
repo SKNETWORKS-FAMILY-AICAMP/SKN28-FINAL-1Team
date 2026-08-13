@@ -16,6 +16,7 @@ import { Icon } from '@/components/icon';
 import { SmartImage, useToast } from '@/components/ui';
 import { ContentMax, Editorial, Fonts, ink, Type } from '@/constants/theme';
 import { useBreakpoint } from '@/hooks/use-breakpoint';
+import { pickChatPhoto } from '@/lib/pickItemPhoto';
 import { chatStore, useChatSession, type ChatMessage } from '@/state/chat';
 
 const INK = Editorial.ink;
@@ -97,6 +98,8 @@ export function ChatConversation({
   const messages = session?.messages ?? PANEL_SEED;
   /* 타이핑 표시는 답변을 기다리는 '지금'만의 상태라 저장하지 않는다 (state/chat.ts 참고). */
   const [typing, setTyping] = useState(false);
+  /* 승인·거절을 보내는 중인 무드 카드. 두 번 눌러 409(번복 금지)를 만나지 않게 잠근다. */
+  const [decidingId, setDecidingId] = useState<string | null>(null);
   const toast = useToast();
 
   const scrollRef = useRef<ScrollView>(null);
@@ -118,6 +121,14 @@ export function ChatConversation({
     });
   }, [activeId, toast]);
 
+  /* 패널은 대화 없이 열리므로 첫 입력에서 하나 만든다. 옷장을 보며 묻는 자리라 옷장 기반. */
+  const ensureSession = async (): Promise<string> => {
+    if (activeId) return activeId;
+    const created = await chatStore.createSession('closet');
+    setPanelSessionId(created.id);
+    return created.id;
+  };
+
   /**
    * 질문 보내기.
    *
@@ -135,16 +146,9 @@ export function ChatConversation({
     setTyping(true);
     scrollToEnd();
     try {
-      /* 패널은 대화 없이 열리므로 첫 질문에서 하나 만든다. 옷장을 보며 묻는 자리라 옷장 기반. */
-      let id = activeId;
-      if (!id) {
-        const created = await chatStore.createSession('closet');
-        id = created.id;
-        setPanelSessionId(id);
-      }
       /* 실패해도 토스트를 띄우지 않는다 — 사유는 대화 안에 한 줄로 남고, 토스트까지 겹치면
          같은 말을 두 번 하면서 정작 사라지는 쪽(토스트)만 눈에 띈다. */
-      await chatStore.sendText(id, t);
+      await chatStore.sendText(await ensureSession(), t);
     } catch (e) {
       setText(t);
       toast(e instanceof Error ? e.message : '메시지를 보내지 못했어요', { variant: 'error' });
@@ -155,29 +159,44 @@ export function ChatConversation({
   };
 
   /**
-   * 사진 넣기.
+   * 사진 넣기 — 고른 사진을 올리고 무드 분석을 기다린다(state/chat.ts 의 sendPhoto).
    *
-   * ⚠️ **아직 서버에 붙지 않았다.** 백엔드에는 첨부 업로드(/attachments/) → 무드 분석
-   *    (/analysis/) → 반영 여부 결정(/mood-decision/) 세 단계가 이미 있고, 아래 무드 카드
-   *    UI 가 그 흐름과 그대로 맞물린다. 텍스트 대화를 먼저 붙이느라 남겨 둔 자리다.
-   *
-   *    전에는 여기서 고정 태그(#미니멀 …)를 띄워 분석한 척했다. 진짜 대화가 붙은 지금
-   *    그렇게 두면 어느 답이 진짜인지 구분할 수 없어, 아직임을 그대로 알린다.
+   * 글은 함께 보내지 않는다. 서버는 첨부가 있는 메시지를 무드 분석 전용으로 처리해서 같이
+   * 보낸 글이 답변에 반영되지 않기 때문이다 — 그래서 입력창의 글도 건드리지 않고 남겨 둔다.
    */
-  const attachPhoto = () => {
-    toast('사진으로 추천받기는 곧 연결돼요');
+  const attachPhoto = async () => {
+    if (typing) return;
+    const uri = await pickChatPhoto();
+    if (!uri) return;
+
+    setTyping(true);
+    scrollToEnd();
+    try {
+      await chatStore.sendPhoto(await ensureSession(), uri);
+    } catch (e) {
+      toast(e instanceof Error ? e.message : '사진을 보내지 못했어요', { variant: 'error' });
+    } finally {
+      setTyping(false);
+      scrollToEnd();
+    }
   };
 
   /**
-   * 무드 카드의 두 버튼. 카드를 만드는 경로(사진 분석)가 아직 없어 지금은 닿지 않지만,
-   * 첨부를 붙일 때 여기에 /mood-decision/ 의 APPROVE·REJECT 를 그대로 넣으면 된다.
+   * 무드 카드의 두 버튼 — /mood-decision/ 의 APPROVE·REJECT.
+   * 승인하면 사진에서 읽은 스타일·색·핏이 이 대화의 추천 조건에 들어가고, 다음 질문부터
+   * 자동으로 섞인다. 서버가 첫 결정만 받으므로 되돌릴 수 없다.
    */
-  const acceptMood = (_tags: string[]) => {
-    toast('사진으로 추천받기는 곧 연결돼요');
-  };
-
-  const rejectMood = () => {
-    toast('사진으로 추천받기는 곧 연결돼요');
+  const decideMood = async (attachmentId: string, decision: 'APPROVE' | 'REJECT') => {
+    if (!activeId || decidingId) return;
+    setDecidingId(attachmentId);
+    try {
+      await chatStore.decideMood(activeId, attachmentId, decision);
+      if (decision === 'APPROVE') toast('이 무드로 추천할게요');
+    } catch (e) {
+      toast(e instanceof Error ? e.message : '무드를 반영하지 못했어요', { variant: 'error' });
+    } finally {
+      setDecidingId(null);
+    }
   };
 
   return (
@@ -288,14 +307,32 @@ export function ChatConversation({
                         </View>
                       ))}
                     </View>
-                    <View style={styles.moodBtns}>
-                      <Pressable style={styles.moodPrimary} onPress={() => acceptMood(m.tags)}>
-                        <Text style={styles.moodPrimaryText}>이걸로 추천받기</Text>
-                      </Pressable>
-                      <Pressable style={styles.moodGhost} onPress={rejectMood}>
-                        <Text style={styles.moodGhostText}>아니에요</Text>
-                      </Pressable>
-                    </View>
+                    {/* 한 번 정하면 되돌릴 수 없어(서버가 409) 고른 뒤에는 버튼을 걷는다. */}
+                    {m.decision === 'UNDECIDED' ? (
+                      <View style={styles.moodBtns}>
+                        <Pressable
+                          style={[
+                            styles.moodPrimary,
+                            decidingId === m.attachmentId && styles.moodBusy,
+                          ]}
+                          disabled={decidingId !== null}
+                          onPress={() => decideMood(m.attachmentId, 'APPROVE')}>
+                          <Text style={styles.moodPrimaryText}>이걸로 추천받기</Text>
+                        </Pressable>
+                        <Pressable
+                          style={styles.moodGhost}
+                          disabled={decidingId !== null}
+                          onPress={() => decideMood(m.attachmentId, 'REJECT')}>
+                          <Text style={styles.moodGhostText}>아니에요</Text>
+                        </Pressable>
+                      </View>
+                    ) : (
+                      <Text style={styles.moodDone}>
+                        {m.decision === 'APPROVED'
+                          ? '이 무드를 추천 조건에 넣었어요'
+                          : '이 무드는 반영하지 않았어요'}
+                      </Text>
+                    )}
                   </View>
                 ) : (
                   <View style={styles.aiBubble}>
@@ -338,8 +375,8 @@ export function ChatConversation({
       {/* 입력 바 */}
       <SafeAreaView edges={isPanel ? [] : ['bottom']} style={styles.inputSafe}>
         <View style={[styles.inputBar, widthStyle]}>
-          <Pressable style={styles.photoBtn} onPress={attachPhoto} hitSlop={8}>
-            <Icon name="photo" tintColor={ink(0.55)} size={22} />
+          <Pressable style={styles.photoBtn} onPress={attachPhoto} disabled={typing} hitSlop={8}>
+            <Icon name="photo" tintColor={ink(typing ? 0.25 : 0.55)} size={22} />
           </Pressable>
           {/* 웹에서 multiline 은 textarea 로 렌더되어 기본 2줄 높이를 갖는다.
               numberOfLines={1} 로 한 줄에서 시작하게 하고, 길어지면 maxHeight 까지 늘어난다. */}
@@ -451,7 +488,8 @@ const styles = StyleSheet.create({
   recTotal: { fontSize: Type.caption, fontWeight: '600', color: INK },
   /* 서버가 붙이는 주의 문구(예: 예산 초과). 경고색은 쓰되 문장은 서버 말을 그대로 보여준다. */
   recWarning: { fontSize: Type.caption, color: Editorial.wine },
-  recTags: { flexDirection: 'row', gap: 6 },
+  /* 무드 태그는 최대 5개라 한 줄을 넘길 수 있다 — 넘치면 잘리지 않고 줄바꿈으로 받는다. */
+  recTags: { flexDirection: 'row', flexWrap: 'wrap', gap: 6 },
   recTag: {
     backgroundColor: Editorial.control,
     borderRadius: 999,
@@ -489,6 +527,9 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   moodGhostText: { fontSize: 12.5, color: Editorial.textCaption },
+  moodBusy: { opacity: 0.5 },
+  /* 고른 뒤 남는 한 줄. 버튼이 사라진 자리에 결과가 보여야 무엇을 골랐는지 알 수 있다. */
+  moodDone: { fontSize: Type.caption, color: Editorial.textCaption, marginTop: 2 },
   recCtaText: { fontSize: 13, fontWeight: '600', color: INK },
 
   // 빠른 프롬프트

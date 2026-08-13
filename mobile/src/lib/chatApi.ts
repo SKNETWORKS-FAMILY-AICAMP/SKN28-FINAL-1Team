@@ -1,5 +1,9 @@
-import { ChatEndpoints } from '@/constants/config';
-import { api } from '@/lib/apiClient';
+import { Platform } from 'react-native';
+
+import { API_BASE_URL, ChatEndpoints } from '@/constants/config';
+import { api, apiFetch, ApiError } from '@/lib/apiClient';
+import { getAccessToken } from '@/lib/secureStore';
+import { guessFileName, guessMimeType, uploadMultipart } from '@/lib/uploadFile';
 
 /**
  * 채팅 API 의 원형(DTO)과 호출 함수.
@@ -25,13 +29,42 @@ export type ApiRunStatus =
   | 'SUCCEEDED'
   | 'FAILED';
 
+/** 사진 무드 분석의 진행 상태. 승인/거절은 `SUCCEEDED` 가 된 뒤에만 할 수 있다. */
+export type ApiAnalysisStatus =
+  | 'NOT_REQUESTED'
+  | 'QUEUED'
+  | 'PROCESSING'
+  | 'SUCCEEDED'
+  | 'FAILED';
+
+/** 무드를 추천 조건에 반영할지 정한 결과. 한 번 정하면 되돌릴 수 없다(서버가 409). */
+export type ApiMoodDecision = 'UNDECIDED' | 'APPROVED' | 'REJECTED';
+
+/** 승인/거절을 보낼 때 쓰는 값. 저장되는 값(APPROVED/REJECTED)과 **철자가 다르다**. */
+export type ApiMoodDecisionInput = 'APPROVE' | 'REJECT';
+
+/**
+ * 사진에서 읽어낸 무드.
+ * `tags` 는 사람에게 보여줄 짧은 한국어 단어이고, `styles`/`colors`/`fits` 는 추천 필터에
+ * 그대로 들어가는 서비스 표준값이다. 화면에는 tags 만 쓴다.
+ */
+export type ApiMoodAnalysis = {
+  summary: string;
+  tags: string[];
+  styles: string[];
+  colors: string[];
+  fits: string[];
+};
+
 export type ApiChatAttachment = {
   id: string;
   mime_type: string;
   size: number;
-  analysis_status: string;
-  analysis_result: unknown;
-  mood_decision: string | null;
+  analysis_status: ApiAnalysisStatus;
+  /** 분석 전에는 빈 객체다 — tags 가 있는지로 판단할 것. */
+  analysis_result: Partial<ApiMoodAnalysis>;
+  mood_decision: ApiMoodDecision | null;
+  /** presigned GET (기본 1시간). 만료되면 메시지를 다시 받아야 새 주소가 온다. */
   image_url: string | null;
   created_at: string;
 };
@@ -129,4 +162,126 @@ export function sendMessage(
 /** run 단건 조회 — 네이티브 폴링과 SSE 실패 시 복구에 쓴다. */
 export function getRun(runId: string): Promise<ApiChatRun> {
   return api.get<ApiChatRun>(ChatEndpoints.run(runId));
+}
+
+/* ── 사진 ──────────────────────────────────────────────
+   업로드 → 무드 분석 → 승인/거절 세 단계다. 업로드만으로는 분석이 시작되지 않는다
+   (`analysis_status` 가 `NOT_REQUESTED` 로 남는다). */
+
+/** 업로드 응답. `created:false` 면 같은 client_message_id 로 이미 올린 사진이다. */
+export type ApiAttachmentUpload = {
+  message: ApiChatMessage;
+  attachment: ApiChatAttachment;
+  created: boolean;
+};
+
+/** 무드 분석 접수의 202 응답. 답변과 마찬가지로 run 을 기다려야 결과가 나온다. */
+export type ApiMoodAnalysisSubmit = {
+  attachment: ApiChatAttachment;
+  run: ApiChatRun;
+  events_url: string;
+};
+
+export type ApiMoodDecisionResult = {
+  attachment: ApiChatAttachment;
+  /** 이번 호출로 실제 상태가 바뀌었는지 (같은 결정을 다시 보내면 false) */
+  changed: boolean;
+  /** 추천 조건에 반영됐는지. REJECT 면 false. */
+  applied: boolean;
+  context_state: Record<string, unknown>;
+};
+
+/** 업로드 상한. 없으면 응답이 안 올 때 화면이 영영 "보내는 중"으로 남는다. */
+const UPLOAD_TIMEOUT_MS = 60_000;
+
+function withUploadTimeout<T>(request: Promise<T>): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const timer = setTimeout(() => {
+      reject(new Error('사진 전송이 오래 걸리고 있어요. 잠시 후 다시 시도해 주세요.'));
+    }, UPLOAD_TIMEOUT_MS);
+    request.then(resolve, reject).finally(() => clearTimeout(timer));
+  });
+}
+
+/** XHR 응답을 DTO 로. 실패면 서버가 준 본문을 그대로 ApiError 에 실어 보낸다. */
+function parseUploadResponse<T>(response: { status: number; body: string }): T {
+  let data: unknown = null;
+  try {
+    data = response.body ? JSON.parse(response.body) : null;
+  } catch {
+    data = response.body;
+  }
+  if (response.status < 200 || response.status >= 300) {
+    const detail = (data as { detail?: string } | null)?.detail;
+    throw new ApiError(
+      detail ?? `사진을 보내지 못했어요. (${response.status})`,
+      response.status,
+      data,
+    );
+  }
+  return data as T;
+}
+
+/**
+ * 사진 올리기. 첨부만 달린 사용자 메시지가 하나 생긴다.
+ *
+ * ⚠️ 글은 같이 보내지 않는다. 서버는 첨부가 있는 메시지를 **무드 분석 전용**으로 처리해서
+ *    (orchestrator 가 첨부를 먼저 본다) 같이 보낸 글은 답변에 반영되지 않는다.
+ *    말은 사진을 보낸 뒤 따로 하는 편이 사용자에게 정직하다.
+ * ⚠️ 네이티브는 apiClient 를 타지 않는다 — 전역 fetch(Expo winter fetch)가 RN 의
+ *    `{ uri, name, type }` 파트를 못 받아서 XHR 로 직접 보낸다(lib/uploadFile.ts 참고).
+ *    그래서 401 자동 재발급이 없다.
+ */
+export async function uploadPhoto(
+  sessionId: string,
+  uri: string,
+  clientMessageId: string,
+): Promise<ApiAttachmentUpload> {
+  const path = ChatEndpoints.attachments(sessionId);
+  const name = guessFileName(uri, 'chat.jpg');
+  const mimeType = guessMimeType(name);
+
+  if (Platform.OS === 'web') {
+    const blob = await fetch(uri).then((response) => {
+      if (!response.ok) throw new Error('선택한 사진을 불러오지 못했어요.');
+      return response.blob();
+    });
+    const form = new FormData();
+    form.append('image', blob, name);
+    form.append('client_message_id', clientMessageId);
+    return withUploadTimeout(apiFetch<ApiAttachmentUpload>(path, { method: 'POST', body: form }));
+  }
+
+  const form = new FormData();
+  // React Native 의 FormData 는 파일을 { uri, name, type } 로 받는다(XHR 전용).
+  form.append('image', { uri, name, type: mimeType } as unknown as Blob);
+  form.append('client_message_id', clientMessageId);
+  const token = await getAccessToken();
+  const response = await uploadMultipart(`${API_BASE_URL}${path}`, form, {
+    token,
+    timeoutMs: UPLOAD_TIMEOUT_MS,
+  });
+  return parseUploadResponse<ApiAttachmentUpload>(response);
+}
+
+/** 무드 분석 접수. 요청 본문은 없고, 결과는 run 이 끝나야 나온다. */
+export function requestMoodAnalysis(
+  sessionId: string,
+  attachmentId: string,
+): Promise<ApiMoodAnalysisSubmit> {
+  return api.post<ApiMoodAnalysisSubmit>(
+    ChatEndpoints.attachmentAnalysis(sessionId, attachmentId),
+  );
+}
+
+/** 분석된 무드를 추천 조건에 넣을지 확정한다. 서버가 첫 결정만 받는다(번복 시 409). */
+export function decideMood(
+  sessionId: string,
+  attachmentId: string,
+  decision: ApiMoodDecisionInput,
+): Promise<ApiMoodDecisionResult> {
+  return api.post<ApiMoodDecisionResult>(
+    ChatEndpoints.attachmentMoodDecision(sessionId, attachmentId),
+    { decision },
+  );
 }
