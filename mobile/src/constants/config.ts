@@ -297,3 +297,44 @@ export const LookbookEndpoints = {
   detail: (lookbookId: string) => `/api/v1/lookbooks/${lookbookId}/`,
   processingStatus: (lookbookId: string) => `/api/v1/lookbooks/${lookbookId}/processing-status/`,
 } as const;
+
+/**
+ * 채팅 (api/apps/chat/urls.py 기준). JWT 필요 — 게스트 채팅은 붙이지 않았다(아래 참고).
+ *
+ *   POST   /api/v1/chat/sessions/                      { mode }               → 201 세션
+ *   GET    /api/v1/chat/sessions/                                             → 세션 배열
+ *   PATCH  /api/v1/chat/sessions/{id}/                 { title }              → 200
+ *   DELETE /api/v1/chat/sessions/{id}/                                        → 204
+ *   GET    /api/v1/chat/sessions/{id}/messages/                               → 메시지 배열(시간순)
+ *   POST   /api/v1/chat/sessions/{id}/messages/  { content, client_message_id } → 202 { message, run, events_url }
+ *   GET    /api/v1/chat/runs/{runId}/                                         → run 상태(폴링용)
+ *   GET    /api/v1/chat/runs/{runId}/events/                                  → SSE 진행 이벤트
+ *
+ * 답변은 **동기 응답이 아니다.** 메시지를 POST 하면 202 와 함께 run 이 생기고,
+ * 실제 답변은 별도 워커가 만들어 SSE(또는 run 폴링)로 전달된다. lib/chatStream.ts 참고.
+ *
+ * ⚠️ 응답 본문의 `events_url` 을 그대로 쓰지 말 것. 서버가 build_absolute_uri 로 만드는데
+ *    터널/프록시 뒤에서는 스킴이 `http://` 로 유실돼, https 로 열린 웹에서 mixed content 로
+ *    차단된다. 아래 runEvents() 로 직접 조립한다.
+ * ⚠️ 게스트 채팅(/chat/guest/)은 **HttpOnly 쿠키**로 신원을 잡는 방식이라 네이티브·크로스
+ *    오리진에서 다루기 까다롭다. 지금은 로그인 사용자만 붙인다.
+ */
+export const ChatEndpoints = {
+  sessions: '/api/v1/chat/sessions/',
+  session: (sessionId: string) => `/api/v1/chat/sessions/${sessionId}/`,
+  messages: (sessionId: string) => `/api/v1/chat/sessions/${sessionId}/messages/`,
+  run: (runId: string) => `/api/v1/chat/runs/${runId}/`,
+  runEvents: (runId: string) => `/api/v1/chat/runs/${runId}/events/`,
+} as const;
+
+/**
+ * 추천 결과 (api/apps/recommend/urls.py 기준). JWT 필요.
+ *
+ *   GET /api/v1/recommendations/{resultId}/  → { result_id, mode, cards[] }
+ *
+ * 채팅 답변이 추천까지 만들면 그 메시지의 metadata.recommendation_result_id 로 여기를 부른다.
+ * 카드 하나가 코디 한 벌이고, 그 안의 items 가 착장 아이템이다.
+ */
+export const RecommendEndpoints = {
+  result: (resultId: string) => `/api/v1/recommendations/${resultId}/`,
+} as const;

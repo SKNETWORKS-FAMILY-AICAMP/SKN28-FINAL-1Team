@@ -1,18 +1,28 @@
 import { router } from 'expo-router';
-import { useState } from 'react';
-import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { useCallback, useEffect, useState } from 'react';
+import {
+  Pressable,
+  RefreshControl,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  View,
+} from 'react-native';
 
 import { ChatSessionSheet } from '@/components/chat/session-sheet';
 import { Icon } from '@/components/icon';
-import { EmptyState } from '@/components/ui';
+import { EmptyState, ErrorState, LoadingState } from '@/components/ui';
 import { ContentMax, Editorial, ink } from '@/constants/theme';
 import { useBreakpoint } from '@/hooks/use-breakpoint';
+import { useRefresh } from '@/hooks/use-refresh';
 import {
   CHAT_MODE_META,
   chatStore,
   formatRelativeTime,
   searchPreview,
   useChatGroups,
+  useChatStatus,
   useSearchedSessions,
   type ChatSession,
 } from '@/state/chat';
@@ -100,7 +110,20 @@ export function SessionList({
   const searching = query.trim().length > 0;
   const results = useSearchedSessions(query);
 
+  const { loading, error } = useChatStatus();
+  const reload = useCallback(() => chatStore.loadSessions(), []);
+  const { refreshing, onRefresh } = useRefresh(reload);
+
+  /* 목록은 서버에 있다. 화면에 들어올 때마다 받아온다 — 다른 기기·다른 탭에서 시작한
+     대화가 여기 없으면 "사라졌다"고 읽힌다. */
+  useEffect(() => {
+    reload();
+  }, [reload]);
+
   const isEmpty = groups.every((g) => g.sessions.length === 0);
+  /* 처음 불러오는 중과 '정말 없음'은 다르다. 이미 목록이 있으면 갱신 중이어도 그대로 보여준다. */
+  const firstLoad = loading && isEmpty;
+  const failedEmpty = !loading && error !== null && isEmpty;
 
   const open = (id: string) => {
     router.push({ pathname: '/chat-room', params: { id } });
@@ -163,8 +186,20 @@ export function SessionList({
           { paddingBottom: 24 },
           isPanel && styles.contentPanel,
           widthStyle,
-        ]}>
-        {isEmpty ? (
+        ]}
+        refreshControl={
+          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={INK} />
+        }>
+        {firstLoad ? (
+          <LoadingState message="대화를 불러오는 중…" style={styles.empty} />
+        ) : failedEmpty ? (
+          <ErrorState
+            title="대화를 불러오지 못했어요"
+            description={error ?? undefined}
+            onRetry={reload}
+            style={styles.empty}
+          />
+        ) : isEmpty ? (
           <EmptyState
             icon="bubble.left.and.bubble.right"
             title="아직 대화가 없어요"
