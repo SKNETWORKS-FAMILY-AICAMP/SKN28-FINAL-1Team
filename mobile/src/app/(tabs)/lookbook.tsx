@@ -295,8 +295,9 @@ export default function LookbookScreen() {
                       <Icon name={ORIGIN_BADGE[c.origin].icon} tintColor={INK} size={15} />
                     </View>
                   ) : null}
-                  {/* 좋아요 — 피드 룩에만. 저장 룩은 이미 내 것이라 누를 대상이 아니다. */}
-                  {c.tags ? (
+                  {/* 하트는 피드 룩에만 단다. 저장 룩(✨)에 달면 저장 룩 id 로 좋아요가 따로 생겨
+                      같은 룩이 위시 목록에 두 번 서게 된다 — 빼는 길은 저장 룩 상세에 있다. */}
+                  {c.kind === 'feed' && c.tags ? (
                     <Pressable
                       style={styles.likeBtn}
                       hitSlop={8}
