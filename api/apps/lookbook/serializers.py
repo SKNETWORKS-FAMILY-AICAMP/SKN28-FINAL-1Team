@@ -128,6 +128,11 @@ class LookbookWardrobeCreateSerializer(
         default=False,
         help_text="그 날짜에 이미 캘린더가 있을 때 교체할지 여부 (사용자 확인 후 true).",
     )
+    is_public = serializers.BooleanField(
+        required=False,
+        default=False,
+        help_text="켜면 앱 사용자 전체가 둘러보기에서 볼 수 있습니다.",
+    )
 
 
 class LookbookPhotoCreateSerializer(
@@ -172,6 +177,11 @@ class LookbookPhotoCreateSerializer(
         default=False,
         help_text="그 날짜에 이미 캘린더가 있을 때 교체할지 여부 (사용자 확인 후 true).",
     )
+    is_public = serializers.BooleanField(
+        required=False,
+        default=False,
+        help_text="켜면 앱 사용자 전체가 둘러보기에서 볼 수 있습니다.",
+    )
 
     def validate_image(self, image):
         if image.size > MAX_LOOKBOOK_UPLOAD_MB * 1024 * 1024:
@@ -203,9 +213,11 @@ class LookbookMetadataUpdateSerializer(
         allow_empty=True,
     )
 
+    is_public = serializers.BooleanField(required=False)
+
     class Meta:
         model = LookbookPost
-        fields = ("schedule", "tpo", "hashtags")
+        fields = ("schedule", "tpo", "hashtags", "is_public")
 
 
 class LookbookListQuerySerializer(serializers.Serializer):
@@ -231,6 +243,11 @@ class LookbookWardrobeItemSerializer(serializers.ModelSerializer):
     link_id = serializers.UUIDField(source="id", read_only=True)
     wardrobe_item_id = serializers.UUIDField(read_only=True)
     image_url = serializers.SerializerMethodField()
+    # 이 옷이 옷장에 들어 있는가. NULL 이면 룩 상세가 '옷장에 추가' 버튼을 그린다.
+    added_to_closet_at = serializers.DateTimeField(
+        source="wardrobe_item.added_to_closet_at",
+        read_only=True,
+    )
 
     class Meta:
         model = LookbookWardrobeItem
@@ -241,6 +258,7 @@ class LookbookWardrobeItemSerializer(serializers.ModelSerializer):
             "image_url",
             "sort_order",
             "snapshot",
+            "added_to_closet_at",
         )
         read_only_fields = fields
 
@@ -269,6 +287,7 @@ class LookbookPostSerializer(serializers.ModelSerializer):
             "hashtags",
             "skipped_categories",
             "status",
+            "is_public",
             "calendar",
             "wardrobe_items",
             "created_at",
