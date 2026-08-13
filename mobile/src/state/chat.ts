@@ -15,6 +15,11 @@ import {
   type ApiChatSession,
 } from '@/lib/chatApi';
 import { isAnswered, waitForRun } from '@/lib/chatStream';
+import {
+  getRecommendationResult,
+  imageUrlOf,
+  type ApiRecommendationCard,
+} from '@/lib/recommendApi';
 
 /**
  * 채팅 세션 — 목록(C1)·대화(C2)·모드 선택(C3)이 같은 출처를 봐야 하므로 여기로 모았다.
@@ -54,13 +59,36 @@ function fromApiMode(mode: ApiChatMode): ChatMode {
  * 타이핑 표시(···)는 저장하지 않는다 — 답변을 기다리는 '지금'만의 상태라
  * 대화를 다시 열었을 때 남아 있으면 안 된다. 화면 쪽 지역 상태로 둔다.
  */
+/** 추천 코디 한 벌을 이루는 아이템. */
+export type RecItem = {
+  id: string;
+  name: string;
+  category: string | null;
+  /** 걸 수 있는 주소일 때만 채운다 (S3 키는 걸러진다 — lib/recommendApi 의 imageUrlOf). */
+  imageUrl: string | null;
+  /** 새로 사야 하는 상품만 가격이 있다. 옷장에 있는 옷은 null. */
+  price: number | null;
+  fromWardrobe: boolean;
+};
+
 export type ChatMessage =
   | { id: string; role: 'ai' | 'user'; kind: 'text'; text: string }
   /** 사용자가 올린 사진. uri 가 없던 시절(목업)에도 말풍선은 떠서 optional 로 둔다. */
   | { id: string; role: 'user'; kind: 'image'; uri?: string }
   /** 첨부한 사진에서 읽어낸 무드 — 추구미로 삼을지 묻는 카드 */
   | { id: string; role: 'ai'; kind: 'mood'; tags: string[] }
-  | { id: string; role: 'ai'; kind: 'rec'; title: string; tags: string[] };
+  /** 추천 코디 카드. 답변 말풍선 뒤에 붙는다. */
+  | {
+      id: string;
+      role: 'ai';
+      kind: 'rec';
+      title: string;
+      tags: string[];
+      items: RecItem[];
+      /** 새로 사야 하는 상품 합계. 옷장 옷만으로 짠 코디면 0 이라 표시하지 않는다. */
+      totalPrice: number | null;
+      warnings: string[];
+    };
 
 export type ChatSession = {
   id: string;
@@ -136,12 +164,35 @@ export function searchPreview(session: ChatSession, query: string): string {
 
 /* ── 서버 응답 옮기기 ───────────────────────────────── */
 
+function toRecMessage(messageId: string, card: ApiRecommendationCard): ChatMessage {
+  return {
+    id: `${messageId}-r${card.card_id}`,
+    role: 'ai',
+    kind: 'rec',
+    /* 서버가 코디에 이름을 붙이지 않는다. 없는 이름을 지어내면 추천마다 다른 작명 규칙이
+       생기므로 순위를 그대로 쓴다. */
+    title: `추천 코디 ${card.rank}`,
+    tags: card.items.map((i) => i.category || i.slot).filter(Boolean),
+    items: card.items.map((i) => ({
+      id: i.item_id,
+      name: i.display_name,
+      category: i.category,
+      imageUrl: imageUrlOf(i.image_ref),
+      price: i.price_snapshot,
+      fromWardrobe: i.source_type !== 'PRODUCT',
+    })),
+    totalPrice: card.total_product_price,
+    warnings: card.warnings ?? [],
+  };
+}
+
 /**
  * 서버 메시지 → 말풍선.
  * SYSTEM·TOOL 은 사람에게 보여줄 말이 아니라 버린다. 사진 첨부는 사진 말풍선을 따로 만들어
  * 글보다 앞에 놓는다 — 올릴 때 사진이 먼저였으니 다시 열어도 그 순서여야 한다.
+ * 추천 카드는 말풍선 **뒤에** 붙는다 (먼저 말로 설명하고 그다음 코디를 보여주는 순서).
  */
-function toMessages(api: ApiChatMessage): ChatMessage[] {
+function toMessages(api: ApiChatMessage, cards: ApiRecommendationCard[] = []): ChatMessage[] {
   if (api.role !== 'USER' && api.role !== 'ASSISTANT') return [];
   const role = api.role === 'USER' ? 'user' : 'ai';
   const out: ChatMessage[] = [];
@@ -153,7 +204,42 @@ function toMessages(api: ApiChatMessage): ChatMessage[] {
   }
   const text = api.content.trim();
   if (text) out.push({ id: api.id, role, kind: 'text', text });
+  for (const card of cards) out.push(toRecMessage(api.id, card));
   return out;
+}
+
+/** 답변에 붙은 추천 id. 없으면 그냥 대화만 오간 것이다. */
+function recommendationIdOf(api: ApiChatMessage): string | null {
+  const id = api.metadata?.recommendation_result_id;
+  return typeof id === 'string' && id ? id : null;
+}
+
+/**
+ * 추천이 붙은 답변들의 코디 카드를 한꺼번에 받아 메시지 id 별로 묶는다.
+ *
+ * 실패해도 대화 자체는 보여줘야 하므로 카드만 조용히 빠뜨린다 — 추천 조회 한 번이 실패했다고
+ * 주고받은 말까지 사라지면 무엇이 잘못됐는지 알 수 없다.
+ */
+async function fetchCards(list: ApiChatMessage[]): Promise<Map<string, ApiRecommendationCard[]>> {
+  const targets = list
+    .map((m) => ({ messageId: m.id, resultId: recommendationIdOf(m) }))
+    .filter((t): t is { messageId: string; resultId: string } => t.resultId !== null);
+
+  const byMessage = new Map<string, ApiRecommendationCard[]>();
+  if (targets.length === 0) return byMessage;
+
+  // 같은 추천을 두 메시지가 가리킬 수 있어 결과별로 한 번만 부른다.
+  const unique = [...new Set(targets.map((t) => t.resultId))];
+  const results = await Promise.all(
+    unique.map((id) =>
+      getRecommendationResult(id)
+        .then((r) => [id, r.cards] as const)
+        .catch(() => [id, [] as ApiRecommendationCard[]] as const),
+    ),
+  );
+  const cardsByResult = new Map(results);
+  for (const t of targets) byMessage.set(t.messageId, cardsByResult.get(t.resultId) ?? []);
+  return byMessage;
 }
 
 function toSession(api: ApiChatSession, previous?: ChatSession): ChatSession {
@@ -229,9 +315,10 @@ export const chatStore = {
     const current = sessions.find((s) => s.id === id);
     if (!options.force && current?.messagesLoaded) return;
     const list = await apiListMessages(id);
+    const cards = await fetchCards(list);
     replaceSession(id, (s) => ({
       ...s,
-      messages: list.flatMap(toMessages),
+      messages: list.flatMap((m) => toMessages(m, cards.get(m.id))),
       messagesLoaded: true,
     }));
   },

@@ -326,3 +326,15 @@ export const ChatEndpoints = {
   run: (runId: string) => `/api/v1/chat/runs/${runId}/`,
   runEvents: (runId: string) => `/api/v1/chat/runs/${runId}/events/`,
 } as const;
+
+/**
+ * 추천 결과 (api/apps/recommend/urls.py 기준). JWT 필요.
+ *
+ *   GET /api/v1/recommendations/{resultId}/  → { result_id, mode, cards[] }
+ *
+ * 채팅 답변이 추천까지 만들면 그 메시지의 metadata.recommendation_result_id 로 여기를 부른다.
+ * 카드 하나가 코디 한 벌이고, 그 안의 items 가 착장 아이템이다.
+ */
+export const RecommendEndpoints = {
+  result: (resultId: string) => `/api/v1/recommendations/${resultId}/`,
+} as const;

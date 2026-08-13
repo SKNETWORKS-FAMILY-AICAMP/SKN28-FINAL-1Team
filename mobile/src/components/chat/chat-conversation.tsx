@@ -1,4 +1,3 @@
-import { router } from 'expo-router';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   Animated,
@@ -15,7 +14,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { Icon } from '@/components/icon';
 import { SmartImage, useToast } from '@/components/ui';
-import { ContentMax, Editorial, Fonts, ink } from '@/constants/theme';
+import { ContentMax, Editorial, Fonts, ink, Type } from '@/constants/theme';
 import { useBreakpoint } from '@/hooks/use-breakpoint';
 import { chatStore, useChatSession, type ChatMessage } from '@/state/chat';
 
@@ -225,25 +224,51 @@ export function ChatConversation({
               </View>
               <View style={styles.aiCol}>
                 {m.kind === 'rec' ? (
-                  <Pressable style={styles.recCard} onPress={() => router.push('/look-detail')}>
-                    <View style={styles.recImage}>
-                      <Text style={styles.recImageLabel}>LOOK</Text>
-                    </View>
+                  /* 카드를 눌러 들어갈 자리는 아직 없다 — /look-detail 은 목업이라 여기서
+                     연결하면 방금 받은 추천과 상관없는 룩이 열린다. 카드 안에서 다 보여준다. */
+                  <View style={styles.recCard}>
                     <View style={styles.recBody}>
                       <Text style={styles.recTitle}>{m.title}</Text>
-                      <View style={styles.recTags}>
-                        {m.tags.map((t) => (
-                          <View key={t} style={styles.recTag}>
-                            <Text style={styles.recTagText}>{t}</Text>
+
+                      {/* 아이템 한 줄 — 사진이 있는 것만 그리고, 없으면 이름으로 대신한다 */}
+                      <View style={styles.recItems}>
+                        {m.items.map((item) => (
+                          <View key={item.id} style={styles.recItem}>
+                            <SmartImage
+                              uri={item.imageUrl}
+                              width={64}
+                              height={64}
+                              radius={10}
+                              style={styles.recItemImage}
+                            />
+                            <Text style={styles.recItemName} numberOfLines={2}>
+                              {item.name}
+                            </Text>
+                            {/* 옷장 옷은 살 필요가 없다는 것이 가격보다 중요한 정보다 */}
+                            <Text style={styles.recItemMeta}>
+                              {item.fromWardrobe
+                                ? '내 옷장'
+                                : item.price != null
+                                  ? `${item.price.toLocaleString()}원`
+                                  : '새 상품'}
+                            </Text>
                           </View>
                         ))}
                       </View>
-                      <View style={styles.recCta}>
-                        <Text style={styles.recCtaText}>룩 자세히 보기</Text>
-                        <Icon name="arrow.right" tintColor={INK} size={13} />
-                      </View>
+
+                      {m.totalPrice ? (
+                        <Text style={styles.recTotal}>
+                          새로 사면 {m.totalPrice.toLocaleString()}원
+                        </Text>
+                      ) : null}
+
+                      {m.warnings.map((w) => (
+                        <Text key={w} style={styles.recWarning}>
+                          {w}
+                        </Text>
+                      ))}
                     </View>
-                  </Pressable>
+                  </View>
                 ) : m.kind === 'mood' ? (
                   <View style={styles.moodCard}>
                     <Text style={styles.moodLead}>사진에서 이런 무드가 보여요</Text>
@@ -394,16 +419,19 @@ const styles = StyleSheet.create({
     overflow: 'hidden',
     backgroundColor: Editorial.surface,
   },
-  recImage: {
-    height: 150,
-    // 말풍선·태그와 같은 연한 톤으로 통일 (bone 은 상대적으로 진하다)
-    backgroundColor: Editorial.surface,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  recImageLabel: { fontFamily: Fonts.serif, fontSize: 16, letterSpacing: 3, color: Editorial.textMuted },
   recBody: { padding: 14, gap: 10 },
   recTitle: { fontSize: 14, fontWeight: '600', color: INK },
+
+  /* 아이템을 가로로 늘어놓는다. 개수가 적어(보통 3~5) 가로 스크롤 없이 줄바꿈으로 받는다. */
+  recItems: { flexDirection: 'row', flexWrap: 'wrap', gap: 12 },
+  recItem: { width: 64, gap: 4 },
+  recItemImage: { backgroundColor: BONE },
+  recItemName: { fontSize: Type.micro, color: INK, lineHeight: 15 },
+  recItemMeta: { fontSize: Type.micro, color: Editorial.textCaption },
+
+  recTotal: { fontSize: Type.caption, fontWeight: '600', color: INK },
+  /* 서버가 붙이는 주의 문구(예: 예산 초과). 경고색은 쓰되 문장은 서버 말을 그대로 보여준다. */
+  recWarning: { fontSize: Type.caption, color: Editorial.wine },
   recTags: { flexDirection: 'row', gap: 6 },
   recTag: {
     backgroundColor: Editorial.control,
