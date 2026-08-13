@@ -1,3 +1,4 @@
+import { router } from 'expo-router';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   Animated,
@@ -282,9 +283,16 @@ export function ChatConversation({
               </View>
               <View style={styles.aiCol}>
                 {m.kind === 'rec' ? (
-                  /* 카드를 눌러 들어갈 자리는 아직 없다 — /look-detail 은 목업이라 여기서
-                     연결하면 방금 받은 추천과 상관없는 룩이 열린다. 카드 안에서 다 보여준다. */
-                  <View style={styles.recCard}>
+                  /* 눌러서 상세로 — 구매 링크·선택 근거·코디 이미지·피드백은 그쪽에 있다.
+                     (/look-detail 은 목업이라 쓰지 않는다. 방금 받은 추천과 상관없는 룩이 열린다.) */
+                  <Pressable
+                    style={styles.recCard}
+                    onPress={() =>
+                      router.push({
+                        pathname: '/rec-card',
+                        params: { resultId: m.resultId, cardId: m.cardId },
+                      })
+                    }>
                     <View style={styles.recBody}>
                       <Text style={styles.recTitle}>{m.title}</Text>
 
@@ -325,8 +333,13 @@ export function ChatConversation({
                           {w}
                         </Text>
                       ))}
+
+                      <View style={styles.recCta}>
+                        <Text style={styles.recCtaText}>코디 자세히 보기</Text>
+                        <Icon name="chevron.right" tintColor={INK} size={12} />
+                      </View>
                     </View>
-                  </View>
+                  </Pressable>
                 ) : m.kind === 'mood' ? (
                   <View style={styles.moodCard}>
                     <Text style={styles.moodLead}>사진에서 이런 무드가 보여요</Text>

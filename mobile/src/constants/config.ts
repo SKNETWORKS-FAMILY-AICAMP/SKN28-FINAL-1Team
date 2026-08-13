@@ -356,7 +356,22 @@ export const ChatEndpoints = {
  *
  * 채팅 답변이 추천까지 만들면 그 메시지의 metadata.recommendation_result_id 로 여기를 부른다.
  * 카드 하나가 코디 한 벌이고, 그 안의 items 가 착장 아이템이다.
+ *
+ *   GET    /api/v1/recommendations/{resultId}/cards/{cardId}/           → 카드 상세
+ *   PUT    .../cards/{cardId}/feedback/  { reaction, reason_codes }     → 최신 피드백 교체
+ *   DELETE .../cards/{cardId}/feedback/                                 → 피드백 삭제
+ *   GET    .../cards/{cardId}/render/                                   → 코디 이미지 생성 상태
+ *   POST   .../cards/{cardId}/render/                                   → 이미지 생성 접수
+ *
+ * 이미지 생성은 추천이 저장될 때 서버가 미리 걸어둔다. 그래서 보통은 GET 만으로 결과가
+ * 나오고, 없거나(404) 실패했을 때만 POST 로 다시 건다.
  */
 export const RecommendEndpoints = {
   result: (resultId: string) => `/api/v1/recommendations/${resultId}/`,
+  card: (resultId: string, cardId: string) =>
+    `/api/v1/recommendations/${resultId}/cards/${cardId}/`,
+  cardFeedback: (resultId: string, cardId: string) =>
+    `/api/v1/recommendations/${resultId}/cards/${cardId}/feedback/`,
+  cardRender: (resultId: string, cardId: string) =>
+    `/api/v1/recommendations/${resultId}/cards/${cardId}/render/`,
 } as const;

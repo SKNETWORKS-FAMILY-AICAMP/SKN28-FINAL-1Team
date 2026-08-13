@@ -105,6 +105,9 @@ export type ChatMessage =
       id: string;
       role: 'ai';
       kind: 'rec';
+      /** 카드 상세·피드백·이미지 API 를 부를 때 쓰는 두 값 (/rec-card 로 넘긴다). */
+      resultId: string;
+      cardId: string;
       title: string;
       tags: string[];
       items: RecItem[];
@@ -150,11 +153,17 @@ export function formatRelativeTime(ts: number, now: number = Date.now()): string
 
 /* ── 서버 응답 옮기기 ───────────────────────────────── */
 
-function toRecMessage(messageId: string, card: ApiRecommendationCard): ChatMessage {
+function toRecMessage(
+  messageId: string,
+  resultId: string,
+  card: ApiRecommendationCard,
+): ChatMessage {
   return {
     id: `${messageId}-r${card.card_id}`,
     role: 'ai',
     kind: 'rec',
+    resultId,
+    cardId: card.card_id,
     /* 서버가 코디에 이름을 붙이지 않는다. 없는 이름을 지어내면 추천마다 다른 작명 규칙이
        생기므로 순위를 그대로 쓴다. */
     title: `추천 코디 ${card.rank}`,
@@ -243,7 +252,12 @@ function toMessages(
   }
   const text = api.content.trim();
   if (text) out.push({ id: api.id, role, kind: 'text', text });
-  for (const card of cards) out.push(toRecMessage(api.id, card));
+  /* 카드가 있다는 건 이 답변에 추천 id 가 붙어 있다는 뜻이다(카드를 그걸로 받아왔다).
+     상세·피드백 API 가 result 와 card 둘 다 요구해서 카드에 함께 실어 둔다. */
+  const resultId = recommendationIdOf(api);
+  if (resultId) {
+    for (const card of cards) out.push(toRecMessage(api.id, resultId, card));
+  }
 
   /* 답변 생성이 실패하면 서버가 **질문 메시지**를 FAILED 로 표시한다(답변 메시지는 아예 없다).
      그 표시를 읽어 오류 줄을 만들면 대화를 다시 열어도 남는다.
