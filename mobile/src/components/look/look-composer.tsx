@@ -77,6 +77,8 @@ export function LookComposer({ date }: { date?: string }) {
   const [note, setNote] = useState(existing?.note ?? '');
   const [tags, setTags] = useState<AllowedHashtag[]>(existing?.tags ?? []);
   const [shared, setShared] = useState(existing?.shared ?? false);
+  /* 룩북 전용 — 켜면 앱 사용자 전체가 둘러보기에서 본다. 친구 단위 공유는 룩북에 없다. */
+  const [isPublic, setIsPublic] = useState(false);
   const [pickerOpen, setPickerOpen] = useState(false);
   const [loading, setLoading] = useState(false);
   /* 사진 업로드는 몇 초 걸린다 — 버튼이 아무 반응 없어 보이면 사용자가 다시 누른다. */
@@ -167,6 +169,7 @@ export function LookComposer({ date }: { date?: string }) {
       entryDate: opts?.entryDate,
       createCalendar: opts?.createCalendar,
       overwriteCalendar: opts?.overwrite,
+      isPublic,
       tags,
     });
 
@@ -475,7 +478,22 @@ export function LookComposer({ date }: { date?: string }) {
                   <View style={[styles.knob, shared && styles.knobOn]} />
                 </View>
               </Pressable>
-            ) : null}
+            ) : (
+              <Pressable style={styles.optionRow} onPress={() => setIsPublic((v) => !v)}>
+                <View style={styles.optionIcon}>
+                  <Icon name="globe" tintColor={INK} size={17} />
+                </View>
+                <View style={styles.optionBody}>
+                  <Text style={styles.optionTitle}>전체 공개</Text>
+                  <Text style={styles.optionDesc}>
+                    다른 사용자가 둘러보기에서 이 룩을 볼 수 있어요
+                  </Text>
+                </View>
+                <View style={[styles.switch, isPublic && styles.switchOn]}>
+                  <View style={[styles.knob, isPublic && styles.knobOn]} />
+                </View>
+              </Pressable>
+            )}
           </ScrollView>
 
           <View style={styles.footer}>

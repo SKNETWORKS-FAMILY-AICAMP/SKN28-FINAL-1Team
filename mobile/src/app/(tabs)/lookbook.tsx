@@ -9,7 +9,7 @@ import {
 import { Icon, type IconName } from '@/components/icon';
 import { useMultiSelectFilter } from '@/hooks/useMultiSelectFilter';
 import { useRefresh } from '@/hooks/use-refresh';
-import { LOOKBOOK_FILTER_OPTIONS, useLookbook } from '@/state/lookbook';
+import { LOOKBOOK_FILTER_OPTIONS, lookbookStore, useLookbook } from '@/state/lookbook';
 import { likesStore, useLikedLooks } from '@/state/likes';
 import { savedLookStore, useSavedLooks, useSavedLooksState, type LookOrigin } from '@/state/saved';
 import { router, useLocalSearchParams } from 'expo-router';
@@ -98,14 +98,17 @@ export default function LookbookScreen() {
   const savedLooks = useSavedLooks();
   const likedLooks = useLikedLooks();
 
-  /* 내 룩북은 서버에서 온다. 화면에 들어올 때 한 번 받고, 당겨서 다시 받을 수 있게 한다.
-     '둘러보기' 피드는 서버에 없어서(공개 피드 API 부재) 로컬 시드 그대로다. */
-  const loadSaved = useCallback(() => savedLookStore.load(), []);
+  /* 둘 다 서버에서 온다 — 내 룩북은 내 목록, 둘러보기는 공개 피드.
+     세그먼트를 오갈 때마다 기다리게 하지 않으려고 화면에 들어올 때 함께 받는다. */
   const { loading, error, loaded } = useSavedLooksState();
-  const { refreshing, onRefresh } = useRefresh(loadSaved);
+  const loadAll = useCallback(
+    () => Promise.all([savedLookStore.load(), lookbookStore.load()]).then(() => undefined),
+    [],
+  );
+  const { refreshing, onRefresh } = useRefresh(loadAll);
   useEffect(() => {
-    void loadSaved();
-  }, [loadSaved]);
+    void loadAll();
+  }, [loadAll]);
 
   // 홈 '저장' 등에서 ?tab=saved 로 들어오던 링크가 아직 있어 'mine' 으로 함께 받는다.
   // 모드는 URL 파라미터에서 파생하고, 세그먼트 전환은 setParams 로 파라미터를 바꾼다
@@ -238,7 +241,7 @@ export default function LookbookScreen() {
             <ErrorState
               title="룩북을 불러오지 못했어요"
               description={error}
-              onRetry={() => void loadSaved()}
+              onRetry={() => void loadAll()}
               style={styles.empty}
             />
           ) : cards.length === 0 ? (
