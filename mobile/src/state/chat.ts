@@ -77,6 +77,11 @@ export type ChatMessage =
   | { id: string; role: 'user'; kind: 'image'; uri?: string }
   /** 첨부한 사진에서 읽어낸 무드 — 추구미로 삼을지 묻는 카드 */
   | { id: string; role: 'ai'; kind: 'mood'; tags: string[] }
+  /**
+   * 답변을 못 받은 질문 아래에 남기는 줄.
+   * 토스트는 사라지므로, 대화를 다시 열었을 때 "질문만 있고 답이 없는" 상태로 보이지 않게 한다.
+   */
+  | { id: string; role: 'ai'; kind: 'error'; text: string }
   /** 추천 코디 카드. 답변 말풍선 뒤에 붙는다. */
   | {
       id: string;
@@ -124,6 +129,7 @@ export function sessionPreview(session: ChatSession): string {
   if (last.kind === 'text') return last.text.replace(/\n/g, ' ');
   if (last.kind === 'rec') return `추천 · ${last.title}`;
   if (last.kind === 'mood') return `추구미 · ${last.tags.join(' ')}`;
+  if (last.kind === 'error') return '답변을 받지 못했어요';
   return '사진을 보냈어요';
 }
 
@@ -132,6 +138,8 @@ function searchableText(m: ChatMessage): string {
   if (m.kind === 'text') return m.text;
   if (m.kind === 'rec') return `${m.title} ${m.tags.join(' ')}`;
   if (m.kind === 'mood') return m.tags.join(' ');
+  /* 오류 줄은 검색 대상이 아니다 — 대화 내용이 아니라 상태 표시라, 검색어에 걸리면
+     엉뚱한 대화가 결과로 올라온다. */
   return '';
 }
 
@@ -205,7 +213,20 @@ function toMessages(api: ApiChatMessage, cards: ApiRecommendationCard[] = []): C
   const text = api.content.trim();
   if (text) out.push({ id: api.id, role, kind: 'text', text });
   for (const card of cards) out.push(toRecMessage(api.id, card));
+
+  /* 답변 생성이 실패하면 서버가 **질문 메시지**를 FAILED 로 표시한다(답변 메시지는 아예 없다).
+     그 표시를 읽어 오류 줄을 만들면 대화를 다시 열어도 남는다.
+     사유까지는 run 에만 있어 여기서는 알 수 없다 — 보낸 직후에는 sendText 가 채워 넣는다. */
+  if (role === 'user' && api.status === 'FAILED') {
+    out.push({ id: failureLineId(api.id), role: 'ai', kind: 'error', text: GENERIC_FAILURE });
+  }
   return out;
+}
+
+const GENERIC_FAILURE = '답변을 만들지 못했어요.';
+
+function failureLineId(messageId: string): string {
+  return `${messageId}-err`;
 }
 
 /** 답변에 붙은 추천 id. 없으면 그냥 대화만 오간 것이다. */
@@ -389,6 +410,19 @@ export const chatStore = {
 
     // 답변이 생겼든 실패했든 서버가 가진 대화가 정답이다 — 통째로 다시 맞춘다.
     await this.loadMessages(id, { force: true }).catch(() => {});
+
+    /* 실패 사유는 run 에만 있고 대화에는 남지 않는다. 방금 보낸 질문의 오류 줄에만
+       구체적인 사유를 채워 넣는다 — 다시 열면 일반 문구로 돌아간다(서버가 사유를 모르므로). */
+    if (run.status === 'FAILED' && run.error_message) {
+      const lineId = failureLineId(submitted.message.id);
+      replaceSession(id, (s) => ({
+        ...s,
+        messages: s.messages.map((m) =>
+          m.id === lineId && m.kind === 'error' ? { ...m, text: run.error_message } : m,
+        ),
+      }));
+    }
+
     if (isAnswered(run.status)) {
       const fresh = await apiListSessions().catch(() => null);
       if (fresh) {

@@ -142,10 +142,9 @@ export function ChatConversation({
         id = created.id;
         setPanelSessionId(id);
       }
-      const run = await chatStore.sendText(id, t);
-      if (run.status === 'FAILED') {
-        toast(run.error_message || '답변을 만들지 못했어요', { variant: 'error' });
-      }
+      /* 실패해도 토스트를 띄우지 않는다 — 사유는 대화 안에 한 줄로 남고, 토스트까지 겹치면
+         같은 말을 두 번 하면서 정작 사라지는 쪽(토스트)만 눈에 띈다. */
+      await chatStore.sendText(id, t);
     } catch (e) {
       setText(t);
       toast(e instanceof Error ? e.message : '메시지를 보내지 못했어요', { variant: 'error' });
@@ -214,6 +213,16 @@ export function ChatConversation({
                     <Text style={styles.userText}>{m.text}</Text>
                   </View>
                 )}
+              </View>
+            );
+          }
+          /* 오류는 코지가 한 말이 아니므로 말풍선·아바타를 주지 않는다 —
+             답변인 척하면 실패한 것을 답으로 읽게 된다. */
+          if (m.kind === 'error') {
+            return (
+              <View key={m.id} style={styles.errorRow}>
+                <Icon name="exclamationmark.triangle" tintColor={Editorial.wine} size={13} />
+                <Text style={styles.errorText}>{m.text}</Text>
               </View>
             );
           }
@@ -364,6 +373,16 @@ const styles = StyleSheet.create({
   messages: { padding: 16, gap: 16 },
   aiRow: { flexDirection: 'row', gap: 8, alignItems: 'flex-start', maxWidth: '90%' },
   aiCol: { flex: 1, gap: 10 },
+
+  /* 아바타 자리(30) + 간격(8)만큼 들여 코지 말풍선과 왼쪽 선을 맞춘다. */
+  errorRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingLeft: 38,
+    maxWidth: '90%',
+  },
+  errorText: { flex: 1, fontSize: Type.caption, color: Editorial.wine, lineHeight: 18 },
   avatar: {
     width: 30,
     height: 30,
