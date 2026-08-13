@@ -459,20 +459,23 @@ export function LookComposer({ date }: { date?: string }) {
               </>
             )}
 
-            {/* 공개 범위는 기록 위치를 정한 뒤 고른다. 룩북·캘린더 공용 폼이라 두 진입점에서
-                같은 순서로 보인다. */}
-            <Pressable style={styles.optionRow} onPress={() => setShared((v) => !v)}>
-              <View style={styles.optionIcon}>
-                <Icon name="person.2" tintColor={INK} size={17} />
-              </View>
-              <View style={styles.optionBody}>
-                <Text style={styles.optionTitle}>함께 쓰는 옷장 친구에게 공개</Text>
-                <Text style={styles.optionDesc}>저장 후에도 켜고 끌 수 있어요</Text>
-              </View>
-              <View style={[styles.switch, shared && styles.switchOn]}>
-                <View style={[styles.knob, shared && styles.knobOn]} />
-              </View>
-            </Pressable>
+            {/* 친구 공개는 캘린더(착장 기록)에만 남긴다.
+                룩북은 친구 단위로 나누지 않는다 — 내 룩북이거나 모두에게 공개거나 둘 중 하나이고,
+                옷을 친구와 나누는 일은 옷장의 '공유 옷장'이 맡는다. */}
+            {mode === 'calendar' ? (
+              <Pressable style={styles.optionRow} onPress={() => setShared((v) => !v)}>
+                <View style={styles.optionIcon}>
+                  <Icon name="person.2" tintColor={INK} size={17} />
+                </View>
+                <View style={styles.optionBody}>
+                  <Text style={styles.optionTitle}>함께 쓰는 옷장 친구에게 공개</Text>
+                  <Text style={styles.optionDesc}>저장 후에도 켜고 끌 수 있어요</Text>
+                </View>
+                <View style={[styles.switch, shared && styles.switchOn]}>
+                  <View style={[styles.knob, shared && styles.knobOn]} />
+                </View>
+              </Pressable>
+            ) : null}
           </ScrollView>
 
           <View style={styles.footer}>
