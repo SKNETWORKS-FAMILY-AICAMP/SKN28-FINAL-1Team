@@ -15,6 +15,7 @@ import { MeasureGuideSheet } from '@/components/measure/measure-guide-sheet';
 import { ErrorState, LoadingState, useToast } from '@/components/ui';
 import {
   BODY_MEASURES,
+  EDITABLE_MEASURES,
   PREVIEW_COUNT,
   measureLabel,
   type BodyMeasureKey,
@@ -91,7 +92,7 @@ export default function MeasureResult() {
   /* 범위를 벗어난 값은 저장이 400 으로 튕긴다. 눌러 보고 실패를 알려 주는 대신
      어느 칸이 문제인지 먼저 짚고 완료를 막는다. */
   const invalid = useMemo(
-    () => BODY_MEASURES.filter((spec) => !isValid(spec, values[spec.key])),
+    () => EDITABLE_MEASURES.filter((spec) => !isValid(spec, values[spec.key])),
     [values],
   );
 
@@ -141,9 +142,12 @@ export default function MeasureResult() {
   // 완료 — 수정한 값을 서버에 저장(PATCH detail)하고 플로우 닫기
   const onDone = async () => {
     if (invalid.length > 0) return;
-    const measures = Object.fromEntries(
-      BODY_MEASURES.map((spec) => [spec.key, parseFloat(values[spec.key] as string)]),
-    ) as Measurement;
+    /* 고칠 수 있는 값만 입력칸에서 읽고, 읽기 전용(서버 계산값)은 받은 그대로 둔다.
+       로컬 결과는 10개가 온전해야 화면이 그대로 그려진다 — 전송에서 빼는 일은 saveDetail 이 한다. */
+    const measures: Measurement = { ...result.measures };
+    for (const spec of EDITABLE_MEASURES) {
+      measures[spec.key] = parseFloat(values[spec.key] as string);
+    }
 
     setSavingDone(true);
     try {
@@ -210,18 +214,23 @@ export default function MeasureResult() {
                   {guideButton(spec)}
                 </View>
                 <View style={styles.measureValueRow}>
-                  <TextInput
-                    style={[
-                      styles.measureInput,
-                      !isValid(spec, values[spec.key]) && styles.measureInputBad,
-                    ]}
-                    value={values[spec.key] ?? ''}
-                    onChangeText={(t) => setValues((prev) => ({ ...prev, [spec.key]: t }))}
-                    keyboardType="decimal-pad"
-                    selectTextOnFocus
-                    maxLength={6}
-                    returnKeyType="done"
-                  />
+                  {spec.editable ? (
+                    <TextInput
+                      style={[
+                        styles.measureInput,
+                        !isValid(spec, values[spec.key]) && styles.measureInputBad,
+                      ]}
+                      value={values[spec.key] ?? ''}
+                      onChangeText={(t) => setValues((prev) => ({ ...prev, [spec.key]: t }))}
+                      keyboardType="decimal-pad"
+                      selectTextOnFocus
+                      maxLength={6}
+                      returnKeyType="done"
+                    />
+                  ) : (
+                    /* 서버가 계산해 주는 값 — 밑줄(수정 가능 신호)을 빼서 입력칸과 구분한다 */
+                    <Text style={styles.measureReadonly}>{values[spec.key] ?? ''}</Text>
+                  )}
                   {spec.unit ? <Text style={styles.measureUnit}>{spec.unit}</Text> : null}
                 </View>
               </View>
@@ -406,6 +415,14 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     borderBottomColor: ink(0.18),
     paddingBottom: 2,
+  },
+  /* 입력칸과 같은 글자 크기·무게, 밑줄만 없다 — '고칠 수 있는 것'은 밑줄로만 구분한다 */
+  measureReadonly: {
+    fontFamily: Fonts.serif,
+    fontSize: 20,
+    fontWeight: '600',
+    color: INK,
+    paddingBottom: 3,
   },
   measureInputBad: { color: Editorial.danger, borderBottomColor: Editorial.danger },
   measureUnit: { fontSize: Type.micro, color: Editorial.textCaption, marginBottom: 3 },
