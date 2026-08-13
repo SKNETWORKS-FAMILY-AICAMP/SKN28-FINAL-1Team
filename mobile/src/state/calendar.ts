@@ -10,6 +10,7 @@ import {
   getCalendarProcessingStatus,
   listCalendarEntries,
   patchCalendarEntry,
+  unlinkCalendarItem,
   type CalendarEntryDto,
 } from '@/lib/calendarApi';
 import type { WardrobeItem, WardrobeSource } from '@/constants/wardrobe';
@@ -34,6 +35,12 @@ export type EntryItem = {
   image?: string;
   /** 친구 옷장에서 가져온 옷의 주인 */
   owner?: string;
+  /**
+   * 이 옷이 내 옷장에 들어 있는가.
+   * 룩 사진에서 뽑힌 옷은 사용자가 '옷장에 추가'를 누르기 전까지 false 다 —
+   * 그때만 룩 상세가 추가 버튼을 그린다. (서버 added_to_closet_at)
+   */
+  inCloset?: boolean;
 };
 
 export type CalendarEntry = {
@@ -201,13 +208,15 @@ function overlayFor(date: string): Overlay {
   return overlays[date];
 }
 
-/** 사진과 옷 구성이 그대로인가 — 그렇다면 서버 기록을 다시 만들 이유가 없다. */
-function sameComposition(prev: CalendarEntry, photo: string | undefined, items: EntryItem[]): boolean {
+/**
+ * 기록을 지우지 않고 고칠 수 있는 변경인가 — 사진이 그대로고, 서버에 보낼 옷이
+ * **늘지 않았다**면 그렇다. 옷을 뺀 것은 연결 해제 API로, 메타데이터는 PATCH 로
+ * 끝난다. 사진이 바뀌거나 옷이 추가될 때만 삭제 후 재등록이 필요하다(서버 제약).
+ */
+function canEditInPlace(prev: CalendarEntry, photo: string | undefined, serverItems: EntryItem[]): boolean {
   if ((prev.photo ?? '') !== (photo ?? '')) return false;
-  if (prev.items.length !== items.length) return false;
-  const before = prev.items.map(entryItemKey).sort();
-  const after = items.map(entryItemKey).sort();
-  return before.every((key, i) => key === after[i]);
+  const prevIds = new Set(prev.items.filter(isServerItem).map((i) => i.id));
+  return serverItems.every((item) => prevIds.has(item.id));
 }
 
 /** 서버에 자리가 없는 것들을 날짜별 오버레이에 반영한다. */
@@ -271,8 +280,9 @@ export const calendarStore = {
   /**
    * 기록 저장. 사진이 있으면 사진 경로로, 없으면 옷장 경로로 등록한다.
    *
-   * 서버에 upsert 가 없어 **이미 있는 날짜는 지우고 다시 만든다.** 그래서 수정이어도
-   * 기록 id 는 새로 발급된다(처리 중인 기록은 서버가 삭제를 409 로 막는다).
+   * 수정은 되도록 기록을 지우지 않고 처리한다 — 옷 빼기는 연결 해제, 메타는 PATCH.
+   * 사진이 바뀌거나 옷이 **추가**될 때만 지우고 다시 만든다(서버에 그 경로가 없다).
+   * 그 경우엔 기록 id 가 새로 발급된다(처리 중인 기록은 서버가 삭제를 409 로 막는다).
    */
   async saveEntry(input: {
     date: string;
@@ -298,10 +308,24 @@ export const calendarStore = {
     /* 메모리에 없어도 서버에는 있을 수 있다(다른 달 날짜). 확인하지 않고 만들면 409 다. */
     const prev = await calendarStore.findEntry(input.date);
 
-    /* 사진과 옷 구성이 그대로면 메타데이터만 고치면 된다.
-       서버에 upsert 가 없어 수정 = 삭제 후 재등록인데, 그러면 일정 한 줄 고치는 데도
-       사진이 다시 올라가고 기록 id 가 바뀐다. PATCH 로 끝낼 수 있으면 그렇게 한다. */
-    if (prev && sameComposition(prev, input.photo, input.items)) {
+    /* 기록을 지우지 않고 고칠 수 있으면 절대 지우지 않는다.
+       - 옷을 뺀 것: 연결 해제 API 가 그 옷과 기록의 **연결만** 끊는다. 옷장 아이템은
+         서버에 그대로 남고, 기록 id 도 바뀌지 않는다.
+       - 일정·해시태그: PATCH.
+       예전에는 옷 하나만 빼도 삭제 후 재등록이었다 — 재등록이 실패하면 기록이
+       통째로 사라져, '입은 옷 빼기'가 기록 삭제가 되는 사고가 있었다. */
+    if (prev && canEditInPlace(prev, input.photo, serverItems)) {
+      const keptIds = new Set(serverItems.map((item) => item.id));
+      const removedIds = prev.items
+        .filter(isServerItem)
+        .map((item) => item.id)
+        .filter((id) => !keptIds.has(id));
+      /* 연결 해제를 먼저, PATCH 를 마지막에 — 마지막 응답이 최신 기록 전체라
+         중간에 화면을 갱신할 필요가 없다. 도중에 실패해도 기록은 살아 있고,
+         다시 저장하면 남은 것부터 이어진다. */
+      for (const wardrobeItemId of removedIds) {
+        await unlinkCalendarItem(prev.id, wardrobeItemId);
+      }
       const dto = await patchCalendarEntry(prev.id, meta);
       applyOverlay(input);
       const patched = toEntry(dto);
@@ -310,7 +334,8 @@ export const calendarStore = {
       return patched;
     }
 
-    // 같은 날짜에 기록이 있으면 서버가 409 로 막는다 — 사진·옷이 바뀌면 지우고 다시 만든다.
+    // 같은 날짜에 기록이 있으면 서버가 409 로 막는다 — 사진이 바뀌거나 옷이
+    // 추가될 때만 여기로 온다(서버에 그 경로가 없다). 지우고 다시 만든다.
     if (prev) await deleteCalendarEntry(prev.id);
 
     const dto = input.photo

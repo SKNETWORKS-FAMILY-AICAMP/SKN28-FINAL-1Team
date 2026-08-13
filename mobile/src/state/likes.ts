@@ -3,23 +3,26 @@ import { useSyncExternalStore } from 'react';
 import type { MallKey } from '@/lib/mall';
 
 /**
- * 좋아요(룩) · 위시리스트(상품) 스토어.
+ * 위시(룩) · 찜(상품) 스토어.
+ *
+ * ⚠️ **화면 이름과 코드 이름이 다르다.** 화면의 '위시'가 여기서는 `liked*`(룩),
+ * 화면의 '찜'이 `wish*`(상품)다. 서버 API 가 생길 때 필드명을 맞출 예정이라 코드 쪽은 두었다.
  *
  * 둘을 한 파일에 두는 이유: 추천이 이 둘을 **같이** 읽는다.
- * 좋아요한 룩의 태그로 룩을 고르고, 찜한 상품의 브랜드로 상품 순서를 정한다(아래 affinity).
+ * 위시한 룩의 태그로 룩을 고르고, 찜한 상품의 브랜드로 상품 순서를 정한다(아래 affinity).
  * 나뉘어 있으면 추천 코드가 양쪽을 매번 다시 엮어야 한다.
  *
- * ⚠️ 백엔드에 좋아요/찜 API 가 아직 없다(`/api/v1/likes`·`/wishlist` 404 확인, 2026-07-31).
+ * ⚠️ 백엔드에 위시/찜 API 가 아직 없다(`/api/v1/likes`·`/wishlist` 404 확인, 2026-07-31).
  *    prefs.ts·saved.ts 와 같이 메모리 보관이며 앱을 다시 켜면 비워진다.
  *    API 가 생기면 이 스토어의 함수 본문만 교체한다(필드명 유지).
  *
- * 저장(saved.ts)과는 다른 개념이다 —
- *   좋아요 = 룩북 피드에서 남의 룩에 누르는 호감 표시(추천 재료)
- *   저장   = 추천받은 룩을 내 '저장됨'에 담아두는 것
- * 아이콘도 갈라 뒀다(좋아요=하트 / 저장=북마크).
+ * 룩 저장(saved.ts)과의 관계 — 화면에서는 **둘 다 '위시' 한 목록으로 합쳐 보인다.**
+ *   위시(여기)      = 둘러보기 피드에서 하트로 담은 룩
+ *   저장(saved.ts)  = 추천에서 담아둔 룩(✨). 내 룩북이 아니라 위시 쪽에 선다.
+ * '내 룩북'에는 내가 올린 룩만 남는다.
  */
 
-/** 룩북 피드 룩 좋아요 */
+/** 둘러보기 피드 룩 위시(하트) */
 export type LikedLook = {
   /** 피드 룩의 id (state/lookbook.ts LookPost.id) */
   id: string;
@@ -42,7 +45,7 @@ export type WishItem = {
   link?: string;
   /** 어느 몰로 내보낼지. 생략하면 기본 몰. */
   mall?: MallKey;
-  /** 어느 구성에서 담았는지 (상의/하의/…) — 위시리스트에서 맥락 표시용 */
+  /** 어느 구성에서 담았는지 (상의/하의/…) — 찜 목록에서 맥락 표시용 */
   slot?: string;
   addedAt: number;
 };
@@ -83,7 +86,7 @@ export const likesStore = {
     return true;
   },
 
-  /* ── 위시리스트 (상품) ── */
+  /* ── 찜 (상품) ── */
   getWishlist: () => wishlist,
   isWished: (p: { brand: string; name: string }) => wishlist.some((w) => w.id === wishKey(p)),
   toggleWish(p: Omit<WishItem, 'id' | 'addedAt'>): boolean {

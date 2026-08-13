@@ -11,6 +11,7 @@ import {
   type LookbookPostDto,
   type LookbookStatus,
 } from '@/lib/lookbookApi';
+import { addWardrobeItemToCloset } from '@/lib/wardrobeApi';
 import { authStore } from '@/state/auth';
 import { CLOSET_ITEMS } from '@/constants/wardrobe';
 import type { EntryItem } from '@/state/calendar';
@@ -61,6 +62,8 @@ export type SavedLook = {
    * 처리 중에는 카드에 '옷 정리 중'을 띄우고 삭제를 막는 데 쓴다.
    */
   status?: LookbookStatus;
+  /** 켜져 있으면 앱 사용자 전체가 둘러보기에서 본다. 룩북에 친구 단위 공유는 없다. */
+  isPublic?: boolean;
   savedAt: number;
 };
 
@@ -162,6 +165,7 @@ function toLook(dto: LookbookPostDto): SavedLook {
     source: 'closet',
     name: (link.snapshot.item_name as string) || '이름 없는 아이템',
     image: link.image_url || undefined,
+    inCloset: link.added_to_closet_at != null,
   }));
 
   return {
@@ -178,6 +182,7 @@ function toLook(dto: LookbookPostDto): SavedLook {
     entryDate: dto.calendar?.date ?? overlay.entryDate,
     tags: dto.hashtags ?? [],
     status: dto.status,
+    isPublic: dto.is_public,
     savedAt: Date.parse(dto.created_at) || 0,
   };
 }
@@ -248,6 +253,8 @@ export const savedLookStore = {
     createCalendar?: boolean;
     /** 그 날짜에 이미 캘린더 기록이 있을 때 덮어쓸지 — 사용자에게 물은 뒤에만 true */
     overwriteCalendar?: boolean;
+    /** 켜면 앱 사용자 전체가 둘러보기에서 본다 */
+    isPublic?: boolean;
   }): Promise<SavedLook> {
     const key = keyOf(input);
     /* 추천 룩 저장은 같은 카드를 여러 번 담지 않도록 사진으로 중복을 막는다.
@@ -270,6 +277,7 @@ export const savedLookStore = {
     const meta = {
       schedule: (input.note ?? input.comment ?? '').trim(),
       hashtags: input.tags ?? [],
+      isPublic: input.isPublic ?? false,
       ...(input.createCalendar && input.entryDate
         ? { calendarDate: input.entryDate, overwriteCalendar: input.overwriteCalendar }
         : null),
@@ -336,6 +344,32 @@ export const savedLookStore = {
     localLooks = localLooks.map((l) =>
       l.id === id ? { ...l, memo, tags: patch.tags ?? l.tags } : l,
     );
+    notify();
+  },
+
+  /**
+   * 룩에 걸린 옷 하나를 내 옷장에 들인다.
+   * 서버가 멱등이라 두 번 눌러도 안전하고, 성공하면 그 옷만 목록에서 상태를 바꾼다
+   * (전체를 다시 받지 않는다 — 상세를 보는 중에 목록이 통째로 흔들릴 이유가 없다).
+   */
+  async addItemToCloset(lookId: string, itemId: string) {
+    await addWardrobeItemToCloset(itemId);
+    const mark = (look: SavedLook): SavedLook =>
+      look.id === lookId
+        ? {
+            ...look,
+            items: look.items?.map((i) => (i.id === itemId ? { ...i, inCloset: true } : i)),
+          }
+        : look;
+    serverLooks = serverLooks.map(mark);
+    localLooks = localLooks.map(mark);
+    notify();
+  },
+
+  /** 전체 공개를 켜고 끈다. */
+  async setPublic(id: string, isPublic: boolean) {
+    const dto = await patchLookbook(id, { isPublic });
+    serverLooks = serverLooks.map((l) => (l.id === id ? toLook(dto) : l));
     notify();
   },
 

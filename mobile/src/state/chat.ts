@@ -1,13 +1,35 @@
 import { useSyncExternalStore } from 'react';
 
 import { Editorial } from '@/constants/theme';
+import {
+  createSession as apiCreateSession,
+  deleteSession as apiDeleteSession,
+  listMessages as apiListMessages,
+  listSessions as apiListSessions,
+  newClientMessageId,
+  renameSession as apiRenameSession,
+  sendMessage as apiSendMessage,
+  type ApiChatMessage,
+  type ApiChatMode,
+  type ApiChatRun,
+  type ApiChatSession,
+} from '@/lib/chatApi';
+import { isAnswered, waitForRun } from '@/lib/chatStream';
+import {
+  getRecommendationResult,
+  imageUrlOf,
+  type ApiRecommendationCard,
+} from '@/lib/recommendApi';
 
 /**
  * 채팅 세션 — 목록(C1)·대화(C2)·모드 선택(C3)이 같은 출처를 봐야 하므로 여기로 모았다.
- * (예전엔 chat.tsx 가 정적 GROUPS 배열을, chat-conversation.tsx 가 정적 SEED 를 각자 들고 있어
- *  새 대화를 만들어도 목록이 그대로였고, 어떤 세션을 열든 같은 대화가 나왔다.)
  *
- * 저장은 아직 메모리(룩북·캘린더 스토어와 동일) — 백엔드가 붙으면 이 스토어의 함수만 API 호출로 바꾼다.
+ * 서버(/api/v1/chat/*)가 원본이고 이 스토어는 그 사본이다. 화면은 서버 모양을 몰라도 되게
+ * 여기서 앱 모양(말풍선·모드 이름)으로 옮긴다.
+ *
+ * ⚠️ **답변은 동기로 오지 않는다.** 질문을 보내면 서버는 202 로 접수만 하고 run 을 만든다.
+ *    답변이 생길 때까지 기다리는 일은 lib/chatStream.ts 가 맡는다.
+ * ⚠️ 로그인 사용자 전용이다. 게스트 채팅은 쿠키 신원 방식이라 아직 붙이지 않았다.
  */
 
 /** 추천 방식. chat-mode 화면의 두 카드와 1:1 대응한다. */
@@ -22,24 +44,64 @@ export const CHAT_MODE_META: Record<ChatMode, { label: string; tint: string }> =
 /** 목록에 그릴 순서 — Object.keys 는 순서를 보장하는 것처럼 읽히지 않으므로 명시한다. */
 export const CHAT_MODE_ORDER: ChatMode[] = ['taste', 'closet'];
 
+/* ── 서버 ↔ 앱 모드 이름 옮기기 ──
+   'closet'(옷장 기반)은 내 옷만 쓰고, 'taste'(추구미 반영)는 새 상품까지 포함한다. */
+export function toApiMode(mode: ChatMode): ApiChatMode {
+  return mode === 'closet' ? 'WARDROBE_BASED' : 'NEW_ITEM';
+}
+
+function fromApiMode(mode: ApiChatMode): ChatMode {
+  return mode === 'WARDROBE_BASED' ? 'closet' : 'taste';
+}
+
 /**
  * 한 개의 말풍선.
  * 타이핑 표시(···)는 저장하지 않는다 — 답변을 기다리는 '지금'만의 상태라
  * 대화를 다시 열었을 때 남아 있으면 안 된다. 화면 쪽 지역 상태로 둔다.
  */
+/** 추천 코디 한 벌을 이루는 아이템. */
+export type RecItem = {
+  id: string;
+  name: string;
+  category: string | null;
+  /** 걸 수 있는 주소일 때만 채운다 (S3 키는 걸러진다 — lib/recommendApi 의 imageUrlOf). */
+  imageUrl: string | null;
+  /** 새로 사야 하는 상품만 가격이 있다. 옷장에 있는 옷은 null. */
+  price: number | null;
+  fromWardrobe: boolean;
+};
+
 export type ChatMessage =
   | { id: string; role: 'ai' | 'user'; kind: 'text'; text: string }
   /** 사용자가 올린 사진. uri 가 없던 시절(목업)에도 말풍선은 떠서 optional 로 둔다. */
   | { id: string; role: 'user'; kind: 'image'; uri?: string }
   /** 첨부한 사진에서 읽어낸 무드 — 추구미로 삼을지 묻는 카드 */
   | { id: string; role: 'ai'; kind: 'mood'; tags: string[] }
-  | { id: string; role: 'ai'; kind: 'rec'; title: string; tags: string[] };
+  /**
+   * 답변을 못 받은 질문 아래에 남기는 줄.
+   * 토스트는 사라지므로, 대화를 다시 열었을 때 "질문만 있고 답이 없는" 상태로 보이지 않게 한다.
+   */
+  | { id: string; role: 'ai'; kind: 'error'; text: string }
+  /** 추천 코디 카드. 답변 말풍선 뒤에 붙는다. */
+  | {
+      id: string;
+      role: 'ai';
+      kind: 'rec';
+      title: string;
+      tags: string[];
+      items: RecItem[];
+      /** 새로 사야 하는 상품 합계. 옷장 옷만으로 짠 코디면 0 이라 표시하지 않는다. */
+      totalPrice: number | null;
+      warnings: string[];
+    };
 
 export type ChatSession = {
   id: string;
   mode: ChatMode;
   title: string;
   messages: ChatMessage[];
+  /** 대화를 한 번이라도 열어 메시지를 받아왔는지. 목록만 받은 세션은 false 다. */
+  messagesLoaded: boolean;
   updatedAt: number;
 };
 
@@ -63,10 +125,11 @@ export function formatRelativeTime(ts: number, now: number = Date.now()): string
 /** 목록에 한 줄로 보여줄 마지막 대화. 추천 카드·사진은 문구가 없으니 대신할 말을 준다. */
 export function sessionPreview(session: ChatSession): string {
   const last = session.messages[session.messages.length - 1];
-  if (!last) return '아직 대화가 없어요';
+  if (!last) return session.messagesLoaded ? '아직 대화가 없어요' : '';
   if (last.kind === 'text') return last.text.replace(/\n/g, ' ');
   if (last.kind === 'rec') return `추천 · ${last.title}`;
   if (last.kind === 'mood') return `추구미 · ${last.tags.join(' ')}`;
+  if (last.kind === 'error') return '답변을 받지 못했어요';
   return '사진을 보냈어요';
 }
 
@@ -75,10 +138,17 @@ function searchableText(m: ChatMessage): string {
   if (m.kind === 'text') return m.text;
   if (m.kind === 'rec') return `${m.title} ${m.tags.join(' ')}`;
   if (m.kind === 'mood') return m.tags.join(' ');
+  /* 오류 줄은 검색 대상이 아니다 — 대화 내용이 아니라 상태 표시라, 검색어에 걸리면
+     엉뚱한 대화가 결과로 올라온다. */
   return '';
 }
 
-/** 제목과 대화 내용으로 찾는다. 대소문자 구분 없는 부분 일치. */
+/**
+ * 제목과 대화 내용으로 찾는다. 대소문자 구분 없는 부분 일치.
+ *
+ * ⚠️ 아직 연 적 없는 세션은 메시지가 비어 있어 **제목으로만** 걸린다.
+ *    서버에 /chat/sessions/search/ 가 있으니 그걸로 옮기면 본문까지 찾을 수 있다.
+ */
 export function sessionMatches(session: ChatSession, query: string): boolean {
   const q = query.trim().toLowerCase();
   if (!q) return true;
@@ -100,73 +170,116 @@ export function searchPreview(session: ChatSession, query: string): string {
   return searchableText(hit).replace(/\n/g, ' ');
 }
 
-/* ── 시드 ─────────────────────────────────────────────
-   데모용 지난 대화. 시각은 모듈이 로드된 시점 기준으로 벌려 둔다. */
-const seededAt = Date.now();
+/* ── 서버 응답 옮기기 ───────────────────────────────── */
 
-const SEED_SESSIONS: ChatSession[] = [
-  {
-    id: 'seed-1',
-    mode: 'taste',
-    title: '가을 데일리 미니멀',
-    updatedAt: seededAt,
-    messages: [
-      {
-        id: 'seed-1-1',
-        role: 'ai',
-        kind: 'text',
-        text: '안녕하세요 코지님! 오늘 서울은 8도로 쌀쌀해요.\n미니멀한 무드로 따뜻한 코디 골라봤어요.',
-      },
-      { id: 'seed-1-2', role: 'user', kind: 'text', text: '출근할 때 입을 거예요' },
-      {
-        id: 'seed-1-3',
-        role: 'ai',
-        kind: 'rec',
-        title: '포근한 니트 오피스룩',
-        tags: ['니트', '슬랙스', '로퍼'],
-      },
-      { id: 'seed-1-4', role: 'ai', kind: 'text', text: '이 니트에 슬랙스 매치 어때요?' },
-    ],
-  },
-  {
-    id: 'seed-2',
-    mode: 'taste',
-    title: '면접룩 추천',
-    updatedAt: seededAt - DAY,
-    messages: [
-      {
-        id: 'seed-2-1',
-        role: 'ai',
-        kind: 'text',
-        text: '면접은 언제인가요? 업종도 알려주시면 톤을 맞춰드려요.',
-      },
-      { id: 'seed-2-2', role: 'user', kind: 'text', text: '다음 주 금요일, 금융권이에요' },
-      { id: 'seed-2-3', role: 'ai', kind: 'text', text: '차분한 네이비 코디로 정리했어요' },
-    ],
-  },
-  {
-    id: 'seed-3',
-    mode: 'closet',
-    title: '내 트렌치로 코디',
-    updatedAt: seededAt - 2 * DAY,
-    messages: [
-      { id: 'seed-3-1', role: 'user', kind: 'text', text: '트렌치 코트 어떻게 입으면 좋을까요?' },
-      { id: 'seed-3-2', role: 'ai', kind: 'text', text: '보유하신 트렌치 3가지로 제안해요' },
-    ],
-  },
-  {
-    id: 'seed-4',
-    mode: 'closet',
-    title: '주말 브런치룩',
-    updatedAt: seededAt - 3 * DAY,
-    messages: [
-      { id: 'seed-4-1', role: 'user', kind: 'text', text: '주말 브런치 갈 때 편한 룩 있을까요?' },
-      { id: 'seed-4-2', role: 'ai', kind: 'text', text: '데님에 로퍼로 캐주얼하게' },
-    ],
-  },
-];
+function toRecMessage(messageId: string, card: ApiRecommendationCard): ChatMessage {
+  return {
+    id: `${messageId}-r${card.card_id}`,
+    role: 'ai',
+    kind: 'rec',
+    /* 서버가 코디에 이름을 붙이지 않는다. 없는 이름을 지어내면 추천마다 다른 작명 규칙이
+       생기므로 순위를 그대로 쓴다. */
+    title: `추천 코디 ${card.rank}`,
+    tags: card.items.map((i) => i.category || i.slot).filter(Boolean),
+    items: card.items.map((i) => ({
+      id: i.item_id,
+      name: i.display_name,
+      category: i.category,
+      imageUrl: imageUrlOf(i.image_ref),
+      price: i.price_snapshot,
+      fromWardrobe: i.source_type !== 'PRODUCT',
+    })),
+    totalPrice: card.total_product_price,
+    warnings: card.warnings ?? [],
+  };
+}
 
-let sessions: ChatSession[] = [...SEED_SESSIONS];
+/**
+ * 서버 메시지 → 말풍선.
+ * SYSTEM·TOOL 은 사람에게 보여줄 말이 아니라 버린다. 사진 첨부는 사진 말풍선을 따로 만들어
+ * 글보다 앞에 놓는다 — 올릴 때 사진이 먼저였으니 다시 열어도 그 순서여야 한다.
+ * 추천 카드는 말풍선 **뒤에** 붙는다 (먼저 말로 설명하고 그다음 코디를 보여주는 순서).
+ */
+function toMessages(api: ApiChatMessage, cards: ApiRecommendationCard[] = []): ChatMessage[] {
+  if (api.role !== 'USER' && api.role !== 'ASSISTANT') return [];
+  const role = api.role === 'USER' ? 'user' : 'ai';
+  const out: ChatMessage[] = [];
+
+  if (role === 'user') {
+    for (const a of api.attachments) {
+      out.push({ id: `${api.id}-a${a.id}`, role: 'user', kind: 'image', uri: a.image_url ?? undefined });
+    }
+  }
+  const text = api.content.trim();
+  if (text) out.push({ id: api.id, role, kind: 'text', text });
+  for (const card of cards) out.push(toRecMessage(api.id, card));
+
+  /* 답변 생성이 실패하면 서버가 **질문 메시지**를 FAILED 로 표시한다(답변 메시지는 아예 없다).
+     그 표시를 읽어 오류 줄을 만들면 대화를 다시 열어도 남는다.
+     사유까지는 run 에만 있어 여기서는 알 수 없다 — 보낸 직후에는 sendText 가 채워 넣는다. */
+  if (role === 'user' && api.status === 'FAILED') {
+    out.push({ id: failureLineId(api.id), role: 'ai', kind: 'error', text: GENERIC_FAILURE });
+  }
+  return out;
+}
+
+const GENERIC_FAILURE = '답변을 만들지 못했어요.';
+
+function failureLineId(messageId: string): string {
+  return `${messageId}-err`;
+}
+
+/** 답변에 붙은 추천 id. 없으면 그냥 대화만 오간 것이다. */
+function recommendationIdOf(api: ApiChatMessage): string | null {
+  const id = api.metadata?.recommendation_result_id;
+  return typeof id === 'string' && id ? id : null;
+}
+
+/**
+ * 추천이 붙은 답변들의 코디 카드를 한꺼번에 받아 메시지 id 별로 묶는다.
+ *
+ * 실패해도 대화 자체는 보여줘야 하므로 카드만 조용히 빠뜨린다 — 추천 조회 한 번이 실패했다고
+ * 주고받은 말까지 사라지면 무엇이 잘못됐는지 알 수 없다.
+ */
+async function fetchCards(list: ApiChatMessage[]): Promise<Map<string, ApiRecommendationCard[]>> {
+  const targets = list
+    .map((m) => ({ messageId: m.id, resultId: recommendationIdOf(m) }))
+    .filter((t): t is { messageId: string; resultId: string } => t.resultId !== null);
+
+  const byMessage = new Map<string, ApiRecommendationCard[]>();
+  if (targets.length === 0) return byMessage;
+
+  // 같은 추천을 두 메시지가 가리킬 수 있어 결과별로 한 번만 부른다.
+  const unique = [...new Set(targets.map((t) => t.resultId))];
+  const results = await Promise.all(
+    unique.map((id) =>
+      getRecommendationResult(id)
+        .then((r) => [id, r.cards] as const)
+        .catch(() => [id, [] as ApiRecommendationCard[]] as const),
+    ),
+  );
+  const cardsByResult = new Map(results);
+  for (const t of targets) byMessage.set(t.messageId, cardsByResult.get(t.resultId) ?? []);
+  return byMessage;
+}
+
+function toSession(api: ApiChatSession, previous?: ChatSession): ChatSession {
+  return {
+    id: api.id,
+    mode: fromApiMode(api.mode),
+    title: api.title,
+    // 목록 갱신이 이미 받아둔 대화를 지우면 안 된다.
+    messages: previous?.messages ?? [],
+    messagesLoaded: previous?.messagesLoaded ?? false,
+    updatedAt: new Date(api.last_message_at || api.updated_at).getTime(),
+  };
+}
+
+/* ── 스토어 ─────────────────────────────────────────── */
+
+let sessions: ChatSession[] = [];
+let loading = false;
+let error: string | null = null;
 const listeners = new Set<() => void>();
 
 function notify() {
@@ -178,6 +291,11 @@ function sortByRecent(list: ChatSession[]): ChatSession[] {
   return [...list].sort((a, b) => b.updatedAt - a.updatedAt);
 }
 
+function replaceSession(id: string, patch: (s: ChatSession) => ChatSession) {
+  sessions = sessions.map((s) => (s.id === id ? patch(s) : s));
+  notify();
+}
+
 let messageSeq = 0;
 
 /** 말풍선 id — 같은 밀리초에 여러 개가 추가돼도 겹치지 않게 순번을 붙인다. */
@@ -185,75 +303,135 @@ export function nextMessageId(): string {
   return `m${Date.now()}-${++messageSeq}`;
 }
 
-/** 사용자가 첫 질문을 하기 전까지의 임시 제목 */
-const DEFAULT_TITLE = '새 대화';
-
-/** 목록에서 제목을 대신할 만큼만 남기고 자른다 */
-const MAX_TITLE = 20;
-
-/** 새 대화를 열면 코지가 먼저 말을 건다 — 빈 화면은 무엇을 물어야 할지 알려주지 않는다. */
-const GREETING: Record<ChatMode, string> = {
-  taste: '추구미를 반영해 새 룩을 골라드릴게요.\n어떤 자리에 입을 옷이 필요하세요?',
-  closet: '옷장에 있는 옷으로 코디를 짜드릴게요.\n어떤 자리에 입을 옷이 필요하세요?',
-};
+function messageOf(e: unknown, fallback: string): string {
+  return e instanceof Error && e.message ? e.message : fallback;
+}
 
 export const chatStore = {
   getSessions: () => sessions,
   getSession: (id: string | undefined) =>
     id ? sessions.find((s) => s.id === id) : undefined,
+  getStatus: () => status,
 
-  /** 새 대화. 제목은 첫 질문이 오기 전까지의 임시 이름이다. */
-  createSession(mode: ChatMode): ChatSession {
-    const session: ChatSession = {
-      id: String(Date.now()),
-      mode,
-      title: DEFAULT_TITLE,
-      messages: [
-        { id: nextMessageId(), role: 'ai', kind: 'text', text: GREETING[mode] },
-      ],
-      updatedAt: Date.now(),
-    };
+  /** 목록 새로고침. 화면 진입·당겨서 새로고침에서 부른다. */
+  async loadSessions(): Promise<void> {
+    loading = true;
+    error = null;
+    setStatus();
+    try {
+      const list = await apiListSessions();
+      const before = new Map(sessions.map((s) => [s.id, s]));
+      sessions = sortByRecent(list.map((s) => toSession(s, before.get(s.id))));
+    } catch (e) {
+      error = messageOf(e, '대화 목록을 불러오지 못했어요');
+    } finally {
+      loading = false;
+      setStatus();
+      notify();
+    }
+  },
+
+  /** 대화 내용 받아오기. 이미 받아둔 세션은 다시 부르지 않는다(force 로 강제). */
+  async loadMessages(id: string, options: { force?: boolean } = {}): Promise<void> {
+    const current = sessions.find((s) => s.id === id);
+    if (!options.force && current?.messagesLoaded) return;
+    const list = await apiListMessages(id);
+    const cards = await fetchCards(list);
+    replaceSession(id, (s) => ({
+      ...s,
+      messages: list.flatMap((m) => toMessages(m, cards.get(m.id))),
+      messagesLoaded: true,
+    }));
+  },
+
+  /**
+   * 새 대화. 서버가 인사 메시지를 sequence 1 로 미리 넣어 주므로 여기서 만들지 않는다.
+   * 제목도 서버가 첫 질문을 보고 정한다 — 그래서 만들 때는 비워 둔다.
+   */
+  async createSession(mode: ChatMode): Promise<ChatSession> {
+    const created = await apiCreateSession(toApiMode(mode));
+    const session = toSession(created);
     sessions = [session, ...sessions];
     notify();
+    // 인사 메시지를 바로 띄우기 위해 이어서 받아온다(실패해도 대화 진입은 막지 않는다).
+    this.loadMessages(session.id).catch(() => {});
     return session;
   },
 
-  /**
-   * 첫 질문을 제목으로 삼는다. 이름을 한 번이라도 정한 세션은 건드리지 않는다.
-   * ('새 대화'가 여러 개면 목록에서 서로 구분되지 않는다)
-   */
-  nameFromFirstMessage(id: string, text: string) {
-    const session = sessions.find((s) => s.id === id);
-    if (!session || session.title !== DEFAULT_TITLE) return;
-    const line = text.trim().replace(/\s+/g, ' ');
-    if (!line) return;
-    const title = line.length > MAX_TITLE ? `${line.slice(0, MAX_TITLE)}…` : line;
-    sessions = sessions.map((s) => (s.id === id ? { ...s, title } : s));
-    notify();
-  },
-
-  renameSession(id: string, title: string) {
+  /** 이름 바꾸기 — 화면을 먼저 바꾸고 서버에 반영한다. 실패하면 되돌린다. */
+  async renameSession(id: string, title: string): Promise<void> {
     const next = title.trim();
     if (!next) return;
-    sessions = sessions.map((s) => (s.id === id ? { ...s, title: next } : s));
-    notify();
+    const previous = sessions.find((s) => s.id === id)?.title;
+    replaceSession(id, (s) => ({ ...s, title: next }));
+    try {
+      await apiRenameSession(id, next);
+    } catch (e) {
+      if (previous !== undefined) replaceSession(id, (s) => ({ ...s, title: previous }));
+      throw e;
+    }
   },
 
-  removeSession(id: string) {
+  /** 지우기 — 목록에서 먼저 걷어내고, 실패하면 되돌린다. */
+  async removeSession(id: string): Promise<void> {
+    const previous = sessions;
     sessions = sessions.filter((s) => s.id !== id);
     notify();
+    try {
+      await apiDeleteSession(id);
+    } catch (e) {
+      sessions = previous;
+      notify();
+      throw e;
+    }
   },
 
   /**
-   * 대화 내용 교체. 목록의 미리보기·시각이 여기서 갱신된다.
-   * 화면이 통째로 넘기는 이유 — 말풍선 추가/타이핑 제거가 한 번의 갱신으로 끝나야
-   * 목록이 중간 상태를 보지 않는다.
+   * 질문 보내기. 말풍선을 먼저 띄우고(기다리는 동안 빈 화면이 되지 않게) 답변을 기다린다.
+   *
+   * 끝난 뒤 목록을 다시 받아오는 이유 — 답변 말풍선뿐 아니라 **서버가 정한 제목**도
+   * 이때 확정된다(첫 질문으로 자동 저장). 화면이 따로 챙기지 않아도 되게 여기서 맞춘다.
+   *
+   * 되묻는 답변(NEEDS_CLARIFICATION)도 정상 답변이라 실패로 취급하지 않는다.
    */
-  setMessages(id: string, messages: ChatMessage[]) {
-    sessions = sessions.map((s) =>
-      s.id === id ? { ...s, messages, updatedAt: Date.now() } : s,
-    );
-    notify();
+  async sendText(id: string, text: string): Promise<ApiChatRun> {
+    const body = text.trim();
+    if (!body) throw new Error('보낼 내용이 없어요');
+
+    const draftId = nextMessageId();
+    replaceSession(id, (s) => ({
+      ...s,
+      messages: [...s.messages, { id: draftId, role: 'user', kind: 'text', text: body }],
+      updatedAt: Date.now(),
+    }));
+
+    const submitted = await apiSendMessage(id, body, newClientMessageId());
+    const run = await waitForRun(submitted.run.id);
+
+    // 답변이 생겼든 실패했든 서버가 가진 대화가 정답이다 — 통째로 다시 맞춘다.
+    await this.loadMessages(id, { force: true }).catch(() => {});
+
+    /* 실패 사유는 run 에만 있고 대화에는 남지 않는다. 방금 보낸 질문의 오류 줄에만
+       구체적인 사유를 채워 넣는다 — 다시 열면 일반 문구로 돌아간다(서버가 사유를 모르므로). */
+    if (run.status === 'FAILED' && run.error_message) {
+      const lineId = failureLineId(submitted.message.id);
+      replaceSession(id, (s) => ({
+        ...s,
+        messages: s.messages.map((m) =>
+          m.id === lineId && m.kind === 'error' ? { ...m, text: run.error_message } : m,
+        ),
+      }));
+    }
+
+    if (isAnswered(run.status)) {
+      const fresh = await apiListSessions().catch(() => null);
+      if (fresh) {
+        const before = new Map(sessions.map((s) => [s.id, s]));
+        sessions = sortByRecent(fresh.map((s) => toSession(s, before.get(s.id))));
+        notify();
+      }
+    }
+    return run;
   },
 
   subscribe(listener: () => void) {
@@ -262,8 +440,21 @@ export const chatStore = {
   },
 };
 
+/* useSyncExternalStore 는 getSnapshot 이 매번 같은 참조를 주길 요구한다.
+   loading·error 를 객체로 만들어 돌려주면 렌더마다 새 객체라 무한 루프가 된다.
+   그래서 바뀔 때만 새로 만들어 둔다. */
+let status: { loading: boolean; error: string | null } = { loading: false, error: null };
+function setStatus() {
+  if (status.loading !== loading || status.error !== error) status = { loading, error };
+}
+
 export function useChatSessions(): ChatSession[] {
   return useSyncExternalStore(chatStore.subscribe, chatStore.getSessions, chatStore.getSessions);
+}
+
+/** 목록 로딩·오류 상태. 빈 화면과 '못 불러옴'을 구분해 보여주기 위한 것. */
+export function useChatStatus(): { loading: boolean; error: string | null } {
+  return useSyncExternalStore(chatStore.subscribe, chatStore.getStatus, chatStore.getStatus);
 }
 
 /** 세션 하나를 구독. 없는 id(삭제된 대화 등)면 undefined. */

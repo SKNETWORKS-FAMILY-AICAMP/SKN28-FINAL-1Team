@@ -90,8 +90,12 @@ class WardrobeItemSerializer(serializers.ModelSerializer):
             "category_large", "category_small", "season", "style", "color",
             "pattern", "fit", "material", "sleeve", "length", "usage",
             "layer_role", "layer_order", "seg_meta", "confirmed", "created_at",
+            # NULL 이면 아직 옷장 밖 — 룩 상세가 '옷장에 추가' 버튼을 그릴지 판단한다.
+            "added_to_closet_at",
         ]
-        read_only_fields = ["id", "job", "s3_key", "seg_meta", "created_at"]
+        read_only_fields = [
+            "id", "job", "s3_key", "seg_meta", "created_at", "added_to_closet_at",
+        ]
 
     def get_image_url(self, obj) -> str:
         return storage.presigned_get(obj.s3_key)
