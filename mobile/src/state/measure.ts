@@ -1,7 +1,11 @@
 import { useSyncExternalStore } from 'react';
 import { Platform } from 'react-native';
 
-import { BODY_MEASURES, type BodyMeasureKey } from '@/constants/body-measures';
+import {
+  BODY_MEASURES,
+  EDITABLE_MEASURES,
+  type BodyMeasureKey,
+} from '@/constants/body-measures';
 import { API_BASE_URL, BodyEndpoints } from '@/constants/config';
 import { ApiError, api } from '@/lib/apiClient';
 import { getAccessToken } from '@/lib/secureStore';
@@ -438,7 +442,13 @@ export const measureStore = {
    */
   async saveDetail(measures: Measurement): Promise<void> {
     if (state.result) setState({ result: { ...state.result, measures } });
-    await api.patch(BodyEndpoints.detail, measures);
+    /* 비율처럼 **서버가 계산하는 값은 되돌려 보내지 않는다.**
+       보내면 서버가 가진 길이 값과 어긋난 비율이 저장됐다가 다음 추정에서 덮어써진다.
+       무엇을 보낼지는 constants/body-measures.ts 의 editable 이 단일 출처다. */
+    const body = Object.fromEntries(
+      EDITABLE_MEASURES.map((spec) => [spec.key, measures[spec.key]]),
+    );
+    await api.patch(BodyEndpoints.detail, body);
   },
 };
 
