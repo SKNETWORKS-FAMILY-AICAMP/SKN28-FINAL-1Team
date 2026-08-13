@@ -278,10 +278,10 @@ export const CalendarEndpoints = {
  * ⚠️ PATCH 는 캘린더와 같은 제약: schedule·tpo·hashtags 만. 사진·옷 구성은 못 바꾼다.
  */
 /**
- * 월 의류 구매 예산 — 상품 추천에서 '예산 내' 표시를 가르는 값.
+ * 대분류별 상품 1개 최대 가격 — 상품 추천에서 '예산 내' 표시를 가르는 값.
  *
- *   GET /api/v1/users/me/budget/  → { monthly_budget: number | null }   미설정이면 null
- *   PUT /api/v1/users/me/budget/    { monthly_budget }  전체 교체
+ *   GET /api/v1/users/me/budget/  → { category_budgets, effective_category_budgets }
+ *   PUT /api/v1/users/me/budget/    { category_budgets }  전체 교체
  *
  * ⚠️ **1만원 단위, 10,000 이상**만 받는다. 지울 때는 키를 빼는 게 아니라 **명시적으로 null**.
  */

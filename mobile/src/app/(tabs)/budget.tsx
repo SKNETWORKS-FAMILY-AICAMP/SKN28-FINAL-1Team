@@ -1,68 +1,53 @@
 import { Icon } from '@/components/icon';
 import { useToast } from '@/components/ui';
-import { Editorial, ink, Fonts , ContentMax} from '@/constants/theme';
-import { useBreakpoint } from '@/hooks/use-breakpoint';
-import { formatBudget, prefsStore, usePrefs } from '@/state/prefs';
+import { ContentMax, Editorial, Fonts, ink } from '@/constants/theme';
 import { goBack } from '@/lib/goBack';
-import { useEffect, useState } from 'react';
+import { useBreakpoint } from '@/hooks/use-breakpoint';
+import {
+  BUDGET_CATEGORIES,
+  type BudgetCategory,
+  type CategoryBudgets,
+  prefsStore,
+  usePrefs,
+} from '@/state/prefs';
+import { useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 const INK = Editorial.ink;
 
-const PRESETS = [
-  { label: '5만원', value: 50000 },
-  { label: '10만원', value: 100000 },
-  { label: '20만원', value: 200000 },
-  { label: '30만원', value: 300000 },
-  { label: '50만원', value: 500000 },
-  { label: '100만원', value: 1000000 },
-];
-
-function parseBudgetInput(raw: string): number | null {
-  const digits = raw.replace(/[^0-9]/g, '');
-  if (!digits) return null;
-  const n = Number(digits);
-  return n > 0 ? n : null;
+function toInputs(values: CategoryBudgets): Record<BudgetCategory, string> {
+  return Object.fromEntries(
+    BUDGET_CATEGORIES.map((category) => [
+      category,
+      values[category] == null ? '' : String(values[category]! / 10_000),
+    ]),
+  ) as Record<BudgetCategory, string>;
 }
 
-// 예산 설정 — 상품 추천 시 이 예산 내 아이템을 우선 노출
 export default function Budget() {
   const { contentStyle } = useBreakpoint();
   const prefs = usePrefs();
-  const [sel, setSel] = useState<number | null>(prefs.budget);
-  const [custom, setCustom] = useState('');
+  const [inputs, setInputs] = useState(() => toInputs(prefs.categoryBudgets));
+  const [saving, setSaving] = useState(false);
   const toast = useToast();
 
-  useEffect(() => {
-    if (prefs.budget != null && !PRESETS.some((p) => p.value === prefs.budget)) {
-      setCustom(String(Math.round(prefs.budget / 10000)));
-    }
-  }, [prefs.budget]);
-
-  const selectPreset = (value: number) => {
-    setCustom('');
-    setSel((prev) => (prev === value ? null : value));
+  const change = (category: BudgetCategory, text: string) => {
+    setInputs((current) => ({ ...current, [category]: text.replace(/[^0-9]/g, '') }));
   };
-
-  const onCustomChange = (text: string) => {
-    const cleaned = text.replace(/[^0-9]/g, '');
-    setCustom(cleaned);
-    if (cleaned) {
-      setSel(parseBudgetInput(cleaned)! * 10000);
-    } else if (!PRESETS.some((p) => p.value === sel)) {
-      setSel(null);
-    }
-  };
-
-  const [saving, setSaving] = useState(false);
 
   const save = async () => {
     if (saving) return;
+    const values = Object.fromEntries(
+      BUDGET_CATEGORIES.flatMap((category) => {
+        const manwon = Number(inputs[category]);
+        return manwon > 0 ? [[category, manwon * 10_000]] : [];
+      }),
+    ) as CategoryBudgets;
+
     setSaving(true);
-    /* 서버 왕복이라 끝난 뒤에 알린다 — 먼저 토스트를 띄우면 실패해도 저장된 것처럼 보인다. */
     try {
-      await prefsStore.saveBudget(sel);
+      await prefsStore.saveBudget(values);
     } catch (error) {
       toast(error instanceof Error ? error.message : '예산을 저장하지 못했어요', {
         variant: 'error',
@@ -71,11 +56,9 @@ export default function Budget() {
     } finally {
       setSaving(false);
     }
-    toast('예산을 저장했어요', { variant: 'success' });
+    toast('카테고리별 예산을 저장했어요', { variant: 'success' });
     goBack('/(tabs)/my');
   };
-
-  const presetActive = (value: number) => sel === value && !custom;
 
   return (
     <View style={styles.container}>
@@ -89,57 +72,39 @@ export default function Budget() {
         </View>
       </SafeAreaView>
 
-      <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={[styles.content, contentStyle(ContentMax.narrow)]}>
-        <Text style={styles.title}>한 달 옷 구매 예산은 얼마예요?</Text>
-        <Text style={styles.lead}>설정한 금액 안에서 맞는 아이템을 우선 추천해드려요.</Text>
+      <ScrollView
+        showsVerticalScrollIndicator={false}
+        contentContainerStyle={[styles.content, contentStyle(ContentMax.narrow)]}>
+        <Text style={styles.title}>상품 한 개에 얼마까지 사용할 수 있나요?</Text>
+        <Text style={styles.lead}>
+          카테고리별 최대 가격을 만원 단위로 입력해주세요. 비워 둔 카테고리는 표시된 기본값을 적용해요.
+        </Text>
 
-        {/* 프리셋 */}
-        <View style={styles.section}>
-          <Text style={styles.sectionLabel}>빠른 선택</Text>
-          <View style={styles.grid}>
-            {PRESETS.map((p) => {
-            const on = presetActive(p.value);
-            return (
-              <Pressable
-                key={p.value}
-                style={[styles.chip, on && styles.chipOn]}
-                onPress={() => selectPreset(p.value)}>
-                <Text style={[styles.chipText, on && styles.chipTextOn]}>{p.label}</Text>
-              </Pressable>
-            );
-            })}
-          </View>
-        </View>
-
-        {/* 직접 입력 */}
-        <View style={styles.section}>
-          <Text style={styles.sectionLabel}>직접 입력</Text>
-          <View style={[styles.customRow, custom.length > 0 && styles.customRowActive]}>
-            <TextInput
-              style={styles.customInput}
-              value={custom}
-              onChangeText={onCustomChange}
-              placeholder="예: 15"
-              placeholderTextColor={ink(0.3)}
-              keyboardType="number-pad"
-            />
-            <Text style={styles.customUnit}>만원</Text>
-          </View>
-          <Text style={styles.customHint}>원하는 금액을 만원 단위로 입력해주세요</Text>
-        </View>
-
-        <View style={styles.finalRow}>
-          <Text style={styles.finalLabel}>최종 설정 금액</Text>
-          <Text style={sel != null ? styles.finalValue : styles.finalEmpty}>
-            {sel != null ? formatBudget(sel) : '미설정'}
-          </Text>
+        <View style={styles.list}>
+          {BUDGET_CATEGORIES.map((category) => (
+            <View key={category} style={styles.row}>
+              <Text style={styles.category}>{category}</Text>
+              <View style={[styles.inputRow, inputs[category] && styles.inputRowActive]}>
+                <TextInput
+                  style={styles.input}
+                  value={inputs[category]}
+                  onChangeText={(text) => change(category, text)}
+                  placeholder={`기본 ${prefs.effectiveCategoryBudgets[category]! / 10_000}`}
+                  placeholderTextColor={ink(0.3)}
+                  keyboardType="number-pad"
+                  accessibilityLabel={`${category} 상품 1개 최대 예산`}
+                />
+                <Text style={styles.unit}>만원</Text>
+              </View>
+            </View>
+          ))}
         </View>
       </ScrollView>
 
       <View style={styles.bottomDivider} />
-      <View style={[styles.bottomBar, { paddingBottom: 12 }, contentStyle(ContentMax.narrow)]}>
-        <Pressable style={styles.cta} onPress={save}>
-          <Text style={styles.ctaText}>저장</Text>
+      <View style={[styles.bottomBar, contentStyle(ContentMax.narrow)]}>
+        <Pressable style={[styles.cta, saving && styles.ctaDisabled]} onPress={save} disabled={saving}>
+          <Text style={styles.ctaText}>{saving ? '저장 중…' : '저장'}</Text>
         </Pressable>
       </View>
     </View>
@@ -150,73 +115,27 @@ const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: Editorial.page },
   headerSafe: { backgroundColor: Editorial.page },
   header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: 16,
-    paddingTop: 8,
-    paddingBottom: 10,
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+    paddingHorizontal: 16, paddingTop: 8, paddingBottom: 10,
   },
   headerTitle: { fontSize: 15, fontWeight: '600', color: INK },
-
-  content: { paddingHorizontal: 24, paddingTop: 12, paddingBottom: 24 },
-  title: { fontFamily: Fonts.serif, fontSize: 24, color: INK, lineHeight: 30 },
+  content: { paddingHorizontal: 24, paddingTop: 12, paddingBottom: 28 },
+  title: { fontFamily: Fonts.serif, fontSize: 24, color: INK, lineHeight: 32 },
   lead: { fontSize: 14, color: Editorial.textCaption, lineHeight: 21, marginTop: 12 },
-
-  section: { marginTop: 28, gap: 14 },
-  sectionLabel: { fontSize: 16, fontWeight: '600', color: INK, letterSpacing: -0.2 },
-  grid: { flexDirection: 'row', flexWrap: 'wrap', gap: 10 },
-  chip: {
-    width: '31%',
-    height: 48,
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: ink(0.12),
-    backgroundColor: '#fafaf9',
-    alignItems: 'center',
-    justifyContent: 'center',
+  list: { marginTop: 28, gap: 12 },
+  row: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 16 },
+  category: { flex: 1, fontSize: 15, fontWeight: '600', color: INK },
+  inputRow: {
+    width: 150, height: 48, flexDirection: 'row', alignItems: 'center', gap: 8,
+    borderWidth: 1, borderColor: ink(0.12), borderRadius: 12,
+    paddingHorizontal: 14, backgroundColor: '#fafaf9',
   },
-  chipOn: { backgroundColor: Editorial.selected, borderColor: Editorial.selected },
-  chipText: { fontSize: 14, color: Editorial.textSoft, fontWeight: '600' },
-  chipTextOn: { color: '#fff' },
-
-  customRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 10,
-    borderWidth: 1,
-    borderColor: ink(0.12),
-    borderRadius: 14,
-    paddingHorizontal: 16,
-    height: 52,
-    backgroundColor: '#fafaf9',
-  },
-  customRowActive: { borderColor: Editorial.selected, backgroundColor: Editorial.surface },
-  customInput: { flex: 1, fontSize: 17, fontWeight: '500', color: INK, padding: 0 },
-  customUnit: { fontSize: 15, color: Editorial.textCaption, fontWeight: '600' },
-  customHint: { fontSize: 12.5, color: Editorial.textCaption, marginTop: -6 },
-
-  finalRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    marginTop: 32,
-    paddingTop: 20,
-    borderTopWidth: 1,
-    borderTopColor: ink(0.08),
-  },
-  finalLabel: { fontSize: 14, fontWeight: '500', color: Editorial.textCaption },
-  finalValue: { fontSize: 17, fontWeight: '600', color: INK },
-  finalEmpty: { fontSize: 14, color: Editorial.textCaption },
-
+  inputRowActive: { borderColor: Editorial.selected, backgroundColor: Editorial.surface },
+  input: { flex: 1, fontSize: 16, textAlign: 'right', color: INK, padding: 0 },
+  unit: { fontSize: 13, color: Editorial.textCaption, fontWeight: '600' },
   bottomDivider: { height: 1, backgroundColor: ink(0.08) },
-  bottomBar: { backgroundColor: Editorial.page, paddingHorizontal: 24, paddingTop: 12 },
-  cta: {
-    height: 52,
-    borderRadius: 999,
-    backgroundColor: Editorial.cta,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
+  bottomBar: { backgroundColor: Editorial.page, paddingHorizontal: 24, paddingTop: 12, paddingBottom: 12 },
+  cta: { height: 52, borderRadius: 999, backgroundColor: Editorial.cta, alignItems: 'center', justifyContent: 'center' },
+  ctaDisabled: { opacity: 0.6 },
   ctaText: { color: '#fff', fontSize: 15, fontWeight: '500' },
 });

@@ -35,6 +35,7 @@ class CompositionPolicy:
     source_priority: tuple[ItemSource, ...]
     composition_count: int = 3
     total_budget: int | None = None
+    category_budgets: dict[str, int] | None = None
     require_image: bool = True
     candidates_per_slot: int = 6
     minimum_source_counts: tuple[tuple[ItemSource, int], ...] = ()
@@ -47,6 +48,7 @@ class CompositionRequest:
     mode: RecommendationMode
     slot_results: tuple[ItemRetrievalResult, ...]
     total_budget: int | None = None
+    category_budgets: dict[str, int] | None = None
     require_image: bool = True
 
 
@@ -239,6 +241,14 @@ class CompositionEngine:
             or policy.total_budget < 0
         ):
             raise ValueError("total_budget은 0 이상의 정수여야 합니다.")
+        if policy.category_budgets is not None and any(
+            not isinstance(category, str)
+            or not isinstance(amount, int)
+            or isinstance(amount, bool)
+            or amount < 0
+            for category, amount in policy.category_budgets.items()
+        ):
+            raise ValueError("category_budgets는 대분류별 0 이상의 정수여야 합니다.")
         template_ids = [result.template.point_id for result in slot_results]
         if len(template_ids) != len(set(template_ids)):
             raise CompositionError("같은 템플릿 아이템 슬롯이 중복되었습니다.")
@@ -296,9 +306,22 @@ class CompositionEngine:
                 continue
             next_price = state.total_product_price
             if candidate.source_type is ItemSource.PRODUCT:
-                if policy.total_budget is not None and candidate.price is None:
+                category = _payload_text(
+                    slot_result.template.payload, "category_large"
+                )
+                category_budget = (policy.category_budgets or {}).get(category)
+                price = candidate.price
+                if (
+                    policy.total_budget is not None or category_budget is not None
+                ) and price is None:
                     continue
-                next_price += candidate.price or 0
+                if (
+                    category_budget is not None
+                    and price is not None
+                    and price > category_budget
+                ):
+                    continue
+                next_price += price or 0
                 if policy.total_budget is not None and next_price > policy.total_budget:
                     continue
             additions.append(
@@ -394,6 +417,7 @@ class OutfitComposer:
                 source_priority=priority,
                 composition_count=1,
                 total_budget=request.total_budget,
+                category_budgets=request.category_budgets,
                 require_image=request.require_image,
                 minimum_source_counts=(
                     ((ItemSource.PRODUCT, 1),)

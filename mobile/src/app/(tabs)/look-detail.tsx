@@ -1,6 +1,6 @@
 import { Icon } from '@/components/icon';
 import { SmartImage, useToast } from '@/components/ui';
-import { formatBudget, parsePrice, usePrefs } from '@/state/prefs';
+import { categoryBudget, formatBudget, parsePrice, usePrefs } from '@/state/prefs';
 import { router, useLocalSearchParams } from 'expo-router';
 import { useMemo, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
@@ -54,7 +54,7 @@ export default function LookDetail() {
   const [vote, setVote] = useState<'up' | 'down' | null>(null);
   const [openSlot, setOpenSlot] = useState<string | null>(null);
   const toast = useToast();
-  const { budget } = usePrefs();
+  const { effectiveCategoryBudgets } = usePrefs();
   const wishlist = useWishlist();
 
   const openVirtualTryOn = () => {
@@ -69,25 +69,21 @@ export default function LookDetail() {
   const brands = useMemo(() => brandScores(wishlist), [wishlist]);
   const wishedIds = useMemo(() => new Set(wishlist.map((w) => w.id)), [wishlist]);
 
-  /**
-   * 관련 상품 정렬 — ①예산 안 ②찜한 브랜드 순.
-   * 예산을 앞에 두는 이유: 살 수 없는 것을 아무리 취향에 맞게 올려도 소용이 없다.
-   */
-  const sortRelated = (items: LookRelated[]) =>
-    [...items].sort((a, b) => {
-      if (budget != null) {
-        const fit = (p: LookRelated) => (parsePrice(p.price) <= budget ? 0 : 1);
-        if (fit(a) !== fit(b)) return fit(a) - fit(b);
-      }
-      return (brands[b.brand] ?? 0) - (brands[a.brand] ?? 0);
-    });
+  /** 관련 상품은 실제 적용 예산 안에서만 보여주고 찜한 브랜드를 먼저 둔다. */
+  const filterRelated = (items: LookRelated[], category: string) => {
+    const budget = categoryBudget(effectiveCategoryBudgets, category);
+    return items
+      .filter((item) => budget == null || parsePrice(item.price) <= budget)
+      .sort((a, b) => (brands[b.brand] ?? 0) - (brands[a.brand] ?? 0));
+  };
 
-  const relatedHead = (() => {
+  const relatedHead = (category: string) => {
     const parts: string[] = [];
+    const budget = categoryBudget(effectiveCategoryBudgets, category);
     if (budget != null) parts.push(`${formatBudget(budget)} 예산 내 우선`);
     if (Object.keys(brands).length > 0) parts.push('찜한 브랜드 우선');
     return parts.length ? `비슷한 상품 · ${parts.join(' · ')}` : '비슷한 상품';
-  })();
+  };
 
   /* [다른 룩] = 다음 변형으로. 이름 그대로 다른 룩을 보여준다 —
      예전엔 룩북으로 나가버려서 버튼 이름과 하는 일이 어긋나 있었다. */
@@ -243,6 +239,7 @@ export default function LookDetail() {
                  아코디언을 잠그고 화살표도 숨긴다. */
               const expandable = p.related.length > 0;
               const open = expandable && openSlot === p.slot;
+              const related = filterRelated(p.related, p.slot);
               return (
                 <View key={p.slot} style={[styles.pieceWrap, open && styles.pieceWrapOpen]}>
                   <Pressable
@@ -287,8 +284,9 @@ export default function LookDetail() {
 
                   {open ? (
                     <View style={styles.related}>
-                      <Text style={styles.relatedHead}>{relatedHead}</Text>
-                      {sortRelated(p.related).map((r) => {
+                      <Text style={styles.relatedHead}>{relatedHead(p.slot)}</Text>
+                      {related.map((r) => {
+                        const budget = categoryBudget(effectiveCategoryBudgets, p.slot);
                         const inBudget = budget != null && parsePrice(r.price) <= budget;
                         const wished = wishedIds.has(wishKey(r));
                         const url = productUrl(r, r.mall);
@@ -338,12 +336,17 @@ export default function LookDetail() {
                           </View>
                         );
                       })}
-                      {budget == null ? (
+                      {related.length === 0 ? (
+                        <Text style={styles.relatedEmpty}>
+                          현재 예산 안의 비슷한 상품을 찾지 못했어요.
+                        </Text>
+                      ) : null}
+                      {categoryBudget(effectiveCategoryBudgets, p.slot) == null ? (
                         <Pressable
                           style={styles.budgetPrompt}
                           onPress={() => router.push('/budget')}>
                           <Icon name="wallet" tintColor={ink(0.5)} size={14} />
-                          <Text style={styles.budgetPromptText}>예산을 설정하면 예산 내 상품을 먼저 보여드려요</Text>
+                          <Text style={styles.budgetPromptText}>{p.slot} 예산을 설정하면 예산 내 상품을 먼저 보여드려요</Text>
                         </Pressable>
                       ) : null}
                     </View>
@@ -531,6 +534,7 @@ const styles = StyleSheet.create({
     gap: 10,
   },
   relatedHead: { fontSize: 11, color: Editorial.textCaption, fontWeight: '600' },
+  relatedEmpty: { fontSize: 12, color: Editorial.textCaption, paddingVertical: 10 },
   relatedItem: { flexDirection: 'row', alignItems: 'center', gap: 4 },
   // 상품 본문(→판매처)과 찜 버튼을 갈라 놓는다. 한 행에서 두 동작이 갈리므로 영역도 나눈다.
   relatedMain: { flex: 1, flexDirection: 'row', alignItems: 'center', gap: 10 },
