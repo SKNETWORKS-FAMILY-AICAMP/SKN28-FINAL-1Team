@@ -1,3 +1,4 @@
+import hashlib
 import logging
 import re
 from datetime import timedelta
@@ -35,7 +36,7 @@ from apps.chat.openapi import (
 from apps.chat.renderers import ServerSentEventRenderer
 from apps.chat.services import identity as identity_service
 
-from .models import OutfitAnalysis, OutfitRenderJob
+from .models import DailyLook, OutfitAnalysis, OutfitRenderJob
 from .serializers import (
     DailyLookSerializer,
     OutfitAnalysisAcceptedSerializer,
@@ -54,17 +55,25 @@ from .serializers import (
     RecommendationHistoryQuerySerializer,
     RecommendationHistoryResponseSerializer,
     RecommendationResultDetailSerializer,
+    VirtualTryOnRequestSerializer,
+    VirtualTryOnResponseSerializer,
 )
 from .services import analysis as analysis_service
 from .services import claim as claim_service
 from .services import daily_look as daily_look_service
 from .services import recommendation_results as recommendation_service
-from .services import render_jobs
+from .services import render_jobs, storage
+from .services.mixed_outfit_render import OutfitRenderError
 from .services.render_events import (
     RenderEvent,
     RenderEventStore,
     encode_sse,
     heartbeat,
+)
+from .services.virtual_try_on import (
+    DIRECT_PROMPT_VERSION,
+    MANNEQUIN_PROMPT_VERSION,
+    VirtualTryOnService,
 )
 
 logger = logging.getLogger(__name__)
@@ -877,6 +886,202 @@ class RecommendationCardRenderView(APIView):
         return Response(
             OutfitRenderJobSerializer(job, context={"request": request}).data,
             status=response_status,
+        )
+
+
+class RecommendationCardVirtualTryOnView(APIView):
+    """완성된 추천 코디를 사용자 사진 또는 체형 마네킹에 적용한다."""
+
+    permission_classes = [AllowAny]
+    parser_classes = [MultiPartParser, FormParser]
+
+    @extend_schema(
+        operation_id="recommendation_card_virtual_try_on_create",
+        tags=[CHAT_TAG],
+        summary="추천 코디 가상 착장",
+        description=(
+            "완료된 추천 카드 이미지와 전신 사진을 Qwen에 전달합니다. `person`은 "
+            "얼굴·체형·포즈를 유지하고 옷만 교체하며, `mannequin`은 같은 체형의 "
+            "마네킹에 선택한 추천 룩을 한 번에 입힙니다. 요청 사진 원본은 저장하지 않습니다."
+        ),
+        parameters=[_RESULT_ID_PARAMETER, _CARD_ID_PARAMETER],
+        request=VirtualTryOnRequestSerializer,
+        responses={
+            200: VirtualTryOnResponseSerializer,
+            409: OpenApiResponse(description="추천 코디 이미지가 아직 생성되지 않음"),
+            502: OpenApiResponse(description="이미지 모델이 가상 착장 생성에 실패함"),
+            503: OpenApiResponse(description="결과 저장소가 설정되지 않음"),
+        },
+    )
+    def post(self, request: Request, result_id, card_id) -> Response:
+        identity = _recommendation_identity(request)
+        card = recommendation_service.owned_card(
+            identity=identity,
+            result_id=result_id,
+            card_id=card_id,
+        )
+        if card is None:
+            raise NotFound("추천 카드를 찾을 수 없습니다.")
+
+        serializer = VirtualTryOnRequestSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        job = OutfitRenderJob.objects.filter(
+            composition=card,
+            status=OutfitRenderJob.Status.SUCCEEDED,
+        ).first()
+        if job is None or not job.output_s3_bucket or not job.output_s3_key:
+            return Response(
+                {"detail": "추천 코디 이미지 생성이 완료된 뒤 시도해 주세요."},
+                status=status.HTTP_409_CONFLICT,
+            )
+
+        upload = serializer.validated_data["person_image"]
+        upload.seek(0)
+        person = upload.read()
+        outfit = storage.download_for(
+            job.output_s3_bucket,
+            job.output_s3_key,
+            max_bytes=settings.OUTFIT_RENDER_MAX_OUTPUT_BYTES,
+        )
+        mode = serializer.validated_data["mode"]
+        service = VirtualTryOnService()
+        prefix = settings.VIRTUAL_TRY_ON_RESULT_PREFIX
+        person_hash = hashlib.sha256(person).hexdigest()
+        outfit_hash = hashlib.sha256(outfit).hexdigest()
+        prompt_contract = (
+            DIRECT_PROMPT_VERSION
+            if mode == "person"
+            else MANNEQUIN_PROMPT_VERSION
+        )
+        contract = hashlib.sha256(
+            (
+                f"{mode}|{person_hash}|{outfit_hash}|"
+                f"{settings.OUTFIT_RENDER_MODEL}|{prompt_contract}"
+            ).encode()
+        ).hexdigest()
+        final_key = f"{prefix}/{contract[:2]}/{contract}/result.png"
+        bucket = settings.OUTFIT_RENDER_RESULT_BUCKET
+        if not bucket:
+            return Response(
+                {"detail": "가상 착장 결과 저장소가 설정되지 않았습니다."},
+                status=status.HTTP_503_SERVICE_UNAVAILABLE,
+            )
+
+        cache_hit = storage.exists_for(bucket, final_key)
+        if not cache_hit:
+            try:
+                if mode == "mannequin":
+                    result = service.fit_mannequin(person, outfit)
+                else:
+                    result = service.fit_person(person, outfit)
+            except OutfitRenderError:
+                logger.exception("가상 착장 이미지 생성 실패: card=%s", card.pk)
+                return Response(
+                    {"detail": "가상 착장 이미지를 생성하지 못했습니다."},
+                    status=status.HTTP_502_BAD_GATEWAY,
+                )
+            storage.put_bytes_for(bucket, final_key, result.content, result.media_type)
+
+        ttl = settings.OUTFIT_RENDER_PRESIGNED_GET_TTL_SECONDS
+        return Response(
+            {
+                "mode": mode,
+                "image_url": storage.presigned_get_for(bucket, final_key, ttl=ttl),
+                "cache_hit": cache_hit,
+            }
+        )
+
+
+class DailyLookVirtualTryOnView(APIView):
+    """화면에 표시된 오늘의 추천 룩을 사용자 체형 마네킹에 적용한다."""
+
+    permission_classes = [IsAuthenticated]
+    parser_classes = [MultiPartParser, FormParser]
+
+    @extend_schema(
+        operation_id="daily_look_virtual_try_on_create",
+        tags=[CHAT_TAG],
+        summary="오늘의 추천 룩 가상 착장",
+        request=VirtualTryOnRequestSerializer,
+        responses={
+            200: VirtualTryOnResponseSerializer,
+            409: OpenApiResponse(description="추천 룩 이미지가 아직 생성되지 않음"),
+            502: OpenApiResponse(description="이미지 모델이 가상 착장 생성에 실패함"),
+            503: OpenApiResponse(description="결과 저장소가 설정되지 않음"),
+        },
+    )
+    def post(self, request: Request, look_id) -> Response:
+        look = DailyLook.objects.filter(
+            pk=look_id,
+            user=request.user,
+            status=DailyLook.Status.SUCCEEDED,
+        ).first()
+        if look is None:
+            raise NotFound("추천 룩을 찾을 수 없습니다.")
+
+        serializer = VirtualTryOnRequestSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        image = (look.result or {}).get("render_image") or (look.result or {}).get(
+            "outfit_image"
+        )
+        if not image or not image.get("s3_bucket") or not image.get("s3_key"):
+            return Response(
+                {"detail": "추천 룩 이미지 생성이 완료된 뒤 시도해 주세요."},
+                status=status.HTTP_409_CONFLICT,
+            )
+
+        upload = serializer.validated_data["person_image"]
+        upload.seek(0)
+        person = upload.read()
+        outfit = storage.download_for(
+            str(image["s3_bucket"]),
+            str(image["s3_key"]),
+            max_bytes=settings.OUTFIT_RENDER_MAX_OUTPUT_BYTES,
+        )
+        mode = serializer.validated_data["mode"]
+        prompt_version = (
+            DIRECT_PROMPT_VERSION if mode == "person" else MANNEQUIN_PROMPT_VERSION
+        )
+        contract = hashlib.sha256(
+            (
+                f"daily|{look.pk}|{mode}|{hashlib.sha256(person).hexdigest()}|"
+                f"{hashlib.sha256(outfit).hexdigest()}|{settings.OUTFIT_RENDER_MODEL}|"
+                f"{prompt_version}"
+            ).encode()
+        ).hexdigest()
+        bucket = settings.OUTFIT_RENDER_RESULT_BUCKET
+        if not bucket:
+            return Response(
+                {"detail": "가상 착장 결과 저장소가 설정되지 않았습니다."},
+                status=status.HTTP_503_SERVICE_UNAVAILABLE,
+            )
+        key = (
+            f"{settings.VIRTUAL_TRY_ON_RESULT_PREFIX}/{contract[:2]}/{contract}/result.png"
+        )
+        cache_hit = storage.exists_for(bucket, key)
+        if not cache_hit:
+            service = VirtualTryOnService()
+            try:
+                result = (
+                    service.fit_mannequin(person, outfit)
+                    if mode == "mannequin"
+                    else service.fit_person(person, outfit)
+                )
+            except OutfitRenderError:
+                logger.exception("오늘의 룩 가상 착장 생성 실패: look=%s", look.pk)
+                return Response(
+                    {"detail": "가상 착장 이미지를 생성하지 못했습니다."},
+                    status=status.HTTP_502_BAD_GATEWAY,
+                )
+            storage.put_bytes_for(bucket, key, result.content, result.media_type)
+
+        ttl = settings.OUTFIT_RENDER_PRESIGNED_GET_TTL_SECONDS
+        return Response(
+            {
+                "mode": mode,
+                "image_url": storage.presigned_get_for(bucket, key, ttl=ttl),
+                "cache_hit": cache_hit,
+            }
         )
 
 

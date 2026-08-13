@@ -1,54 +1,57 @@
 import { Icon } from '@/components/icon';
+import { DetailTwoPane } from '@/components/detail-two-pane';
 import { LoadingState, SmartImage, useToast } from '@/components/ui';
+import { Editorial, ink, Fonts } from '@/constants/theme';
+import { dailyLookToVariant, TODAY_LOOK } from '@/constants/today-look';
+import { useBreakpoint } from '@/hooks/use-breakpoint';
+import { useDailyLook } from '@/hooks/use-daily-look';
 import { goBack } from '@/lib/goBack';
-import { useEffect, useRef, useState } from 'react';
+import { pickBodyPhoto } from '@/lib/pickItemPhoto';
+import { fitDailyLookToMannequin } from '@/lib/virtualTryOnApi';
+import { useLocalSearchParams } from 'expo-router';
+import { useMemo, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-import { Editorial, ink, Fonts } from '@/constants/theme';
-import { FITTING_RESULT_IMAGE } from '@/constants/look-images';
-import { TODAY_LOOK } from '@/constants/today-look';
-import { useBreakpoint } from '@/hooks/use-breakpoint';
-import { DetailTwoPane } from '@/components/detail-two-pane';
-
 const INK = Editorial.ink;
-const BONE = Editorial.bone;
-/** 생성 캔버스 배경 — 기존 BONE(진한 베이지)이 무거워, 훨씬 연한 크림으로 둔다. */
 const CANVAS = '#f5f1ea';
 
-// 구성 아이템 = 오늘의 룩 단일 출처(룩상세와 공유).
-const PIECES = TODAY_LOOK.pieces;
-
-// C5 가상 피팅 — 내 체형에 룩을 입혀 생성 (프로토타입: 타이머로 생성 과정 시뮬레이션)
 export default function Fitting() {
+  const { lookId } = useLocalSearchParams<{ lookId?: string }>();
   const { contentStyle, width } = useBreakpoint();
-  const maxW = width >= 1280 ? 960 : 720;
-  const [phase, setPhase] = useState<'loading' | 'done'>('loading');
+  const { look: dailyLook } = useDailyLook(Boolean(lookId));
+  const look = useMemo(() => dailyLookToVariant(dailyLook) ?? TODAY_LOOK, [dailyLook]);
+  const [phase, setPhase] = useState<'idle' | 'loading' | 'done'>('idle');
+  const [resultUri, setResultUri] = useState<string | null>(null);
   const toast = useToast();
-  const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const maxW = width >= 1280 ? 960 : 720;
 
-  const generate = () => {
+  const generate = async () => {
+    if (!lookId) {
+      toast('추천 룩 정보를 찾을 수 없어요.', { variant: 'error' });
+      return;
+    }
+    const personUri = await pickBodyPhoto();
+    if (!personUri) return;
+
     setPhase('loading');
-    if (timer.current) clearTimeout(timer.current);
-    timer.current = setTimeout(() => {
+    try {
+      const result = await fitDailyLookToMannequin(lookId, personUri);
+      setResultUri(result.image_url);
       setPhase('done');
-      toast('가상 피팅이 완성됐어요', { variant: 'success' });
-    }, 2600);
+      toast('이 추천 룩을 내 체형 마네킹에 입혔어요.', { variant: 'success' });
+    } catch (error) {
+      setPhase(resultUri ? 'done' : 'idle');
+      toast(error instanceof Error ? error.message : '가상 착장을 만들지 못했어요.', {
+        variant: 'error',
+      });
+    }
   };
-
-  useEffect(() => {
-    generate();
-    return () => {
-      if (timer.current) clearTimeout(timer.current);
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
 
   return (
     <View style={styles.container}>
       <SafeAreaView edges={['top']} style={styles.headerSafe}>
         <View style={[styles.header, contentStyle(maxW)]}>
-          {/* 룩 상세에서 들어온다. ⚠️ router.replace 직접 호출 금지 — 웹에서 무시돼 먹통이 된다(lib/goBack.ts). */}
           <Pressable hitSlop={12} onPress={() => goBack('/look-detail')}>
             <Icon name="chevron.left" tintColor={INK} size={20} />
           </Pressable>
@@ -56,61 +59,64 @@ export default function Fitting() {
         </View>
       </SafeAreaView>
 
-      <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={[styles.content, contentStyle(maxW)]}>
-        {/* 데스크톱: [사진 | 상세·아이템] 2단 / 태블릿·모바일: 세로 */}
+      <ScrollView
+        showsVerticalScrollIndicator={false}
+        contentContainerStyle={[styles.content, contentStyle(maxW)]}>
         <DetailTwoPane
           image={
-            /* 생성 캔버스 */
             <View style={styles.canvas}>
-          {phase === 'loading' ? (
-            <LoadingState message={'내 체형에 맞춰\n가상 피팅을 만들고 있어요…'} />
-          ) : (
-            <>
-              {/* 캔버스가 이미 비율·모서리·overflow 를 잡고 있으므로 사진은 그 안을 채우기만 한다. */}
-              <SmartImage
-                asset={FITTING_RESULT_IMAGE}
-                width="100%"
-                radius={0}
-                contentFit="cover"
-                style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0 }}
-              />
-              <View style={styles.canvasBadge}>
-                <Icon name="figure.stand" tintColor="#fff" size={12} />
-                <Text style={styles.canvasBadgeText}>내 체형 반영</Text>
-              </View>
-            </>
-          )}
+              {phase === 'loading' ? (
+                <LoadingState message={'선택한 추천 룩을\n내 체형 마네킹에 입히고 있어요'} />
+              ) : resultUri ? (
+                <>
+                  <SmartImage
+                    uri={resultUri}
+                    width="100%"
+                    radius={0}
+                    contentFit="cover"
+                    style={StyleSheet.absoluteFill}
+                  />
+                  <View style={styles.canvasBadge}>
+                    <Icon name="figure.stand" tintColor="#fff" size={12} />
+                    <Text style={styles.canvasBadgeText}>내 체형 반영</Text>
+                  </View>
+                </>
+              ) : (
+                <>
+                  <Icon name="figure.stand" tintColor={ink(0.45)} size={42} />
+                  <Text style={styles.canvasTitle}>전신 사진을 선택해 주세요</Text>
+                  <Text style={styles.canvasGuide}>사진은 저장하지 않고 가상 착장에만 사용해요.</Text>
+                  <Pressable style={styles.photoBtn} onPress={generate}>
+                    <Text style={styles.photoBtnText}>사진 선택하고 입어보기</Text>
+                  </Pressable>
+                </>
+              )}
             </View>
           }
           details={
             <View style={styles.body}>
-          <Text style={styles.title}>{TODAY_LOOK.title}</Text>
-          <Text style={styles.subtitle}>{TODAY_LOOK.subtitle}</Text>
-
-          {/* 추천 사이즈 */}
-          <View style={styles.sizeCard}>
-            <Icon name="ruler" tintColor={INK} size={17} />
-            <Text style={styles.sizeText}>
-              내 체형 기준 추천 사이즈는 <Text style={styles.sizeStrong}>M</Text> 이에요.
-            </Text>
-          </View>
-
-          {/* 구성 아이템 썸네일 */}
-          <Text style={styles.sectionTitle}>이 룩의 구성</Text>
-          <View style={styles.thumbRow}>
-            {PIECES.map((p) => (
-              <View key={p.slot} style={styles.thumbCol}>
-                <SmartImage uri={p.image} width="100%" aspectRatio={1} radius={12} contentFit="cover" />
-                <Text style={styles.thumbLabel}>{p.slot}</Text>
+              <Text style={styles.title}>{look.title}</Text>
+              <Text style={styles.subtitle}>{look.subtitle}</Text>
+              <Text style={styles.sectionTitle}>적용되는 추천 룩</Text>
+              <View style={styles.thumbRow}>
+                {look.pieces.map((piece) => (
+                  <View key={piece.slot} style={styles.thumbCol}>
+                    <SmartImage
+                      uri={piece.image}
+                      width="100%"
+                      aspectRatio={1}
+                      radius={12}
+                      contentFit="cover"
+                    />
+                    <Text style={styles.thumbLabel}>{piece.slot}</Text>
+                  </View>
+                ))}
               </View>
-            ))}
-          </View>
             </View>
           }
         />
       </ScrollView>
 
-      {/* 하단 바 */}
       <View style={styles.bottomDivider} />
       <View style={[styles.bottomBar, { paddingBottom: 12 }, contentStyle(maxW)]}>
         <Pressable
@@ -118,17 +124,7 @@ export default function Fitting() {
           disabled={phase === 'loading'}
           onPress={generate}>
           <Icon name="arrow.clockwise" tintColor={ink(0.6)} size={15} />
-          <Text style={styles.altText}>다시 생성</Text>
-        </Pressable>
-        <Pressable
-          style={[styles.saveBtn, phase === 'loading' && styles.btnDisabled]}
-          disabled={phase === 'loading'}
-          onPress={() => {
-            toast('룩북에 저장했어요', { variant: 'success' });
-            goBack('/(tabs)/lookbook');
-          }}>
-          <Icon name="bookmark.fill" tintColor="#fff" size={15} />
-          <Text style={styles.saveText}>룩북에 저장</Text>
+          <Text style={styles.altText}>{resultUri ? '다른 사진으로 생성' : '사진 선택'}</Text>
         </Pressable>
       </View>
     </View>
@@ -139,98 +135,54 @@ const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: Editorial.page },
   headerSafe: { backgroundColor: Editorial.page },
   header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 10,
-    paddingHorizontal: 16,
-    paddingTop: 8,
-    paddingBottom: 10,
+    flexDirection: 'row', alignItems: 'center', gap: 10,
+    paddingHorizontal: 16, paddingTop: 8, paddingBottom: 10,
   },
   headerTitle: { fontSize: 15, fontWeight: '600', color: INK },
-
   content: { paddingBottom: 24 },
   canvas: {
-    /* 고정 높이로 두면 폭이 넓어지는 데스크톱에서 가로로 납작해져 세로 사진이 잘린다.
-       폰 폭(400) 기준 비율을 유지한다. */
-    aspectRatio: 0.952,
+    aspectRatio: 0.8,
     marginHorizontal: 20,
     borderRadius: 20,
     backgroundColor: CANVAS,
-    borderWidth: 1, borderColor: Editorial.line,
+    borderWidth: 1,
+    borderColor: Editorial.line,
     alignItems: 'center',
     justifyContent: 'center',
-    gap: 8,
+    gap: 10,
     overflow: 'hidden',
+    paddingHorizontal: 24,
   },
-  canvasLabel: { fontSize: 13, color: Editorial.textCaption, letterSpacing: 0.5, marginTop: 4 },
+  canvasTitle: { fontSize: 16, fontWeight: '600', color: INK, marginTop: 4 },
+  canvasGuide: { fontSize: 12, color: Editorial.textCaption, textAlign: 'center' },
+  photoBtn: {
+    marginTop: 8, backgroundColor: Editorial.cta, borderRadius: 999,
+    paddingHorizontal: 18, paddingVertical: 11,
+  },
+  photoBtnText: { color: '#fff', fontSize: 13, fontWeight: '600' },
   canvasBadge: {
-    position: 'absolute',
-    bottom: 16,
-    right: 16,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 5,
-    backgroundColor: INK,
-    paddingHorizontal: 11,
-    paddingVertical: 6,
-    borderRadius: 999,
+    position: 'absolute', bottom: 16, right: 16, flexDirection: 'row',
+    alignItems: 'center', gap: 5, backgroundColor: INK,
+    paddingHorizontal: 11, paddingVertical: 6, borderRadius: 999,
   },
   canvasBadgeText: { fontSize: 11, color: '#fff', fontWeight: '500' },
-
   body: { paddingHorizontal: 20, paddingTop: 22 },
   title: { fontFamily: Fonts.serif, fontSize: 24, color: INK },
   subtitle: { fontSize: 13, color: Editorial.textCaption, marginTop: 6 },
-
-  sizeCard: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 10,
-    marginTop: 18,
-    backgroundColor: Editorial.surfaceSoft,
-    borderWidth: 1, borderColor: Editorial.line,
-    borderRadius: 14,
-    paddingHorizontal: 16,
-    paddingVertical: 14,
-  },
-  sizeText: { flex: 1, fontSize: 14, color: Editorial.textSoft, lineHeight: 20 },
-  sizeStrong: { fontWeight: '700', color: INK },
-
   sectionTitle: { fontSize: 13, fontWeight: '600', color: INK, marginTop: 26, marginBottom: 12 },
-  thumbRow: { flexDirection: 'row', gap: 10 },
-  thumbCol: { flex: 1, alignItems: 'center', gap: 6 },
-  thumb: { width: '100%', height: 72, borderRadius: 12, backgroundColor: BONE },
+  thumbRow: { flexDirection: 'row', gap: 10, flexWrap: 'wrap' },
+  thumbCol: { width: 72, alignItems: 'center', gap: 6 },
   thumbLabel: { fontSize: 12, color: Editorial.textCaption },
-
   bottomDivider: { height: 1, backgroundColor: ink(0.08) },
   bottomBar: {
-    flexDirection: 'row',
-    gap: 10,
-    backgroundColor: Editorial.page,
-    paddingHorizontal: 20,
-    paddingTop: 12,
+    flexDirection: 'row', justifyContent: 'flex-end', backgroundColor: Editorial.page,
+    paddingHorizontal: 20, paddingTop: 12,
   },
   btnDisabled: { opacity: 0.4 },
   altBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 7,
-    height: 50,
-    paddingHorizontal: 20,
-    borderRadius: 999,
-    borderWidth: 1,
-    borderColor: ink(0.14),
-    justifyContent: 'center',
+    flexDirection: 'row', alignItems: 'center', gap: 7, height: 50,
+    paddingHorizontal: 20, borderRadius: 999, borderWidth: 1,
+    borderColor: ink(0.14), justifyContent: 'center',
   },
   altText: { fontSize: 14, color: Editorial.textCaption, fontWeight: '500' },
-  saveBtn: {
-    flex: 1,
-    flexDirection: 'row',
-    gap: 8,
-    height: 50,
-    borderRadius: 999,
-    backgroundColor: Editorial.cta,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  saveText: { fontSize: 14, color: '#fff', fontWeight: '500' },
 });

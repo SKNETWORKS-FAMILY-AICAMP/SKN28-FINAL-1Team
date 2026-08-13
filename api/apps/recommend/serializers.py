@@ -682,6 +682,30 @@ class OutfitRenderJobSerializer(serializers.ModelSerializer):
         return {"code": obj.error_code, "message": obj.error_message}
 
 
+class VirtualTryOnRequestSerializer(serializers.Serializer):
+    person_image = serializers.ImageField(
+        help_text="얼굴·체형·포즈를 유지할 정면 전신 사진 (JPEG, PNG, WebP)",
+    )
+    mode = serializers.ChoiceField(
+        choices=["person", "mannequin"],
+        default="person",
+        help_text="person은 사용자에게 바로 착장, mannequin은 체형 마네킹에 추천 룩을 바로 착장",
+    )
+
+    def validate_person_image(self, image: UploadedFile) -> UploadedFile:
+        if image.size > settings.VIRTUAL_TRY_ON_MAX_PERSON_IMAGE_BYTES:
+            raise serializers.ValidationError("전신 사진의 허용 크기를 초과했습니다.")
+        if image.content_type not in ALLOWED_OUTFIT_IMAGE_CONTENT_TYPES:
+            raise serializers.ValidationError("JPEG, PNG, WebP 사진만 사용할 수 있습니다.")
+        return image
+
+
+class VirtualTryOnResponseSerializer(serializers.Serializer):
+    mode = serializers.ChoiceField(choices=["person", "mannequin"])
+    image_url = serializers.URLField()
+    cache_hit = serializers.BooleanField()
+
+
 class RecommendationHistoryItemSerializer(serializers.ModelSerializer):
     result_id = serializers.UUIDField(source="id", read_only=True)
     card_count = serializers.SerializerMethodField()

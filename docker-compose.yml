@@ -147,6 +147,7 @@ services:
       QDRANT_URL: http://qdrant:6333   # 컨테이너 네트워크 내부 주소
       REDIS_URL: redis://redis:6379/0  # 컨테이너 네트워크 내부 주소 (비밀번호는 REDIS_PASSWORD로 주입)
       DJANGO_SETTINGS_MODULE: ${DJANGO_SETTINGS_MODULE:-config.settings.prod}
+      GUNICORN_TIMEOUT: ${GUNICORN_TIMEOUT:-660}
       # 사진 기반 신체치수 추정(VLM)용 키. 값은 파일에 두지 않고 shell에서 주입한다
       # (`infisical run --env=dev -- docker compose ...`). 미주입 시 빈 값이라
       # 사진 경로만 실패하고 나머지 API는 정상 동작한다.
@@ -396,10 +397,7 @@ services:
       - "6379:6379"
     volumes:
       - redis_data:/data
-    command: >
-      redis-server
-      --appendonly yes
-      --requirepass "$${REDIS_PASSWORD}"
+    command: sh -c 'exec redis-server --appendonly yes --requirepass "$$REDIS_PASSWORD"'
     healthcheck:
       test: ["CMD-SHELL", "redis-cli -a \"$${REDIS_PASSWORD}\" ping | grep PONG"]
       interval: 10s

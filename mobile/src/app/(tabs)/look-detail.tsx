@@ -57,6 +57,14 @@ export default function LookDetail() {
   const { budget } = usePrefs();
   const wishlist = useWishlist();
 
+  const openVirtualTryOn = () => {
+    if (!dailyLook?.look_id || look.id !== 'daily') {
+      toast('서버에서 생성된 추천 룩만 가상으로 입어볼 수 있어요.');
+      return;
+    }
+    router.push({ pathname: '/fitting', params: { lookId: dailyLook.look_id } });
+  };
+
   /* 찜한 브랜드 = 취향. 예산 다음 순위로 써서 관련 상품 순서를 정한다(아래 sortRelated). */
   const brands = useMemo(() => brandScores(wishlist), [wishlist]);
   const wishedIds = useMemo(() => new Set(wishlist.map((w) => w.id)), [wishlist]);
@@ -203,7 +211,7 @@ export default function LookDetail() {
         <DetailTwoPane
           image={
             /* 2D 가상착장 — 탭하면 가상 피팅 화면으로 */
-            <Pressable style={styles.fitting} onPress={() => router.push('/fitting')}>
+            <Pressable style={styles.fitting} onPress={openVirtualTryOn}>
           <SmartImage
             uri={look.image}
             asset={look.image ? undefined : TODAY_LOOK_IMAGE}
