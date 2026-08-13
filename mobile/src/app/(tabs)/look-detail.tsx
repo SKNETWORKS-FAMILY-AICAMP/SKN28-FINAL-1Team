@@ -115,7 +115,7 @@ export default function LookDetail() {
       mall: r.mall,
       slot,
     });
-    toast(added ? '위시리스트에 담았어요' : '위시리스트에서 뺐어요');
+    toast(added ? '찜했어요' : '찜에서 뺐어요');
   };
 
   /* 북마크 = 저장 토글. 켜면 '저장됨'에 담고, 끄면 뺀다.
@@ -320,7 +320,7 @@ export default function LookDetail() {
                               style={styles.wishBtn}
                               hitSlop={6}
                               onPress={() => toggleWish(r, p.slot)}
-                              accessibilityLabel={wished ? '위시리스트에서 빼기' : '위시리스트에 담기'}>
+                              accessibilityLabel={wished ? '찜에서 빼기' : '찜하기'}>
                               <Icon
                                 name={wished ? 'heart.fill' : 'heart'}
                                 tintColor={wished ? WINE : ink(0.35)}
@@ -349,7 +349,7 @@ export default function LookDetail() {
           {wishlist.length > 0 ? (
             <Pressable style={styles.wishLink} onPress={() => router.push('/wishlist')}>
               <Icon name="heart.fill" tintColor={WINE} size={14} />
-              <Text style={styles.wishLinkText}>위시리스트 {wishlist.length}개 보기</Text>
+              <Text style={styles.wishLinkText}>찜한 상품 {wishlist.length}개 보기</Text>
               <Icon name="chevron.right" tintColor={ink(0.3)} size={14} />
             </Pressable>
           ) : null}

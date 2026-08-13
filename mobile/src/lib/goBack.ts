@@ -30,7 +30,7 @@ export function goBack(fallback: Href = '/(tabs)/home') {
  *
  * 웹의 goBack 은 히스토리를 안 쓰고 fallback 으로 확정 이동하는데, 상세 화면 하나에
  * fallback 을 하나만 박아 두면 어느 길로 들어왔든 같은 곳으로 튕긴다
- * (룩 상세는 홈·룩북·위시리스트·채팅에서, 저장 룩은 룩북·캘린더에서 들어온다).
+ * (룩 상세는 홈·룩북·찜·채팅에서, 저장 룩은 룩북·캘린더에서 들어온다).
  * 부르는 쪽이 자기 자리를 알려 주고, 상세는 `from ?? 기본값` 으로 돌아간다.
  */
 export function withReturn(href: string, from: string): Href {
