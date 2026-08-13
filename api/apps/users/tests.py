@@ -1027,10 +1027,10 @@ class BudgetViewTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.data["category_budgets"], {})
         self.assertEqual(
-            response.data["effective_category_budgets"]["상의"], 100_000
+            response.data["effective_category_budgets"]["상의"], 50_000
         )
         self.assertEqual(
-            response.data["effective_category_budgets"]["아우터"], 300_000
+            response.data["effective_category_budgets"]["아우터"], 150_000
         )
 
     def test_budget_can_be_set(self):
@@ -1053,7 +1053,7 @@ class BudgetViewTests(TestCase):
         )
 
         self.assertEqual(response.data["effective_category_budgets"]["상의"], 120_000)
-        self.assertEqual(response.data["effective_category_budgets"]["하의"], 150_000)
+        self.assertEqual(response.data["effective_category_budgets"]["하의"], 50_000)
 
     def test_budget_can_be_cleared(self):
         self.user.category_budgets = {"상의": 100_000}

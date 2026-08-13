@@ -140,7 +140,7 @@ class ChatContextServiceTests(TestCase):
         self.assertEqual(first.payload["profile"], second.payload["profile"])
         self.assertEqual(
             first.payload["profile"]["category_budgets"]["상의"],
-            100_000,
+            50_000,
         )
 
     @patch("apps.chat.services.context.get_current_weather")

@@ -30,11 +30,11 @@ export const BUDGET_CATEGORIES = [
 export type BudgetCategory = (typeof BUDGET_CATEGORIES)[number];
 export type CategoryBudgets = Partial<Record<BudgetCategory, number>>;
 export const DEFAULT_CATEGORY_BUDGETS: CategoryBudgets = {
-  상의: 100_000,
-  하의: 150_000,
-  아우터: 300_000,
-  '원피스/세트': 200_000,
-  신발: 200_000,
+  상의: 50_000,
+  하의: 50_000,
+  아우터: 150_000,
+  '원피스/세트': 50_000,
+  신발: 100_000,
   가방: 200_000,
   액세서리: 50_000,
 };
