@@ -77,9 +77,8 @@ class EnsureTodayLookTests(TestCase):
         self.assertEqual(look.status, DailyLook.Status.QUEUED)
         self.assertEqual(push.call_count, 1)
         # 체형 판정 스냅샷이 함께 저장돼야 워커가 컨텍스트를 다시 만들지 않는다.
-        # 가슴96·허리80·엉덩이94는 상하 균형(±5%)에 허리도 뚜렷하지 않아
-        # 직사각형이다 — 어깨너비는 실루엣 판정에서 빠졌다(둘레와 단위가 다르다).
-        self.assertEqual(look.body_profile["silhouette"], "rectangle")
+        # 성별별 SizeKorea 분포에서 어깨너비를 필수 주신호로 판정한다.
+        self.assertEqual(look.body_profile["silhouette"], "inverted_triangle")
 
     @patch("apps.recommend.services.daily_look.queue_service.push")
     @patch("apps.recommend.services.daily_look.build_analysis_context", return_value=CONTEXT)

@@ -1,4 +1,7 @@
-"""이미지 세트 181명만으로 상세 치수 12개를 학습한다 (hist, 단일 모델).
+"""이미지 세트 181명으로 레거시 12개 출력 모델을 재현한다.
+
+현재 서빙은 이 모델의 chest/waist/hip/shoulder만 사용한다. 아래 대체 길이는
+과거 결과 재현용이며 길이 5개는 ``train_hist_exact_lengths_v2.py``가 소유한다.
 
 왜 181명만 쓰나
 ---------------
@@ -207,6 +210,9 @@ def main() -> None:
     joined.to_csv(
         PREPROCESSED / "sizekorea_181_full.csv", index=False, encoding="utf-8-sig"
     )
+    clean.to_csv(
+        PREPROCESSED / "sizekorea_172_clean.csv", index=False, encoding="utf-8-sig"
+    )
 
     features, targets = make_features(clean), clean[TARGETS]
     metrics, predictions = cross_validate(features, targets)
@@ -234,7 +240,7 @@ def main() -> None:
             "calf_length": "무릎높이 (바닥 기준, 신발굽 제외)",
             "torso_length": "겨드랑높이 - 엉덩이높이",
             "leg_length": "샅높이 (바닥 기준, 신발굽 제외)",
-            "neck_length": "목뒤높이 - 겨드랑높이",
+            "neck_length": "목뒤높이 - 겨드랑높이 - 8.0cm(시각적 얼굴 길이 보정)",
         },
         "rows": {"profiles": int(len(joined)), "trained": int(len(clean))},
         "seed": SEED,

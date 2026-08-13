@@ -16,17 +16,17 @@ lengths used to compute them:
 6. calf length (calf_length_cm, kneecap/knee center to lateral malleolus/ankle)
 7. neck length (neck_length_cm, front visual line from below jaw/chin to front neck/collarbone line)
 8. torso length (torso_length_cm, shoulder line to visible pelvis point)
-9. leg length (leg_length_cm, crotch/inseam line to lateral malleolus/ankle)
+9. leg length (leg_length_cm, visible pelvis point/ASIS level to lateral malleolus/ankle; this is lower-body length, not inseam length)
 
 Use the person's height ({{ height_cm }}cm), weight ({{ weight_kg }}kg), and the visible full-body scale to keep all centimeter values realistic.
 SizeKorea adult Korean reference values are:
 - shoulder width: average 37.1cm, common range about 34.8-39.6cm.
-- thigh length: average 31.2cm, common range about 29.6-32.8cm.
-- calf length: average 38.0cm, common range about 35.9-40.0cm.
-- torso length: average 45.0cm, common range about 43.1-46.9cm.
-- leg length: average 68.4cm, common range about 65.3-71.4cm.
-- neck length: average 9.1cm, common range about 8.0-12.0cm.
-Do not overestimate small visual segments. For example, neck_length_cm should usually be near 8.0-10.0cm unless the image clearly shows an unusually long or short front neck.
+- thigh length: average 31.2cm, central reference range about 28.2-34.1cm.
+- calf length: average 38.0cm, central reference range about 34.5-42.0cm.
+- torso length: average 45.0cm, central reference range about 41.4-48.7cm.
+- leg length: average 82.6cm, central reference range about 76.0-89.7cm.
+- neck length: estimate the actual jaw/chin-to-collarbone segment.{% if gender == "female" %} Female SizeKorea soft reference: median 6.52cm, p10-p90 about 5.19-7.91cm.{% else %} Male SizeKorea soft reference: median 7.72cm, p10-p90 about 6.04-9.35cm.{% endif %} This is guidance only, not a clipping range or failure condition.
+Do not force an estimate into a reference range when the visible landmarks support a value outside it.
 
 Do not return thigh circumference, calf circumference, upper-arm circumference, or ratios.
 

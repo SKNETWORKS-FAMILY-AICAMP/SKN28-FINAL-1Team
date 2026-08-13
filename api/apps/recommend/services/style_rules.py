@@ -13,9 +13,13 @@
 from __future__ import annotations
 
 import json
+import logging
 from dataclasses import dataclass
 from functools import lru_cache
 from pathlib import Path
+
+logger = logging.getLogger(__name__)
+_MISSING_RATIO_RULES_LOGGED: set[str] = set()
 
 #: 규칙 JSON 위치. 가이드는 golden-set/body/rules/ 를 적었지만, 요청 시점에
 #: Django가 읽는 파일이라 소비자(recommend) 옆에 두어 로딩 경로를 단순하게 했다.
@@ -207,6 +211,15 @@ class BodyRules:
         """
         prefer: list[Rule] = []
         avoid: list[Rule] = []
+
+        for axis in profile.ratios:
+            if axis not in self.ratios and axis not in _MISSING_RATIO_RULES_LOGGED:
+                logger.error(
+                    "체형 축 '%s' 판정값은 있지만 추천 규칙이 없어 오늘의 룩 점수에 "
+                    "반영되지 않습니다. 아이템 taxonomy와 body_fit_rules.json을 확인하세요.",
+                    axis,
+                )
+                _MISSING_RATIO_RULES_LOGGED.add(axis)
 
         for block in (
             self.silhouette.get(profile.silhouette),

@@ -4,6 +4,11 @@ from django.contrib.auth.password_validation import validate_password
 from django.db import transaction
 from rest_framework import serializers
 
+from apps.recommend.services.body_profile import (
+    SILHOUETTE_LABELS,
+    UNKNOWN,
+    build_profile,
+)
 from apps.users.constants import PREFERENCE_CATEGORIES, category_keys
 from apps.users.models import (
     BodyMeasurement,
@@ -183,14 +188,45 @@ class BodyMeasurementSerializer(serializers.ModelSerializer):
     """
 
     gender = serializers.SerializerMethodField()
+    body_type = serializers.SerializerMethodField()
+    body_type_label = serializers.SerializerMethodField()
 
     class Meta:
         model = BodyMeasurement
-        fields = [*BODY_BASIC_FIELDS, *BODY_DETAIL_FIELDS, "updated_at"]
-        read_only_fields = ["updated_at"]
+        fields = [
+            *BODY_BASIC_FIELDS,
+            *BODY_DETAIL_FIELDS,
+            "body_type",
+            "body_type_label",
+            "updated_at",
+        ]
+        read_only_fields = ["body_type", "body_type_label", "updated_at"]
 
     def get_gender(self, obj) -> str | None:
         return obj.gender or None
+
+    def _body_profile(self, obj) -> object:
+        cache = getattr(self, "_body_profile_cache", {})
+        key = id(obj)
+        if key in cache:
+            return cache[key]
+        profile = build_profile(
+            {
+                name: getattr(obj, name, None)
+                for name in [*BODY_BASIC_FIELDS, *BODY_DETAIL_FIELDS]
+            }
+        )
+        cache[key] = profile
+        self._body_profile_cache = cache
+        return profile
+
+    def get_body_type(self, obj) -> str | None:
+        silhouette = self._body_profile(obj).silhouette
+        return None if silhouette == UNKNOWN else silhouette
+
+    def get_body_type_label(self, obj) -> str | None:
+        silhouette = self._body_profile(obj).silhouette
+        return None if silhouette == UNKNOWN else SILHOUETTE_LABELS[silhouette]
 
 
 class BodyBasicInputSerializer(serializers.ModelSerializer):

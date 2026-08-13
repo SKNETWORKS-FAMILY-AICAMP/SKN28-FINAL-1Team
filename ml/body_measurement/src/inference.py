@@ -1,8 +1,8 @@
 """API 서버가 호출하는 신체치수 추론 인터페이스.
 
-추론 경로는 두 개지만, 둘 다 새 11개 저장 항목을 채운 같은 형태의 dict를 반환한다.
+추론 경로는 두 개지만, 둘 다 상세 14개 필드를 채운 같은 형태의 dict를 반환한다.
 
-- ``estimate_from_basic``  : 성별·키·몸무게 → HistGradientBoosting 11개 항목 예측
+- ``estimate_from_basic``  : 코어·둘레·정확 길이 Hist 모델을 조합하고 비율 계산
 - ``estimate_from_photos`` : 사진 VLM의 길이 예측에서 비율을 계산
 
 사진 VLM은 저장할 치수와 비율 계산용 길이를 함께 요청한다. 기존 결과는 허벅지·종아리
@@ -107,8 +107,8 @@ PHOTO_RESPONSE_TARGETS = PHOTO_MEASUREMENT_TARGETS
 
 # SizeKorea 기준 참고 분포. 저장 실패 조건이 아니라 해석·문서화 기준으로만 쓴다.
 RATIO_REFERENCE_RANGES = {
-    "thigh_calf_ratio": (0.506, 1.026),
-    "torso_leg_ratio": (0.339, 0.920),
+    "thigh_calf_ratio": (0.652, 0.970),
+    "torso_leg_ratio": (0.466, 0.637),
 }
 
 # 학습 데이터(SizeKorea) 범위를 벗어난 입력은 KNN이 외삽하지 못해 신뢰할 수 없다.
@@ -120,20 +120,27 @@ OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions"
 PROMPT_PATH = PROJECT_ROOT / "prompts" / "body_measurement_prompt_full.j2"
 SCHEMA_PATH = PROJECT_ROOT / "prompts" / "body_measurement_schema_full.json"
 
-# 서빙 모델은 새 11개 target으로 학습한 hist_gradient_boosting이다.
+# 기존 181명 모델은 사진과 같은 직접측정 모집단의 코어 치수 4개만 담당한다.
 # ⚠️ 이 아티팩트는 scikit-learn 1.8.0으로 저장됐고, 1.9.0에서 열면
 #    ModuleNotFoundError: No module named '_loss'로 실패한다. 실행 환경의
 #    scikit-learn은 반드시 1.8.0으로 고정해야 한다 (api/requirements.txt).
 DEFAULT_MODEL_PATH = (
     PROJECT_ROOT / "data" / "hist" / "models" / "hist_gradient_boosting_181.joblib"
 )
+DEFAULT_EXACT_LENGTH_MODEL_PATH = (
+    PROJECT_ROOT
+    / "data"
+    / "hist"
+    / "models"
+    / "hist_gradient_boosting_exact_lengths_v2.joblib"
+)
 # 사진 기반 서빙 모델. validation 39명에서 평균 MAE 2.757cm로 후보 중 가장 정확했다
 # (Qwen 3.597 / Grok 3.441 / Gemini 3.962). 호출당 $0.004492로 Qwen보다 약 30배
 # 비싸지만 정확도를 우선한다.
 DEFAULT_VLM_MODEL = "moonshotai/kimi-k2.5"
 
-# 12개 예측 대상 (hist_gradient_boosting_181.joblib의 12개 output)
-LENGTH_MODEL_OUTPUTS = [
+# 기존 181명 모델의 12개 출력 순서. 서빙에서는 코어 치수 4개만 채택한다.
+LEGACY_MODEL_OUTPUTS = [
     "chest",
     "waist",
     "hip",
@@ -141,6 +148,15 @@ LENGTH_MODEL_OUTPUTS = [
     "calf",
     "arm",
     "shoulder",
+    "thigh_length",
+    "calf_length",
+    "torso_length",
+    "leg_length",
+    "neck_length",
+]
+
+CORE_TARGETS = ["chest", "waist", "hip", "shoulder"]
+EXACT_LENGTH_TARGETS = [
     "thigh_length",
     "calf_length",
     "torso_length",
@@ -166,6 +182,9 @@ CIRCUMFERENCE_TARGETS = ["thigh", "calf", "arm"]
 
 _model = None
 _model_lock = threading.Lock()
+
+_exact_length_model = None
+_exact_length_model_lock = threading.Lock()
 
 _circumference_model = None
 _circumference_model_lock = threading.Lock()
@@ -221,6 +240,28 @@ def load_model():
                     )
                 _model = joblib.load(path)
     return _model
+
+
+def _exact_length_model_path() -> Path:
+    return Path(
+        os.getenv("BODY_EXACT_LENGTH_MODEL_PATH") or DEFAULT_EXACT_LENGTH_MODEL_PATH
+    )
+
+
+def load_exact_length_model():
+    """사용자 랜드마크 정의로 학습한 길이 v2 모델을 한 번만 로드한다."""
+    global _exact_length_model
+    if _exact_length_model is None:
+        with _exact_length_model_lock:
+            if _exact_length_model is None:
+                path = _exact_length_model_path()
+                if not path.exists():
+                    raise BodyEstimationError(
+                        f"정확 길이 추정 모델 파일이 없습니다: {path}. "
+                        "BODY_EXACT_LENGTH_MODEL_PATH 환경변수를 확인하세요."
+                    )
+                _exact_length_model = joblib.load(path)
+    return _exact_length_model
 
 
 def normalize_gender(gender: str) -> str:
@@ -293,9 +334,17 @@ def estimate_from_basic(gender: str, height: float, weight: float) -> dict[str, 
     predicted = load_model().predict(features)[0]
     measurements = {
         target: round(float(value), 1)
-        for target, value in zip(LENGTH_MODEL_OUTPUTS, predicted, strict=True)
-        if target in LENGTH_TARGETS
+        for target, value in zip(LEGACY_MODEL_OUTPUTS, predicted, strict=True)
+        if target in CORE_TARGETS
     }
+
+    exact_lengths = load_exact_length_model().predict(features)[0]
+    measurements.update(
+        {
+            target: round(float(value), 1)
+            for target, value in zip(EXACT_LENGTH_TARGETS, exact_lengths, strict=True)
+        }
+    )
 
     circumference = load_circumference_model().predict(features)[0]
     measurements.update(

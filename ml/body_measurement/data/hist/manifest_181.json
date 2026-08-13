@@ -1,4 +1,7 @@
 {
+  "serving_status": "core_measurements_only",
+  "serving_targets": ["chest", "waist", "hip", "shoulder"],
+  "length_replacement": "hist_gradient_boosting_exact_lengths_v2.joblib",
   "source": "SizeKorea 8차 직접측정 개인별 프로필 (이미지 세트 181명)",
   "features": [
     "gender",

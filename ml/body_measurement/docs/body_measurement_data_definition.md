@@ -4,16 +4,15 @@
 
 | 구분 | 위치 | 용도 |
 |---|---|---|
-| 원본 workbook | `ml/body_measurement/data/raw/sizekorea_8th.xlsx` | 사이즈코리아 제8차 원본 보관. 직접 수정하지 않는다. |
 | 원본 3D 추출 CSV | `ml/body_measurement/data/raw/sizekorea_8th_3d_source.csv` | `(1~2차년도) 3D 측정` 시트의 학습 관련 원천 컬럼 |
-| 전처리 전체 | `ml/body_measurement/data/preprocessed/sizekorea_8th_11targets.csv` | 단위 변환·파생식 적용 후 모델 입력/정답 |
-| 전처리 분할 | `ml/body_measurement/data/preprocessed/splits/{train,validation,test}.csv` | seed 42, 80/10/10 분할 |
-| Hist 모델 | `ml/body_measurement/data/hist/models/hist_gradient_boosting_11targets.joblib` | 성별·키·몸무게 입력 모델 |
+| 정확 길이 전처리 | `ml/body_measurement/data/preprocessed/sizekorea_8th_exact_lengths_v2.csv` | 사용자 랜드마크 정의로 계산한 로컬 학습 데이터(Git 제외) |
+| 정확 길이 Hist | `ml/body_measurement/data/hist/models/hist_gradient_boosting_exact_lengths_v2.joblib` | 성별·키·몸무게 → 길이 5개 |
+| 학습 계약·분포 | `ml/body_measurement/data/hist/manifest_exact_lengths_v2.json` | 정의, 표본, 성별 분포, 모델 해시 |
 | Hist 행별 결과 | `ml/body_measurement/data/hist/predictions/*.csv` | 실제값·예측값·오차를 행 단위로 저장 |
 | VLM | `ml/body_measurement/data/vlm/` | 새 11개 프롬프트 실행 결과를 저장할 위치 |
 | 과거 7개/둘레 기준 자료 | `ml/body_measurement/data/archive/legacy_7target_vlm/` | 현재 계약에는 사용하지 않는 참고용 보관 |
 
-원본 workbook은 Git 이력에서 복구했으며 원본 자체에는 손대지 않는다. 원본 시트의 길이·둘레는 mm, 몸무게는 kg이므로 모델 CSV에서는 cm/kg로 변환한다.
+원본 3D 추출값은 길이·둘레가 mm, 몸무게가 kg이므로 학습 데이터에서는 cm/kg로 변환한다.
 
 ## 2. 모델 입력과 14개 저장 항목 (상세 14개)
 
@@ -29,10 +28,10 @@
 | `calf` | cm | `장딴지둘레` / 10 |
 | `arm` | cm | `편위팔둘레` / 10 |
 | `thigh_length` | cm | 샅선/인심 라인 → 무릎뼈/무릎 중심 |
-| `calf_length` | cm | 무릎뼈/무릎 중심 → 바닥/복사뼈 |
+| `calf_length` | cm | `(무릎뼈가운데높이 - 가쪽복사높이) / 10` |
 | `torso_length` | cm | 어깨선 → 골반점 |
-| `leg_length` | cm | 샅선/인심 라인 → 바닥/복사뼈 |
-| `neck_length` | cm | `상체길이(머리~골반) - (어깨~골반) - 얼굴길이` (시각적 목길이, 8~12cm 범위, 평균 8.3cm) |
+| `leg_length` | cm | `(위앞엉덩뼈가시높이 - 가쪽복사높이) / 10` |
+| `neck_length` | cm | `(턱끝높이 - 목앞높이) / 10`; 사진에서는 턱 아래→쇄골선 |
 | `thigh_calf_ratio` | 비율 | `thigh_length / calf_length` |
 | `torso_leg_ratio` | 비율 | `torso_length / leg_length` |
 
@@ -43,23 +42,24 @@
 | 허벅지 길이 | 샅선/인심 라인 → 무릎뼈/무릎 중심 |
 | 종아리 길이 | 무릎뼈/무릎 중심 → 복사뼈/발목 |
 | 상체 길이 | 어깨선/어깨높이 → 골반점 |
-| 하체 길이 | 샅선/샅높이 → 복사뼈/발목 |
-| 목길이 | 시각적 목길이 `상체길이(머리~골반) - (어깨~골반) - 얼굴길이` (8~12cm 범위, 평균 8.3cm) |
+| 하체 길이 | 골반점/위앞엉덩뼈가시 → 복사뼈/발목 |
+| 목길이 | 턱 아래/턱끝 → 목앞/쇄골선. `머리→골반 - 어깨→골반 - 실제 얼굴길이`는 같은 길이를 구성하는 보조식이다. |
 
-SizeKorea 181명 이미지 세트 기준 참고 분포는 다음과 같다. 이 값은 해석·캡션용 참고 범위이며, 사용자가 직접 수정한 양수 값은 저장할 수 있게 둔다.
+정확한 3D 랜드마크가 모두 있는 SizeKorea 4,485명(F 2,510/M 1,975)의 참고 분포다. p01~p99는 프롬프트와 운영 진단의 soft 범위이며 값을 자르거나 저장을 거절하는 하드 제한이 아니다.
 
-| 지표 | 평균 | min | max |
+| 지표 | 평균 | p01 | p99 |
 |---|---:|---:|---:|
-| `thigh_length` | 31.161 | 19.130 | 40.280 |
-| `calf_length` | 38.006 | 28.850 | 48.860 |
-| `torso_length` | 45.030 | 25.000 | 59.000 |
-| `leg_length` | 68.416 | 54.300 | 85.300 |
-| `thigh_calf_ratio` | 0.823 | 0.506 | 1.026 |
-| `torso_leg_ratio` | 0.660 | 0.339 | 0.920 |
+| `thigh_length` | 31.160 | 25.667 | 36.452 |
+| `calf_length` | 38.006 | 32.348 | 44.610 |
+| `torso_length` | 45.031 | 38.984 | 52.100 |
+| `leg_length` | 82.615 | 71.744 | 94.732 |
+| `neck_length` | 7.052 | 4.025 | 10.362 |
+| `thigh_calf_ratio` | 0.823 | 0.652 | 0.970 |
+| `torso_leg_ratio` | 0.546 | 0.466 | 0.637 |
 
 ## 4. HistGradientBoosting 재현
 
-`retrain_11targets.py`가 원본에서 매번 전처리·분할·학습·평가를 재현한다. `validation_predictions.csv`와 `test_predictions.csv`는 다음 컬럼을 모두 포함한다.
+`train_hist_exact_lengths_v2.py`가 정확 길이 5개를 계산하고 5-fold 교차검증 후 기존 모델과 다른 파일명으로 학습한다.
 
 `source_row_id`, `subject_id`, 입력 3개, `actual_<target>`, `predicted_<target>`, `error_<target>`
 

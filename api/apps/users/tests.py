@@ -497,6 +497,22 @@ class BodyMeasurementTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.data["gender"], "female")
 
+    def test_get_returns_canonical_body_type_label(self):
+        BodyMeasurement.objects.create(
+            user=self.user,
+            gender="female",
+            shoulder="38.5",
+            chest="84.5",
+            waist="68.0",
+            hip="92.0",
+        )
+
+        response = self.client.get(reverse("users:body"))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data["body_type"], "inverted_triangle")
+        self.assertEqual(response.data["body_type_label"], "역삼각형체형")
+
     # ---- 기본 수치 (성별·키·몸무게 — 셋 다 필수) ----
 
     BASIC_PAYLOAD = {"gender": "male", "height": "175.5", "weight": "70.0"}
@@ -743,6 +759,9 @@ ESTIMATED_MEASUREMENTS = {
     "chest": 98.3,
     "waist": 82.0,
     "hip": 94.9,
+    "thigh": 55.2,
+    "calf": 37.3,
+    "arm": 32.0,
     "thigh_length": 40.1,
     "calf_length": 37.7,
     "torso_length": 45.0,

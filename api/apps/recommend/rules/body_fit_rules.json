@@ -1,6 +1,8 @@
 {
   "schema_version": "body-fit-rules-v2",
-  "note": "체형별 의류 매칭 규칙. schema_version은 추천 규칙 파일 내부 버전이며 백엔드 API 경로 /api/v1과 무관하다. 2026-08-13 기준: SizeKorea 181명 이미지 세트 14개 지표(기존 둘레 7개 + 추가 길이 5개 + 비율 2개) 평균/분위수 기준 및 시각적 목길이 상체길이(머리~골반)-(어깨~골반)-얼굴길이(8~12cm) 반영. 값은 반드시 image-processor/pipeline/taxonomy.py의 태그 라벨만 쓴다 — 오타는 조용히 '규칙 없음'이 되므로 style_rules.validate_rules()가 기동 시 검사한다.",
+  "golden_source_version": "2.0.0",
+  "threshold_version": "4.0.0",
+  "note": "체형별 의류 매칭 규칙. 가로 체형은 SizeKorea 이미지 연결 clean 172명(F81/M91), 길이 비율과 목길이는 정확 3D 랜드마크 4,485명(F2510/M1975)의 성별 분위수를 사용한다. 목길이는 턱끝→목앞/쇄골선이며 neckline 태그가 배포 taxonomy에 추가되기 전까지 판정만 저장하고 추천 점수에는 적용하지 않는다. 값은 반드시 image-processor/pipeline/taxonomy.py의 태그 라벨만 쓴다.",
   "weights": {
     "note": "취향이 1순위, 체형 규칙이 2순위 (가이드 Q2). 선호 가점이 규칙 감점보다 크도록 잡았다. context_match는 계절·상황 일치 가산 — 하드 필터가 아니다.",
     "preference_match": 30,
@@ -38,7 +40,7 @@
         }
       ]
     },
-    "inverted": {
+    "inverted_triangle": {
       "label": "역삼각형 (어깨 발달형)",
       "prefer": [
         {
@@ -204,7 +206,7 @@
     }
   },
   "ratios": {
-    "leg_volume": {
+    "thigh_calf_ratio": {
       "thigh_dominant": {
         "label": "허벅지 우세",
         "prefer": [
@@ -239,7 +241,7 @@
         "avoid": []
       }
     },
-    "vertical_balance": {
+    "torso_leg_ratio": {
       "long_torso": {
         "label": "상체 길이감 우세",
         "prefer": [

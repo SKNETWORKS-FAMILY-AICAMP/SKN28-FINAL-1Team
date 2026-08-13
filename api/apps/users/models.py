@@ -209,7 +209,7 @@ class BodyMeasurement(models.Model):
     thigh_length = _measure_field("패션용 허벅지 길이감(cm, 샅선/인심 라인→무릎뼈)")
     calf_length = _measure_field("패션용 종아리 길이감(cm, 무릎뼈→복사뼈/발목)")
     torso_length = _measure_field("패션용 상체 길이감(cm, 어깨선→골반점)")
-    leg_length = _measure_field("패션용 하체 길이감(cm, 샅선/인심 라인→복사뼈/발목)")
+    leg_length = _measure_field("패션용 하체 길이감(cm, 골반점/위앞엉덩뼈가시→복사뼈/발목)")
 
     # 체형 분류에 사용하는 길이·비율 지표
     neck_length = models.DecimalField(
@@ -232,7 +232,7 @@ class BodyMeasurement(models.Model):
             MinValueValidator(Decimal("0.1")),
             MaxValueValidator(Decimal("9.999")),
         ],
-        help_text="패션용 허벅지 길이감 / 종아리 길이감 비율 (SizeKorea 평균 0.823, 참고 분포 약 0.506~1.026)",
+        help_text="패션용 허벅지 길이감 / 종아리 길이감 비율 (정확 3D 랜드마크 SizeKorea 평균 0.823, p01~p99 약 0.652~0.970)",
         db_comment="패션용 허벅지 길이감 / 종아리 길이감 비율",
     )
     torso_leg_ratio = models.DecimalField(
@@ -245,7 +245,7 @@ class BodyMeasurement(models.Model):
             MinValueValidator(Decimal("0.1")),
             MaxValueValidator(Decimal("9.999")),
         ],
-        help_text="패션용 상체 길이감 / 하체 길이감 비율 (상체=어깨선→골반점, 하체=샅선→발목; SizeKorea 평균 0.660, 참고 분포 약 0.339~0.920)",
+        help_text="패션용 상체 길이감 / 하체 길이감 비율 (상체=어깨선→골반점, 하체=골반점→복사뼈; 정확 3D 랜드마크 SizeKorea 평균 0.546, p01~p99 약 0.466~0.637)",
         db_comment="패션용 상체 길이감 / 하체 길이감 비율",
     )
 
