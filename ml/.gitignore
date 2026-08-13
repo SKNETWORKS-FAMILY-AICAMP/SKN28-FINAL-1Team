@@ -44,3 +44,7 @@ ml/body_measurement/artifacts/csv/make_*.py
 ml/body_measurement/artifacts/models/knn.joblib
 ml/body_measurement/artifacts/models/baseline.joblib
 ml/body_measurement/artifacts/models/random_forest.joblib
+
+# 신체치수 서빙 모델 — 클론만으로 /body/estimate 가 뜨도록 추적한다.
+# (배포 환경에서는 BODY_MODEL_PATH 로 S3 경로를 주입해 덮어쓸 수 있다)
+!body_measurement/data/hist/models/*.joblib
