@@ -4,6 +4,7 @@ import {
   getAccessToken,
   getRefreshToken,
   saveAccessToken,
+  saveTokens,
 } from '@/lib/secureStore';
 
 /**
@@ -68,10 +69,19 @@ async function refreshAccessToken(): Promise<string | null> {
     });
     if (!res.ok) return null;
 
-    const data = (await parseBody(res)) as { access?: string } | null;
+    const data = (await parseBody(res)) as { access?: string; refresh?: string } | null;
     if (!data?.access) return null;
 
-    await saveAccessToken(data.access);
+    /* 백엔드가 refresh 토큰을 회전시킨다(SIMPLE_JWT: ROTATE_REFRESH_TOKENS + BLACKLIST_AFTER_
+       ROTATION). 재발급 응답에 새 refresh 가 함께 오고 **쓰던 refresh 는 그 즉시 블랙리스트에
+       오른다**. 그래서 새 access 만 저장하고 새 refresh 를 버리면, 첫 재발급은 되지만 두 번째
+       재발급에서 이미 죽은 토큰을 보내 401 → 강제 로그아웃이 된다.
+       (access 수명이 30분이라 로그인 한 시간쯤 뒤 어느 화면에서든 튕기는 증상이었다.) */
+    if (data.refresh) {
+      await saveTokens(data.access, data.refresh);
+    } else {
+      await saveAccessToken(data.access);
+    }
     return data.access;
   } catch {
     return null;

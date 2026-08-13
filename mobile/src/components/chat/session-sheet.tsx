@@ -54,10 +54,16 @@ export function ChatSessionSheet({
   const trimmed = draft.trim();
   const canSave = trimmed.length > 0 && trimmed !== session.title;
 
-  const handleSave = () => {
-    chatStore.renameSession(session.id, trimmed);
-    toast('대화 이름을 바꿨어요', { variant: 'success' });
+  /* 이름·삭제 모두 서버에 반영된다. 스토어가 화면을 먼저 바꾸고 실패하면 되돌리므로
+     여기서는 결과만 알린다 — 되돌아간 이름을 보고도 성공했다고 말하면 안 된다. */
+  const handleSave = async () => {
     onClose();
+    try {
+      await chatStore.renameSession(session.id, trimmed);
+      toast('대화 이름을 바꿨어요', { variant: 'success' });
+    } catch {
+      toast('이름을 바꾸지 못했어요', { variant: 'error' });
+    }
   };
 
   const handleDelete = async () => {
@@ -70,9 +76,13 @@ export function ChatSessionSheet({
       destructive: true,
     });
     if (!ok) return;
-    chatStore.removeSession(session.id);
-    toast('대화를 삭제했어요', { variant: 'success' });
-    onDeleted?.();
+    try {
+      await chatStore.removeSession(session.id);
+      toast('대화를 삭제했어요', { variant: 'success' });
+      onDeleted?.();
+    } catch {
+      toast('대화를 삭제하지 못했어요', { variant: 'error' });
+    }
   };
 
   return (
