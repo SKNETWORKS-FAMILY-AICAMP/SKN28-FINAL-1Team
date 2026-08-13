@@ -10,7 +10,6 @@ import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { ContentMax, Editorial, Fonts, ink } from '@/constants/theme';
-import { useBottomTabInset } from '@/hooks/use-bottom-tab-inset';
 import { useBreakpoint } from '@/hooks/use-breakpoint';
 
 const INK = Editorial.ink;
@@ -26,14 +25,13 @@ function formatTotal(won: number): string {
 }
 
 /**
- * 위시리스트 — 추천받은 상품 중 담아 둔 것들.
+ * 찜한 상품 — 추천받은 상품 중 담아 둔 것들.
  *
  * 여기서 하는 일은 둘이다: 담아 둔 걸 다시 보는 것, 그리고 사러 나가는 것.
  * 우리는 결제를 받지 않으므로 마지막 행동은 항상 외부 몰로 나가는 것으로 끝난다.
  */
 export default function WishlistScreen() {
   const { contentStyle } = useBreakpoint();
-  const tabInset = useBottomTabInset();
   const items = useWishlist();
   const { budget } = usePrefs();
   const toast = useToast();
@@ -51,22 +49,22 @@ export default function WishlistScreen() {
   );
 
   const remove = async (w: WishItem) => {
-    if (await confirm({ title: `'${w.name}'을 위시리스트에서 뺄까요?`, destructive: true })) {
+    if (await confirm({ title: `'${w.name}'을 찜에서 뺄까요?`, destructive: true })) {
       likesStore.removeWish(w.id);
-      toast('위시리스트에서 뺐어요');
+      toast('찜에서 뺐어요');
     }
   };
 
   const clearAll = async () => {
     if (
       await confirm({
-        title: '위시리스트를 비울까요?',
+        title: '찜한 상품을 비울까요?',
         message: `담아 둔 ${items.length}개가 모두 사라져요.`,
         destructive: true,
       })
     ) {
       likesStore.clearWishlist();
-      toast('위시리스트를 비웠어요');
+      toast('찜을 비웠어요');
     }
   };
 
@@ -77,7 +75,7 @@ export default function WishlistScreen() {
           <Pressable hitSlop={12} onPress={() => goBack('/(tabs)/my')}>
             <Icon name="chevron.left" tintColor={INK} size={20} />
           </Pressable>
-          <Text style={styles.headerTitle}>위시리스트</Text>
+          <Text style={styles.headerTitle}>찜한 상품</Text>
           {items.length > 0 ? (
             <Pressable style={styles.headerRight} hitSlop={10} onPress={clearAll}>
               <Text style={styles.clearText}>비우기</Text>
@@ -90,7 +88,7 @@ export default function WishlistScreen() {
         showsVerticalScrollIndicator={false}
         contentContainerStyle={[
           styles.content,
-          { paddingBottom: tabInset + 24 },
+          { paddingBottom: 24 },
           contentStyle(ContentMax.narrow),
         ]}>
         {items.length === 0 ? (
@@ -161,7 +159,7 @@ export default function WishlistScreen() {
                         style={styles.iconBtn}
                         hitSlop={6}
                         onPress={() => remove(w)}
-                        accessibilityLabel="위시리스트에서 빼기">
+                        accessibilityLabel="찜에서 빼기">
                         <Icon name="heart.fill" tintColor={WINE} size={17} />
                       </Pressable>
                       <Pressable

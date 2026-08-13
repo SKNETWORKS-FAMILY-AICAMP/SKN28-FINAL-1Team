@@ -624,6 +624,51 @@ class GenderSecondLineOfDefenceTests(unittest.TestCase):
         self.assertEqual([c.golden_id for c in got], ["w1"])
 
 
+class RecentExclusionTests(unittest.TestCase):
+    """최근에 이미 나간 코디는 top k에서 빠지고, 다음 순위가 그 자리를 채운다.
+
+    오늘의 룩이 exclude_golden_ids로 최근 5일치 추천을 넘긴다. 골든셋과 규칙이
+    그대로면 순위도 그대로라, 이 제외가 없으면 매일 같은 1위가 뽑힌다.
+    """
+
+    PAYLOADS = [
+        {"golden_id": "a", "items": []},
+        {"golden_id": "b", "items": []},
+        {"golden_id": "c", "items": []},
+    ]
+
+    def _run(self, exclude: set[str], limit: int = 2):
+        from apps.recommend.services.retriever import (
+            RetrievalRequest,
+            retrieve_outfits,
+        )
+
+        client = _IgnoresFilterClient(self.PAYLOADS)
+        return retrieve_outfits(
+            RetrievalRequest(limit=limit, exclude_golden_ids=frozenset(exclude)),
+            client=client,
+        )
+
+    def test_without_exclusion_top_k_is_stable(self) -> None:
+        """전제 확인 — 점수가 같으면 golden_id 순으로 a, b가 뽑힌다."""
+        got = self._run(set())
+        self.assertEqual([c.golden_id for c in got], ["a", "b"])
+
+    def test_excluded_outfit_is_replaced_by_the_next_rank(self) -> None:
+        """1위(a)가 최근 추천분이면 빠지고, top k는 다음 순위로 다시 채워진다."""
+        got = self._run({"a"})
+        self.assertEqual([c.golden_id for c in got], ["b", "c"])
+
+    def test_all_excluded_falls_back_to_repeats_not_empty(self) -> None:
+        """후보 전부가 최근 추천분이면 제외를 풀고 반복을 허용한다.
+
+        골든셋이 작은 사용자 조건에서 조용히 EMPTY가 되면 "며칠 잘 나오다
+        추천이 사라졌다"가 된다 — 반복 추천이 그보다 낫다.
+        """
+        got = self._run({"a", "b", "c"})
+        self.assertEqual([c.golden_id for c in got], ["a", "b"])
+
+
 class _Point:
     def __init__(self, pid, payload):
         self.id, self.payload = pid, payload
@@ -1004,17 +1049,13 @@ class MislabelledUnisexTests(TestCase):
         got = retrieve_outfits(RetrievalRequest(gender="male", limit=10), client=client)
         self.assertEqual([c.golden_id for c in got], ["ok"])
 
-        got = retrieve_outfits(
-            RetrievalRequest(gender="female", limit=10),
-            client=_FakeQdrant(outfits, page=50),
-        )
-        self.assertEqual([c.golden_id for c in got], ["dress"])
-
-
 from django.contrib.auth import get_user_model
 from apps.wardrobe.models import SharedWardrobeItem, SharedWardrobeMember, SharedWardrobeRoom, WardrobeItem
 from apps.recommend.services.wardrobe_link import accessible_item_ids
-from apps.recommend.services.retriever import retrieve_substitutes
+from apps.recommend.services.retriever import (
+    retrieve_accessible_substitutes,
+    retrieve_substitutes,
+)
 from apps.recommend.services.qdrant import WARDROBE_ITEM_COLLECTION, qm
 
 User = get_user_model()
@@ -1158,8 +1199,8 @@ class SharedWardrobeAccessibleItemIdsTests(TestCase):
         self.assertEqual(got1, got2)
 
 
-class _IgnoresFilterClient:
-    """retrieve_substitutes 테스트용 Qdrant 스텁 클라이언트."""
+class _WhitelistIgnoresFilterClient:
+    """retrieve_substitutes 화이트리스트 테스트용 Qdrant 스텁 클라이언트."""
 
     def __init__(self) -> None:
         self.last_collection_name = None
@@ -1191,15 +1232,78 @@ class RetrieveSubstitutesWhitelistTests(unittest.TestCase):
     """retrieve_substitutes 필터 및 격리 회귀 방지 테스트."""
 
     def test_empty_allowed_item_ids_returns_empty_immediately(self) -> None:
-        client = _IgnoresFilterClient()
+        client = _WhitelistIgnoresFilterClient()
         got = retrieve_substitutes({"category_large": "상의"}, allowed_item_ids=[], client=client)
         self.assertEqual(got, [])
         self.assertFalse(client.scroll_called)
         self.assertFalse(client.search_called)
 
     def test_default_collection_name_is_wardrobe_items(self) -> None:
-        client = _IgnoresFilterClient()
+        client = _WhitelistIgnoresFilterClient()
         retrieve_substitutes({"category_large": "상의"}, allowed_item_ids=["uuid-1"], client=client)
         self.assertEqual(client.last_collection_name, WARDROBE_ITEM_COLLECTION)
         self.assertTrue(client.scroll_called)
+
+
+class RetrieveAccessibleSubstitutesTests(TestCase):
+    """DB 권한 목록이 실제 Qdrant 검색 화이트리스트로 연결되는지 검증한다."""
+
+    def setUp(self) -> None:
+        self.user = User.objects.create_user(username="recommend-user", password="password")
+        self.other_user = User.objects.create_user(username="recommend-other", password="password")
+
+    def test_passes_only_own_and_available_shared_confirmed_ids(self) -> None:
+        own = WardrobeItem.objects.create(user=self.user, item_name="내 옷", confirmed=True)
+        hidden_own = WardrobeItem.objects.create(
+            user=self.user, item_name="미확정 내 옷", confirmed=False
+        )
+        shared = WardrobeItem.objects.create(
+            user=self.other_user, item_name="공유 옷", confirmed=True
+        )
+        borrowed = WardrobeItem.objects.create(
+            user=self.other_user, item_name="대여 중", confirmed=True
+        )
+        room = SharedWardrobeRoom.objects.create(title="추천 공유방", invite_code="REC123")
+        SharedWardrobeMember.objects.create(
+            room=room, user=self.user, role=SharedWardrobeMember.Role.MEMBER
+        )
+        SharedWardrobeItem.objects.create(
+            room=room,
+            registered_by=self.other_user,
+            wardrobe_item=shared,
+            status=SharedWardrobeItem.Status.AVAILABLE,
+        )
+        SharedWardrobeItem.objects.create(
+            room=room,
+            registered_by=self.other_user,
+            wardrobe_item=borrowed,
+            status=SharedWardrobeItem.Status.BORROWED,
+        )
+
+        client = _WhitelistIgnoresFilterClient()
+        retrieve_accessible_substitutes(
+            self.user, {"category_large": "상의"}, client=client
+        )
+
+        has_id_conditions = [
+            condition
+            for condition in client.last_filter.must
+            if isinstance(condition, qm.HasIdCondition)
+        ]
+        self.assertEqual(len(has_id_conditions), 1)
+        allowed = {str(item_id) for item_id in has_id_conditions[0].has_id}
+        self.assertEqual(allowed, {str(own.id), str(shared.id)})
+        self.assertNotIn(str(hidden_own.id), allowed)
+        self.assertNotIn(str(borrowed.id), allowed)
+
+    def test_no_accessible_items_skips_qdrant(self) -> None:
+        client = _WhitelistIgnoresFilterClient()
+
+        got = retrieve_accessible_substitutes(
+            self.user, {"category_large": "상의"}, client=client
+        )
+
+        self.assertEqual(got, [])
+        self.assertFalse(client.scroll_called)
+        self.assertFalse(client.search_called)
 

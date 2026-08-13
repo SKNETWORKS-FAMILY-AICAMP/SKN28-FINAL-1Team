@@ -16,6 +16,7 @@ const REFRESH_KEY = 'auth_refresh_token';
 const DEMO_KEY = 'auth_demo_session';
 const OUTFIT_ANALYSIS_KEY = 'outfit_analysis_job';
 const OUTFIT_CLAIM_KEY = 'outfit_claim_tokens';
+const PENDING_SHARE_KEY = 'wardrobe_pending_share';
 
 const isWeb = Platform.OS === 'web';
 
@@ -127,4 +128,23 @@ export function getOutfitClaimTokens(): Promise<string | null> {
 
 export function clearOutfitClaimTokens(): Promise<void> {
   return deleteItem(OUTFIT_CLAIM_KEY);
+}
+
+/**
+ * "확정되면 이 방에 공유해 달라"는 예약함 (itemId → roomId).
+ *
+ * 갓 등록된 옷은 `confirmed=false` 라 서버가 공유를 거부한다. 확정은 사용자가
+ * 태그 확인 화면에서 하므로, 앱을 껐다 켠 뒤일 수도 있다 — 그래서 메모리가 아니라
+ * 여기에 남긴다.
+ */
+export function savePendingShare(value: string): Promise<void> {
+  return setItem(PENDING_SHARE_KEY, value);
+}
+
+export function getPendingShare(): Promise<string | null> {
+  return getItem(PENDING_SHARE_KEY);
+}
+
+export function clearPendingShare(): Promise<void> {
+  return deleteItem(PENDING_SHARE_KEY);
 }

@@ -38,6 +38,18 @@ export const KAKAO_NATIVE_APP_KEY =
   process.env.EXPO_PUBLIC_KAKAO_NATIVE_APP_KEY ?? '1366adcd2e8c643a4b5471fabd32b6ea';
 
 /**
+ * 카카오 **JavaScript 키** — 웹에서 Kakao JS SDK(Kakao.init) 초기화에 쓴다.
+ * 네이티브 앱 키와 값이 다르며, 네이티브 키로 Kakao.init 을 부르면 공유 창이
+ * 열리지 않고 조용히 실패한다(한 번 겪은 함정이라 상수를 따로 둔다).
+ * 브라우저 번들에 그대로 실리는 준공개값이고, 카카오 개발자 콘솔의
+ * [내 애플리케이션 > 플랫폼 > Web]에 등록된 도메인에서만 동작한다.
+ *
+ * ⚠️ Expo 는 **EXPO_PUBLIC_ 접두사가 붙은 변수만** 번들에 넣는다.
+ *    Infisical/셸에 `KAKAO_JAVASCRIPT_KEY` 로만 넣으면 앱에는 전달되지 않는다.
+ */
+export const KAKAO_JAVASCRIPT_KEY = process.env.EXPO_PUBLIC_KAKAO_JAVASCRIPT_KEY ?? '';
+
+/**
  * 네이버 로그인 (네이티브 SDK, @react-native-seoul/naver-login).
  * consumerKey/Secret 은 네이버 개발자센터 발급값. 네이버 모바일 SDK 는 secret 을 앱에
  * 내장하도록 요구하므로(카카오 네이티브 키와 동일한 준공개값) EXPO_PUBLIC_ 로 주입한다 — .env(gitignore).
@@ -92,8 +104,20 @@ export const isGoogleConfigured = (): boolean =>
  *   GET/PATCH /api/v1/users/me/           내 정보 (Bearer 필요)
  *
  * ※ simplejwt(stateless)라 서버 로그아웃 엔드포인트는 없다 → 로그아웃은 클라이언트 토큰 폐기.
+ *
+ * 이메일 가입/로그인 흐름:
+ *   POST /api/v1/auth/signup/        { email, password } → 202 { email, verification_required, retry_after }
+ *   POST /api/v1/auth/email/verify/  { email, code }     → 200 { email, verified }
+ *     ⚠️ 인증 API 는 **토큰을 주지 않는다**. 계정만 활성화되므로 이어서 로그인해야 세션이 열린다.
+ *   POST /api/v1/auth/email/resend/  { email }           → 200 { retry_after }
+ *   POST /api/v1/auth/login/         { email, password } → 200 { access, refresh, user, is_new_user }
+ *     is_new_user=true 는 가입 후 첫 로그인 → 온보딩(권한 → 체형 측정 → 추구미)으로 보낸다.
  */
 export const AuthEndpoints = {
+  signup: '/api/v1/auth/signup/',
+  login: '/api/v1/auth/login/',
+  verifyEmail: '/api/v1/auth/email/verify/',
+  resendEmail: '/api/v1/auth/email/resend/',
   socialLogin: (provider: SocialProvider) => `/api/v1/auth/${provider}/login/`,
   refresh: '/api/v1/auth/token/refresh/',
   me: '/api/v1/users/me/',
@@ -106,6 +130,17 @@ export const AuthEndpoints = {
  *   - JWT 필요.
  */
 export const HomeEndpoint = '/api/v1/home/';
+
+/**
+ * 오늘의 룩 (api/apps/recommend/urls.py 기준). JWT 필요.
+ *   GET /api/v1/looks/today/?lat=&lon=  → { look_id, look_date, status, result, context, poll_after_ms, detail }
+ *   - 그날 첫 호출이 곧 생성 트리거다 (홈 API 진입 시 백엔드가 미리 걸어 두므로 보통은 완성돼 있다).
+ *   - status 분기: QUEUED/PROCESSING → poll_after_ms 뒤 재조회 | SUCCEEDED → result 표시
+ *                  | EMPTY → 폴링 중단(프로필 입력 유도) | FAILED → 자동 재시도 없음
+ *   - result 의 이미지 URL 은 조회마다 새로 서명된다 — 캐시하면 만료된다.
+ *   - 대표 이미지는 result.render_image_url, null 이면 items[].image_url 카드로 화면을 만든다.
+ */
+export const DailyLookEndpoint = '/api/v1/looks/today/';
 
 /**
  * 착장 사진 분석. 인증 없이 호출할 수 있고, JWT가 있으면 개인화 정보를 반영한다.
@@ -182,10 +217,140 @@ export const PursuitEndpoint = '/api/v1/users/me/pursuit/';
  * ⚠️ 새로 만들어진 아이템은 confirmed=false(사용자 확인 대기)이고 추천 검색에서 제외된다.
  *    사용자가 태그를 확인·수정한 뒤 PATCH 로 confirmed=true 를 보내야 옷장에 정식 편입된다.
  * ⚠️ 업로드 제한: 15MB 이하, jpeg/png/webp/heic.
+ *
+ * ── 일괄 등록(batches) — 인앱 브라우저로 긁어온 외부 상품 전용 ──
+ *   POST /api/v1/wardrobe/batches/  json { source, items[] } → 202 배치 접수
+ *         items[] 는 **이미지 주소**와 우리가 이미 아는 태그만 넣는다.
+ *         이미지는 서버가 직접 내려받아 S3 에 저장한다 — 앱이 파일을 올리지 않는다
+ *         (쇼핑몰 이미지는 핫링크 403 이 잦고, 앱에서 받아 다시 올리면 왕복이 두 배가 된다).
+ *   GET  /api/v1/wardrobe/batches/{batch_id}/  → 진행률 + job 별 상태
+ *   GET  /api/v1/wardrobe/batches/?status=&limit=&offset=  → 최근 배치 목록
+ *
+ * 서버 처리: 이미지 1장 = job 1개 → Qwen VL 태깅 워커(qwen-tag) → 콜백으로 아이템 생성.
+ * 앱이 함께 보낸 태그가 모델 결과보다 **우선**한다(구매목록의 상품명이 더 정확하므로).
+ *
+ * ⚠️ 한 번에 30건·합계 100MB 까지. 개별 이미지는 단건 업로드와 같은 15MB 제한.
+ * ⚠️ items 중 **하나라도** 값이 백엔드 taxonomy 와 어긋나면 요청 전체가 400 이다
+ *    (DRF ChoiceField). 확신 없는 태그는 아예 빼고 보낸다 — 그 자리는 모델이 채운다.
+ * ⚠️ 이미지 주소는 공개 http(s) 여야 한다. 사설망 주소·data: URL 은 서버가 거절한다.
  */
 export const WardrobeEndpoints = {
   uploads: '/api/v1/wardrobe/uploads/',
   uploadJob: (jobId: string) => `/api/v1/wardrobe/uploads/${jobId}/`,
   items: '/api/v1/wardrobe/items/',
   item: (itemId: string) => `/api/v1/wardrobe/items/${itemId}/`,
+  /* 룩 사진에서 뽑혀 아직 옷장 밖에 있는 옷을 옷장에 들인다(멱등). */
+  addToCloset: (itemId: string) => `/api/v1/wardrobe/items/${itemId}/add-to-closet/`,
+  batches: '/api/v1/wardrobe/batches/',
+  batch: (batchId: string) => `/api/v1/wardrobe/batches/${batchId}/`,
+} as const;
+
+/**
+ * 스타일 캘린더 — 하루에 기록 하나.
+ *
+ *   GET    /api/v1/calendars/?start_date=&end_date=   → CalendarEntry[] (배열 그대로, 페이지네이션 없음)
+ *   GET    /api/v1/calendars/by-date/?date=           → CalendarEntry · **기록이 없으면 404**
+ *   POST   /api/v1/calendars/photo/                   multipart → 202 (사진 처리는 비동기)
+ *   POST   /api/v1/calendars/wardrobe/                json      → 201 (옷만 고르면 즉시 완료)
+ *   GET    /api/v1/calendars/{id}/                    → CalendarEntry
+ *   PATCH  /api/v1/calendars/{id}/                    → CalendarEntry
+ *   DELETE /api/v1/calendars/{id}/                    → 204
+ *   DELETE /api/v1/calendars/{id}/items/{itemId}/     → CalendarEntry (옷 연결만 해제)
+ *   GET    /api/v1/calendars/{id}/processing-status/  사진 처리 폴링
+ *
+ * ⚠️ **날짜당 1건이고 서버에 upsert 가 없다.** 이미 있는 날짜로 등록하면 409 다.
+ *    사진을 바꾸거나 옷을 **더하려면** DELETE 후 다시 등록해야 한다(PATCH 로는 못 바꾼다).
+ *    옷을 **빼는 건** items DELETE 로 연결만 끊는다 — 기록과 옷장 아이템은 남는다.
+ * ⚠️ **PATCH 는 schedule·tpo·hashtags 만 받는다.** 서버가 미선언 필드를 400 으로 거절하므로
+ *    프론트에만 있는 개념(shared·lookId)을 실어 보내면 요청 전체가 실패한다.
+ * ⚠️ 업로드 제한: 15MB 이하, jpeg/png/webp/heic.
+ */
+export const CalendarEndpoints = {
+  list: '/api/v1/calendars/',
+  byDate: '/api/v1/calendars/by-date/',
+  photo: '/api/v1/calendars/photo/',
+  wardrobe: '/api/v1/calendars/wardrobe/',
+  detail: (calendarId: string) => `/api/v1/calendars/${calendarId}/`,
+  /** 입은 옷 연결 해제 — itemId 는 옷장 아이템 id(wardrobe_item_id)다. */
+  item: (calendarId: string, wardrobeItemId: string) =>
+    `/api/v1/calendars/${calendarId}/items/${wardrobeItemId}/`,
+  processingStatus: (calendarId: string) => `/api/v1/calendars/${calendarId}/processing-status/`,
+} as const;
+
+/**
+ * 룩북 — 캘린더와 거의 같은 모양이지만 **날짜에 매이지 않아 여러 건**을 올릴 수 있다.
+ *
+ *   GET    /api/v1/lookbooks/?hashtag=&status=&limit=&offset=  → { count, next_offset, results[] }
+ *   POST   /api/v1/lookbooks/photo/                    multipart → 202 (사진 처리는 비동기)
+ *   POST   /api/v1/lookbooks/wardrobe/                 json      → 201 (옷만 고르면 즉시 완료)
+ *   GET    /api/v1/lookbooks/{id}/                     → LookbookPost
+ *   PATCH  /api/v1/lookbooks/{id}/                     → schedule·tpo·hashtags 만
+ *   DELETE /api/v1/lookbooks/{id}/                     → 204
+ *   GET    /api/v1/lookbooks/{id}/processing-status/   사진 처리 폴링
+ *
+ * ⚠️ **이 목록은 '내 룩북'이다.** 남들이 올린 피드(둘러보기)는 서버에 없다 —
+ *    state/lookbook.ts 의 로컬 시드가 계속 그 자리를 맡는다.
+ * ⚠️ 등록 요청이 `calendar_date`·`overwrite_calendar` 를 받는다. 켜면 **한 번의 호출로**
+ *    룩북과 캘린더가 함께 남는다 — 캘린더를 따로 부르지 않는다.
+ * ⚠️ PATCH 는 캘린더와 같은 제약: schedule·tpo·hashtags 만. 사진·옷 구성은 못 바꾼다.
+ */
+/**
+ * 월 의류 구매 예산 — 상품 추천에서 '예산 내' 표시를 가르는 값.
+ *
+ *   GET /api/v1/users/me/budget/  → { monthly_budget: number | null }   미설정이면 null
+ *   PUT /api/v1/users/me/budget/    { monthly_budget }  전체 교체
+ *
+ * ⚠️ **1만원 단위, 10,000 이상**만 받는다. 지울 때는 키를 빼는 게 아니라 **명시적으로 null**.
+ */
+export const BudgetEndpoint = '/api/v1/users/me/budget/';
+
+export const LookbookEndpoints = {
+  list: '/api/v1/lookbooks/',
+  /* 전체 공개된 룩 — 앱 '둘러보기'가 읽는 목록. 비회원도 볼 수 있다. */
+  publicFeed: '/api/v1/lookbooks/public/',
+  photo: '/api/v1/lookbooks/photo/',
+  wardrobe: '/api/v1/lookbooks/wardrobe/',
+  detail: (lookbookId: string) => `/api/v1/lookbooks/${lookbookId}/`,
+  processingStatus: (lookbookId: string) => `/api/v1/lookbooks/${lookbookId}/processing-status/`,
+} as const;
+
+/**
+ * 채팅 (api/apps/chat/urls.py 기준). JWT 필요 — 게스트 채팅은 붙이지 않았다(아래 참고).
+ *
+ *   POST   /api/v1/chat/sessions/                      { mode }               → 201 세션
+ *   GET    /api/v1/chat/sessions/                                             → 세션 배열
+ *   PATCH  /api/v1/chat/sessions/{id}/                 { title }              → 200
+ *   DELETE /api/v1/chat/sessions/{id}/                                        → 204
+ *   GET    /api/v1/chat/sessions/{id}/messages/                               → 메시지 배열(시간순)
+ *   POST   /api/v1/chat/sessions/{id}/messages/  { content, client_message_id } → 202 { message, run, events_url }
+ *   GET    /api/v1/chat/runs/{runId}/                                         → run 상태(폴링용)
+ *   GET    /api/v1/chat/runs/{runId}/events/                                  → SSE 진행 이벤트
+ *
+ * 답변은 **동기 응답이 아니다.** 메시지를 POST 하면 202 와 함께 run 이 생기고,
+ * 실제 답변은 별도 워커가 만들어 SSE(또는 run 폴링)로 전달된다. lib/chatStream.ts 참고.
+ *
+ * ⚠️ 응답 본문의 `events_url` 을 그대로 쓰지 말 것. 서버가 build_absolute_uri 로 만드는데
+ *    터널/프록시 뒤에서는 스킴이 `http://` 로 유실돼, https 로 열린 웹에서 mixed content 로
+ *    차단된다. 아래 runEvents() 로 직접 조립한다.
+ * ⚠️ 게스트 채팅(/chat/guest/)은 **HttpOnly 쿠키**로 신원을 잡는 방식이라 네이티브·크로스
+ *    오리진에서 다루기 까다롭다. 지금은 로그인 사용자만 붙인다.
+ */
+export const ChatEndpoints = {
+  sessions: '/api/v1/chat/sessions/',
+  session: (sessionId: string) => `/api/v1/chat/sessions/${sessionId}/`,
+  messages: (sessionId: string) => `/api/v1/chat/sessions/${sessionId}/messages/`,
+  run: (runId: string) => `/api/v1/chat/runs/${runId}/`,
+  runEvents: (runId: string) => `/api/v1/chat/runs/${runId}/events/`,
+} as const;
+
+/**
+ * 추천 결과 (api/apps/recommend/urls.py 기준). JWT 필요.
+ *
+ *   GET /api/v1/recommendations/{resultId}/  → { result_id, mode, cards[] }
+ *
+ * 채팅 답변이 추천까지 만들면 그 메시지의 metadata.recommendation_result_id 로 여기를 부른다.
+ * 카드 하나가 코디 한 벌이고, 그 안의 items 가 착장 아이템이다.
+ */
+export const RecommendEndpoints = {
+  result: (resultId: string) => `/api/v1/recommendations/${resultId}/`,
 } as const;

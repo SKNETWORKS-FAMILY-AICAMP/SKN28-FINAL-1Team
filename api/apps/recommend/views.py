@@ -1,26 +1,43 @@
 import logging
+import re
 from datetime import timedelta
 
+import redis
 from django.conf import settings
+from django.db import close_old_connections
+from django.http import StreamingHttpResponse
 from django.urls import reverse
 from django.utils import timezone
+from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import (
     OpenApiExample,
     OpenApiParameter,
     OpenApiResponse,
     PolymorphicProxySerializer,
     extend_schema,
+    extend_schema_view,
 )
 from rest_framework import status
-from rest_framework.exceptions import NotFound
+from rest_framework.exceptions import NotAuthenticated, NotFound
 from rest_framework.parsers import FormParser, MultiPartParser
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from .models import OutfitAnalysis
+from apps.chat.openapi import (
+    CHAT_IDENTITY_GUIDE,
+    CHAT_SSE_GUIDE,
+    CHAT_TAG,
+    CHAT_UUID_GUIDE,
+    path_uuid_parameter,
+)
+from apps.chat.renderers import ServerSentEventRenderer
+from apps.chat.services import identity as identity_service
+
+from .models import OutfitAnalysis, OutfitRenderJob
 from .serializers import (
+    DailyLookSerializer,
     OutfitAnalysisAcceptedSerializer,
     OutfitAnalysisClaimRequestSerializer,
     OutfitAnalysisClaimResponseSerializer,
@@ -29,16 +46,95 @@ from .serializers import (
     OutfitAnalysisListResponseSerializer,
     OutfitAnalysisPublicSerializer,
     OutfitAnalysisRequestSerializer,
+    OutfitRenderJobSerializer,
+    RecommendationCardSerializer,
+    RecommendationFeedbackRequestSerializer,
+    RecommendationFeedbackSerializer,
+    RecommendationHistoryItemSerializer,
+    RecommendationHistoryQuerySerializer,
+    RecommendationHistoryResponseSerializer,
+    RecommendationResultDetailSerializer,
 )
-from .serializers import DailyLookSerializer
 from .services import analysis as analysis_service
 from .services import claim as claim_service
 from .services import daily_look as daily_look_service
+from .services import recommendation_results as recommendation_service
+from .services import render_jobs
+from .services.render_events import (
+    RenderEvent,
+    RenderEventStore,
+    encode_sse,
+    heartbeat,
+)
 
 logger = logging.getLogger(__name__)
 
 DEFAULT_HISTORY_LIMIT = 20
 MAX_HISTORY_LIMIT = 100
+_REDIS_STREAM_ID = re.compile(r"^(?:0|[1-9]\d*)-(?:0|[1-9]\d*)$")
+
+_RESULT_ID_PARAMETER = path_uuid_parameter(
+    name="result_id",
+    source="GET /api/v1/recommendations/ 또는 AI 답변 metadata의 result_id를 입력합니다.",
+    example="44444444-4444-4444-8444-444444444444",
+)
+_CARD_ID_PARAMETER = path_uuid_parameter(
+    name="card_id",
+    source="GET /api/v1/recommendations/{result_id}/ 응답의 cards[].card_id를 입력합니다.",
+    example="55555555-5555-4555-8555-555555555555",
+)
+_JOB_ID_PARAMETER = path_uuid_parameter(
+    name="job_id",
+    source="POST .../render/ 응답의 job_id를 입력합니다.",
+    example="66666666-6666-4666-8666-666666666666",
+)
+
+_RECOMMENDATION_MODE_PARAMETER = OpenApiParameter(
+    name="mode",
+    type=OpenApiTypes.STR,
+    enum=["WARDROBE_BASED", "NEW_ITEM"],
+    location=OpenApiParameter.QUERY,
+    required=False,
+    description="추천 모드 필터. 비우면 두 모드를 모두 조회합니다.",
+    examples=[OpenApiExample(name="새 상품 포함 추천", value="NEW_ITEM")],
+)
+_RECOMMENDATION_LIMIT_PARAMETER = OpenApiParameter(
+    name="limit",
+    type=OpenApiTypes.INT,
+    location=OpenApiParameter.QUERY,
+    required=False,
+    description="한 번에 조회할 추천 결과 수 (1~100, 기본값 20)",
+    default=20,
+    examples=[OpenApiExample(name="20개 조회", value=20)],
+)
+_RECOMMENDATION_OFFSET_PARAMETER = OpenApiParameter(
+    name="offset",
+    type=OpenApiTypes.INT,
+    location=OpenApiParameter.QUERY,
+    required=False,
+    description="건너뛸 추천 결과 수 (0 이상, 첫 페이지 기본값 0)",
+    default=0,
+    examples=[OpenApiExample(name="첫 페이지", value=0)],
+)
+
+
+def _recommendation_identity(request: Request):
+    """회원 JWT 또는 게스트 채팅 쿠키를 같은 추천 소유자로 해석한다."""
+    guest_token = request.COOKIES.get(settings.CHAT_GUEST_COOKIE_NAME, "")
+    try:
+        identity = identity_service.resolve_identity(
+            user=request.user,
+            guest_token=guest_token,
+        )
+    except identity_service.ChatIdentityError as exc:
+        raise NotAuthenticated(
+            {"code": exc.code, "detail": "유효한 채팅 identity가 필요합니다."}
+        ) from exc
+
+    if identity.identity_type == identity.IdentityType.GUEST:
+        django_request = getattr(request, "_request", request)
+        django_request.chat_guest_cookie_refresh_token = guest_token
+    return identity
 
 
 def _positive_int(raw: str | None, *, default: int) -> int:
@@ -487,6 +583,449 @@ class OutfitAnalysisClaimView(APIView):
         return Response(response_serializer.validated_data)
 
 
+class RecommendationHistoryView(APIView):
+    """회원과 게스트가 자기 채팅 추천 이력을 조회한다."""
+
+    permission_classes = [AllowAny]
+
+    @extend_schema(
+        operation_id="recommendation_history_list",
+        tags=[CHAT_TAG],
+        summary="내 추천 이력 목록",
+        description=(
+            "채팅에서 확정·저장된 추천 결과를 최신순으로 조회합니다. "
+            "`mode`에는 `WARDROBE_BASED` 또는 `NEW_ITEM`을 넣어 필터링할 수 "
+            "있습니다. 응답의 `result_id`와 `top_card.card_id`를 상세·피드백·이미지 "
+            "생성 API에 사용합니다.\n\n"
+            f"{CHAT_IDENTITY_GUIDE}"
+        ),
+        parameters=[
+            _RECOMMENDATION_MODE_PARAMETER,
+            _RECOMMENDATION_LIMIT_PARAMETER,
+            _RECOMMENDATION_OFFSET_PARAMETER,
+        ],
+        responses={
+            200: RecommendationHistoryResponseSerializer,
+            401: OpenApiResponse(
+                description="회원 JWT 또는 유효한 게스트 채팅 쿠키 필요"
+            ),
+        },
+    )
+    def get(self, request: Request) -> Response:
+        identity = _recommendation_identity(request)
+        query = RecommendationHistoryQuerySerializer(data=request.query_params)
+        query.is_valid(raise_exception=True)
+        data = query.validated_data
+
+        queryset = recommendation_service.owned_results(identity)
+        if mode := data.get("mode"):
+            queryset = queryset.filter(mode=mode)
+
+        total = queryset.count()
+        offset = data["offset"]
+        limit = data["limit"]
+        page = queryset[offset : offset + limit]
+        return Response(
+            {
+                "count": total,
+                "limit": limit,
+                "offset": offset,
+                "results": RecommendationHistoryItemSerializer(page, many=True).data,
+            }
+        )
+
+
+class RecommendationResultDetailView(APIView):
+    """한 번의 추천 실행에서 확정된 카드들을 조회한다."""
+
+    permission_classes = [AllowAny]
+
+    @extend_schema(
+        operation_id="recommendation_result_retrieve",
+        tags=[CHAT_TAG],
+        summary="추천 결과와 카드 목록 조회",
+        description=(
+            "한 번의 채팅 추천 실행으로 확정된 코디 카드를 순위·구성 아이템과 함께 "
+            "조회합니다. 실제 result_id는 추천 이력 응답 또는 AI 메시지 metadata에서 "
+            f"가져옵니다.\n\n{CHAT_UUID_GUIDE}"
+        ),
+        parameters=[_RESULT_ID_PARAMETER],
+        responses={
+            200: RecommendationResultDetailSerializer,
+            404: OpenApiResponse(
+                description="결과가 없거나 요청 identity의 소유가 아님"
+            ),
+        },
+    )
+    def get(self, request: Request, result_id) -> Response:
+        identity = _recommendation_identity(request)
+        result = recommendation_service.owned_result(
+            identity=identity,
+            result_id=result_id,
+        )
+        if result is None:
+            raise NotFound("추천 결과를 찾을 수 없습니다.")
+        return Response(RecommendationResultDetailSerializer(result).data)
+
+
+class RecommendationCardDetailView(APIView):
+    """추천 결과 안의 검증 통과 카드 한 장을 조회한다."""
+
+    permission_classes = [AllowAny]
+
+    @extend_schema(
+        operation_id="recommendation_card_retrieve",
+        tags=[CHAT_TAG],
+        summary="추천 카드 상세 조회",
+        description=(
+            "코디 카드 한 장의 아이템 출처(옷장·골든셋·상품), 가격, 구매 URL, "
+            "검증 사유와 현재 피드백을 조회합니다."
+        ),
+        parameters=[_RESULT_ID_PARAMETER, _CARD_ID_PARAMETER],
+        responses={
+            200: RecommendationCardSerializer,
+            404: OpenApiResponse(
+                description="카드가 없거나 요청 identity의 소유가 아님"
+            ),
+        },
+    )
+    def get(self, request: Request, result_id, card_id) -> Response:
+        identity = _recommendation_identity(request)
+        card = recommendation_service.owned_card(
+            identity=identity,
+            result_id=result_id,
+            card_id=card_id,
+        )
+        if card is None:
+            raise NotFound("추천 카드를 찾을 수 없습니다.")
+        return Response(RecommendationCardSerializer(card).data)
+
+
+class RecommendationFeedbackView(APIView):
+    """추천 카드의 최신 피드백을 멱등 생성·교체·삭제한다."""
+
+    permission_classes = [AllowAny]
+
+    @extend_schema(
+        operation_id="recommendation_feedback_put",
+        tags=[CHAT_TAG],
+        summary="추천 카드 피드백 생성 또는 교체",
+        description=(
+            "추천 카드에 대한 최신 반응을 저장합니다. 같은 카드에 다시 PUT하면 기존 "
+            "피드백 전체를 교체합니다. reason_codes는 최대 5개의 대문자 코드이며, "
+            "예시는 `COLOR`, `FIT`, `PRICE`, `STYLE`, `ALREADY_OWNED`입니다."
+        ),
+        parameters=[_RESULT_ID_PARAMETER, _CARD_ID_PARAMETER],
+        request={"application/json": RecommendationFeedbackRequestSerializer},
+        examples=[
+            OpenApiExample(
+                name="추천이 마음에 듦",
+                value={
+                    "reaction": "LIKE",
+                    "reason_codes": ["STYLE", "COLOR"],
+                    "comment": "색 조합이 마음에 들어요",
+                },
+                request_only=True,
+            ),
+            OpenApiExample(
+                name="추천이 마음에 들지 않음",
+                value={
+                    "reaction": "DISLIKE",
+                    "reason_codes": ["PRICE", "FIT"],
+                    "comment": "예산보다 비싸고 핏이 취향과 달라요",
+                },
+                request_only=True,
+            ),
+        ],
+        responses={
+            200: RecommendationFeedbackSerializer,
+            201: RecommendationFeedbackSerializer,
+            404: OpenApiResponse(
+                description="카드가 없거나 요청 identity의 소유가 아님"
+            ),
+        },
+    )
+    def put(self, request: Request, result_id, card_id) -> Response:
+        identity = _recommendation_identity(request)
+        serializer = RecommendationFeedbackRequestSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        feedback, created = recommendation_service.put_feedback(
+            identity=identity,
+            result_id=result_id,
+            card_id=card_id,
+            **serializer.validated_data,
+        )
+        if feedback is None:
+            raise NotFound("추천 카드를 찾을 수 없습니다.")
+        return Response(
+            RecommendationFeedbackSerializer(feedback).data,
+            status=status.HTTP_201_CREATED if created else status.HTTP_200_OK,
+        )
+
+    @extend_schema(
+        operation_id="recommendation_feedback_delete",
+        tags=[CHAT_TAG],
+        summary="추천 카드 피드백 삭제",
+        description="해당 카드에 저장된 최신 피드백을 삭제합니다. 추천 카드 자체는 유지됩니다.",
+        parameters=[_RESULT_ID_PARAMETER, _CARD_ID_PARAMETER],
+        responses={
+            204: None,
+            404: OpenApiResponse(
+                description="카드가 없거나 요청 identity의 소유가 아님"
+            ),
+        },
+    )
+    def delete(self, request: Request, result_id, card_id) -> Response:
+        identity = _recommendation_identity(request)
+        card = recommendation_service.owned_card(
+            identity=identity,
+            result_id=result_id,
+            card_id=card_id,
+        )
+        if card is None:
+            raise NotFound("추천 카드를 찾을 수 없습니다.")
+        recommendation_service.delete_feedback(
+            identity=identity,
+            result_id=result_id,
+            card_id=card_id,
+        )
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+
+class RecommendationCardRenderView(APIView):
+    """소유한 추천 카드의 이미지 생성 접수와 현재 상태 조회."""
+
+    permission_classes = [AllowAny]
+
+    def _card(self, request: Request, result_id, card_id):
+        identity = _recommendation_identity(request)
+        card = recommendation_service.owned_card(
+            identity=identity,
+            result_id=result_id,
+            card_id=card_id,
+        )
+        if card is None:
+            raise NotFound("추천 카드를 찾을 수 없습니다.")
+        return card
+
+    @extend_schema(
+        operation_id="recommendation_card_render_retrieve",
+        tags=[CHAT_TAG],
+        summary="추천 카드 이미지 생성 상태 조회",
+        description=(
+            "카드의 최종 코디 이미지 생성 작업 상태를 조회합니다. `SUCCEEDED`이면 "
+            "만료 시간이 있는 비공개 image_url이 반환됩니다. Swagger에서 비동기 "
+            "이미지 완료를 확인할 때 이 API를 반복 호출합니다."
+        ),
+        parameters=[_RESULT_ID_PARAMETER, _CARD_ID_PARAMETER],
+        responses={
+            200: OutfitRenderJobSerializer,
+            404: OpenApiResponse(
+                description="카드·작업이 없거나 요청 identity의 소유가 아님"
+            ),
+        },
+    )
+    def get(self, request: Request, result_id, card_id) -> Response:
+        card = self._card(request, result_id, card_id)
+        job = OutfitRenderJob.objects.filter(composition=card).first()
+        if job is None:
+            raise NotFound("이미지 생성 작업을 찾을 수 없습니다.")
+        return Response(
+            OutfitRenderJobSerializer(job, context={"request": request}).data
+        )
+
+    @extend_schema(
+        operation_id="recommendation_card_render_create",
+        tags=[CHAT_TAG],
+        summary="추천 카드 이미지 생성 접수",
+        description=(
+            "추천 카드의 옷장·골든셋·상품 아이템 이미지를 모아 Qwen 이미지 생성 "
+            "작업을 Redis 큐에 접수합니다. 이미 완료된 동일 조합은 캐시를 재사용할 "
+            "수 있습니다. 응답의 `job_id`로 SSE 또는 상태 조회를 이어갑니다.\n\n"
+            "**로컬 테스트 전제:** Redis, 이미지 worker, S3와 이미지 모델 설정이 "
+            "필요하며 실제 모델 API 비용이 발생할 수 있습니다."
+        ),
+        parameters=[_RESULT_ID_PARAMETER, _CARD_ID_PARAMETER],
+        request=None,
+        responses={
+            200: OutfitRenderJobSerializer,
+            202: OutfitRenderJobSerializer,
+            404: OpenApiResponse(
+                description="카드가 없거나 요청 identity의 소유가 아님"
+            ),
+            503: OpenApiResponse(description="이미지 생성 큐를 사용할 수 없음"),
+        },
+    )
+    def post(self, request: Request, result_id, card_id) -> Response:
+        card = self._card(request, result_id, card_id)
+        job, should_enqueue = render_jobs.prepare_job(card)
+        if should_enqueue:
+            try:
+                job = render_jobs.enqueue_prepared(job)
+            except render_jobs.RenderQueueUnavailable:
+                job.refresh_from_db()
+                return Response(
+                    OutfitRenderJobSerializer(job, context={"request": request}).data,
+                    status=status.HTTP_503_SERVICE_UNAVAILABLE,
+                )
+        response_status = (
+            status.HTTP_200_OK
+            if job.status == OutfitRenderJob.Status.SUCCEEDED
+            else status.HTTP_202_ACCEPTED
+        )
+        return Response(
+            OutfitRenderJobSerializer(job, context={"request": request}).data,
+            status=response_status,
+        )
+
+
+def _owned_render_job(request: Request, job_id) -> OutfitRenderJob:
+    identity = _recommendation_identity(request)
+    job = render_jobs.owned_job(identity=identity, job_id=job_id)
+    if job is None:
+        raise NotFound("이미지 생성 작업을 찾을 수 없습니다.")
+    return job
+
+
+def _render_terminal_event(
+    job: OutfitRenderJob,
+    request: Request,
+    *,
+    event_id: str = "",
+) -> RenderEvent | None:
+    event_type = {
+        OutfitRenderJob.Status.SUCCEEDED: "completed",
+        OutfitRenderJob.Status.FAILED: "failed",
+    }.get(job.status)
+    if event_type is None:
+        return None
+    return RenderEvent(
+        id=event_id,
+        event=event_type,
+        data=OutfitRenderJobSerializer(job, context={"request": request}).data,
+    )
+
+
+@extend_schema_view(
+    get=extend_schema(
+        operation_id="recommendation_render_event_stream",
+        tags=[CHAT_TAG],
+        summary="추천 카드 이미지 생성 진행 이벤트 SSE",
+        description=(
+            "이미지 생성 작업의 `queued`, `running`, `completed`, `failed` 이벤트를 "
+            "`text/event-stream`으로 전달합니다. 재연결할 때 마지막 이벤트 ID를 "
+            "`Last-Event-ID` 헤더 또는 `last_event_id` 쿼리에 넣습니다.\n\n"
+            f"{CHAT_SSE_GUIDE}"
+        ),
+        parameters=[
+            _JOB_ID_PARAMETER,
+            OpenApiParameter(
+                name="last_event_id",
+                type=OpenApiTypes.STR,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description="재연결 시 마지막으로 받은 Redis Stream 이벤트 ID",
+                examples=[OpenApiExample(name="처음부터 수신", value="0-0")],
+            ),
+        ],
+        responses={
+            (200, "text/event-stream"): OpenApiResponse(
+                response=OpenApiTypes.STR,
+                description="완료 또는 실패 이벤트까지 유지되는 Server-Sent Events 스트림",
+            ),
+            404: OpenApiResponse(description="작업이 없거나 현재 identity의 소유가 아님"),
+        },
+    )
+)
+class OutfitRenderEventStreamView(APIView):
+    """소유권을 확인한 이미지 작업의 진행 이벤트를 재생한다."""
+
+    permission_classes = [AllowAny]
+    renderer_classes = [ServerSentEventRenderer]
+
+    def get(self, request: Request, job_id):
+        job = _owned_render_job(request, job_id)
+        requested_cursor = request.headers.get(
+            "Last-Event-ID"
+        ) or request.query_params.get("last_event_id", "")
+        cursor = (
+            requested_cursor if _REDIS_STREAM_ID.fullmatch(requested_cursor) else "0-0"
+        )
+        store = RenderEventStore()
+
+        def stream():
+            nonlocal cursor
+            yield f"retry: {settings.OUTFIT_RENDER_SSE_RETRY_MILLISECONDS}\n\n"
+            try:
+                replay = store.read(
+                    job.pk,
+                    last_event_id=cursor,
+                    block_milliseconds=0,
+                )
+            except redis.RedisError:
+                logger.warning(
+                    "코디 이미지 SSE 재생 실패: job=%s", job.pk, exc_info=True
+                )
+                terminal = _render_terminal_event(job, request)
+                if terminal is not None:
+                    yield encode_sse(terminal)
+                else:
+                    yield 'event: stream_error\ndata: {"retryable":true}\n\n'
+                return
+
+            for event in replay:
+                cursor = event.id
+                if event.terminal:
+                    current = OutfitRenderJob.objects.get(pk=job.pk)
+                    terminal = _render_terminal_event(
+                        current, request, event_id=event.id
+                    )
+                    yield encode_sse(terminal or event)
+                    return
+                yield encode_sse(event)
+
+            terminal = _render_terminal_event(job, request)
+            if terminal is not None:
+                yield encode_sse(terminal)
+                return
+
+            while True:
+                try:
+                    events = store.read(job.pk, last_event_id=cursor)
+                except redis.RedisError:
+                    logger.warning(
+                        "코디 이미지 SSE 읽기 실패: job=%s", job.pk, exc_info=True
+                    )
+                    yield 'event: stream_error\ndata: {"retryable":true}\n\n'
+                    return
+                if events:
+                    for event in events:
+                        cursor = event.id
+                        if event.terminal:
+                            current = OutfitRenderJob.objects.get(pk=job.pk)
+                            terminal = _render_terminal_event(
+                                current, request, event_id=event.id
+                            )
+                            yield encode_sse(terminal or event)
+                            return
+                        yield encode_sse(event)
+                    continue
+
+                close_old_connections()
+                current = OutfitRenderJob.objects.get(pk=job.pk)
+                terminal = _render_terminal_event(current, request)
+                if terminal is not None:
+                    yield encode_sse(terminal)
+                    return
+                yield heartbeat()
+
+        response = StreamingHttpResponse(stream(), content_type="text/event-stream")
+        response["Cache-Control"] = "no-cache, no-transform"
+        response["X-Accel-Buffering"] = "no"
+        return response
+
+
 DAILY_LOOK_PENDING_EXAMPLE = OpenApiExample(
     "생성 중",
     description=(
@@ -588,8 +1127,9 @@ class DailyLookTodayView(APIView):
     """오늘의 룩 조회 (없으면 생성을 걸고 '생성 중'으로 응답).
 
     사용자 입력이 없는 기능이라 별도의 생성 엔드포인트를 두지 않았다. 그날 첫
-    호출이 곧 생성 트리거다. 로그인 응답에서 미리 걸어두면 사용자가 첫 화면에
-    도착할 때쯤 이미 완성돼 있고, 그 호출이 실패했더라도 이 조회가 다시 건다 —
+    호출이 곧 생성 트리거다. 홈 API(GET /api/v1/home/)에서 미리 걸어두면
+    사용자가 추천 화면에 도착할 때쯤 이미 완성돼 있고, 그 호출이 실패했더라도
+    이 조회가 다시 건다 —
     트리거가 한 곳뿐이면 그게 실패했을 때 사용자는 종일 룩을 못 본다.
     """
 

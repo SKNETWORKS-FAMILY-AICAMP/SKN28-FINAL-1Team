@@ -1,4 +1,3 @@
-import { router } from 'expo-router';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   Animated,
@@ -15,17 +14,12 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { Icon } from '@/components/icon';
 import { SmartImage, useToast } from '@/components/ui';
-import { ContentMax, Editorial, Fonts, ink } from '@/constants/theme';
+import { ContentMax, Editorial, Fonts, ink, Type } from '@/constants/theme';
 import { useBreakpoint } from '@/hooks/use-breakpoint';
-import { pickOutfitPhoto } from '@/lib/pickItemPhoto';
 import { ClosetItemSelectSheet } from './closet-item-select-sheet';
-import { chatStore, nextMessageId, useChatSession, type ChatMessage } from '@/state/chat';
+import { chatStore, useChatSession, type ChatMessage, type RecItem } from '@/state/chat';
 
 const INK = Editorial.ink;
-
-/* 사진에서 읽어낸 무드 후보 — 이미지 분석 API 가 붙기 전까지 쓰는 고정값.
-   어떤 사진을 넣어도 같은 태그가 나오므로 시연 때는 이 점을 말해야 한다. */
-const MOOD_GUESS = ['#미니멀', '#톤다운', '#오버핏'];
 const BONE = Editorial.bone;
 
 const QUICK = ['더 캐주얼하게', '다른 색으로', '아우터 추천', '신발만 바꿔줘'];
@@ -76,8 +70,9 @@ function TypingDots() {
  *
  * 두 곳에서 쓴다:
  *   - variant="screen" : /chat-room 화면. 헤더는 화면 쪽이 그린다. sessionId 로 세션에 붙는다.
- *   - variant="panel"  : 넓은 화면(≥1280)에서 우측에 상주하는 패널. 세션에 속하지 않는
- *                        즉석 문답이라 대화를 지역 상태로만 들고 있다.
+ *   - variant="panel"  : 넓은 화면(≥1280)에서 우측에 상주하는 패널. 들어올 때는 세션이 없고,
+ *                        **첫 질문을 보낼 때 대화를 하나 만든다.** 옷장을 보며 묻는 자리라
+ *                        옷장 기반 모드로 연다.
  *
  * 패널은 폭이 이미 고정이라 본문 최대 폭을 걸지 않고, 하단 SafeArea 여백도 쓰지 않는다.
  */
@@ -94,9 +89,13 @@ export function ChatConversation({
   const widthStyle = isPanel ? null : contentStyle(ContentMax.narrow);
 
   const [text, setText] = useState('');
-  const session = useChatSession(sessionId);
-  const [panelMessages, setPanelMessages] = useState<ChatMessage[]>(PANEL_SEED);
-  const messages = session?.messages ?? panelMessages;
+  /* 패널이 첫 질문에서 만들어 낸 대화. 화면 변형은 항상 sessionId 를 받으므로 쓰이지 않는다. */
+  const [panelSessionId, setPanelSessionId] = useState<string | undefined>(undefined);
+  const activeId = sessionId ?? panelSessionId;
+  const session = useChatSession(activeId);
+  /* 아직 대화가 없는 패널에는 시작 인사만 보여준다. 대화가 생기면 서버가 넣어 둔
+     인사 메시지가 그 자리를 대신한다. */
+  const messages = session?.messages ?? PANEL_SEED;
   /* 타이핑 표시는 답변을 기다리는 '지금'만의 상태라 저장하지 않는다 (state/chat.ts 참고). */
   const [typing, setTyping] = useState(false);
   const toast = useToast();
@@ -113,147 +112,96 @@ export function ChatConversation({
 
   useEffect(() => () => timers.current.forEach(clearTimeout), []);
 
-  /* 스토어는 외부 상태라 setState 의 함수형 갱신을 쓸 수 없다 → 쓸 때마다 현재 값을 읽는다. */
-  const append = (...added: ChatMessage[]) => {
-    if (sessionId) {
-      const current = chatStore.getSession(sessionId)?.messages ?? [];
-      chatStore.setMessages(sessionId, [...current, ...added]);
-    } else {
-      setPanelMessages((m) => [...m, ...added]);
-    }
-  };
+  /* 대화를 열면 내용을 받아온다. 이미 받아 둔 대화는 스토어가 알아서 건너뛴다.
+     목록에서 넘어온 세션은 제목·시각만 있고 말풍선이 비어 있어 이 호출이 채운다. */
+  useEffect(() => {
+    if (!activeId) return;
+    chatStore.loadMessages(activeId).catch(() => {
+      toast('대화를 불러오지 못했어요', { variant: 'error' });
+    });
+  }, [activeId, toast]);
 
-  // 유저 메시지 → 타이핑 표시 → AI 답변 (프로토타입: 정해진 답변)
-  const simulateReply = () => {
+  /**
+   * 질문 보내기.
+   *
+   * 답변은 서버가 바로 주지 않는다 — 질문이 접수되면 실행(run)이 하나 생기고, 별도 워커가
+   * 답을 만들 때까지 기다려야 한다(state/chat.ts 의 sendText). 그 동안 타이핑 표시를 띄운다.
+   *
+   * 입력창은 **보내기 전에** 비운다. 기다리는 동안 글자가 남아 있으면 다시 눌러 같은 질문이
+   * 두 번 가기 쉽다. 실패하면 되돌려 다시 보낼 수 있게 한다.
+   */
+  const send = async () => {
+    const t = text.trim();
+    if (!t || typing) return;
+
+    setText('');
     setTyping(true);
     scrollToEnd();
-    const t = setTimeout(() => {
+    try {
+      /* 패널은 대화 없이 열리므로 첫 질문에서 하나 만든다. 옷장을 보며 묻는 자리라 옷장 기반. */
+      let id = activeId;
+      if (!id) {
+        const created = await chatStore.createSession('closet');
+        id = created.id;
+        setPanelSessionId(id);
+      }
+      /* 실패해도 토스트를 띄우지 않는다 — 사유는 대화 안에 한 줄로 남고, 토스트까지 겹치면
+         같은 말을 두 번 하면서 정작 사라지는 쪽(토스트)만 눈에 띈다. */
+      await chatStore.sendText(id, t);
+    } catch (e) {
+      setText(t);
+      toast(e instanceof Error ? e.message : '메시지를 보내지 못했어요', { variant: 'error' });
+    } finally {
       setTyping(false);
-      append({
-        id: nextMessageId(),
-        role: 'ai',
-        kind: 'text',
-        text: '좋아요, 말씀하신 방향으로 다시 골라볼게요. 잠시만요…',
-      });
       scrollToEnd();
-    }, 1500);
-    timers.current.push(t);
-  };
-
-  const send = () => {
-    const t = text.trim();
-    if (!t) return;
-    append({ id: nextMessageId(), role: 'user', kind: 'text', text: t });
-    if (sessionId) chatStore.nameFromFirstMessage(sessionId, t);
-    setText('');
-    scrollToEnd();
-    simulateReply();
+    }
   };
 
   /**
-   * 사진 넣기 — 갤러리에서 고른 **진짜 사진**을 올린다.
-   * (예전엔 사진을 고르지 않고 아이콘 말풍선만 띄웠다)
+   * 사진 넣기.
    *
-   * 올린 뒤엔 그 사진의 무드를 추구미로 삼을지 되묻는다. 되묻는 이유 —
-   * 인플루언서 사진 한 장이 곧 취향이라고 단정하면, 그냥 참고로 보여준 사진까지
-   * 추천 기준이 되어버린다.
+   * ⚠️ **아직 서버에 붙지 않았다.** 백엔드에는 첨부 업로드(/attachments/) → 무드 분석
+   *    (/analysis/) → 반영 여부 결정(/mood-decision/) 세 단계가 이미 있고, 아래 무드 카드
+   *    UI 가 그 흐름과 그대로 맞물린다. 텍스트 대화를 먼저 붙이느라 남겨 둔 자리다.
    *
-   * ⚠️ 무드를 **읽어내는 것은 아직 서버가 없다.** 지금은 고정 후보를 보여주고,
-   *    이미지 분석 API 가 붙으면 이 함수의 태그만 응답으로 바뀐다.
+   *    전에는 여기서 고정 태그(#미니멀 …)를 띄워 분석한 척했다. 진짜 대화가 붙은 지금
+   *    그렇게 두면 어느 답이 진짜인지 구분할 수 없어, 아직임을 그대로 알린다.
    */
-  const attachPhoto = async () => {
-    let uri: string | null = null;
-    try {
-      uri = await pickOutfitPhoto();
-    } catch {
-      toast('사진을 불러오지 못했어요', { variant: 'error' });
-      return;
-    }
-    if (!uri) return; // 고르다 취소 — 아무 일도 일어나지 않는다
-    append({ id: nextMessageId(), role: 'user', kind: 'image', uri });
-    scrollToEnd();
-
-    setTyping(true);
-    const t = setTimeout(() => {
-      setTyping(false);
-      append({ id: nextMessageId(), role: 'ai', kind: 'mood', tags: MOOD_GUESS });
-      scrollToEnd();
-    }, 1200);
-    timers.current.push(t);
+  const attachPhoto = () => {
+    toast('사진으로 추천받기는 곧 연결돼요');
   };
 
-  const handleSelectClosetItems = (selectedItems: { id: string; image: string; name: string }[]) => {
+  const handleSelectClosetItems = async (
+    selectedItems: { id: string; image: string; name: string }[],
+  ) => {
     if (selectedItems.length === 0) return;
-    
-    append({
-      id: nextMessageId(),
-      role: 'user',
-      kind: 'closet_items',
-      items: selectedItems,
-    });
-    scrollToEnd();
 
     setTyping(true);
-    const t = setTimeout(() => {
+    try {
+      const itemNames = selectedItems.map((item) => item.name).join(', ');
+      let targetId = activeId;
+      if (!targetId) {
+        const created = await chatStore.createSession('closet');
+        targetId = created.id;
+        setPanelSessionId(targetId);
+      }
+      await chatStore.sendText(targetId, `선택한 옷(${itemNames})을 포함해 코디를 추천해줘.`);
+    } finally {
       setTyping(false);
-      const itemNames = selectedItems.map((i) => `[${i.name}]`).join(', ');
-      append({
-        id: nextMessageId(),
-        role: 'ai',
-        kind: 'text',
-        text: `선택하신 옷들(${itemNames})로 공유 룩북 조합을 분석해 봤어요! 아주 트렌디하고 세련된 매칭이에요. 아래의 '매칭 추천 룩' 카드를 확인해 보시겠어요?`,
-      });
-      append({
-        id: nextMessageId(),
-        role: 'ai',
-        kind: 'rec',
-        title: `${selectedItems[0].name} 매칭 코디 룩`,
-        tags: ['캐주얼', '데일리', '공유룩북'],
-      });
       scrollToEnd();
-    }, 1500);
-    timers.current.push(t);
+    }
   };
 
-  /** "이걸로 추천받기" — 무드를 확정하고 비슷한 룩을 찾는다. */
-  const acceptMood = (tags: string[]) => {
-    append({
-      id: nextMessageId(),
-      role: 'user',
-      kind: 'text',
-      text: `내 추구미는 이거야 — ${tags.join(' ')}`,
-    });
-    scrollToEnd();
-    setTyping(true);
-    const t = setTimeout(() => {
-      setTyping(false);
-      append({
-        id: nextMessageId(),
-        role: 'ai',
-        kind: 'text',
-        text: '기억해 둘게요. 이 무드에 가까운 룩으로 골라봤어요.',
-      });
-      append({
-        id: nextMessageId(),
-        role: 'ai',
-        kind: 'rec',
-        title: '부드러운 데이트 룩',
-        tags,
-      });
-      scrollToEnd();
-    }, 1500);
-    timers.current.push(t);
+  /**
+   * 무드 카드의 두 버튼. 카드를 만드는 경로(사진 분석)가 아직 없어 지금은 닿지 않지만,
+   * 첨부를 붙일 때 여기에 /mood-decision/ 의 APPROVE·REJECT 를 그대로 넣으면 된다.
+   */
+  const acceptMood = (_tags: string[]) => {
+    toast('사진으로 추천받기는 곧 연결돼요');
   };
 
-  /** "아니에요" — 무드를 기억하지 않고 원하는 것을 직접 듣는다. */
   const rejectMood = () => {
-    append({
-      id: nextMessageId(),
-      role: 'ai',
-      kind: 'text',
-      text: '알겠어요. 어떤 느낌을 찾고 계신지 말씀해 주시면 그 방향으로 찾아볼게요.',
-    });
-    scrollToEnd();
+    toast('사진으로 추천받기는 곧 연결돼요');
   };
 
   return (
@@ -328,6 +276,16 @@ export function ChatConversation({
               </View>
             );
           }
+          /* 오류는 코지가 한 말이 아니므로 말풍선·아바타를 주지 않는다 —
+             답변인 척하면 실패한 것을 답으로 읽게 된다. */
+          if (m.kind === 'error') {
+            return (
+              <View key={m.id} style={styles.errorRow}>
+                <Icon name="exclamationmark.triangle" tintColor={Editorial.wine} size={13} />
+                <Text style={styles.errorText}>{m.text}</Text>
+              </View>
+            );
+          }
           return (
             <View key={m.id} style={styles.aiRow}>
               <View style={styles.avatar}>
@@ -335,25 +293,50 @@ export function ChatConversation({
               </View>
               <View style={styles.aiCol}>
                 {m.kind === 'rec' ? (
-                  <Pressable style={styles.recCard} onPress={() => router.push('/look-detail')}>
-                    <View style={styles.recImage}>
-                      <Text style={styles.recImageLabel}>LOOK</Text>
-                    </View>
+                  /* 카드를 눌러 들어갈 자리는 아직 없다 — /look-detail 은 목업이라 여기서
+                     연결하면 방금 받은 추천과 상관없는 룩이 열린다. 카드 안에서 다 보여준다. */
+                  <View style={styles.recCard}>
                     <View style={styles.recBody}>
                       <Text style={styles.recTitle}>{m.title}</Text>
-                      <View style={styles.recTags}>
-                        {m.tags.map((t: any) => (
-                          <View key={t} style={styles.recTag}>
-                            <Text style={styles.recTagText}>{t}</Text>
+                      {/* 아이템 한 줄 — 사진이 있는 것만 그리고, 없으면 이름으로 대신한다 */}
+                      <View style={styles.recItems}>
+                        {m.items.map((item: RecItem) => (
+                          <View key={item.id} style={styles.recItem}>
+                            <SmartImage
+                              uri={item.imageUrl}
+                              width={64}
+                              height={64}
+                              radius={10}
+                              style={styles.recItemImage}
+                            />
+                            <Text style={styles.recItemName} numberOfLines={2}>
+                              {item.name}
+                            </Text>
+                            {/* 옷장 옷은 살 필요가 없다는 것이 가격보다 중요한 정보다 */}
+                            <Text style={styles.recItemMeta}>
+                              {item.fromWardrobe
+                                ? '내 옷장'
+                                : item.price != null
+                                  ? `${item.price.toLocaleString()}원`
+                                  : '새 상품'}
+                            </Text>
                           </View>
                         ))}
                       </View>
-                      <View style={styles.recCta}>
-                        <Text style={styles.recCtaText}>룩 자세히 보기</Text>
-                        <Icon name="arrow.right" tintColor={INK} size={13} />
-                      </View>
+
+                      {m.totalPrice ? (
+                        <Text style={styles.recTotal}>
+                          새로 사면 {m.totalPrice.toLocaleString()}원
+                        </Text>
+                      ) : null}
+
+                      {m.warnings.map((w: string) => (
+                        <Text key={w} style={styles.recWarning}>
+                          {w}
+                        </Text>
+                      ))}
                     </View>
-                  </Pressable>
+                  </View>
                 ) : m.kind === 'mood' ? (
                   <View style={styles.moodCard}>
                     <Text style={styles.moodLead}>사진에서 이런 무드가 보여요</Text>
@@ -458,6 +441,16 @@ const styles = StyleSheet.create({
   messages: { padding: 16, gap: 16 },
   aiRow: { flexDirection: 'row', gap: 8, alignItems: 'flex-start', maxWidth: '90%' },
   aiCol: { flex: 1, gap: 10 },
+
+  /* 아바타 자리(30) + 간격(8)만큼 들여 코지 말풍선과 왼쪽 선을 맞춘다. */
+  errorRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingLeft: 38,
+    maxWidth: '90%',
+  },
+  errorText: { flex: 1, fontSize: Type.caption, color: Editorial.wine, lineHeight: 18 },
   avatar: {
     width: 30,
     height: 30,
@@ -513,16 +506,19 @@ const styles = StyleSheet.create({
     overflow: 'hidden',
     backgroundColor: Editorial.surface,
   },
-  recImage: {
-    height: 150,
-    // 말풍선·태그와 같은 연한 톤으로 통일 (bone 은 상대적으로 진하다)
-    backgroundColor: Editorial.surface,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  recImageLabel: { fontFamily: Fonts.serif, fontSize: 16, letterSpacing: 3, color: Editorial.textMuted },
   recBody: { padding: 14, gap: 10 },
   recTitle: { fontSize: 14, fontWeight: '600', color: INK },
+
+  /* 아이템을 가로로 늘어놓는다. 개수가 적어(보통 3~5) 가로 스크롤 없이 줄바꿈으로 받는다. */
+  recItems: { flexDirection: 'row', flexWrap: 'wrap', gap: 12 },
+  recItem: { width: 64, gap: 4 },
+  recItemImage: { backgroundColor: BONE },
+  recItemName: { fontSize: Type.micro, color: INK, lineHeight: 15 },
+  recItemMeta: { fontSize: Type.micro, color: Editorial.textCaption },
+
+  recTotal: { fontSize: Type.caption, fontWeight: '600', color: INK },
+  /* 서버가 붙이는 주의 문구(예: 예산 초과). 경고색은 쓰되 문장은 서버 말을 그대로 보여준다. */
+  recWarning: { fontSize: Type.caption, color: Editorial.wine },
   recTags: { flexDirection: 'row', gap: 6 },
   recTag: {
     backgroundColor: Editorial.control,

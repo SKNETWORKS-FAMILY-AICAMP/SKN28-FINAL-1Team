@@ -1,3 +1,4 @@
+import * as Clipboard from 'expo-clipboard';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useCallback, useEffect, useState } from 'react';
 import {
@@ -41,6 +42,18 @@ export default function InviteScreen() {
   const [guestName, setGuestName] = useState('');
 
   const inviteCode = params.code || '';
+
+  /* 앱을 아직 안 깐 사람이 링크로 들어온 화면이다 — 코드만 손에 쥐면
+     앱을 깔고 "코드로 참여"로 들어갈 수 있어서 복사를 한 번에 되게 둔다. */
+  const copyCode = useCallback(async () => {
+    if (!inviteCode) return;
+    try {
+      await Clipboard.setStringAsync(inviteCode);
+      toast('참여 코드를 복사했어요', { variant: 'success' });
+    } catch {
+      toast('복사하지 못했어요 — 길게 눌러 선택해 주세요', { variant: 'error' });
+    }
+  }, [inviteCode, toast]);
 
   // 카드 안쪽 폭(컨테이너 padding 24*2, 카드 padding 32*2)에서 2열을 나눈다
   const tileW = Math.max((Math.min(width - 48, 400) - 64 - 10) / 2, 96);
@@ -224,11 +237,12 @@ export default function InviteScreen() {
         {guestName ? <Text style={styles.guestNote}>손님({guestName})으로 구경 중</Text> : null}
 
         <View style={styles.codeBox}>
-          <Text style={styles.codeLabel}>참여 코드</Text>
-          {/* 네이티브에는 클립보드 모듈이 없어 길게 눌러 복사할 수 있게 둔다 */}
-          <Text style={styles.codeText} selectable>
-            {inviteCode || 'CODE_MISSING'}
-          </Text>
+          <Text style={styles.codeLabel}>참여 코드 (눌러서 복사)</Text>
+          <Pressable onPress={copyCode} hitSlop={8}>
+            <Text style={styles.codeText} selectable>
+              {inviteCode || 'CODE_MISSING'}
+            </Text>
+          </Pressable>
         </View>
 
         {preview.items.length > 0 ? (

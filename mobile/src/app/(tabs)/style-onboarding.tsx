@@ -25,7 +25,6 @@ import {
 } from '@/constants/pursuit-options';
 import { PursuitEndpoint } from '@/constants/config';
 import { ContentMax, Editorial, Fonts, ink } from '@/constants/theme';
-import { useBottomTabInset } from '@/hooks/use-bottom-tab-inset';
 import { useBreakpoint } from '@/hooks/use-breakpoint';
 import { ApiError, api } from '@/lib/apiClient';
 
@@ -157,7 +156,6 @@ function CategorySection({
  */
 export default function StyleOnboarding() {
   const { contentStyle } = useBreakpoint();
-  const tabInset = useBottomTabInset();
   const toast = useToast();
   const { returnTo } = useLocalSearchParams<{ returnTo?: string }>();
 
@@ -243,8 +241,8 @@ export default function StyleOnboarding() {
   const hasSelection = preferredCount + avoidedCount > 0;
 
   const goHome = () => {
-    if (returnTo === 'my') router.replace('/(tabs)/my');
-    else router.replace('/(tabs)/home');
+    if (returnTo === 'my') router.navigate('/my');
+    else router.navigate('/home');
   };
 
   /* "저장하고 시작하기" — 선호/기피 선택(11개 카테고리)을 통째로 저장(PUT)하고 이동한다.
@@ -257,14 +255,15 @@ export default function StyleOnboarding() {
         preferred: toPayload(preferred),
         avoided: toPayload(avoided),
       });
+      goHome();
     } catch (e) {
       toast(
-        e instanceof ApiError ? e.message : '선호도 저장에 실패했어요. 임시로 진행할게요.',
+        e instanceof ApiError ? e.message : '선호도 저장에 실패했어요. 다시 시도해 주세요.',
         { variant: 'error' },
       );
+      if (returnTo !== 'onboarding') goHome();
     } finally {
       setSaving(false);
-      goHome();
     }
   };
 
@@ -339,7 +338,7 @@ export default function StyleOnboarding() {
             </Text>
           </View>
         ) : null}
-        <View style={[styles.bottomBar, { paddingBottom: tabInset }, contentStyle(ContentMax.narrow)]}>
+        <View style={[styles.bottomBar, { paddingBottom: 12 }, contentStyle(ContentMax.narrow)]}>
           <Pressable style={styles.skipBtn} onPress={goHome} disabled={saving}>
             <Text style={styles.skipText}>나중에</Text>
           </Pressable>

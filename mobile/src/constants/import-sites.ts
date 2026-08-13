@@ -57,8 +57,24 @@ export type ImportSite = {
    *    사실 자체를 숨기지는 못한다. 단순 UA 분기만 피하는 수단으로만 기대할 것.
    */
   spoofUserAgent?: boolean;
+  /**
+   * 긁어온 썸네일 주소를 **더 큰 이미지**로 바꾼다. 규칙을 모르면 그대로 돌려준다.
+   *
+   * 구매목록 썸네일은 화면에 보이는 크기 그대로다(네이버는 200px·7KB). 이 사진으로
+   * 서버 모델이 소재·패턴·디테일까지 읽어야 하는데, 그 해상도로는 "패딩"까지가 한계다.
+   * 주소 규칙은 사이트마다 달라서 어댑터가 안다.
+   */
+  upscaleImage?: (url: string) => string;
   scrape: ScrapeRules;
 };
+
+/** 쿼리에서 파라미터 하나만 뺀다. 나머지 파라미터와 순서는 건드리지 않는다. */
+function withoutQueryParam(url: string, name: string): string {
+  const [base, query] = url.split('?');
+  if (!query) return url;
+  const kept = query.split('&').filter((part) => part.split('=')[0] !== name);
+  return kept.length ? `${base}?${kept.join('&')}` : base;
+}
 
 /**
  * 네이버 — 1차 지원 대상.
@@ -79,6 +95,17 @@ const naver: ImportSite = {
   orderUrlPattern: /(shopping\.naver\.com\/.*\/?my\/order)|(pay\.naver\.com\/(order|orderstatus))/i,
   loginUrlPattern: /nid\.naver\.com/i,
   hostPattern: /(^|\.)naver\.com/i,
+  /**
+   * 네이버 이미지 CDN(phinf)은 `?type=f200` 이 붙으면 200px 썸네일을 준다.
+   * 이 파라미터만 떼면 원본이 나온다 — 실측(2026-08-11, 구매목록 실제 이미지):
+   *   `?type=f200` 200×200·7KB · **쿼리 없음 1000×1000·123KB** · `?type=f640` 640×640·27KB
+   *
+   * 크기를 키우는 대신 **떼는** 이유: `?type=f800` 은 404 다. 어떤 토큰이 살아 있는지
+   * 우리가 알 수 없으니, 추측한 값을 넣었다가 이미지를 통째로 못 받느니
+   * 반드시 존재하는 원본을 쓴다. (원본 123KB × 30장 = 4MB, 배치 100MB 제한에 여유가 크다)
+   */
+  upscaleImage: (url) =>
+    /phinf\.pstatic\.net/i.test(url) ? withoutQueryParam(url, 'type') : url,
   scrape: {
     itemSelector: [
       '[class*="orderProduct" i]',

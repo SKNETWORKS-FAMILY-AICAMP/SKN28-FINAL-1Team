@@ -8,6 +8,7 @@ import {
   SharedSpaceOnboarding,
   type SharedSpace,
 } from '@/components/closet/shared-space-flow';
+import { SharedItemAddSheet } from '@/components/closet/shared-item-add-sheet';
 import { PhotoSourceSheet } from '@/components/closet/photo-source-sheet';
 import { CategoryEditSheet, EmptyState, ErrorState, LoadingState, LoginGate, SearchFilterBar, SegmentedToggle, SmartImage, useConfirm, useToast } from '@/components/ui';
 import { useMultiSelectFilter } from '@/hooks/useMultiSelectFilter';
@@ -30,14 +31,21 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { Editorial, ink, GridCard, gridCardImageHeight, gridCardWidth , ContentMax} from '@/constants/theme';
 import { SHARED_CLOSET_ITEMS } from '@/constants/wardrobe';
 import { WARDROBE_FILTER_OPTIONS } from '@/constants/wardrobe-taxonomy';
-import { useBottomTabInset } from '@/hooks/use-bottom-tab-inset';
 import { useBreakpoint } from '@/hooks/use-breakpoint';
 import { useRefresh } from '@/hooks/use-refresh';
 import { useWardrobeItems } from '@/hooks/use-wardrobe';
-import { itemDisplayName, getMySharedRooms, createSharedRoom, joinSharedRoom, listSharedRoomMembers, listSharedRoomItems, renameSharedRoom, deleteSharedRoom, unregisterItemFromSharedRoom } from '@/lib/wardrobeApi';
+import { itemDisplayName, getMySharedRooms, createSharedRoom, joinSharedRoom, listSharedRoomMembers, listSharedRoomItems, listSharedRoomCategories, createSharedRoomCategory, deleteSharedRoomCategory, renameSharedRoom, deleteSharedRoom, unregisterItemFromSharedRoom, sharedUserDisplayName, type SharedRoomCategory } from '@/lib/wardrobeApi';
 import { Icon } from '@/components/icon';
 import { useAuth } from '@/state/auth';
-import { uploadJobs, useUploadCompleted, useUploadJobs, useBatchTotal, useBatchCompletedCount } from '@/state/upload-jobs';
+import {
+  isBatchRunning,
+  type ImportBatchState,
+  uploadJobs,
+  useImportBatches,
+  useUploadCompleted,
+  useUploadJobs,
+  useWardrobeRevision,
+} from '@/state/upload-jobs';
 
 const INK = Editorial.ink;
 
@@ -49,6 +57,17 @@ const MEMBER_COLORS = [
   '#BA68C8', // 보라
   '#FFB74D', // 주황
 ];
+/**
+ * 가져오기 배치 한 줄 문구 — 진행 중엔 어디까지 왔는지, 끝나면 결과만.
+ * 실패 건수를 감추지 않는다. 몇 벌이 안 들어왔는지 알아야 다시 담을지 정할 수 있다.
+ */
+function batchMessage(b: ImportBatchState): string {
+  if (b.error) return b.error;
+  if (isBatchRunning(b)) return `가져온 옷 정리 중 · ${b.done + b.failed}/${b.total}장`;
+  if (!b.done) return '가져온 옷을 옷장에 담지 못했어요';
+  if (b.failed) return `${b.done}벌을 담았어요 · ${b.failed}장은 실패했어요`;
+  return `${b.done}벌을 옷장에 담았어요`;
+}
 
 /* 카드 크기는 창 폭에서 파생되므로 모듈 최상단이 아니라 컴포넌트 안에서 useBreakpoint() 로 구한다.
    (모듈 최상단에서 읽으면 리사이즈에 반응하지 않는다) */
@@ -87,7 +106,6 @@ export default function ClosetScreen() {
   const { frameWidth, contentStyle } = useBreakpoint();
   const cardW = gridCardWidth(frameWidth);
   const cardH = gridCardImageHeight(cardW);
-  const tabInset = useBottomTabInset();
 
   const toast = useToast();
   const confirm = useConfirm();
@@ -106,10 +124,12 @@ export default function ClosetScreen() {
   const [sharedRooms, setSharedRooms] = useState<any[]>([]);
   const [sharedItems, setSharedItems] = useState<Card[]>([]);
   const [inviteOpen, setInviteOpen] = useState(false);
+  const [shareAddOpen, setShareAddOpen] = useState(false);
   const [joinOpen, setJoinOpen] = useState(false);
   const [manageRoom, setManageRoom] = useState<{ id: string; title: string; draftTitle: string } | null>(null);
   const [deleteRoom, setDeleteRoom] = useState<{ id: string; title: string } | null>(null);
   const [categories, setCategories] = useState<string[]>(DEFAULT_CATEGORIES);
+  const [sharedCategories, setSharedCategories] = useState<SharedRoomCategory[]>([]);
   const [editOpen, setEditOpen] = useState(false);
   const [sourceOpen, setSourceOpen] = useState(false);
   const { toggle, reset, prune, isActive, matches, label } = useMultiSelectFilter();
@@ -129,9 +149,6 @@ export default function ClosetScreen() {
   const completed = useUploadCompleted();
   const running = jobs.filter((j) => j.phase !== 'failed');
   const failed = jobs.filter((j) => j.phase === 'failed');
-
-  const batchTotal = useBatchTotal();
-  const batchCompleted = useBatchCompletedCount();
 
   const seenCompleted = useRef(completed);
   useEffect(() => {
@@ -162,6 +179,17 @@ export default function ClosetScreen() {
     }
   };
 
+  /* 가져오기(일괄 등록)는 옷이 여러 벌 들어온다 — 한 벌마다 토스트를 띄우면 시끄러우니
+     목록만 조용히 갱신하고, 진행 상황은 아래 줄이 대신 말해준다. */
+  const batches = useImportBatches();
+  const revision = useWardrobeRevision();
+  const seenRevision = useRef(revision);
+  useEffect(() => {
+    if (revision === seenRevision.current) return;
+    seenRevision.current = revision;
+    reload();
+  }, [revision, reload]);
+
   const myItems = useMemo<Card[]>(
     () =>
       apiItems.map((i) => ({
@@ -182,12 +210,15 @@ export default function ClosetScreen() {
 
   const loadRoomData = async (roomId: string, currentRoomsList?: any[]) => {
     try {
-      const [membersList, itemsList] = await Promise.all([
+      const [membersList, itemsList, categoryList] = await Promise.all([
         listSharedRoomMembers(roomId),
         listSharedRoomItems(roomId),
+        listSharedRoomCategories(roomId),
       ]);
+      setSharedCategories(categoryList);
+      setCategories([...DEFAULT_CATEGORIES, ...categoryList.map((category) => category.name)]);
       const memberNames = membersList.map((m) =>
-        m.user.username === 'dev_autologin' ? '나' : m.user.username
+        m.user.username === 'dev_autologin' ? '나' : sharedUserDisplayName(m.user)
       );
       const targetRoom = (currentRoomsList || sharedRooms).find((r) => r.id === roomId);
       setSharedSpace({
@@ -203,7 +234,12 @@ export default function ClosetScreen() {
           name: si.wardrobe_item.item_name || '옷',
           category: si.wardrobe_item.category_large,
           image: si.wardrobe_item.image_url,
-          owner: si.registered_by?.username === 'dev_autologin' ? '나' : si.registered_by?.username || undefined,
+          owner:
+            si.registered_by?.username === 'dev_autologin'
+              ? '나'
+              : si.registered_by
+                ? sharedUserDisplayName(si.registered_by)
+                : undefined,
         }))
       );
     } catch (err) {
@@ -232,6 +268,8 @@ export default function ClosetScreen() {
           setSharedRooms([]);
           setSharedSpace(null);
           setSharedItems([]);
+          setSharedCategories([]);
+          setCategories(DEFAULT_CATEGORIES);
         });
     }
   }, [isLoggedIn, tab]);
@@ -303,7 +341,9 @@ export default function ClosetScreen() {
         await loadRoomData(rooms[0].id, rooms);
       } else {
         setSharedSpace(null);
-        setSharedItems([]);
+          setSharedItems([]);
+          setSharedCategories([]);
+          setCategories(DEFAULT_CATEGORIES);
       }
       toast('공유 옷장을 삭제했어요', { variant: 'success' });
     } catch (err) {
@@ -315,7 +355,12 @@ export default function ClosetScreen() {
   const handleJoinSpace = async (code: string) => {
     try {
       const res = await joinSharedRoom(code);
-      toast('공유 옷장에 참여했어요', { variant: 'success' });
+      /* 이미 멤버였는데 "참여했어요"라고 하면, 정원이 꽉 차 못 들어간 경우와
+         구분이 안 돼 사용자가 방에 들어간 줄 안다. 서버가 준 status 로 갈라 말한다. */
+      toast(
+        res.status === 'already_member' ? '이미 참여 중인 공유 옷장이에요' : '공유 옷장에 참여했어요',
+        { variant: 'success' },
+      );
       const rooms = await getMySharedRooms();
       setSharedRooms(rooms || []);
       await loadRoomData(res.room_id, rooms);
@@ -338,19 +383,48 @@ export default function ClosetScreen() {
       return '다른 검색어나 카테고리를 선택해 보세요.';
     }
     return tab === 'shared'
-      ? '멤버가 옷을 추가하면 여기에 표시돼요.'
+      ? '내 옷을 공유하거나, 친구를 초대해 보세요.'
       : '첫 아이템을 추가해 옷장을 채워보세요.';
   }, [query, label, tab]);
 
   const handleTabChange = (key: 'mine' | 'shared') => {
     setTab(key);
+    if (key === 'mine') setCategories(DEFAULT_CATEGORIES);
     reset();
     setQuery('');
   };
 
-  const handleSaveCategories = (next: string[]) => {
-    setCategories(next);
-    prune(next.slice(1));
+  const handleSaveCategories = async (next: string[]) => {
+    if (tab !== 'shared' || !sharedSpace) {
+      setCategories(next);
+      prune(next.slice(1));
+      return;
+    }
+
+    const customNames = next.filter((name) => !DEFAULT_CATEGORIES.includes(name));
+    const existingNames = new Set(sharedCategories.map((category) => category.name));
+    const nextNames = new Set(customNames);
+    try {
+      await Promise.all([
+        ...customNames
+          .filter((name) => !existingNames.has(name))
+          .map((name) => createSharedRoomCategory(sharedSpace.id, name)),
+        ...sharedCategories
+          .filter((category) => !nextNames.has(category.name))
+          .map((category) => deleteSharedRoomCategory(sharedSpace.id, category.id)),
+      ]);
+      const saved = await listSharedRoomCategories(sharedSpace.id);
+      setSharedCategories(saved);
+      const savedCategories = [...DEFAULT_CATEGORIES, ...saved.map((category) => category.name)];
+      setCategories(savedCategories);
+      prune(savedCategories.slice(1));
+      toast('카테고리를 저장했어요', { variant: 'success' });
+    } catch (error) {
+      toast(error instanceof Error ? error.message : '카테고리를 저장하지 못했어요', { variant: 'error' });
+      const saved = await listSharedRoomCategories(sharedSpace.id).catch(() => sharedCategories);
+      setSharedCategories(saved);
+      setCategories([...DEFAULT_CATEGORIES, ...saved.map((category) => category.name)]);
+    }
   };
 
   const wardrobeToggle = (
@@ -364,7 +438,18 @@ export default function ClosetScreen() {
     />
   );
 
-  const showAddFab = tab === 'mine';
+  /* 두 탭 모두 `+`를 띄우되 하는 일이 다르다.
+     내 옷장 = 새 옷 등록(사진), 공유 옷장 = 내 옷을 방에 연결.
+     공유 옷장은 옷을 소유하지 않으므로(설계 §2.3) 여기서 사진을 받지 않는다. */
+  const showAddFab = tab === 'mine' || (tab === 'shared' && !!sharedSpace);
+  const onAddFabPress = () => (tab === 'mine' ? setSourceOpen(true) : setShareAddOpen(true));
+
+  /* 이미 방에 올라간 옷은 선택 목록에서 빼야 해서 원본 아이템 id 로 넘긴다.
+     참조가 매번 바뀌면 시트가 재조회를 반복하므로 메모한다. */
+  const sharedWardrobeItemIds = useMemo(
+    () => sharedItems.map((i) => i.wardrobeItemId).filter((id): id is string => !!id),
+    [sharedItems],
+  );
 
   // 옷장은 내 데이터라 비회원에게 보여줄 것이 없다. (훅 순서 유지를 위해 전부 호출한 뒤 분기)
   if (!isLoggedIn) {
@@ -398,12 +483,47 @@ export default function ClosetScreen() {
           <View style={[styles.jobStrip, contentStyle(ContentMax.wide)]}>
             <ActivityIndicator color={INK} size="small" />
             <Text style={styles.jobText}>
-              {batchTotal > 0
-                ? `옷장 분석중 (${batchCompleted}/${batchTotal})`
-                : `옷 등록 중 · ${running.length}장`}
+              {`옷 등록 중 · ${running.length}장`}
             </Text>
           </View>
         ) : null}
+        {/* 가져오기 배치 — 진행 중에는 남은 장수, 끝나면 결과 요약(사용자가 닫는다) */}
+        {tab === 'mine'
+          ? batches.map((b) => {
+              const running = isBatchRunning(b);
+              const bad = !running && (b.done === 0 || b.failed > 0 || Boolean(b.error));
+              return (
+                <View
+                  key={b.batchId}
+                  style={[
+                    styles.jobStrip,
+                    bad && styles.jobStripFail,
+                    contentStyle(ContentMax.wide),
+                  ]}>
+                  {running ? (
+                    <ActivityIndicator color={INK} size="small" />
+                  ) : (
+                    <Icon
+                      name={bad ? 'exclamationmark.triangle' : 'checkmark'}
+                      tintColor={bad ? Editorial.danger : INK}
+                      size={15}
+                    />
+                  )}
+                  <Text style={[styles.jobText, bad && styles.jobTextFail]} numberOfLines={2}>
+                    {batchMessage(b)}
+                  </Text>
+                  {running ? null : (
+                    <Pressable
+                      hitSlop={10}
+                      onPress={() => uploadJobs.dismissBatch(b.batchId)}
+                      accessibilityLabel="닫기">
+                      <Icon name="xmark" tintColor={ink(0.45)} size={14} />
+                    </Pressable>
+                  )}
+                </View>
+              );
+            })
+          : null}
         {tab === 'mine'
           ? failed.map((j) => (
               <View key={j.key} style={[styles.jobStrip, styles.jobStripFail, contentStyle(ContentMax.wide)]}>
@@ -492,7 +612,7 @@ export default function ClosetScreen() {
                 <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={INK} />
               ) : undefined
             }
-            contentContainerStyle={[styles.grid, { paddingBottom: tabInset + 24 }, contentStyle(ContentMax.wide)]}>
+            contentContainerStyle={[styles.grid, { paddingBottom: 24 }, contentStyle(ContentMax.wide)]}>
             {/* 내 옷장만 서버에서 온다 — 공유 옷장은 아직 목업이라 로딩·에러가 없다. */}
             {tab === 'mine' && loading ? (
               <LoadingState message="옷장을 불러오는 중…" style={styles.empty} />
@@ -512,14 +632,17 @@ export default function ClosetScreen() {
                   tab === 'mine' && !query.trim() && label === '전체'
                     ? '아이템 추가하기'
                     : tab === 'shared' && sharedSpace && !query.trim() && label === '전체'
-                      ? '친구 초대하기'
+                      ? /* 빈 공유방에서 할 일은 둘인데(옷 넣기·친구 부르기),
+                           옷이 없으면 초대해도 볼 게 없으니 옷 넣기를 먼저 권한다.
+                           친구 초대는 상단 멤버 줄의 [초대] 칩에 그대로 있다. */
+                        '내 옷 공유하기'
                       : undefined
                 }
                 onAction={
                   tab === 'mine' && !query.trim() && label === '전체'
                     ? () => setSourceOpen(true)
                     : tab === 'shared' && sharedSpace && !query.trim() && label === '전체'
-                      ? () => setInviteOpen(true)
+                      ? () => setShareAddOpen(true)
                       : undefined
                 }
                 style={styles.empty}
@@ -530,7 +653,13 @@ export default function ClosetScreen() {
                   key={it.id}
                   style={[styles.card, { width: cardW }]}
                   onPress={() =>
-                    router.push({ pathname: '/item-detail', params: { id: it.id } })
+                    router.push({
+                      pathname: '/item-detail',
+                      params: {
+                        id: it.wardrobeItemId ?? it.id,
+                        ...(tab === 'shared' ? { readonly: '1' } : {}),
+                      },
+                    })
                   }
                   {...{
                     // Web HTML5 Drag and drop
@@ -681,11 +810,22 @@ export default function ClosetScreen() {
 
         {showAddFab ? (
           <Pressable
-            style={[styles.addFab, { bottom: tabInset + 12 }]}
-            onPress={() => setSourceOpen(true)}
-            accessibilityLabel="아이템 추가">
+            style={[styles.addFab, { bottom: 12 }]}
+            onPress={onAddFabPress}
+            accessibilityLabel={tab === 'mine' ? '아이템 추가' : '내 옷 공유하기'}>
             <Icon name="plus" tintColor={INK} size={22} />
           </Pressable>
+        ) : null}
+
+        {sharedSpace ? (
+          <SharedItemAddSheet
+            visible={shareAddOpen}
+            roomId={sharedSpace.id}
+            roomName={sharedSpace.name}
+            alreadySharedItemIds={sharedWardrobeItemIds}
+            onClose={() => setShareAddOpen(false)}
+            onDone={() => loadRoomData(sharedSpace.id)}
+          />
         ) : null}
       </SafeAreaView>
     </View>

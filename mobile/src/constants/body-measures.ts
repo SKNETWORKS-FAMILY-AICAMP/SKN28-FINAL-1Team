@@ -38,6 +38,14 @@ export type BodyMeasureSpec = {
   unit: 'cm' | null;
   /** 표시·입력 소수 자릿수 (cm 1자리 · 비율 3자리 — 백엔드 Decimal 자릿수와 동일) */
   decimals: 1 | 3;
+  /**
+   * 사용자가 고칠 수 있는가.
+   *
+   * 줄자로 잴 수 있는 값만 true 다. 비율 2개는 **서버가 길이에서 계산해 주는 파생값**이라
+   * false — 사람이 "0.774"를 잴 방법이 없고, 고쳐 봐야 서버의 길이 값과 어긋난 채 저장됐다가
+   * 다음 추정 때 덮어써진다. 읽기 전용으로 두고 저장 본문에서도 뺀다.
+   */
+  editable: boolean;
   /** 입력 허용 범위 (백엔드 validator 와 동일). 벗어나면 저장이 400 이 된다 */
   min: number;
   max: number;
@@ -58,6 +66,7 @@ export const BODY_MEASURES: readonly BodyMeasureSpec[] = [
     group: 'size',
     unit: 'cm',
     decimals: 1,
+    editable: true,
     min: 1,
     max: 999.9,
     summary: '양쪽 어깨 끝점을 잇는 정면 직선 거리예요.',
@@ -75,6 +84,7 @@ export const BODY_MEASURES: readonly BodyMeasureSpec[] = [
     group: 'size',
     unit: 'cm',
     decimals: 1,
+    editable: true,
     min: 1,
     max: 999.9,
     summary: '가슴에서 가장 두꺼운 곳을 한 바퀴 두른 둘레예요.',
@@ -91,6 +101,7 @@ export const BODY_MEASURES: readonly BodyMeasureSpec[] = [
     group: 'size',
     unit: 'cm',
     decimals: 1,
+    editable: true,
     min: 1,
     max: 999.9,
     summary: '갈비뼈 아래와 골반 위 사이, 가장 가는 곳의 둘레예요.',
@@ -107,6 +118,7 @@ export const BODY_MEASURES: readonly BodyMeasureSpec[] = [
     group: 'size',
     unit: 'cm',
     decimals: 1,
+    editable: true,
     min: 1,
     max: 999.9,
     summary: '엉덩이에서 가장 튀어나온 곳의 둘레예요.',
@@ -122,6 +134,7 @@ export const BODY_MEASURES: readonly BodyMeasureSpec[] = [
     group: 'size',
     unit: 'cm',
     decimals: 1,
+    editable: true,
     min: 1,
     max: 999.9,
     summary: '허벅지에서 가장 굵은 곳의 둘레예요.',
@@ -137,6 +150,7 @@ export const BODY_MEASURES: readonly BodyMeasureSpec[] = [
     group: 'size',
     unit: 'cm',
     decimals: 1,
+    editable: true,
     min: 1,
     max: 999.9,
     summary: '종아리에서 가장 굵은 곳의 둘레예요.',
@@ -152,6 +166,7 @@ export const BODY_MEASURES: readonly BodyMeasureSpec[] = [
     group: 'size',
     unit: 'cm',
     decimals: 1,
+    editable: true,
     min: 1,
     max: 999.9,
     summary: '어깨와 팔꿈치 사이, 위팔에서 가장 굵은 곳의 둘레예요.',
@@ -168,6 +183,7 @@ export const BODY_MEASURES: readonly BodyMeasureSpec[] = [
     group: 'proportion',
     unit: 'cm',
     decimals: 1,
+    editable: true,
     min: 1,
     max: 999.9,
     caption: '넥라인 추천에 쓰여요 (짧으면 V넥·U넥, 길면 하이넥·터틀넥)',
@@ -185,6 +201,7 @@ export const BODY_MEASURES: readonly BodyMeasureSpec[] = [
     group: 'proportion',
     unit: null,
     decimals: 3,
+    editable: false,
     min: 0.8,
     max: 1.3,
     caption: '하의 실루엣 추천에 쓰여요 (0.8 ~ 1.3)',
@@ -203,6 +220,7 @@ export const BODY_MEASURES: readonly BodyMeasureSpec[] = [
     group: 'proportion',
     unit: null,
     decimals: 3,
+    editable: false,
     min: 0.6,
     max: 1.0,
     caption: '상의 기장·밑위 추천에 쓰여요 (0.6 ~ 1.0)',
@@ -233,3 +251,6 @@ export const BODY_MEASURE_BY_KEY: Record<BodyMeasureKey, BodyMeasureSpec> =
     BodyMeasureKey,
     BodyMeasureSpec
   >;
+
+/** 사용자가 고칠 수 있는 항목 — 저장(PATCH detail) 본문도 이 목록으로 만든다 */
+export const EDITABLE_MEASURES = BODY_MEASURES.filter((m) => m.editable);

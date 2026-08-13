@@ -1,0 +1,272 @@
+from __future__ import annotations
+
+import uuid
+
+from django.conf import settings
+from django.contrib.auth import get_user_model
+from django.test import TestCase
+from django.urls import reverse
+from rest_framework import status
+from rest_framework.test import APIClient
+
+from apps.chat.models import ChatMessage, ChatRun, ChatSession
+from apps.chat.services import identity as identity_service
+from apps.recommend.models import (
+    OutfitComposition,
+    OutfitCompositionItem,
+    RecommendationFeedback,
+    RecommendationResult,
+)
+
+
+class RecommendationApiTests(TestCase):
+    def setUp(self) -> None:
+        self.client = APIClient()
+        user_model = get_user_model()
+        self.user = user_model.objects.create_user(username="recommendation-owner")
+        self.other_user = user_model.objects.create_user(username="recommendation-other")
+        self.identity = identity_service.get_or_create_member_identity(self.user)
+        self.other_identity = identity_service.get_or_create_member_identity(
+            self.other_user
+        )
+
+    def _result(
+        self,
+        identity,
+        *,
+        mode: str = RecommendationResult.Mode.NEW_ITEM,
+    ) -> tuple[RecommendationResult, OutfitComposition, OutfitComposition]:
+        session = ChatSession.objects.create(identity=identity, mode=mode)
+        message = ChatMessage.objects.create(
+            session=session,
+            sequence=1,
+            role=ChatMessage.Role.USER,
+            content="내일 입을 옷을 추천해줘",
+        )
+        run = ChatRun.objects.create(
+            session=session,
+            request_message=message,
+            status=ChatRun.Status.SUCCEEDED,
+        )
+        result = RecommendationResult.objects.create(
+            identity=identity,
+            session=session,
+            run=run,
+            mode=mode,
+            dataset_version="goldenset-2026-08-11",
+        )
+        validated = OutfitComposition.objects.create(
+            result=result,
+            rank=1,
+            status=OutfitComposition.Status.VALIDATED,
+            composition_fingerprint=uuid.uuid4().hex * 2,
+            total_product_price=49_900,
+            validation_reasons=[{"code": "VALID"}],
+            warnings=[],
+        )
+        rejected = OutfitComposition.objects.create(
+            result=result,
+            rank=2,
+            status=OutfitComposition.Status.REJECTED,
+            validation_reasons=[{"code": "MISSING_REQUIRED_SLOT"}],
+            warnings=[],
+        )
+        OutfitCompositionItem.objects.create(
+            composition=validated,
+            position=1,
+            slot="TOP",
+            source_type=OutfitCompositionItem.SourceType.PRODUCT,
+            source_id="naver-101",
+            source_collection="naver_products",
+            source_point_id="naver-point-101",
+            template_item_point_id="golden-item-101",
+            replacement_score=0.91,
+            image_ref="products/naver-101.jpg",
+            price_snapshot=49_900,
+            reasons=["스타일과 계절이 일치함"],
+            item_snapshot={
+                "product_name": "아이보리 니트",
+                "category_small": "니트",
+                "color": "아이보리",
+                "product_url": "https://shop.example/items/101",
+            },
+        )
+        return result, validated, rejected
+
+    def test_member_history_returns_only_owned_results_and_validated_cards(self):
+        result, validated, _ = self._result(self.identity)
+        self._result(self.other_identity)
+        self.client.force_authenticate(self.user)
+
+        response = self.client.get(reverse("recommend:recommendation-list"))
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data["count"], 1)
+        item = response.data["results"][0]
+        self.assertEqual(item["result_id"], str(result.id))
+        self.assertEqual(item["card_count"], 1)
+        self.assertEqual(item["top_card"]["card_id"], str(validated.id))
+        self.assertEqual(
+            item["top_card"]["items"][0]["display_name"], "아이보리 니트"
+        )
+
+    def test_history_validates_mode_and_pagination(self):
+        self.client.force_authenticate(self.user)
+
+        invalid_mode = self.client.get(
+            reverse("recommend:recommendation-list"), {"mode": "PURSUIT_BASED"}
+        )
+        invalid_limit = self.client.get(
+            reverse("recommend:recommendation-list"), {"limit": 101}
+        )
+
+        self.assertEqual(invalid_mode.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(invalid_limit.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_guest_cookie_can_read_own_result(self):
+        credential = identity_service.issue_guest_identity()
+        result, validated, _ = self._result(credential.identity)
+        self.client.cookies[settings.CHAT_GUEST_COOKIE_NAME] = credential.token
+
+        detail = self.client.get(
+            reverse("recommend:recommendation-detail", args=[result.id])
+        )
+        card = self.client.get(
+            reverse(
+                "recommend:recommendation-card-detail",
+                args=[result.id, validated.id],
+            )
+        )
+
+        self.assertEqual(detail.status_code, status.HTTP_200_OK)
+        self.assertEqual(detail.data["cards"][0]["card_id"], str(validated.id))
+        self.assertEqual(card.status_code, status.HTTP_200_OK)
+
+    def test_missing_identity_is_401_and_other_owner_is_404(self):
+        result, _, _ = self._result(self.identity)
+
+        missing_identity = self.client.get(
+            reverse("recommend:recommendation-detail", args=[result.id])
+        )
+        self.client.force_authenticate(self.other_user)
+        other_owner = self.client.get(
+            reverse("recommend:recommendation-detail", args=[result.id])
+        )
+
+        self.assertEqual(missing_identity.status_code, status.HTTP_401_UNAUTHORIZED)
+        self.assertEqual(other_owner.status_code, status.HTTP_404_NOT_FOUND)
+
+    def test_feedback_put_is_idempotent_and_card_returns_latest_feedback(self):
+        result, card, _ = self._result(self.identity)
+        self.client.force_authenticate(self.user)
+        url = reverse("recommend:recommendation-feedback", args=[result.id, card.id])
+
+        created = self.client.put(
+            url,
+            {
+                "reaction": RecommendationFeedback.Reaction.LIKE,
+                "reason_codes": ["STYLE_MATCH", "PRICE_GOOD"],
+                "comment": "바로 입어보고 싶어요.",
+            },
+            format="json",
+        )
+        updated = self.client.put(
+            url,
+            {
+                "reaction": RecommendationFeedback.Reaction.DISLIKE,
+                "reason_codes": ["NOT_MY_STYLE"],
+                "comment": "색상이 취향과 달라요.",
+            },
+            format="json",
+        )
+        card_response = self.client.get(
+            reverse("recommend:recommendation-card-detail", args=[result.id, card.id])
+        )
+
+        self.assertEqual(created.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(updated.status_code, status.HTTP_200_OK)
+        self.assertEqual(created.data["feedback_id"], updated.data["feedback_id"])
+        self.assertEqual(RecommendationFeedback.objects.count(), 1)
+        self.assertEqual(card_response.data["feedback"]["reaction"], "DISLIKE")
+
+    def test_feedback_rejects_duplicate_or_malformed_reason_codes(self):
+        result, card, _ = self._result(self.identity)
+        self.client.force_authenticate(self.user)
+        url = reverse("recommend:recommendation-feedback", args=[result.id, card.id])
+
+        duplicate = self.client.put(
+            url,
+            {"reaction": "LIKE", "reason_codes": ["STYLE_MATCH", "STYLE_MATCH"]},
+            format="json",
+        )
+        malformed = self.client.put(
+            url,
+            {"reaction": "LIKE", "reason_codes": ["free form"]},
+            format="json",
+        )
+
+        self.assertEqual(duplicate.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(malformed.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertFalse(RecommendationFeedback.objects.exists())
+
+    def test_feedback_cannot_target_rejected_or_other_owners_card(self):
+        result, _, rejected = self._result(self.identity)
+        other_result, other_card, _ = self._result(self.other_identity)
+        self.client.force_authenticate(self.user)
+        payload = {"reaction": "LIKE", "reason_codes": []}
+
+        rejected_response = self.client.put(
+            reverse(
+                "recommend:recommendation-feedback", args=[result.id, rejected.id]
+            ),
+            payload,
+            format="json",
+        )
+        other_response = self.client.put(
+            reverse(
+                "recommend:recommendation-feedback",
+                args=[other_result.id, other_card.id],
+            ),
+            payload,
+            format="json",
+        )
+
+        self.assertEqual(rejected_response.status_code, status.HTTP_404_NOT_FOUND)
+        self.assertEqual(other_response.status_code, status.HTTP_404_NOT_FOUND)
+
+    def test_feedback_delete_is_idempotent_for_an_owned_card(self):
+        result, card, _ = self._result(self.identity)
+        RecommendationFeedback.objects.create(
+            composition=card,
+            reaction=RecommendationFeedback.Reaction.LIKE,
+        )
+        self.client.force_authenticate(self.user)
+        url = reverse("recommend:recommendation-feedback", args=[result.id, card.id])
+
+        first = self.client.delete(url)
+        second = self.client.delete(url)
+
+        self.assertEqual(first.status_code, status.HTTP_204_NO_CONTENT)
+        self.assertEqual(second.status_code, status.HTTP_204_NO_CONTENT)
+        self.assertFalse(RecommendationFeedback.objects.exists())
+
+    def test_guest_feedback_survives_member_claim(self):
+        credential = identity_service.issue_guest_identity()
+        result, card, _ = self._result(credential.identity)
+        feedback = RecommendationFeedback.objects.create(
+            composition=card,
+            reaction=RecommendationFeedback.Reaction.LIKE,
+            reason_codes=["STYLE_MATCH"],
+        )
+
+        identity_service.claim_guest_identity(self.user, credential.token)
+        self.client.force_authenticate(self.user)
+        response = self.client.get(
+            reverse("recommend:recommendation-detail", args=[result.id])
+        )
+
+        feedback.refresh_from_db()
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(
+            response.data["cards"][0]["feedback"]["feedback_id"], str(feedback.id)
+        )

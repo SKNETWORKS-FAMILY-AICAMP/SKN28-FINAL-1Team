@@ -9,7 +9,6 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { ItemTagSheet } from '@/components/closet/item-tag-sheet';
 import { DetailTwoPane } from '@/components/detail-two-pane';
 import { Editorial, ink, Fonts } from '@/constants/theme';
-import { useBottomTabInset } from '@/hooks/use-bottom-tab-inset';
 import { useBreakpoint } from '@/hooks/use-breakpoint';
 import { confirmWardrobeItem, useWardrobeItem } from '@/hooks/use-wardrobe';
 import { deleteWardrobeItem, itemDisplayName, type WardrobeApiItem, getMySharedRooms, listSharedRoomItems, registerItemToSharedRoom, unregisterItemFromSharedRoom, type SharedRoom } from '@/lib/wardrobeApi';
@@ -34,9 +33,9 @@ function specsOf(item: WardrobeApiItem): { label: string; value: string }[] {
 // D3 아이템 상세 — 태그 확인·수정·삭제
 export default function ItemDetail() {
   const { contentStyle, width } = useBreakpoint();
-  const tabInset = useBottomTabInset();
   const maxW = width >= 1280 ? 960 : 720;
-  const { id } = useLocalSearchParams<{ id?: string }>();
+  const { id, readonly } = useLocalSearchParams<{ id?: string; readonly?: string }>();
+  const isReadOnly = readonly === '1';
 
   const { item, loading, error, reload, setItem } = useWardrobeItem(id);
   const [editing, setEditing] = useState(false);
@@ -52,7 +51,7 @@ export default function ItemDetail() {
 
   // 공유 상태 동기화 및 방 목록 조회
   useEffect(() => {
-    if (id) {
+    if (id && !isReadOnly) {
       getMySharedRooms().then((rooms) => {
         setSharedRooms(rooms || []);
         if (rooms && rooms.length > 0) {
@@ -71,7 +70,7 @@ export default function ItemDetail() {
         }
       });
     }
-  }, [id]);
+  }, [id, isReadOnly]);
 
   const handleToggleShare = async (nextEnabled: boolean) => {
     if (!item) return;
@@ -116,8 +115,13 @@ export default function ItemDetail() {
     if (!item) return;
     setConfirming(true);
     try {
-      setItem(await confirmWardrobeItem(item.id));
-      toast('옷장에 확정했어요', { variant: 'success' });
+      const { item: confirmed, sharedRoomId } = await confirmWardrobeItem(item.id);
+      setItem(confirmed);
+      /* 등록할 때 공유를 켜 뒀다면 확정과 동시에 공유까지 끝난다 —
+         두 번 알리지 않고 한 줄로 합쳐 말한다. */
+      toast(sharedRoomId ? '옷장에 확정하고 공유했어요' : '옷장에 확정했어요', {
+        variant: 'success',
+      });
     } catch (e) {
       toast(e instanceof Error ? e.message : '확인하지 못했어요', { variant: 'error' });
     } finally {
@@ -149,7 +153,7 @@ export default function ItemDetail() {
         <Pressable hitSlop={12} onPress={() => goBack('/(tabs)/closet')}>
           <Icon name="chevron.left" tintColor={INK} size={20} />
         </Pressable>
-        {item ? (
+        {item && !isReadOnly ? (
           <View style={styles.headerActions}>
             <Pressable hitSlop={10} onPress={() => setEditing(true)} accessibilityLabel="태그 수정">
               <Icon name="square.and.pencil" tintColor={ink(0.6)} size={19} />
@@ -221,7 +225,7 @@ export default function ItemDetail() {
               ) : null}
 
               {/* 확인 대기 — 확정 전에는 추천에 쓰이지 않는다는 걸 알려준다 */}
-              {!item.confirmed ? (
+              {!isReadOnly && !item.confirmed ? (
                 <View style={styles.pending}>
                   <View style={styles.pendingHead}>
                     <Icon name="exclamationmark.triangle" tintColor={Editorial.wine} size={15} />
@@ -242,7 +246,7 @@ export default function ItemDetail() {
               ) : null}
 
               {/* 공유 옷장 설정 영역 (색 정보 상단에 상주) */}
-              {sharedRooms.length > 0 ? (
+              {!isReadOnly && sharedRooms.length > 0 ? (
                 <View style={styles.shareArea}>
                   <View style={styles.shareHeader}>
                     <Text style={styles.shareLabel}>공유 옷장에 공유</Text>
@@ -311,37 +315,41 @@ export default function ItemDetail() {
                     </View>
                   ))}
                 </View>
-              ) : (
+              ) : !isReadOnly ? (
                 <Pressable style={styles.noSpec} onPress={() => setEditing(true)}>
                   <Text style={styles.noSpecText}>
                     태그가 아직 비어 있어요. 눌러서 채워 주세요.
                   </Text>
                 </Pressable>
-              )}
+              ) : null}
 
-              <Pressable style={styles.editRow} onPress={() => setEditing(true)}>
-                <Icon name="square.and.pencil" tintColor={ink(0.55)} size={15} />
-                <Text style={styles.editText}>태그 수정</Text>
-              </Pressable>
+              {!isReadOnly ? (
+                <Pressable style={styles.editRow} onPress={() => setEditing(true)}>
+                  <Icon name="square.and.pencil" tintColor={ink(0.55)} size={15} />
+                  <Text style={styles.editText}>태그 수정</Text>
+                </Pressable>
+              ) : null}
             </View>
           }
         />
       </ScrollView>
 
       <View style={styles.bottomDivider} />
-      <View style={[styles.bottomBar, { paddingBottom: tabInset }, contentStyle(maxW)]}>
+      <View style={[styles.bottomBar, { paddingBottom: 12 }, contentStyle(maxW)]}>
         <Pressable style={styles.cta} onPress={() => router.push('/chat-mode')}>
           <Icon name="sparkles" tintColor="#fff" size={15} />
           <Text style={styles.ctaText}>이 옷으로 코디 추천받기</Text>
         </Pressable>
       </View>
 
-      <ItemTagSheet
-        visible={editing}
-        item={item}
-        onClose={() => setEditing(false)}
-        onSaved={setItem}
-      />
+      {!isReadOnly ? (
+        <ItemTagSheet
+          visible={editing}
+          item={item}
+          onClose={() => setEditing(false)}
+          onSaved={setItem}
+        />
+      ) : null}
     </View>
   );
 }

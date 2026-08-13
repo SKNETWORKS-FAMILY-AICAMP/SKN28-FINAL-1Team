@@ -63,9 +63,15 @@ def refresh_invite_code(user, room_id: str) -> SharedWardrobeRoom:
 
 
 @transaction.atomic
-def join_shared_room(user, invite_code: str) -> SharedWardrobeRoom:
+def join_shared_room(user, invite_code: str) -> tuple[SharedWardrobeRoom, bool]:
     """6자리 초대코드를 입력하여 공유 옷장 방에 신규 참여(가입)합니다.
+
     초대코드의 24시간 만료 시간 체크가 적용됩니다.
+
+    Returns: (방, 이번에 새로 가입했는지). 이미 멤버면 `(방, False)` —
+        가입 실패가 아니라 "그냥 입장"이다.
+    Raises: ValueError — 코드가 없거나 만료됐거나 정원이 찬 경우.
+        이때는 **멤버로 추가되지 않는다.**
     """
     code = invite_code.strip().upper()
     room = SharedWardrobeRoom.objects.select_for_update().filter(invite_code=code).first()
@@ -77,21 +83,23 @@ def join_shared_room(user, invite_code: str) -> SharedWardrobeRoom:
     if room.code_expires_at and room.code_expires_at < timezone.now():
         raise ValueError("초대코드가 24시간 만료 시간을 초과하여 사용할 수 없습니다. 방장에게 재발급을 요청하세요.")
         
-    # 이미 참여 중인지 체크
+    # 이미 참여 중인지 체크. 에러는 아니지만 "새로 들어왔다"와는 다른 사건이라
+    # 호출부가 구분할 수 있게 플래그로 알린다 — 화면이 같은 문구를 띄우면
+    # 사용자는 방금 가입에 성공했다고 오해한다.
     if SharedWardrobeMember.objects.filter(room=room, user=user).exists():
-        return room
-        
+        return room, False
+
     # 인원 제한 체크
     if room.members.count() >= MAX_MEMBERS:
-        raise ValueError(f"공유 옷장 정원(최대 {MAX_MEMBERS}명)이 초과되어 가입할 수 없습니다.")
-        
+        raise ValueError(f"공유 옷장 정원(최대 {MAX_MEMBERS}명)이 꽉 차서 참여할 수 없습니다.")
+
     # 멤버십 참여 등록
     SharedWardrobeMember.objects.create(
         room=room,
         user=user,
         role=SharedWardrobeMember.Role.MEMBER
     )
-    return room
+    return room, True
 
 
 @transaction.atomic
@@ -150,21 +158,20 @@ def register_item_to_shared_room(user, room_id: str, wardrobe_item_id: str, stat
         raise ValueError("공유 옷장 참여 멤버만 옷을 공유할 수 있습니다.")
 
     try:
-        wardrobe_item = WardrobeItem.objects.get(pk=wardrobe_item_id, user=user)
+        wardrobe_item = WardrobeItem.objects.get(
+            pk=wardrobe_item_id,
+            user=user,
+            confirmed=True,
+        )
     except WardrobeItem.DoesNotExist:
-        raise ValueError("내 개인 옷장에 소유 중인 옷만 공유 옷장에 공유할 수 있습니다.")
+        raise ValueError("내 개인 옷장에서 사용자가 확정한 옷만 공유할 수 있습니다.")
 
-    # 이미 이 방에 등록했는지 확인
-    shared_item = SharedWardrobeItem.objects.filter(room=room, wardrobe_item=wardrobe_item).first()
-    if shared_item:
-        return shared_item
-
-    return SharedWardrobeItem.objects.create(
+    shared_item, _ = SharedWardrobeItem.objects.get_or_create(
         room=room,
-        registered_by=user,
         wardrobe_item=wardrobe_item,
-        status=status
+        defaults={"registered_by": user, "status": status},
     )
+    return shared_item
 
 
 @transaction.atomic

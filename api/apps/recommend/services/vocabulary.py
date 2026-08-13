@@ -124,6 +124,8 @@ _TABLES: dict[str, dict[str, str]] = {
     "pants_fits": PANTS_FIT,
     "top_lengths": TOP_LENGTH,
     "sleeves": SLEEVE,
+    # 채팅 분석기는 상·하의를 구분하지 않은 통합 핏 조건을 사용한다.
+    "fits": {**TOP_FIT, **PANTS_FIT},
     "necklines": NECKLINE,
 }
 
@@ -156,6 +158,28 @@ TAG_FIELD: dict[str, str] = {
     "pants_fits": "fit",
     "top_lengths": "length",
     "sleeves": "sleeve",
+    "fits": "fit",
+}
+
+_DIRECT_VALUES: dict[str, frozenset[str]] = {
+    "season": frozenset({"봄", "여름", "가을", "겨울", "간절기"}),
+    "style": frozenset(
+        {
+            "캐주얼", "포멀", "미니멀", "스트릿", "스포티", "러블리",
+            "페미닌", "시크", "빈티지", "아웃도어", "댄디", "아메카지",
+            "트렌디", "리조트", "베이직",
+        }
+    ),
+    "color": frozenset(
+        {
+            "화이트", "블랙", "그레이", "네이비", "블루", "스카이블루",
+            "레드", "핑크", "오렌지", "옐로우", "그린", "카키",
+            "브라운", "베이지", "아이보리", "퍼플", "멀티",
+        }
+    ),
+    "fit": frozenset({"오버핏", "레귤러핏", "슬림핏", "와이드핏"}),
+    "length": frozenset({"크롭", "기본", "롱"}),
+    "sleeve": frozenset({"반팔", "긴팔", "민소매"}),
 }
 
 #: 상의/하의 구분이 있는 카테고리는 그 대분류에만 적용해야 한다.
@@ -200,11 +224,18 @@ def translate(selection: dict[str, list[str]] | None) -> Translation:
         table = _TABLES.get(category)
         tag_field = TAG_FIELD.get(category)
         for code in codes or []:
-            if table is None or tag_field is None or code not in table:
+            label = table.get(code) if table is not None else None
+            if (
+                label is None
+                and tag_field is not None
+                and code in _DIRECT_VALUES.get(tag_field, frozenset())
+            ):
+                label = code
+            if table is None or tag_field is None or label is None:
                 # 번역할 표가 없거나(스커트타입 등) 표에 그 코드가 없다.
                 unmapped.append((category, code))
                 continue
-            tags.setdefault(tag_field, set()).add(table[code])
+            tags.setdefault(tag_field, set()).add(label)
             if (category, code) in APPROXIMATE:
                 approximate.append((category, code))
 

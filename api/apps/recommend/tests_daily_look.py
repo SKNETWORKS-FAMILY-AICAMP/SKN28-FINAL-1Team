@@ -76,8 +76,10 @@ class EnsureTodayLookTests(TestCase):
         self.assertTrue(created)
         self.assertEqual(look.status, DailyLook.Status.QUEUED)
         self.assertEqual(push.call_count, 1)
-        # 체형 판정 스냅샷이 함께 저장돼야 워커가 컨텍스트를 다시 만들지 않는다
-        self.assertEqual(look.body_profile["silhouette"], "inverted")
+        # 체형 판정 스냅샷이 함께 저장돼야 워커가 컨텍스트를 다시 만들지 않는다.
+        # 가슴96·허리80·엉덩이94는 상하 균형(±5%)에 허리도 뚜렷하지 않아
+        # 직사각형이다 — 어깨너비는 실루엣 판정에서 빠졌다(둘레와 단위가 다르다).
+        self.assertEqual(look.body_profile["silhouette"], "rectangle")
 
     @patch("apps.recommend.services.daily_look.queue_service.push")
     @patch("apps.recommend.services.daily_look.build_analysis_context", return_value=CONTEXT)
@@ -222,6 +224,74 @@ class RunTests(TestCase):
         sent = copy.call_args.kwargs["outfit"]
         self.assertIn("items", sent)
         self.assertNotIn("source_uri", json.dumps(sent, ensure_ascii=False))
+
+    @patch("apps.recommend.services.daily_look.gemini.write_daily_look_copy")
+    @patch("apps.recommend.services.daily_look.retrieve_outfits")
+    def test_recent_golden_ids_are_passed_as_exclusions(self, retrieve, copy):
+        """어제 나간 코디는 리트리버에 제외 목록으로 넘어간다.
+
+        골든셋·규칙이 그대로면 순위도 그대로다 — 이 전달이 빠지면 매일 같은
+        1위가 뽑혀 "오늘의" 룩이 아니게 된다.
+        """
+        DailyLook.objects.create(
+            user=self.user,
+            look_date=service.today() - timedelta(days=1),
+            status=DailyLook.Status.SUCCEEDED,
+            result={"golden_id": "old-1"},
+        )
+        retrieve.return_value = [_FakeCandidate()]
+        copy.return_value = type("R", (), {
+            "parsed": {}, "request": {}, "response": {}, "model": "m", "latency_ms": 1})()
+        service.run(self.look)
+        request = retrieve.call_args.args[0]
+        self.assertEqual(request.exclude_golden_ids, frozenset({"old-1"}))
+
+
+class RecentGoldenIdsTests(TestCase):
+    """_recent_golden_ids — 무엇이 '최근 추천분'으로 세어지는가."""
+
+    def setUp(self):
+        self.user = User.objects.create(username="u-recent")
+        self.today = service.today()
+
+    def _make(self, days_ago: int, golden_id: str, *, user=None,
+              status=DailyLook.Status.SUCCEEDED):
+        return DailyLook.objects.create(
+            user=user or self.user,
+            look_date=self.today - timedelta(days=days_ago),
+            status=status,
+            result={"golden_id": golden_id} if golden_id else {},
+        )
+
+    def test_window_is_five_days_inclusive(self):
+        """1~5일 전은 제외 대상, 6일 전은 다시 나올 수 있다."""
+        self._make(1, "d1")
+        self._make(5, "d5")
+        self._make(6, "d6")
+        got = service._recent_golden_ids(self.user, self.today)
+        self.assertEqual(got, frozenset({"d1", "d5"}))
+
+    def test_only_succeeded_looks_count(self):
+        """실패·EMPTY 행은 사용자가 본 추천이 아니다 — 반복으로 치지 않는다."""
+        self._make(1, "ok")
+        self._make(2, "", status=DailyLook.Status.FAILED)
+        self._make(3, "", status=DailyLook.Status.EMPTY)
+        got = service._recent_golden_ids(self.user, self.today)
+        self.assertEqual(got, frozenset({"ok"}))
+
+    def test_other_users_do_not_leak(self):
+        """제외는 계정 단위다. 남이 본 코디가 내 추천 폭을 좁히면 안 된다."""
+        other = User.objects.create(username="u-other")
+        self._make(1, "mine")
+        self._make(1, "theirs", user=other)
+        got = service._recent_golden_ids(self.user, self.today)
+        self.assertEqual(got, frozenset({"mine"}))
+
+    def test_today_row_is_not_counted(self):
+        """FAILED 재시도로 같은 날 run()이 다시 돌 때 자기 자신을 빼면 안 된다."""
+        self._make(0, "today-self")
+        got = service._recent_golden_ids(self.user, self.today)
+        self.assertEqual(got, frozenset())
 
 
 class ClaimTests(TestCase):

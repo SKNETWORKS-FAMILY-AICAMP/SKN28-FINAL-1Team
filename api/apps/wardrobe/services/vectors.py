@@ -12,37 +12,31 @@ import logging
 import os
 from functools import lru_cache
 
+from django.conf import settings
 from qdrant_client import QdrantClient
-from qdrant_client.models import Distance, PointStruct, VectorParams
+from qdrant_client.models import PointStruct
+
+from apps.recommend.services.qdrant import (
+    collection_spec,
+    ensure_collection_contract,
+    get_client,
+)
 
 logger = logging.getLogger(__name__)
 
-QDRANT_URL = os.getenv("QDRANT_URL", "http://localhost:6333")
-COLLECTION = os.getenv("QDRANT_WARDROBE_COLLECTION", "wardrobe_items")
-IMAGE_DIM = int(os.getenv("WARDROBE_IMAGE_VECTOR_DIM", "768"))
-TEXT_DIM = int(os.getenv("WARDROBE_TEXT_VECTOR_DIM", "1024"))
+COLLECTION = settings.QDRANT_WARDROBE_COLLECTION
+IMAGE_DIM = settings.QDRANT_IMAGE_VECTOR_DIM
+TEXT_DIM = settings.QDRANT_TEXT_VECTOR_DIM
 EMBEDDING_VERSION = os.getenv("WARDROBE_EMBEDDING_VERSION", "fashionsiglip-v1")
 
 
 @lru_cache(maxsize=1)
 def _client() -> QdrantClient:
-    return QdrantClient(url=QDRANT_URL, api_key=os.getenv("QDRANT_API_KEY") or None)
+    return get_client()
 
 
 def ensure_collection() -> None:
-    client = _client()
-    if client.collection_exists(COLLECTION):
-        return
-    client.create_collection(
-        collection_name=COLLECTION,
-        vectors_config={
-            "image": VectorParams(size=IMAGE_DIM, distance=Distance.COSINE),
-            "text": VectorParams(size=TEXT_DIM, distance=Distance.COSINE),
-        },
-    )
-    # 테넌트 필터 성능을 위한 payload 인덱스
-    client.create_payload_index(COLLECTION, "user_id", field_schema="integer")
-    client.create_payload_index(COLLECTION, "category_large", field_schema="keyword")
+    ensure_collection_contract(_client(), collection_spec("wardrobe"))
 
 
 def upsert_item(item, image_vector: list[float] | None,

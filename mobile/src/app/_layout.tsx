@@ -6,20 +6,28 @@ import { useColorScheme } from 'react-native';
 import { AnimatedSplashOverlay } from '@/components/animated-icon';
 import { DevReset } from '@/components/dev-reset';
 import { ConfirmProvider, ToastProvider } from '@/components/ui';
+import { useKakaoInviteLink } from '@/hooks/use-kakao-link';
 import { initSocialSDKs } from '@/lib/socialLogin';
 import { authStore } from '@/state/auth';
 import { outfitAnalysisStore } from '@/state/outfit-analysis';
 import { outfitClaimStore } from '@/state/outfit-claim';
+import { prefsStore } from '@/state/prefs';
 
 SplashScreen.preventAutoHideAsync();
 
 export default function RootLayout() {
   const colorScheme = useColorScheme();
 
+  /* 카카오 초대 카드로 앱이 열리면 초대장 화면으로 보낸다. 최상위에 둬야
+     앱이 꺼져 있다 켜진 경우(getInitialURL)도 놓치지 않는다. */
+  useKakaoInviteLink();
+
   // 앱 시작 시: 소셜 SDK 초기화(카카오/네이버/구글) + 저장된 토큰으로 세션 복원
   useEffect(() => {
     initSocialSDKs();
-    authStore.bootstrap();
+    /* 예산은 세션이 정해진 뒤에 받아 온다 — 룩 상세·찜 목록이 '예산 내' 배지에 쓰는 값이라
+       그 화면에 들어가기 전에 채워져 있어야 한다. */
+    void authStore.bootstrap().then(() => prefsStore.loadBudget());
     outfitAnalysisStore.bootstrap();
     /* 두 스토어를 구독하므로 뒤에 둔다 — 비로그인 분석의 claim 토큰을 모았다가 로그인 때 넘긴다. */
     outfitClaimStore.bootstrap();

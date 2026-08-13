@@ -20,6 +20,7 @@ import { useBreakpoint } from '@/hooks/use-breakpoint';
 import { goBack } from '@/lib/goBack';
 import { pickFromAlbum, pickFromCamera } from '@/lib/pickItemPhoto';
 import {
+  calendarErrorMessage,
   calendarStore,
   entryItemKey,
   formatDateLabel,
@@ -29,6 +30,14 @@ import {
 } from '@/state/calendar';
 import { ALLOWED_HASHTAGS, type AllowedHashtag } from '@/state/lookbook';
 import { savedLookStore } from '@/state/saved';
+
+/** 'YYYY-MM-DD' 가 든 달의 첫날·끝날. 캘린더 스토어는 기간 단위로만 받아 온다. */
+function monthBounds(dateKey: string): [string, string] {
+  const [year, month] = dateKey.split('-').map(Number);
+  const last = new Date(year, month, 0).getDate();
+  const mm = String(month).padStart(2, '0');
+  return [`${year}-${mm}-01`, `${year}-${mm}-${String(last).padStart(2, '0')}`];
+}
 
 const INK = Editorial.ink;
 const PAD = 20;
@@ -60,12 +69,20 @@ export function LookComposer({ date }: { date?: string }) {
   const twoCol = primaryWidth >= 560;
 
   const [photo, setPhoto] = useState<string | undefined>(existing?.photo);
-  const [items, setItems] = useState<EntryItem[]>(existing?.items ?? []);
+  /* 인사이트에서 옷을 눌러 들어오면 그 옷이 담긴 채로 시작한다.
+     기존 기록을 여는 경우엔 그쪽이 먼저다 — 수정하러 왔는데 다른 옷이 끼면 안 된다. */
+  const [items, setItems] = useState<EntryItem[]>(
+    () => existing?.items ?? calendarStore.takeSeededItems() ?? [],
+  );
   const [note, setNote] = useState(existing?.note ?? '');
   const [tags, setTags] = useState<AllowedHashtag[]>(existing?.tags ?? []);
   const [shared, setShared] = useState(existing?.shared ?? false);
+  /* 룩북 전용 — 켜면 앱 사용자 전체가 둘러보기에서 본다. 친구 단위 공유는 룩북에 없다. */
+  const [isPublic, setIsPublic] = useState(false);
   const [pickerOpen, setPickerOpen] = useState(false);
   const [loading, setLoading] = useState(false);
+  /* 사진 업로드는 몇 초 걸린다 — 버튼이 아무 반응 없어 보이면 사용자가 다시 누른다. */
+  const [saving, setSaving] = useState(false);
 
   /* 반대편에도 남길지 — 캘린더 모드면 '룩북에도', 룩북 모드면 '캘린더에도'.
      이미 이어져 있는 기록(existing.lookId)은 토글이 아니라 사실 표시로 그린다. */
@@ -142,23 +159,51 @@ export function LookComposer({ date }: { date?: string }) {
   /** 룩북 카드에 쓸 대표 사진 — 룩 사진이 없으면 담은 옷의 첫 장으로 대신한다. */
   const coverImage = photo ?? items.find((i) => i.image)?.image;
 
-  const makeLook = (entryDate?: string) =>
+  const makeLook = (opts?: { entryDate?: string; createCalendar?: boolean; overwrite?: boolean }) =>
     savedLookStore.addLook({
       image: coverImage,
       comment: note.trim() || undefined,
       origin: 'closet',
       items,
       note,
-      entryDate,
+      entryDate: opts?.entryDate,
+      createCalendar: opts?.createCalendar,
+      overwriteCalendar: opts?.overwrite,
+      isPublic,
       tags,
     });
 
   const handleSave = async () => {
-    if (!canSave) return;
+    if (!canSave || saving) return;
+    setSaving(true);
+    try {
+      await runSave();
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const runSave = async () => {
 
     if (mode === 'calendar' && date) {
-      const lookId = linkOn && !alreadyLinked ? makeLook(date).id : undefined;
-      calendarStore.saveEntry({ date, photo, items, note, tags, shared, lookId });
+      /* 룩북에도 올리는 경우 캘린더 기록은 아래 saveEntry 가 만든다 —
+         룩 등록에까지 날짜를 넘기면 같은 날짜를 두 번 등록해 409 가 난다. */
+      let lookId: string | undefined;
+      if (linkOn && !alreadyLinked) {
+        try {
+          lookId = (await makeLook({ entryDate: date })).id;
+        } catch (error) {
+          toast(`룩북에 올리지 못했어요 — ${calendarErrorMessage(error)}`, { variant: 'error' });
+          return;
+        }
+      }
+      /* 저장은 서버 왕복이라 끝난 뒤에 알린다 — 먼저 토스트를 띄우면 실패해도 성공처럼 보인다. */
+      try {
+        await calendarStore.saveEntry({ date, photo, items, note, tags, shared, lookId });
+      } catch (error) {
+        toast(calendarErrorMessage(error), { variant: 'error' });
+        return;
+      }
       toast(
         lookId
           ? '착장을 기록하고 룩북에도 올렸어요'
@@ -171,28 +216,31 @@ export function LookComposer({ date }: { date?: string }) {
       return;
     }
 
-    /* 룩북 모드 — 고른 날에 이미 기록이 있으면 조용히 덮지 않고 먼저 묻는다. */
-    if (linkOn && calendarStore.getEntry(linkDate)) {
+    /* 룩북 모드 — 고른 날에 이미 기록이 있으면 조용히 덮지 않고 먼저 묻는다.
+       스토어에는 보고 있는 달만 있어서 다른 달 날짜는 서버까지 확인해야 한다. */
+    let overwrite = false;
+    if (linkOn && (await calendarStore.findEntry(linkDate).catch(() => undefined))) {
       const ok = await confirm({
         title: `${formatDateLabel(linkDate)}에 이미 기록이 있어요`,
         message: '이 룩으로 그날 기록을 바꿀까요?',
         confirmLabel: '바꾸기',
       });
       if (!ok) return;
+      overwrite = true;
     }
 
-    const look = makeLook(linkOn ? linkDate : undefined);
-    if (linkOn) {
-      calendarStore.saveEntry({
-        date: linkDate,
-        photo,
-        items,
-        note,
-        tags,
-        shared,
-        lookId: look.id,
-      });
+    /* 캘린더 기록은 서버가 룩 등록과 **한 번에** 만든다(calendar_date). 따로 부르지 않는다 —
+       두 번 부르면 한쪽만 성공하는 어중간한 상태가 생긴다. */
+    try {
+      await makeLook({ entryDate: linkOn ? linkDate : undefined, createCalendar: linkOn, overwrite });
+    } catch (error) {
+      toast(calendarErrorMessage(error), { variant: 'error' });
+      return;
     }
+
+    // 서버가 만든 캘린더 기록을 캘린더 화면도 알아야 한다 — 그 달을 다시 받는다.
+    if (linkOn) await calendarStore.loadRange(...monthBounds(linkDate)).catch(() => undefined);
+
     toast(linkOn ? '룩북에 올리고 캘린더에도 기록했어요' : '룩북에 올렸어요', {
       variant: 'success',
     });
@@ -208,7 +256,12 @@ export function LookComposer({ date }: { date?: string }) {
       destructive: true,
     });
     if (!ok) return;
-    calendarStore.removeEntry(date);
+    try {
+      await calendarStore.removeEntry(date);
+    } catch (error) {
+      toast(calendarErrorMessage(error), { variant: 'error' });
+      return;
+    }
     toast('기록을 지웠어요');
     goBack('/(tabs)/calendar');
   };
@@ -409,29 +462,48 @@ export function LookComposer({ date }: { date?: string }) {
               </>
             )}
 
-            {/* 공개 범위는 기록 위치를 정한 뒤 고른다. 룩북·캘린더 공용 폼이라 두 진입점에서
-                같은 순서로 보인다. */}
-            <Pressable style={styles.optionRow} onPress={() => setShared((v) => !v)}>
-              <View style={styles.optionIcon}>
-                <Icon name="person.2" tintColor={INK} size={17} />
-              </View>
-              <View style={styles.optionBody}>
-                <Text style={styles.optionTitle}>함께 쓰는 옷장 친구에게 공개</Text>
-                <Text style={styles.optionDesc}>저장 후에도 켜고 끌 수 있어요</Text>
-              </View>
-              <View style={[styles.switch, shared && styles.switchOn]}>
-                <View style={[styles.knob, shared && styles.knobOn]} />
-              </View>
-            </Pressable>
+            {/* 친구 공개는 캘린더(착장 기록)에만 남긴다.
+                룩북은 친구 단위로 나누지 않는다 — 내 룩북이거나 모두에게 공개거나 둘 중 하나이고,
+                옷을 친구와 나누는 일은 옷장의 '공유 옷장'이 맡는다. */}
+            {mode === 'calendar' ? (
+              <Pressable style={styles.optionRow} onPress={() => setShared((v) => !v)}>
+                <View style={styles.optionIcon}>
+                  <Icon name="person.2" tintColor={INK} size={17} />
+                </View>
+                <View style={styles.optionBody}>
+                  <Text style={styles.optionTitle}>함께 쓰는 옷장 친구에게 공개</Text>
+                  <Text style={styles.optionDesc}>저장 후에도 켜고 끌 수 있어요</Text>
+                </View>
+                <View style={[styles.switch, shared && styles.switchOn]}>
+                  <View style={[styles.knob, shared && styles.knobOn]} />
+                </View>
+              </Pressable>
+            ) : (
+              <Pressable style={styles.optionRow} onPress={() => setIsPublic((v) => !v)}>
+                <View style={styles.optionIcon}>
+                  <Icon name="globe" tintColor={INK} size={17} />
+                </View>
+                <View style={styles.optionBody}>
+                  <Text style={styles.optionTitle}>전체 공개</Text>
+                  <Text style={styles.optionDesc}>
+                    다른 사용자가 둘러보기에서 이 룩을 볼 수 있어요
+                  </Text>
+                </View>
+                <View style={[styles.switch, isPublic && styles.switchOn]}>
+                  <View style={[styles.knob, isPublic && styles.knobOn]} />
+                </View>
+              </Pressable>
+            )}
           </ScrollView>
 
           <View style={styles.footer}>
             <Pressable
-              style={[styles.saveBtn, !canSave && styles.saveBtnDisabled]}
+              style={[styles.saveBtn, (!canSave || saving) && styles.saveBtnDisabled]}
               onPress={handleSave}
-              disabled={!canSave}>
+              disabled={!canSave || saving}>
+              {saving ? <ActivityIndicator size="small" color="#fff" /> : null}
               <Text style={styles.saveText}>
-                {mode === 'calendar' ? '저장하기' : '룩북에 올리기'}
+                {saving ? '저장 중…' : mode === 'calendar' ? '저장하기' : '룩북에 올리기'}
               </Text>
             </Pressable>
           </View>
@@ -656,6 +728,8 @@ const styles = StyleSheet.create({
     height: 48,
     borderRadius: 999,
     backgroundColor: Editorial.cta,
+    flexDirection: 'row',
+    gap: 8,
     alignItems: 'center',
     justifyContent: 'center',
   },

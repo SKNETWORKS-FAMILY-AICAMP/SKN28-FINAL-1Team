@@ -6,6 +6,12 @@ from .views import (
     OutfitAnalysisDetailView,
     OutfitAnalysisHistoryView,
     OutfitAnalysisView,
+    OutfitRenderEventStreamView,
+    RecommendationCardDetailView,
+    RecommendationCardRenderView,
+    RecommendationFeedbackView,
+    RecommendationHistoryView,
+    RecommendationResultDetailView,
 )
 
 app_name = "recommend"
@@ -30,4 +36,34 @@ urlpatterns = [
     ),
     # 오늘의 룩 — 조회가 곧 생성 트리거다 (사용자 입력이 없는 기능).
     path("looks/today/", DailyLookTodayView.as_view(), name="daily-look-today"),
+    path(
+        "recommendations/",
+        RecommendationHistoryView.as_view(),
+        name="recommendation-list",
+    ),
+    path(
+        "recommendations/<uuid:result_id>/",
+        RecommendationResultDetailView.as_view(),
+        name="recommendation-detail",
+    ),
+    path(
+        "recommendations/<uuid:result_id>/cards/<uuid:card_id>/",
+        RecommendationCardDetailView.as_view(),
+        name="recommendation-card-detail",
+    ),
+    path(
+        "recommendations/<uuid:result_id>/cards/<uuid:card_id>/feedback/",
+        RecommendationFeedbackView.as_view(),
+        name="recommendation-feedback",
+    ),
+    path(
+        "recommendations/<uuid:result_id>/cards/<uuid:card_id>/render/",
+        RecommendationCardRenderView.as_view(),
+        name="recommendation-card-render",
+    ),
+    path(
+        "recommendations/render-jobs/<uuid:job_id>/events/",
+        OutfitRenderEventStreamView.as_view(),
+        name="outfit-render-events",
+    ),
 ]

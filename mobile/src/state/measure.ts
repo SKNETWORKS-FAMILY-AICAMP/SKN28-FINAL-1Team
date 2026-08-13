@@ -1,9 +1,15 @@
 import { useSyncExternalStore } from 'react';
 import { Platform } from 'react-native';
 
-import { BODY_MEASURES, type BodyMeasureKey } from '@/constants/body-measures';
-import { BodyEndpoints } from '@/constants/config';
+import {
+  BODY_MEASURES,
+  EDITABLE_MEASURES,
+  type BodyMeasureKey,
+} from '@/constants/body-measures';
+import { API_BASE_URL, BodyEndpoints } from '@/constants/config';
 import { ApiError, api } from '@/lib/apiClient';
+import { getAccessToken } from '@/lib/secureStore';
+import { uploadMultipart } from '@/lib/uploadFile';
 
 /**
  * 체형측정 플로우(STEP1 입력 → STEP2 촬영 → STEP3 결과) 전역 상태.
@@ -11,22 +17,20 @@ import { ApiError, api } from '@/lib/apiClient';
  * expo-router 는 세 화면이 서로 다른 라우트라 화면 간 공유 부모가 없다.
  * authStore 와 동일한 경량 모듈 스토어(useSyncExternalStore) 로 스텝 간 데이터를 잇는다.
  *
- * 백엔드 연동 (api/apps/users/views.py):
- *   - STEP1  "다음"          → PUT  /body/basic/  { gender, height, weight }        (saveBasic)
- *   - STEP2  "사진 없이 진행" → POST /body/estimate/ { gender,height,weight }        (estimate)
- *   - STEP2  "측정 시작하기"  → POST /body/photos/ (multipart) → 폴링                (startPhotoMeasurement)
- *   - STEP3  "완료"          → PATCH /body/detail/ 로 수정한 상세 7개 저장           (saveDetail)
- *
- * 추정 수치는 **전부 서버(ml/body_measurement)가 만든다.** 예전에는 여기서 키·몸무게
- * 기반 선형식(mockEstimate)으로 자리채움 값을 만들어 보여줬는데, 서버에 실제 추정
- * API 가 생긴 뒤로도 그대로 남아 학습한 모델이 아니라 가짜 숫자가 화면에 나갔다.
- * 프론트에서 치수를 지어내지 않고, 추정에 실패하면 실패로 보여준다.
+ * 백엔드 연동(팀레포 main, users/body):
+ *   - STEP1  "다음"  → PUT   /users/me/body/basic/  { gender, height, weight }  (saveBasic)
+ *   - 사진 없이 진행 → POST  /users/me/body/estimate/  { gender?, height?, weight? }
+ *                      서버가 학습 모델로 상세 10개를 추정·저장하고 응답에 실어 준다 (estimate)
+ *   - STEP2  "측정 시작하기" → POST /body/photos/(multipart) → 트랜잭션 폴링 →
+ *              폴링 응답에 담겨 오는 추론 치수를 그대로 사용 (startPhotoMeasurement)
+ *   - STEP3  "완료"  → PATCH /users/me/body/detail/  로 수정한 둘레를 저장 (saveDetail)
+ * basic/detail 저장은 best-effort — 실패해도 로컬 상태로 플로우는 계속되고, 화면이 토스트로 알린다.
  */
 
 export type Sex = 'female' | 'male' | 'none';
 
 export type MeasureInput = { height: number; weight: number; sex: Sex };
-/** 사진 URI (없으면 null) */
+/** 사진 URI (없으면 null). 지금은 실제 카메라 대신 mock URI 를 넣는다. */
 export type MeasurePhotos = { front: string | null; side: string | null };
 
 /**
@@ -40,7 +44,7 @@ export type SizeMatch = { brand: string; size: string; fit: string };
 export type MeasureResult = {
   measures: Measurement;
   sizes: SizeMatch[];
-  usedPhotos: boolean; // 사진을 써서 추정했는지 (안내문 분기용). 서버 응답의 source 로 판단한다.
+  usedPhotos: boolean; // 사진을 써서 추정했는지 (안내문 분기용)
 };
 
 type EstimateStatus = 'idle' | 'loading' | 'success' | 'error';
@@ -85,7 +89,7 @@ function mockSizes(chest: number): SizeMatch[] {
   ];
 }
 
-// ── 백엔드 응답 형식 ──────────────────────────────────────────
+// ── 백엔드 신체치수(GET /body/) ────────────────────────────────
 // DRF DecimalField 는 문자열("170.0")로 내려올 수 있어 숫자로 정규화한다. 미입력은 null.
 type Numeric = string | number | null;
 
@@ -96,16 +100,10 @@ type BodyDto = Record<BodyMeasureKey, Numeric> & {
   updated_at: string | null;
 };
 
-/**
- * 무사진 추정(POST /body/estimate/)과 사진 트랜잭션 조회(GET /body/photos/{id}/)가
- * 공유하는 결과 형식 (BodyEstimationResultSerializer).
- */
 type BodyEstimationResult = {
-  status: 'in_progress' | 'succeeded' | 'failed';
-  source: 'basic_info' | 'photo';
-  transaction_id: string | null;
+  status: 'pending' | 'processing' | 'succeeded' | 'failed';
   measurement: BodyDto;
-  error_message: string | null;
+  error_message?: string | null;
 };
 
 function toNum(v: unknown): number | null {
@@ -154,15 +152,20 @@ function toResult(outcome: BodyEstimationResult, usedPhotos: boolean): MeasureRe
 }
 
 /**
- * STEP1 프리필용 — 저장된 키·몸무게 (미입력이면 각각 null).
+ * STEP1 프리필용 — 저장된 성별·키·몸무게 (미입력이면 각각 null).
  * 조회 자체가 실패하면 던진다. 호출부가 "값이 없음"과 "못 불러옴"을 구분해 안내해야 한다.
  */
 export async function fetchBodyBasic(): Promise<{
+  sex: 'female' | 'male' | null;
   height: number | null;
   weight: number | null;
 }> {
   const dto = await fetchBody();
-  return { height: toNum(dto.height), weight: toNum(dto.weight) };
+  return {
+    sex: dto.gender === 'female' || dto.gender === 'male' ? dto.gender : null,
+    height: toNum(dto.height),
+    weight: toNum(dto.weight),
+  };
 }
 
 // ── 사진 기반 측정 (POST photos → 폴링) ─────────────────────────
@@ -217,7 +220,36 @@ async function uploadBodyPhotos(
     form.append('height', String(input.height));
     form.append('weight', String(input.weight));
   }
-  return api.post<PhotoTxResponse>(BodyEndpoints.photos, form);
+
+  if (Platform.OS === 'web') {
+    return api.post<PhotoTxResponse>(BodyEndpoints.photos, form);
+  }
+
+  /* Expo의 전역 fetch는 네이티브 { uri, name, type } 파일 파트를 처리하지 못한다.
+     옷장·룩북과 같은 XHR 업로더를 써야 두 사진이 실제 multipart로 전달된다. */
+  const response = await uploadMultipart(`${API_BASE_URL}${BodyEndpoints.photos}`, form, {
+    token: await getAccessToken(),
+  });
+  return parsePhotoUploadResponse(response);
+}
+
+function parsePhotoUploadResponse(response: { status: number; body: string }): PhotoTxResponse {
+  let data: unknown = null;
+  try {
+    data = response.body ? JSON.parse(response.body) : null;
+  } catch {
+    data = response.body;
+  }
+
+  if (response.status < 200 || response.status >= 300) {
+    const detail = (data as { detail?: string } | null)?.detail;
+    throw new ApiError(
+      detail ?? `사진 측정 요청에 실패했어요. (${response.status})`,
+      response.status,
+      data,
+    );
+  }
+  return data as PhotoTxResponse;
 }
 
 /**
@@ -271,6 +303,7 @@ export const measureStore = {
   async saveBasic(input: MeasureInput): Promise<void> {
     setState({ input });
     /* 서버는 gender·height·weight 를 **셋 다** 요구하고, gender 는 male|female 만 받는다.
+       예전엔 gender 를 안 보내 매번 400 이 났다.
        성별을 안 고른 상태로는 저장할 방법이 없으므로 요청을 보내지 않는다 —
        어차피 400 이 될 요청을 던져 에러 토스트만 띄우느니 로컬 입력만 들고 진행한다.
        (화면에서 성별을 고르게 막아 두어 여기까진 잘 오지 않는다) */
@@ -416,7 +449,13 @@ export const measureStore = {
    */
   async saveDetail(measures: Measurement): Promise<void> {
     if (state.result) setState({ result: { ...state.result, measures } });
-    await api.patch(BodyEndpoints.detail, measures);
+    /* 비율처럼 **서버가 계산하는 값은 되돌려 보내지 않는다.**
+       보내면 서버가 가진 길이 값과 어긋난 비율이 저장됐다가 다음 추정에서 덮어써진다.
+       무엇을 보낼지는 constants/body-measures.ts 의 editable 이 단일 출처다. */
+    const body = Object.fromEntries(
+      EDITABLE_MEASURES.map((spec) => [spec.key, measures[spec.key]]),
+    );
+    await api.patch(BodyEndpoints.detail, body);
   },
 };
 

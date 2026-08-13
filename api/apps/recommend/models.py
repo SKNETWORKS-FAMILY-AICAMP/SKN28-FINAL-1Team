@@ -28,6 +28,7 @@ import uuid
 
 from django.conf import settings
 from django.db import models
+from django.db.models import Q
 
 
 class OutfitAnalysis(models.Model):
@@ -248,15 +249,492 @@ class OutfitAnalysis(models.Model):
         }
 
 
+class RecommendationResult(models.Model):
+    """한 번의 채팅 추천 실행에서 확정된 추천 결과 묶음."""
+
+    class Mode(models.TextChoices):
+        WARDROBE_BASED = "WARDROBE_BASED", "옷장 기반 추천"
+        NEW_ITEM = "NEW_ITEM", "신규 상품 포함 추천"
+
+    id = models.UUIDField(
+        primary_key=True,
+        default=uuid.uuid4,
+        editable=False,
+        db_comment="추천 결과 UUID (외부 노출 식별자)",
+    )
+    identity = models.ForeignKey(
+        "chat.ChatIdentity",
+        on_delete=models.CASCADE,
+        related_name="recommendation_results",
+        db_column="identity_id",
+        db_comment="추천 결과를 소유한 회원 또는 게스트 채팅 identity FK (chat_identity.id)",
+    )
+    session = models.ForeignKey(
+        "chat.ChatSession",
+        on_delete=models.CASCADE,
+        related_name="recommendation_results",
+        db_column="session_id",
+        db_comment="추천이 생성된 채팅 세션 FK (chat_session.id)",
+    )
+    run = models.OneToOneField(
+        "chat.ChatRun",
+        on_delete=models.CASCADE,
+        related_name="recommendation_result",
+        db_column="run_id",
+        db_comment="추천을 생성한 채팅 실행 FK (chat_run.id, 실행당 결과 최대 1개)",
+    )
+    mode = models.CharField(
+        max_length=24,
+        choices=Mode.choices,
+        db_comment="추천 모드 (WARDROBE_BASED/NEW_ITEM)",
+    )
+    dataset_version = models.CharField(
+        max_length=128,
+        db_comment="추천에 사용한 골든셋 데이터 버전",
+    )
+    created_at = models.DateTimeField(
+        auto_now_add=True,
+        db_comment="추천 결과 생성 시각",
+    )
+    updated_at = models.DateTimeField(
+        auto_now=True,
+        db_comment="추천 결과 마지막 수정 시각",
+    )
+
+    class Meta:
+        db_table = "recommendation_result"
+        db_table_comment = (
+            "채팅과 독립적으로 조회하는 추천 결과 묶음 "
+            "(소유 identity·세션·실행·모드·골든셋 버전 보관)"
+        )
+        ordering = ["-created_at"]
+        indexes = [
+            models.Index(
+                fields=["identity", "-created_at"],
+                name="ix_reco_result_identity",
+            ),
+            models.Index(
+                fields=["session", "-created_at"],
+                name="ix_reco_result_session",
+            ),
+        ]
+
+    def __str__(self) -> str:
+        return f"recommendation-result {self.id} ({self.mode})"
+
+
+class GoldenTemplateSnapshot(models.Model):
+    """추천 당시 선택한 골든 코디와 검색 근거의 불변 스냅샷."""
+
+    id = models.UUIDField(
+        primary_key=True,
+        default=uuid.uuid4,
+        editable=False,
+        db_comment="골든 템플릿 스냅샷 UUID",
+    )
+    result = models.OneToOneField(
+        RecommendationResult,
+        on_delete=models.CASCADE,
+        related_name="golden_template",
+        db_comment="추천 결과 FK (recommendation_result.id, 결과당 선택 템플릿 1개)",
+    )
+    golden_id = models.CharField(
+        max_length=128,
+        db_comment="골든셋 원본 코디 식별자",
+    )
+    point_id = models.CharField(
+        max_length=128,
+        db_comment="outfit_goldenset Qdrant point 식별자",
+    )
+    retrieval_score = models.FloatField(
+        db_comment="최종 선택 시 골든 코디 검색·재정렬 점수",
+    )
+    payload_snapshot = models.JSONField(
+        default=dict,
+        db_comment="추천 당시 골든 코디 Qdrant payload JSON 스냅샷",
+    )
+    reasons = models.JSONField(
+        default=list,
+        db_comment="골든 코디 선택 점수와 근거 JSON 배열",
+    )
+    created_at = models.DateTimeField(
+        auto_now_add=True,
+        db_comment="골든 템플릿 스냅샷 생성 시각",
+    )
+
+    class Meta:
+        db_table = "golden_template_snapshot"
+        db_table_comment = (
+            "추천 결과가 선택한 골든 코디 템플릿과 검색 점수·근거·payload 스냅샷"
+        )
+
+    def __str__(self) -> str:
+        return f"golden-template {self.golden_id} for {self.result_id}"
+
+
+class OutfitComposition(models.Model):
+    """추천 결과 안에서 순위가 매겨진 하나의 최종 코디 조합."""
+
+    class Status(models.TextChoices):
+        CANDIDATE = "CANDIDATE", "검증 전 후보"
+        VALIDATED = "VALIDATED", "검증 통과"
+        REJECTED = "REJECTED", "검증 실패"
+
+    id = models.UUIDField(
+        primary_key=True,
+        default=uuid.uuid4,
+        editable=False,
+        db_comment="코디 조합 UUID",
+    )
+    result = models.ForeignKey(
+        RecommendationResult,
+        on_delete=models.CASCADE,
+        related_name="compositions",
+        db_comment="추천 결과 FK (recommendation_result.id)",
+    )
+    rank = models.PositiveSmallIntegerField(
+        db_comment="추천 결과 안의 코디 노출 순위 (1~3)",
+    )
+    status = models.CharField(
+        max_length=16,
+        choices=Status.choices,
+        default=Status.CANDIDATE,
+        db_comment="코디 검증 상태 (CANDIDATE/VALIDATED/REJECTED)",
+    )
+    composition_fingerprint = models.CharField(
+        max_length=64,
+        blank=True,
+        default="",
+        db_comment="최종 아이템·순서·이미지 버전 기반 SHA-256 지문 (검증 전이면 빈 문자열)",
+    )
+    total_product_price = models.PositiveBigIntegerField(
+        default=0,
+        db_comment="코디에 포함된 신규 상품 가격 합계 (원)",
+    )
+    validation_reasons = models.JSONField(
+        default=list,
+        db_comment="Validator의 통과·실패 근거 JSON 배열",
+    )
+    warnings = models.JSONField(
+        default=list,
+        db_comment="추천은 가능하지만 사용자에게 안내할 검증 경고 JSON 배열",
+    )
+    created_at = models.DateTimeField(
+        auto_now_add=True,
+        db_comment="코디 조합 생성 시각",
+    )
+    updated_at = models.DateTimeField(
+        auto_now=True,
+        db_comment="코디 조합 마지막 수정 시각",
+    )
+
+    class Meta:
+        db_table = "outfit_composition"
+        db_table_comment = (
+            "추천 결과별 최종 코디 조합 (순위·검증 상태·가격·이미지 캐시 지문 보관)"
+        )
+        ordering = ["rank", "created_at"]
+        indexes = [
+            models.Index(
+                fields=["composition_fingerprint"],
+                name="ix_outfit_comp_fingerprint",
+            ),
+        ]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["result", "rank"],
+                name="uq_outfit_comp_result_rank",
+            ),
+            models.CheckConstraint(
+                condition=Q(rank__gte=1, rank__lte=3),
+                name="ck_outfit_comp_rank",
+            ),
+        ]
+
+    def __str__(self) -> str:
+        return f"outfit-composition {self.result_id}#{self.rank} ({self.status})"
+
+
+class OutfitCompositionItem(models.Model):
+    """코디 슬롯에 최종 선택된 옷장 또는 실제 상품 아이템."""
+
+    class SourceType(models.TextChoices):
+        WARDROBE = "WARDROBE", "옷장 아이템"
+        PRODUCT = "PRODUCT", "판매 상품"
+
+    id = models.UUIDField(
+        primary_key=True,
+        default=uuid.uuid4,
+        editable=False,
+        db_comment="코디 구성 아이템 UUID",
+    )
+    composition = models.ForeignKey(
+        OutfitComposition,
+        on_delete=models.CASCADE,
+        related_name="items",
+        db_comment="코디 조합 FK (outfit_composition.id)",
+    )
+    position = models.PositiveSmallIntegerField(
+        db_comment="코디 내부 아이템 순서 (1부터 시작, 이미지 지문 계산에 사용)",
+    )
+    slot = models.CharField(
+        max_length=64,
+        db_comment="골든 템플릿에서 정한 코디 슬롯 식별자",
+    )
+    source_type = models.CharField(
+        max_length=16,
+        choices=SourceType.choices,
+        db_comment="최종 아이템 출처 (WARDROBE/PRODUCT)",
+    )
+    source_id = models.CharField(
+        max_length=128,
+        db_comment="옷장 또는 상품 원본 레코드 식별자",
+    )
+    source_collection = models.CharField(
+        max_length=128,
+        db_comment="후보를 조회한 Qdrant 컬렉션명",
+    )
+    source_point_id = models.CharField(
+        max_length=128,
+        db_comment="후보 아이템의 Qdrant point 식별자",
+    )
+    template_item_point_id = models.CharField(
+        max_length=128,
+        db_comment="이 슬롯의 교체 기준이 된 goldenset_items Qdrant point 식별자",
+    )
+    replacement_score = models.FloatField(
+        null=True,
+        blank=True,
+        db_comment="골든 기준 아이템과 최종 아이템의 교체 적합 점수 (미산정 시 NULL)",
+    )
+    image_ref = models.CharField(
+        max_length=1024,
+        db_comment="추천·렌더에 사용한 아이템 이미지 S3 키 또는 검증된 URL",
+    )
+    price_snapshot = models.PositiveBigIntegerField(
+        null=True,
+        blank=True,
+        db_comment="추천 당시 상품 가격 (원, 옷장 아이템이면 NULL)",
+    )
+    reasons = models.JSONField(
+        default=list,
+        db_comment="아이템 선택·교체 근거 JSON 배열",
+    )
+    item_snapshot = models.JSONField(
+        default=dict,
+        db_comment="추천 당시 아이템 표시 정보·태그·구매 링크 JSON 스냅샷",
+    )
+    created_at = models.DateTimeField(
+        auto_now_add=True,
+        db_comment="코디 구성 아이템 생성 시각",
+    )
+
+    class Meta:
+        db_table = "outfit_composition_item"
+        db_table_comment = (
+            "최종 코디의 슬롯별 옷장·상품 아이템과 교체 근거·표시 정보 스냅샷"
+        )
+        ordering = ["position", "created_at"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["composition", "slot"],
+                name="uq_outfit_comp_item_slot",
+            ),
+            models.UniqueConstraint(
+                fields=["composition", "position"],
+                name="uq_outfit_comp_item_pos",
+            ),
+            models.UniqueConstraint(
+                fields=[
+                    "composition",
+                    "source_type",
+                    "source_collection",
+                    "source_id",
+                ],
+                name="uq_outfit_comp_item_source",
+            ),
+            models.CheckConstraint(
+                condition=Q(position__gte=1),
+                name="ck_outfit_comp_item_pos",
+            ),
+            models.CheckConstraint(
+                condition=Q(source_type__in=["WARDROBE", "PRODUCT"]),
+                name="ck_outfit_comp_item_source",
+            ),
+        ]
+
+    def __str__(self) -> str:
+        return f"outfit-item {self.composition_id}:{self.slot} ({self.source_type})"
+
+
+class OutfitRenderJob(models.Model):
+    """검증된 추천 카드 한 장의 비동기 착용 이미지 생성 상태."""
+
+    class Status(models.TextChoices):
+        QUEUED = "QUEUED", "생성 대기"
+        PROCESSING = "PROCESSING", "생성 중"
+        SUCCEEDED = "SUCCEEDED", "생성 완료"
+        FAILED = "FAILED", "생성 실패"
+
+    TERMINAL_STATUSES = (Status.SUCCEEDED, Status.FAILED)
+
+    id = models.UUIDField(
+        primary_key=True,
+        default=uuid.uuid4,
+        editable=False,
+        db_comment="코디 이미지 생성 작업 UUID (큐·SSE 공통 추적 ID)",
+    )
+    composition = models.OneToOneField(
+        OutfitComposition,
+        on_delete=models.CASCADE,
+        related_name="render_job",
+        db_comment="이미지를 생성할 검증 완료 코디 조합 FK (outfit_composition.id)",
+    )
+    status = models.CharField(
+        max_length=16,
+        choices=Status.choices,
+        default=Status.QUEUED,
+        db_comment="이미지 생성 상태 (QUEUED/PROCESSING/SUCCEEDED/FAILED)",
+    )
+    composition_fingerprint = models.CharField(
+        max_length=64,
+        db_comment="작업 접수 당시 코디 조합 SHA-256 지문",
+    )
+    render_fingerprint = models.CharField(
+        max_length=64,
+        db_comment="코디 지문·모델·프롬프트·출력 설정을 합친 렌더 캐시 SHA-256 지문",
+    )
+    output_s3_bucket = models.CharField(
+        max_length=255,
+        blank=True,
+        default="",
+        db_comment="생성 결과를 보관한 비공개 S3 버킷 (미완료이면 빈 문자열)",
+    )
+    output_s3_key = models.CharField(
+        max_length=512,
+        blank=True,
+        default="",
+        db_comment="생성 결과 S3 객체 키 (외부 API에는 직접 노출하지 않음)",
+    )
+    output_media_type = models.CharField(
+        max_length=50,
+        blank=True,
+        default="",
+        db_comment="생성 결과 MIME 타입 (image/jpeg/image/png/image/webp, 미완료이면 빈 문자열)",
+    )
+    output_bytes = models.PositiveIntegerField(
+        null=True,
+        blank=True,
+        db_comment="생성 결과 이미지 크기 (bytes, 미완료이면 NULL)",
+    )
+    provider = models.CharField(
+        max_length=32,
+        blank=True,
+        default="",
+        db_comment="이미지 생성 제공자 (예: openrouter, 캐시 결과도 원 생성 제공자 기록)",
+    )
+    model = models.CharField(
+        max_length=128,
+        blank=True,
+        default="",
+        db_comment="이미지 생성 모델명 (예: qwen/qwen-image-3-pro)",
+    )
+    prompt_version = models.CharField(
+        max_length=64,
+        blank=True,
+        default="",
+        db_comment="이미지 생성 프롬프트 버전",
+    )
+    reference_count = models.PositiveSmallIntegerField(
+        default=0,
+        db_comment="최종 이미지 생성에 사용한 참조 아이템 이미지 수",
+    )
+    usage = models.JSONField(
+        default=dict,
+        blank=True,
+        db_comment="이미지 제공자가 반환한 사용량·비용 JSON",
+    )
+    cache_hit = models.BooleanField(
+        default=False,
+        db_comment="동일 렌더 지문의 기존 생성 결과를 재사용했는지 여부",
+    )
+    attempts = models.PositiveSmallIntegerField(
+        default=0,
+        db_comment="이미지 워커 처리 시도 횟수 (재시도 포함)",
+    )
+    error_code = models.CharField(
+        max_length=64,
+        blank=True,
+        default="",
+        db_comment="실패 오류 코드 (성공 또는 대기 상태이면 빈 문자열)",
+    )
+    error_message = models.CharField(
+        max_length=500,
+        blank=True,
+        default="",
+        db_comment="사용자에게 노출 가능한 실패 메시지 (성공 또는 대기 상태이면 빈 문자열)",
+    )
+    enqueued_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        db_comment="Redis pending 큐 적재 확인 시각 (적재 확인 전이면 NULL)",
+    )
+    started_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        db_comment="이미지 워커가 마지막 처리를 시작한 시각",
+    )
+    finished_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        db_comment="이미지 생성 성공 또는 최종 실패 시각",
+    )
+    created_at = models.DateTimeField(
+        auto_now_add=True,
+        db_comment="이미지 생성 작업 최초 접수 시각",
+    )
+    updated_at = models.DateTimeField(
+        auto_now=True,
+        db_comment="이미지 생성 작업 마지막 수정 시각",
+    )
+
+    class Meta:
+        db_table = "outfit_render_job"
+        db_table_comment = (
+            "추천 카드별 비동기 착용 이미지 생성 상태·비공개 S3 결과·캐시 근거"
+        )
+        ordering = ["-created_at"]
+        indexes = [
+            models.Index(
+                fields=["status", "created_at"],
+                name="ix_outfit_render_status",
+            ),
+            models.Index(
+                fields=["render_fingerprint"],
+                name="ix_outfit_render_fprint",
+            ),
+        ]
+        constraints = [
+            models.CheckConstraint(
+                condition=Q(status__in=["QUEUED", "PROCESSING", "SUCCEEDED", "FAILED"]),
+                name="ck_outfit_render_status",
+            ),
+        ]
+
+    def __str__(self) -> str:
+        return f"outfit-render {self.id} ({self.status})"
+
+
 class DailyLook(models.Model):
     """사용자 1명의 하루치 '오늘의 룩' 추천 1건.
 
     코디 평가(OutfitAnalysis)와 결정적으로 다른 점이 하나 있다. 저쪽은 사용자가
-    사진을 올려야 시작하지만, 이쪽은 **사용자 입력이 없다.** 그날 처음 로그인하는
-    순간 자동으로 만들어지고, 재료는 미리 저장된 체형·추구미와 그 시점 날씨다.
+    사진을 올려야 시작하지만, 이쪽은 **사용자 입력이 없다.** 그날 처음 홈 화면에
+    들어오는 순간(GET /api/v1/home/) 자동으로 만들어지고, 재료는 미리 저장된
+    체형·추구미와 그 시점 날씨다.
 
-    그래서 (user, look_date)에 유니크 제약을 건다. 하루에 여러 번 로그인해도,
-    여러 기기에서 동시에 로그인해도 1건만 생긴다 — 경합은 DB가 막고 서비스는
+    그래서 (user, look_date)에 유니크 제약을 건다. 하루에 여러 번 접속해도,
+    여러 기기에서 동시에 홈을 열어도 1건만 생긴다 — 경합은 DB가 막고 서비스는
     IntegrityError를 '이미 있음'으로 처리한다.
 
     스냅샷을 남기는 이유는 OutfitAnalysis와 같다. 날씨와 프로필은 계속 바뀌므로
@@ -275,6 +753,7 @@ class DailyLook(models.Model):
         EMPTY = "EMPTY", "추천 후보 없음"
 
     PENDING_STATUSES = (Status.QUEUED, Status.PROCESSING)
+    TERMINAL_STATUSES = (Status.SUCCEEDED, Status.FAILED, Status.EMPTY)
 
     id = models.UUIDField(
         primary_key=True,
@@ -298,6 +777,25 @@ class DailyLook(models.Model):
         choices=Status.choices,
         default=Status.QUEUED,
         db_comment="생성 상태 (QUEUED/PROCESSING/SUCCEEDED/FAILED/EMPTY)",
+    )
+    attempts = models.PositiveSmallIntegerField(
+        default=0,
+        db_comment="오늘의 룩 추천 워커 처리 시도 횟수 (렌더 보정 작업 제외)",
+    )
+    enqueued_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        db_comment="오늘의 룩 Redis 큐 적재 확인 시각 (미적재이면 NULL)",
+    )
+    started_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        db_comment="오늘의 룩 추천 워커 마지막 처리 시작 시각",
+    )
+    finished_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        db_comment="오늘의 룩 추천 성공·후보 없음·최종 실패 시각",
     )
 
     # ── 생성 시점 스냅샷 ──
@@ -413,3 +911,66 @@ class DailyLook(models.Model):
             "body_profile": self.body_profile or {},
             "pursuit": self.pursuit,
         }
+
+
+class RecommendationFeedback(models.Model):
+    """사용자가 추천 카드 하나에 남긴 최신 평가.
+
+    소유 identity를 중복 저장하지 않고 코디 조합을 통해 따라간다. 게스트 대화가
+    회원 identity로 이전될 때 추천 결과의 소유권만 바뀌어도 피드백이 함께 보존된다.
+    """
+
+    class Reaction(models.TextChoices):
+        LIKE = "LIKE", "좋아요"
+        DISLIKE = "DISLIKE", "싫어요"
+
+    id = models.UUIDField(
+        primary_key=True,
+        default=uuid.uuid4,
+        editable=False,
+        db_comment="추천 피드백 UUID",
+    )
+    composition = models.OneToOneField(
+        OutfitComposition,
+        on_delete=models.CASCADE,
+        related_name="feedback",
+        db_comment="평가 대상 코디 조합 FK (outfit_composition.id, 조합당 피드백 최대 1개)",
+    )
+    reaction = models.CharField(
+        max_length=8,
+        choices=Reaction.choices,
+        db_comment="추천 카드 반응 (LIKE/DISLIKE)",
+    )
+    reason_codes = models.JSONField(
+        default=list,
+        blank=True,
+        db_comment="피드백 사유 코드 문자열 배열 (최대 5개)",
+    )
+    comment = models.CharField(
+        max_length=500,
+        blank=True,
+        default="",
+        db_comment="사용자 자유 의견 (최대 500자, 미입력 시 빈 문자열)",
+    )
+    created_at = models.DateTimeField(
+        auto_now_add=True,
+        db_comment="피드백 최초 생성 시각",
+    )
+    updated_at = models.DateTimeField(
+        auto_now=True,
+        db_comment="피드백 마지막 수정 시각",
+    )
+
+    class Meta:
+        db_table = "recommendation_feedback"
+        db_table_comment = "추천 카드별 사용자 최신 반응과 선택 사유"
+        ordering = ["-updated_at"]
+        constraints = [
+            models.CheckConstraint(
+                condition=Q(reaction__in=["LIKE", "DISLIKE"]),
+                name="ck_reco_feedback_reaction",
+            ),
+        ]
+
+    def __str__(self) -> str:
+        return f"recommendation-feedback {self.composition_id} ({self.reaction})"

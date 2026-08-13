@@ -1,8 +1,10 @@
 import { Icon, type IconName } from '@/components/icon';
 import { router } from 'expo-router';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { useState } from 'react';
+import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import { useToast } from '@/components/ui';
 import { Editorial, ink, ContentMax, Fonts, Type } from '@/constants/theme';
 import { useBreakpoint } from '@/hooks/use-breakpoint';
 import { useWardrobeItems } from '@/hooks/use-wardrobe';
@@ -41,6 +43,7 @@ const MODES: ModeCard[] = [
 export default function ChatMode() {
   const { contentStyle } = useBreakpoint();
   const { isLoggedIn } = useAuth();
+  const toast = useToast();
   /* 옷장 화면과 **같은 조건으로** 센다(필터 없음). confirmed=true 로 거르면 0 이 나온다 —
      백엔드에서 직접 넣은 옷은 확인 단계를 거치지 않아 확정 표시가 없기 때문이다(closet.tsx 참고).
      여기서만 다르게 세면 옷장엔 18벌인데 "옷을 먼저 등록해 주세요" 라고 말하게 된다. */
@@ -57,17 +60,31 @@ export default function ChatMode() {
         : `내 옷장 ${items.length}개로 조합`;
 
   /* 여기서 세션을 만들고 대화 화면으로 넘긴다. replace 인 이유 — 모드 선택은 대화로 가는
-     경유지라, 대화에서 뒤로 가면 이 화면이 아니라 목록으로 돌아가야 한다. */
-  const startChat = (mode: Mode) => {
-    const session = chatStore.createSession(mode);
-    router.replace({ pathname: '/chat-room', params: { id: session.id } });
+     경유지라, 대화에서 뒤로 가면 이 화면이 아니라 목록으로 돌아가야 한다.
+
+     세션 생성이 서버 호출이라 즉시 끝나지 않는다. 만드는 동안 카드를 잠가 두는 이유 —
+     두 번 누르면 빈 대화가 두 개 생기고, 그중 하나는 아무도 찾지 않는다. */
+  const [starting, setStarting] = useState<Mode | null>(null);
+
+  const startChat = async (mode: Mode) => {
+    if (starting) return;
+    setStarting(mode);
+    try {
+      const session = await chatStore.createSession(mode);
+      router.replace({ pathname: '/chat-room', params: { id: session.id } });
+    } catch {
+      toast('대화를 시작하지 못했어요', { variant: 'error' });
+      setStarting(null);
+    }
+    /* 성공하면 replace 로 이 화면 자체가 스택에서 빠지므로 잠금을 풀 필요가 없다.
+       (풀어 두면 화면이 사라지는 찰나에 카드가 다시 눌리는 상태가 된다) */
   };
 
   return (
     <View style={styles.container}>
       {/* 닫기 버튼은 두지 않는다 — 이 화면에서도 탭바(데스크톱은 사이드바)가 그대로 보여
           나갈 길이 이미 있고, 화면 구석의 ✕ 는 무엇을 닫는지 읽히지 않는다. */}
-      <SafeAreaView edges={['top', 'bottom']} style={styles.safe}>
+      <SafeAreaView edges={['top']} style={styles.safe}>
         <View style={[styles.head, contentStyle(ContentMax.narrow)]}>
           <Text style={styles.eyebrow}>NEW CHAT</Text>
           <Text style={styles.title}>어떻게 추천받을까요?</Text>
@@ -78,11 +95,16 @@ export default function ChatMode() {
           {MODES.map((m) => (
             <Pressable
               key={m.key}
-              style={styles.card}
+              style={[styles.card, starting !== null && starting !== m.key && styles.cardDimmed]}
+              disabled={starting !== null}
               onPress={() => startChat(m.key)}>
               <View style={styles.cardHead}>
                 <View style={styles.cardIcon}>
-                  <Icon name={m.icon} tintColor={CHAT_MODE_META[m.key].tint} size={24} />
+                  {starting === m.key ? (
+                    <ActivityIndicator size="small" color={CHAT_MODE_META[m.key].tint} />
+                  ) : (
+                    <Icon name={m.icon} tintColor={CHAT_MODE_META[m.key].tint} size={24} />
+                  )}
                 </View>
                 <Text style={styles.cardTitle}>{m.title}</Text>
               </View>
@@ -100,6 +122,9 @@ export default function ChatMode() {
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: Editorial.page },
   safe: { flex: 1 },
+
+  /** 대화를 만드는 동안 고르지 않은 카드는 흐리게 — 지금 무엇이 진행 중인지 한눈에 보이게. */
+  cardDimmed: { opacity: 0.4 },
 
   // ✕ 를 없앤 만큼 제목이 화면 위쪽에 붙지 않게 여백을 옮겨 왔다.
   head: { paddingHorizontal: 24, paddingTop: 28, paddingBottom: 8 },

@@ -11,6 +11,7 @@ import ipaddress
 import io
 import os
 import socket
+import tempfile
 from collections.abc import Iterable
 from functools import lru_cache
 from urllib.parse import urljoin, urlparse
@@ -124,6 +125,26 @@ def upload_fileobj(fileobj, key: str, content_type: str | None = None) -> None:
     _client().upload_fileobj(
         fileobj, BUCKET, key, ExtraArgs=extra or {}
     )
+
+
+def download_to_tempfile(key: str) -> str:
+    """Gemini 같은 동기 처리기가 읽을 수 있도록 원본을 임시 파일로 준비한다."""
+    suffix = os.path.splitext(key)[1] or ".jpg"
+    handle = tempfile.NamedTemporaryFile(suffix=suffix, delete=False)
+    path = handle.name
+    handle.close()
+    try:
+        if IS_LOCAL:
+            source = os.path.join(LOCAL_MEDIA_DIR, key)
+            with open(source, "rb") as src, open(path, "wb") as dst:
+                dst.write(src.read())
+        else:
+            _client().download_file(BUCKET, key, path)
+    except Exception:
+        if os.path.exists(path):
+            os.remove(path)
+        raise
+    return path
 
 
 def delete_object(key: str) -> None:

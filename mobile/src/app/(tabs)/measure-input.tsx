@@ -13,7 +13,6 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { useToast } from '@/components/ui';
 import { Editorial, ink, Fonts , ContentMax} from '@/constants/theme';
-import { useBottomTabInset } from '@/hooks/use-bottom-tab-inset';
 import { useBreakpoint } from '@/hooks/use-breakpoint';
 import { ApiError } from '@/lib/apiClient';
 import { fetchBodyBasic, measureStore } from '@/state/measure';
@@ -34,7 +33,6 @@ function Steps({ active }: { active: number }) {
 // G1 체형 정보 입력 — 키/몸무게 + BMI 자동계산
 export default function MeasureInput() {
   const { contentStyle } = useBreakpoint();
-  const tabInset = useBottomTabInset();
   const { returnTo } = useLocalSearchParams<{ returnTo?: string }>();
   const toast = useToast();
   const [height, setHeight] = useState('');
@@ -44,13 +42,14 @@ export default function MeasureInput() {
   /** 저장된 치수를 못 불러왔을 때 — 칸이 빈 이유를 알린다(입력은 그대로 가능) */
   const [prefillFailed, setPrefillFailed] = useState(false);
 
-  // 새 측정 플로우 진입 → 이전 데이터 초기화 후, 저장된 키·몸무게가 있으면 프리필
+  // 새 측정 플로우 진입 → 이전 데이터 초기화 후, 저장된 기본 정보가 있으면 프리필
   useEffect(() => {
     measureStore.reset();
     let alive = true;
     fetchBodyBasic()
       .then((b) => {
         if (!alive) return;
+        if (b.sex != null) setSex((current) => current ?? b.sex);
         if (b.height != null) setHeight(String(b.height));
         if (b.weight != null) setWeight(String(b.weight));
       })
@@ -182,12 +181,14 @@ export default function MeasureInput() {
             <Text style={styles.sexHint}>성별까지 골라야 저장돼요</Text>
           ) : null}
 
-          <Pressable style={styles.skipWrap} hitSlop={8} onPress={goCapture}>
-            <Text style={styles.skipText}>입력 없이 건너뛰기</Text>
-          </Pressable>
+          {returnTo !== 'onboarding' ? (
+            <Pressable style={styles.skipWrap} hitSlop={8} onPress={goCapture}>
+              <Text style={styles.skipText}>입력 없이 건너뛰기</Text>
+            </Pressable>
+          ) : null}
         </ScrollView>
 
-        <View style={[styles.bottomBar, { paddingBottom: tabInset }, contentStyle(ContentMax.narrow)]}>
+        <View style={[styles.bottomBar, { paddingBottom: 12 }, contentStyle(ContentMax.narrow)]}>
           <Pressable
             style={[styles.cta, (!canNext || saving) && styles.ctaDisabled]}
             disabled={!canNext || saving}
@@ -195,15 +196,15 @@ export default function MeasureInput() {
               setSaving(true);
               try {
                 await measureStore.saveBasic({ height: h, weight: w, sex: sex ?? 'none' });
+                goCapture();
               } catch (e) {
-                // 저장 실패해도 로컬 입력은 반영돼 있어 플로우는 계속 진행한다.
                 toast(
-                  e instanceof ApiError ? e.message : '키·몸무게 저장에 실패했어요. 임시로 진행할게요.',
+                  e instanceof ApiError ? e.message : '키·몸무게 저장에 실패했어요. 다시 시도해 주세요.',
                   { variant: 'error' },
                 );
+                if (returnTo !== 'onboarding') goCapture();
               } finally {
                 setSaving(false);
-                goCapture();
               }
             }}>
             <Text style={styles.ctaText}>다음</Text>

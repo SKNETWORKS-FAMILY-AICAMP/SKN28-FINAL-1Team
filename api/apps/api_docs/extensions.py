@@ -2,6 +2,7 @@ from drf_spectacular.extensions import (
     OpenApiAuthenticationExtension,
     OpenApiViewExtension,
 )
+from rest_framework import serializers
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import (
     OpenApiExample,
@@ -42,6 +43,10 @@ from apps.users.serializers import (
     BodyMeasurementSerializer,
     BodyPhotoTransactionSerializer,
     BodyPhotoUploadSerializer,
+    EmailLoginSerializer,
+    EmailSignupSerializer,
+    EmailVerificationResendSerializer,
+    EmailVerificationSerializer,
     BudgetSerializer,
     PursuitPayloadInputSerializer,
     PursuitPayloadResponseSerializer,
@@ -76,7 +81,7 @@ class JWTAuthenticationExtension(OpenApiAuthenticationExtension):
             "scheme": "bearer",
             "bearerFormat": "JWT",
             "description": (
-                "소셜 로그인(`POST /api/v1/auth/{provider}/login/`)이 발급한 "
+                "이메일 또는 소셜 로그인 API가 발급한 "
                 "**access 토큰**을 `Authorization: Bearer <access>` 헤더로 전달합니다.\n\n"
                 "- access 토큰 만료 시 401이 반환되며, "
                 "`POST /api/v1/auth/token/refresh/`로 재발급합니다.\n"
@@ -110,6 +115,114 @@ class TokenRefreshViewExtension(OpenApiViewExtension):
             pass
 
         return DocumentedTokenRefreshView
+
+
+class EmailSignupViewExtension(OpenApiViewExtension):
+    target_class = "apps.users.views.EmailSignupView"
+
+    def view_replacement(self):
+        @extend_schema_view(
+            post=extend_schema(
+                operation_id="email_signup",
+                tags=["Authentication"],
+                summary="이메일 회원가입",
+                description="비활성 이메일 계정을 생성하고 6자리 소유 확인 코드를 발송합니다.",
+                request=EmailSignupSerializer,
+                responses={
+                    202: inline_serializer(
+                        name="EmailSignupPendingResponse",
+                        fields={
+                            "email": serializers.EmailField(),
+                            "verification_required": serializers.BooleanField(),
+                            "retry_after": serializers.IntegerField(),
+                        },
+                    ),
+                    400: OpenApiResponse(description="이메일 중복 또는 비밀번호 정책 오류"),
+                },
+            )
+        )
+        class DocumentedEmailSignupView(self.target_class):
+            pass
+
+        return DocumentedEmailSignupView
+
+
+class EmailVerificationViewExtension(OpenApiViewExtension):
+    target_class = "apps.users.views.EmailVerificationView"
+
+    def view_replacement(self):
+        @extend_schema_view(
+            post=extend_schema(
+                operation_id="email_verify",
+                tags=["Authentication"],
+                summary="이메일 인증 코드 확인",
+                description=(
+                    "이메일 소유를 확인하고 계정을 활성화합니다. "
+                    "**토큰은 발급하지 않으므로** 인증 후 로그인 API를 호출해야 합니다."
+                ),
+                request=EmailVerificationSerializer,
+                responses={
+                    200: inline_serializer(
+                        name="EmailVerifiedResponse",
+                        fields={
+                            "email": serializers.EmailField(),
+                            "verified": serializers.BooleanField(),
+                        },
+                    ),
+                    400: OpenApiResponse(description="코드 오류·만료·이미 인증된 이메일"),
+                },
+            )
+        )
+        class DocumentedEmailVerificationView(self.target_class):
+            pass
+
+        return DocumentedEmailVerificationView
+
+
+class EmailVerificationResendViewExtension(OpenApiViewExtension):
+    target_class = "apps.users.views.EmailVerificationResendView"
+
+    def view_replacement(self):
+        @extend_schema_view(
+            post=extend_schema(
+                operation_id="email_verification_resend",
+                tags=["Authentication"],
+                summary="이메일 인증 코드 재발송",
+                request=EmailVerificationResendSerializer,
+                responses={200: OpenApiResponse(description="재발송 완료"), 400: OpenApiResponse(description="재발송 대기 중")},
+            )
+        )
+        class DocumentedEmailVerificationResendView(self.target_class):
+            pass
+
+        return DocumentedEmailVerificationResendView
+
+
+class EmailLoginViewExtension(OpenApiViewExtension):
+    target_class = "apps.users.views.EmailLoginView"
+
+    def view_replacement(self):
+        @extend_schema_view(
+            post=extend_schema(
+                operation_id="email_login",
+                tags=["Authentication"],
+                summary="이메일 로그인",
+                description=(
+                    "이메일과 비밀번호를 확인하고 서비스 JWT를 발급합니다. "
+                    "`is_new_user`는 가입 후 첫 로그인(`last_login`이 NULL)일 때 true이며, "
+                    "앱은 이 값으로 온보딩(권한 → 체형 측정 → 추구미) 진입을 분기합니다."
+                ),
+                request=EmailLoginSerializer,
+                responses={
+                    200: SocialLoginResponseSerializer,
+                    400: OpenApiResponse(description="이메일 또는 비밀번호 불일치"),
+                },
+            )
+        )
+        class DocumentedEmailLoginView(self.target_class):
+            pass
+
+        return DocumentedEmailLoginView
 
 
 # apple은 백엔드 코드는 있으나 서비스 구현 보류 상태라 문서에서 제외한다.
@@ -240,6 +353,7 @@ HOME_DESCRIPTION = """홈 화면에 필요한 데이터를 한 번에 반환합�
 - `lat`/`lon`을 보내면 가장 가까운 예보구역의 현재 날씨를 반환합니다.
 - 좌표가 없거나 국내 범위(위도 33~39, 경도 124~132)를 벗어나면 서울시청 좌표로 대체합니다.
 - `quick_recommends`, `closet_count`, `saved_look_count`는 실제 추천·옷장 기능 연동 전까지 mock 값입니다.
+- 부수 효과: 그날 첫 호출이면 **오늘의 룩 생성을 미리 걸어둡니다** (`GET /api/v1/looks/today/`가 곧 완성된 결과를 받도록). 전달한 `lat`/`lon`이 그날 추천의 날씨 기준이 됩니다.
 """
 
 HOME_COORDINATE_PARAMETERS = [
@@ -983,6 +1097,16 @@ class WardrobeItemDetailViewExtension(OpenApiViewExtension):
 
     def view_replacement(self):
         @extend_schema_view(
+            get=extend_schema(
+                operation_id="wardrobe_item_detail",
+                tags=["Wardrobe"],
+                summary="아이템 상세 조회",
+                responses={
+                    200: WardrobeItemSerializer,
+                    401: DetailResponseSerializer,
+                    404: DetailResponseSerializer,
+                },
+            ),
             patch=extend_schema(
                 operation_id="wardrobe_item_update",
                 tags=["Wardrobe"],
@@ -1014,6 +1138,29 @@ class WardrobeItemDetailViewExtension(OpenApiViewExtension):
             pass
 
         return DocumentedWardrobeItemDetailView
+
+
+class WardrobeItemAddToClosetViewExtension(OpenApiViewExtension):
+    target_class = "apps.wardrobe.views.WardrobeItemAddToClosetView"
+
+    def view_replacement(self):
+        @extend_schema_view(
+            post=extend_schema(
+                operation_id="wardrobe_item_add_to_closet",
+                tags=["Wardrobe"],
+                summary="아이템을 내 옷장에 추가",
+                request=None,
+                responses={
+                    200: WardrobeItemSerializer,
+                    401: DetailResponseSerializer,
+                    404: DetailResponseSerializer,
+                },
+            )
+        )
+        class DocumentedWardrobeItemAddToClosetView(self.target_class):
+            pass
+
+        return DocumentedWardrobeItemAddToClosetView
 
 
 # =============================================================================

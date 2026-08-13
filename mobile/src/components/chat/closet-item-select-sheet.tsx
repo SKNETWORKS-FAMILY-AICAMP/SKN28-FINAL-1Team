@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { Modal, Pressable, ScrollView, StyleSheet, Text, View, ActivityIndicator } from 'react-native';
 import { Image } from 'expo-image';
 import { Icon } from '@/components/icon';
-import { listWardrobeItems, getMySharedRooms, listSharedRoomItems } from '@/lib/wardrobeApi';
+import { listWardrobeItems, getMySharedRooms, listSharedRoomItems, sharedUserDisplayName } from '@/lib/wardrobeApi';
 import { Editorial, ink } from '@/constants/theme';
 
 export function ClosetItemSelectSheet({
@@ -38,7 +38,7 @@ export function ClosetItemSelectSheet({
                     id: si.id,
                     image: si.wardrobe_item.image_url || si.wardrobe_item.image,
                     name: si.wardrobe_item.item_name || si.wardrobe_item.category_large,
-                    owner: si.registered_by?.nickname || '멤버',
+                    owner: sharedUserDisplayName(si.registered_by),
                   });
                 });
               } catch (e) {

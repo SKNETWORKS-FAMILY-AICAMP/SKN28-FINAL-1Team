@@ -7,6 +7,7 @@ from apps.style_calendar.views import (
     CalendarPhotoCreateView,
     CalendarProcessingStatusView,
     CalendarWardrobeCreateView,
+    CalendarWardrobeItemUnlinkView,
 )
 
 app_name = "style_calendar"
@@ -32,6 +33,11 @@ urlpatterns = [
         "calendars/<uuid:calendar_id>/",
         CalendarEntryDetailView.as_view(),
         name="calendar-detail",
+    ),
+    path(
+        "calendars/<uuid:calendar_id>/items/<uuid:wardrobe_item_id>/",
+        CalendarWardrobeItemUnlinkView.as_view(),
+        name="calendar-item-unlink",
     ),
     path(
         "calendars/<uuid:calendar_id>/processing-status/",

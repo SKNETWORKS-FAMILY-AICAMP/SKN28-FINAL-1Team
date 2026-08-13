@@ -17,6 +17,10 @@ from .swagger import *  # noqa: F401,F403
 # AutoLoginAuthentication의 안전장치 플래그 (noauth 계열 설정에서만 켠다)
 AUTO_LOGIN_ENABLED = True
 
+# 로컬 데모는 휴대폰 등 같은 네트워크의 기기에서도 PC 주소로 접속한다.
+# 이 설정 파일 자체가 운영 사용 금지이므로 noauth 환경에서만 모든 Host를 허용한다.
+ALLOWED_HOSTS = ["*"]
+
 REST_FRAMEWORK = {
     **REST_FRAMEWORK,  # noqa: F405  (swagger의 DEFAULT_SCHEMA_CLASS 유지)
     "DEFAULT_AUTHENTICATION_CLASSES": [

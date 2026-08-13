@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 import os
+import re
 
 from rest_framework import serializers
 
@@ -90,8 +91,12 @@ class WardrobeItemSerializer(serializers.ModelSerializer):
             "category_large", "category_small", "season", "style", "color",
             "pattern", "fit", "material", "sleeve", "length", "usage",
             "layer_role", "layer_order", "seg_meta", "confirmed", "created_at",
+            # NULL 이면 아직 옷장 밖 — 룩 상세가 '옷장에 추가' 버튼을 그릴지 판단한다.
+            "added_to_closet_at",
         ]
-        read_only_fields = ["id", "job", "s3_key", "seg_meta", "created_at"]
+        read_only_fields = [
+            "id", "job", "s3_key", "seg_meta", "created_at", "added_to_closet_at",
+        ]
 
     def get_image_url(self, obj) -> str:
         return storage.presigned_get(obj.s3_key)
@@ -186,14 +191,54 @@ class CallbackSerializer(serializers.Serializer):
 
 # ── 공유 옷장 (Shared Wardrobe) 시리얼라이저 ─────────────────
 from django.contrib.auth import get_user_model
-from .models import SharedWardrobeRoom, SharedWardrobeMember, SharedWardrobeItem
+from .models import (
+    SharedWardrobeCategory,
+    SharedWardrobeItem,
+    SharedWardrobeMember,
+    SharedWardrobeRoom,
+)
 
 User = get_user_model()
 
+#: 로그인 방식이 만들어 준 내부 식별자. 사람 이름이 아니라 화면에 쓰면 안 된다.
+#: 이메일 가입 `email_<uuid>` · 소셜 `<provider>_<id>`.
+AUTO_USERNAME_RE = re.compile(r"^(email|naver|kakao|google|apple)_")
+
+
 class UserSimpleSerializer(serializers.ModelSerializer):
+    """공유 옷장에서 '누구인지' 보여줄 때 쓰는 최소 사용자 정보.
+
+    `username`을 그대로 화면에 쓰면 이메일 가입자 아바타가 전부 'e'로,
+    카카오 가입자는 전부 'k'로 보인다 — 첫 글자가 로그인 방식이기 때문이다.
+    그래서 표시용 이름을 서버가 정해 `display_name`으로 내려준다.
+
+    규칙은 앱 프로필 화면(`mobile/src/app/edit-profile.tsx` `accountName`)과 **같다**:
+    별명(자동 생성 제외) → 이메일 아이디 → 그래도 없으면 '멤버'.
+    두 곳이 어긋나면 "마이에서 보이는 내 이름"과 "공유방에서 남에게 보이는 내 이름"이
+    달라진다.
+    """
+
+    display_name = serializers.SerializerMethodField()
+
     class Meta:
         model = User
-        fields = ["id", "username", "email"]
+        fields = ["id", "username", "nickname", "display_name", "email"]
+
+    def get_display_name(self, obj) -> str:
+        nickname = (obj.nickname or "").strip()
+        if nickname and not AUTO_USERNAME_RE.match(nickname):
+            return nickname
+
+        email = (obj.email or "").strip()
+        if email:
+            return email.split("@")[0]
+
+        username = (obj.username or "").strip()
+        # 자동 생성 식별자면 이름 대신 중립 라벨을 준다 — 'e' 아바타보다 낫다.
+        if username and not AUTO_USERNAME_RE.match(username):
+            return username
+
+        return "멤버"
 
 
 class SharedWardrobeRoomSerializer(serializers.ModelSerializer):
@@ -234,6 +279,25 @@ class SharedWardrobeItemRegisterSerializer(serializers.Serializer):
         choices=SharedWardrobeItem.Status.choices,
         default=SharedWardrobeItem.Status.AVAILABLE
     )
+
+
+class SharedWardrobeCategorySerializer(serializers.ModelSerializer):
+    class Meta:
+        model = SharedWardrobeCategory
+        fields = ["id", "name", "created_by", "created_at"]
+        read_only_fields = ["id", "created_by", "created_at"]
+
+    def validate_name(self, value: str) -> str:
+        name = value.strip()
+        if not name:
+            raise serializers.ValidationError("카테고리 이름을 입력해 주세요.")
+        if name in T.CATEGORY_LARGE:
+            raise serializers.ValidationError("기본 카테고리는 다시 추가할 수 없습니다.")
+        return name
+
+
+class SharedWardrobeCategoryDeleteSerializer(serializers.Serializer):
+    category_id = serializers.UUIDField()
 
 
 # ── 비로그인 초대 미리보기 (구경 모드) ─────────────────────

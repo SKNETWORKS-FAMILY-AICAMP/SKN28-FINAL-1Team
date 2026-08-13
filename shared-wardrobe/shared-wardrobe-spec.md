@@ -27,10 +27,16 @@
 
 ### 1.2 아직 구현 안 된 것
 
-1. **앱 미설치자 딥링크 폴백** — 🔲 미구현
-   - Universal Link(`myapp://join?code=...`) 가로채기
-   - 앱 없는 사용자에게 앱스토어 이동 안내 / 6자리 코드 수동 복사 팝업
-   - 현재는 웹 URL(`/invite?code=...`)만 동작한다
+1. **앱 설치/미설치 분기 딥링크** — ✅ 2026-08-13 구현 (실기기 검증은 미실행)
+   - 카카오 피드 템플릿 링크에 `iosExecutionParams`/`androidExecutionParams`로 `code`를 실었다
+     → 앱이 있으면 카카오톡이 `kakao{네이티브앱키}://kakaolink?code=XXXXXX`로 **앱을 직접 실행**
+   - 앱이 없으면 기존대로 `mobileWebUrl`(`/invite?code=...`) 웹 초대장으로 간다 — 카드 하나로 갈린다
+   - 앱으로 들어온 URL은 expo-router가 매칭하지 못해서 `mobile/src/hooks/use-kakao-link.ts`가
+     직접 파싱해 `/invite?code=`로 라우팅한다. `_layout.tsx` 최상위에서 1회 마운트
+   - 앱이 꺼져 있다 켜진 경우(`getInitialURL`)와 떠 있는 채로 링크가 온 경우(`addEventListener`)를 **모두** 받는다
+   - Android는 `app.json`의 core 플러그인에 `forwardKakaoLinkIntentFilterToMainActivity: true` 필요 (추가 완료).
+     iOS는 `handleKakaoOpenUrl: true`가 이미 켜져 있어 추가 설정 없음
+   - 🔲 남은 것: 앱스토어로 유도하는 안내 배너 (지금은 웹 초대장에서 코드 복사만 제공)
 
 ---
 
@@ -162,7 +168,18 @@
 - 형식: `{origin}/invite?code=XXXXXX`
 - `makeInviteLink()`가 웹에서 `window.location.origin`을 읽어 동적 생성 (로컬이면 `http://localhost:8081`, 배포면 `https://skn-1st-mobile.expo.app`)
 - **보안 판단**: 쿼리스트링에 코드를 싣는 건 Slack·Notion과 같은 표준 방식. 6자리(약 21억 조합) + 24시간 만료 + owner 재발급으로 방어한다
-- **카카오 공유**: Kakao JS SDK `Share.sendDefault`로 Feed 템플릿 카드(썸네일 + 방 이름 + `[초대장 확인하고 수락하기]` 버튼) 전송. 모바일 기기에서는 카카오톡 앱이 바로 열리고, **PC 웹에서는 보안 제약상 앱 직접 실행이 불가능**해 카카오 로그인 팝업(Sharer)을 거친다
+- **카카오 공유** (2026-08-13 개편, `mobile/src/lib/kakaoShare.ts`로 분리):
+
+| 플랫폼 | 경로 | 키 |
+| --- | --- | --- |
+| iOS / Android | `@react-native-kakao/share` `shareFeedTemplate` → 카카오톡이 열려 친구·채팅방 선택 | **네이티브 앱 키** (`initSocialSDKs`에서 초기화) |
+| 웹 | Kakao JS SDK `Share.sendDefault` → PC는 카카오 공유 팝업, 모바일 웹은 카카오톡 앱 | **JavaScript 키** (`EXPO_PUBLIC_KAKAO_JAVASCRIPT_KEY`) |
+
+  - ⚠️ **웹에서 네이티브 앱 키로 `Kakao.init`을 부르면 예외 없이 조용히 실패한다.** 개편 전 코드가 정확히 이 상태였다 (`shared-space-flow.tsx`에서 `KAKAO_NATIVE_APP_KEY`로 init). 상수를 `KAKAO_JAVASCRIPT_KEY`로 분리해 다시 못 섞게 했다
+  - 웹은 카카오 개발자센터 > 플랫폼 > Web 에 **도메인 등록이 선행**되어야 한다 (`http://localhost:8081` 포함)
+  - 카드 본문(description)에 참여 코드를 적고, 공유를 누르는 순간 **초대 문구 전체를 클립보드에도 복사**한다 (`expo-clipboard`). 카톡이 안 열려도 사용자가 직접 붙여넣을 수 있게 하는 폴백
+  - 폴백 순서: 카카오 SDK → OS 공유 시트 → 클립보드. 어디서 끝났는지를 `KakaoShareResult`로 돌려주고 토스트 문구를 다르게 띄운다
+  - iOS `LSApplicationQueriesSchemes`의 `kakaolink`는 `@react-native-kakao/core` 플러그인이 이미 넣어 준다 — app.json 추가 설정 불필요. 다만 **네이티브 공유는 dev client 재빌드가 필요**하다 (Expo Go 불가)
 
 ### 4.5 채팅 ↔ 옷장 연동
 
@@ -212,7 +229,9 @@
 | 4 | S3 → 컨테이너 로컬`media/` 저장                                       | `storage.py:23` `IS_LOCAL`, `:43-48`, `:60`   | 낮음~중간.`IS_LOCAL = not BUCKET or DEBUG or AUTO_LOGIN_ENABLED` **조건부 폴백**이라 `WARDROBE_S3_BUCKET`이 설정되고 DEBUG가 꺼진 prod에서는 S3를 정상 사용한다. 무조건 치환이 아니다                                                             |
 | 5 | 로컬 모드에서 워커 큐 우회, 즉시`DONE`                                 | `api/apps/wardrobe/views.py:66-84`                  | 중간. Celery/Redis 비동기 경로가**한 번도 실전 검증되지 않았다.** 프로덕션 첫 배포에서 처음 돌아가는 코드가 된다                                                                                                                                      |
 
-**남은 우선순위**: 2번(DEBUG 목 멤버) → 5번(워커 큐 우회) → 3번 → 4번 순.
+| 6 | **앱에서 모든 사진 등록에 `skip_processing` 강제** (2026-08-13 추가) | `mobile/src/app/item-add.tsx` `LOCAL_SKIP_IMAGE_PROCESSING` | **높음.** 켠 채 배포하면 모든 사진이 태깅·임베딩 없이 `confirmed=True`로 들어가 추천 검색에 안 잡힌다. 로컬에 옷장 태깅 GPU 워커가 없어 job이 영원히 PENDING이라, 공유 옷장을 시험할 옷을 만들려고 켰다. **되돌리기: 상수를 `false`로** |
+
+**남은 우선순위**: **6번(사진 처리 우회 — 켜져 있음)** → 2번(DEBUG 목 멤버) → 5번(워커 큐 우회) → 3번 → 4번 순.
 
 ### 6.0 환경 설정 원칙 (2026-08-11 확정)
 
@@ -242,7 +261,7 @@ infisical run --env=dev -- env DJANGO_SETTINGS_MODULE=config.settings.swagger_no
 | 1 | 옷장 탭 무한 렌더링                       | **코드 수정 확인 · 런타임 미검증** | 원인 2개 모두 코드에서 수정 확인됨: ①`app-tabs.web.tsx:116-121`에 `if (h !== barHeight)` 가드 존재 ② `upload-jobs.ts:173/177`이 원시 숫자 반환 훅(`useBatchTotal`/`useBatchCompletedCount`)이고 `closet.tsx:128-129`가 이걸 쓴다. `useBatchProgress`는 export되지 않는다. **다만 실제로 앱을 띄워 재현 테스트를 하지는 않았다** |
 | 2 | `SharedWardrobeItem.status` 대여 플로우 | 스키마만 존재                             | `borrowed`로 바꾸는 API·UI 없음 (§2.3)                                                                                                                                                                                                                                                                                                            |
 | 3 | 카카오톡 카드 공유 모바일 실기기 동작     | 미검증                                    | PC 웹에서만 테스트                                                                                                                                                                                                                                                                                                                                    |
-| 4 | 앱 미설치자 딥링크 폴백                   | 미구현                                    | §1.2                                                                                                                                                                                                                                                                                                                                                 |
+| 4 | 앱 설치/미설치 분기 딥링크                | **코드 구현 완료 · 실기기 미검증** — 시뮬레이터로는 카카오톡 앱 실행 경로를 못 탄다 | §1.2                                                                                                                                                                                                                                                                                                                                                 |
 | 5 | 다중 계정 시나리오 전반                   | 미검증                                    | §6.1                                                                                                                                                                                                                                                                                                                                                 |
 | 6 | 비동기 워커 경로 (Celery/Redis)           | 미검증                                    | 로컬은 §6-5로 우회 중                                                                                                                                                                                                                                                                                                                                |
 

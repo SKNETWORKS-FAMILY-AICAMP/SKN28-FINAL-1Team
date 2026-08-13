@@ -16,6 +16,7 @@ from urllib.parse import unquote, urlparse
 import redis as redis_lib
 from django.core.cache import caches
 from django.db import transaction
+from django.db.models import Q
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
 from rest_framework import status
@@ -38,7 +39,7 @@ from .serializers import (
     WardrobeJobSerializer,
     WardrobeUploadSerializer,
 )
-from .services import jobs, storage, vectors
+from .services import gemini, jobs, storage, vectors
 from . import taxonomy as T
 
 logger = logging.getLogger(__name__)
@@ -204,6 +205,75 @@ class WardrobeBatchDetailView(APIView):
         return Response(_batch_data(batch))
 
 
+def _local_gemini_tagging_enabled() -> bool:
+    """🚨 임시 로컬 개조 (명세 §6-7) — 기본 꺼짐. `LOCAL_GEMINI_TAGGING=1` 로만 켠다.
+
+    로컬에는 옷장 태깅 GPU 워커(image-processor)가 없다. 그래서 사진을 올리면 job 이
+    영원히 PENDING 이고 옷장에 옷이 한 벌도 안 생겨 공유 옷장·추천을 시험할 수 없다.
+    임시로 **메인 API 가 Gemini 를 직접 동기 호출**해 태그를 채운다.
+
+    ⚠️ 이 경로는 팀 표준이 아니다. 표준은 GPU image-processor 가
+    세그멘테이션 → 캡셔닝 → FashionSigLIP 임베딩까지 하고 콜백으로 돌려주는 것이다.
+    여기서는 **세그멘테이션도 임베딩도 하지 않는다** — Qdrant 에 벡터가 안 들어가므로
+    이렇게 만든 옷은 코디 추천 검색에 잡히지 않는다.
+
+    되돌리기: 환경변수를 지운다 (코드를 그대로 둬도 기본값이 꺼짐).
+    """
+    return os.getenv("LOCAL_GEMINI_TAGGING", "") == "1"
+
+
+def _tag_locally_with_gemini(user, job, key: str):
+    """🚨 임시 (명세 §6-7). 방금 저장한 원본을 Gemini 로 태깅해 확정 아이템을 만든다.
+
+    Returns: 만든 WardrobeItem. 조건이 안 맞거나 실패하면 None (호출부가 원래 큐 경로로 보낸다).
+    """
+    image_path = ""
+    try:
+        image_path = storage.download_to_tempfile(key)
+        tags = gemini.analyze_clothing_image(image_path)
+    except Exception as exc:  # noqa: BLE001
+        logger.exception("Gemini 즉시 태깅 실패: job=%s", job.pk)
+        raise gemini.GeminiAnalysisError("Gemini 이미지 처리에 실패했습니다.") from exc
+    finally:
+        if image_path and os.path.exists(image_path):
+            os.remove(image_path)
+
+    # Gemini 프롬프트의 분류 어휘가 우리 taxonomy 와 완전히 같지 않다
+    # (예: '원피스' vs '원피스/세트', '패션잡화' vs '액세서리'). 어긋난 값은 버린다 —
+    # 잘못된 값이 들어가면 추천 필터·시리얼라이저가 조용히 어긋난다.
+    category_large = tags.get("category_large", "")
+    if category_large not in T.CATEGORY_LARGE:
+        category_large = _GEMINI_CATEGORY_ALIASES.get(category_large, "상의")
+    category_small = tags.get("category_small", "")
+    if category_small not in T.CATEGORY_SMALL.get(category_large, ()):
+        category_small = ""
+    color = tags.get("color", "")
+    if color not in T.COLORS:
+        color = ""
+
+    return WardrobeItem.objects.create(
+        user=user,
+        job=job,
+        s3_key=key,
+        item_name=(tags.get("item_name") or "")[:120],
+        category_large=category_large,
+        category_small=category_small,
+        color=color,
+        confirmed=True,
+        added_to_closet_at=timezone.now(),
+        # 나중에 진짜 태깅된 옷과 구분하려고 흔적을 남긴다.
+        seg_meta={"processing": "gemini-direct", "source": "local-temp", "embedding": "none"},
+    )
+
+
+#: Gemini 프롬프트 어휘 → 우리 taxonomy. 🚨 임시 경로 전용.
+_GEMINI_CATEGORY_ALIASES = {
+    "원피스": "원피스/세트",
+    "스커트": "하의",
+    "패션잡화": "액세서리",
+}
+
+
 class WardrobeUploadView(APIView):
     """POST /api/v1/wardrobe/uploads/ — 사진 접수 → 비동기 처리 시작.
 
@@ -218,7 +288,10 @@ class WardrobeUploadView(APIView):
         serializer.is_valid(raise_exception=True)
         image = serializer.validated_data["image"]
 
-        job = WardrobeUploadJob(user=request.user)
+        job = WardrobeUploadJob(
+            user=request.user,
+            original_file_name=(image.name or "")[:255],
+        )
         key = storage.original_key(request.user.pk, job.pk, image.name)
         try:
             storage.upload_fileobj(image, key, image.content_type)
@@ -231,6 +304,51 @@ class WardrobeUploadView(APIView):
 
         job.source_s3_key = key
         job.save()
+
+        # 🚨 임시 로컬 개조 — 명세 §6-7. `LOCAL_GEMINI_TAGGING=1` 일 때만 켜진다.
+        if _local_gemini_tagging_enabled():
+            try:
+                item = _tag_locally_with_gemini(request.user, job, key)
+            except gemini.GeminiAnalysisError as exc:
+                job.status = WardrobeUploadJob.Status.FAILED
+                job.error_message = str(exc)
+                job.finished_at = timezone.now()
+                job.save(update_fields=["status", "error_message", "finished_at"])
+                return Response(
+                    {"detail": str(exc), "job_id": str(job.pk), "status": job.status},
+                    status=status.HTTP_502_BAD_GATEWAY,
+                )
+            if item is not None:
+                job.status = WardrobeUploadJob.Status.DONE
+                job.finished_at = timezone.now()
+                job.save(update_fields=["status", "finished_at"])
+                return Response(
+                    {"job_id": str(job.pk), "status": job.status},
+                    status=status.HTTP_201_CREATED,
+                )
+            # 실패하면 원래 경로(큐)로 흘려보낸다 — 조용히 죽이지 않는다.
+
+        if request.data.get("skip_processing", "").lower() == "true":
+            category = request.data.get("category_large", "")
+            if category not in T.CATEGORY_LARGE:
+                category = "기타"
+            WardrobeItem.objects.create(
+                user=request.user,
+                job=job,
+                s3_key=key,
+                item_name=request.data.get("item_name", "")[:120],
+                category_large=category,
+                confirmed=True,
+                added_to_closet_at=timezone.now(),
+                seg_meta={"processing": "skipped", "source": "library"},
+            )
+            job.status = WardrobeUploadJob.Status.DONE
+            job.finished_at = timezone.now()
+            job.save(update_fields=["status", "finished_at"])
+            return Response(
+                {"job_id": str(job.pk), "status": job.status},
+                status=status.HTTP_201_CREATED,
+            )
 
         try:
             jobs.enqueue(job)
@@ -313,7 +431,7 @@ class WardrobeCallbackView(APIView):
 
             if data["status"] == "failed":
                 job.status = WardrobeUploadJob.Status.FAILED
-                job.error_message = data.get("error", "")
+                job.error_message = data.get("error") or "image_processor_failed"
                 job.finished_at = timezone.now()
                 job.save(update_fields=["status", "error_message", "finished_at"])
                 if batch:
@@ -325,6 +443,13 @@ class WardrobeCallbackView(APIView):
                 lookbook_service.apply_wardrobe_job_failure(job=job)
                 return Response({"job_id": str(job.pk), "status": job.status})
 
+            # 룩북에 걸린 사진에서 뽑은 옷은 옷장에 바로 넣지 않는다. 사용자가 고른 적 없는
+            # 옷이기 때문이다 — 룩 상세에서 '옷장에 추가'를 눌러야 들어간다.
+            # 옷장 업로드와 (룩북 없는) 캘린더 사진은 종전대로 바로 옷장에 든다.
+            # 캘린더까지 막지 않는 이유: 캘린더 상세에는 아직 옷장에 넣는 길이 없어,
+            # 막으면 그 옷이 어디서도 꺼낼 수 없는 채로 남는다.
+            adopted_at = None if lookbook_service.is_lookbook_job(job=job) else timezone.now()
+
             created: list[tuple[WardrobeItem, list, list]] = []
             for it in data["items"]:
                 item_data = dict(it)
@@ -335,6 +460,7 @@ class WardrobeCallbackView(APIView):
                     user_id=job.user_id,
                     job=job,
                     embedding_version=vectors.EMBEDDING_VERSION if image_vec else "",
+                    added_to_closet_at=adopted_at,
                     **item_data,
                 )
                 created.append((item, image_vec, text_vec))
@@ -370,11 +496,18 @@ class WardrobeCallbackView(APIView):
 class WardrobeItemListView(APIView):
     """GET /api/v1/wardrobe/items/ — 내 옷장 아이템 목록.
 
-    쿼리 파라미터: category_large, confirmed(true|false)
+    **옷장에 든 것만 준다.** 룩 사진에서 뽑혔지만 아직 사용자가 옷장에 넣지 않은 옷
+    (added_to_closet_at IS NULL)은 제외한다 — 고른 적 없는 옷이 옷장에 섞이면 안 된다.
+    룩북 상세는 자기 링크로 그 옷을 따로 읽으므로 이 목록에 기대지 않는다.
+
+    쿼리 파라미터: category_large, confirmed(true|false),
+                   include_unadded(true) — 옷장 밖 아이템까지 보고 싶을 때(디버그·관리)
     """
 
     def get(self, request):
         qs = WardrobeItem.objects.filter(user=request.user)
+        if request.query_params.get("include_unadded", "").lower() != "true":
+            qs = qs.filter(added_to_closet_at__isnull=False)
         category = request.query_params.get("category_large")
         if category:
             qs = qs.filter(category_large=category)
@@ -384,10 +517,40 @@ class WardrobeItemListView(APIView):
         return Response(WardrobeItemSerializer(qs, many=True).data)
 
 
+class WardrobeItemAddToClosetView(APIView):
+    """POST /api/v1/wardrobe/items/{id}/add-to-closet/ — 이 옷을 옷장에 들인다.
+
+    룩 사진에서 뽑혀 아직 옷장 밖에 있던 옷을 옷장으로 넣는다.
+    이미 옷장에 있으면 시각을 덮어쓰지 않고 그대로 돌려준다 — 언제 들였는지가 바뀌면
+    안 되고, 두 번 눌러도 같은 결과여야 한다.
+    """
+
+    def post(self, request, item_id):
+        item = get_object_or_404(WardrobeItem, pk=item_id, user=request.user)
+        if item.added_to_closet_at is None:
+            item.added_to_closet_at = timezone.now()
+            item.save(update_fields=["added_to_closet_at", "updated_at"])
+        return Response(WardrobeItemSerializer(item).data)
+
+
 class WardrobeItemDetailView(APIView):
     """PATCH /api/v1/wardrobe/items/{id}/ — 태깅 수정 + 확정 (플로우 ⑫).
     DELETE — 아이템 삭제 (벡터도 함께 제거).
     """
+
+    def get(self, request, item_id):
+        queryset = WardrobeItem.objects.filter(
+            Q(user=request.user)
+            | Q(
+                shared_instances__room__members__user=request.user,
+                shared_instances__status__in=[
+                    SharedWardrobeItem.Status.AVAILABLE,
+                    SharedWardrobeItem.Status.BORROWED,
+                ],
+            )
+        ).distinct()
+        item = get_object_or_404(queryset, pk=item_id)
+        return Response(WardrobeItemSerializer(item).data)
 
     def patch(self, request, item_id):
         item = get_object_or_404(WardrobeItem, pk=item_id, user=request.user)
@@ -411,12 +574,18 @@ from drf_spectacular.utils import (
     OpenApiResponse,
     OpenApiTypes,
     extend_schema,
+    extend_schema_view,
 )
 from rest_framework import viewsets
 from rest_framework.decorators import action
 from rest_framework.permissions import AllowAny
 from rest_framework.throttling import AnonRateThrottle
-from .models import SharedWardrobeRoom, SharedWardrobeMember, SharedWardrobeItem
+from .models import (
+    SharedWardrobeCategory,
+    SharedWardrobeItem,
+    SharedWardrobeMember,
+    SharedWardrobeRoom,
+)
 from .serializers import (
     SharedWardrobeRoomSerializer,
     SharedWardrobeMemberSerializer,
@@ -424,6 +593,8 @@ from .serializers import (
     SharedWardrobeJoinSerializer,
     SharedWardrobeLeaveSerializer,
     SharedWardrobeItemRegisterSerializer,
+    SharedWardrobeCategoryDeleteSerializer,
+    SharedWardrobeCategorySerializer,
     SharedWardrobePreviewSerializer,
     anon_member_label,
 )
@@ -447,6 +618,21 @@ class InvitePreviewThrottle(AnonRateThrottle):
     cache = caches["throttle"]
 
 
+@extend_schema_view(
+    list=extend_schema(
+        summary="내 공유 옷장 목록",
+        responses={200: SharedWardrobeRoomSerializer(many=True)},
+    ),
+    retrieve=extend_schema(
+        summary="공유 옷장 상세 조회",
+        responses={200: SharedWardrobeRoomSerializer},
+    ),
+    partial_update=extend_schema(
+        summary="공유 옷장 이름 수정",
+        request=SharedWardrobeRoomSerializer,
+        responses={200: SharedWardrobeRoomSerializer},
+    ),
+)
 @extend_schema(tags=["shared-wardrobe"])
 class SharedWardrobeViewSet(viewsets.ModelViewSet):
     queryset = SharedWardrobeRoom.objects.all()
@@ -455,6 +641,66 @@ class SharedWardrobeViewSet(viewsets.ModelViewSet):
     def get_queryset(self):
         # 내가 참여하고 있는 공유 옷장 방 목록만 필터링하여 조회
         return SharedWardrobeRoom.objects.filter(members__user=self.request.user)
+
+    @extend_schema(
+        methods=["GET"],
+        summary="공유 옷장 사용자 정의 카테고리 목록",
+        responses=SharedWardrobeCategorySerializer(many=True),
+    )
+    @extend_schema(
+        methods=["POST"],
+        summary="공유 옷장 사용자 정의 카테고리 추가",
+        request=SharedWardrobeCategorySerializer,
+        responses={201: SharedWardrobeCategorySerializer},
+    )
+    @extend_schema(
+        methods=["DELETE"],
+        summary="공유 옷장 사용자 정의 카테고리 삭제",
+        parameters=[
+            OpenApiParameter(
+                name="category_id",
+                type=OpenApiTypes.UUID,
+                location=OpenApiParameter.QUERY,
+                required=True,
+                description="삭제할 사용자 정의 카테고리 UUID",
+            )
+        ],
+        request=None,
+        responses={204: OpenApiResponse(description="삭제 완료")},
+    )
+    @action(detail=True, methods=["get", "post", "delete"], url_path="categories")
+    def categories(self, request, pk=None):
+        room = self.get_object()
+        if request.method == "GET":
+            queryset = room.categories.select_related("created_by").all()
+            return Response(SharedWardrobeCategorySerializer(queryset, many=True).data)
+
+        if request.method == "POST":
+            serializer = SharedWardrobeCategorySerializer(data=request.data)
+            serializer.is_valid(raise_exception=True)
+            if room.categories.filter(name=serializer.validated_data["name"]).exists():
+                return Response(
+                    {"name": ["이미 존재하는 카테고리입니다."]},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            category = serializer.save(room=room, created_by=request.user)
+            return Response(
+                SharedWardrobeCategorySerializer(category).data,
+                status=status.HTTP_201_CREATED,
+            )
+
+        category_id = request.query_params.get("category_id") or request.data.get("category_id")
+        delete_serializer = SharedWardrobeCategoryDeleteSerializer(
+            data={"category_id": category_id}
+        )
+        delete_serializer.is_valid(raise_exception=True)
+        category = get_object_or_404(
+            SharedWardrobeCategory,
+            pk=delete_serializer.validated_data["category_id"],
+            room=room,
+        )
+        category.delete()
+        return Response(status=status.HTTP_204_NO_CONTENT)
 
     @extend_schema(
         summary="공유 옷장 개설 (개설자가 owner, 6자리 초대코드 동시 발급)",
@@ -494,6 +740,16 @@ class SharedWardrobeViewSet(viewsets.ModelViewSet):
     )
     def destroy(self, request, *args, **kwargs):
         room = self.get_object()
+        membership = SharedWardrobeMember.objects.filter(
+            room=room,
+            user=request.user,
+        ).first()
+        if not membership or membership.role != SharedWardrobeMember.Role.OWNER:
+            return Response(
+                {"detail": "공유 옷장은 방장만 삭제할 수 있습니다."},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
         delete_personal_items = request.query_params.get("delete_personal_items", "false").lower() == "true"
 
         with transaction.atomic():
@@ -529,11 +785,13 @@ class SharedWardrobeViewSet(viewsets.ModelViewSet):
         code = serializer.validated_data["invite_code"]
         
         try:
-            room = shared_service.join_shared_room(request.user, code)
+            room, created = shared_service.join_shared_room(request.user, code)
             return Response({
                 "room_id": str(room.pk),
                 "title": room.title,
-                "status": "joined"
+                # 이미 멤버였는지 구분해 준다 — 프론트가 "참여했어요"와
+                # "이미 참여 중인 방이에요"를 다르게 말할 수 있어야 한다.
+                "status": "joined" if created else "already_member",
             }, status=status.HTTP_200_OK)
         except ValueError as e:
             return Response({"detail": str(e)}, status=status.HTTP_400_BAD_REQUEST)
@@ -601,6 +859,17 @@ class SharedWardrobeViewSet(viewsets.ModelViewSet):
         },
     )
     @extend_schema(
+        methods=["PATCH"],
+        summary="공유 옷 상태 변경",
+        description="item_id(또는 wardrobe_item_id)와 available/borrowed/private 상태를 전달합니다.",
+        request=SharedWardrobeItemRegisterSerializer,
+        responses={
+            200: SharedWardrobeItemSerializer,
+            400: OpenApiResponse(description="필수값 누락 또는 잘못된 상태"),
+            403: OpenApiResponse(description="아이템 소유자나 방장이 아님"),
+        },
+    )
+    @extend_schema(
         methods=["DELETE"],
         summary="공유 옷장에서 내 옷 공유 해제 (원본은 보존)",
         description="쿼리 파라미터 또는 JSON 바디로 wardrobe_item_id를 넘길 수 있다.",
@@ -625,7 +894,17 @@ class SharedWardrobeViewSet(viewsets.ModelViewSet):
         
         if request.method == "GET":
             # 이 공유방의 등록된 옷 목록 조회 API
-            items = SharedWardrobeItem.objects.filter(room=room).select_related("wardrobe_item", "registered_by")
+            items = (
+                SharedWardrobeItem.objects.filter(room=room)
+                .filter(
+                    Q(status__in=[
+                        SharedWardrobeItem.Status.AVAILABLE,
+                        SharedWardrobeItem.Status.BORROWED,
+                    ])
+                    | Q(registered_by=request.user)
+                )
+                .select_related("wardrobe_item", "registered_by")
+            )
             return Response(SharedWardrobeItemSerializer(items, many=True).data)
             
         elif request.method == "POST":
@@ -730,7 +1009,13 @@ class SharedWardrobeViewSet(viewsets.ModelViewSet):
         items_payload = []
         if not expired:
             shared_items = (
-                SharedWardrobeItem.objects.filter(room=room)
+                SharedWardrobeItem.objects.filter(
+                    room=room,
+                    status__in=[
+                        SharedWardrobeItem.Status.AVAILABLE,
+                        SharedWardrobeItem.Status.BORROWED,
+                    ],
+                )
                 .select_related("wardrobe_item")
                 .order_by("-created_at")
             )

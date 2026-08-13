@@ -2,17 +2,8 @@ import { Icon } from '@/components/icon';
 import { useToast } from '@/components/ui';
 import { Editorial, ink, Type } from '@/constants/theme';
 import { useMemo, useState } from 'react';
-import { KAKAO_NATIVE_APP_KEY } from '@/constants/config';
-import {
-  Modal,
-  Platform,
-  Pressable,
-  Share,
-  StyleSheet,
-  Text,
-  TextInput,
-  View,
-} from 'react-native';
+import { copyText, inviteMessage, openShareSheet, shareInviteViaKakao } from '@/lib/kakaoShare';
+import { Modal, Platform, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 
 export type SharedSpace = {
   id: string;
@@ -28,34 +19,6 @@ function makeInviteLink(code: string) {
     return `${window.location.origin}/invite?code=${code}`;
   }
   return `https://skn-1st-mobile.expo.app/invite?code=${code}`;
-}
-
-async function copyToClipboard(text: string): Promise<boolean> {
-  if (Platform.OS === 'web' && typeof window !== 'undefined') {
-    if (navigator.clipboard && navigator.clipboard.writeText) {
-      try {
-        await navigator.clipboard.writeText(text);
-        return true;
-      } catch {
-        /* fallback to execCommand below */
-      }
-    }
-    try {
-      const textarea = document.createElement('textarea');
-      textarea.value = text;
-      textarea.style.position = 'fixed';
-      textarea.style.opacity = '0';
-      document.body.appendChild(textarea);
-      textarea.focus();
-      textarea.select();
-      const success = document.execCommand('copy');
-      document.body.removeChild(textarea);
-      if (success) return true;
-    } catch {
-      /* ignore fallback error */
-    }
-  }
-  return false;
 }
 
 /** 스페이스가 없을 때 — 만들기 / 초대 링크로 참여 */
@@ -166,94 +129,47 @@ export function SharedSpaceInviteSheet({
   const toast = useToast();
   const link = makeInviteLink(space.inviteCode);
 
-  const shareLink = async (via: 'kakao' | 'sns' | 'copy') => {
+  const invite = { roomName: space.name, code: space.inviteCode, link };
+
+  const shareLink = async (via: 'kakao' | 'sns') => {
     if (via === 'kakao') {
-      if (Platform.OS === 'web') {
-        const loadKakao = () => {
-          return new Promise<void>((resolve, reject) => {
-            if (typeof window === 'undefined') return resolve();
-            if ((window as any).Kakao) return resolve();
-            const script = document.createElement('script');
-            script.src = 'https://t1.kakaocdn.net/kakao_js_sdk_2.7.2/kakao.min.js';
-            script.onload = () => {
-              try {
-                if (!(window as any).Kakao.isInitialized()) {
-                  (window as any).Kakao.init(KAKAO_NATIVE_APP_KEY);
-                }
-                resolve();
-              } catch (e) {
-                reject(e);
-              }
-            };
-            script.onerror = () => reject(new Error('Kakao SDK load failed'));
-            document.head.appendChild(script);
-          });
-        };
-
-        try {
-          await loadKakao();
-          (window as any).Kakao.Share.sendDefault({
-            objectType: 'feed',
-            content: {
-              title: '공유 옷장 초대',
-              description: `[cozy] '${space.name}' 공유 옷장에 초대합니다!`,
-              imageUrl: 'https://images.unsplash.com/photo-1540221652346-e5dd6b50f3e7?w=500&auto=format&fit=crop&q=60',
-              link: {
-                mobileWebUrl: link,
-                webUrl: link,
-              },
-            },
-            buttons: [
-              {
-                title: '초대장 확인하고 수락하기',
-                link: {
-                  mobileWebUrl: link,
-                  webUrl: link,
-                },
-              },
-            ],
-          });
-          toast('카카오톡 공유창을 열었습니다.', { variant: 'success' });
-          return;
-        } catch (err) {
-          console.error('카카오 웹 공유 실패:', err);
-        }
-      }
-
-      // 네이티브 앱 또는 웹 공유 실패 시 일반 공유 폴백
-      try {
-        await Share.share({
-          message: `[cozy] ${space.name}에 초대합니다!\n${link}`,
-          title: `${space.name} 초대`,
+      // 모바일은 카카오톡을 열고, PC 웹은 초대 문구만 복사한다.
+      const result = await shareInviteViaKakao(invite);
+      if (result === 'kakao') {
+        toast('카카오톡 공유창을 열었어요', { variant: 'success' });
+      } else if (result === 'share-sheet') {
+        toast('공유 앱을 골라 주세요 — 초대 문구는 복사해 뒀어요', { variant: 'success' });
+      } else if (result === 'clipboard') {
+        toast('초대 문구를 복사했어요. 카카오톡 대화방에 붙여넣어 주세요', {
+          variant: 'success',
         });
-        toast('카카오톡으로 공유했어요', { variant: 'success' });
-      } catch {
-        /* 사용자가 취소 */
+      } else if (result === 'no-key') {
+        // 설정 누락은 사용자가 아무리 다시 눌러도 안 된다 — 원인을 그대로 말한다.
+        toast('카카오 공유 설정이 없어요 (EXPO_PUBLIC_KAKAO_JAVASCRIPT_KEY)', {
+          variant: 'error',
+        });
+      } else {
+        toast('공유하지 못했어요. 아래 참여 코드를 눌러 복사해 주세요', { variant: 'error' });
       }
       return;
     }
 
-    if (via === 'copy') {
-      const copied = await copyToClipboard(link);
-      if (copied) {
-        toast('링크를 복사했어요', { variant: 'success' });
-        return;
-      }
-      try {
-        await Share.share({ message: link });
-      } catch {
-        /* 사용자가 취소 */
-      }
-      return;
-    }
+    /* 다른 앱으로 공유해도 참여 코드가 빠지지 않도록 카카오와 같은 문구를 쓴다.
+       공유 시트를 못 여는 환경(웹 Share API 미지원·비보안 컨텍스트)에서는
+       아무 일도 안 일어난 것처럼 보이므로 복사로 대신하고 그렇다고 말해 준다. */
+    const message = inviteMessage(invite);
+    if (await openShareSheet(message, `${space.name} 초대`)) return;
 
-    try {
-      await Share.share({
-        message: `[cozy] ${space.name}에 함께 옷장을 공유해요!\n${link}`,
-        title: `${space.name} 초대`,
-      });
-    } catch {
-      /* 사용자가 취소 */
+    if (await copyText(message)) {
+      toast('공유 앱을 열 수 없어 초대 문구를 복사했어요', { variant: 'success' });
+    } else {
+      toast('공유하지 못했어요. 아래 참여 코드를 눌러 복사해 주세요', { variant: 'error' });
+    }
+  };
+
+  const copyCode = async () => {
+    if (await copyText(space.inviteCode)) {
+      toast('참여 코드를 복사했어요', { variant: 'success' });
     }
   };
 
@@ -261,19 +177,28 @@ export function SharedSpaceInviteSheet({
     <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
       <Pressable style={styles.sheetBackdrop} onPress={onClose}>
         <Pressable style={styles.sheet} onPress={(e) => e.stopPropagation()}>
-          <Text style={styles.sheetTitle}>친구 초대하기</Text>
-          <Text style={styles.sheetSubtitle}>{space.name}</Text>
-
-          <View style={styles.linkBox}>
-            <Text style={styles.linkText} numberOfLines={1}>
-              {link}
-            </Text>
-            <Pressable style={styles.linkCopyBtn} onPress={() => shareLink('copy')} hitSlop={6}>
-              <Icon name="link" tintColor={Editorial.ink} size={16} />
+          <View style={styles.sheetHeader}>
+            <View style={styles.sheetHeaderText}>
+              <Text style={styles.sheetTitle}>친구 초대하기</Text>
+              <Text style={styles.sheetSubtitle}>{space.name}</Text>
+            </View>
+            {/* 배경을 눌러도 닫히지만, 모달 안에서 닫을 곳이 없으면 갇힌 느낌이 든다 */}
+            <Pressable onPress={onClose} hitSlop={12} accessibilityLabel="닫기">
+              <Icon name="xmark" tintColor={ink(0.5)} size={18} />
             </Pressable>
           </View>
+
+          {/* URL 은 노출하지 않는다 — 참여는 6자리 코드로만 받기로 했다.
+              링크 자체는 카카오 카드 버튼용으로 내부에서만 쓴다. */}
           <Text style={styles.codeLabel}>참여 코드</Text>
-          <Text style={styles.codeValue}>{space.inviteCode}</Text>
+          <View style={styles.codeRow}>
+            <Text style={styles.codeValue}>{space.inviteCode}</Text>
+            <Pressable style={styles.codeCopyBtn} onPress={copyCode} hitSlop={8}>
+              <Icon name="link" tintColor={Editorial.ink} size={14} />
+              <Text style={styles.codeCopyText}>코드복사</Text>
+            </Pressable>
+          </View>
+          <Text style={styles.codeHint}>친구가 이 코드를 입력하면 바로 들어와요</Text>
 
           <Pressable style={styles.kakaoBtn} onPress={() => shareLink('kakao')}>
             <Text style={styles.kakaoBtnText}>카카오톡으로 공유</Text>
@@ -311,10 +236,12 @@ export function SharedSpaceJoinSheet({
     if (ok) {
       setCode('');
       onClose();
-      toast('공유 옷장에 참여했어요', { variant: 'success' });
-    } else {
-      toast('유효하지 않은 초대 코드예요', { variant: 'error' });
+      return;
     }
+    /* 실패 사유는 onJoin 이 이미 서버 문구로 띄웠다(정원 초과·만료·없는 코드).
+       여기서 '유효하지 않은 초대 코드'를 덧씌우면 정원이 꽉 찬 경우까지
+       코드가 틀린 것처럼 보여서 사용자가 엉뚱한 곳을 고치게 된다.
+       시트도 닫지 않는다 — 코드를 고쳐 다시 넣을 수 있어야 한다. */
   };
 
   return (
@@ -491,35 +418,35 @@ const styles = StyleSheet.create({
     paddingTop: 24,
     paddingBottom: 36,
   },
+  sheetHeader: { flexDirection: 'row', alignItems: 'flex-start', marginBottom: 20 },
+  sheetHeaderText: { flex: 1 },
   sheetTitle: { fontSize: Type.label, fontWeight: '600', color: Editorial.ink },
-  sheetSubtitle: { fontSize: Type.footnote, color: Editorial.textCaption, marginTop: 4, marginBottom: 20 },
-  linkBox: {
+  sheetSubtitle: { fontSize: Type.footnote, color: Editorial.textCaption, marginTop: 4 },
+  /* 참여는 6자리 코드로만 받는다 — 코드가 이 시트의 주인공이라 크게 키웠다.
+     (URL 을 보여주던 linkBox 계열 스타일은 링크 노출을 걷어내면서 함께 삭제) */
+  codeLabel: { fontSize: Type.micro, color: Editorial.textCaption, marginTop: 4 },
+  /* 코드와 복사 버튼을 한 줄에 둔다 — 코드 오른쪽이 비어 있었다 */
+  codeRow: { flexDirection: 'row', alignItems: 'center', gap: 12, marginTop: 6 },
+  codeValue: {
+    flex: 1,
+    fontSize: 30,
+    fontWeight: '700',
+    letterSpacing: 6,
+    color: Editorial.ink,
+  },
+  codeCopyBtn: {
     flexDirection: 'row',
     alignItems: 'center',
+    gap: 6,
+    height: 36,
+    paddingHorizontal: 12,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: Editorial.line,
     backgroundColor: Editorial.surfaceSoft,
-    borderWidth: 1, borderColor: Editorial.line,
-    borderRadius: 12,
-    paddingHorizontal: 14,
-    paddingVertical: 12,
-    gap: 8,
   },
-  linkText: { flex: 1, fontSize: Type.micro, color: Editorial.textCaption },
-  linkCopyBtn: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
-    backgroundColor: Editorial.surface,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  codeLabel: { fontSize: Type.micro, color: Editorial.textCaption, marginTop: 16 },
-  codeValue: {
-    fontSize: 22,
-    fontWeight: '700',
-    letterSpacing: 4,
-    color: Editorial.ink,
-    marginTop: 4,
-  },
+  codeCopyText: { fontSize: Type.micro, fontWeight: '600', color: Editorial.ink },
+  codeHint: { fontSize: Type.micro, color: Editorial.textCaption, marginTop: 8 },
   kakaoBtn: {
     marginTop: 24,
     height: 48,

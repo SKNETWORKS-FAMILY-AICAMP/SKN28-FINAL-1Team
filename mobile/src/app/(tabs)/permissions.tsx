@@ -1,11 +1,10 @@
 import { Icon, type IconName } from '@/components/icon';
-import { router } from 'expo-router';
+import { router, useLocalSearchParams } from 'expo-router';
 import { useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Switch, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { Editorial, ink, Fonts , ContentMax} from '@/constants/theme';
-import { useBottomTabInset } from '@/hooks/use-bottom-tab-inset';
 import { useBreakpoint } from '@/hooks/use-breakpoint';
 
 const INK = Editorial.ink;
@@ -48,7 +47,7 @@ const PERMS: {
 // A6 권한 동의 — 항목별 동의 → 스타일 온보딩(A7)
 export default function Permissions() {
   const { contentStyle } = useBreakpoint();
-  const tabInset = useBottomTabInset();
+  const { onboarding } = useLocalSearchParams<{ onboarding?: string }>();
   const [granted, setGranted] = useState<Record<Key, boolean>>({
     location: true,
     photo: true,
@@ -107,11 +106,15 @@ export default function Permissions() {
           </Text>
         </ScrollView>
 
-        <View style={[styles.bottomBar, { paddingBottom: tabInset }, contentStyle(ContentMax.narrow)]}>
+        <View style={[styles.bottomBar, { paddingBottom: 12 }, contentStyle(ContentMax.narrow)]}>
           <Pressable
             style={[styles.cta, !requiredOk && styles.ctaDisabled]}
             disabled={!requiredOk}
-            onPress={() => router.push('/style-onboarding')}>
+            onPress={() =>
+              onboarding === '1'
+                ? router.push({ pathname: '/measure-input', params: { returnTo: 'onboarding' } })
+                : router.push('/style-onboarding')
+            }>
             <Text style={styles.ctaText}>
               {requiredOk ? '허용하고 계속' : '필수 권한을 켜주세요'}
             </Text>
