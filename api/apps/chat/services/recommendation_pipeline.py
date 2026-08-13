@@ -134,6 +134,9 @@ class ChatRecommendationPipeline:
             if not template_ids:
                 continue
             try:
+                category_budgets = context.get("profile", {}).get(
+                    "category_budgets", {}
+                )
                 slot_results = tuple(
                     self.item_retriever.retrieve(
                         ItemRetrievalRequest(
@@ -141,6 +144,7 @@ class ChatRecommendationPipeline:
                             sources=self._sources(session.mode, user_id),
                             user_id=user_id,
                             max_price=analysis.conditions.budget,
+                            category_budgets=category_budgets,
                             dataset_version=settings.CHAT_GOLDENSET_DATASET_VERSION,
                             dataset_statuses=settings.CHAT_GOLDENSET_DATASET_STATUSES,
                             limit_per_source=10,
@@ -152,6 +156,7 @@ class ChatRecommendationPipeline:
                     session.mode,
                     slot_results,
                     budget=analysis.conditions.budget,
+                    category_budgets=category_budgets,
                 )
             except (ValueError, RuntimeError):
                 continue
@@ -192,7 +197,14 @@ class ChatRecommendationPipeline:
             return (ItemSource.PRODUCT,)
         return (ItemSource.WARDROBE, ItemSource.PRODUCT)
 
-    def _compose(self, mode: str, slot_results: tuple, *, budget: int | None):
+    def _compose(
+        self,
+        mode: str,
+        slot_results: tuple,
+        *,
+        budget: int | None,
+        category_budgets: dict[str, int],
+    ):
         if mode == ChatSession.Mode.WARDROBE_BASED:
             return self.wardrobe_composer.compose(
                 WardrobeCompositionRequest(slot_results=slot_results)
@@ -201,6 +213,7 @@ class ChatRecommendationPipeline:
             NewItemCompositionRequest(
                 slot_results=slot_results,
                 total_budget=budget,
+                category_budgets=category_budgets,
             )
         )
 
@@ -279,6 +292,7 @@ class ChatRecommendationPipeline:
             weather=context.get("weather"),
             occasion=analysis.conditions.occasion,
             total_budget=analysis.conditions.budget,
+            category_budgets=context.get("profile", {}).get("category_budgets", {}),
             excluded_source_ids=tuple(analysis.conditions.excluded_source_ids),
             preferred_tags={
                 "style": tuple(analysis.conditions.styles),

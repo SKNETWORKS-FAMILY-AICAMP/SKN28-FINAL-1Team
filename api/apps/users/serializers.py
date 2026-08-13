@@ -4,7 +4,12 @@ from django.contrib.auth.password_validation import validate_password
 from django.db import transaction
 from rest_framework import serializers
 
-from apps.users.constants import PREFERENCE_CATEGORIES, category_keys
+from apps.users.constants import (
+    BUDGET_CATEGORIES,
+    PREFERENCE_CATEGORIES,
+    category_keys,
+    effective_category_budgets,
+)
 from apps.users.models import (
     BodyMeasurement,
     BodyPhotoTransaction,
@@ -127,31 +132,38 @@ class SocialAccountSerializer(serializers.ModelSerializer):
 
 
 class BudgetSerializer(serializers.ModelSerializer):
-    """GET/PUT /users/me/budget/ — 월 의류 구매 예산.
+    """GET/PUT /users/me/budget/ — 대분류별 상품 1개 최대 가격."""
 
-    PUT은 전체 교체라 `monthly_budget` 키가 반드시 있어야 하며(required),
-    예산을 지우려면 키를 빼는 게 아니라 **명시적으로 null**을 보낸다.
-    메타 상한(2,147,480,000)은 PositiveIntegerField의 21억대 상한을
-    1만원 단위로 내림 값이다 — 저장 직전에 DB가 터지지 않게 하려는 방어막.
-    """
-
-    monthly_budget = serializers.IntegerField(
-        min_value=10_000,
-        max_value=2_147_480_000,
-        allow_null=True,
+    category_budgets = serializers.DictField(
+        child=serializers.IntegerField(
+            min_value=10_000,
+            max_value=2_147_480_000,
+        ),
         required=True,
         help_text=(
-            "월 의류 구매 예산(원). **1만원 단위**로 10,000 이상 2,147,480,000 이하. "
-            "`null`을 보내면 설정해 둔 예산을 지우고, 조회 시 미설정이면 `null`이 내려갑니다."
+            "대분류별 상품 1개 최대 가격(원). 값은 1만원 단위이며, "
+            "미설정 카테고리는 키를 생략합니다. 빈 객체는 모든 예산을 기본값으로 되돌립니다."
         ),
+    )
+    effective_category_budgets = serializers.SerializerMethodField(
+        help_text="시스템 기본값과 사용자 설정을 합친 실제 추천 가격 상한"
     )
 
     class Meta:
         model = User
-        fields = ["monthly_budget"]
+        fields = ["category_budgets", "effective_category_budgets"]
+        read_only_fields = ["effective_category_budgets"]
 
-    def validate_monthly_budget(self, value: int | None) -> int | None:
-        if value is not None and value % 10_000 != 0:
+    def get_effective_category_budgets(self, obj: User) -> dict[str, int]:
+        return effective_category_budgets(obj.category_budgets)
+
+    def validate_category_budgets(self, value: dict[str, int]) -> dict[str, int]:
+        unknown = set(value) - set(BUDGET_CATEGORIES)
+        if unknown:
+            raise serializers.ValidationError(
+                f"지원하지 않는 대분류입니다: {', '.join(sorted(unknown))}"
+            )
+        if any(amount % 10_000 != 0 for amount in value.values()):
             raise serializers.ValidationError("예산은 1만원 단위로 입력해주세요.")
         return value
 
