@@ -53,6 +53,9 @@ const MODE_OPTIONS: { value: Mode; label: string }[] = [
  * 하트로 담은 룩과 추천에서 저장해 둔 룩이 여기서 한 목록이 된다.
  */
 const WISH = '위시';
+/* 위시 칩에만 하트를 단다 — 나머지는 해시태그라 성격이 다르고,
+   카드 위 하트와 같은 표식이라 "하트 누른 것들"이라는 뜻이 바로 읽힌다. */
+const CHIP_ICONS = { [WISH]: 'heart.fill' as const };
 
 /** 그리드 카드 공통 형태 — 피드 룩(price 有)·저장 룩(asset 有) 모두 이 형태로 정규화 */
 type CardData = {
@@ -216,6 +219,7 @@ export default function LookbookScreen() {
             onQueryChange={setQuery}
             searchPlaceholder="해시태그 검색"
             options={browseOptions}
+            chipIcons={CHIP_ICONS}
             onToggle={toggle}
             isActive={isActive}
             showChips={mode === 'browse'}
