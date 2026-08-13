@@ -12,11 +12,20 @@ from django.conf import settings
 
 
 class TextEmbeddingError(RuntimeError):
-    """질의 임베딩을 만들지 못했거나 응답 계약이 잘못된 경우."""
+    """질의 임베딩을 만들지 못했거나 응답 계약이 잘못된 경우.
+
+    `code`는 이 예외를 삼키는 쪽(예: 채팅 run 기록)이 실패 원인을 그대로 남길 수 있게 둔다.
+    이게 없으면 호출자가 자기 기본 코드로 뭉개 버려서, 로그를 직접 보기 전까지는 임베딩이
+    원인이라는 사실 자체가 드러나지 않는다.
+    """
+
+    code = "TEXT_EMBEDDING_FAILED"
 
 
 class TextEmbeddingConfigurationError(TextEmbeddingError):
     """임베딩 서비스 연결 설정이 없는 경우."""
+
+    code = "TEXT_EMBEDDING_NOT_CONFIGURED"
 
 
 @dataclass(frozen=True)
