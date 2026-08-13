@@ -69,12 +69,18 @@ export default function Fitting() {
                 <LoadingState message={'선택한 추천 룩을\n내 체형 마네킹에 입히고 있어요'} />
               ) : resultUri ? (
                 <>
+                  {/* width 는 'auto' 로 둔다. '100%' 로 두면 캔버스에 좌우 패딩이 생겼을 때
+                      폭이 그만큼 줄어드는데 left:0 에 붙어 버려서 오른쪽에 빈 띠가 남는다.
+                      contentFit 은 contain — 생성 결과는 비율이 제각각이라 cover 로 채우면
+                      전신에서 얼굴 위·발 아래가 잘린다(착장을 확인하려는 화면이라 치명적). */}
                   <SmartImage
                     uri={resultUri}
-                    width="100%"
+                    width="auto"
                     radius={0}
-                    contentFit="cover"
-                    style={StyleSheet.absoluteFill}
+                    contentFit="contain"
+                    /* contain 이라 이미지가 캔버스를 다 못 채운다. SmartImage 기본 배경(bone=흰색)을
+                       그대로 두면 남는 자리가 캔버스 크림색과 어긋나 액자가 두 색으로 보인다. */
+                    style={styles.canvasImage}
                   />
                   <View style={styles.canvasBadge}>
                     <Icon name="figure.stand" tintColor="#fff" size={12} />
@@ -82,14 +88,16 @@ export default function Fitting() {
                   </View>
                 </>
               ) : (
-                <>
+                /* 안내 문구에만 좌우 여백이 필요하다. 캔버스 자체에 패딩을 주면
+                   결과 이미지가 그 폭만큼 좁아진다. */
+                <View style={styles.canvasEmpty}>
                   <Icon name="figure.stand" tintColor={ink(0.45)} size={42} />
                   <Text style={styles.canvasTitle}>전신 사진을 선택해 주세요</Text>
                   <Text style={styles.canvasGuide}>사진은 저장하지 않고 가상 착장에만 사용해요.</Text>
                   <Pressable style={styles.photoBtn} onPress={generate}>
                     <Text style={styles.photoBtnText}>사진 선택하고 입어보기</Text>
                   </Pressable>
-                </>
+                </View>
               )}
             </View>
           }
@@ -149,10 +157,13 @@ const styles = StyleSheet.create({
     borderColor: Editorial.line,
     alignItems: 'center',
     justifyContent: 'center',
-    gap: 10,
     overflow: 'hidden',
-    paddingHorizontal: 24,
   },
+  canvasImage: {
+    position: 'absolute', top: 0, left: 0, right: 0, bottom: 0,
+    backgroundColor: 'transparent',
+  },
+  canvasEmpty: { alignItems: 'center', gap: 10, paddingHorizontal: 24 },
   canvasTitle: { fontSize: 16, fontWeight: '600', color: INK, marginTop: 4 },
   canvasGuide: { fontSize: 12, color: Editorial.textCaption, textAlign: 'center' },
   photoBtn: {
