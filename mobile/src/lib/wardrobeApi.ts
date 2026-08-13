@@ -366,6 +366,17 @@ export function registerItemToSharedRoom(roomId: string, wardrobeItemId: string,
   });
 }
 
+export function updateSharedItemStatus(
+  roomId: string,
+  itemId: string,
+  status: 'available' | 'borrowed' | 'private',
+): Promise<SharedRoomItem> {
+  return api.patch<SharedRoomItem>(`/api/v1/shared-wardrobes/${roomId}/items/`, {
+    item_id: itemId,
+    status,
+  });
+}
+
 export function unregisterItemFromSharedRoom(roomId: string, wardrobeItemId: string): Promise<unknown> {
   return api.delete(`/api/v1/shared-wardrobes/${roomId}/items/?wardrobe_item_id=${wardrobeItemId}`);
 }

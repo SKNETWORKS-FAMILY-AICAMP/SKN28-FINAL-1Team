@@ -9,7 +9,7 @@ from django.db import migrations, models
 class Migration(migrations.Migration):
 
     dependencies = [
-        ('wardrobe', '0003_table_column_comments'),
+        ('wardrobe', '0005_upload_job_input_metadata'),
         migrations.swappable_dependency(settings.AUTH_USER_MODEL),
     ]
 

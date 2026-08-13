@@ -619,7 +619,7 @@ class SharedWardrobeViewSet(viewsets.ModelViewSet):
             400: OpenApiResponse(description="wardrobe_item_id 누락"),
         },
     )
-    @action(detail=True, methods=["get", "post", "delete"], url_path="items")
+    @action(detail=True, methods=["get", "post", "patch", "delete"], url_path="items")
     def items(self, request, pk=None):
         room = get_object_or_404(SharedWardrobeRoom, pk=pk, members__user=request.user)
         
@@ -640,6 +640,22 @@ class SharedWardrobeViewSet(viewsets.ModelViewSet):
                     request.user, pk, str(item_id), item_status
                 )
                 return Response(SharedWardrobeItemSerializer(shared_item).data, status=status.HTTP_201_CREATED)
+            except ValueError as e:
+                return Response({"detail": str(e)}, status=status.HTTP_400_BAD_REQUEST)
+
+        elif request.method == "PATCH":
+            # 공유 옷장에 등록된 옷 상태(available/borrowed/private) 변경 API
+            item_id = request.data.get("item_id") or request.data.get("wardrobe_item_id")
+            item_status = request.data.get("status")
+            if not item_id or not item_status:
+                return Response({"detail": "item_id와 status가 필요합니다."}, status=status.HTTP_400_BAD_REQUEST)
+            try:
+                updated_item = shared_service.update_shared_item_status(
+                    request.user, pk, str(item_id), item_status
+                )
+                return Response(SharedWardrobeItemSerializer(updated_item).data, status=status.HTTP_200_OK)
+            except PermissionError as e:
+                return Response({"detail": str(e)}, status=status.HTTP_403_FORBIDDEN)
             except ValueError as e:
                 return Response({"detail": str(e)}, status=status.HTTP_400_BAD_REQUEST)
 

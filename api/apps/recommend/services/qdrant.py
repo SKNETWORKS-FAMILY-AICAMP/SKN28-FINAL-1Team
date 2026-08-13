@@ -10,6 +10,7 @@
 
 from __future__ import annotations
 
+import os
 import uuid
 from dataclasses import dataclass, field
 from functools import lru_cache
@@ -22,6 +23,7 @@ IMAGE_VECTOR = "image"
 TEXT_VECTOR = "text"
 GOLDEN_OUTFIT_COLLECTION = "outfit_goldenset"
 GOLDEN_ITEM_COLLECTION = "goldenset_items"
+WARDROBE_ITEM_COLLECTION = os.getenv("QDRANT_WARDROBE_COLLECTION", "wardrobe_items")
 
 # point ID 생성용 고정 네임스페이스. 같은 원본 키는 항상 같은 UUID가 되어
 # 재실행 시 upsert가 멱등하게 동작한다. 절대 변경하지 않는다.

@@ -165,3 +165,34 @@ def register_item_to_shared_room(user, room_id: str, wardrobe_item_id: str, stat
         wardrobe_item=wardrobe_item,
         status=status
     )
+
+
+@transaction.atomic
+def update_shared_item_status(user, room_id: str, item_id: str, status: str) -> SharedWardrobeItem:
+    """공유 옷장에 등록된 아이템의 상태(available / borrowed / private)를 변경합니다.
+    방 멤버이면서 본인이 등록했거나 방장(owner)인 유저가 변경할 수 있습니다.
+    """
+    try:
+        room = SharedWardrobeRoom.objects.get(pk=room_id)
+        membership = SharedWardrobeMember.objects.get(room=room, user=user)
+    except (SharedWardrobeRoom.DoesNotExist, SharedWardrobeMember.DoesNotExist):
+        raise ValueError("공유 옷장 참여 멤버만 상태를 변경할 수 있습니다.")
+
+    shared_item = SharedWardrobeItem.objects.filter(room=room, wardrobe_item_id=item_id).first()
+    if not shared_item:
+        shared_item = SharedWardrobeItem.objects.filter(room=room, pk=item_id).first()
+
+    if not shared_item:
+        raise ValueError("공유 옷장에서 아이템을 찾을 수 없습니다.")
+
+    if shared_item.registered_by != user and membership.role != SharedWardrobeMember.Role.OWNER:
+        raise PermissionError("아이템 상태를 변경할 권한이 없습니다.")
+
+    valid_statuses = [choice[0] for choice in SharedWardrobeItem.Status.choices]
+    if status not in valid_statuses:
+        raise ValueError(f"유효하지 않은 상태값입니다: {status}. 사용 가능한 상태: {valid_statuses}")
+
+    shared_item.status = status
+    shared_item.save(update_fields=["status"])
+    return shared_item
+

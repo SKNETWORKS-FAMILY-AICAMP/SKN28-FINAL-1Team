@@ -384,6 +384,7 @@ OUTFIT_ESTIMATED_SECONDS = int(os.getenv("OUTFIT_ESTIMATED_SECONDS", "30"))
 # 하루 한 번, 사용자당 한 번 도는 작업이라 이 비용은 감당할 수 있다.
 RETRIEVER_SCROLL_CAP = int(os.getenv("RETRIEVER_SCROLL_CAP", "2000"))
 RETRIEVER_SCROLL_PAGE = int(os.getenv("RETRIEVER_SCROLL_PAGE", "256"))
+RETRIEVER_WARDROBE_ID_CAP = int(os.getenv("RETRIEVER_WARDROBE_ID_CAP", "1000"))
 
 # 코디 payload의 아이템 요약에는 fit·length·pattern이 없다. 체형 규칙은 정확히
 # 그 축으로 조건을 걸기 때문에, 붙이지 않으면 모든 체형 규칙이 0점이 된다.

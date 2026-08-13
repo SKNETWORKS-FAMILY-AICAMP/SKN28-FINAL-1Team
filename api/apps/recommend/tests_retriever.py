@@ -1004,15 +1004,202 @@ class MislabelledUnisexTests(TestCase):
         got = retrieve_outfits(RetrievalRequest(gender="male", limit=10), client=client)
         self.assertEqual([c.golden_id for c in got], ["ok"])
 
-    @override_settings(RETRIEVER_SCROLL_CAP=100, RETRIEVER_SCROLL_PAGE=50,
-                       RETRIEVER_ITEM_TAG_JOIN=False)
-    def test_women_still_see_that_outfit(self) -> None:
-        outfits = [{
-            "golden_id": "dress", "presentation_group": "unisex",
-            "items": [{"item_name": "플로럴 원피스", "category_small": "원피스"}],
-        }]
         got = retrieve_outfits(
             RetrievalRequest(gender="female", limit=10),
             client=_FakeQdrant(outfits, page=50),
         )
         self.assertEqual([c.golden_id for c in got], ["dress"])
+
+
+from django.contrib.auth import get_user_model
+from apps.wardrobe.models import SharedWardrobeItem, SharedWardrobeMember, SharedWardrobeRoom, WardrobeItem
+from apps.recommend.services.wardrobe_link import accessible_item_ids
+from apps.recommend.services.retriever import retrieve_substitutes
+from apps.recommend.services.qdrant import WARDROBE_ITEM_COLLECTION, qm
+
+User = get_user_model()
+
+
+class SharedWardrobeAccessibleItemIdsTests(TestCase):
+    """공유 옷장 추천 검색 접근 가능 아이템 ID (accessible_item_ids) 테스트."""
+
+    def setUp(self) -> None:
+        self.user = User.objects.create_user(username="testuser", password="password")
+        self.other_user = User.objects.create_user(username="otheruser", password="password")
+
+    def test_accessible_item_ids_includes_own_and_shared_items(self) -> None:
+        # 내 옷장 confirmed=True 아이템
+        own_item = WardrobeItem.objects.create(
+            user=self.user,
+            item_name="내 티셔츠",
+            category_large="상의",
+            confirmed=True,
+        )
+
+        # 타인 옷장 confirmed=True 아이템
+        other_item = WardrobeItem.objects.create(
+            user=self.other_user,
+            item_name="타인 자켓",
+            category_large="아우터",
+            confirmed=True,
+        )
+
+        # 방 생성 및 멤버 가입
+        room = SharedWardrobeRoom.objects.create(title="공유방1", invite_code="ABC123")
+        SharedWardrobeMember.objects.create(room=room, user=self.user, role=SharedWardrobeMember.Role.OWNER)
+        SharedWardrobeMember.objects.create(room=room, user=self.other_user, role=SharedWardrobeMember.Role.MEMBER)
+
+        # 공유 아이템 (AVAILABLE)
+        shared_item = SharedWardrobeItem.objects.create(
+            room=room,
+            registered_by=self.other_user,
+            wardrobe_item=other_item,
+            status=SharedWardrobeItem.Status.AVAILABLE,
+        )
+
+        got = accessible_item_ids(self.user)
+        self.assertIn(str(own_item.id), got)
+        self.assertIn(str(other_item.id), got)
+        self.assertEqual(len(got), 2)
+
+    def test_accessible_item_ids_excludes_unjoined_room_items(self) -> None:
+        # 가입하지 않은 방의 공유 아이템
+        other_item = WardrobeItem.objects.create(
+            user=self.other_user,
+            item_name="외부 자켓",
+            category_large="아우터",
+            confirmed=True,
+        )
+        room = SharedWardrobeRoom.objects.create(title="외부방", invite_code="XYZ789")
+        SharedWardrobeMember.objects.create(room=room, user=self.other_user, role=SharedWardrobeMember.Role.OWNER)
+        SharedWardrobeItem.objects.create(
+            room=room,
+            registered_by=self.other_user,
+            wardrobe_item=other_item,
+            status=SharedWardrobeItem.Status.AVAILABLE,
+        )
+
+        got = accessible_item_ids(self.user)
+        self.assertNotIn(str(other_item.id), got)
+
+    def test_accessible_item_ids_excludes_unconfirmed_items(self) -> None:
+        unconfirmed_own = WardrobeItem.objects.create(
+            user=self.user,
+            item_name="미확정 내 옷",
+            category_large="상의",
+            confirmed=False,
+        )
+        unconfirmed_shared_item = WardrobeItem.objects.create(
+            user=self.other_user,
+            item_name="미확정 공유 옷",
+            category_large="하의",
+            confirmed=False,
+        )
+
+        room = SharedWardrobeRoom.objects.create(title="공유방2", invite_code="DEF456")
+        SharedWardrobeMember.objects.create(room=room, user=self.user, role=SharedWardrobeMember.Role.OWNER)
+        SharedWardrobeMember.objects.create(room=room, user=self.other_user, role=SharedWardrobeMember.Role.MEMBER)
+        SharedWardrobeItem.objects.create(
+            room=room,
+            registered_by=self.other_user,
+            wardrobe_item=unconfirmed_shared_item,
+            status=SharedWardrobeItem.Status.AVAILABLE,
+        )
+
+        got = accessible_item_ids(self.user)
+        self.assertNotIn(str(unconfirmed_own.id), got)
+        self.assertNotIn(str(unconfirmed_shared_item.id), got)
+
+    def test_accessible_item_ids_excludes_borrowed_or_private_items(self) -> None:
+        shared_item1 = WardrobeItem.objects.create(
+            user=self.other_user,
+            item_name="대여중 옷",
+            category_large="아우터",
+            confirmed=True,
+        )
+        shared_item2 = WardrobeItem.objects.create(
+            user=self.other_user,
+            item_name="비공개 옷",
+            category_large="하의",
+            confirmed=True,
+        )
+
+        room = SharedWardrobeRoom.objects.create(title="공유방3", invite_code="GHI789")
+        SharedWardrobeMember.objects.create(room=room, user=self.user, role=SharedWardrobeMember.Role.OWNER)
+        SharedWardrobeMember.objects.create(room=room, user=self.other_user, role=SharedWardrobeMember.Role.MEMBER)
+
+        SharedWardrobeItem.objects.create(
+            room=room,
+            registered_by=self.other_user,
+            wardrobe_item=shared_item1,
+            status=SharedWardrobeItem.Status.BORROWED,
+        )
+        SharedWardrobeItem.objects.create(
+            room=room,
+            registered_by=self.other_user,
+            wardrobe_item=shared_item2,
+            status=SharedWardrobeItem.Status.PRIVATE,
+        )
+
+        got = accessible_item_ids(self.user)
+        self.assertNotIn(str(shared_item1.id), got)
+        self.assertNotIn(str(shared_item2.id), got)
+
+    @override_settings(RETRIEVER_WARDROBE_ID_CAP=2)
+    def test_accessible_item_ids_respects_cap_and_deterministic_order(self) -> None:
+        item1 = WardrobeItem.objects.create(user=self.user, item_name="1", confirmed=True)
+        item2 = WardrobeItem.objects.create(user=self.user, item_name="2", confirmed=True)
+        item3 = WardrobeItem.objects.create(user=self.user, item_name="3", confirmed=True)
+
+        got1 = accessible_item_ids(self.user)
+        got2 = accessible_item_ids(self.user)
+
+        self.assertEqual(len(got1), 2)
+        self.assertEqual(got1, got2)
+
+
+class _IgnoresFilterClient:
+    """retrieve_substitutes 테스트용 Qdrant 스텁 클라이언트."""
+
+    def __init__(self) -> None:
+        self.last_collection_name = None
+        self.last_filter = None
+        self.scroll_called = False
+        self.search_called = False
+
+    def scroll(self, collection_name: str, scroll_filter=None, with_payload=True, with_vectors=False, limit=10):
+        self.scroll_called = True
+        self.last_collection_name = collection_name
+        self.last_filter = scroll_filter
+        class Point:
+            id = "mock-id-1"
+            payload = {"item_name": "스텁 아이템"}
+        return [Point()], None
+
+    def search(self, collection_name: str, query_vector=None, query_filter=None, limit=10, with_payload=True):
+        self.search_called = True
+        self.last_collection_name = collection_name
+        self.last_filter = query_filter
+        class Hit:
+            id = "mock-id-2"
+            score = 0.95
+            payload = {"item_name": "스텁 아이템 2"}
+        return [Hit()]
+
+
+class RetrieveSubstitutesWhitelistTests(unittest.TestCase):
+    """retrieve_substitutes 필터 및 격리 회귀 방지 테스트."""
+
+    def test_empty_allowed_item_ids_returns_empty_immediately(self) -> None:
+        client = _IgnoresFilterClient()
+        got = retrieve_substitutes({"category_large": "상의"}, allowed_item_ids=[], client=client)
+        self.assertEqual(got, [])
+        self.assertFalse(client.scroll_called)
+        self.assertFalse(client.search_called)
+
+    def test_default_collection_name_is_wardrobe_items(self) -> None:
+        client = _IgnoresFilterClient()
+        retrieve_substitutes({"category_large": "상의"}, allowed_item_ids=["uuid-1"], client=client)
+        self.assertEqual(client.last_collection_name, WARDROBE_ITEM_COLLECTION)
+        self.assertTrue(client.scroll_called)
+

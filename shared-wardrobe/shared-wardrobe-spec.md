@@ -295,3 +295,23 @@ npx expo start
 | Gemini`429`                | 3장 동시 요청                                                                                                                               | 직렬 큐 (§5.1)                                                                                                    |
 | `Platform is not defined`  | `item-tag-sheet.tsx`에서 `Platform` import 누락                                                                                         | import 추가                                                                                                        |
 | 옷장 탭 무한 렌더링          | ①`onLayout`이 매 렌더마다 `setBarHeight` 호출 ② `useSyncExternalStore`에 매번 새 객체 `{total, completed}` 반환 → 참조 비교 실패 | ① 높이 변화 가드 ② 원시 숫자 훅 2개로 분리 (§7-1)                                                               |
+
+---
+
+## 10. Qdrant 코디 추천 검색 격리 & 아이템 상태 관리 구현
+
+### 10.1 공유 옷장 추천 검색 격리 (Retrieval Search Isolation)
+- **개념**: Qdrant 옷장 추천 검색 시 단일 `user_id` 조건을 **"접근 가능한 아이템 id 화이트리스트"** (`allowed_item_ids`)로 일반화
+- **접근 범위 (`accessible_item_ids`)**:
+  - 내 옷: `user=user, confirmed=True`
+  - 공유 옷: `room__members__user=user, status=AVAILABLE, wardrobe_item__confirmed=True`
+  - `created_at` 내림차순 정렬 및 `RETRIEVER_WARDROBE_ID_CAP` (기본 1000건) 상한 제한
+- **유출 방지 가드**: `allowed_item_ids=[]` 전달 시 Qdrant 조회를 수행하지 않고 `[]`를 즉시 반환하여 타인 옷 유출 원천 차단
+- **컬렉션 상수화**: `WARDROBE_ITEM_COLLECTION` (`os.getenv("QDRANT_WARDROBE_COLLECTION", "wardrobe_items")`) 사용
+
+### 10.2 공유 아이템 상태 변경 API 및 클라이언트 함수
+- **API 엔드포인트**: `PATCH /api/v1/shared-wardrobes/{room_id}/items/` (`item_id` 또는 `wardrobe_item_id`, `status` 바디 전달)
+- **상태 종류**: `available` (공유가능), `borrowed` (대여중), `private` (나만보기)
+- **권한 체크**: 방 멤버이면서 아이템 공유 등록자 또는 방장(`owner`)만 변경 가능
+- **클라이언트 함수**: `updateSharedItemStatus(roomId, itemId, status)` (`mobile/src/lib/wardrobeApi.ts`)
+
