@@ -1,5 +1,7 @@
 import { useSyncExternalStore } from 'react';
 
+import { listPublicLookbooks, type LookbookPostDto } from '@/lib/lookbookApi';
+
 /** 사용자가 선택할 수 있는 해시태그 (관리자 정의 목록) */
 export const ALLOWED_HASHTAGS = ['출근', '데이트', '나들이', '여행', '미니멀', '캐주얼'] as const;
 
@@ -71,10 +73,23 @@ const SEED_LOOKS: LookPost[] = [
   },
 ];
 
+/** 사용자가 전체공개한 룩 — 서버에서 온다. */
+let publicLooks: LookPost[] = [];
+/** 보이는 목록 = 공개된 남의 룩 + 앱 기본 룩. 같은 참조를 유지해야 해서 캐시한다. */
 let looks: LookPost[] = [...SEED_LOOKS];
 const listeners = new Set<() => void>();
 
+type LoadState = { loading: boolean; error: string | null; loaded: boolean };
+let loadState: LoadState = { loading: false, error: null, loaded: false };
+
+function rebuild() {
+  /* 공개된 룩이 앞, 앱 기본 룩이 뒤. 기본 룩은 시간이 지나도 자리를 지켜야 해서
+     최신순 정렬에 섞지 않는다 — 둘러보기의 바닥이라는 뜻이다. */
+  looks = [...publicLooks, ...SEED_LOOKS];
+}
+
 function notify() {
+  rebuild();
   listeners.forEach((l) => l());
 }
 
@@ -82,21 +97,41 @@ export function isAllowedHashtag(value: string): value is AllowedHashtag {
   return (ALLOWED_HASHTAGS as readonly string[]).includes(value);
 }
 
+/** 서버 룩 → 피드 카드. 우리가 정한 해시태그만 남긴다(칩 필터가 그 목록이라). */
+function toFeedLook(dto: LookbookPostDto): LookPost {
+  return {
+    id: dto.id,
+    image: dto.image_url,
+    tags: (dto.hashtags ?? []).filter(isAllowedHashtag),
+    createdAt: Date.parse(dto.created_at) || 0,
+  };
+}
+
 export const lookbookStore = {
   getLooks: () => looks,
-  addLook(input: { image: string; tags: AllowedHashtag[]; price?: string; variantId?: string }) {
-    const post: LookPost = {
-      id: String(Date.now()),
-      image: input.image,
-      tags: input.tags,
-      price: input.price,
-      variantId: input.variantId,
-      createdAt: Date.now(),
-    };
-    looks = [post, ...looks];
+  getLoadState: () => loadState,
+
+  /**
+   * 둘러보기 피드를 받아 온다. 비회원도 볼 수 있어 로그인 여부를 따지지 않는다.
+   * 실패해도 앱 기본 룩은 그대로 남으므로 화면이 비지 않는다.
+   */
+  async load(): Promise<void> {
+    loadState = { ...loadState, loading: true, error: null };
     notify();
-    return post;
+    try {
+      const page = await listPublicLookbooks({ limit: 60 });
+      publicLooks = page.results.map(toFeedLook);
+      loadState = { loading: false, error: null, loaded: true };
+    } catch (error) {
+      loadState = {
+        loading: false,
+        error: error instanceof Error ? error.message : '둘러보기를 불러오지 못했어요.',
+        loaded: loadState.loaded,
+      };
+    }
+    notify();
   },
+
   subscribe(listener: () => void) {
     listeners.add(listener);
     return () => listeners.delete(listener);

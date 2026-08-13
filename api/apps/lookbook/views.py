@@ -16,6 +16,7 @@ import redis as redis_lib
 from django.shortcuts import get_object_or_404
 from rest_framework import status
 from rest_framework.parsers import FormParser, MultiPartParser
+from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
@@ -93,6 +94,7 @@ class LookbookPhotoCreateView(APIView):
                 hashtags=data["hashtags"],
                 calendar_date=data["calendar_date"],
                 overwrite_calendar=data["overwrite_calendar"],
+                is_public=data["is_public"],
             )
         except Exception as error:
             response = _creation_error_response(error)
@@ -145,6 +147,7 @@ class LookbookWardrobeCreateView(APIView):
                 hashtags=data["hashtags"],
                 calendar_date=data["calendar_date"],
                 overwrite_calendar=data["overwrite_calendar"],
+                is_public=data["is_public"],
             )
         except Exception as error:
             response = _creation_error_response(error)
@@ -173,6 +176,36 @@ class LookbookListView(APIView):
         )
         # 피드는 계속 자란다. 전체를 내려 주면 앱이 스크롤 한 번에 수백 건을
         # 받아 presigned URL도 그만큼 만들게 되므로 항상 잘라서 준다.
+        total = queryset.count()
+        offset = params["offset"]
+        limit = params["limit"]
+        page = list(queryset[offset : offset + limit])
+        next_offset = offset + limit if offset + limit < total else None
+
+        return Response(
+            {
+                "count": total,
+                "next_offset": next_offset,
+                "results": LookbookPostSerializer(page, many=True).data,
+            }
+        )
+
+
+class LookbookPublicFeedView(APIView):
+    """GET /api/v1/lookbooks/public/?hashtag=&limit=&offset= — 전체 공개 룩 피드.
+
+    앱의 '둘러보기'가 읽는 목록이다. 남의 룩이라 로그인 없이도 볼 수 있게 열어 둔다
+    (비회원도 둘러보기까지는 들어온다).
+    """
+
+    permission_classes = (AllowAny,)
+
+    def get(self, request):
+        query = LookbookListQuerySerializer(data=request.query_params)
+        query.is_valid(raise_exception=True)
+        params = query.validated_data
+
+        queryset = lookbook_service.public_posts(hashtag=params["hashtag"])
         total = queryset.count()
         offset = params["offset"]
         limit = params["limit"]

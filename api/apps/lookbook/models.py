@@ -104,6 +104,14 @@ class LookbookPost(models.Model):
             "(예: 상의/하의)"
         ),
     )
+    is_public = models.BooleanField(
+        "전체 공개 여부",
+        default=False,
+        db_comment=(
+            "전체 공개 여부 (true: 앱 사용자 전체가 둘러보기에서 볼 수 있음). "
+            "룩북은 친구 단위 공유를 두지 않는다 — 내 것이거나 전체 공개거나 둘 중 하나다."
+        ),
+    )
     status = models.CharField(
         max_length=16,
         choices=[
@@ -158,6 +166,11 @@ class LookbookPost(models.Model):
             models.Index(
                 fields=["status", "created_at"],
                 name="lookbook_status_created_idx",
+            ),
+            # 공개 피드 — 공개된 것만 최신순으로 훑는다.
+            models.Index(
+                fields=["is_public", "-created_at"],
+                name="lookbook_public_created_idx",
             ),
         ]
 

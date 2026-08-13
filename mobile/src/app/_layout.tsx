@@ -20,7 +20,7 @@ export default function RootLayout() {
   // 앱 시작 시: 소셜 SDK 초기화(카카오/네이버/구글) + 저장된 토큰으로 세션 복원
   useEffect(() => {
     initSocialSDKs();
-    /* 예산은 세션이 정해진 뒤에 받아 온다 — 룩 상세·위시리스트가 '예산 내' 배지에 쓰는 값이라
+    /* 예산은 세션이 정해진 뒤에 받아 온다 — 룩 상세·찜 목록이 '예산 내' 배지에 쓰는 값이라
        그 화면에 들어가기 전에 채워져 있어야 한다. */
     void authStore.bootstrap().then(() => prefsStore.loadBudget());
     outfitAnalysisStore.bootstrap();

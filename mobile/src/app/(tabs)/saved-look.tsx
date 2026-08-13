@@ -2,7 +2,15 @@ import { Icon } from '@/components/icon';
 import { router, useLocalSearchParams } from 'expo-router';
 import { backTo, goBack } from '@/lib/goBack';
 import { useState } from 'react';
-import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import {
+  ActivityIndicator,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  View,
+} from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { EmptyState, SmartImage, useConfirm, useToast } from '@/components/ui';
@@ -12,7 +20,7 @@ import type { WardrobeSource } from '@/constants/wardrobe';
 import { useBreakpoint } from '@/hooks/use-breakpoint';
 import { useAuth } from '@/state/auth';
 import { draftItem } from '@/state/draft-item';
-import { formatDateLabel } from '@/state/calendar';
+import { formatDateLabel, type EntryItem } from '@/state/calendar';
 import { ALLOWED_HASHTAGS, type AllowedHashtag } from '@/state/lookbook';
 import { savedLookStore, useSavedLooks } from '@/state/saved';
 
@@ -108,11 +116,35 @@ export default function SavedLook() {
   const myItems = look?.items?.length ? look.items : null;
 
   /**
-   * 이 옷을 내 옷장에 등록한다.
-   * 바로 올리지 않고 등록 화면을 거치는 이유 — 무엇이 등록되는지 사진으로 확인시키고,
-   * 등록은 서버 큐를 타서 시간이 걸리므로 진행 상황을 옷장에서 보게 하기 위해서다.
+   * 룩에 걸린 옷을 내 옷장에 들인다.
+   *
+   * 이 옷은 사진에서 이미 잘려 태깅까지 끝나 있다 — 등록 화면을 다시 거칠 이유가 없다.
+   * 서버에 '옷장에 넣겠다'고 표시만 하면 그 순간 옷장 목록에 나타난다.
    */
-  const addToCloset = (photo: string) => {
+  const [adding, setAdding] = useState<string | null>(null);
+  const addItemToCloset = async (item: EntryItem) => {
+    if (!isLoggedIn) {
+      toast('옷장은 로그인하고 쓸 수 있어요');
+      router.push('/login');
+      return;
+    }
+    if (!look || adding) return;
+    setAdding(item.id);
+    try {
+      await savedLookStore.addItemToCloset(look.id, item.id);
+      toast(`${item.name}을(를) 옷장에 담았어요`, { variant: 'success' });
+    } catch {
+      toast('옷장에 담지 못했어요. 잠시 후 다시 시도해 주세요', { variant: 'error' });
+    } finally {
+      setAdding(null);
+    }
+  };
+
+  /**
+   * 추천 룩(✨)의 구성 아이템은 아직 옷장 아이템이 아니다 — 사진만 있다.
+   * 그래서 이 갈래는 종전대로 등록 화면을 거친다.
+   */
+  const addPhotoToCloset = (photo: string) => {
     if (!isLoggedIn) {
       toast('옷장은 로그인하고 쓸 수 있어요');
       router.push('/login');
@@ -219,16 +251,28 @@ export default function SavedLook() {
                         {item.name}
                       </Text>
                     </View>
-                    {/* 내 옷장 옷은 이미 등록돼 있다 — 남의 옷·앱 추천 옷만 담을 거리가 된다. */}
-                    {item.image && item.source !== 'closet' ? (
+                    {/* 사진에서 뽑힌 옷은 사용자가 눌러야 옷장에 든다. 이미 든 옷은 그렇다고만 알린다. */}
+                    {item.inCloset === false ? (
                       <Pressable
                         style={styles.addBtn}
-                        onPress={() => addToCloset(item.image!)}
+                        onPress={() => addItemToCloset(item)}
+                        disabled={adding === item.id}
                         accessibilityLabel={`${item.name} 옷장에 추가`}>
-                        <Icon name="plus" tintColor={INK} size={13} />
-                        <Text style={styles.addBtnText}>옷장에 추가</Text>
+                        {adding === item.id ? (
+                          <ActivityIndicator size="small" color={INK} />
+                        ) : (
+                          <>
+                            <Icon name="plus" tintColor={INK} size={13} />
+                            <Text style={styles.addBtnText}>옷장에 추가</Text>
+                          </>
+                        )}
                       </Pressable>
-                    ) : null}
+                    ) : (
+                      <View style={styles.inClosetTag}>
+                        <Icon name="checkmark" tintColor={ink(0.4)} size={12} />
+                        <Text style={styles.inClosetText}>옷장에 있음</Text>
+                      </View>
+                    )}
                   </View>
                 ))
               : isMine ? (
@@ -249,7 +293,7 @@ export default function SavedLook() {
                     {p.image ? (
                       <Pressable
                         style={styles.addBtn}
-                        onPress={() => addToCloset(p.image!)}
+                        onPress={() => addPhotoToCloset(p.image!)}
                         accessibilityLabel={`${p.name} 옷장에 추가`}>
                         <Icon name="plus" tintColor={INK} size={13} />
                         <Text style={styles.addBtnText}>옷장에 추가</Text>
@@ -409,6 +453,9 @@ const styles = StyleSheet.create({
     borderColor: ink(0.14),
   },
   addBtnText: { fontSize: 11.5, fontWeight: '600', color: INK },
+  /* 이미 옷장에 있는 옷 — 누를 것이 없으니 버튼이 아니라 표시로 둔다 */
+  inClosetTag: { flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 6 },
+  inClosetText: { fontSize: 11.5, color: Editorial.textMuted },
 
   reasonCard: { backgroundColor: Editorial.surfaceSoft, borderWidth: 1, borderColor: Editorial.line, borderRadius: 16, padding: 16 },
   reasonText: { fontSize: 13.5, color: Editorial.textSoft, lineHeight: 21 },

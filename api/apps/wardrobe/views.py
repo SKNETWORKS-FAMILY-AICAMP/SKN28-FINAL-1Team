@@ -324,6 +324,13 @@ class WardrobeCallbackView(APIView):
                 lookbook_service.apply_wardrobe_job_failure(job=job)
                 return Response({"job_id": str(job.pk), "status": job.status})
 
+            # 룩북에 걸린 사진에서 뽑은 옷은 옷장에 바로 넣지 않는다. 사용자가 고른 적 없는
+            # 옷이기 때문이다 — 룩 상세에서 '옷장에 추가'를 눌러야 들어간다.
+            # 옷장 업로드와 (룩북 없는) 캘린더 사진은 종전대로 바로 옷장에 든다.
+            # 캘린더까지 막지 않는 이유: 캘린더 상세에는 아직 옷장에 넣는 길이 없어,
+            # 막으면 그 옷이 어디서도 꺼낼 수 없는 채로 남는다.
+            adopted_at = None if lookbook_service.is_lookbook_job(job=job) else timezone.now()
+
             created: list[tuple[WardrobeItem, list, list]] = []
             for it in data["items"]:
                 item_data = dict(it)
@@ -334,6 +341,7 @@ class WardrobeCallbackView(APIView):
                     user_id=job.user_id,
                     job=job,
                     embedding_version=vectors.EMBEDDING_VERSION if image_vec else "",
+                    added_to_closet_at=adopted_at,
                     **item_data,
                 )
                 created.append((item, image_vec, text_vec))
@@ -369,11 +377,18 @@ class WardrobeCallbackView(APIView):
 class WardrobeItemListView(APIView):
     """GET /api/v1/wardrobe/items/ — 내 옷장 아이템 목록.
 
-    쿼리 파라미터: category_large, confirmed(true|false)
+    **옷장에 든 것만 준다.** 룩 사진에서 뽑혔지만 아직 사용자가 옷장에 넣지 않은 옷
+    (added_to_closet_at IS NULL)은 제외한다 — 고른 적 없는 옷이 옷장에 섞이면 안 된다.
+    룩북 상세는 자기 링크로 그 옷을 따로 읽으므로 이 목록에 기대지 않는다.
+
+    쿼리 파라미터: category_large, confirmed(true|false),
+                   include_unadded(true) — 옷장 밖 아이템까지 보고 싶을 때(디버그·관리)
     """
 
     def get(self, request):
         qs = WardrobeItem.objects.filter(user=request.user)
+        if request.query_params.get("include_unadded", "").lower() != "true":
+            qs = qs.filter(added_to_closet_at__isnull=False)
         category = request.query_params.get("category_large")
         if category:
             qs = qs.filter(category_large=category)
@@ -381,6 +396,22 @@ class WardrobeItemListView(APIView):
         if confirmed is not None:
             qs = qs.filter(confirmed=confirmed.lower() == "true")
         return Response(WardrobeItemSerializer(qs, many=True).data)
+
+
+class WardrobeItemAddToClosetView(APIView):
+    """POST /api/v1/wardrobe/items/{id}/add-to-closet/ — 이 옷을 옷장에 들인다.
+
+    룩 사진에서 뽑혀 아직 옷장 밖에 있던 옷을 옷장으로 넣는다.
+    이미 옷장에 있으면 시각을 덮어쓰지 않고 그대로 돌려준다 — 언제 들였는지가 바뀌면
+    안 되고, 두 번 눌러도 같은 결과여야 한다.
+    """
+
+    def post(self, request, item_id):
+        item = get_object_or_404(WardrobeItem, pk=item_id, user=request.user)
+        if item.added_to_closet_at is None:
+            item.added_to_closet_at = timezone.now()
+            item.save(update_fields=["added_to_closet_at", "updated_at"])
+        return Response(WardrobeItemSerializer(item).data)
 
 
 class WardrobeItemDetailView(APIView):

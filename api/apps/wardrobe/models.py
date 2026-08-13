@@ -132,6 +132,12 @@ class WardrobeItem(models.Model):
 
     벡터는 DB에 저장하지 않고 Qdrant(wardrobe_items 컬렉션)에만 둔다.
     confirmed=False는 사용자 확인 대기 상태 — 추천 검색 대상에서 제외한다.
+
+    added_to_closet_at 은 confirmed 와 다른 것을 가리킨다.
+      confirmed          = 자동 태깅 결과를 사용자가 검토했는가
+      added_to_closet_at = 이 옷을 옷장에 두기로 했는가
+    룩 사진에서 뽑은 옷은 행은 만들되 옷장에는 넣지 않는다(NULL) — 사용자가 고르지도 않은
+    옷이 옷장에 쌓이기 때문이다. 룩 상세에서 '옷장에 추가'를 누를 때 시각이 찍힌다.
     """
 
     id = models.UUIDField(
@@ -201,6 +207,15 @@ class WardrobeItem(models.Model):
         default=False,
         db_comment="사용자 확정 여부 (false: 확인 대기 — 추천 검색 제외)",
     )
+    added_to_closet_at = models.DateTimeField(
+        "옷장 편입 시각",
+        null=True,
+        blank=True,
+        db_comment=(
+            "사용자가 이 옷을 옷장에 두기로 한 시각 "
+            "(NULL: 룩 사진에서 뽑혔지만 아직 옷장에 넣지 않음 — 옷장 목록에서 제외)"
+        ),
+    )
     embedding_version = models.CharField(
         max_length=40, blank=True, default="", db_comment="Qdrant 임베딩 버전 (재임베딩 판단 기준)"
     )
@@ -214,6 +229,8 @@ class WardrobeItem(models.Model):
         indexes = [
             models.Index(fields=["user", "category_large"]),
             models.Index(fields=["user", "confirmed"]),
+            # 옷장 목록의 기본 조건 — 사용자별로 '옷장에 든 것'만 훑는다.
+            models.Index(fields=["user", "added_to_closet_at"]),
         ]
 
     def __str__(self) -> str:
