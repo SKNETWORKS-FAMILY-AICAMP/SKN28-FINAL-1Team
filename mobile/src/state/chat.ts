@@ -1,21 +1,23 @@
-import { useSyncExternalStore } from 'react';
+import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react';
 
 import { Editorial } from '@/constants/theme';
 import {
   createSession as apiCreateSession,
   decideMood as apiDecideMood,
   deleteSession as apiDeleteSession,
-  listMessages as apiListMessages,
   listSessions as apiListSessions,
   newClientMessageId,
+  pageMessages as apiPageMessages,
   renameSession as apiRenameSession,
   requestMoodAnalysis as apiRequestMoodAnalysis,
+  searchSessions as apiSearchSessions,
   sendMessage as apiSendMessage,
   uploadPhoto as apiUploadPhoto,
   type ApiChatMessage,
   type ApiChatMode,
   type ApiChatRun,
   type ApiChatSession,
+  type ApiChatSessionSearchItem,
   type ApiMoodDecision,
   type ApiMoodDecisionInput,
 } from '@/lib/chatApi';
@@ -118,6 +120,11 @@ export type ChatSession = {
   messages: ChatMessage[];
   /** 대화를 한 번이라도 열어 메시지를 받아왔는지. 목록만 받은 세션은 false 다. */
   messagesLoaded: boolean;
+  /**
+   * 더 오래된 메시지를 받아올 커서. null 이면 처음까지 다 받았다는 뜻이다.
+   * 화면은 이 값으로 '이전 대화 더 보기'를 그릴지 정한다.
+   */
+  olderCursor: string | null;
   updatedAt: number;
 };
 
@@ -138,53 +145,8 @@ export function formatRelativeTime(ts: number, now: number = Date.now()): string
   return `${d.getMonth() + 1}월 ${d.getDate()}일`;
 }
 
-/** 목록에 한 줄로 보여줄 마지막 대화. 추천 카드·사진은 문구가 없으니 대신할 말을 준다. */
-export function sessionPreview(session: ChatSession): string {
-  const last = session.messages[session.messages.length - 1];
-  if (!last) return session.messagesLoaded ? '아직 대화가 없어요' : '';
-  if (last.kind === 'text') return last.text.replace(/\n/g, ' ');
-  if (last.kind === 'rec') return `추천 · ${last.title}`;
-  if (last.kind === 'mood') return `추구미 · ${last.tags.join(' ')}`;
-  if (last.kind === 'error') return '답변을 받지 못했어요';
-  return '사진을 보냈어요';
-}
-
-/** 검색이 훑을 글자. 사진 말풍선은 글자가 없어 검색되지 않는다. */
-function searchableText(m: ChatMessage): string {
-  if (m.kind === 'text') return m.text;
-  if (m.kind === 'rec') return `${m.title} ${m.tags.join(' ')}`;
-  if (m.kind === 'mood') return m.tags.join(' ');
-  /* 오류 줄은 검색 대상이 아니다 — 대화 내용이 아니라 상태 표시라, 검색어에 걸리면
-     엉뚱한 대화가 결과로 올라온다. */
-  return '';
-}
-
-/**
- * 제목과 대화 내용으로 찾는다. 대소문자 구분 없는 부분 일치.
- *
- * ⚠️ 아직 연 적 없는 세션은 메시지가 비어 있어 **제목으로만** 걸린다.
- *    서버에 /chat/sessions/search/ 가 있으니 그걸로 옮기면 본문까지 찾을 수 있다.
- */
-export function sessionMatches(session: ChatSession, query: string): boolean {
-  const q = query.trim().toLowerCase();
-  if (!q) return true;
-  if (session.title.toLowerCase().includes(q)) return true;
-  return session.messages.some((m) => searchableText(m).toLowerCase().includes(q));
-}
-
-/**
- * 검색 결과의 미리보기 — 검색어가 걸린 말풍선을 보여준다.
- * 마지막 대화를 그대로 두면 '왜 이게 결과인지' 알 수 없다.
- */
-export function searchPreview(session: ChatSession, query: string): string {
-  const q = query.trim().toLowerCase();
-  if (!q) return sessionPreview(session);
-  const hit = session.messages.find((m) => searchableText(m).toLowerCase().includes(q));
-  if (!hit) return sessionPreview(session);
-  if (hit.kind === 'rec') return `추천 · ${hit.title}`;
-  if (hit.kind === 'mood') return `추구미 · ${hit.tags.join(' ')}`;
-  return searchableText(hit).replace(/\n/g, ' ');
-}
+/* 검색은 서버가 한다 (useSessionSearch). 앱이 받아둔 대화만 훑으면 한 번도 열지 않은
+   대화가 제목으로만 걸려, 사용자에게는 "분명 그 말을 했는데 안 찾아진다"로 보인다. */
 
 /* ── 서버 응답 옮기기 ───────────────────────────────── */
 
@@ -340,8 +302,75 @@ function toSession(api: ApiChatSession, previous?: ChatSession): ChatSession {
     // 목록 갱신이 이미 받아둔 대화를 지우면 안 된다.
     messages: previous?.messages ?? [],
     messagesLoaded: previous?.messagesLoaded ?? false,
+    olderCursor: previous?.olderCursor ?? null,
     updatedAt: new Date(api.last_message_at || api.updated_at).getTime(),
   };
+}
+
+/* ── 받아둔 원본 ─────────────────────────────────────
+   말풍선(ChatMessage)만 들고 있으면 페이지를 이어 붙일 수 없다 — 말풍선에는 sequence 가
+   없어서 "어디까지 이미 갖고 있는지"를 알 수 없고, 서버 메시지 하나가 말풍선 여러 개로
+   갈라지기도 한다. 그래서 서버가 준 모양 그대로 세션별로 보관하고, 화면용 말풍선은
+   여기서 매번 다시 만든다(rebuild). */
+const rawMessages = new Map<string, ApiChatMessage[]>();
+const rawCards = new Map<string, Map<string, ApiRecommendationCard[]>>();
+
+/** 한 번에 받아올 메시지 수. 서버 상한은 100이다. */
+const MESSAGE_PAGE_SIZE = 50;
+/** 검색 한 페이지. 서버 상한은 50이다. */
+const SEARCH_PAGE_SIZE = 20;
+
+/** 한 세션의 원본을 지운다. 대화를 지웠을 때 남겨두면 같은 id 가 다시 생겨도 옛 내용이 붙는다. */
+function forgetRaw(id: string): void {
+  rawMessages.delete(id);
+  rawCards.delete(id);
+}
+
+/** 받아둔 원본 → 말풍선. 페이지를 더 받거나 결정이 바뀔 때마다 다시 만든다. */
+function rebuild(id: string): void {
+  const list = rawMessages.get(id) ?? [];
+  const cards = rawCards.get(id) ?? new Map<string, ApiRecommendationCard[]>();
+  const decisions = decisionsOf(list);
+  replaceSession(id, (s) => ({
+    ...s,
+    messages: list.flatMap((m) => toMessages(m, cards.get(m.id), decisions)),
+    messagesLoaded: true,
+  }));
+}
+
+/**
+ * 새로 받은 페이지를 이미 갖고 있던 원본에 합친다.
+ *
+ * sequence 로 겹치는 구간을 걷어내고 순서대로 다시 세운다. 재전송·재조회로 같은 메시지가
+ * 두 번 오는 일이 있고(질문을 보낸 뒤 최신 페이지를 다시 받는다), 그때 말풍선이 두 벌
+ * 생기면 대화가 반복된 것처럼 보인다.
+ */
+function mergeRaw(id: string, incoming: ApiChatMessage[]): void {
+  const arrived = new Set(incoming.map((m) => m.sequence));
+  const merged = [
+    ...(rawMessages.get(id) ?? []).filter((m) => !arrived.has(m.sequence)),
+    ...incoming,
+  ].sort((a, b) => a.sequence - b.sequence);
+  rawMessages.set(id, merged);
+}
+
+function mergeCards(id: string, incoming: Map<string, ApiRecommendationCard[]>): void {
+  const current = rawCards.get(id) ?? new Map<string, ApiRecommendationCard[]>();
+  for (const [messageId, cards] of incoming) current.set(messageId, cards);
+  rawCards.set(id, current);
+}
+
+/**
+ * 새로 받은 최근 묶음이 이미 갖고 있는 구간과 이어지는지.
+ *
+ * 대화를 열어 최근 50개를 받아둔 뒤 다른 기기에서 50개 넘게 오갔다면, 다시 받은 최근
+ * 50개는 갖고 있던 것보다 **한참 뒤**라 사이에 못 받은 메시지가 생긴다. 그걸 그냥 이어
+ * 붙이면 대화 중간이 조용히 비어버린다 — 사용자에게는 안 한 말을 한 것처럼 보인다.
+ */
+function canStitch(id: string, incoming: ApiChatMessage[]): boolean {
+  const held = rawMessages.get(id) ?? [];
+  if (held.length === 0 || incoming.length === 0) return false;
+  return incoming[0].sequence <= held[held.length - 1].sequence + 1;
 }
 
 /* ── 스토어 ─────────────────────────────────────────── */
@@ -412,18 +441,51 @@ export const chatStore = {
     }
   },
 
-  /** 대화 내용 받아오기. 이미 받아둔 세션은 다시 부르지 않는다(force 로 강제). */
+  /**
+   * 대화 내용 받아오기 — **최근 한 묶음**만 받는다. 이미 받아둔 세션은 건너뛴다(force 로 강제).
+   *
+   * 전체를 한 번에 받던 때는 대화가 길어질수록 열 때마다 느려졌고, 첨부·추천이 붙은
+   * 메시지는 카드 조회까지 그만큼 늘어났다. 더 예전 대화는 화면에서 눌러 받아온다
+   * (loadOlderMessages).
+   *
+   * force 로 다시 받아도 이미 받아둔 예전 페이지는 지우지 않는다 — 질문 하나 보낼 때마다
+   * 스크롤이 최근 묶음으로 잘려나가면 방금 읽던 자리를 잃는다.
+   */
   async loadMessages(id: string, options: { force?: boolean } = {}): Promise<void> {
     const current = sessions.find((s) => s.id === id);
     if (!options.force && current?.messagesLoaded) return;
-    const list = await apiListMessages(id);
-    const cards = await fetchCards(list);
-    const decisions = decisionsOf(list);
-    replaceSession(id, (s) => ({
-      ...s,
-      messages: list.flatMap((m) => toMessages(m, cards.get(m.id), decisions)),
-      messagesLoaded: true,
-    }));
+
+    const page = await apiPageMessages(id, { limit: MESSAGE_PAGE_SIZE });
+    const cards = await fetchCards(page.items);
+
+    if (canStitch(id, page.items)) {
+      /* 이미 갖고 있던 구간과 이어진다. 그때의 커서가 여전히 '그보다 더 오래된' 자리를
+         가리키므로 그대로 둔다 — 이번 응답의 커서는 최근 묶음 기준이라 덮어쓰면 중간이 빈다. */
+      mergeCards(id, cards);
+      mergeRaw(id, page.items);
+    } else {
+      /* 이어지지 않는다 = 갖고 있던 구간과 이번 묶음 사이에 못 받은 메시지가 있다
+         (다른 기기에서 한참 대화했을 때). 중간이 빈 대화를 보여주느니 최근 묶음만
+         남기고 '이전 대화 더 보기'로 되돌린다. */
+      rawMessages.set(id, page.items);
+      rawCards.set(id, cards);
+      replaceSession(id, (s) => ({ ...s, olderCursor: page.next_cursor ?? null }));
+    }
+    rebuild(id);
+  },
+
+  /** '이전 대화 더 보기'. 커서가 없으면(처음까지 다 받았으면) 아무 일도 하지 않는다. */
+  async loadOlderMessages(id: string): Promise<void> {
+    const cursor = sessions.find((s) => s.id === id)?.olderCursor;
+    if (!cursor) return;
+    const page = await apiPageMessages(id, {
+      limit: MESSAGE_PAGE_SIZE,
+      cursor,
+    });
+    mergeCards(id, await fetchCards(page.items));
+    mergeRaw(id, page.items);
+    replaceSession(id, (s) => ({ ...s, olderCursor: page.next_cursor ?? null }));
+    rebuild(id);
   },
 
   /**
@@ -461,6 +523,7 @@ export const chatStore = {
     notify();
     try {
       await apiDeleteSession(id);
+      forgetRaw(id);
     } catch (e) {
       sessions = previous;
       notify();
@@ -573,12 +636,23 @@ export const chatStore = {
     const result = await apiDecideMood(sessionId, attachmentId, decision);
     const decided: ApiMoodDecision =
       result.attachment.mood_decision ?? (decision === 'APPROVE' ? 'APPROVED' : 'REJECTED');
-    replaceSession(sessionId, (s) => ({
-      ...s,
-      messages: s.messages.map((m) =>
-        m.kind === 'mood' && m.attachmentId === attachmentId ? { ...m, decision: decided } : m,
-      ),
-    }));
+    /* 결정은 첨부에 달려 있다. 말풍선만 고치면 페이지를 더 받아 다시 그릴 때(rebuild)
+       서버에서 온 옛 값으로 되돌아가 버튼이 되살아난다. */
+    const list = rawMessages.get(sessionId);
+    if (list) {
+      rawMessages.set(
+        sessionId,
+        list.map((message) => ({
+          ...message,
+          attachments: message.attachments.map((attachment) =>
+            attachment.id === attachmentId
+              ? { ...attachment, mood_decision: decided }
+              : attachment,
+          ),
+        })),
+      );
+    }
+    rebuild(sessionId);
   },
 
   subscribe(listener: () => void) {
@@ -616,13 +690,109 @@ export function useLatestSession(): ChatSession | undefined {
   return sortByRecent(all)[0];
 }
 
+/** 검색 결과 한 줄. preview 는 검색어가 걸린 메시지이고, 제목만 걸렸으면 비어 있다. */
+export type SearchedSession = {
+  session: ChatSession;
+  preview: string;
+};
+
+export type SessionSearchState = {
+  items: SearchedSession[];
+  /** 서버가 센 전체 건수. 지금 받아온 items 보다 클 수 있다. */
+  totalCount: number;
+  loading: boolean;
+  error: string | null;
+  hasMore: boolean;
+  loadMore: () => void;
+};
+
+/** 사용자가 글자를 칠 때마다 서버를 부르지 않도록 잠깐 기다린다. */
+const SEARCH_DEBOUNCE_MS = 300;
+
+function toSearched(item: ApiChatSessionSearchItem): SearchedSession {
+  return {
+    // 이미 받아둔 세션이 있으면 그 대화 내용을 유지한 채 제목·시각만 새로 맞춘다.
+    session: toSession(item, sessions.find((s) => s.id === item.id)),
+    preview: item.search_match?.preview ?? '',
+  };
+}
+
 /**
- * 검색 결과 — 모드로 묶지 않고 최근 순 한 줄로 준다.
- * 찾는 사람은 '어느 모드였는지'가 아니라 '어느 대화였는지'를 좇는다.
+ * 서버에서 대화를 찾는다 — 제목뿐 아니라 **저장된 메시지 본문**까지 걸린다.
+ *
+ * 검색어가 바뀌면 첫 페이지부터 다시 받는다. 서버가 커서에 검색어를 함께 서명해 두기
+ * 때문이기도 하고, 이전 검색 결과가 남아 있으면 새 검색어의 결과처럼 읽히기 때문이다.
+ *
+ * 응답이 늦게 도착해 순서가 뒤집히는 일이 있어(짧은 검색어일수록 결과가 많아 느리다)
+ * 요청마다 번호를 매기고 **마지막 요청의 응답만** 반영한다.
  */
-export function useSearchedSessions(query: string): ChatSession[] {
-  const all = useChatSessions();
-  return sortByRecent(all.filter((s) => sessionMatches(s, query)));
+export function useSessionSearch(query: string): SessionSearchState {
+  const trimmed = query.trim();
+  const [items, setItems] = useState<SearchedSession[]>([]);
+  const [totalCount, setTotalCount] = useState(0);
+  const [cursor, setCursor] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const requestId = useRef(0);
+
+  useEffect(() => {
+    if (!trimmed) {
+      requestId.current += 1; // 진행 중인 검색의 응답을 버린다
+      setItems([]);
+      setTotalCount(0);
+      setCursor(null);
+      setLoading(false);
+      setError(null);
+      return;
+    }
+
+    const current = ++requestId.current;
+    setLoading(true);
+    setError(null);
+    const timer = setTimeout(() => {
+      apiSearchSessions(trimmed, { limit: SEARCH_PAGE_SIZE })
+        .then((page) => {
+          if (requestId.current !== current) return;
+          setItems(page.items.map(toSearched));
+          setTotalCount(page.total_count);
+          setCursor(page.next_cursor ?? null);
+        })
+        .catch((e) => {
+          if (requestId.current !== current) return;
+          setError(messageOf(e, '검색하지 못했어요'));
+          setItems([]);
+          setTotalCount(0);
+          setCursor(null);
+        })
+        .finally(() => {
+          if (requestId.current === current) setLoading(false);
+        });
+    }, SEARCH_DEBOUNCE_MS);
+
+    return () => clearTimeout(timer);
+  }, [trimmed]);
+
+  const loadMore = useCallback(() => {
+    if (!cursor || loading || !trimmed) return;
+    const current = ++requestId.current;
+    setLoading(true);
+    apiSearchSessions(trimmed, { limit: SEARCH_PAGE_SIZE, cursor })
+      .then((page) => {
+        if (requestId.current !== current) return;
+        setItems((previous) => [...previous, ...page.items.map(toSearched)]);
+        setTotalCount(page.total_count);
+        setCursor(page.next_cursor ?? null);
+      })
+      .catch((e) => {
+        // 이미 보여준 결과는 남긴다 — 다음 페이지를 못 받았다고 앞 페이지까지 지우지 않는다.
+        if (requestId.current === current) setError(messageOf(e, '더 불러오지 못했어요'));
+      })
+      .finally(() => {
+        if (requestId.current === current) setLoading(false);
+      });
+  }, [cursor, loading, trimmed]);
+
+  return { items, totalCount, loading, error, hasMore: cursor !== null, loadMore };
 }
 
 /** 모드별로 묶은 목록 — 각 모드 안에서는 최근 대화가 위로 온다. */

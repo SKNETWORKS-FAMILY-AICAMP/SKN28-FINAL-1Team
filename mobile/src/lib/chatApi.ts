@@ -139,9 +139,72 @@ export function deleteSession(sessionId: string): Promise<void> {
   return api.delete<void>(ChatEndpoints.session(sessionId));
 }
 
-/** 시간순 전체 메시지. 대화가 길어지면 messages/page/ 로 나눠 받는 길도 있다. */
-export function listMessages(sessionId: string): Promise<ApiChatMessage[]> {
-  return api.get<ApiChatMessage[]>(ChatEndpoints.messages(sessionId));
+/* 전체 메시지를 한 번에 주는 GET /messages/ 도 서버에 있지만 쓰지 않는다 —
+   대화가 길수록 열 때마다 느려지고, 추천이 붙은 메시지는 카드 조회까지 그만큼 늘어난다. */
+
+/** 커서 페이지 공통 꼬리. `next_cursor` 는 더 받을 게 있을 때만 채워진다. */
+type ApiCursorPage = {
+  total_count: number;
+  next_cursor: string | null;
+  has_more: boolean;
+};
+
+export type ApiMessagePage = ApiCursorPage & {
+  /** **시간순**이다(최신이 뒤). 첫 페이지가 가장 최근 묶음이고 커서로 과거를 더 받는다. */
+  items: ApiChatMessage[];
+};
+
+/**
+ * 최신 메시지부터 끊어 받는다.
+ * 첫 요청은 cursor 없이, 다음부터는 직전 응답의 next_cursor 를 그대로 넘긴다.
+ * 커서는 서명된 값이라 손대면 400 이 난다 — 만들지 말고 받은 것만 쓸 것.
+ */
+export function pageMessages(
+  sessionId: string,
+  options: { limit?: number; cursor?: string } = {},
+): Promise<ApiMessagePage> {
+  const query = new URLSearchParams();
+  if (options.limit) query.set('limit', String(options.limit));
+  if (options.cursor) query.set('cursor', options.cursor);
+  const suffix = query.toString();
+  return api.get<ApiMessagePage>(
+    `${ChatEndpoints.messagePage(sessionId)}${suffix ? `?${suffix}` : ''}`,
+  );
+}
+
+/** 검색어가 걸린 메시지 미리보기. 제목만 걸린 세션은 null 이다. */
+export type ApiSessionSearchMatch = {
+  message_id: string;
+  sequence: number;
+  role: ApiMessageRole;
+  preview: string;
+};
+
+export type ApiChatSessionSearchItem = ApiChatSession & {
+  search_match: ApiSessionSearchMatch | null;
+};
+
+export type ApiSessionSearchPage = ApiCursorPage & {
+  /** 서버가 공백을 정리한 검색어. 응답이 어떤 질의의 것인지 확인하는 데 쓴다. */
+  query: string;
+  items: ApiChatSessionSearchItem[];
+};
+
+/**
+ * 세션 제목과 **저장된 메시지 본문**을 서버에서 찾는다.
+ * 앱이 받아둔 대화만 훑던 지역 검색과 달리, 한 번도 열지 않은 대화도 걸린다.
+ *
+ * ⚠️ 검색어가 바뀌면 cursor 를 버리고 첫 페이지부터 다시 받아야 한다 —
+ *    서버가 커서에 검색어를 함께 서명해 두고 다르면 400 을 낸다.
+ */
+export function searchSessions(
+  query: string,
+  options: { limit?: number; cursor?: string } = {},
+): Promise<ApiSessionSearchPage> {
+  const params = new URLSearchParams({ query });
+  if (options.limit) params.set('limit', String(options.limit));
+  if (options.cursor) params.set('cursor', options.cursor);
+  return api.get<ApiSessionSearchPage>(`${ChatEndpoints.sessionSearch}?${params}`);
 }
 
 /**

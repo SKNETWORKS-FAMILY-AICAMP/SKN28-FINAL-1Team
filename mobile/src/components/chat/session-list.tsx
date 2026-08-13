@@ -20,10 +20,9 @@ import {
   CHAT_MODE_META,
   chatStore,
   formatRelativeTime,
-  searchPreview,
   useChatGroups,
   useChatStatus,
-  useSearchedSessions,
+  useSessionSearch,
   type ChatSession,
 } from '@/state/chat';
 
@@ -32,21 +31,19 @@ const INK = Editorial.ink;
 /** 목록의 한 줄. 그룹 목록과 검색 결과가 같은 모양을 써야 하므로 뽑아 뒀다. */
 function SessionRow({
   session,
-  query,
+  preview,
   active,
   onOpen,
   onManage,
 }: {
   session: ChatSession;
-  query: string;
+  /** 검색 결과에서 걸린 메시지. 목록에서는 null, 제목만 걸린 검색 결과에서는 빈 문자열이다. */
+  preview: string | null;
   active: boolean;
   onOpen: () => void;
   onManage: () => void;
 }) {
   const { tint } = CHAT_MODE_META[session.mode];
-  /* 목록에선 제목만 보여준다 — 미리보기 한 줄은 대화를 고르는 데 도움이 안 되고 줄만 길어졌다.
-     검색 중에는 남긴다: 제목이 아니라 대화 내용이 걸린 경우 왜 걸렸는지 보여야 하기 때문. */
-  const preview = query.trim() ? searchPreview(session, query) : null;
   return (
     <Pressable style={[styles.session, active && styles.sessionOn]} onPress={onOpen}>
       <View style={[styles.thumb, { backgroundColor: `${tint}14` }]}>
@@ -108,7 +105,9 @@ export function SessionList({
 
   const [query, setQuery] = useState('');
   const searching = query.trim().length > 0;
-  const results = useSearchedSessions(query);
+  /* 검색은 서버가 한다 — 제목뿐 아니라 주고받은 내용까지 걸린다. 한 번도 열지 않은
+     대화도 결과에 나온다(앱이 받아둔 것만 훑던 때는 제목으로만 걸렸다). */
+  const search = useSessionSearch(query);
 
   const { loading, error } = useChatStatus();
   const reload = useCallback(() => chatStore.loadSessions(), []);
@@ -135,11 +134,11 @@ export function SessionList({
     onOpened?.();
   };
 
-  const row = (session: ChatSession, q: string) => (
+  const row = (session: ChatSession, preview: string | null) => (
     <SessionRow
       key={session.id}
       session={session}
-      query={q}
+      preview={preview}
       active={session.id === activeId}
       onOpen={() => open(session.id)}
       onManage={() => setManagingId(session.id)}
@@ -209,17 +208,45 @@ export function SessionList({
             style={styles.empty}
           />
         ) : searching ? (
-          results.length === 0 ? (
-            <EmptyState
-              icon="magnifyingglass"
-              title={`'${query.trim()}' 검색 결과가 없어요`}
-              description="대화 제목과 주고받은 내용에서 찾아요."
-              style={styles.empty}
-            />
+          /* 아직 결과가 없는 것과 '없다고 확인된 것'은 다르다. 기다리는 동안 "없어요"를
+             띄우면 글자를 칠 때마다 없다는 말이 깜빡인다. */
+          search.items.length === 0 ? (
+            search.loading ? (
+              <LoadingState message="대화를 찾는 중…" style={styles.empty} />
+            ) : search.error ? (
+              <ErrorState
+                title="검색하지 못했어요"
+                description={search.error}
+                style={styles.empty}
+              />
+            ) : (
+              <EmptyState
+                icon="magnifyingglass"
+                title={`'${query.trim()}' 검색 결과가 없어요`}
+                description="대화 제목과 주고받은 내용에서 찾아요."
+                style={styles.empty}
+              />
+            )
           ) : (
             <View style={styles.group}>
-              <Text style={styles.resultCount}>{results.length}개의 대화</Text>
-              {results.map((s) => row(s, query))}
+              {/* 서버가 센 전체 건수다 — 받아온 줄 수보다 클 수 있다. */}
+              <Text style={styles.resultCount}>{search.totalCount}개의 대화</Text>
+              {search.items.map((r) => row(r.session, r.preview))}
+              {search.hasMore ? (
+                <Pressable
+                  style={styles.more}
+                  onPress={search.loadMore}
+                  disabled={search.loading}>
+                  {/* 다음 페이지를 못 받아도 앞 페이지는 남긴다. 다시 누를 수 있게만 알린다. */}
+                  <Text style={styles.moreText}>
+                    {search.loading
+                      ? '불러오는 중…'
+                      : search.error
+                        ? '더 불러오지 못했어요 · 다시 시도'
+                        : '검색 결과 더 보기'}
+                  </Text>
+                </Pressable>
+              ) : null}
             </View>
           )
         ) : (
@@ -241,7 +268,9 @@ export function SessionList({
                       size={14}
                     />
                   </Pressable>
-                  {!isCollapsed && g.sessions.map((s) => row(s, ''))}
+                  {/* 목록에선 제목만 보여준다 — 미리보기 한 줄은 대화를 고르는 데
+                      도움이 안 되고 줄만 길어졌다. 검색 결과에서만 남긴다. */}
+                  {!isCollapsed && g.sessions.map((s) => row(s, null))}
                 </View>
               );
             })
@@ -323,6 +352,8 @@ const styles = StyleSheet.create({
   },
   groupSpacer: { flex: 1 },
   resultCount: { fontSize: 13, fontWeight: '600', color: Editorial.textCaption, marginBottom: 4 },
+  more: { alignSelf: 'center', paddingVertical: 12, paddingHorizontal: 16 },
+  moreText: { fontSize: 13, fontWeight: '500', color: Editorial.textCaption },
 
   session: {
     flexDirection: 'row',

@@ -100,6 +100,7 @@ export function ChatConversation({
   const [typing, setTyping] = useState(false);
   /* 승인·거절을 보내는 중인 무드 카드. 두 번 눌러 409(번복 금지)를 만나지 않게 잠근다. */
   const [decidingId, setDecidingId] = useState<string | null>(null);
+  const [loadingOlder, setLoadingOlder] = useState(false);
   const toast = useToast();
 
   const scrollRef = useRef<ScrollView>(null);
@@ -120,6 +121,27 @@ export function ChatConversation({
       toast('대화를 불러오지 못했어요', { variant: 'error' });
     });
   }, [activeId, toast]);
+
+  /**
+   * 이전 대화 더 보기.
+   *
+   * 대화를 열 때는 최근 50개만 받는다(state/chat.ts 의 loadMessages). 스크롤이 위에 닿을
+   * 때 자동으로 받아오는 방법도 있지만, 붙인 만큼 화면이 밀려 읽던 자리를 잃는다.
+   * 눌러서 받으면 사용자가 그 이동을 예상한다.
+   */
+  const loadOlder = async () => {
+    if (!activeId || loadingOlder) return;
+    setLoadingOlder(true);
+    try {
+      await chatStore.loadOlderMessages(activeId);
+    } catch (e) {
+      toast(e instanceof Error ? e.message : '이전 대화를 불러오지 못했어요', {
+        variant: 'error',
+      });
+    } finally {
+      setLoadingOlder(false);
+    }
+  };
 
   /* 패널은 대화 없이 열리므로 첫 입력에서 하나 만든다. 옷장을 보며 묻는 자리라 옷장 기반. */
   const ensureSession = async (): Promise<string> => {
@@ -209,6 +231,14 @@ export function ChatConversation({
         style={styles.flex}
         contentContainerStyle={[styles.messages, widthStyle]}
         keyboardShouldPersistTaps="handled">
+        {session?.olderCursor ? (
+          <Pressable style={styles.older} onPress={loadOlder} disabled={loadingOlder}>
+            <Text style={styles.olderText}>
+              {loadingOlder ? '불러오는 중…' : '이전 대화 더 보기'}
+            </Text>
+          </Pressable>
+        ) : null}
+
         {messages.map((m) => {
           if (m.role === 'user') {
             return (
@@ -408,6 +438,8 @@ const styles = StyleSheet.create({
   flex: { flex: 1 },
 
   messages: { padding: 16, gap: 16 },
+  older: { alignSelf: 'center', paddingVertical: 8, paddingHorizontal: 16 },
+  olderText: { fontSize: 12.5, fontWeight: '500', color: Editorial.textCaption },
   aiRow: { flexDirection: 'row', gap: 8, alignItems: 'flex-start', maxWidth: '90%' },
   aiCol: { flex: 1, gap: 10 },
 

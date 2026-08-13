@@ -309,7 +309,9 @@ export const LookbookEndpoints = {
  *   GET    /api/v1/chat/sessions/                                             → 세션 배열
  *   PATCH  /api/v1/chat/sessions/{id}/                 { title }              → 200
  *   DELETE /api/v1/chat/sessions/{id}/                                        → 204
+ *   GET    /api/v1/chat/sessions/search/?query=&limit=&cursor=                → 제목·본문 검색
  *   GET    /api/v1/chat/sessions/{id}/messages/                               → 메시지 배열(시간순)
+ *   GET    /api/v1/chat/sessions/{id}/messages/page/?limit=&cursor=           → 최신부터 커서 페이지
  *   POST   /api/v1/chat/sessions/{id}/messages/  { content, client_message_id } → 202 { message, run, events_url }
  *   POST   /api/v1/chat/sessions/{id}/attachments/  multipart{ image, client_message_id } → 201 { message, attachment }
  *   POST   .../attachments/{attachmentId}/analysis/                           → 202 { attachment, run }
@@ -334,6 +336,10 @@ export const ChatEndpoints = {
   sessions: '/api/v1/chat/sessions/',
   session: (sessionId: string) => `/api/v1/chat/sessions/${sessionId}/`,
   messages: (sessionId: string) => `/api/v1/chat/sessions/${sessionId}/messages/`,
+  /** 최근 메시지부터 커서로 끊어 받는다. 대화가 길어지면 messages 대신 이쪽을 쓴다. */
+  messagePage: (sessionId: string) => `/api/v1/chat/sessions/${sessionId}/messages/page/`,
+  /** 제목과 **저장된 메시지 본문**까지 서버가 찾아준다. */
+  sessionSearch: '/api/v1/chat/sessions/search/',
   attachments: (sessionId: string) => `/api/v1/chat/sessions/${sessionId}/attachments/`,
   attachmentAnalysis: (sessionId: string, attachmentId: string) =>
     `/api/v1/chat/sessions/${sessionId}/attachments/${attachmentId}/analysis/`,
