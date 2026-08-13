@@ -38,6 +38,11 @@ export type WardrobeApiItem = {
   seg_meta: Record<string, unknown>;
   /** false = 사용자 확인 대기. 추천 검색에서 제외된다. */
   confirmed: boolean;
+  /**
+   * 옷장에 들인 시각. null 이면 룩 사진에서 뽑혔지만 아직 옷장 밖이라
+   * 옷장 목록에도 안 나온다 — 룩 상세에서 '옷장에 추가'를 눌러야 들어간다.
+   */
+  added_to_closet_at: string | null;
   created_at: string;
 };
 
@@ -293,6 +298,14 @@ export function patchWardrobeItem(
 
 export function deleteWardrobeItem(itemId: string): Promise<unknown> {
   return api.delete(WardrobeEndpoints.item(itemId));
+}
+
+/**
+ * 룩 사진에서 뽑힌 옷을 내 옷장에 들인다.
+ * 서버가 멱등이라 두 번 눌러도 처음 들인 시각이 그대로다.
+ */
+export function addWardrobeItemToCloset(itemId: string): Promise<WardrobeApiItem> {
+  return api.post<WardrobeApiItem>(WardrobeEndpoints.addToCloset(itemId), {});
 }
 
 /** 아이템을 화면에 보여줄 이름 — 서버가 이름을 비워 보낼 수 있다(캡셔닝 실패 등). */

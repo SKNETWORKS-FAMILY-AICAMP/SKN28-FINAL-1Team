@@ -119,6 +119,33 @@ def posts_filtered(
     return queryset
 
 
+def public_posts(*, hashtag: str = "") -> QuerySet[LookbookPost]:
+    """전체 공개된 룩 피드 — 로그인 여부와 무관하게 누구나 보는 목록.
+
+    처리 중이거나 실패한 룩은 내보내지 않는다. 사진에서 옷을 뽑는 도중인 룩은
+    표지도 아이템도 아직 제자리가 아니라, 남에게 보이면 깨진 카드가 된다.
+    """
+
+    queryset = (
+        LookbookPost.objects.filter(
+            is_public=True,
+            status=LookbookStatus.COMPLETED.value,
+        )
+        .select_related("wardrobe_upload_job", "calendar_entry")
+        .prefetch_related(
+            Prefetch(
+                "wardrobe_links",
+                queryset=LookbookWardrobeItem.objects.select_related(
+                    "wardrobe_item"
+                ).order_by("sort_order", "created_at"),
+            ),
+        )
+    )
+    if hashtag:
+        queryset = queryset.filter(hashtags__contains=[hashtag])
+    return queryset
+
+
 def processing_statuses_for_user(*, user) -> QuerySet[LookbookPost]:
     """처리 상태 응답에 필요한 아이템 집계를 포함한 사용자 룩북 QuerySet."""
 
@@ -369,6 +396,7 @@ def create_from_wardrobe(
     hashtags: list[str],
     calendar_date: date | None = None,
     overwrite_calendar: bool = False,
+    is_public: bool = False,
 ) -> LookbookPost:
     """옷장 아이템만 골라 올린 룩북 (사진 없음, 바로 완료 상태)."""
 
@@ -390,6 +418,7 @@ def create_from_wardrobe(
         tpo=tpo,
         hashtags=hashtags,
         skipped_categories=[],
+        is_public=is_public,
         status=LookbookStatus.COMPLETED.value,
     )
     links, destination_keys = _prepare_wardrobe_links(
@@ -442,6 +471,7 @@ def create_from_photo(
     hashtags: list[str],
     calendar_date: date | None = None,
     overwrite_calendar: bool = False,
+    is_public: bool = False,
 ) -> LookbookPost:
     """룩 사진을 올려 만든 룩북. 사진 속 아이템은 비동기로 옷장에 등록된다."""
 
@@ -465,6 +495,7 @@ def create_from_photo(
         tpo=tpo,
         hashtags=hashtags,
         skipped_categories=skipped_categories_for(ordered_items),
+        is_public=is_public,
         status=LookbookStatus.REGISTERED.value,
     )
 
@@ -564,6 +595,16 @@ def mark_queue_enqueue_failed(post: LookbookPost) -> None:
 
 
 # ── 옷장 callback 반영 ────────────────────────────────────
+def is_lookbook_job(*, job: WardrobeUploadJob) -> bool:
+    """이 사진 처리 job 이 룩북에서 시작된 것인가.
+
+    옷장 callback 이 아이템을 만들 때, 룩북에서 온 사진이면 옷장에 바로 넣지 않는다
+    (사용자가 고른 적 없는 옷이라 룩 상세에서 직접 '옷장에 추가'해야 한다).
+    옷장 쪽이 룩북 모델을 직접 import 하지 않도록 판별을 여기 둔다.
+    """
+    return LookbookPost.objects.filter(wardrobe_upload_job=job).exists()
+
+
 def apply_wardrobe_job_success(
     *,
     job: WardrobeUploadJob,

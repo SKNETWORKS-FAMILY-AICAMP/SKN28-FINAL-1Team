@@ -9,7 +9,7 @@ import {
 import { Icon, type IconName } from '@/components/icon';
 import { useMultiSelectFilter } from '@/hooks/useMultiSelectFilter';
 import { useRefresh } from '@/hooks/use-refresh';
-import { LOOKBOOK_FILTER_OPTIONS, useLookbook } from '@/state/lookbook';
+import { LOOKBOOK_FILTER_OPTIONS, lookbookStore, useLookbook } from '@/state/lookbook';
 import { likesStore, useLikedLooks } from '@/state/likes';
 import { savedLookStore, useSavedLooks, useSavedLooksState, type LookOrigin } from '@/state/saved';
 import { router, useLocalSearchParams } from 'expo-router';
@@ -35,9 +35,12 @@ const PAD = GridCard.pad;
 const DEFAULT_TAGS = [...LOOKBOOK_FILTER_OPTIONS];
 
 /**
- * 상단 세그먼트: 둘러보기(남들이 올린 피드) / 내 룩북(내가 모은 것).
- * 저장·좋아요를 세그먼트에 나란히 세우지 않는 이유: 갈림길은 '남의 룩이냐 내 것이냐' 하나이고,
- * 저장과 좋아요는 둘 다 내 것이라 그 아래 층이다. 셋을 한 줄에 두면 검색행도 좁아진다.
+ * 상단 세그먼트: 둘러보기 / 내 룩북.
+ *
+ * - 둘러보기 = **모두가 보는 룩**. 앱이 기본으로 주는 룩과, 사용자가 전체공개한 룩이 여기 모인다.
+ *   내가 담아둔 룩(위시)도 이 안의 카테고리 하나로 둔다 — 담는 대상이 결국 여기 있는 룩이라
+ *   따로 떼어 두면 담으러 갔다가 보러 오는 왕복이 생긴다.
+ * - 내 룩북 = **내가 올린 룩만**. 그래서 갈래도 카테고리도 없다. 목록이 곧 답이다.
  */
 type Mode = 'browse' | 'mine';
 const MODE_OPTIONS: { value: Mode; label: string }[] = [
@@ -45,12 +48,14 @@ const MODE_OPTIONS: { value: Mode; label: string }[] = [
   { value: 'mine', label: '내 룩북' },
 ];
 
-/** '내 룩북' 안의 갈래 — 저장(내가 담아둔 룩) / 좋아요(피드에서 하트 누른 룩) */
-type MineTab = 'saved' | 'liked';
-const MINE_TABS: { value: MineTab; label: string }[] = [
-  { value: 'saved', label: '저장됨' },
-  { value: 'liked', label: '좋아요' },
-];
+/**
+ * 둘러보기의 특별 카테고리 — 해시태그가 아니라 '내가 담아둔 것'이라는 갈래다.
+ * 하트로 담은 룩과 추천에서 저장해 둔 룩이 여기서 한 목록이 된다.
+ */
+const WISH = '위시';
+/* 위시 칩에만 하트를 단다 — 나머지는 해시태그라 성격이 다르고,
+   카드 위 하트와 같은 표식이라 "하트 누른 것들"이라는 뜻이 바로 읽힌다. */
+const CHIP_ICONS = { [WISH]: 'heart.fill' as const };
 
 /** 그리드 카드 공통 형태 — 피드 룩(price 有)·저장 룩(asset 有) 모두 이 형태로 정규화 */
 type CardData = {
@@ -58,14 +63,13 @@ type CardData = {
   uri?: string;
   asset?: number;
   price?: string;
-  /** 좋아요 대상은 피드 룩뿐이다. 저장 룩은 이미 내 것이라 하트를 달지 않는다. */
+  /** 하트를 달 수 있는 룩(=피드 룩)에만 있다. 태그 검색의 대상이기도 하다. */
   tags?: string[];
   /** 피드 룩이 가리키는 룩 상세 */
   variantId?: string;
-  /**
-   * 내 룩북에서만 쓰는 출처 표시 — 앱이 추천해 준 룩과 내가 직접 기록한 룩이
-   * 한 그리드에 섞이므로, 어느 쪽인지 카드에서 바로 읽혀야 한다.
-   */
+  /** 어느 상세로 보낼지 — 피드 룩은 추천 상세, 담아둔 룩은 저장 룩 상세 */
+  kind: 'feed' | 'saved';
+  /** 위시 목록에서만 쓰는 출처 표시. 추천에서 저장한 룩(✨)을 하트로 담은 룩과 가른다. */
   origin?: LookOrigin;
 };
 
@@ -97,63 +101,94 @@ export default function LookbookScreen() {
   const savedLooks = useSavedLooks();
   const likedLooks = useLikedLooks();
 
-  /* 내 룩북은 서버에서 온다. 화면에 들어올 때 한 번 받고, 당겨서 다시 받을 수 있게 한다.
-     '둘러보기' 피드는 서버에 없어서(공개 피드 API 부재) 로컬 시드 그대로다. */
-  const loadSaved = useCallback(() => savedLookStore.load(), []);
+  /* 둘 다 서버에서 온다 — 내 룩북은 내 목록, 둘러보기는 공개 피드.
+     세그먼트를 오갈 때마다 기다리게 하지 않으려고 화면에 들어올 때 함께 받는다. */
   const { loading, error, loaded } = useSavedLooksState();
-  const { refreshing, onRefresh } = useRefresh(loadSaved);
+  const loadAll = useCallback(
+    () => Promise.all([savedLookStore.load(), lookbookStore.load()]).then(() => undefined),
+    [],
+  );
+  const { refreshing, onRefresh } = useRefresh(loadAll);
   useEffect(() => {
-    void loadSaved();
-  }, [loadSaved]);
+    void loadAll();
+  }, [loadAll]);
 
-  // 홈 '저장' 등에서 ?tab=saved 로 진입하면 저장됨 탭이 열린다.
+  // 홈 '저장' 등에서 ?tab=saved 로 들어오던 링크가 아직 있어 'mine' 으로 함께 받는다.
   // 모드는 URL 파라미터에서 파생하고, 세그먼트 전환은 setParams 로 파라미터를 바꾼다
   // (useState+useEffect 동기화는 불필요한 리렌더를 만들어 지양).
   const { tab } = useLocalSearchParams<{ tab?: string }>();
-  const mode: Mode = tab === 'saved' || tab === 'liked' ? 'mine' : 'browse';
-  const mineTab: MineTab = tab === 'liked' ? 'liked' : 'saved';
-  /* '내 룩북'으로 갈 때는 저장됨부터 연다. 홈의 ?tab=saved 링크도 그대로 살아 있다. */
-  const setMode = (m: Mode) => router.setParams({ tab: m === 'mine' ? 'saved' : 'browse' });
-  const setMineTab = (t: MineTab) => router.setParams({ tab: t });
+  const mode: Mode = tab === 'mine' || tab === 'saved' ? 'mine' : 'browse';
+  const setMode = (m: Mode) => router.setParams({ tab: m === 'mine' ? 'mine' : 'browse' });
 
   const [query, setQuery] = useState('');
   const [tags, setTags] = useState(DEFAULT_TAGS);
   const [editOpen, setEditOpen] = useState(false);
   const { toggle, isActive, selected, label, prune } = useMultiSelectFilter();
 
-  const feedLooks = useMemo(
-    () => allLooks.filter((l) => matchesTags(l, selected) && matchesQuery(l, query)),
-    [allLooks, selected, query],
-  );
-  const savedFiltered = useMemo(
-    () => savedLooks.filter((l) => matchesQuery(l, query)),
+  /* 둘러보기 칩 = 전체 + 위시 + 해시태그. 위시는 사용자가 지울 수 없는 고정 칩이라
+     태그 관리(tags)와 따로 두고 여기서만 끼워 넣는다. */
+  const browseOptions = useMemo(() => [tags[0], WISH, ...tags.slice(1)], [tags]);
+  const wishOn = selected.includes(WISH);
+  /** 위시 칩을 뺀 해시태그 선택 — 위시 안에서도 태그로 더 좁힐 수 있다. */
+  const tagSelection = useMemo(() => selected.filter((s) => s !== WISH), [selected]);
+
+  /** 담아둔 룩 = 하트 누른 피드 룩 + 추천에서 저장해 둔 룩(✨). 최근에 담은 것이 앞에 온다. */
+  const wishCards: CardData[] = useMemo(() => {
+    const liked: CardData[] = likedLooks.map((l) => ({
+      id: l.id,
+      uri: l.image,
+      tags: l.tags,
+      /* 상세로 보내려면 variantId 가 필요하다 → 피드에서 다시 찾고, 내려간 룩이면 기본 룩으로. */
+      variantId: allLooks.find((f) => f.id === l.id)?.variantId,
+      kind: 'feed' as const,
+    }));
+    const savedAi: CardData[] = savedLooks
+      .filter((l) => l.origin === 'ai')
+      .map((l) => ({
+        id: l.id,
+        uri: l.image,
+        asset: l.asset,
+        tags: l.tags,
+        origin: l.origin,
+        kind: 'saved' as const,
+      }));
+    return [...liked, ...savedAi].filter(
+      (c) => matchesTags({ tags: c.tags ?? [] }, tagSelection) && matchesQuery({ tags: c.tags ?? [] }, query),
+    );
+  }, [likedLooks, savedLooks, allLooks, tagSelection, query]);
+
+  /** 내 룩북 = 내가 올린 룩만. 추천에서 저장한 룩(✨)은 위시로 갔다. */
+  const mineCards: CardData[] = useMemo(
+    () =>
+      savedLooks
+        .filter((l) => l.origin !== 'ai' && matchesQuery(l, query))
+        .map((l) => ({ id: l.id, uri: l.image, asset: l.asset, kind: 'saved' as const })),
     [savedLooks, query],
   );
 
-  /* 좋아요한 룩은 피드 룩이라 상세로 보내려면 variantId 가 필요하다 → 피드에서 다시 찾는다.
-     피드에서 내려간 룩이면 기본 룩으로 떨어뜨린다. */
-  const likedCards: CardData[] = useMemo(
+  const feedCards: CardData[] = useMemo(
     () =>
-      likedLooks
-        .filter((l) => matchesQuery({ tags: l.tags }, query))
+      allLooks
+        .filter((l) => matchesTags(l, tagSelection) && matchesQuery(l, query))
         .map((l) => ({
           id: l.id,
           uri: l.image,
+          price: l.price,
           tags: l.tags,
-          variantId: allLooks.find((f) => f.id === l.id)?.variantId,
+          variantId: l.variantId,
+          kind: 'feed' as const,
         })),
-    [likedLooks, allLooks, query],
+    [allLooks, tagSelection, query],
   );
 
-  const cards: CardData[] =
-    mode === 'browse'
-      ? feedLooks.map((l) => ({ id: l.id, uri: l.image, price: l.price, tags: l.tags, variantId: l.variantId }))
-      : mineTab === 'liked'
-        ? likedCards
-        : savedFiltered.map((l) => ({ id: l.id, uri: l.image, asset: l.asset, origin: l.origin }));
+  const cards: CardData[] = mode === 'mine' ? mineCards : wishOn ? wishCards : feedCards;
 
-  /** 서버에서 오는 목록을 보고 있는가 — 로딩·에러·당겨서 새로고침은 이 탭에서만 뜬다. */
-  const isSavedTab = mode === 'mine' && mineTab === 'saved';
+  /** 서버에서 오는 목록을 보고 있는가 — 로딩·에러·당겨서 새로고침은 그때만 뜬다. */
+  const usesServer = mode === 'mine' || wishOn;
+
+  /* 상세에서 뒤로 왔을 때 보던 갈래로 돌아오게 한다(위시 칩은 화면 상태라 URL 에 없다 —
+     여기서는 모드까지만 맞춰 준다). */
+  const returnHere = mode === 'mine' ? '/(tabs)/lookbook?tab=mine' : '/(tabs)/lookbook';
 
   const likedIds = useMemo(() => new Set(likedLooks.map((l) => l.id)), [likedLooks]);
   /* 토스트를 띄우지 않는다 — 하트가 그 자리에서 바로 채워지고 비워져 결과가 이미 보인다. */
@@ -162,27 +197,29 @@ export default function LookbookScreen() {
 
   const emptyText = useMemo(() => {
     if (query.trim()) return `'${query.trim()}' 검색 결과가 없어요`;
-    if (mode === 'mine') {
-      return mineTab === 'liked' ? '아직 좋아요한 룩이 없어요' : '아직 저장한 룩이 없어요';
-    }
-    if (label !== '전체') return `'${label}' 태그 룩이 없어요`;
+    if (mode === 'mine') return '아직 올린 룩이 없어요';
+    if (wishOn) return tagSelection.length ? `'${label}' 담아둔 룩이 없어요` : '아직 담아둔 룩이 없어요';
+    if (tagSelection.length) return `'${label}' 태그 룩이 없어요`;
     return '아직 올라온 룩이 없어요';
-  }, [mode, mineTab, query, label]);
+  }, [mode, wishOn, tagSelection, query, label]);
 
   const handleSaveTags = (next: string[]) => {
     setTags(next);
-    prune(next.slice(1));
+    /* 위시는 태그 목록에 없는 고정 칩이라, 태그를 정리해도 선택이 풀리면 안 된다. */
+    prune([WISH, ...next.slice(1)]);
   };
 
   return (
     <View style={styles.container}>
       <SafeAreaView edges={['top']} style={styles.safe}>
         <View style={styles.filterArea}>
+          {/* 내 룩북은 내가 올린 룩만 있어 카테고리가 필요 없다 — 칩 줄을 통째로 감춘다. */}
           <SearchFilterBar
             query={query}
             onQueryChange={setQuery}
             searchPlaceholder="해시태그 검색"
-            options={tags}
+            options={browseOptions}
+            chipIcons={CHIP_ICONS}
             onToggle={toggle}
             isActive={isActive}
             showChips={mode === 'browse'}
@@ -191,60 +228,41 @@ export default function LookbookScreen() {
               <SegmentedToggle value={mode} options={MODE_OPTIONS} onChange={setMode} />
             }
           />
-          {/* 해시태그 칩이 비는 자리에 '내 룩북'의 갈래를 놓는다 — 줄이 새로 생기지 않는다 */}
-          {mode === 'mine' ? (
-            <View style={styles.mineTabs}>
-              {MINE_TABS.map((t) => {
-                const on = t.value === mineTab;
-                const count = t.value === 'liked' ? likedLooks.length : savedLooks.length;
-                return (
-                  <Pressable
-                    key={t.value}
-                    style={[styles.mineChip, on && styles.mineChipOn]}
-                    onPress={() => setMineTab(t.value)}>
-                    <Text style={[styles.mineChipText, on && styles.mineChipTextOn]}>
-                      {t.label}
-                      {count > 0 ? ` ${count}` : ''}
-                    </Text>
-                  </Pressable>
-                );
-              })}
-            </View>
-          ) : null}
         </View>
 
         <ScrollView
           style={styles.gridScroll}
           showsVerticalScrollIndicator={false}
           refreshControl={
-            isSavedTab ? (
+            usesServer ? (
               <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={INK} />
             ) : undefined
           }
           contentContainerStyle={[styles.grid, { paddingBottom: 24 }, contentStyle(ContentMax.wide)]}>
-          {isSavedTab && loading && !loaded ? (
+          {usesServer && loading && !loaded ? (
             <LoadingState message="룩북을 불러오는 중…" style={styles.empty} />
-          ) : isSavedTab && error && savedLooks.length === 0 ? (
+          ) : usesServer && error && savedLooks.length === 0 ? (
             <ErrorState
               title="룩북을 불러오지 못했어요"
               description={error}
-              onRetry={() => void loadSaved()}
+              onRetry={() => void loadAll()}
               style={styles.empty}
             />
           ) : cards.length === 0 ? (
             <View style={styles.empty}>
               <Text style={styles.emptyText}>{emptyText}</Text>
-              {mode === 'browse' ? (
+              {mode === 'mine' ? (
                 <Pressable style={styles.emptyBtn} onPress={() => router.push('/look-add')}>
-                  <Text style={styles.emptyBtnText}>내 룩 올리기</Text>
+                  <Text style={styles.emptyBtnText}>첫 룩 올리기</Text>
                 </Pressable>
-              ) : mineTab === 'liked' ? (
-                <Pressable style={styles.emptyBtn} onPress={() => setMode('browse')}>
+              ) : wishOn ? (
+                /* 담을 것이 없으면 담으러 갈 곳으로 — 위시 칩을 끄면 그 자리가 둘러보기다. */
+                <Pressable style={styles.emptyBtn} onPress={() => toggle(WISH)}>
                   <Text style={styles.emptyBtnText}>둘러보며 마음에 드는 룩 찾기</Text>
                 </Pressable>
               ) : (
                 <Pressable style={styles.emptyBtn} onPress={() => router.push('/look-add')}>
-                  <Text style={styles.emptyBtnText}>첫 룩 올리기</Text>
+                  <Text style={styles.emptyBtnText}>내 룩 올리기</Text>
                 </Pressable>
               )}
             </View>
@@ -253,16 +271,13 @@ export default function LookbookScreen() {
               <Pressable
                 key={c.id}
                 style={[styles.card, { width: cardW }]}
-                /* 저장 룩은 저장 상세로, 피드 룩은 그 룩의 추천 상세로 보낸다.
-                   둘 다 어느 것을 눌렀는지 id 로 넘긴다. */
+                /* 담아둔 룩은 저장 상세로, 피드 룩은 그 룩의 추천 상세로 보낸다.
+                   돌아올 자리는 지금 보고 있던 갈래 그대로여야 한다. */
                 onPress={() =>
                   router.push(
-                    mode === 'mine' && mineTab === 'saved'
-                      ? withReturn(`/saved-look?id=${c.id}`, '/(tabs)/lookbook?tab=saved')
-                      : withReturn(
-                          `/look-detail?id=${c.variantId ?? 'daily'}`,
-                          mode === 'mine' ? '/(tabs)/lookbook?tab=liked' : '/(tabs)/lookbook',
-                        ),
+                    c.kind === 'saved'
+                      ? withReturn(`/saved-look?id=${c.id}`, returnHere)
+                      : withReturn(`/look-detail?id=${c.variantId ?? 'daily'}`, returnHere),
                   )
                 }>
                 <View style={[styles.cardImage, { height: cardH }]}>
@@ -287,8 +302,9 @@ export default function LookbookScreen() {
                       <Icon name={ORIGIN_BADGE[c.origin].icon} tintColor={INK} size={15} />
                     </View>
                   ) : null}
-                  {/* 좋아요 — 피드 룩에만. 저장 룩은 이미 내 것이라 누를 대상이 아니다. */}
-                  {c.tags ? (
+                  {/* 하트는 피드 룩에만 단다. 저장 룩(✨)에 달면 저장 룩 id 로 좋아요가 따로 생겨
+                      같은 룩이 위시 목록에 두 번 서게 된다 — 빼는 길은 저장 룩 상세에 있다. */}
+                  {c.kind === 'feed' && c.tags ? (
                     <Pressable
                       style={styles.likeBtn}
                       hitSlop={8}
@@ -316,15 +332,13 @@ export default function LookbookScreen() {
           onSave={handleSaveTags}
         />
 
-        {/* 올린 룩은 내 룩북(저장됨)에 쌓이므로 좋아요 탭에서는 내놓지 않는다 */}
-        {mode === 'browse' || mineTab === 'saved' ? (
-          <Pressable
-            style={[styles.addFab, { bottom: 12 }]}
-            onPress={() => router.push('/look-add')}
-            accessibilityLabel="룩 올리기">
-            <Icon name="plus" tintColor={INK} size={22} />
-          </Pressable>
-        ) : null}
+        {/* 올리기는 어느 갈래에서든 같은 자리에 있다 — 결과는 늘 내 룩북에 쌓인다. */}
+        <Pressable
+          style={[styles.addFab, { bottom: 12 }]}
+          onPress={() => router.push('/look-add')}
+          accessibilityLabel="룩 올리기">
+          <Icon name="plus" tintColor={INK} size={22} />
+        </Pressable>
       </SafeAreaView>
     </View>
   );
@@ -364,20 +378,6 @@ const styles = StyleSheet.create({
     borderRadius: 999,
   },
   priceText: { fontSize: 12, fontWeight: '700', color: INK },
-  /* 검색행 바로 아래 — 해시태그 칩과 같은 크기·간격이라 자리가 튀지 않는다 */
-  mineTabs: { flexDirection: 'row', gap: 8, paddingHorizontal: PAD, paddingBottom: 20 },
-  mineChip: {
-    height: 36,
-    paddingHorizontal: 15,
-    borderRadius: 999,
-    borderWidth: 1,
-    borderColor: ink(0.12),
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  mineChipOn: { backgroundColor: Editorial.selected, borderColor: Editorial.selected },
-  mineChipText: { fontSize: 13, lineHeight: 18, color: Editorial.textCaption, fontWeight: '500' },
-  mineChipTextOn: { color: '#fff' },
 
   likeBtn: {
     position: 'absolute',

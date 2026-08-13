@@ -5,6 +5,7 @@ from apps.lookbook.views import (
     LookbookListView,
     LookbookPhotoCreateView,
     LookbookProcessingStatusView,
+    LookbookPublicFeedView,
     LookbookWardrobeCreateView,
 )
 
@@ -21,6 +22,9 @@ urlpatterns = [
         LookbookWardrobeCreateView.as_view(),
         name="lookbook-wardrobe-create",
     ),
+    # 공개 피드는 <uuid> 상세보다 먼저 와야 한다 — 'public' 이 uuid 로 안 잡히긴 하지만
+    # 읽는 사람 눈에도 목록 계열이 나란히 있는 편이 낫다.
+    path("lookbooks/public/", LookbookPublicFeedView.as_view(), name="lookbook-public"),
     path("lookbooks/", LookbookListView.as_view(), name="lookbook-list"),
     path(
         "lookbooks/<uuid:lookbook_id>/",

@@ -4,6 +4,7 @@ from apps.wardrobe.views import (
     WardrobeBatchDetailView,
     WardrobeBatchView,
     WardrobeCallbackView,
+    WardrobeItemAddToClosetView,
     WardrobeItemDetailView,
     WardrobeItemListView,
     WardrobeUploadJobView,
@@ -23,4 +24,10 @@ urlpatterns = [
     # 옷장 아이템 조회·수정·삭제
     path("wardrobe/items/", WardrobeItemListView.as_view(), name="items"),
     path("wardrobe/items/<uuid:item_id>/", WardrobeItemDetailView.as_view(), name="item-detail"),
+    # 룩 사진에서 뽑힌 옷을 옷장에 들이기
+    path(
+        "wardrobe/items/<uuid:item_id>/add-to-closet/",
+        WardrobeItemAddToClosetView.as_view(),
+        name="item-add-to-closet",
+    ),
 ]

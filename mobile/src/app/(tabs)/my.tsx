@@ -88,7 +88,7 @@ export default function MyScreen() {
         },
         {
           icon: 'heart',
-          label: '위시리스트',
+          label: '찜한 상품',
           hint: wishlist.length > 0 ? `${wishlist.length}개` : '담은 상품 없음',
           onPress: () => router.push('/wishlist'),
         },

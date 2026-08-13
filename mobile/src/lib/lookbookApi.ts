@@ -29,6 +29,8 @@ export type LookbookWardrobeItem = {
   /** 사진에서 뽑은 옷인지, 사용자가 직접 고른 옷인지 */
   link_type: string;
   image_url: string;
+  /** 이 옷이 옷장에 들어 있는 시각. null 이면 아직 옷장 밖 — '옷장에 추가'를 그린다. */
+  added_to_closet_at: string | null;
   sort_order: number;
   snapshot: {
     s3_key?: string;
@@ -53,6 +55,8 @@ export type LookbookPostDto = {
   /** 사용자가 직접 고른 옷과 겹쳐 사진에서 다시 뽑지 않은 대분류 */
   skipped_categories: string[];
   status: LookbookStatus;
+  /** 켜져 있으면 앱 사용자 전체가 둘러보기에서 본다. */
+  is_public: boolean;
   /** 캘린더에도 남긴 룩이면 그 날짜가 온다. 상세는 캘린더 쪽에서 따로 조회한다. */
   calendar: { id?: string; date?: string } | null;
   wardrobe_items: LookbookWardrobeItem[];
@@ -87,6 +91,8 @@ export type LookbookMetadata = {
   schedule?: string;
   tpo?: string[];
   hashtags?: string[];
+  /** 켜면 앱 사용자 전체가 둘러보기에서 본다. 룩북에 친구 단위 공유는 없다. */
+  isPublic?: boolean;
 };
 
 /**
@@ -138,10 +144,30 @@ export function createLookbookFromWardrobe(
     schedule: input.schedule ?? '',
     tpo: input.tpo ?? [],
     hashtags: input.hashtags ?? [],
+    is_public: input.isPublic ?? false,
     ...(input.calendarDate
       ? { calendar_date: input.calendarDate, overwrite_calendar: input.overwriteCalendar ?? false }
       : null),
   });
+}
+
+/**
+ * 전체 공개된 룩 피드 — 앱 '둘러보기'가 읽는 목록.
+ * 앱이 기본으로 주는 룩과 사용자가 공개한 룩이 함께 온다. 비회원도 볼 수 있다.
+ */
+export function listPublicLookbooks(params?: {
+  hashtag?: string;
+  limit?: number;
+  offset?: number;
+}): Promise<LookbookListResponse> {
+  const query = new URLSearchParams();
+  if (params?.hashtag) query.set('hashtag', params.hashtag);
+  if (params?.limit !== undefined) query.set('limit', String(params.limit));
+  if (params?.offset !== undefined) query.set('offset', String(params.offset));
+  const qs = query.toString();
+  return api.get<LookbookListResponse>(
+    qs ? `${LookbookEndpoints.publicFeed}?${qs}` : LookbookEndpoints.publicFeed,
+  );
 }
 
 /**
@@ -208,7 +234,14 @@ export function patchLookbook(
   lookbookId: string,
   patch: LookbookMetadata,
 ): Promise<LookbookPostDto> {
-  return api.patch<LookbookPostDto>(LookbookEndpoints.detail(lookbookId), patch);
+  /* 서버는 선언한 필드만 받고 낯선 키가 오면 400 이다(StrictObjectInputMixin).
+     그래서 보낼 것만 골라 담고, 이름이 다른 isPublic 은 여기서 바꿔 준다. */
+  const body: Record<string, unknown> = {};
+  if (patch.schedule !== undefined) body.schedule = patch.schedule;
+  if (patch.tpo !== undefined) body.tpo = patch.tpo;
+  if (patch.hashtags !== undefined) body.hashtags = patch.hashtags;
+  if (patch.isPublic !== undefined) body.is_public = patch.isPublic;
+  return api.patch<LookbookPostDto>(LookbookEndpoints.detail(lookbookId), body);
 }
 
 /** 처리 중인 룩은 서버가 409 로 막는다. */
@@ -233,6 +266,7 @@ function appendPhotoFields(
   input.wardrobeItemIds?.forEach((id) => form.append('wardrobe_item_ids', id));
   input.tpo?.forEach((value) => form.append('tpo', value));
   input.hashtags?.forEach((value) => form.append('hashtags', value));
+  form.append('is_public', input.isPublic ? 'true' : 'false');
   if (input.calendarDate) {
     form.append('calendar_date', input.calendarDate);
     form.append('overwrite_calendar', input.overwriteCalendar ? 'true' : 'false');

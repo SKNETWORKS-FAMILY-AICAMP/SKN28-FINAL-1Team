@@ -11,6 +11,7 @@ from unittest.mock import patch
 
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import TestCase
+from django.utils import timezone
 from PIL import Image
 from rest_framework.test import APIClient
 
@@ -85,6 +86,7 @@ class LookbookApiTestCase(TestCase):
             category_large="상의",
             category_small="티셔츠",
             confirmed=True,
+            added_to_closet_at=timezone.now(),
         )
         self.bottom = WardrobeItem.objects.create(
             user=self.user,
@@ -94,6 +96,7 @@ class LookbookApiTestCase(TestCase):
             category_large="하의",
             category_small="슬랙스",
             confirmed=True,
+            added_to_closet_at=timezone.now(),
         )
         self.other_item = WardrobeItem.objects.create(
             user=self.other_user,
@@ -102,4 +105,5 @@ class LookbookApiTestCase(TestCase):
             item_name="다른 사용자 옷",
             category_large="상의",
             confirmed=True,
+            added_to_closet_at=timezone.now(),
         )
