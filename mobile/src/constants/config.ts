@@ -227,6 +227,8 @@ export const WardrobeEndpoints = {
   uploadJob: (jobId: string) => `/api/v1/wardrobe/uploads/${jobId}/`,
   items: '/api/v1/wardrobe/items/',
   item: (itemId: string) => `/api/v1/wardrobe/items/${itemId}/`,
+  /* 룩 사진에서 뽑혀 아직 옷장 밖에 있는 옷을 옷장에 들인다(멱등). */
+  addToCloset: (itemId: string) => `/api/v1/wardrobe/items/${itemId}/add-to-closet/`,
   batches: '/api/v1/wardrobe/batches/',
   batch: (batchId: string) => `/api/v1/wardrobe/batches/${batchId}/`,
 } as const;
@@ -292,6 +294,8 @@ export const BudgetEndpoint = '/api/v1/users/me/budget/';
 
 export const LookbookEndpoints = {
   list: '/api/v1/lookbooks/',
+  /* 전체 공개된 룩 — 앱 '둘러보기'가 읽는 목록. 비회원도 볼 수 있다. */
+  publicFeed: '/api/v1/lookbooks/public/',
   photo: '/api/v1/lookbooks/photo/',
   wardrobe: '/api/v1/lookbooks/wardrobe/',
   detail: (lookbookId: string) => `/api/v1/lookbooks/${lookbookId}/`,

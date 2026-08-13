@@ -35,6 +35,12 @@ export type EntryItem = {
   image?: string;
   /** 친구 옷장에서 가져온 옷의 주인 */
   owner?: string;
+  /**
+   * 이 옷이 내 옷장에 들어 있는가.
+   * 룩 사진에서 뽑힌 옷은 사용자가 '옷장에 추가'를 누르기 전까지 false 다 —
+   * 그때만 룩 상세가 추가 버튼을 그린다. (서버 added_to_closet_at)
+   */
+  inCloset?: boolean;
 };
 
 export type CalendarEntry = {
