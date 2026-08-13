@@ -56,6 +56,7 @@ SKN28-FINAL-1Team/
 │   ├── weather/           # 기상청 APIHub 수집
 │   └── naver/             # 네이버 쇼핑 상품 수집 + LLM 태깅
 ├── indexer/               # 임베딩 → Qdrant 적재 GPU worker (util/ 공용 · product_indexer/ 운영 · old/ 레거시)
+│                          # product_indexer/text_embedding_api.py: 채팅 질의문 → BGE-M3 벡터 HTTP API
 ├── ml/                    # 모델 학습·추론 코드 (예정)
 ├── scripts/               # 배포·데이터 처리 스크립트
 └── docs/                  # 설계·아키텍처 문서
