@@ -4,7 +4,8 @@ from __future__ import annotations
 
 import hashlib
 import json
-from dataclasses import dataclass
+import logging
+from dataclasses import dataclass, replace
 from typing import Any
 
 from django.conf import settings
@@ -35,8 +36,10 @@ from apps.recommend.services.retriever import (
     GoldenOutfitRetriever,
     OutfitCandidate,
     RetrievalRequest,
+    RetrievalResult,
     normalize_presentation_groups,
 )
+from apps.recommend.services.text_embedding import TextEmbeddingConfigurationError
 from apps.recommend.services.validator import OutfitValidator, ValidationContext
 from apps.recommend.services.wardrobe_composer import (
     WardrobeCompositionRequest,
@@ -48,12 +51,17 @@ class ChatRecommendationError(RuntimeError):
     code = "CHAT_RECOMMENDATION_FAILED"
 
 
+logger = logging.getLogger(__name__)
+
+
 class GoldenOutfitNotFound(ChatRecommendationError):
     code = "GOLDEN_OUTFIT_NOT_FOUND"
 
 
 class OutfitCompositionFailed(ChatRecommendationError):
     code = "OUTFIT_COMPOSITION_FAILED"
+
+
 
 
 @dataclass(frozen=True)
@@ -80,6 +88,35 @@ class ChatRecommendationPipeline:
         self.new_item_composer = new_item_composer or NewItemOutfitComposer()
         self.validator = validator or OutfitValidator()
 
+    def _retrieve_golden(self, request: RetrievalRequest) -> RetrievalResult:
+        """골든 코디를 찾는다. 질의 임베딩을 못 쓰면 필터 검색으로 내려간다.
+
+        채팅은 항상 질의문을 넘기므로 리트리버가 텍스트 검색 모드를 고르고, 그러려면 외부
+        임베딩 서비스(TEXT_EMBEDDING_API_URL)가 있어야 한다. 그 설정이 비어 있으면
+        TextEmbeddingConfigurationError 가 나는데, 이건 RuntimeError 라서 아래 후보 루프의
+        `except (ValueError, RuntimeError)` 에도 걸리지 않고 그대로 run 을 죽인다.
+        그러면 "채팅 추천 처리 중 내부 오류" 한 줄만 남고, 워커는 해결될 리 없는 요청을
+        두 번 더 재시도한다.
+
+        임베딩이 없어도 추천을 아예 못 하는 것은 아니다. query_text 를 비우면 리트리버가
+        필터 검색으로 동작하고, 체형·추구미·성별·계절 조건은 그대로 살아 있다. 의미 검색이
+        빠져 문장의 뉘앙스 반영은 약해지지만, 핵심 기능이 외부 서비스 하나 때문에 통째로
+        멈추는 것보다는 낫다는 판단이다.
+
+        ⚠️ 이건 바닥이지 대체가 아니다. 임베딩 서비스가 설정되면 이 경로는 자동으로 쓰이지
+           않는다. 이 경로를 탔는지는 로그와 결과의 search_mode('filter')로 확인한다.
+        ⚠️ 설정이 **없는** 경우만 내려간다. 서비스가 있는데 일시적으로 실패한 것이라면
+           그대로 올려보내 재시도되게 둔다 — 잠깐의 장애 때문에 추천 품질을 낮추지 않는다.
+        """
+        try:
+            return self.golden_retriever.retrieve(request)
+        except TextEmbeddingConfigurationError:
+            logger.warning(
+                "질의 임베딩 설정이 없어 골든 코디를 필터 검색으로 찾는다 "
+                "(TEXT_EMBEDDING_API_URL·TEXT_EMBEDDING_API_TOKEN 미설정)"
+            )
+            return self.golden_retriever.retrieve(replace(request, query_text=""))
+
     def execute(
         self,
         *,
@@ -104,7 +141,7 @@ class ChatRecommendationPipeline:
 
         pursuit = self._merged_pursuit(context, analysis)
         body = build_profile(context.get("profile", {}).get("body"))
-        retrieval = self.golden_retriever.retrieve(
+        retrieval = self._retrieve_golden(
             RetrievalRequest(
                 body=body,
                 pursuit=pursuit,
