@@ -48,6 +48,17 @@ def validate_selected_persona_ids(value: object) -> None:
         )
 
 
+def validate_member_last_selected_persona_ids(value: object) -> None:
+    """회원 마지막 선택은 유효한 스타일리스트를 최소 1명 포함해야 한다."""
+
+    validate_selected_persona_ids(value)
+    catalog = load_stylist_personas()
+    if len(value) < catalog.min_select:
+        raise ValidationError(
+            f"회원 마지막 선택에는 스타일리스트가 최소 {catalog.min_select}명 필요합니다."
+        )
+
+
 class PersonaProfile(models.Model):
     """버전이 고정된 채팅 스타일리스트 페르소나 설정."""
 
@@ -213,6 +224,58 @@ class ChatIdentity(models.Model):
             and self.expires_at is not None
             and self.expires_at > timezone.now()
         )
+
+
+class MemberStylistSelection(models.Model):
+    """회원의 새 채팅방에서 복원할 마지막 스타일리스트 선택."""
+
+    user = models.OneToOneField(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        primary_key=True,
+        related_name="stylist_selection",
+        db_comment="마지막 스타일리스트 선택을 저장한 회원 FK (users.id, 회원당 1행)",
+    )
+    last_selected_persona_ids = models.JSONField(
+        blank=True,
+        validators=[validate_member_last_selected_persona_ids],
+        db_comment=(
+            "회원이 마지막으로 선택한 스타일리스트 ID JSON 배열 "
+            "(minimal/experimental/practical, 고정 순서, 1~3개)"
+        ),
+    )
+    created_at = models.DateTimeField(
+        auto_now_add=True,
+        db_comment="회원 스타일리스트 선택값 최초 생성 시각",
+    )
+    updated_at = models.DateTimeField(
+        auto_now=True,
+        db_comment="회원 스타일리스트 선택값 마지막 변경 시각",
+    )
+
+    class Meta:
+        db_table = "member_stylist_selection"
+        db_table_comment = "회원별 마지막 선택형 스타일리스트 ID와 변경 시각"
+        constraints = [
+            models.CheckConstraint(
+                condition=~Q(last_selected_persona_ids=[]),
+                name="ck_member_stylist_ids_not_empty",
+            ),
+        ]
+
+    def clean(self) -> None:
+        super().clean()
+        try:
+            validate_member_last_selected_persona_ids(
+                self.last_selected_persona_ids
+            )
+        except ValidationError as exc:
+            raise ValidationError(
+                {"last_selected_persona_ids": exc.messages}
+            ) from exc
+
+    def __str__(self) -> str:
+        return f"member-stylist-selection {self.user_id}"
 
 
 class ChatSession(models.Model):
