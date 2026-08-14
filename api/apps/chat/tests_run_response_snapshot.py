@@ -4,17 +4,17 @@ from django.contrib.auth import get_user_model
 from django.core.exceptions import ValidationError
 from django.test import TestCase
 
-from apps.chat.models import ChatRun, ChatSession
+from apps.chat.models import ChatMessage, ChatRun, ChatSession
 from apps.chat.services import identity as identity_service
-from apps.chat.services import orchestrator, sessions
+from apps.chat.services import orchestrator, response_modes, sessions
 
 User = get_user_model()
 
 
 class ChatRunResponseSnapshotTests(TestCase):
     def setUp(self) -> None:
-        user = User.objects.create_user(username="run-snapshot-member")
-        self.identity = identity_service.get_or_create_member_identity(user)
+        self.user = User.objects.create_user(username="run-snapshot-member")
+        self.identity = identity_service.get_or_create_member_identity(self.user)
         self.session = sessions.create_session(
             identity=self.identity,
             mode=ChatSession.Mode.WARDROBE_BASED,
@@ -72,6 +72,54 @@ class ChatRunResponseSnapshotTests(TestCase):
         self.assertEqual(run.response_mode, ChatSession.ResponseMode.STYLIST)
         self.assertEqual(run.persona_ids, ["minimal"])
         self.assertEqual(run.persona_versions, {"minimal": 1})
+
+    def test_response_mode_api_service_change_does_not_mutate_submitted_run(
+        self,
+    ) -> None:
+        response_modes.update_session_response_mode(
+            user=self.user,
+            identity=self.identity,
+            session_id=self.session.pk,
+            response_mode=ChatSession.ResponseMode.STYLIST,
+            selected_persona_ids=["minimal", "practical"],
+        )
+        _message, _message_created, run, _run_created = self._submit(
+            "mode-boundary-message"
+        )
+
+        response_modes.update_session_response_mode(
+            user=self.user,
+            identity=self.identity,
+            session_id=self.session.pk,
+            response_mode=ChatSession.ResponseMode.DEFAULT,
+        )
+        run.refresh_from_db()
+
+        self.assertEqual(run.response_mode, ChatSession.ResponseMode.STYLIST)
+        self.assertEqual(run.persona_ids, ["minimal", "practical"])
+        self.assertEqual(
+            list(run.persona_executions.values_list("persona_id", flat=True)),
+            ["minimal", "practical"],
+        )
+
+    def test_invalid_snapshot_rolls_back_the_user_message(self) -> None:
+        initial_message_count = self.session.messages.count()
+        ChatSession.objects.filter(pk=self.session.pk).update(
+            response_mode=ChatSession.ResponseMode.STYLIST,
+            selected_persona_ids=["unknown"],
+        )
+
+        with self.assertRaises(orchestrator.ChatRunInvalid):
+            self._submit("invalid-snapshot-message")
+
+        self.assertEqual(self.session.messages.count(), initial_message_count)
+        self.assertFalse(
+            ChatMessage.objects.filter(
+                session=self.session,
+                client_message_id="invalid-snapshot-message",
+            ).exists()
+        )
+        self.assertFalse(ChatRun.objects.filter(session=self.session).exists())
 
     def test_duplicate_message_returns_original_run_snapshot(self) -> None:
         self.session.response_mode = ChatSession.ResponseMode.STYLIST
