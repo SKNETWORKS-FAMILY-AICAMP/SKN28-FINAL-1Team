@@ -229,9 +229,10 @@
 | 4 | S3 → 컨테이너 로컬`media/` 저장                                       | `storage.py:23` `IS_LOCAL`, `:43-48`, `:60`   | 낮음~중간.`IS_LOCAL = not BUCKET or DEBUG or AUTO_LOGIN_ENABLED` **조건부 폴백**이라 `WARDROBE_S3_BUCKET`이 설정되고 DEBUG가 꺼진 prod에서는 S3를 정상 사용한다. 무조건 치환이 아니다                                                             |
 | 5 | 로컬 모드에서 워커 큐 우회, 즉시`DONE`                                 | `api/apps/wardrobe/views.py:66-84`                  | 중간. Celery/Redis 비동기 경로가**한 번도 실전 검증되지 않았다.** 프로덕션 첫 배포에서 처음 돌아가는 코드가 된다                                                                                                                                      |
 
-| 6 | **앱에서 모든 사진 등록에 `skip_processing` 강제** (2026-08-13 추가) | `mobile/src/app/item-add.tsx` `LOCAL_SKIP_IMAGE_PROCESSING` | **높음.** 켠 채 배포하면 모든 사진이 태깅·임베딩 없이 `confirmed=True`로 들어가 추천 검색에 안 잡힌다. 로컬에 옷장 태깅 GPU 워커가 없어 job이 영원히 PENDING이라, 공유 옷장을 시험할 옷을 만들려고 켰다. **되돌리기: 상수를 `false`로** |
+| 6 | ~~**앱에서 모든 사진 등록에 `skip_processing` 강제**~~ (2026-08-13 추가) | ~~`mobile/src/app/item-add.tsx` `LOCAL_SKIP_IMAGE_PROCESSING`~~ | ✅ **2026-08-14 원복 완료.** 상수와 사용처를 통째로 삭제했다. 이제 앨범·카메라 사진은 정상적으로 큐(GPU image-processor)를 탄다. 카탈로그에서 고른 상품컷만 `skipProcessing`을 쓴다 — 그건 원래 설계다 |
+| 7 | ~~**메인 API가 Gemini를 직접 동기 호출해 태깅**~~ (2026-08-13 추가) | ~~`api/apps/wardrobe/views.py` `_tag_locally_with_gemini`, `docker-compose.yml` `LOCAL_GEMINI_TAGGING`~~ | ✅ **2026-08-14 원복 완료.** 게이트 함수·태깅 함수·카테고리 별칭표·업로드뷰 호출부·compose 항목·`.env.example` 줄·해당 테스트까지 전부 삭제했다. ⚠️ `api/apps/wardrobe/services/gemini.py` 와 `storage.download_to_tempfile()` 은 **호출부가 사라져 지금은 미사용 상태**로 남아 있다 (다른 용도로 쓸 계획이 없으면 정리 대상) |
 
-**남은 우선순위**: **6번(사진 처리 우회 — 켜져 있음)** → 2번(DEBUG 목 멤버) → 5번(워커 큐 우회) → 3번 → 4번 순.
+**남은 우선순위**: 2번(DEBUG 목 멤버) → 5번(워커 큐 우회) → 3번 → 4번 순. **6·7번은 원복 완료.**
 
 ### 6.0 환경 설정 원칙 (2026-08-11 확정)
 

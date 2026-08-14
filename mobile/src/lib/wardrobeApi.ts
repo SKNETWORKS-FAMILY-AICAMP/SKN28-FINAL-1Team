@@ -158,8 +158,12 @@ function parseUploadResponse(res: {
   }
 
   if (res.status < 200 || res.status >= 300) {
-    const detail = (data as { detail?: string } | null)?.detail;
-    throw new ApiError(detail ?? `업로드 실패 (${res.status})`, res.status, data);
+    const payload = data as Record<string, unknown> | null;
+    const fieldError = payload
+      ? Object.values(payload).flat().find((value) => typeof value === 'string')
+      : null;
+    const detail = typeof payload?.detail === 'string' ? payload.detail : null;
+    throw new ApiError(detail ?? (fieldError as string | null) ?? `업로드 실패 (${res.status})`, res.status, data);
   }
 
   return data as { job_id: string; status: UploadJobStatus };

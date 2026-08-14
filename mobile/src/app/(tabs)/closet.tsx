@@ -1,6 +1,4 @@
 import {
-  createSharedSpace,
-  joinSharedSpace,
   SharedSpaceInviteBanner,
   SharedSpaceInviteSheet,
   SharedSpaceJoinSheet,
@@ -583,12 +581,18 @@ export default function ClosetScreen() {
                 새 옷장
               </Text>
             </Pressable>
+            {/* '코드로 참여'는 멤버 줄의 [초대] 옆 입력칸으로 옮겼다 —
+                가로 스크롤 끝에 묻혀 있어 눈에 띄지 않았다. */}
           </ScrollView>
         ) : null}
 
         {tab === 'shared' && sharedSpace ? (
           <>
-            <SharedSpaceMembers space={sharedSpace} onInvite={() => setInviteOpen(true)} />
+            <SharedSpaceMembers
+              space={sharedSpace}
+              onInvite={() => setInviteOpen(true)}
+              onJoin={handleJoinSpace}
+            />
             {sharedSpace.members.length <= 1 ? (
               <SharedSpaceInviteBanner onInvite={() => setInviteOpen(true)} />
             ) : null}

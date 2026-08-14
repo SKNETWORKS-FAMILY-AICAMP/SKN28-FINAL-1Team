@@ -39,7 +39,7 @@ from .serializers import (
     WardrobeJobSerializer,
     WardrobeUploadSerializer,
 )
-from .services import gemini, jobs, storage, vectors
+from .services import jobs, storage, vectors
 from . import taxonomy as T
 
 logger = logging.getLogger(__name__)
@@ -205,75 +205,6 @@ class WardrobeBatchDetailView(APIView):
         return Response(_batch_data(batch))
 
 
-def _local_gemini_tagging_enabled() -> bool:
-    """🚨 임시 로컬 개조 (명세 §6-7) — 기본 꺼짐. `LOCAL_GEMINI_TAGGING=1` 로만 켠다.
-
-    로컬에는 옷장 태깅 GPU 워커(image-processor)가 없다. 그래서 사진을 올리면 job 이
-    영원히 PENDING 이고 옷장에 옷이 한 벌도 안 생겨 공유 옷장·추천을 시험할 수 없다.
-    임시로 **메인 API 가 Gemini 를 직접 동기 호출**해 태그를 채운다.
-
-    ⚠️ 이 경로는 팀 표준이 아니다. 표준은 GPU image-processor 가
-    세그멘테이션 → 캡셔닝 → FashionSigLIP 임베딩까지 하고 콜백으로 돌려주는 것이다.
-    여기서는 **세그멘테이션도 임베딩도 하지 않는다** — Qdrant 에 벡터가 안 들어가므로
-    이렇게 만든 옷은 코디 추천 검색에 잡히지 않는다.
-
-    되돌리기: 환경변수를 지운다 (코드를 그대로 둬도 기본값이 꺼짐).
-    """
-    return os.getenv("LOCAL_GEMINI_TAGGING", "") == "1"
-
-
-def _tag_locally_with_gemini(user, job, key: str):
-    """🚨 임시 (명세 §6-7). 방금 저장한 원본을 Gemini 로 태깅해 확정 아이템을 만든다.
-
-    Returns: 만든 WardrobeItem. 조건이 안 맞거나 실패하면 None (호출부가 원래 큐 경로로 보낸다).
-    """
-    image_path = ""
-    try:
-        image_path = storage.download_to_tempfile(key)
-        tags = gemini.analyze_clothing_image(image_path)
-    except Exception as exc:  # noqa: BLE001
-        logger.exception("Gemini 즉시 태깅 실패: job=%s", job.pk)
-        raise gemini.GeminiAnalysisError("Gemini 이미지 처리에 실패했습니다.") from exc
-    finally:
-        if image_path and os.path.exists(image_path):
-            os.remove(image_path)
-
-    # Gemini 프롬프트의 분류 어휘가 우리 taxonomy 와 완전히 같지 않다
-    # (예: '원피스' vs '원피스/세트', '패션잡화' vs '액세서리'). 어긋난 값은 버린다 —
-    # 잘못된 값이 들어가면 추천 필터·시리얼라이저가 조용히 어긋난다.
-    category_large = tags.get("category_large", "")
-    if category_large not in T.CATEGORY_LARGE:
-        category_large = _GEMINI_CATEGORY_ALIASES.get(category_large, "상의")
-    category_small = tags.get("category_small", "")
-    if category_small not in T.CATEGORY_SMALL.get(category_large, ()):
-        category_small = ""
-    color = tags.get("color", "")
-    if color not in T.COLORS:
-        color = ""
-
-    return WardrobeItem.objects.create(
-        user=user,
-        job=job,
-        s3_key=key,
-        item_name=(tags.get("item_name") or "")[:120],
-        category_large=category_large,
-        category_small=category_small,
-        color=color,
-        confirmed=True,
-        added_to_closet_at=timezone.now(),
-        # 나중에 진짜 태깅된 옷과 구분하려고 흔적을 남긴다.
-        seg_meta={"processing": "gemini-direct", "source": "local-temp", "embedding": "none"},
-    )
-
-
-#: Gemini 프롬프트 어휘 → 우리 taxonomy. 🚨 임시 경로 전용.
-_GEMINI_CATEGORY_ALIASES = {
-    "원피스": "원피스/세트",
-    "스커트": "하의",
-    "패션잡화": "액세서리",
-}
-
-
 class WardrobeUploadView(APIView):
     """POST /api/v1/wardrobe/uploads/ — 사진 접수 → 비동기 처리 시작.
 
@@ -304,29 +235,6 @@ class WardrobeUploadView(APIView):
 
         job.source_s3_key = key
         job.save()
-
-        # 🚨 임시 로컬 개조 — 명세 §6-7. `LOCAL_GEMINI_TAGGING=1` 일 때만 켜진다.
-        if _local_gemini_tagging_enabled():
-            try:
-                item = _tag_locally_with_gemini(request.user, job, key)
-            except gemini.GeminiAnalysisError as exc:
-                job.status = WardrobeUploadJob.Status.FAILED
-                job.error_message = str(exc)
-                job.finished_at = timezone.now()
-                job.save(update_fields=["status", "error_message", "finished_at"])
-                return Response(
-                    {"detail": str(exc), "job_id": str(job.pk), "status": job.status},
-                    status=status.HTTP_502_BAD_GATEWAY,
-                )
-            if item is not None:
-                job.status = WardrobeUploadJob.Status.DONE
-                job.finished_at = timezone.now()
-                job.save(update_fields=["status", "finished_at"])
-                return Response(
-                    {"job_id": str(job.pk), "status": job.status},
-                    status=status.HTTP_201_CREATED,
-                )
-            # 실패하면 원래 경로(큐)로 흘려보낸다 — 조용히 죽이지 않는다.
 
         if request.data.get("skip_processing", "").lower() == "true":
             category = request.data.get("category_large", "")

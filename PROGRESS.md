@@ -21,7 +21,7 @@
 - 공유 옷장 카테고리 `GET/POST/DELETE /api/v1/shared-wardrobes/{room_id}/categories/` 구현.
 - 모바일 카테고리 관리 저장 버튼을 공유방별 API와 연결하고 추가·삭제 후 DB 목록 재조회.
 - 검증: 모바일 TypeScript 통과, 공유 옷장 API 테스트 10개 통과, Swagger HTTP 200.
-- 로컬 백엔드 옷 등록에 Gemini 직접 태깅 활성화(`LOCAL_GEMINI_TAGGING=1`, 로컬 저장소 한정).
+- 로컬 백엔드 옷 등록에 Gemini 직접 태깅 활성화(`LOCAL_GEMINI_TAGGING=1`, 로컬 저장소 한정). → **2026-08-14 원복 완료** (코드·compose 항목·테스트까지 전부 삭제).
 - Gemini 인증키를 URL 쿼리에서 `x-goog-api-key` 헤더로 이동하고 모델을 `gemini-3.5-flash`로 갱신.
 - 백엔드 샘플 업로드 실측 성공: 트렌치코트가 아우터/코트/베이지로 분석되어 약 6.7초 내 DONE 저장.
 
@@ -54,3 +54,17 @@
 - 카카오 공유용 `EXPO_PUBLIC_KAKAO_JAVASCRIPT_KEY`가 Infisical dev에 존재함을 값 노출 없이 확인.
 - Expo를 Infisical 주입 상태로 8081에 재기동하고 `run-mobile.ps1` 실행 경로 추가.
 - Kakao JavaScript SDK를 2.8.0으로 갱신. 로컬 앱 HTTP 200 확인.
+- 웹 옷 사진 업로드 400 대응: MIME 문자열 대신 파일 헤더로 jpeg/png/webp/heic 검증하도록 변경해 HEIC/Pillow 및 브라우저 MIME 차이를 제거.
+- API 오류 파서가 DRF 필드별 검증 메시지를 화면에 표시하도록 보강. Django wardrobe 테스트 29개와 모바일 TypeScript 검사 통과.
+- 공유방 보유 여부와 무관하게 공유 탭 방 목록에서 `코드로 참여` 시트를 열 수 있도록 상시 진입 버튼 추가.
+- 카카오 웹 공유를 클립보드 전용에서 HTTPS Kakao JavaScript SDK `Share.sendDefault` 호출로 변경; HTTP localhost는 안전하게 복사 폴백 유지.
+- 추천 운영 파이프라인이 `accessible_item_ids` 결과를 Qdrant `HasIdCondition` 화이트리스트로 전달해 다른 멤버의 AVAILABLE 공유 옷도 후보에 포함. 관련 추천 테스트 117개 및 모바일 TypeScript 통과.
+- Expo HTTPS tunnel은 @expo/ngrok 설치 후에도 Metro watch mode가 시작되지 않아 주소 발급 실패. 패키지는 원복했으며 카카오 콘솔 도메인 등록은 HTTPS 주소 미확정으로 미실행.
+- main 비교용 내부 worktree는 Expo 감시 충돌을 일으켜 완전히 제거. 별도 외부 경로 worktree 재생성은 후속 작업 필요.
+- 커밋 전 배포 안전성 정리: `run-mobile.ps1`의 localhost 강제값을 원복하고 `mobile/eas.json`의 만료 가능한 trycloudflare API 하드코딩을 제거해 환경별 EAS/Infisical 값을 사용하도록 함.
+- 임시 HTTPS 전용 `run-shared-https.ps1`, `scripts/local-https-nginx.conf`와 Docker 프록시·터널 컨테이너를 제거함.
+- 검증: 공유 옷장·추천 검색 회귀 테스트 134개, 모바일 TypeScript, Expo 공개 설정, `git diff --check` 통과.
+- 최신 `origin/main`(`e9149a3`)과 현재 커밋은 자동 병합 충돌 0건. 미커밋 변경 중 양쪽이 함께 수정한 파일은 추천 3개와 `mobile/src/constants/config.ts` 총 4개로 커밋 후 병합 시 수동 확인 필요.
+- 운영 GPU 이미지 프로세서를 사용하기로 확정해 로컬 옷 등록용 Gemini 직접 태깅 코드·환경변수·로컬 파일 저장 분기를 제거함. 추천/코디 GPU 워커의 기존 Gemini 서비스는 유지.
+- 로컬 인증 우회 설정(`noauth`, `swagger_noauth`, AutoLoginAuthentication)과 관련 실행·문서 안내를 제거하고 Swagger는 JWT 인증 방식만 유지.
+- 정리 후 공유 옷장·추천 검색 테스트 136개, TypeScript, Expo config, migration 누락 검사, `git diff --check` 통과.

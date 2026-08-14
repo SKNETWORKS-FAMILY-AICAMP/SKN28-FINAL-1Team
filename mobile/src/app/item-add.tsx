@@ -15,22 +15,6 @@ import { uploadJobs } from '@/state/upload-jobs';
 
 const INK = Editorial.ink;
 
-/**
- * 🚨 임시 로컬 개조 — PR 전에 반드시 `false` 로 되돌린다 (명세 §6-6).
- *
- * true 면 앨범·카메라로 고른 사진도 **이미지 처리를 건너뛰고** 그 자리에서
- * 확정(`confirmed=True`) 아이템으로 옷장에 들어간다.
- *
- * 왜 켰나: 로컬에는 옷장 태깅 GPU 워커(image-processor)가 없다. 그래서 사진을
- * 올리면 job 이 영원히 PENDING 이고 옷장에 옷이 한 벌도 안 생겨서, 공유 옷장·추천을
- * 아예 시험할 수 없다. 옷을 손에 쥐려고 처리를 건너뛴다.
- *
- * 왜 위험한가: 켠 채로 배포하면 **모든 사진이 태깅 없이** 이름·카테고리가 빈 상태로
- * 확정 등록된다. 임베딩도 없어 추천 검색에 잡히지 않는다.
- * 되돌리기: 이 상수를 false 로 (또는 이 블록과 아래 사용처를 지운다).
- */
-const LOCAL_SKIP_IMAGE_PROCESSING = true;
-
 export default function ItemAddScreen() {
   const { contentStyle } = useBreakpoint();
   const photo = useDraftPhoto();
@@ -69,10 +53,7 @@ export default function ItemAddScreen() {
       sharedRoomId: shareEnabled ? selectedRoomId : undefined,
       ...(libraryItem
         ? { skipProcessing: true, name: libraryItem.name, category: libraryItem.category }
-        : // 🚨 임시 — 위 LOCAL_SKIP_IMAGE_PROCESSING 주석 참고. 원복 시 이 줄만 지우면 된다.
-          LOCAL_SKIP_IMAGE_PROCESSING
-          ? { skipProcessing: true }
-          : {}),
+        : {}),
     });
     toast('등록을 시작했어요');
     close();

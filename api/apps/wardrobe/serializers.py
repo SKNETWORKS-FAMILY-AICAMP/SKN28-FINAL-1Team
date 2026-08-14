@@ -22,17 +22,24 @@ MAX_BATCH_TOTAL_MB = int(os.getenv("WARDROBE_BATCH_MAX_TOTAL_MB", "100"))
 
 # ── 업로드 ────────────────────────────────────────────────
 class WardrobeUploadSerializer(serializers.Serializer):
-    image = serializers.ImageField()
+    # Pillow의 ImageField는 환경에 따라 HEIC를 이미지로 인식하지 못한다.
+    # 파일 헤더를 직접 검사해 웹 브라우저가 부정확한 MIME을 보내도 동일하게 처리한다.
+    image = serializers.FileField()
 
     def validate_image(self, image):
         if image.size > MAX_UPLOAD_MB * 1024 * 1024:
             raise serializers.ValidationError(
                 f"이미지는 {MAX_UPLOAD_MB}MB 이하여야 합니다."
             )
-        if image.content_type not in ALLOWED_CONTENT_TYPES:
+        position = image.tell()
+        image.seek(0)
+        detected = storage._image_type(image.read(16))
+        image.seek(position)
+        if detected is None or detected[0] not in ALLOWED_CONTENT_TYPES:
             raise serializers.ValidationError(
                 "지원하지 않는 이미지 형식입니다 (jpeg/png/webp/heic)."
             )
+        image.content_type = detected[0]
         return image
 
 

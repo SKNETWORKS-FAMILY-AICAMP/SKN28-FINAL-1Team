@@ -1,6 +1,6 @@
 import * as Clipboard from 'expo-clipboard';
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   Platform,
   Pressable,
@@ -17,6 +17,7 @@ import { ErrorState, LoadingState, SmartImage, useToast } from '@/components/ui'
 import { Editorial, ink } from '@/constants/theme';
 import { ApiError } from '@/lib/apiClient';
 import { joinSharedRoom, previewSharedRoom, type SharedRoomPreview } from '@/lib/wardrobeApi';
+import { useAuth } from '@/state/auth';
 
 /** 밝은 아바타 색(1번 노랑) 위에서는 흰 글자가 안 읽힌다 */
 const LIGHT_AVATAR_TEXT = '#1C1917';
@@ -41,7 +42,10 @@ export default function InviteScreen() {
   const [reloadKey, setReloadKey] = useState(0);
   const [guestName, setGuestName] = useState('');
 
+  const { isLoggedIn } = useAuth();
   const inviteCode = params.code || '';
+  /* 자동 참여는 코드당 한 번만. 재렌더·화면 복귀마다 다시 쏘면 서버에 중복 요청이 간다. */
+  const autoJoined = useRef('');
 
   /* 앱을 아직 안 깐 사람이 링크로 들어온 화면이다 — 코드만 손에 쥐면
      앱을 깔고 "코드로 참여"로 들어갈 수 있어서 복사를 한 번에 되게 둔다. */
@@ -96,27 +100,48 @@ export default function InviteScreen() {
     setGuestName(name);
   }, []);
 
-  const handleAcceptInvite = async () => {
+  const handleAcceptInvite = useCallback(async () => {
     if (!inviteCode) {
-      toast('초대 코드가 유효하지 않습니다.', { variant: 'error' });
+      toast('참여코드가 유효하지 않습니다.', { variant: 'error' });
       return;
     }
 
     setLoading(true);
     try {
-      await joinSharedRoom(inviteCode);
-      toast('공유 옷장 초대를 수락했습니다!', { variant: 'success' });
+      const res = await joinSharedRoom(inviteCode);
+      toast(
+        res.status === 'already_member'
+          ? '이미 참여 중인 공유 옷장이에요'
+          : '공유 옷장에 참여했어요!',
+        { variant: 'success' },
+      );
       // closet 탭의 shared 서브탭이 켜지도록 closet으로 리디렉션
       router.replace('/(tabs)/closet?tab=shared');
     } catch (err) {
       console.error('초대 수락 실패:', err);
-      toast(err instanceof Error ? err.message : '초대 수락에 실패했습니다.', { variant: 'error' });
+      toast(err instanceof Error ? err.message : '참여하지 못했어요.', { variant: 'error' });
     } finally {
       setLoading(false);
     }
-  };
+  }, [inviteCode, router, toast]);
+
+  /* 링크로 들어온 사람은 이미 "들어가겠다"는 의사를 밝힌 것이다.
+     로그인돼 있으면 버튼을 한 번 더 누르게 하지 않고 바로 참여시킨다.
+     로그인 전이면 아무것도 하지 않는다 — 아래 미리보기를 보고 로그인한 뒤,
+     돌아오면 이 효과가 다시 돌아 자동으로 참여된다. */
+  useEffect(() => {
+    if (!inviteCode || !isLoggedIn) return;
+    if (autoJoined.current === inviteCode) return;
+    autoJoined.current = inviteCode;
+    void handleAcceptInvite();
+  }, [inviteCode, isLoggedIn, handleAcceptInvite]);
 
   const goHome = () => router.replace('/(tabs)/closet');
+
+  /* 로그인 뒤 여기로 되돌아와야 자동 참여가 이어진다. replace 가 아니라 push 로 쌓아
+     로그인 화면에서 뒤로 가면 초대장이 그대로 남게 한다. */
+  const goLogin = () =>
+    router.push(`/login?redirect=${encodeURIComponent(`/invite?code=${inviteCode}`)}`);
 
   // 코드 없이 들어온 경우 — 조회할 것이 없으니 바로 '없는 초대장'으로 본다
   if (!inviteCode) {
@@ -274,13 +299,19 @@ export default function InviteScreen() {
           </>
         ) : null}
 
+        {/* 로그인 전에는 참여 API 가 401 이라 눌러도 실패한다 — 로그인으로 먼저 보낸다.
+            로그인을 마치고 이 화면으로 돌아오면 위 useEffect 가 자동으로 참여시킨다. */}
         <Pressable
           style={[styles.primaryBtn, (loading || joinBlocked) && styles.disabledBtn]}
-          onPress={handleAcceptInvite}
+          onPress={isLoggedIn ? handleAcceptInvite : goLogin}
           disabled={loading || joinBlocked}
         >
           <Text style={styles.primaryBtnText}>
-            {loading ? '참여하는 중...' : '초대 수락하고 입장하기'}
+            {loading
+              ? '참여하는 중...'
+              : isLoggedIn
+                ? '초대 수락하고 입장하기'
+                : '로그인하고 참여하기'}
           </Text>
         </Pressable>
         {!preview.can_join ? <Text style={styles.blockedHint}>정원이 가득 찼어요</Text> : null}

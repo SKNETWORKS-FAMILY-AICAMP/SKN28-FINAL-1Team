@@ -55,43 +55,97 @@ export function isKakaoWebConfigured(): boolean {
 /**
  * 카카오톡·다른 앱에 실려 나갈 본문.
  *
- * **URL 은 넣지 않는다.** 참여는 6자리 코드로만 받기로 했다 — 링크를 같이 뿌리면
- * 코드가 눈에 안 들어오고, 링크가 어디까지 퍼졌는지도 통제가 안 된다.
- * (링크 자체는 카카오 카드 버튼 목적지로만 내부에서 쓴다.)
+ * 본문에는 참여 코드만 넣는다. 초대 링크는 카카오 카드 버튼 목적지로만 사용한다.
+ * 코드를 눈에 띄게 해 앱의 참여코드 입력 흐름으로 통일한다.
  */
 export function inviteMessage({ roomName, code }: KakaoInvite): string {
-  return `[cozy] '${roomName}' 공유 옷장에 초대합니다!\n참여 코드: ${code}\n앱에서 '초대 코드로 참여'에 이 코드를 입력해 주세요.`;
+  return [
+    `[cozy] '${roomName}' 공유 옷장에 초대합니다!`,
+    `참여코드: ${code}`,
+    `앱에서 '참여코드'에 위 코드를 입력하세요`,
+  ].join('\n');
 }
 
 /**
- * 텍스트 복사. 웹에서 두 번 시도한다.
+ * 구식 동기 복사 (execCommand). 비보안 컨텍스트의 유일한 수단이다.
  *
- * `navigator.clipboard`(expo-clipboard가 쓰는 것)는 **보안 컨텍스트에서만** 동작한다.
- * 실기기 테스트는 보통 `http://<PC-IP>:8081`로 붙는데 이건 보안 컨텍스트가 아니라
- * 그냥 실패한다 — 그래서 구식 execCommand 폴백을 남겨 둔다. 없으면 휴대폰 브라우저에서
- * 복사가 통째로 죽고, 사용자 눈에는 "눌러도 아무 일도 안 일어남"으로 보인다.
+ * 세 가지를 안 지키면 조용히 false 가 난다:
+ *  1. `display:none`·`visibility:hidden` 요소는 브라우저가 복사를 거부한다 → 화면 밖으로 민다
+ *  2. iOS Safari 는 `select()` 로 선택되지 않는다 → Range + `setSelectionRange` 를 같이 쓴다
+ *  3. iOS 는 `readonly` 인 채로도 선택이 안 잡히는 경우가 있다 → `contentEditable` 을 켠다
+ */
+function copyTextSync(text: string): boolean {
+  if (typeof document === 'undefined') return false;
+
+  const ta = document.createElement('textarea');
+  ta.value = text;
+  ta.setAttribute('readonly', '');
+  ta.contentEditable = 'true';
+  ta.style.cssText =
+    'position:fixed;top:0;left:-9999px;width:1px;height:1px;padding:0;border:none;font-size:16px;';
+  document.body.appendChild(ta);
+
+  try {
+    const range = document.createRange();
+    range.selectNodeContents(ta);
+    const sel = window.getSelection();
+    sel?.removeAllRanges();
+    sel?.addRange(range);
+    ta.setSelectionRange(0, text.length);
+    return document.execCommand('copy');
+  } catch {
+    return false;
+  } finally {
+    document.body.removeChild(ta);
+  }
+}
+
+/**
+ * 텍스트 복사.
+ *
+ * 웹에서 **비동기 API를 먼저 await 하면 안 된다.** `navigator.clipboard`(expo-clipboard가
+ * 웹에서 쓰는 것)는 보안 컨텍스트에서만 존재하는데, 실기기 테스트는 보통
+ * `http://<PC-IP>:8081` 이라 없다. 그런데 없는 API를 await 로 한 번 태우고 나면
+ * 사용자 제스처(transient activation)가 끊겨 뒤따르는 execCommand 폴백까지 같이 죽는다.
+ * → 그래서 쓸 수 있는지를 **동기로 판별**해 폴백을 먼저 태운다.
+ *
+ * 이걸 안 지키면 사용자 눈에는 "코드복사를 눌러도 아무 일도 안 일어남"으로 보인다.
  */
 export async function copyText(text: string): Promise<boolean> {
+  if (Platform.OS === 'web') {
+    const asyncApi =
+      typeof navigator !== 'undefined' &&
+      typeof navigator.clipboard?.writeText === 'function' &&
+      typeof window !== 'undefined' &&
+      window.isSecureContext;
+
+    let ok: boolean;
+    if (!asyncApi) {
+      ok = copyTextSync(text);
+    } else {
+      try {
+        await navigator.clipboard.writeText(text);
+        ok = true;
+      } catch {
+        // 권한 거부·포커스 상실 — 구식 경로가 통하는 경우가 있어 한 번 더 시도한다.
+        ok = copyTextSync(text);
+      }
+    }
+
+    // 실패하면 어느 조건에서 막혔는지 남긴다 — 기기별로만 재현돼 원격 진단이 어렵다.
+    if (!ok && __DEV__) {
+      console.warn('[copyText] 복사 실패', {
+        secureContext: typeof window !== 'undefined' ? window.isSecureContext : 'n/a',
+        hasAsyncClipboard: asyncApi,
+        origin: typeof window !== 'undefined' ? window.location.origin : 'n/a',
+      });
+    }
+    return ok;
+  }
+
   try {
     await Clipboard.setStringAsync(text);
     return true;
-  } catch {
-    /* 아래 폴백으로 */
-  }
-
-  if (Platform.OS !== 'web' || typeof document === 'undefined') return false;
-
-  try {
-    const textarea = document.createElement('textarea');
-    textarea.value = text;
-    textarea.setAttribute('readonly', '');
-    textarea.style.position = 'fixed';
-    textarea.style.opacity = '0';
-    document.body.appendChild(textarea);
-    textarea.select();
-    const ok = document.execCommand('copy');
-    document.body.removeChild(textarea);
-    return ok;
   } catch {
     return false;
   }
@@ -182,6 +236,48 @@ function loadKakaoJsSdk(): Promise<void> {
   return webSdkReady;
 }
 
+/**
+ * SDK를 미리 받아 둔다. **초대 시트가 열릴 때 호출한다.**
+ *
+ * 이게 없으면 첫 클릭에서 `await loadKakaoJsSdk()`(CDN 네트워크 왕복)를 태우게 되는데,
+ * 그동안 사용자 제스처(transient activation)가 끝나서 뒤이은 `sendDefault`의
+ * **팝업이 브라우저에 차단된다.** 예외도 안 나서 "눌렀는데 아무 일도 안 일어남"이 된다.
+ */
+export function preloadKakaoWebSdk(): void {
+  if (Platform.OS !== 'web' || !KAKAO_JAVASCRIPT_KEY) return;
+  void loadKakaoJsSdk().catch(() => {
+    /* 미리 받기 실패는 조용히 넘긴다 — 실제 공유 시도에서 다시 처리한다 */
+  });
+}
+
+/** SDK가 지금 당장 동기로 쓸 수 있는 상태인가 (= 팝업을 제스처 안에서 열 수 있는가) */
+function isKakaoWebReady(): boolean {
+  try {
+    return Boolean(window.Kakao?.Share && window.Kakao.isInitialized());
+  } catch {
+    return false;
+  }
+}
+
+/** 공유 카드 전송. **반드시 동기로** 호출한다 — 팝업이 제스처에 묶여야 한다. */
+function sendKakaoWebFeed(invite: KakaoInvite): void {
+  window.Kakao.Share.sendDefault({
+    objectType: 'feed',
+    content: {
+      title: `${invite.roomName} 공유 옷장 초대`,
+      description: `참여코드 ${invite.code}\n눌러서 바로 참여하세요.`,
+      imageUrl: INVITE_THUMBNAIL,
+      link: { mobileWebUrl: invite.link, webUrl: invite.link },
+    },
+    buttons: [
+      {
+        title: '초대 수락하기',
+        link: { mobileWebUrl: invite.link, webUrl: invite.link },
+      },
+    ],
+  });
+}
+
 /* ── 공통 진입점 ──────────────────────────────────────────────────── */
 
 /**
@@ -192,12 +288,49 @@ function loadKakaoJsSdk(): Promise<void> {
  * 어느 단계든 초대 문구는 이미 클립보드에 있으므로 사용자가 직접 붙여넣을 수 있다.
  */
 export async function shareInviteViaKakao(invite: KakaoInvite): Promise<KakaoShareResult> {
-  const copied = await copyInviteMessage(invite);
   const message = inviteMessage(invite);
 
-  // PC 웹에서는 카카오 창이나 OS 공유창을 열지 않는다. 사용자가 카카오톡 PC의
-  // 원하는 대화방에 직접 붙여넣을 수 있도록 복사만 하는 것이 제품 정책이다.
-  if (Platform.OS === 'web') return copied ? 'clipboard' : 'cancelled';
+  if (Platform.OS === 'web') {
+    /* 설정 누락은 몇 번을 눌러도 안 되는 실패다. 다른 실패와 뭉뚱그리면
+       "왜 카톡이 안 열리지"를 영원히 못 찾는다 — 제일 먼저 갈라낸다. */
+    if (!isKakaoWebConfigured()) return 'no-key';
+
+    // 카카오 JS SDK는 등록된 HTTPS 도메인에서만 공유창을 연다.
+    // http 로 띄운 상태에서는 열리지 않을 링크를 보내지 않고 복사로 대신한다.
+    if (!invite.link.startsWith('https://')) {
+      return (await copyInviteMessage(invite)) ? 'clipboard' : 'cancelled';
+    }
+
+    /* ★ 이 아래에서 sendDefault 앞에 await 를 두면 안 된다.
+       공유창은 팝업이라, 클릭 제스처가 살아 있는 동안 동기로 열어야 브라우저가 허용한다.
+       예전엔 클립보드 복사(await) + SDK 로드(await) 두 개를 먼저 태워서
+       팝업이 차단됐고, sendDefault 는 예외도 안 던져 "눌러도 무반응"으로 보였다.
+       그래서 복사는 뒤로 미루고(void), SDK 는 시트가 열릴 때 미리 받아 둔다. */
+    if (isKakaoWebReady()) {
+      try {
+        sendKakaoWebFeed(invite);
+        void copyInviteMessage(invite);
+        return 'kakao';
+      } catch (e) {
+        if (__DEV__) console.warn('[kakao] sendDefault 실패', e);
+      }
+    }
+
+    /* 미리 받기가 아직 안 끝난 첫 클릭. 어쩔 수 없이 기다렸다 보내므로
+       팝업이 막힐 수 있다 — 그 경우 다음 클릭이 위 동기 경로를 탄다. */
+    try {
+      await loadKakaoJsSdk();
+      sendKakaoWebFeed(invite);
+      void copyInviteMessage(invite);
+      return 'kakao';
+    } catch (e) {
+      if (__DEV__) console.warn('[kakao] 웹 공유 실패 — 공유 시트로 대체합니다', e);
+      if (await openShareSheet(message, `${invite.roomName} 초대`)) return 'share-sheet';
+      return (await copyInviteMessage(invite)) ? 'clipboard' : 'cancelled';
+    }
+  }
+
+  const copied = await copyInviteMessage(invite);
 
   /**
    * 링크 목적지.
@@ -216,8 +349,8 @@ export async function shareInviteViaKakao(invite: KakaoInvite): Promise<KakaoSha
   const template: KakaoFeedTemplate = {
     content: {
       title: `${invite.roomName} 공유 옷장 초대`,
-      // 카드에서 제일 크게 읽혀야 하는 건 코드다 — 참여 수단이 코드 하나뿐이다.
-      description: `참여 코드 ${invite.code}\n앱에서 이 코드를 입력하면 들어올 수 있어요.`,
+      // 카드를 눌러 들어오는 게 기본 경로라 링크가 버튼에 있고, 코드는 대비책으로 적는다.
+      description: `참여코드 ${invite.code}\n눌러서 바로 참여하거나, 앱에 코드를 입력하세요.`,
       imageUrl: INVITE_THUMBNAIL,
       link: target,
     },

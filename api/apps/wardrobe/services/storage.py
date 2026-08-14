@@ -11,7 +11,6 @@ import ipaddress
 import io
 import os
 import socket
-import tempfile
 from collections.abc import Iterable
 from functools import lru_cache
 from urllib.parse import urljoin, urlparse
@@ -23,11 +22,6 @@ BUCKET = os.getenv("WARDROBE_S3_BUCKET", "")
 REGION = os.getenv("AWS_REGION", "ap-northeast-2")
 PRESIGNED_GET_TTL = int(os.getenv("WARDROBE_PRESIGNED_GET_TTL", "3600"))
 
-
-from django.conf import settings
-
-IS_LOCAL = not BUCKET or settings.DEBUG or hasattr(settings, 'AUTO_LOGIN_ENABLED')
-LOCAL_MEDIA_DIR = os.path.join(settings.BASE_DIR, "media")
 
 class RemoteImageError(ValueError):
     pass
@@ -112,39 +106,10 @@ def output_prefix(user_id: int | str, job_id: str) -> str:
 
 
 def upload_fileobj(fileobj, key: str, content_type: str | None = None) -> None:
-    if IS_LOCAL:
-        local_path = os.path.join(LOCAL_MEDIA_DIR, key)
-        os.makedirs(os.path.dirname(local_path), exist_ok=True)
-        # Ensure pointer is at start
-        fileobj.seek(0)
-        with open(local_path, "wb") as f:
-            f.write(fileobj.read())
-        return
-
     extra = {"ContentType": content_type} if content_type else None
     _client().upload_fileobj(
         fileobj, BUCKET, key, ExtraArgs=extra or {}
     )
-
-
-def download_to_tempfile(key: str) -> str:
-    """Gemini 같은 동기 처리기가 읽을 수 있도록 원본을 임시 파일로 준비한다."""
-    suffix = os.path.splitext(key)[1] or ".jpg"
-    handle = tempfile.NamedTemporaryFile(suffix=suffix, delete=False)
-    path = handle.name
-    handle.close()
-    try:
-        if IS_LOCAL:
-            source = os.path.join(LOCAL_MEDIA_DIR, key)
-            with open(source, "rb") as src, open(path, "wb") as dst:
-                dst.write(src.read())
-        else:
-            _client().download_file(BUCKET, key, path)
-    except Exception:
-        if os.path.exists(path):
-            os.remove(path)
-        raise
-    return path
 
 
 def delete_object(key: str) -> None:
@@ -152,9 +117,6 @@ def delete_object(key: str) -> None:
 
 
 def presigned_get(key: str, ttl: int = PRESIGNED_GET_TTL) -> str:
-    if IS_LOCAL:
-        return f"http://localhost:8000/media/{key}"
-
     return _client().generate_presigned_url(
         "get_object", Params={"Bucket": BUCKET, "Key": key}, ExpiresIn=ttl
     )
@@ -162,18 +124,6 @@ def presigned_get(key: str, ttl: int = PRESIGNED_GET_TTL) -> str:
 
 def delete_objects(keys: Iterable[str]) -> None:
     """DB 저장 실패 시 명시된 옷장 S3 객체만 정리한다."""
-    if IS_LOCAL:
-        for key in keys:
-            if not key:
-                continue
-            local_path = os.path.join(LOCAL_MEDIA_DIR, key)
-            if os.path.exists(local_path):
-                try:
-                    os.remove(local_path)
-                except Exception:
-                    pass
-        return
-
     unique_keys = list(dict.fromkeys(key for key in keys if key))
     for offset in range(0, len(unique_keys), 1000):
         batch = unique_keys[offset : offset + 1000]

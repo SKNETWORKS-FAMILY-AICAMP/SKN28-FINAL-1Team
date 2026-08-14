@@ -1,8 +1,15 @@
 import { Icon } from '@/components/icon';
 import { useToast } from '@/components/ui';
 import { Editorial, ink, Type } from '@/constants/theme';
-import { useMemo, useState } from 'react';
-import { copyText, inviteMessage, openShareSheet, shareInviteViaKakao } from '@/lib/kakaoShare';
+import { useEffect, useMemo, useState } from 'react';
+import { INVITE_BASE_URL } from '@/constants/config';
+import {
+  copyText,
+  inviteMessage,
+  openShareSheet,
+  preloadKakaoWebSdk,
+  shareInviteViaKakao,
+} from '@/lib/kakaoShare';
 import { Modal, Platform, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 
 export type SharedSpace = {
@@ -12,13 +19,29 @@ export type SharedSpace = {
   members: string[];
 };
 
-const DEMO_JOIN_CODE = 'COZY24';
+/**
+ * 이 주소를 **남에게 보내도 열리는가**.
+ *
+ * localhost·127.0.0.1·사설 IP(10./192.168./172.16~31.)는 보내는 사람 컴퓨터에서만
+ * 열린다. 받는 사람이 누르면 자기 기기의 같은 주소로 가서 아무것도 안 뜬다 —
+ * 실제로 `http://localhost:8081/invite?code=...` 링크를 보내 겪은 문제다.
+ */
+function isShareableOrigin(origin: string): boolean {
+  const host = origin.replace(/^https?:\/\//, '').split(':')[0];
+  if (!host) return false;
+  if (host === 'localhost' || host === '0.0.0.0' || host.startsWith('127.')) return false;
+  if (host === '[::1]' || host === '::1') return false;
+  if (host.startsWith('10.') || host.startsWith('192.168.')) return false;
+  if (/^172\.(1[6-9]|2\d|3[01])\./.test(host)) return false;
+  return true;
+}
 
 function makeInviteLink(code: string) {
   if (Platform.OS === 'web' && typeof window !== 'undefined') {
-    return `${window.location.origin}/invite?code=${code}`;
+    const origin = window.location.origin;
+    if (isShareableOrigin(origin)) return `${origin}/invite?code=${code}`;
   }
-  return `https://skn-1st-mobile.expo.app/invite?code=${code}`;
+  return `${INVITE_BASE_URL}/invite?code=${code}`;
 }
 
 /** 스페이스가 없을 때 — 만들기 / 초대 링크로 참여 */
@@ -44,7 +67,6 @@ export function SharedSpaceOnboarding({
       <Pressable style={styles.secondaryBtn} onPress={onJoin}>
         <Text style={styles.secondaryBtnText}>초대 링크로 참여하기</Text>
       </Pressable>
-      <Text style={styles.demoHint}>데모 참여 코드: {DEMO_JOIN_CODE}</Text>
     </View>
   );
 }
@@ -80,14 +102,40 @@ export function getAvatarColor(name: string): string {
   return MEMBER_COLORS[0];
 }
 
-/** 멤버 아바타 + 초대 버튼 */
+/** 참여코드는 대소문자·앞뒤 공백을 가리지 않게 받는다 (카톡에서 복사하면 공백이 붙어 온다). */
+function normalizeJoinCode(raw: string): string {
+  return raw.trim().toUpperCase();
+}
+
+/** 멤버 아바타 + 초대 버튼 + 참여코드 입력 */
 export function SharedSpaceMembers({
   space,
   onInvite,
+  onJoin,
 }: {
   space: SharedSpace;
   onInvite: () => void;
+  /** 없으면 입력칸을 숨긴다 — 참여 처리를 못 하는 화면에서 입력만 받는 건 거짓말이 된다. */
+  onJoin?: (code: string) => Promise<boolean> | boolean;
 }) {
+  const [code, setCode] = useState('');
+  const [busy, setBusy] = useState(false);
+  const trimmed = normalizeJoinCode(code);
+  const canSubmit = Boolean(onJoin) && trimmed.length > 0 && !busy;
+
+  const submit = async () => {
+    if (!onJoin || !canSubmit) return;
+    setBusy(true);
+    try {
+      /* 실패 사유(정원 초과·만료·없는 코드)는 onJoin 이 이미 서버 문구로 띄운다.
+         여기서 덧씌우면 정원이 꽉 찬 경우까지 코드가 틀린 것처럼 보인다.
+         성공했을 때만 비운다 — 오타면 고쳐서 다시 넣을 수 있어야 한다. */
+      if (await onJoin(trimmed)) setCode('');
+    } finally {
+      setBusy(false);
+    }
+  };
+
   return (
     <View style={styles.membersRow}>
       <View style={styles.memberAvatars}>
@@ -112,6 +160,33 @@ export function SharedSpaceMembers({
         <Icon name="plus" tintColor={Editorial.ink} size={14} />
         <Text style={styles.inviteChipText}>초대</Text>
       </Pressable>
+
+      {onJoin ? (
+        <View style={styles.joinInline}>
+          <TextInput
+            style={styles.joinInlineInput}
+            placeholder="참여코드"
+            placeholderTextColor={ink(0.3)}
+            value={code}
+            onChangeText={setCode}
+            autoCapitalize="characters"
+            autoCorrect={false}
+            maxLength={6} // 발급 코드가 6자리 고정 (makeInviteCode·서버 모두)
+            editable={!busy}
+            returnKeyType="go"
+            onSubmitEditing={submit}
+            accessibilityLabel="참여코드 입력"
+          />
+          <Pressable
+            style={[styles.joinInlineBtn, !canSubmit && styles.joinInlineBtnOff]}
+            onPress={submit}
+            disabled={!canSubmit}
+            hitSlop={6}
+            accessibilityLabel="참여코드로 공유 옷장 참여">
+            <Icon name="arrow.right" tintColor={Editorial.surface} size={13} />
+          </Pressable>
+        </View>
+      ) : null}
     </View>
   );
 }
@@ -131,9 +206,15 @@ export function SharedSpaceInviteSheet({
 
   const invite = { roomName: space.name, code: space.inviteCode, link };
 
+  /* 시트가 열리는 순간 카카오 SDK를 미리 받아 둔다.
+     클릭한 뒤에 받으면 그 사이 사용자 제스처가 끝나 공유창(팝업)이 차단된다. */
+  useEffect(() => {
+    if (visible) preloadKakaoWebSdk();
+  }, [visible]);
+
   const shareLink = async (via: 'kakao' | 'sns') => {
     if (via === 'kakao') {
-      // 모바일은 카카오톡을 열고, PC 웹은 초대 문구만 복사한다.
+      // HTTPS 웹은 카카오 JS 공유창, 네이티브는 카카오톡 SDK를 연다.
       const result = await shareInviteViaKakao(invite);
       if (result === 'kakao') {
         toast('카카오톡 공유창을 열었어요', { variant: 'success' });
@@ -167,9 +248,13 @@ export function SharedSpaceInviteSheet({
     }
   };
 
+  /* 실패해도 반드시 말해 준다. 이전엔 성공했을 때만 토스트를 띄워서,
+     복사가 막히면 "눌러도 아무 일도 안 일어남"으로 보였다. */
   const copyCode = async () => {
     if (await copyText(space.inviteCode)) {
       toast('참여 코드를 복사했어요', { variant: 'success' });
+    } else {
+      toast('복사가 막혔어요 — 코드를 길게 눌러 직접 복사해 주세요', { variant: 'error' });
     }
   };
 
@@ -192,7 +277,15 @@ export function SharedSpaceInviteSheet({
               링크 자체는 카카오 카드 버튼용으로 내부에서만 쓴다. */}
           <Text style={styles.codeLabel}>참여 코드</Text>
           <View style={styles.codeRow}>
-            <Text style={styles.codeValue}>{space.inviteCode}</Text>
+            {/* 복사가 막히는 환경(비보안 컨텍스트·권한 거부)이 있어 코드 자체도
+                눌러서 복사되고, 손으로 드래그 선택도 되게 둔다. */}
+            <Text
+              style={styles.codeValue}
+              selectable
+              onPress={copyCode}
+              accessibilityLabel={`참여 코드 ${space.inviteCode}, 눌러서 복사`}>
+              {space.inviteCode}
+            </Text>
             <Pressable style={styles.codeCopyBtn} onPress={copyCode} hitSlop={8}>
               <Icon name="link" tintColor={Editorial.ink} size={14} />
               <Text style={styles.codeCopyText}>코드복사</Text>
@@ -288,16 +381,6 @@ export function createSharedSpace(name = '우리 옷장'): SharedSpace {
   };
 }
 
-export function joinSharedSpace(code: string): SharedSpace | null {
-  if (code !== DEMO_JOIN_CODE) return null;
-  return {
-    id: 'space-demo',
-    name: '지민 · 서연 · 민준',
-    inviteCode: DEMO_JOIN_CODE,
-    members: ['나', '지민', '서연', '민준'],
-  };
-}
-
 const styles = StyleSheet.create({
   onboarding: {
     width: '100%',
@@ -348,7 +431,6 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   secondaryBtnText: { fontSize: Type.footnote, fontWeight: '600', color: Editorial.textSoft },
-  demoHint: { fontSize: Type.micro, color: Editorial.textCaption, marginTop: 16 },
 
   inviteBanner: {
     flexDirection: 'row',
@@ -376,6 +458,9 @@ const styles = StyleSheet.create({
   membersRow: {
     flexDirection: 'row',
     alignItems: 'center',
+    /* 정원 상한 6명이면 아바타 줄만 118px이라 좁은 기기에서 참여코드 입력칸이 밀려 잘린다.
+       wrap 을 주면 자리가 모자랄 때 입력칸이 아랫줄로 내려가 온전히 보인다. */
+    flexWrap: 'wrap',
     paddingHorizontal: 20,
     marginBottom: 12,
     gap: 8,
@@ -404,6 +489,38 @@ const styles = StyleSheet.create({
     backgroundColor: Editorial.surface,
   },
   inviteChipText: { fontSize: Type.micro, fontWeight: '600', color: Editorial.textSoft },
+
+  /* 참여코드는 6자리 고정이라 입력칸도 딱 6자리만큼만 준다.
+     flex 로 늘리면 빈 칸이 남아 옆의 [초대] 칩보다 커 보인다. */
+  joinInline: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingLeft: 8,
+    paddingRight: 4,
+    paddingVertical: 3,
+    borderRadius: 999,
+    backgroundColor: Editorial.surface,
+  },
+  joinInlineInput: {
+    width: 62, // 12px 반각 6자 + letterSpacing 1
+    paddingVertical: 0,
+    fontSize: Type.micro,
+    fontWeight: '600',
+    letterSpacing: 1,
+    color: Editorial.ink,
+    /* 웹에서 TextInput 은 기본 포커스 링이 붙어 칩 모양이 깨진다. */
+    ...(Platform.OS === 'web' ? { outlineStyle: 'none' as never } : null),
+  },
+  joinInlineBtn: {
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: Editorial.ink,
+  },
+  joinInlineBtnOff: { opacity: 0.25 },
 
   sheetBackdrop: {
     flex: 1,

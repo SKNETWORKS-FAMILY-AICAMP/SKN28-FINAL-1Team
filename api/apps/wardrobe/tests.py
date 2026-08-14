@@ -14,7 +14,7 @@ from apps.users.models import User
 from . import taxonomy as T
 from .models import WardrobeItem, WardrobeItemBatch, WardrobeUploadJob
 from .services import jobs, storage
-from .views import _merge_metadata, _tag_locally_with_gemini
+from .views import _merge_metadata
 
 
 @patch("apps.wardrobe.views.storage.BUCKET", "test-bucket")
@@ -168,7 +168,6 @@ class WardrobeUploadFlowTest(TestCase):
 
     @patch("apps.wardrobe.views.jobs.enqueue")
     @patch("apps.wardrobe.views.storage.upload_fileobj")
-    @patch.dict(os.environ, {"LOCAL_GEMINI_TAGGING": ""})
     def test_upload_preserves_file_name_and_enqueues_pending_job(self, upload, enqueue):
         image_bytes = io.BytesIO()
         Image.new("RGB", (2, 2), color="beige").save(image_bytes, format="PNG")
@@ -242,30 +241,3 @@ class WardrobeUploadFlowTest(TestCase):
         job.refresh_from_db()
         self.assertEqual(job.error_message, "image_processor_failed")
         self.assertIsNotNone(job.finished_at)
-
-    @patch("apps.wardrobe.views.os.path.exists", return_value=True)
-    @patch("apps.wardrobe.views.os.remove")
-    @patch("apps.wardrobe.views.gemini.analyze_clothing_image")
-    @patch("apps.wardrobe.views.storage.download_to_tempfile")
-    def test_direct_gemini_tagging_downloads_s3_source(
-        self, download_to_tempfile, analyze_clothing_image, remove, exists
-    ):
-        job = WardrobeUploadJob.objects.create(
-            user=self.user,
-            source_s3_key="wardrobe/source.jpg",
-        )
-        download_to_tempfile.return_value = "/tmp/source.jpg"
-        analyze_clothing_image.return_value = {
-            "item_name": "베이지 티셔츠",
-            "category_large": "상의",
-            "category_small": "티셔츠",
-            "color": "베이지",
-        }
-
-        item = _tag_locally_with_gemini(self.user, job, job.source_s3_key)
-
-        download_to_tempfile.assert_called_once_with(job.source_s3_key)
-        analyze_clothing_image.assert_called_once_with("/tmp/source.jpg")
-        remove.assert_called_once_with("/tmp/source.jpg")
-        self.assertEqual((item.item_name, item.category_large, item.confirmed),
-                         ("베이지 티셔츠", "상의", True))

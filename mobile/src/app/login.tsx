@@ -31,7 +31,10 @@ const NAVER = '#03C75A';
 // A3 로그인 — "로그인"/소셜 누르면 앱(홈 탭)으로 진입
 export default function Login() {
   const { contentStyle } = useBreakpoint();
-  const { email: verifiedEmail } = useLocalSearchParams<{ email?: string }>();
+  const { email: verifiedEmail, redirect } = useLocalSearchParams<{
+    email?: string;
+    redirect?: string;
+  }>();
   const [email, setEmail] = useState('');
   const [pw, setPw] = useState('');
   const [show, setShow] = useState(false);
@@ -46,6 +49,17 @@ export default function Login() {
     if (verifiedEmail) setEmail(verifiedEmail);
   }, [verifiedEmail]);
 
+  /* 로그인 때문에 하던 일이 끊긴 경우 그 자리로 되돌려 준다 (예: 공유 옷장 초대장).
+     앱 내부 경로만 허용한다 — 외부 URL 을 그대로 열어 주면 오픈 리다이렉트가 된다. */
+  const goAfterLogin = () => {
+    const target = typeof redirect === 'string' ? redirect : '';
+    if (target.startsWith('/') && !target.startsWith('//')) {
+      router.replace(target as never);
+      return;
+    }
+    router.replace('/home');
+  };
+
   const enter = async () => {
     if (!email.trim() || !pw) {
       toast('이메일과 비밀번호를 입력해 주세요');
@@ -59,7 +73,7 @@ export default function Login() {
       if (is_new_user) {
         router.replace({ pathname: '/permissions', params: { onboarding: '1' } });
       } else {
-        router.replace('/home');
+        goAfterLogin();
       }
     } catch (error) {
       toast(emailAuthErrorMessage(error), { variant: 'error' });
@@ -71,7 +85,7 @@ export default function Login() {
   // 소셜 로그인 성공 시 홈으로. (is_new_user 로 온보딩 분기는 Phase 3에서)
   const onSocial = async (login: () => Promise<SocialLoginResult>) => {
     const result = await login();
-    if (result) router.replace('/home');
+    if (result) goAfterLogin();
   };
 
   // 비회원 진입: 로그인하지 않은 상태를 확정하고 홈으로. (직전 데모 세션이 남아있어도 정리)
