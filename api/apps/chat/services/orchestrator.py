@@ -17,6 +17,7 @@ from apps.chat.models import (
     ChatIdentity,
     ChatMessage,
     ChatRun,
+    ChatRunPersona,
     ChatSession,
 )
 from apps.chat.services import mood_analysis
@@ -78,6 +79,40 @@ def _session_run_snapshot(session: ChatSession) -> dict[str, object]:
         },
         "stylist_config_version": catalog.schema_version,
     }
+
+
+def _strategy_snapshot(persona) -> dict[str, object]:
+    profile = persona.strategy_profile
+    return {
+        "objectives": list(profile.objectives),
+        "search_directives": list(profile.search_directives),
+        "score_weights": [
+            {"metric": row.metric, "weight": row.weight}
+            for row in profile.score_weights
+        ],
+        "hypothesis_count": profile.hypothesis_count,
+    }
+
+
+def _create_persona_executions(run: ChatRun) -> None:
+    if run.response_mode != ChatSession.ResponseMode.STYLIST:
+        return
+
+    catalog = load_stylist_personas()
+    rows = []
+    for persona_id in run.persona_ids:
+        persona = catalog.get(persona_id)
+        rows.append(
+            ChatRunPersona(
+                run=run,
+                persona_id=persona_id,
+                persona_version=run.persona_versions[persona_id],
+                prompt_version=run.persona_prompt_versions[persona_id],
+                display_order=persona.display_order,
+                strategy_snapshot=_strategy_snapshot(persona),
+            )
+        )
+    ChatRunPersona.objects.bulk_create(rows)
 
 
 @transaction.atomic
@@ -161,6 +196,8 @@ def create_run(
     except IntegrityError:
         run = ChatRun.objects.get(request_message=message)
         created = False
+    if created:
+        _create_persona_executions(run)
     if created and message.status != ChatMessage.Status.PENDING:
         message.status = ChatMessage.Status.PENDING
         message.save(update_fields=["status", "updated_at"])

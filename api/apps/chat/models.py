@@ -93,6 +93,15 @@ def validate_persona_prompt_version_snapshot(value: object) -> None:
         raise ValidationError("프롬프트 버전은 비어 있지 않은 문자열이어야 합니다.")
 
 
+def validate_stylist_persona_id(value: object) -> None:
+    """스타일리스트별 실행 행의 ID가 현재 지원 목록에 있는지 검증한다."""
+
+    if not isinstance(value, str) or not value.strip():
+        raise ValidationError("스타일리스트 ID는 비어 있지 않은 문자열이어야 합니다.")
+    if value not in load_stylist_personas().supported_persona_ids:
+        raise ValidationError(f"지원하지 않는 스타일리스트 ID입니다: {value}")
+
+
 class PersonaProfile(models.Model):
     """버전이 고정된 채팅 스타일리스트 페르소나 설정."""
 
@@ -914,3 +923,162 @@ class ChatRun(models.Model):
 
     def __str__(self) -> str:
         return f"chat-run {self.id} ({self.status})"
+
+
+class ChatRunPersona(models.Model):
+    """한 ChatRun 안에서 독립적으로 처리되는 스타일리스트 실행 상태."""
+
+    class Status(models.TextChoices):
+        PENDING = "PENDING", "처리 대기"
+        RUNNING = "RUNNING", "처리 중"
+        SUCCEEDED = "SUCCEEDED", "성공"
+        FAILED = "FAILED", "실패"
+
+    id = models.UUIDField(
+        primary_key=True,
+        default=uuid.uuid4,
+        editable=False,
+        db_comment="스타일리스트별 채팅 실행 UUID",
+    )
+    run = models.ForeignKey(
+        ChatRun,
+        on_delete=models.CASCADE,
+        related_name="persona_executions",
+        db_comment="상위 채팅 실행 FK (chat_run.id)",
+    )
+    persona_id = models.CharField(
+        max_length=32,
+        validators=[validate_stylist_persona_id],
+        db_comment="실행할 스타일리스트 고정 ID (minimal/experimental/practical)",
+    )
+    persona_version = models.PositiveIntegerField(
+        db_comment="ChatRun에 고정된 스타일리스트 설정 버전 (1 이상)",
+    )
+    prompt_version = models.CharField(
+        max_length=64,
+        db_comment="ChatRun에 고정된 스타일리스트 프롬프트 버전",
+    )
+    display_order = models.PositiveSmallIntegerField(
+        db_comment="스타일리스트 고정 표시 순서 (minimal=1/experimental=2/practical=3)",
+    )
+    status = models.CharField(
+        max_length=16,
+        choices=Status.choices,
+        default=Status.PENDING,
+        db_comment="스타일리스트별 실행 상태 (PENDING/RUNNING/SUCCEEDED/FAILED)",
+    )
+    latency_ms = models.PositiveIntegerField(
+        default=0,
+        db_comment="스타일리스트별 추천 실행 지연시간 (ms)",
+    )
+    error_code = models.CharField(
+        max_length=64,
+        blank=True,
+        default="",
+        db_comment="스타일리스트 실행 실패 오류 코드 (실패가 아니면 빈 문자열)",
+    )
+    error_message = models.CharField(
+        max_length=500,
+        blank=True,
+        default="",
+        db_comment="민감정보를 제거한 스타일리스트 실행 실패 요약",
+    )
+    strategy_snapshot = models.JSONField(
+        default=dict,
+        blank=True,
+        db_comment="실행 접수 당시 스타일리스트 추천 전략 설정 JSON 스냅샷",
+    )
+    hypothesis_snapshot = models.JSONField(
+        default=dict,
+        blank=True,
+        db_comment="실험형 검색 가설과 fallback 판단 JSON 스냅샷",
+    )
+    retry_count = models.PositiveSmallIntegerField(
+        default=0,
+        db_comment="해당 스타일리스트 실행 재시도 횟수 (최초 실행은 0)",
+    )
+    started_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        db_comment="스타일리스트별 추천 처리를 시작한 시각",
+    )
+    completed_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        db_comment="스타일리스트별 추천 처리가 성공 또는 실패로 종료된 시각",
+    )
+    created_at = models.DateTimeField(
+        auto_now_add=True,
+        db_comment="스타일리스트별 실행 상태 행 생성 시각",
+    )
+    updated_at = models.DateTimeField(
+        auto_now=True,
+        db_comment="스타일리스트별 실행 상태 마지막 변경 시각",
+    )
+
+    class Meta:
+        db_table = "chat_run_persona"
+        db_table_comment = "채팅 실행에 속한 스타일리스트별 독립 추천 상태와 오류·전략"
+        ordering = ["display_order"]
+        indexes = [
+            models.Index(
+                fields=["run", "status"],
+                name="ix_chat_run_persona_status",
+            ),
+        ]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["run", "persona_id"],
+                name="uq_chat_run_persona_id",
+            ),
+            models.UniqueConstraint(
+                fields=["run", "display_order"],
+                name="uq_chat_run_persona_order",
+            ),
+            models.CheckConstraint(
+                condition=Q(
+                    status__in=["PENDING", "RUNNING", "SUCCEEDED", "FAILED"]
+                ),
+                name="ck_chat_run_persona_status",
+            ),
+            models.CheckConstraint(
+                condition=Q(persona_version__gte=1),
+                name="ck_chat_run_persona_version",
+            ),
+            models.CheckConstraint(
+                condition=Q(display_order__gte=1, display_order__lte=3),
+                name="ck_chat_run_persona_order",
+            ),
+        ]
+
+    def clean(self) -> None:
+        super().clean()
+        if not self.run_id or not isinstance(self.persona_id, str):
+            return
+
+        catalog = load_stylist_personas()
+        if self.persona_id not in catalog.supported_persona_ids:
+            return
+        persona = catalog.get(self.persona_id)
+        errors: dict[str, str] = {}
+        if self.persona_id not in self.run.persona_ids:
+            errors["persona_id"] = "상위 ChatRun이 선택한 스타일리스트가 아닙니다."
+        expected_version = self.run.persona_versions.get(self.persona_id)
+        if self.persona_version != expected_version:
+            errors["persona_version"] = (
+                "스타일리스트 설정 버전이 상위 ChatRun 스냅샷과 다릅니다."
+            )
+        expected_prompt_version = self.run.persona_prompt_versions.get(
+            self.persona_id
+        )
+        if self.prompt_version != expected_prompt_version:
+            errors["prompt_version"] = (
+                "프롬프트 버전이 상위 ChatRun 스냅샷과 다릅니다."
+            )
+        if self.display_order != persona.display_order:
+            errors["display_order"] = "스타일리스트 고정 표시 순서와 다릅니다."
+        if errors:
+            raise ValidationError(errors)
+
+    def __str__(self) -> str:
+        return f"chat-run-persona {self.run_id}:{self.persona_id} ({self.status})"
