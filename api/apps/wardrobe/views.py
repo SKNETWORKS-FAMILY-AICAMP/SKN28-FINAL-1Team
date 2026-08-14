@@ -326,10 +326,15 @@ class WardrobeCallbackView(APIView):
 
             # 룩북에 걸린 사진에서 뽑은 옷은 옷장에 바로 넣지 않는다. 사용자가 고른 적 없는
             # 옷이기 때문이다 — 룩 상세에서 '옷장에 추가'를 눌러야 들어간다.
-            # 옷장 업로드와 (룩북 없는) 캘린더 사진은 종전대로 바로 옷장에 든다.
+            # 옷장 업로드와 캘린더 사진은 종전대로 바로 옷장에 든다.
             # 캘린더까지 막지 않는 이유: 캘린더 상세에는 아직 옷장에 넣는 길이 없어,
             # 막으면 그 옷이 어디서도 꺼낼 수 없는 채로 남는다.
-            adopted_at = None if lookbook_service.is_lookbook_job(job=job) else timezone.now()
+            # 한 job 이 양쪽에 걸려 있으면(룩북에서 '캘린더에도 기록', 캘린더에서
+            # '룩북에도 올리기' — 같은 사진을 두 번 분석하지 않으려고 job 을 공유한다)
+            # 캘린더 쪽 규칙을 따른다. 그날 입었다고 적은 옷이라 사용자 것이 확실하다.
+            from_lookbook = lookbook_service.is_lookbook_job(job=job)
+            worn_on_calendar = calendar_service.is_calendar_job(job=job)
+            adopted_at = None if from_lookbook and not worn_on_calendar else timezone.now()
 
             created: list[tuple[WardrobeItem, list, list]] = []
             for it in data["items"]:

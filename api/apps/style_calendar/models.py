@@ -81,6 +81,14 @@ class CalendarEntry(models.Model):
         blank=True,
         db_comment="캘린더 해시태그 문자열 목록 JSON",
     )
+    skipped_categories = models.JSONField(
+        default=list,
+        blank=True,
+        db_comment=(
+            "입은 옷 지정과 겹쳐 사진 등록에서 제외한 옷장 대분류 목록 JSON "
+            "(예: 상의/하의)"
+        ),
+    )
     status = models.CharField(
         max_length=16,
         choices=[

@@ -24,6 +24,7 @@ from apps.style_calendar.models import (
 from apps.style_calendar.services import storage
 from apps.wardrobe.models import WardrobeItem, WardrobeUploadJob
 from apps.wardrobe.services import storage as wardrobe_storage
+from apps.wardrobe.services.items import skipped_categories_for
 
 if TYPE_CHECKING:
     from django.core.files.uploadedfile import UploadedFile
@@ -237,6 +238,81 @@ def unlink_wardrobe_item(
     # 원본(wardrobe 버킷)은 옷장 소유라 여기서 절대 지우지 않는다.
     if removed_copy_key:
         transaction.on_commit(lambda: _cleanup_s3_objects([removed_copy_key]))
+
+    return entries_for_user(user=user).get(pk=calendar_id)
+
+
+@transaction.atomic
+def link_wardrobe_items(
+    *,
+    user,
+    calendar_id: UUID,
+    wardrobe_item_ids: Sequence[UUID],
+) -> CalendarEntry:
+    """이미 있는 캘린더에 입은 옷을 **더한다**.
+
+    unlink 의 반대편이다. 이 API 가 없던 동안 프론트는 옷 하나를 더하려고 기록을
+    지우고 다시 만들었는데, 사진 기록이면 같은 사진을 다시 올려 다시 분석하는 셈이라
+    같은 옷이 서로 다른 두 벌로 옷장에 쌓였다. 여기서는 연결 행만 더하므로 사진도
+    분석도 다시 하지 않는다.
+
+    이미 걸려 있는 옷은 조용히 건너뛴다 — 두 번 눌러도 같은 결과여야 하고, 프론트가
+    '지금 화면의 옷 전부'를 그대로 보내도 되어야 한다.
+
+    delete_entry·unlink 와 같은 이유로 행 잠금을 걸고, 처리 중(REGISTERED/PROCESSING)인
+    캘린더는 거절한다. 추출 callback 이 sort_order 를 이어 붙이는 중이라 경합한다.
+    """
+
+    entry = (
+        CalendarEntry.objects.select_for_update()
+        .filter(pk=calendar_id, user=user)
+        .first()
+    )
+    if entry is None:
+        raise CalendarDeletionNotFoundError
+    if entry.status not in {
+        CalendarStatus.COMPLETED.value,
+        CalendarStatus.FAILED.value,
+    }:
+        raise CalendarDeletionConflictError(entry.status)
+
+    ordered_items = _owned_wardrobe_items(
+        user=user,
+        wardrobe_item_ids=wardrobe_item_ids,
+    )
+    linked_item_ids = set(entry.wardrobe_links.values_list("wardrobe_item_id", flat=True))
+    new_items = [item for item in ordered_items if item.pk not in linked_item_ids]
+    if not new_items:
+        return entries_for_user(user=user).get(pk=calendar_id)
+
+    links, destination_keys = _prepare_wardrobe_links(
+        entry=entry,
+        ordered_items=new_items,
+        start_sort_order=entry.wardrobe_links.count(),
+    )
+
+    stored_keys: list[str] = []
+    try:
+        _copy_wardrobe_images(
+            ordered_items=new_items,
+            destination_keys=destination_keys,
+            stored_keys=stored_keys,
+        )
+    except Exception as exc:
+        _cleanup_s3_objects(stored_keys)
+        raise CalendarStorageError from exc
+
+    try:
+        CalendarWardrobeItem.objects.bulk_create(links)
+    except Exception:
+        _cleanup_s3_objects(stored_keys)
+        raise
+
+    # 옷을 다 뺐던 기록은 대표 이미지가 비어 있다(unlink 가 그렇게 남긴다).
+    # 다시 채워 두지 않으면 옷은 있는데 표지가 없는 기록이 된다.
+    if not entry.image_s3_key:
+        entry.image_s3_key = destination_keys[0]
+        entry.save(update_fields=["image_s3_key", "updated_at"])
 
     return entries_for_user(user=user).get(pk=calendar_id)
 
@@ -466,6 +542,7 @@ def create_from_photo(
         schedule=schedule,
         tpo=tpo,
         hashtags=hashtags,
+        skipped_categories=skipped_categories_for(ordered_items),
         status=CalendarStatus.REGISTERED.value,
     )
     original_s3_key = storage.original_key(
@@ -560,6 +637,9 @@ def create_photo_entry_for_job(
         schedule=schedule,
         tpo=tpo,
         hashtags=hashtags,
+        # 큐에 싣는 것은 룩북 쪽(같은 ordered_items 로 계산한 값)이지만, callback
+        # 안전망은 캘린더도 스스로 판단해야 해서 같은 목록을 여기에도 남긴다.
+        skipped_categories=skipped_categories_for(ordered_items),
         status=CalendarStatus.REGISTERED.value,
     )
     links, destination_keys = _prepare_wardrobe_links(
@@ -611,6 +691,19 @@ def mark_queue_enqueue_failed(entry: CalendarEntry) -> None:
             )
 
 
+def is_calendar_job(*, job: WardrobeUploadJob) -> bool:
+    """이 사진 처리 job 이 캘린더 기록에 걸려 있는가.
+
+    걸려 있으면 뽑힌 옷을 옷장에 바로 들인다. 캘린더는 '그날 입은 옷'의 기록이라
+    사용자가 가진 옷이 확실하고, 캘린더 상세에는 옷장에 넣는 버튼이 없어 막으면
+    그 옷이 어디서도 꺼낼 수 없는 채로 남는다. 룩북과 job 을 공유하는 경우
+    (룩북에서 '캘린더에도 기록')에도 같다. 옷장 쪽이 캘린더 모델을 직접 import
+    하지 않도록 판별을 여기 둔다 (룩북의 is_lookbook_job 과 같은 이유).
+    """
+
+    return CalendarEntry.objects.filter(wardrobe_upload_job=job).exists()
+
+
 def apply_wardrobe_job_success(
     *,
     job: WardrobeUploadJob,
@@ -629,7 +722,16 @@ def apply_wardrobe_job_success(
     existing_item_ids = set(
         entry.wardrobe_links.values_list("wardrobe_item_id", flat=True)
     )
-    new_items = [item for item in created_items if item.pk not in existing_item_ids]
+    skipped = set(entry.skipped_categories or [])
+    # 제외는 워커가 열거 직후에 이미 적용한다. 여기 한 겹 더 두는 것은 구버전
+    # 워커(exclude_categories 미지원)가 붙어도 입은 옷으로 이미 지정한 부위가
+    # 캘린더에 두 번 걸리지 않게 하기 위한 안전망이다 (룩북과 같은 규칙).
+    # 옷장 아이템 자체는 지우지 않는다 — 이미 만들어진 사용자 데이터다.
+    new_items = [
+        item
+        for item in created_items
+        if item.pk not in existing_item_ids and item.category_large not in skipped
+    ]
     start_sort_order = entry.wardrobe_links.count()
     links, destination_keys = _prepare_wardrobe_links(
         entry=entry,

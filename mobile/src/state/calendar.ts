@@ -8,6 +8,7 @@ import {
   getCalendarEntry,
   getCalendarEntryByDate,
   getCalendarProcessingStatus,
+  linkCalendarItems,
   listCalendarEntries,
   patchCalendarEntry,
   unlinkCalendarItem,
@@ -209,14 +210,15 @@ function overlayFor(date: string): Overlay {
 }
 
 /**
- * 기록을 지우지 않고 고칠 수 있는 변경인가 — 사진이 그대로고, 서버에 보낼 옷이
- * **늘지 않았다**면 그렇다. 옷을 뺀 것은 연결 해제 API로, 메타데이터는 PATCH 로
- * 끝난다. 사진이 바뀌거나 옷이 추가될 때만 삭제 후 재등록이 필요하다(서버 제약).
+ * 기록을 지우지 않고 고칠 수 있는 변경인가 — **사진이 그대로면** 그렇다.
+ *
+ * 옷을 더한 것은 연결 추가 API로, 뺀 것은 연결 해제 API로, 메타데이터는 PATCH 로
+ * 끝난다. 오직 사진이 바뀔 때만 삭제 후 재등록이 필요하다(서버에 사진 교체가 없다).
+ * 예전에는 옷을 더하는 것도 삭제 후 재등록이었는데, 사진 기록에서는 그것이 곧 같은
+ * 사진의 재분석이라 같은 옷이 서로 다른 두 벌로 옷장에 쌓였다.
  */
-function canEditInPlace(prev: CalendarEntry, photo: string | undefined, serverItems: EntryItem[]): boolean {
-  if ((prev.photo ?? '') !== (photo ?? '')) return false;
-  const prevIds = new Set(prev.items.filter(isServerItem).map((i) => i.id));
-  return serverItems.every((item) => prevIds.has(item.id));
+function canEditInPlace(prev: CalendarEntry, photo: string | undefined): boolean {
+  return (prev.photo ?? '') === (photo ?? '');
 }
 
 /** 서버에 자리가 없는 것들을 날짜별 오버레이에 반영한다. */
@@ -309,23 +311,25 @@ export const calendarStore = {
     const prev = await calendarStore.findEntry(input.date);
 
     /* 기록을 지우지 않고 고칠 수 있으면 절대 지우지 않는다.
-       - 옷을 뺀 것: 연결 해제 API 가 그 옷과 기록의 **연결만** 끊는다. 옷장 아이템은
-         서버에 그대로 남고, 기록 id 도 바뀌지 않는다.
+       - 옷을 빼고 더한 것: 연결 해제·추가 API 가 **연결만** 손댄다. 옷장 아이템은
+         서버에 그대로 남고, 기록 id 와 사진도 바뀌지 않는다.
        - 일정·해시태그: PATCH.
        예전에는 옷 하나만 빼도 삭제 후 재등록이었다 — 재등록이 실패하면 기록이
        통째로 사라져, '입은 옷 빼기'가 기록 삭제가 되는 사고가 있었다. */
-    if (prev && canEditInPlace(prev, input.photo, serverItems)) {
+    if (prev && canEditInPlace(prev, input.photo)) {
       const keptIds = new Set(serverItems.map((item) => item.id));
-      const removedIds = prev.items
-        .filter(isServerItem)
-        .map((item) => item.id)
-        .filter((id) => !keptIds.has(id));
-      /* 연결 해제를 먼저, PATCH 를 마지막에 — 마지막 응답이 최신 기록 전체라
+      const prevIds = new Set(prev.items.filter(isServerItem).map((item) => item.id));
+      const removedIds = [...prevIds].filter((id) => !keptIds.has(id));
+      const addedIds = serverItems.map((item) => item.id).filter((id) => !prevIds.has(id));
+      /* 연결 변경을 먼저, PATCH 를 마지막에 — 마지막 응답이 최신 기록 전체라
          중간에 화면을 갱신할 필요가 없다. 도중에 실패해도 기록은 살아 있고,
-         다시 저장하면 남은 것부터 이어진다. */
+         다시 저장하면 남은 것부터 이어진다.
+         빼기를 먼저 하는 이유: 옷을 통째로 바꾸는 경우 먼저 더하면 잠깐 두 배로
+         늘어난 상태가 서버에 남는다. */
       for (const wardrobeItemId of removedIds) {
         await unlinkCalendarItem(prev.id, wardrobeItemId);
       }
+      if (addedIds.length > 0) await linkCalendarItems(prev.id, addedIds);
       const dto = await patchCalendarEntry(prev.id, meta);
       applyOverlay(input);
       const patched = toEntry(dto);
@@ -334,8 +338,8 @@ export const calendarStore = {
       return patched;
     }
 
-    // 같은 날짜에 기록이 있으면 서버가 409 로 막는다 — 사진이 바뀌거나 옷이
-    // 추가될 때만 여기로 온다(서버에 그 경로가 없다). 지우고 다시 만든다.
+    // 같은 날짜에 기록이 있으면 서버가 409 로 막는다 — 사진이 바뀔 때만 여기로
+    // 온다(서버에 사진 교체가 없다). 지우고 다시 만든다.
     if (prev) await deleteCalendarEntry(prev.id);
 
     const dto = input.photo
@@ -352,6 +356,32 @@ export const calendarStore = {
         });
 
     applyOverlay(input);
+
+    const next = toEntry(dto);
+    entries[input.date] = next;
+    notify();
+    /* 사진 등록은 202 로 돌아오고 옷 목록이 비어 있다 — 추출이 끝나면 채워 넣는다. */
+    if (isProcessing(dto.status)) watchProcessing(dto.id, dto.date);
+    return next;
+  },
+
+  /**
+   * 룩북 등록이 **함께 만든** 캘린더 기록을 스토어에 들인다.
+   *
+   * 캘린더 화면에서 '룩북에도 올리기'를 켜면 등록은 룩북 API 한 번으로 끝난다
+   * (calendar_date). 그 응답은 룩 기준이라 캘린더 화면이 쓸 기록은 여기서 다시 받는다.
+   * 서버에 자리가 없는 값(친구 공개·룩 연결·내 옷장 밖 옷)은 saveEntry 와 같은
+   * 오버레이에 남긴다.
+   */
+  async adoptLinkedEntry(input: {
+    date: string;
+    items: EntryItem[];
+    shared: boolean;
+    lookId?: string;
+  }): Promise<CalendarEntry | undefined> {
+    applyOverlay(input);
+    const dto = await getCalendarEntryByDate(input.date);
+    if (!dto) return undefined;
 
     const next = toEntry(dto);
     entries[input.date] = next;

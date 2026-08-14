@@ -123,6 +123,20 @@ class CalendarWardrobeCreateSerializer(StrictObjectInputMixin, serializers.Seria
         return item_ids
 
 
+class CalendarWardrobeItemLinkSerializer(StrictObjectInputMixin, serializers.Serializer):
+    """이미 있는 캘린더에 더할 옷장 아이템 목록."""
+
+    wardrobe_item_ids = serializers.ListField(
+        child=serializers.UUIDField(),
+        allow_empty=False,
+    )
+
+    def validate_wardrobe_item_ids(self, item_ids):
+        if len(item_ids) != len(set(item_ids)):
+            raise serializers.ValidationError("중복된 옷장 아이템 ID가 있습니다.")
+        return item_ids
+
+
 class CalendarPhotoCreateSerializer(StrictObjectInputMixin, serializers.Serializer):
     image = serializers.ImageField()
     date = serializers.DateField()
@@ -275,6 +289,7 @@ class CalendarEntrySerializer(serializers.ModelSerializer):
             "tpo",
             "weather_snapshot",
             "hashtags",
+            "skipped_categories",
             "status",
             "wardrobe_items",
             "created_at",
