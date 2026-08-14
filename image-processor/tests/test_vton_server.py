@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import base64
 import io
+import inspect
 import threading
 import unittest
 from unittest.mock import patch
@@ -25,9 +26,23 @@ def image_base64() -> str:
 
 
 class VtonServerInputTests(unittest.TestCase):
+    def test_diffusers_supports_qwen_2511_transformer_config(self) -> None:
+        from diffusers import QwenImageTransformer2DModel
+
+        parameters = inspect.signature(QwenImageTransformer2DModel.__init__).parameters
+        self.assertTrue(
+            {"use_additional_t_cond", "use_layer3d_rope", "zero_cond_t"}.issubset(
+                parameters
+            )
+        )
+
     @patch("vton_server.config.VTON_CPU_OFFLOAD", True)
     def test_cpu_offload_loads_checkpoint_outside_gpu(self) -> None:
         self.assertIsNone(_pipeline_device_map())
+
+    @patch("vton_server.config.VTON_CPU_OFFLOAD", False)
+    def test_dedicated_gpu_loads_checkpoint_on_cuda(self) -> None:
+        self.assertEqual(_pipeline_device_map(), "cuda")
 
     @patch("vton_server.config.VTON_API_TOKEN", "shared-secret")
     def test_bearer_token_is_required(self) -> None:
