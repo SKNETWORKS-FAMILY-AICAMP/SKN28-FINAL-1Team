@@ -7,7 +7,7 @@ from unittest.mock import patch
 
 from PIL import Image
 
-from vton_server import _authorized, _decode_images
+from vton_server import _authorized, _decode_images, _pipeline_device_map
 
 
 def image_base64() -> str:
@@ -17,6 +17,10 @@ def image_base64() -> str:
 
 
 class VtonServerInputTests(unittest.TestCase):
+    @patch("vton_server.config.VTON_CPU_OFFLOAD", True)
+    def test_cpu_offload_loads_checkpoint_outside_gpu(self) -> None:
+        self.assertIsNone(_pipeline_device_map())
+
     @patch("vton_server.config.VTON_API_TOKEN", "shared-secret")
     def test_bearer_token_is_required(self) -> None:
         self.assertTrue(_authorized("Bearer shared-secret"))
