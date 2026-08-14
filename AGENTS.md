@@ -61,6 +61,7 @@ SKN28-FINAL-1Team/
 │   ├── util/              # 컨테이너 공용 모듈 (FashionSigLIP 임베더)
 │   ├── product_indexer/   # 운영: 네이버·11번가 상품 임베딩 worker + drain HTTP API
 │   └── old/               # 레거시: ETRI 패션 코디 데이터셋 적재 (Dockerfile.indexer.old)
+├── image-processor/       # GPU 이미지 처리 워커 + Qwen-Image-Edit VTON 내부 API
 ├── ml/                    # 모델 학습·추론 코드 (예정)
 ├── scripts/               # 배포·데이터 처리 스크립트
 └── docs/                  # 설계·아키텍처 문서
