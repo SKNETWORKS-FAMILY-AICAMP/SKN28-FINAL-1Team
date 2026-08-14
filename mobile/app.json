@@ -1,8 +1,7 @@
 {
   "expo": {
-    "name": "mobile",
+    "name": "cozy (내 빌드)",
     "slug": "mobile",
-    "owner": "skn-1st",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
@@ -10,10 +9,10 @@
     "userInterfaceStyle": "automatic",
     "ios": {
       "icon": "./assets/expo.icon",
-      "bundleIdentifier": "com.cozy.mobile"
+      "bundleIdentifier": "com.cozy.mobile.mybuild"
     },
     "android": {
-      "package": "com.cozy.mobile",
+      "package": "com.cozy.mobile.mybuild",
       "adaptiveIcon": {
         "backgroundColor": "#E6F4FE",
         "foregroundImage": "./assets/images/android-icon-foreground.png",
@@ -75,7 +74,8 @@
           "android": {
             "extraMavenRepos": [
               "https://devrepo.kakao.com/nexus/content/groups/public/"
-            ]
+            ],
+            "usesCleartextTraffic": true
           }
         }
       ],
@@ -86,16 +86,10 @@
       "reactCompiler": true
     },
     "extra": {
-      "router": {},
-      "eas": {
-        "projectId": "9b95bedd-1211-478f-b12d-b284b4ab235a"
-      }
+      "router": {}
     },
     "runtimeVersion": {
       "policy": "appVersion"
-    },
-    "updates": {
-      "url": "https://u.expo.dev/9b95bedd-1211-478f-b12d-b284b4ab235a"
     }
   }
 }

@@ -13,6 +13,13 @@
         "buildType": "apk"
       }
     },
+    "mybuild": {
+      "extends": "preview",
+      "env": {
+        "EXPO_PUBLIC_API_URL": "http://192.168.2.24:8000",
+        "EXPO_PUBLIC_INVITE_BASE_URL": "https://skn-1st-mobile.expo.app"
+      }
+    },
     "simulator": {
       "distribution": "internal",
       "channel": "preview",
