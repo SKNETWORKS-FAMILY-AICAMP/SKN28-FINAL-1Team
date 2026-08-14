@@ -164,12 +164,12 @@ def claim(look_id: str) -> DailyLook | None:
 
 def run(look: DailyLook) -> None:
     """리트리버로 후보를 뽑고 Gemini에 코디 구성·근거 생성을 맡긴다."""
-    from apps.recommend.services.body_profile import BodyProfile
+    from apps.recommend.services.body_profile import BodyProfile, canonical_silhouette
 
     snapshot = look.retrieval_context()
     saved = snapshot.get("body_profile") or {}
     profile = BodyProfile(
-        silhouette=saved.get("silhouette", "unknown"),
+        silhouette=canonical_silhouette(saved.get("silhouette", "unknown")),
         bmi_band=saved.get("bmi_band", "unknown"),
         bmi=saved.get("bmi"),
         ratios=dict(saved.get("ratios") or {}),

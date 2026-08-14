@@ -340,6 +340,27 @@ class OutfitValidatorTests(SimpleTestCase):
             )
         )
 
+    def test_current_catalog_price_is_used_for_category_budget(self) -> None:
+        item = _item("top", ItemSource.PRODUCT, "naver-1", price=90_000)
+        gateway = FakeEligibilityGateway(
+            {
+                item.identity: SourceEligibility(
+                    eligible=True,
+                    current_price=110_000,
+                )
+            }
+        )
+
+        result = OutfitValidator(eligibility_gateway=gateway).validate(
+            _composition(item),
+            context=ValidationContext(category_budgets={"상의": 100_000}),
+        )
+
+        self.assertIn(
+            "CATEGORY_BUDGET_EXCEEDED",
+            _codes(result, ValidationSeverity.ERROR),
+        )
+
 
 class DjangoEligibilityGatewayRuleTests(SimpleTestCase):
     def test_naver_discontinued_product_is_not_eligible(self) -> None:

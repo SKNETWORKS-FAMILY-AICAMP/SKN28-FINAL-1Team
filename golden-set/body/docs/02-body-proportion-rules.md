@@ -1,5 +1,7 @@
 # 체형·비율 규칙 (v3, 사이즈코리아 상반신 체형)
 
+> **폐기된 v3 기록:** 현재 운영 계약은 [`04-body-threshold-contract-v4.md`](04-body-threshold-contract-v4.md)다. v4는 clean 172명 SSOT, 성별 경험 백분위, 5체형만 사용하며 `standard`를 `rectangle`에 흡수한다.
+
 - **작성일**: 2026-08-10 (v3)
 - **판단 원천**: [`rules/body_shape_thresholds.json`](../rules/body_shape_thresholds.json) (계산값) · [`rules/body_fit_rules.json`](../rules/body_fit_rules.json) (수기) · [`rules/sizekorea_body_shape_reference.json`](../rules/sizekorea_body_shape_reference.json) (출처 원문)
 - **생성 스크립트**: [`tools/derive_body_thresholds.py`](../tools/derive_body_thresholds.py)

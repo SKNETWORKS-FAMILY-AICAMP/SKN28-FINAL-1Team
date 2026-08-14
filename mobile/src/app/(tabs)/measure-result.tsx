@@ -197,6 +197,9 @@ export default function MeasureResult() {
                 ? '사진과 입력 정보로 추정한 결과예요.'
                 : '키·몸무게로 추정한 결과예요.'}
             </Text>
+            {result.bodyTypeLabel ? (
+              <Text style={styles.bodyType}>{result.bodyTypeLabel}입니다</Text>
+            ) : null}
           </View>
 
           {/* 추정 치수 — 값 탭하여 직접 수정. 처음엔 4개만 보이고 나머지는 '더보기' */}
@@ -357,6 +360,7 @@ const styles = StyleSheet.create({
   },
   title: { fontFamily: Fonts.serif, fontSize: 26, color: INK },
   lead: { fontSize: Type.footnote, color: Editorial.textCaption },
+  bodyType: { marginTop: 8, fontSize: Type.body, fontWeight: '600', color: INK },
 
   sectionTitle: { fontSize: Type.label, fontWeight: '600', color: INK, marginTop: 30, marginBottom: 12 },
   sectionHead: {

@@ -45,6 +45,8 @@ export type MeasureResult = {
   measures: Measurement;
   sizes: SizeMatch[];
   usedPhotos: boolean; // 사진을 써서 추정했는지 (안내문 분기용)
+  bodyType: string | null;
+  bodyTypeLabel: string | null;
 };
 
 type EstimateStatus = 'idle' | 'loading' | 'success' | 'error';
@@ -97,6 +99,8 @@ type BodyDto = Record<BodyMeasureKey, Numeric> & {
   gender: string | null;
   height: Numeric;
   weight: Numeric;
+  body_type: string | null;
+  body_type_label: string | null;
   updated_at: string | null;
 };
 
@@ -147,7 +151,13 @@ type BodyEstimationResult = {
 function toResult(outcome: BodyEstimationResult, usedPhotos: boolean): MeasureResult | null {
   const measures = toMeasurement(outcome.measurement);
   if (!measures) return null;
-  return { measures, sizes: mockSizes(measures.chest), usedPhotos };
+  return {
+    measures,
+    sizes: mockSizes(measures.chest),
+    usedPhotos,
+    bodyType: outcome.measurement.body_type,
+    bodyTypeLabel: outcome.measurement.body_type_label,
+  };
 }
 
 /**
@@ -357,6 +367,7 @@ export const measureStore = {
       const needsInput = e instanceof ApiError && e.status === 400;
       setState({
         status: 'error',
+        needsInput,
         error: needsInput
           ? '키·몸무게와 성별을 확인해주세요. 입력이 없거나 범위를 벗어났어요.'
           : e instanceof ApiError

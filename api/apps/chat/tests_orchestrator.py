@@ -138,6 +138,10 @@ class ChatContextServiceTests(TestCase):
         self.assertEqual(first.base_fingerprint, second.base_fingerprint)
         self.assertEqual(first.fingerprint, second.fingerprint)
         self.assertEqual(first.payload["profile"], second.payload["profile"])
+        self.assertEqual(
+            first.payload["profile"]["category_budgets"]["상의"],
+            50_000,
+        )
 
     @patch("apps.chat.services.context.get_current_weather")
     def test_profile_update_changes_base_fingerprint(self, mock_weather):

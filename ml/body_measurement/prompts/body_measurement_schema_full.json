@@ -1,28 +1,33 @@
 {
+  "$comment": "VLM output schema does not return gender. Body API input/output gender is standardized as 'male' or 'female'; M/F is used only as an internal training encoding. Ratios are computed server-side from the returned lengths and must not be returned here.",
   "type": "object",
   "properties": {
     "chest_cm": { "type": "number" },
     "waist_cm": { "type": "number" },
     "hip_cm": { "type": "number" },
+    "shoulder_cm": { "type": "number" },
     "thigh_cm": { "type": "number" },
     "calf_cm": { "type": "number" },
     "arm_cm": { "type": "number" },
-    "shoulder_cm": { "type": "number" },
+    "thigh_length_cm": { "type": "number" },
+    "calf_length_cm": { "type": "number" },
     "neck_length_cm": { "type": "number" },
-    "thigh_calf_ratio": { "type": "number", "minimum": 0.8, "maximum": 1.3 },
-    "torso_leg_ratio": { "type": "number", "minimum": 0.6, "maximum": 1.0 }
+    "torso_length_cm": { "type": "number" },
+    "leg_length_cm": { "type": "number" }
   },
   "required": [
     "chest_cm",
     "waist_cm",
     "hip_cm",
+    "shoulder_cm",
     "thigh_cm",
     "calf_cm",
     "arm_cm",
-    "shoulder_cm",
+    "thigh_length_cm",
+    "calf_length_cm",
     "neck_length_cm",
-    "thigh_calf_ratio",
-    "torso_leg_ratio"
+    "torso_length_cm",
+    "leg_length_cm"
   ],
   "additionalProperties": false
 }
