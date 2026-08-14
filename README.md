@@ -88,6 +88,7 @@ docker compose -f docker-compose.gpu.yml logs -f
 
 - 두 서비스가 HF 모델 캐시 볼륨(`hf_cache`)을 공유해 FashionSigLIP·bge-m3를 한 번만 받는다.
 - 컨테이너 안에는 `.env` 파일이 없다(compose `env_file`이 환경변수로 주입).
+- VTON은 24GB GPU에서 실행할 수 있도록 transformer·text encoder를 NF4 4비트로 로드한다.
   리포에서 직접 실행할 때만 코드가 루트 `.env` 파일을 찾아 읽으며, 다른 경로를
   쓰려면 `ENV_FILE=/path/to/.env`로 지정한다.
 - GPU 없는 호스트에서 스모크 테스트하려면 `docker-compose.gpu.yml`의
