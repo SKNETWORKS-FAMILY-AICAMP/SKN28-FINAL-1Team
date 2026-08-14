@@ -31,6 +31,8 @@ from apps.chat.openapi import (
     CHAT_SSE_GUIDE,
     CHAT_TAG,
     CHAT_UUID_GUIDE,
+    STYLIST_CHAT_GUIDE,
+    STYLIST_CHAT_TAG,
     cursor_parameter,
     path_uuid_parameter,
 )
@@ -152,20 +154,98 @@ _MESSAGE_CREATE_EXAMPLE = OpenApiExample(
     request_only=True,
 )
 
+_STYLIST_LIST_RESPONSE_EXAMPLE = OpenApiExample(
+    name="스타일리스트 목록과 회원 선택",
+    value={
+        "schema_version": "stylist-personas-v1",
+        "min_select": 1,
+        "max_select": 3,
+        "default_persona_ids": ["minimal"],
+        "last_selected_persona_ids": ["minimal", "practical"],
+        "stylists": [
+            {
+                "id": "minimal",
+                "display_name": "미니멀",
+                "description": (
+                    "색상과 실루엣을 정돈하고 반복 활용도가 높은 코디를 제안합니다."
+                ),
+                "display_order": 1,
+            },
+            {
+                "id": "experimental",
+                "display_name": "실험형",
+                "description": (
+                    "최근 추천과 다른 관계를 탐색해 부담 없는 변화를 제안합니다."
+                ),
+                "display_order": 2,
+            },
+            {
+                "id": "practical",
+                "display_name": "실용형",
+                "description": (
+                    "날씨와 활동성, 관리 편의를 고려해 실제로 입기 좋은 코디를 "
+                    "제안합니다."
+                ),
+                "display_order": 3,
+            },
+        ],
+    },
+    response_only=True,
+    status_codes=["200"],
+)
+
+_STYLIST_MODE_RESPONSE_EXAMPLE = OpenApiExample(
+    name="스타일리스트 응답 모드 적용 결과",
+    value={
+        "id": "11111111-1111-4111-8111-111111111111",
+        "mode": "NEW_ITEM",
+        "response_mode": "STYLIST",
+        "selected_persona_ids": ["minimal", "practical"],
+        "persona_selection_updated_at": "2026-08-14T17:30:00+09:00",
+        "title": "성수동 데이트 룩",
+        "persona_profile_id": None,
+        "parent_session_id": None,
+        "context_state": {},
+        "conversation_summary": "",
+        "summary_through_sequence": 0,
+        "last_message_at": "2026-08-14T17:20:00+09:00",
+        "created_at": "2026-08-14T17:20:00+09:00",
+        "updated_at": "2026-08-14T17:30:00+09:00",
+    },
+    response_only=True,
+    status_codes=["200"],
+)
+
+_MEMBER_JWT_ERROR_EXAMPLE = OpenApiExample(
+    name="회원 인증 필요",
+    value={"detail": "자격 인증데이터(authentication credentials)가 제공되지 않았습니다."},
+    response_only=True,
+    status_codes=["401"],
+)
+
 
 @extend_schema_view(
     get=extend_schema(
         operation_id="chat_stylist_list",
-        tags=[CHAT_TAG],
+        tags=[STYLIST_CHAT_TAG],
         summary="선택 가능한 스타일리스트 목록 조회",
         description=(
             "로그인 회원이 선택할 수 있는 스타일리스트를 고정 표시 순서로 "
             "조회합니다. 선택 제한과 최초 기본값, 회원의 마지막 선택값을 함께 "
-            "반환하며 내부 전략 가중치와 프롬프트는 노출하지 않습니다."
+            "반환하며 내부 전략 가중치와 프롬프트는 노출하지 않습니다.\n\n"
+            f"{STYLIST_CHAT_GUIDE}"
         ),
         responses={
-            200: StylistListResponseSerializer,
-            401: OpenApiResponse(description="회원 JWT가 없거나 유효하지 않음"),
+            200: OpenApiResponse(
+                response=StylistListResponseSerializer,
+                description="선택 가능한 스타일리스트와 선택 정책 조회 성공",
+                examples=[_STYLIST_LIST_RESPONSE_EXAMPLE],
+            ),
+            401: OpenApiResponse(
+                response=OpenApiTypes.OBJECT,
+                description="회원 JWT가 없거나 유효하지 않음",
+                examples=[_MEMBER_JWT_ERROR_EXAMPLE],
+            ),
         },
     )
 )
@@ -182,13 +262,17 @@ class ChatSessionResponseModeView(APIView):
 
     @extend_schema(
         operation_id="chat_session_response_mode_update",
-        tags=[CHAT_TAG],
+        tags=[STYLIST_CHAT_TAG],
         summary="채팅 세션 응답 모드 변경",
         description=(
             "같은 채팅방에서 기본 통합 응답과 스타일리스트별 응답을 전환합니다. "
             "STYLIST 전환은 선택값을 세션과 회원 마지막 선택에 함께 저장합니다. "
             "DEFAULT로 돌아가도 선택값은 삭제하지 않으며 추천 출처 모드인 "
-            "WARDROBE_BASED/NEW_ITEM은 변경하지 않습니다."
+            "WARDROBE_BASED/NEW_ITEM은 변경하지 않습니다.\n\n"
+            f"{STYLIST_CHAT_GUIDE}\n\n"
+            "`selected_persona_ids`를 생략하면 현재 세션 선택값, 회원 마지막 "
+            "선택값, `minimal` 순서로 복원합니다. `DEFAULT` 전환에서는 이 필드를 "
+            "보내지 않습니다."
         ),
         parameters=[_SESSION_ID_PARAMETER],
         request={"application/json": ChatSessionResponseModeUpdateSerializer},
@@ -208,10 +292,48 @@ class ChatSessionResponseModeView(APIView):
             ),
         ],
         responses={
-            200: ChatSessionSerializer,
-            400: OpenApiResponse(description="응답 모드 또는 스타일리스트 선택 검증 실패"),
-            401: OpenApiResponse(description="회원 JWT가 없거나 유효하지 않음"),
-            404: OpenApiResponse(description="세션이 없거나 현재 회원의 소유가 아님"),
+            200: OpenApiResponse(
+                response=ChatSessionSerializer,
+                description="변경된 세션 상태",
+                examples=[_STYLIST_MODE_RESPONSE_EXAMPLE],
+            ),
+            400: OpenApiResponse(
+                response=OpenApiTypes.OBJECT,
+                description="응답 모드 또는 스타일리스트 선택 검증 실패",
+                examples=[
+                    OpenApiExample(
+                        name="중복 스타일리스트 선택",
+                        value={
+                            "code": "CHAT_RESPONSE_MODE_INVALID",
+                            "detail": "스타일리스트 ID는 중복될 수 없습니다.",
+                        },
+                        response_only=True,
+                        status_codes=["400"],
+                    )
+                ],
+            ),
+            401: OpenApiResponse(
+                response=OpenApiTypes.OBJECT,
+                description="회원 JWT가 없거나 유효하지 않음",
+                examples=[_MEMBER_JWT_ERROR_EXAMPLE],
+            ),
+            404: OpenApiResponse(
+                response=OpenApiTypes.OBJECT,
+                description="세션이 없거나 현재 회원의 소유가 아님",
+                examples=[
+                    OpenApiExample(
+                        name="세션 접근 불가",
+                        value={
+                            "code": "CHAT_SESSION_NOT_FOUND",
+                            "detail": (
+                                "채팅 세션이 없거나 현재 회원이 소유하지 않습니다."
+                            ),
+                        },
+                        response_only=True,
+                        status_codes=["404"],
+                    )
+                ],
+            ),
         },
     )
     def patch(self, request, session_id):
