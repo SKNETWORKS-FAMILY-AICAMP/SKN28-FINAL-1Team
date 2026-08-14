@@ -25,7 +25,7 @@ from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from apps.chat.models import ChatMessage, ChatRun, ChatSession
+from apps.chat.models import ChatRun, ChatSession
 from apps.chat.openapi import (
     CHAT_IDENTITY_GUIDE,
     CHAT_SSE_GUIDE,
@@ -66,7 +66,10 @@ from apps.chat.services import mood_analysis
 from apps.chat.services import queue as chat_queue
 from apps.chat.services import sessions as session_service
 from apps.chat.services.events import ChatEvent, ChatEventStore, encode_sse, heartbeat
-from apps.chat.services.orchestrator import create_run, mark_enqueue_failed
+from apps.chat.services.orchestrator import (
+    mark_enqueue_failed,
+    submit_message_and_create_run,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -582,19 +585,12 @@ class ChatSessionMessageListView(APIView):
         identity = _identity(request)
         serializer = ChatMessageCreateSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
-        message, _created = session_service.append_message(
+        message, _message_created, run, _run_created = submit_message_and_create_run(
             identity=identity,
             session_id=session_id,
-            role=ChatMessage.Role.USER,
             content=serializer.validated_data["content"],
-            status=ChatMessage.Status.PENDING,
             client_message_id=serializer.validated_data["client_message_id"],
             metadata=serializer.validated_data.get("metadata", {}),
-        )
-        run, _run_created = create_run(
-            identity=identity,
-            session_id=session_id,
-            request_message_id=message.id,
         )
 
         if run.status == ChatRun.Status.PENDING:

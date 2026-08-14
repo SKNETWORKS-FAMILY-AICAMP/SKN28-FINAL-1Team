@@ -175,6 +175,8 @@ class ChatRunSerializer(serializers.ModelSerializer):
             "request_message_id",
             "response_message_id",
             "status",
+            "response_mode",
+            "persona_ids",
             "enqueued_at",
             "error_code",
             "error_message",

@@ -59,6 +59,40 @@ def validate_member_last_selected_persona_ids(value: object) -> None:
         )
 
 
+def validate_persona_version_snapshot(value: object) -> None:
+    """스타일리스트별 설정 버전 스냅샷의 키와 양의 정수를 검증한다."""
+
+    if not isinstance(value, dict):
+        raise ValidationError("스타일리스트 버전 스냅샷은 JSON 객체여야 합니다.")
+    supported_ids = set(load_stylist_personas().supported_persona_ids)
+    if not set(value).issubset(supported_ids):
+        raise ValidationError("버전 스냅샷에 지원하지 않는 스타일리스트 ID가 있습니다.")
+    if any(
+        isinstance(version, bool)
+        or not isinstance(version, int)
+        or version < 1
+        for version in value.values()
+    ):
+        raise ValidationError("스타일리스트 설정 버전은 1 이상의 정수여야 합니다.")
+
+
+def validate_persona_prompt_version_snapshot(value: object) -> None:
+    """스타일리스트별 프롬프트 버전 스냅샷을 검증한다."""
+
+    if not isinstance(value, dict):
+        raise ValidationError("프롬프트 버전 스냅샷은 JSON 객체여야 합니다.")
+    supported_ids = set(load_stylist_personas().supported_persona_ids)
+    if not set(value).issubset(supported_ids):
+        raise ValidationError(
+            "프롬프트 버전 스냅샷에 지원하지 않는 스타일리스트 ID가 있습니다."
+        )
+    if any(
+        not isinstance(version, str) or not version.strip()
+        for version in value.values()
+    ):
+        raise ValidationError("프롬프트 버전은 비어 있지 않은 문자열이어야 합니다.")
+
+
 class PersonaProfile(models.Model):
     """버전이 고정된 채팅 스타일리스트 페르소나 설정."""
 
@@ -689,6 +723,39 @@ class ChatRun(models.Model):
         default=Status.PENDING,
         db_comment=("실행 상태 (PENDING/RUNNING/NEEDS_CLARIFICATION/SUCCEEDED/FAILED)"),
     )
+    response_mode = models.CharField(
+        max_length=12,
+        choices=ChatSession.ResponseMode.choices,
+        default=ChatSession.ResponseMode.DEFAULT,
+        db_comment="실행 접수 당시 응답 모드 스냅샷 (DEFAULT/STYLIST)",
+    )
+    persona_ids = models.JSONField(
+        default=list,
+        blank=True,
+        validators=[validate_selected_persona_ids],
+        db_comment=(
+            "실행 접수 당시 선택 스타일리스트 ID JSON 배열 "
+            "(고정 순서, 선택하지 않았으면 빈 배열)"
+        ),
+    )
+    persona_versions = models.JSONField(
+        default=dict,
+        blank=True,
+        validators=[validate_persona_version_snapshot],
+        db_comment="실행 접수 당시 스타일리스트 ID별 설정 버전 JSON 객체",
+    )
+    persona_prompt_versions = models.JSONField(
+        default=dict,
+        blank=True,
+        validators=[validate_persona_prompt_version_snapshot],
+        db_comment="실행 접수 당시 스타일리스트 ID별 프롬프트 버전 JSON 객체",
+    )
+    stylist_config_version = models.CharField(
+        max_length=64,
+        blank=True,
+        default="",
+        db_comment="실행 접수 당시 스타일리스트 설정 파일 스키마 버전",
+    )
     enqueued_at = models.DateTimeField(
         null=True,
         blank=True,
@@ -776,7 +843,9 @@ class ChatRun(models.Model):
 
     class Meta:
         db_table = "chat_run"
-        db_table_comment = "사용자 메시지별 채팅 오케스트레이터 실행·LLM·캐시·오류 추적"
+        db_table_comment = (
+            "사용자 메시지별 응답 상태 스냅샷과 오케스트레이터·LLM·오류 추적"
+        )
         ordering = ["-created_at"]
         indexes = [
             models.Index(
@@ -801,7 +870,47 @@ class ChatRun(models.Model):
                 ),
                 name="ck_chat_run_status",
             ),
+            models.CheckConstraint(
+                condition=Q(response_mode__in=["DEFAULT", "STYLIST"]),
+                name="ck_chat_run_response_mode",
+            ),
+            models.CheckConstraint(
+                condition=(Q(response_mode="DEFAULT") | ~Q(persona_ids=[])),
+                name="ck_chat_run_stylist_ids",
+            ),
         ]
+
+    def clean(self) -> None:
+        super().clean()
+        errors: dict[str, str] = {}
+        persona_id_set = (
+            set(self.persona_ids) if isinstance(self.persona_ids, list) else set()
+        )
+        if (
+            self.response_mode == ChatSession.ResponseMode.STYLIST
+            and not self.persona_ids
+        ):
+            errors["persona_ids"] = (
+                "STYLIST 응답 실행에는 스타일리스트가 1명 이상 필요합니다."
+            )
+        if isinstance(self.persona_versions, dict) and set(
+            self.persona_versions
+        ) != persona_id_set:
+            errors["persona_versions"] = (
+                "설정 버전 스냅샷 키는 선택 스타일리스트 ID와 같아야 합니다."
+            )
+        if isinstance(self.persona_prompt_versions, dict) and set(
+            self.persona_prompt_versions
+        ) != persona_id_set:
+            errors["persona_prompt_versions"] = (
+                "프롬프트 버전 스냅샷 키는 선택 스타일리스트 ID와 같아야 합니다."
+            )
+        if self.persona_ids and not self.stylist_config_version:
+            errors["stylist_config_version"] = (
+                "스타일리스트 선택이 있으면 설정 스키마 버전이 필요합니다."
+            )
+        if errors:
+            raise ValidationError(errors)
 
     def __str__(self) -> str:
         return f"chat-run {self.id} ({self.status})"

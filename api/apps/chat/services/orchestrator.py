@@ -8,6 +8,7 @@ from copy import deepcopy
 from dataclasses import dataclass
 
 from django.conf import settings
+from django.core.exceptions import ValidationError
 from django.db import IntegrityError, transaction
 from django.utils import timezone
 
@@ -31,6 +32,7 @@ from apps.chat.services.recommendation_pipeline import (
     ChatRecommendationPipeline,
 )
 from apps.chat.services.sessions import ChatSessionForbidden, append_message
+from apps.chat.services.stylist_personas import load_stylist_personas
 
 logger = logging.getLogger(__name__)
 
@@ -58,6 +60,54 @@ class OrchestrationResult:
     recommendation_result_id: str | None = None
 
 
+def _session_run_snapshot(session: ChatSession) -> dict[str, object]:
+    persona_ids = list(session.selected_persona_ids)
+    catalog = load_stylist_personas()
+    try:
+        session.full_clean()
+        persona_versions = catalog.versions(persona_ids)
+    except (ValidationError, ValueError) as exc:
+        raise ChatRunInvalid("세션의 스타일리스트 선택 상태가 올바르지 않습니다.") from exc
+    return {
+        "response_mode": session.response_mode,
+        "persona_ids": persona_ids,
+        "persona_versions": persona_versions,
+        "persona_prompt_versions": {
+            persona_id: catalog.get(persona_id).prompt_version
+            for persona_id in persona_ids
+        },
+        "stylist_config_version": catalog.schema_version,
+    }
+
+
+@transaction.atomic
+def submit_message_and_create_run(
+    *,
+    identity: ChatIdentity,
+    session_id,
+    content: str,
+    client_message_id: str,
+    metadata: dict | None = None,
+) -> tuple[ChatMessage, bool, ChatRun, bool]:
+    """메시지와 실행 스냅샷을 한 트랜잭션에서 멱등 생성한다."""
+
+    message, message_created = append_message(
+        identity=identity,
+        session_id=session_id,
+        role=ChatMessage.Role.USER,
+        content=content,
+        status=ChatMessage.Status.PENDING,
+        client_message_id=client_message_id,
+        metadata=metadata,
+    )
+    run, run_created = create_run(
+        identity=identity,
+        session_id=session_id,
+        request_message_id=message.id,
+    )
+    return message, message_created, run, run_created
+
+
 @transaction.atomic
 def create_run(
     *,
@@ -66,14 +116,22 @@ def create_run(
     request_message_id,
 ) -> tuple[ChatRun, bool]:
     """사용자 메시지당 실행을 하나만 만들고 큐 재전송을 멱등 처리한다."""
+    session = (
+        ChatSession.objects.select_for_update()
+        .filter(
+            pk=session_id,
+            identity=identity,
+            deleted_at__isnull=True,
+        )
+        .first()
+    )
+    if session is None:
+        raise ChatSessionForbidden("채팅 세션에 접근할 수 없습니다.")
     message = (
         ChatMessage.objects.select_for_update()
-        .select_related("session")
         .filter(
             pk=request_message_id,
-            session_id=session_id,
-            session__identity=identity,
-            session__deleted_at__isnull=True,
+            session=session,
         )
         .first()
     )
@@ -82,15 +140,22 @@ def create_run(
     if message.role != ChatMessage.Role.USER:
         raise ChatRunInvalid("사용자 메시지만 채팅 실행을 시작할 수 있습니다.")
 
+    existing = ChatRun.objects.filter(request_message=message).first()
+    if existing is not None:
+        return existing, False
+
+    snapshot = _session_run_snapshot(session)
+
     try:
         run, created = ChatRun.objects.get_or_create(
             request_message=message,
             defaults={
-                "session": message.session,
+                "session": session,
                 "status": ChatRun.Status.PENDING,
                 "provider": OpenAIChatAdapter.provider,
                 "model": settings.CHAT_OPENAI_MODEL,
                 "prompt_version": settings.CHAT_PROMPT_VERSION,
+                **snapshot,
             },
         )
     except IntegrityError:
