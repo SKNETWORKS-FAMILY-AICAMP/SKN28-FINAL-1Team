@@ -1,5 +1,5 @@
 import { Editorial, ink } from '@/constants/theme';
-import { Icon } from '@/components/icon';
+import { Icon, type IconName } from '@/components/icon';
 import { type ReactNode } from 'react';
 import {
   Pressable,
@@ -30,6 +30,12 @@ type SearchFilterBarProps = {
   showChips?: boolean;
   /** 카테고리 편집 시트 열기 */
   onEditCategories?: () => void;
+  /**
+   * 칩에 아이콘을 달고 싶을 때 (옵션 이름 → 아이콘).
+   * 해시태그 칩들 사이에서 성격이 다른 칩(예: '위시')을 글자만으로 가르기 어려워,
+   * 그 칩에만 표식을 준다.
+   */
+  chipIcons?: Partial<Record<string, IconName>>;
 };
 
 export function SearchFilterBar({
@@ -44,6 +50,7 @@ export function SearchFilterBar({
   showFilters = true,
   showChips = true,
   onEditCategories,
+  chipIcons,
 }: SearchFilterBarProps) {
   return (
     <>
@@ -90,6 +97,13 @@ export function SearchFilterBar({
                 key={c}
                 onPress={() => onToggle(c)}
                 style={[styles.chip, on && styles.chipOn]}>
+                {chipIcons?.[c] ? (
+                  <Icon
+                    name={chipIcons[c]!}
+                    tintColor={on ? '#fff' : Editorial.textCaption}
+                    size={13}
+                  />
+                ) : null}
                 <Text style={[styles.chipText, on && styles.chipTextOn]}>{c}</Text>
               </Pressable>
             );
@@ -129,8 +143,11 @@ const styles = StyleSheet.create({
     borderRadius: 999,
     borderWidth: 1,
     borderColor: ink(0.12),
+    /* 아이콘이 붙는 칩이 있어 가로로 세운다 — 아이콘이 없으면 글자만 남아 종전과 같다. */
+    flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
+    gap: 5,
   },
   chipOn: { backgroundColor: Editorial.selected, borderColor: Editorial.selected },
   chipText: { fontSize: 13, lineHeight: 18, color: Editorial.textCaption, fontWeight: '500' },
