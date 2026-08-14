@@ -15,6 +15,7 @@ from django.db.models import Count, Max
 
 from apps.chat.models import ChatIdentity, ChatMessage, ChatSession, PersonaProfile
 from apps.chat.services.context_cache import JsonCache, RedisJsonCache
+from apps.users.constants import effective_category_budgets
 from apps.users.models import BodyMeasurement, Pursuit
 from apps.users.services.pursuit import get_pursuit
 from apps.wardrobe.models import WardrobeItem
@@ -191,7 +192,10 @@ class ChatContextService:
         persona: PersonaProfile,
         weather: dict[str, Any],
     ) -> dict[str, Any]:
-        profile_version: dict[str, Any] = {"identity_type": identity.identity_type}
+        profile_version: dict[str, Any] = {
+            "identity_type": identity.identity_type,
+            "category_budgets": effective_category_budgets(None),
+        }
         wardrobe_version: dict[str, Any] = {"count": 0, "updated_at": None}
         if identity.user_id is not None:
             pursuit_updated = (
@@ -209,7 +213,9 @@ class ChatContextService:
                     "user_id": identity.user_id,
                     "pursuit_updated_at": pursuit_updated,
                     "body_updated_at": body_updated,
-                    "monthly_budget": identity.user.monthly_budget,
+                    "category_budgets": effective_category_budgets(
+                        identity.user.category_budgets
+                    ),
                 }
             )
             wardrobe_version = WardrobeItem.objects.filter(
@@ -242,20 +248,22 @@ class ChatContextService:
     ) -> dict[str, Any]:
         pursuit = None
         body = None
-        monthly_budget = None
+        category_budgets = effective_category_budgets(None)
         if identity.user_id is not None:
             pursuit = get_pursuit(identity.user)
             body = _serialize_measurement(
                 BodyMeasurement.objects.filter(user_id=identity.user_id).first()
             )
-            monthly_budget = identity.user.monthly_budget
+            category_budgets = effective_category_budgets(
+                identity.user.category_budgets
+            )
         return _json_safe(
             {
                 "profile": {
                     "personalized": identity.user_id is not None,
                     "pursuit": pursuit,
                     "body": body,
-                    "monthly_budget": monthly_budget,
+                    "category_budgets": category_budgets,
                 },
                 "weather": weather,
                 "source_versions": source_versions,

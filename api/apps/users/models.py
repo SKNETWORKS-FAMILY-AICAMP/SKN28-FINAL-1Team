@@ -25,11 +25,18 @@ class User(AbstractUser):
         "프로필 이미지", blank=True, db_comment="프로필 이미지 URL (소셜 프로필에서 초기화)"
     )
 
-    monthly_budget = models.PositiveIntegerField(
-        "월 의류 구매 예산",
+    legacy_monthly_budget = models.PositiveIntegerField(
+        "이전 월 의류 구매 예산",
         null=True,
         blank=True,
-        db_comment="월 의류 구매 예산(원). 1만원 단위, 미설정이면 NULL",
+        editable=False,
+        db_comment="이전 단일 월 의류 구매 예산(원), 신규 추천에서는 사용하지 않음",
+    )
+    category_budgets = models.JSONField(
+        "카테고리별 상품 예산",
+        default=dict,
+        blank=True,
+        db_comment="대분류별 상품 1개 최대 가격(원) JSON, 미설정 카테고리는 키 없음",
     )
 
     # PermissionsMixin의 필드를 재정의해 자동 M2M 테이블명(users_user_permissions)을

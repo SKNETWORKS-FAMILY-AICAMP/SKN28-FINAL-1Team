@@ -3,7 +3,7 @@ import { EmptyState, useConfirm, useToast } from '@/components/ui';
 import { goBack } from '@/lib/goBack';
 import { mallLabel, openExternal, productUrl } from '@/lib/mall';
 import { likesStore, useWishlist, type WishItem } from '@/state/likes';
-import { formatBudget, parsePrice, usePrefs } from '@/state/prefs';
+import { categoryBudget, parsePrice, usePrefs } from '@/state/prefs';
 import { router } from 'expo-router';
 import { useMemo } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
@@ -33,7 +33,7 @@ function formatTotal(won: number): string {
 export default function WishlistScreen() {
   const { contentStyle } = useBreakpoint();
   const items = useWishlist();
-  const { budget } = usePrefs();
+  const { effectiveCategoryBudgets } = usePrefs();
   const toast = useToast();
   const confirm = useConfirm();
 
@@ -41,12 +41,14 @@ export default function WishlistScreen() {
     () => items.reduce((sum, w) => sum + parsePrice(w.price), 0),
     [items],
   );
-  /* 예산은 '한 벌에 쓸 돈' 기준으로 받아 둔 값이라 총액과 바로 비교하면 오해를 준다.
-     그래서 넘었다고 경고하지 않고, 예산 안에 드는 상품이 몇 개인지만 알려준다. */
   const inBudgetCount = useMemo(
-    () => (budget == null ? 0 : items.filter((w) => parsePrice(w.price) <= budget).length),
-    [items, budget],
+    () => items.filter((w) => {
+      const budget = categoryBudget(effectiveCategoryBudgets, w.slot ?? '');
+      return budget != null && parsePrice(w.price) <= budget;
+    }).length,
+    [items, effectiveCategoryBudgets],
   );
+  const hasBudget = Object.keys(effectiveCategoryBudgets).length > 0;
 
   const remove = async (w: WishItem) => {
     if (await confirm({ title: `'${w.name}'을 찜에서 뺄까요?`, destructive: true })) {
@@ -111,11 +113,11 @@ export default function WishlistScreen() {
                 <Text style={styles.summaryLabel}>합계</Text>
                 <Text style={styles.summaryValue}>{formatTotal(total)}</Text>
               </View>
-              {budget != null ? (
+              {hasBudget ? (
                 <>
                   <View style={styles.summaryDivider} />
                   <View>
-                    <Text style={styles.summaryLabel}>{formatBudget(budget)} 예산 내</Text>
+                    <Text style={styles.summaryLabel}>카테고리 예산 내</Text>
                     <Text style={styles.summaryValue}>{inBudgetCount}개</Text>
                   </View>
                 </>
@@ -125,6 +127,7 @@ export default function WishlistScreen() {
             <View style={styles.list}>
               {items.map((w) => {
                 const url = productUrl(w, w.mall);
+                const budget = categoryBudget(effectiveCategoryBudgets, w.slot ?? '');
                 const inBudget = budget != null && parsePrice(w.price) <= budget;
                 return (
                   <View key={w.id} style={styles.row}>

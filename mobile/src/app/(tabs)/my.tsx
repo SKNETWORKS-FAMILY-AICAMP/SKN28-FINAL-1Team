@@ -10,7 +10,7 @@ import { useBreakpoint } from '@/hooks/use-breakpoint';
 import { useProfileSummary } from '@/hooks/use-profile-summary';
 import { useAuth } from '@/state/auth';
 import { useWishlist } from '@/state/likes';
-import { formatBudget, usePrefs } from '@/state/prefs';
+import { usePrefs } from '@/state/prefs';
 
 const INK = Editorial.ink;
 
@@ -83,7 +83,9 @@ export default function MyScreen() {
         {
           icon: 'wallet',
           label: '예산',
-          hint: formatBudget(prefs.budget) ?? '설정하기',
+          hint: Object.keys(prefs.categoryBudgets).length > 0
+            ? `${Object.keys(prefs.categoryBudgets).length}개 카테고리`
+            : '기본값 적용 중',
           onPress: () => router.push('/budget'),
         },
         {

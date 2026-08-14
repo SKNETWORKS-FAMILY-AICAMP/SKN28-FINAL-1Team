@@ -240,6 +240,25 @@ def _template(*, point_id: str = "template", vectors=None):
 
 
 class ItemCandidateRetrieverUnitTests(SimpleTestCase):
+    def test_category_budget_is_used_as_product_price_filter(self) -> None:
+        client = FakeQdrantClient(template=_template(vectors={"text": [0.1, 0.2]}))
+
+        ItemCandidateRetriever(client=client).retrieve(
+            ItemRetrievalRequest(
+                template_item_point_id="template",
+                sources=(ItemSource.PRODUCT,),
+                category_budgets={"상의": 80_000},
+            )
+        )
+
+        ranges = [
+            condition.range.lte
+            for call in client.query_calls
+            for condition in call["query_filter"].must
+            if getattr(condition, "range", None) is not None
+        ]
+        self.assertEqual(ranges, [80_000, 80_000])
+
     def test_wardrobe_source_requires_positive_user_id(self) -> None:
         retriever = ItemCandidateRetriever(client=FakeQdrantClient())
 

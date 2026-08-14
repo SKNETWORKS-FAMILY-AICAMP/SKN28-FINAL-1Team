@@ -1021,43 +1021,65 @@ class BudgetViewTests(TestCase):
         response = self.client.get(self.url)
         self.assertEqual(response.status_code, 401)
 
-    def test_budget_returns_null_when_not_set(self):
+    def test_budget_returns_empty_object_when_not_set(self):
         self.client.force_authenticate(self.user)
         response = self.client.get(self.url)
         self.assertEqual(response.status_code, 200)
-        self.assertIsNone(response.data["monthly_budget"])
+        self.assertEqual(response.data["category_budgets"], {})
+        self.assertEqual(
+            response.data["effective_category_budgets"]["상의"], 50_000
+        )
+        self.assertEqual(
+            response.data["effective_category_budgets"]["아우터"], 150_000
+        )
 
     def test_budget_can_be_set(self):
         self.client.force_authenticate(self.user)
         response = self.client.put(
-            self.url, {"monthly_budget": 100_000}, format="json"
+            self.url,
+            {"category_budgets": {"상의": 100_000, "하의": 150_000}},
+            format="json",
         )
         self.assertEqual(response.status_code, 200)
         self.user.refresh_from_db()
-        self.assertEqual(self.user.monthly_budget, 100_000)
+        self.assertEqual(
+            self.user.category_budgets, {"상의": 100_000, "하의": 150_000}
+        )
 
-    def test_budget_can_be_cleared(self):
-        self.user.monthly_budget = 100_000
-        self.user.save(update_fields=["monthly_budget"])
+    def test_custom_budget_overrides_only_that_category(self):
         self.client.force_authenticate(self.user)
         response = self.client.put(
-            self.url, {"monthly_budget": None}, format="json"
+            self.url, {"category_budgets": {"상의": 120_000}}, format="json"
+        )
+
+        self.assertEqual(response.data["effective_category_budgets"]["상의"], 120_000)
+        self.assertEqual(response.data["effective_category_budgets"]["하의"], 50_000)
+
+    def test_budget_can_be_cleared(self):
+        self.user.category_budgets = {"상의": 100_000}
+        self.user.save(update_fields=["category_budgets"])
+        self.client.force_authenticate(self.user)
+        response = self.client.put(
+            self.url, {"category_budgets": {}}, format="json"
         )
         self.assertEqual(response.status_code, 200)
         self.user.refresh_from_db()
-        self.assertIsNone(self.user.monthly_budget)
+        self.assertEqual(self.user.category_budgets, {})
+        self.assertEqual(
+            response.data["effective_category_budgets"]["액세서리"], 50_000
+        )
 
     def test_budget_rejects_non_ten_thousand_unit(self):
         self.client.force_authenticate(self.user)
         response = self.client.put(
-            self.url, {"monthly_budget": 105_000}, format="json"
+            self.url, {"category_budgets": {"상의": 105_000}}, format="json"
         )
         self.assertEqual(response.status_code, 400)
 
     def test_budget_rejects_too_small_amount(self):
         self.client.force_authenticate(self.user)
         response = self.client.put(
-            self.url, {"monthly_budget": 0}, format="json"
+            self.url, {"category_budgets": {"상의": 0}}, format="json"
         )
         self.assertEqual(response.status_code, 400)
 
@@ -1066,12 +1088,21 @@ class BudgetViewTests(TestCase):
         response = self.client.put(self.url, {}, format="json")
         self.assertEqual(response.status_code, 400)
 
+    def test_budget_rejects_unknown_category(self):
+        self.client.force_authenticate(self.user)
+        response = self.client.put(
+            self.url, {"category_budgets": {"잡화": 100_000}}, format="json"
+        )
+        self.assertEqual(response.status_code, 400)
+
     def test_budget_is_isolated_per_user(self):
         other_user = User.objects.create(
             username="kakao_other",
-            monthly_budget=500_000,
+            category_budgets={"아우터": 500_000},
         )
         self.client.force_authenticate(self.user)
-        self.client.put(self.url, {"monthly_budget": 100_000}, format="json")
+        self.client.put(
+            self.url, {"category_budgets": {"상의": 100_000}}, format="json"
+        )
         other_user.refresh_from_db()
-        self.assertEqual(other_user.monthly_budget, 500_000)
+        self.assertEqual(other_user.category_budgets, {"아우터": 500_000})

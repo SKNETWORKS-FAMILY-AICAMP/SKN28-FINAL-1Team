@@ -727,25 +727,27 @@ class PursuitViewExtension(OpenApiViewExtension):
         return DocumentedPursuitView
 
 
-BUDGET_DESCRIPTION = """내 월 의류 구매 예산을 조회·설정합니다.
+BUDGET_DESCRIPTION = """대분류별 상품 1개 최대 가격을 조회·설정합니다.
 
 - 금액은 **1만원 단위**입니다. 10,000으로 나누어떨어지지 않으면 400입니다.
 - 범위는 10,000 이상 2,147,480,000 이하입니다.
-- 설정한 적 없으면 GET은 `monthly_budget: null`을 반환합니다 (404 아님).
-- PUT은 전체 교체라 `monthly_budget` 키가 **반드시** 있어야 합니다.
-  예산을 지우려면 키를 생략하는 게 아니라 명시적으로 `null`을 보내세요.
+- 지원 대분류는 상의, 하의, 아우터, 원피스/세트, 신발, 가방, 액세서리입니다.
+- `category_budgets`에는 사용자가 바꾼 값만 저장합니다.
+- 미설정 카테고리는 시스템 기본값을 적용하며 `effective_category_budgets`에서 확인합니다.
+- 빈 객체를 보내면 모든 카테고리를 시스템 기본값으로 되돌립니다.
+- PUT은 전체 교체라 `category_budgets` 키가 반드시 있어야 합니다.
 """
 
 BUDGET_REQUEST_EXAMPLES = [
     OpenApiExample(
-        name="예산 설정 (월 30만원)",
-        value={"monthly_budget": 300000},
+        name="카테고리별 예산 설정",
+        value={"category_budgets": {"상의": 100000, "하의": 150000, "아우터": 300000}},
         request_only=True,
     ),
     OpenApiExample(
-        name="예산 해제 (null)",
-        description="키를 빼면 400이다 — 해제는 반드시 명시적인 null로 보낸다.",
-        value={"monthly_budget": None},
+        name="모든 예산을 기본값으로 복원",
+        description="category_budgets 키는 유지하고 빈 객체를 보낸다.",
+        value={"category_budgets": {}},
         request_only=True,
     ),
 ]
@@ -753,12 +755,34 @@ BUDGET_REQUEST_EXAMPLES = [
 BUDGET_RESPONSE_EXAMPLES = [
     OpenApiExample(
         name="설정됨",
-        value={"monthly_budget": 300000},
+        value={
+            "category_budgets": {"상의": 120000},
+            "effective_category_budgets": {
+                "상의": 120000,
+                "하의": 50000,
+                "아우터": 150000,
+                "원피스/세트": 50000,
+                "신발": 100000,
+                "가방": 200000,
+                "액세서리": 50000,
+            },
+        },
         response_only=True,
     ),
     OpenApiExample(
         name="미설정",
-        value={"monthly_budget": None},
+        value={
+            "category_budgets": {},
+            "effective_category_budgets": {
+                "상의": 50000,
+                "하의": 50000,
+                "아우터": 150000,
+                "원피스/세트": 50000,
+                "신발": 100000,
+                "가방": 200000,
+                "액세서리": 50000,
+            },
+        },
         response_only=True,
     ),
 ]
@@ -778,7 +802,7 @@ class BudgetViewExtension(OpenApiViewExtension):
             get=extend_schema(
                 operation_id="get_budget",
                 tags=["Users"],
-                summary="내 월 의류 구매 예산 조회",
+                summary="내 카테고리별 상품 예산 조회",
                 description=BUDGET_DESCRIPTION,
                 responses={
                     200: BudgetSerializer,
@@ -789,7 +813,7 @@ class BudgetViewExtension(OpenApiViewExtension):
             put=extend_schema(
                 operation_id="update_budget",
                 tags=["Users"],
-                summary="내 월 의류 구매 예산 설정 (전체 교체)",
+                summary="내 카테고리별 상품 예산 설정 (전체 교체)",
                 description=BUDGET_DESCRIPTION,
                 request=BudgetSerializer,
                 responses={

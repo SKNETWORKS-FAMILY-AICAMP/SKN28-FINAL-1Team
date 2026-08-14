@@ -61,6 +61,7 @@ class ValidationContext:
     weather: Mapping[str, Any] | None = None
     occasion: str = ""
     total_budget: int | None = None
+    category_budgets: Mapping[str, int] = field(default_factory=dict)
     required_slot_ids: tuple[str, ...] = ()
     excluded_source_ids: tuple[str, ...] = ()
     preferred_tags: Mapping[str, tuple[str, ...]] = field(default_factory=dict)
@@ -389,6 +390,14 @@ class OutfitValidator:
             or context.total_budget < 0
         ):
             raise ValueError("total_budget은 0 이상의 정수여야 합니다.")
+        if any(
+            not isinstance(category, str)
+            or not isinstance(amount, int)
+            or isinstance(amount, bool)
+            or amount < 0
+            for category, amount in context.category_budgets.items()
+        ):
+            raise ValueError("category_budgets는 대분류별 0 이상의 정수여야 합니다.")
 
     @staticmethod
     def _validate_slots(
@@ -764,6 +773,22 @@ class OutfitValidator:
                     )
                     continue
                 total += current_price
+                category = item.category_large or str(
+                    item.payload.get("category_large") or ""
+                )
+                category_budget = context.category_budgets.get(category)
+                if category_budget is not None and current_price > category_budget:
+                    issues.append(
+                        ValidationIssue(
+                            ValidationSeverity.ERROR,
+                            "CATEGORY_BUDGET_EXCEEDED",
+                            f"{category} 상품 가격 {current_price}원이 "
+                            f"예산 {category_budget}원을 초과합니다.",
+                            slot_id=item.slot_id,
+                            source_type=item.source_type,
+                            source_id=item.source_id,
+                        )
+                    )
                 if item.price is not None and item.price != current_price:
                     issues.append(
                         ValidationIssue(
