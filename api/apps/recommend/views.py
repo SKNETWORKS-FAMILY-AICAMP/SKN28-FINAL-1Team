@@ -73,6 +73,7 @@ from .services.render_events import (
 from .services.virtual_try_on import (
     DIRECT_PROMPT_VERSION,
     MANNEQUIN_PROMPT_VERSION,
+    VirtualTryOnBusyError,
     VirtualTryOnService,
 )
 
@@ -908,12 +909,18 @@ class RecommendationCardVirtualTryOnView(APIView):
         request=VirtualTryOnRequestSerializer,
         responses={
             200: VirtualTryOnResponseSerializer,
+            429: OpenApiResponse(description="GPU가 다른 가상 착장 요청을 처리 중임"),
             409: OpenApiResponse(description="추천 코디 이미지가 아직 생성되지 않음"),
             502: OpenApiResponse(description="이미지 모델이 가상 착장 생성에 실패함"),
             503: OpenApiResponse(description="결과 저장소가 설정되지 않음"),
         },
     )
     def post(self, request: Request, result_id, card_id) -> Response:
+        if not settings.VIRTUAL_TRY_ON_ENABLED:
+            return Response(
+                {"detail": "가상 착장 기능이 비활성화되어 있습니다."},
+                status=status.HTTP_503_SERVICE_UNAVAILABLE,
+            )
         identity = _recommendation_identity(request)
         card = recommendation_service.owned_card(
             identity=identity,
@@ -974,6 +981,12 @@ class RecommendationCardVirtualTryOnView(APIView):
                     result = service.fit_mannequin(person, outfit)
                 else:
                     result = service.fit_person(person, outfit)
+            except VirtualTryOnBusyError:
+                return Response(
+                    {"detail": "가상 착장 서버가 작업 중입니다. 잠시 후 다시 시도해 주세요."},
+                    status=status.HTTP_429_TOO_MANY_REQUESTS,
+                    headers={"Retry-After": "30"},
+                )
             except OutfitRenderError:
                 logger.exception("가상 착장 이미지 생성 실패: card=%s", card.pk)
                 return Response(
@@ -1005,12 +1018,18 @@ class DailyLookVirtualTryOnView(APIView):
         request=VirtualTryOnRequestSerializer,
         responses={
             200: VirtualTryOnResponseSerializer,
+            429: OpenApiResponse(description="GPU가 다른 가상 착장 요청을 처리 중임"),
             409: OpenApiResponse(description="추천 룩 이미지가 아직 생성되지 않음"),
             502: OpenApiResponse(description="이미지 모델이 가상 착장 생성에 실패함"),
             503: OpenApiResponse(description="결과 저장소가 설정되지 않음"),
         },
     )
     def post(self, request: Request, look_id) -> Response:
+        if not settings.VIRTUAL_TRY_ON_ENABLED:
+            return Response(
+                {"detail": "가상 착장 기능이 비활성화되어 있습니다."},
+                status=status.HTTP_503_SERVICE_UNAVAILABLE,
+            )
         look = DailyLook.objects.filter(
             pk=look_id,
             user=request.user,
@@ -1066,6 +1085,12 @@ class DailyLookVirtualTryOnView(APIView):
                     service.fit_mannequin(person, outfit)
                     if mode == "mannequin"
                     else service.fit_person(person, outfit)
+                )
+            except VirtualTryOnBusyError:
+                return Response(
+                    {"detail": "가상 착장 서버가 작업 중입니다. 잠시 후 다시 시도해 주세요."},
+                    status=status.HTTP_429_TOO_MANY_REQUESTS,
+                    headers={"Retry-After": "30"},
                 )
             except OutfitRenderError:
                 logger.exception("오늘의 룩 가상 착장 생성 실패: look=%s", look.pk)

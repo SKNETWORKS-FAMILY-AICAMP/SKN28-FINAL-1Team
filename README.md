@@ -77,6 +77,7 @@ GPU가 필요한 워커와 VTON API만 별도 compose로 띄운다. db·qdrant·
 ```bash
 ./run-gpu.sh                                          # infisical export + 빌드 + 기동
 ./run-gpu.sh product-indexer                          # 특정 서비스만
+./run-gpu.sh vton                                     # VTON profile만 명시 기동
 docker compose -f docker-compose.gpu.yml logs -f
 ```
 
@@ -86,9 +87,14 @@ docker compose -f docker-compose.gpu.yml logs -f
 | `image-processor` | 옷장 이미지 Gemini 파이프라인 워커 (Redis 큐) | 없음 |
 | `vton` | Qwen-Image-Edit-2511 NF4 마네킹·가상 피팅 내부 API | `${VTON_GPU_HOST_PORT:-8090}` → 8090 |
 
-- 두 서비스가 HF 모델 캐시 볼륨(`hf_cache`)을 공유해 FashionSigLIP·bge-m3를 한 번만 받는다.
+- 기존 GPU 워커는 HF 모델 캐시 볼륨(`hf_cache`)을 공유하고, 대형 VTON 체크포인트는
+  `vton_hf_cache`에 격리한다.
 - 컨테이너 안에는 `.env` 파일이 없다(compose `env_file`이 환경변수로 주입).
 - VTON은 24GB GPU와 제한된 디스크에서 실행할 수 있도록 사전 양자화된 Apache-2.0 NF4 체크포인트를 로드한다.
+  기본 GPU 스택에는 자동으로 포함되지 않으며 `./run-gpu.sh vton`으로만 시작한다.
+  `GPU_WORKER_VISIBLE_DEVICES`에는 기존 워커용 GPU 목록을, `VTON_GPU_DEVICE_ID`에는
+  겹치지 않는 VTON 전용 GPU 하나를 설정한다. 캐시 여유 공간이
+  `VTON_MIN_FREE_DISK_GB`보다 적으면 모델 다운로드 전에 시작을 중단한다.
   리포에서 직접 실행할 때만 코드가 루트 `.env` 파일을 찾아 읽으며, 다른 경로를
   쓰려면 `ENV_FILE=/path/to/.env`로 지정한다.
 - GPU 없는 호스트에서 스모크 테스트하려면 `docker-compose.gpu.yml`의

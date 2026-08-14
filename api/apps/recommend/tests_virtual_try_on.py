@@ -4,10 +4,12 @@ from unittest.mock import Mock
 
 from django.test import SimpleTestCase, override_settings
 
+from apps.recommend.checks import chat_recommend_deployment_checks
 from apps.recommend.services.virtual_try_on import (
     DIRECT_PROMPT,
     GpuQwenImageProvider,
     MANNEQUIN_PROMPT,
+    VirtualTryOnBusyError,
     VirtualTryOnService,
 )
 
@@ -44,6 +46,7 @@ class VirtualTryOnServiceTests(SimpleTestCase):
 
 
 @override_settings(
+    VIRTUAL_TRY_ON_ENABLED=True,
     VTON_GPU_URL="http://gpu.example/v1/virtual-try-on",
     VTON_GPU_TOKEN="shared-secret",
     VTON_GPU_TIMEOUT_SECONDS=600,
@@ -70,3 +73,48 @@ class GpuQwenImageProviderTests(SimpleTestCase):
         self.assertEqual(result.media_type, "image/png")
         self.assertEqual(result.usage["model"], "Qwen/Qwen-Image-Edit-2511")
         response.close.assert_called_once()
+
+    def test_busy_gpu_is_reported_separately(self) -> None:
+        response = Mock(status_code=429, text="")
+        session = Mock()
+        session.post.return_value = response
+        provider = GpuQwenImageProvider(session=session)
+
+        with self.assertRaises(VirtualTryOnBusyError):
+            provider.generate(prompt="fit", references=())
+
+        response.close.assert_called_once()
+
+
+class VirtualTryOnDeploymentCheckTests(SimpleTestCase):
+    @override_settings(
+        OUTFIT_RENDER_ENABLED=True,
+        VIRTUAL_TRY_ON_ENABLED=False,
+        OPENROUTER_API_KEY="key",
+        OUTFIT_RENDER_RESULT_BUCKET="bucket",
+        VTON_GPU_URL="",
+        VTON_GPU_TOKEN="",
+    )
+    def test_outfit_render_does_not_require_vton_settings(self) -> None:
+        error_ids = {
+            error.id for error in chat_recommend_deployment_checks(None)
+        }
+
+        self.assertNotIn("recommend.E008", error_ids)
+        self.assertNotIn("recommend.E009", error_ids)
+
+    @override_settings(
+        OUTFIT_RENDER_ENABLED=False,
+        VIRTUAL_TRY_ON_ENABLED=True,
+        VTON_GPU_URL="",
+        VTON_GPU_TOKEN="",
+        OUTFIT_RENDER_RESULT_BUCKET="",
+    )
+    def test_enabled_vton_requires_its_own_settings(self) -> None:
+        error_ids = {
+            error.id for error in chat_recommend_deployment_checks(None)
+        }
+
+        self.assertTrue(
+            {"recommend.E008", "recommend.E009", "recommend.E010"}.issubset(error_ids)
+        )
