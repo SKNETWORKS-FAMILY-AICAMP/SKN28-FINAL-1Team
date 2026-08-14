@@ -502,7 +502,7 @@ VIRTUAL_TRY_ON_ENABLED = os.getenv("VIRTUAL_TRY_ON_ENABLED", "0").strip().lower(
 }
 VIRTUAL_TRY_ON_MODEL = os.getenv(
     "VIRTUAL_TRY_ON_MODEL",
-    os.getenv("VTON_MODEL", "seochan99/Qwen-Image-Edit-2511-bnb-nf4"),
+    os.getenv("VTON_MODEL", "Qwen/Qwen-Image-Edit-2511"),
 ).strip()
 VTON_GPU_URL = os.getenv("VTON_GPU_URL", "").strip()
 VTON_GPU_TOKEN = os.getenv("VTON_GPU_TOKEN", "").strip()

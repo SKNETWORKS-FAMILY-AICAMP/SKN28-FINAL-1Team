@@ -1,4 +1,4 @@
-"""Qwen-Image-Edit-2511을 제공하는 GPU 내부 가상 피팅 API."""
+"""공식 Qwen Image Edit와 LightX2V Lightning을 제공하는 내부 VTON API."""
 
 from __future__ import annotations
 
@@ -8,6 +8,7 @@ import hmac
 import io
 import json
 import logging
+import math
 import os
 import shutil
 import threading
@@ -25,11 +26,45 @@ GENERATE_PATH = "/v1/virtual-try-on"
 
 
 class VtonBusyError(RuntimeError):
-    """한 장짜리 GPU가 이미 추론 중이다."""
+    """GPU가 이미 다른 VTON 요청을 처리 중이다."""
 
 
-def _pipeline_device_map() -> str | None:
-    return None if config.VTON_CPU_OFFLOAD else "cuda"
+def _lightning_scheduler_config() -> dict[str, Any]:
+    """LightX2V의 공식 Diffusers 예제와 동일한 스케줄러 설정."""
+    return {
+        "base_image_seq_len": 256,
+        "base_shift": math.log(3),
+        "invert_sigmas": False,
+        "max_image_seq_len": 8192,
+        "max_shift": math.log(3),
+        "num_train_timesteps": 1000,
+        "shift": 1.0,
+        "shift_terminal": None,
+        "stochastic_sampling": False,
+        "time_shift_type": "exponential",
+        "use_beta_sigmas": False,
+        "use_dynamic_shifting": True,
+        "use_exponential_sigmas": False,
+        "use_karras_sigmas": False,
+    }
+
+
+def _configure_offload(pipeline: Any, torch_module: Any) -> None:
+    """공식 BF16 모델을 24GB GPU에서 실행하도록 CPU RAM과 VRAM에 분산한다."""
+    if config.VTON_OFFLOAD_MODE == "group":
+        pipeline.enable_group_offload(
+            onload_device=torch_module.device(config.VTON_DEVICE),
+            offload_device=torch_module.device("cpu"),
+            offload_type="leaf_level",
+            use_stream=True,
+            record_stream=True,
+        )
+    elif config.VTON_OFFLOAD_MODE == "model":
+        pipeline.enable_model_cpu_offload(device=config.VTON_DEVICE)
+    elif config.VTON_OFFLOAD_MODE == "none":
+        pipeline.to(config.VTON_DEVICE)
+    else:
+        raise ValueError("VTON_OFFLOAD_MODE must be one of: group, model, none")
 
 
 def _cache_free_gb() -> float:
@@ -84,14 +119,18 @@ def _decode_images(payload: dict[str, Any]) -> list[Image.Image]:
 
 
 class QwenImageEditor:
-    """모델을 한 번만 적재하고 GPU 추론은 직렬화한다."""
+    """공식 Qwen 베이스에 LightX2V 4-step LoRA를 적용한다."""
 
     def __init__(self) -> None:
         import torch
-        from diffusers import QwenImageEditPlusPipeline
+        from diffusers import (
+            FlowMatchEulerDiscreteScheduler,
+            QwenImageEditPlusPipeline,
+            QwenImageTransformer2DModel,
+        )
 
         self.torch = torch
-        # ponytail: GPU 한 장에서는 직렬 추론이 가장 안전하다. 다중 GPU가 생기면 worker를 복제한다.
+        # 단일 GPU 서비스이므로 요청을 직렬화한다. 수평 확장은 컨테이너 복제로 처리한다.
         self._lock = threading.Lock()
         dtype = {
             "bf16": torch.bfloat16,
@@ -105,14 +144,33 @@ class QwenImageEditor:
                 dtype = torch.bfloat16
             else:
                 dtype = torch.float16
-        logger.info("VTON 모델 NF4 4비트 로딩 시작: %s", config.VTON_MODEL)
+
+        logger.info(
+            "VTON 모델 로딩 시작: base=%s, lightning=%s, offload=%s",
+            config.VTON_MODEL,
+            config.VTON_LIGHTNING_MODEL,
+            config.VTON_OFFLOAD_MODE,
+        )
+        transformer = QwenImageTransformer2DModel.from_pretrained(
+            config.VTON_MODEL,
+            subfolder="transformer",
+            torch_dtype=dtype,
+        )
+        scheduler = FlowMatchEulerDiscreteScheduler.from_config(
+            _lightning_scheduler_config()
+        )
         self.pipeline = QwenImageEditPlusPipeline.from_pretrained(
             config.VTON_MODEL,
-            dtype=dtype,
-            device_map=_pipeline_device_map(),
+            transformer=transformer,
+            scheduler=scheduler,
+            torch_dtype=dtype,
         )
-        if config.VTON_CPU_OFFLOAD:
-            self.pipeline.enable_model_cpu_offload()
+        self.pipeline.load_lora_weights(
+            config.VTON_LIGHTNING_MODEL,
+            weight_name=config.VTON_LIGHTNING_WEIGHT,
+        )
+        self.pipeline.enable_vae_tiling()
+        _configure_offload(self.pipeline, torch)
         logger.info("VTON 모델 로딩 완료")
 
     def generate(self, prompt: str, images: list[Image.Image]) -> bytes:
@@ -129,7 +187,7 @@ class QwenImageEditor:
                     negative_prompt=" ",
                     num_inference_steps=config.VTON_INFERENCE_STEPS,
                     true_cfg_scale=config.VTON_TRUE_CFG_SCALE,
-                    guidance_scale=1.0,
+                    guidance_scale=config.VTON_GUIDANCE_SCALE,
                     generator=generator,
                 ).images[0]
         finally:
@@ -153,6 +211,7 @@ class VtonRequestHandler(BaseHTTPRequestHandler):
             {
                 "status": "ok" if healthy else "disk_low",
                 "model": config.VTON_MODEL,
+                "accelerator": config.VTON_LIGHTNING_MODEL,
                 "cache_free_gb": round(free_gb, 1),
             },
         )
@@ -162,7 +221,10 @@ class VtonRequestHandler(BaseHTTPRequestHandler):
             self._json(HTTPStatus.NOT_FOUND, {"detail": "not found"})
             return
         if not config.VTON_API_TOKEN:
-            self._json(HTTPStatus.SERVICE_UNAVAILABLE, {"detail": "token is not configured"})
+            self._json(
+                HTTPStatus.SERVICE_UNAVAILABLE,
+                {"detail": "token is not configured"},
+            )
             return
         if not _authorized(self.headers.get("Authorization")):
             self._json(HTTPStatus.UNAUTHORIZED, {"detail": "invalid bearer token"})
@@ -173,7 +235,9 @@ class VtonRequestHandler(BaseHTTPRequestHandler):
             return
         try:
             images = _decode_images(payload)
-            image = self.server.editor.generate(payload["prompt"], images)  # type: ignore[attr-defined]
+            image = self.server.editor.generate(  # type: ignore[attr-defined]
+                payload["prompt"], images
+            )
         except VtonBusyError:
             self.send_response(HTTPStatus.TOO_MANY_REQUESTS)
             self.send_header("Retry-After", "30")
@@ -185,7 +249,10 @@ class VtonRequestHandler(BaseHTTPRequestHandler):
             return
         except Exception:
             logger.exception("가상 피팅 GPU 추론 실패")
-            self._json(HTTPStatus.INTERNAL_SERVER_ERROR, {"detail": "inference failed"})
+            self._json(
+                HTTPStatus.INTERNAL_SERVER_ERROR,
+                {"detail": "inference failed"},
+            )
             return
 
         self._json(
@@ -195,6 +262,7 @@ class VtonRequestHandler(BaseHTTPRequestHandler):
                 "media_type": "image/png",
                 "usage": {
                     "model": config.VTON_MODEL,
+                    "accelerator": config.VTON_LIGHTNING_MODEL,
                     "inference_steps": config.VTON_INFERENCE_STEPS,
                 },
             },
@@ -224,7 +292,10 @@ class VtonRequestHandler(BaseHTTPRequestHandler):
         self.send_header("Content-Type", "application/json; charset=utf-8")
         self.send_header("Content-Length", str(len(body)))
         self.end_headers()
-        self.wfile.write(body)
+        try:
+            self.wfile.write(body)
+        except BrokenPipeError:
+            logger.info("HTTP client disconnected before receiving the response")
 
     def log_message(self, format: str, *args: Any) -> None:
         logger.info("HTTP %s - %s", self.address_string(), format % args)

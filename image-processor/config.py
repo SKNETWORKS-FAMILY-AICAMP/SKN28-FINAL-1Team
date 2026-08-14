@@ -88,17 +88,23 @@ QWEN_MAX_PIXELS = int(os.getenv("WORKER_QWEN_MAX_PIXELS", str(1024 * 28 * 28)))
 ITEM_NORMALIZE_MAX_PX = int(os.getenv("WORKER_ITEM_NORMALIZE_MAX_PX", "1024"))
 
 # ── 가상 피팅 이미지 편집 API ──
-VTON_MODEL = os.getenv(
-    "VTON_MODEL", "seochan99/Qwen-Image-Edit-2511-bnb-nf4"
+VTON_MODEL = os.getenv("VTON_MODEL", "Qwen/Qwen-Image-Edit-2511").strip()
+VTON_LIGHTNING_MODEL = os.getenv(
+    "VTON_LIGHTNING_MODEL", "lightx2v/Qwen-Image-Edit-2511-Lightning"
+).strip()
+VTON_LIGHTNING_WEIGHT = os.getenv(
+    "VTON_LIGHTNING_WEIGHT",
+    "Qwen-Image-Edit-2511-Lightning-4steps-V1.0-bf16.safetensors",
 ).strip()
 VTON_API_TOKEN = os.getenv("VTON_GPU_TOKEN", "").strip()
 VTON_API_HOST = os.getenv("VTON_GPU_HOST", "0.0.0.0").strip()
 VTON_API_PORT = int(os.getenv("VTON_GPU_PORT", "8090"))
 VTON_DEVICE = os.getenv("VTON_DEVICE", "cuda").strip()
-VTON_DTYPE = os.getenv("VTON_DTYPE", "auto").strip().lower()
-VTON_CPU_OFFLOAD = os.getenv("VTON_CPU_OFFLOAD", "0") == "1"
-VTON_INFERENCE_STEPS = int(os.getenv("VTON_INFERENCE_STEPS", "40"))
-VTON_TRUE_CFG_SCALE = float(os.getenv("VTON_TRUE_CFG_SCALE", "4.0"))
+VTON_DTYPE = os.getenv("VTON_DTYPE", "bf16").strip().lower()
+VTON_OFFLOAD_MODE = os.getenv("VTON_OFFLOAD_MODE", "group").strip().lower()
+VTON_INFERENCE_STEPS = int(os.getenv("VTON_INFERENCE_STEPS", "4"))
+VTON_GUIDANCE_SCALE = float(os.getenv("VTON_GUIDANCE_SCALE", "1.0"))
+VTON_TRUE_CFG_SCALE = float(os.getenv("VTON_TRUE_CFG_SCALE", "1.0"))
 VTON_SEED = int(os.getenv("VTON_SEED", "0"))
 VTON_MAX_REQUEST_BYTES = int(os.getenv("VTON_MAX_REQUEST_BYTES", str(50 * 1024 * 1024)))
 VTON_MAX_IMAGE_BYTES = int(os.getenv("VTON_MAX_IMAGE_BYTES", str(15 * 1024 * 1024)))

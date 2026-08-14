@@ -85,13 +85,14 @@ docker compose -f docker-compose.gpu.yml logs -f
 | --- | --- | --- |
 | `product-indexer` | 네이버·11번가 상품 임베딩 + drain 트리거 API | `${PRODUCT_INDEXER_API_HOST_PORT:-8080}` → 8080 |
 | `image-processor` | 옷장 이미지 Gemini 파이프라인 워커 (Redis 큐) | 없음 |
-| `vton` | Qwen-Image-Edit-2511 NF4 마네킹·가상 피팅 내부 API | `${VTON_GPU_HOST_PORT:-8090}` → 8090 |
+| `vton` | 공식 Qwen + LightX2V 마네킹·가상 피팅 내부 API | `${VTON_GPU_HOST_PORT:-8090}` → 8090 |
 
 - 기존 GPU 워커는 HF 모델 캐시 볼륨(`hf_cache`)을 공유하고, 대형 VTON 체크포인트는
   `vton_hf_cache`에 격리한다.
 - 컨테이너 안에는 `.env` 파일이 없다(compose `env_file`이 환경변수로 주입).
-- VTON은 24GB GPU와 제한된 디스크에서 실행할 수 있도록 사전 양자화된 Apache-2.0 NF4 체크포인트를 로드한다.
-  Qwen-Image-Edit-2511 설정을 지원하는 Diffusers 0.39를 사용하고 전용 GPU에 직접 적재한다.
+- VTON은 공식 `Qwen/Qwen-Image-Edit-2511` BF16 베이스와 Apache-2.0
+  `lightx2v/Qwen-Image-Edit-2511-Lightning` 4-step LoRA를 사용한다.
+  24GB GPU에서는 `VTON_OFFLOAD_MODE=group`으로 CPU RAM과 VRAM에 모델을 분산한다.
   기본 GPU 스택에는 자동으로 포함되지 않으며 `./run-gpu.sh vton`으로만 시작한다.
   `GPU_WORKER_VISIBLE_DEVICES`에는 기존 워커용 GPU 목록을, `VTON_GPU_DEVICE_ID`에는
   겹치지 않는 VTON 전용 GPU 하나를 설정한다. 캐시 여유 공간이

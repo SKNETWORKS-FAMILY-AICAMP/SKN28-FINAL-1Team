@@ -2,10 +2,10 @@ from __future__ import annotations
 
 import base64
 import io
-import inspect
+import math
 import threading
 import unittest
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 from PIL import Image
 
@@ -15,7 +15,8 @@ from vton_server import (
     _authorized,
     _decode_images,
     _ensure_cache_space,
-    _pipeline_device_map,
+    _configure_offload,
+    _lightning_scheduler_config,
 )
 
 
@@ -26,23 +27,29 @@ def image_base64() -> str:
 
 
 class VtonServerInputTests(unittest.TestCase):
-    def test_diffusers_supports_qwen_2511_transformer_config(self) -> None:
-        from diffusers import QwenImageTransformer2DModel
+    def test_lightning_scheduler_matches_distilled_model(self) -> None:
+        scheduler = _lightning_scheduler_config()
 
-        parameters = inspect.signature(QwenImageTransformer2DModel.__init__).parameters
-        self.assertTrue(
-            {"use_additional_t_cond", "use_layer3d_rope", "zero_cond_t"}.issubset(
-                parameters
-            )
+        self.assertEqual(scheduler["base_shift"], math.log(3))
+        self.assertEqual(scheduler["max_shift"], math.log(3))
+        self.assertTrue(scheduler["use_dynamic_shifting"])
+        self.assertFalse(scheduler["stochastic_sampling"])
+
+    @patch("vton_server.config.VTON_OFFLOAD_MODE", "group")
+    def test_group_offload_targets_cpu_and_configured_gpu(self) -> None:
+        pipeline = Mock()
+        torch_module = Mock()
+        torch_module.device.side_effect = lambda value: value
+
+        _configure_offload(pipeline, torch_module)
+
+        pipeline.enable_group_offload.assert_called_once_with(
+            onload_device="cuda",
+            offload_device="cpu",
+            offload_type="leaf_level",
+            use_stream=True,
+            record_stream=True,
         )
-
-    @patch("vton_server.config.VTON_CPU_OFFLOAD", True)
-    def test_cpu_offload_loads_checkpoint_outside_gpu(self) -> None:
-        self.assertIsNone(_pipeline_device_map())
-
-    @patch("vton_server.config.VTON_CPU_OFFLOAD", False)
-    def test_dedicated_gpu_loads_checkpoint_on_cuda(self) -> None:
-        self.assertEqual(_pipeline_device_map(), "cuda")
 
     @patch("vton_server.config.VTON_API_TOKEN", "shared-secret")
     def test_bearer_token_is_required(self) -> None:

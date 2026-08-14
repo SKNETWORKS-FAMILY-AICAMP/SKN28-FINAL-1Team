@@ -210,7 +210,7 @@ services:
               count: all
               capabilities: [gpu]
 
-  # 사용자 전신 사진과 추천 룩을 Qwen-Image-Edit-2511로 합성하는 내부 API.
+  # 사용자 전신 사진과 추천 룩을 공식 Qwen + LightX2V로 합성하는 내부 API.
   vton:
     profiles: [vton]
     build:
@@ -225,7 +225,10 @@ services:
       HF_HOME: /app/.cache/huggingface
       VTON_GPU_HOST: 0.0.0.0
       VTON_GPU_PORT: "8090"
-      VTON_MODEL: ${VTON_MODEL:-seochan99/Qwen-Image-Edit-2511-bnb-nf4}
+      VTON_MODEL: ${VTON_MODEL:-Qwen/Qwen-Image-Edit-2511}
+      VTON_LIGHTNING_MODEL: ${VTON_LIGHTNING_MODEL:-lightx2v/Qwen-Image-Edit-2511-Lightning}
+      VTON_LIGHTNING_WEIGHT: ${VTON_LIGHTNING_WEIGHT:-Qwen-Image-Edit-2511-Lightning-4steps-V1.0-bf16.safetensors}
+      VTON_OFFLOAD_MODE: ${VTON_OFFLOAD_MODE:-group}
     ports:
       - "${VTON_GPU_HOST_PORT:-8090}:8090"
     volumes:
