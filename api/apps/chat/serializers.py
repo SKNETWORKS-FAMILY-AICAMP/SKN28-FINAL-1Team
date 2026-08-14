@@ -188,6 +188,28 @@ class ChatRunSerializer(serializers.ModelSerializer):
         read_only_fields = fields
 
 
+class StylistListItemSerializer(serializers.Serializer):
+    id = serializers.CharField(read_only=True)
+    display_name = serializers.CharField(read_only=True)
+    description = serializers.CharField(read_only=True)
+    display_order = serializers.IntegerField(read_only=True)
+
+
+class StylistListResponseSerializer(serializers.Serializer):
+    schema_version = serializers.CharField(read_only=True)
+    min_select = serializers.IntegerField(read_only=True)
+    max_select = serializers.IntegerField(read_only=True)
+    default_persona_ids = serializers.ListField(
+        child=serializers.CharField(),
+        read_only=True,
+    )
+    last_selected_persona_ids = serializers.ListField(
+        child=serializers.CharField(),
+        read_only=True,
+    )
+    stylists = StylistListItemSerializer(many=True, read_only=True)
+
+
 class GuestIdentityResponseSerializer(serializers.Serializer):
     identity_id = serializers.UUIDField(read_only=True)
     expires_at = serializers.DateTimeField(read_only=True)

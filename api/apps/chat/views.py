@@ -58,11 +58,12 @@ from apps.chat.serializers import (
     GuestClaimResponseSerializer,
     GuestClaimSerializer,
     GuestIdentityResponseSerializer,
+    StylistListResponseSerializer,
 )
 from apps.chat.services import attachments as attachment_service
 from apps.chat.services import history as history_service
 from apps.chat.services import identity as identity_service
-from apps.chat.services import mood_analysis
+from apps.chat.services import mood_analysis, stylist_catalog
 from apps.chat.services import queue as chat_queue
 from apps.chat.services import sessions as session_service
 from apps.chat.services.events import ChatEvent, ChatEventStore, encode_sse, heartbeat
@@ -149,6 +150,30 @@ _MESSAGE_CREATE_EXAMPLE = OpenApiExample(
     },
     request_only=True,
 )
+
+
+@extend_schema_view(
+    get=extend_schema(
+        operation_id="chat_stylist_list",
+        tags=[CHAT_TAG],
+        summary="선택 가능한 스타일리스트 목록 조회",
+        description=(
+            "로그인 회원이 선택할 수 있는 스타일리스트를 고정 표시 순서로 "
+            "조회합니다. 선택 제한과 최초 기본값, 회원의 마지막 선택값을 함께 "
+            "반환하며 내부 전략 가중치와 프롬프트는 노출하지 않습니다."
+        ),
+        responses={
+            200: StylistListResponseSerializer,
+            401: OpenApiResponse(description="회원 JWT가 없거나 유효하지 않음"),
+        },
+    )
+)
+class StylistListView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        payload = stylist_catalog.get_member_stylist_catalog(request.user)
+        return Response(StylistListResponseSerializer(payload).data)
 
 
 def _guest_token(request) -> str:
