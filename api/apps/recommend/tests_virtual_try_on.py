@@ -2,10 +2,11 @@ from __future__ import annotations
 
 from unittest.mock import Mock
 
-from django.test import SimpleTestCase
+from django.test import SimpleTestCase, override_settings
 
 from apps.recommend.services.virtual_try_on import (
     DIRECT_PROMPT,
+    GpuQwenImageProvider,
     MANNEQUIN_PROMPT,
     VirtualTryOnService,
 )
@@ -40,3 +41,32 @@ class VirtualTryOnServiceTests(SimpleTestCase):
             ["target_person", "outfit"],
         )
         self.assertIn("Do not add a base outfit", call["prompt"])
+
+
+@override_settings(
+    VTON_GPU_URL="http://gpu.example/v1/virtual-try-on",
+    VTON_GPU_TOKEN="shared-secret",
+    VTON_GPU_TIMEOUT_SECONDS=600,
+    OUTFIT_RENDER_MAX_OUTPUT_BYTES=1024,
+)
+class GpuQwenImageProviderTests(SimpleTestCase):
+    def test_sends_two_images_and_decodes_png(self) -> None:
+        response = Mock(status_code=200)
+        response.json.return_value = {
+            "image_base64": "iVBORw0KGgppbWFnZQ==",
+            "media_type": "image/png",
+            "usage": {"model": "Qwen/Qwen-Image-Edit-2511"},
+        }
+        session = Mock()
+        session.post.return_value = response
+        service = VirtualTryOnService(provider=GpuQwenImageProvider(session=session))
+
+        result = service.fit_mannequin(PNG, PNG)
+
+        request = session.post.call_args
+        self.assertEqual(request.kwargs["headers"]["Authorization"], "Bearer shared-secret")
+        self.assertEqual(len(request.kwargs["json"]["images"]), 2)
+        self.assertEqual(request.kwargs["timeout"], 600)
+        self.assertEqual(result.media_type, "image/png")
+        self.assertEqual(result.usage["model"], "Qwen/Qwen-Image-Edit-2511")
+        response.close.assert_called_once()

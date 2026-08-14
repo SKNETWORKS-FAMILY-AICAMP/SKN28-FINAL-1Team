@@ -1,0 +1,10 @@
+FROM pytorch/pytorch:2.6.0-cuda12.4-cudnn9-runtime
+
+WORKDIR /app
+
+COPY requirements.vton.txt ./
+RUN pip install --no-cache-dir -r requirements.vton.txt
+
+COPY config.py vton_server.py ./
+
+CMD ["python", "vton_server.py"]

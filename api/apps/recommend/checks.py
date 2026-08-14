@@ -46,6 +46,8 @@ def chat_recommend_deployment_checks(_app_configs, **_kwargs):
                 settings.OUTFIT_RENDER_RESULT_BUCKET,
                 "recommend.E007",
             ),
+            ("VTON_GPU_URL", settings.VTON_GPU_URL, "recommend.E008"),
+            ("VTON_GPU_TOKEN", settings.VTON_GPU_TOKEN, "recommend.E009"),
         )
         for name, value, error_id in render_required:
             if _missing(value):

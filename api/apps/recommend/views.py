@@ -956,7 +956,7 @@ class RecommendationCardVirtualTryOnView(APIView):
         contract = hashlib.sha256(
             (
                 f"{mode}|{person_hash}|{outfit_hash}|"
-                f"{settings.OUTFIT_RENDER_MODEL}|{prompt_contract}"
+                f"{settings.VIRTUAL_TRY_ON_MODEL}|{prompt_contract}"
             ).encode()
         ).hexdigest()
         final_key = f"{prefix}/{contract[:2]}/{contract}/result.png"
@@ -1045,7 +1045,7 @@ class DailyLookVirtualTryOnView(APIView):
         contract = hashlib.sha256(
             (
                 f"daily|{look.pk}|{mode}|{hashlib.sha256(person).hexdigest()}|"
-                f"{hashlib.sha256(outfit).hexdigest()}|{settings.OUTFIT_RENDER_MODEL}|"
+                f"{hashlib.sha256(outfit).hexdigest()}|{settings.VIRTUAL_TRY_ON_MODEL}|"
                 f"{prompt_version}"
             ).encode()
         ).hexdigest()

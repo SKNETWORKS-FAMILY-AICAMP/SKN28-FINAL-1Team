@@ -14,7 +14,7 @@
 | `collector/naver/` | ✅ | 네이버 쇼핑 API 상품 수집 + 규칙/LLM 태깅 → PostgreSQL |
 | `collector/weather/` | ✅ | 기상청 APIHub 실황·단기·중기 예보 수집 → PostgreSQL |
 | `docker-compose.yml` | ✅ | db + migrate + api + collector 2종 통합 (profiles 선택 실행) |
-| `docker-compose.gpu.yml` | ✅ | GPU 서버 전용: product-indexer + image-processor |
+| `docker-compose.gpu.yml` | ✅ | GPU 서버 전용: product-indexer + image-processor + VTON API |
 | `apps/recommend`, `ml/` | ⬜ | 예정 |
 
 ## 기술 스택
@@ -25,7 +25,7 @@ Python 3.11 · Django/DRF · simplejwt · PostgreSQL 16 · OpenAI API(상품 태
 
 ```
 ├── docker-compose.yml       # 통합 compose (profiles: api / weather / naver / all)
-├── docker-compose.gpu.yml   # GPU 서버 전용 compose (product-indexer + image-processor)
+├── docker-compose.gpu.yml   # GPU 서버 전용 compose (indexer + image processor + VTON)
 ├── .env.example             # 환경변수 템플릿 → 루트 .env 하나로 전체 관리
 ├── api/                     # Django REST API 서버 (README 참고)
 │   ├── config/settings/     # base / dev / prod 분리
@@ -71,7 +71,7 @@ docker compose --profile all up -d --build      # 전부
 
 ### GPU 서버 (RunPod / GPU EC2)
 
-GPU가 필요한 워커 2종만 별도 compose로 띄운다. db·qdrant·redis·api는 AWS 스택에
+GPU가 필요한 워커와 VTON API만 별도 compose로 띄운다. db·qdrant·redis·api는 AWS 스택에
 있다고 가정하고, 접속 주소는 `.env`(Infisical `gpu` 환경)의 원격 호스트 값을 쓴다.
 
 ```bash
@@ -84,6 +84,7 @@ docker compose -f docker-compose.gpu.yml logs -f
 | --- | --- | --- |
 | `product-indexer` | 네이버·11번가 상품 임베딩 + drain 트리거 API | `${PRODUCT_INDEXER_API_HOST_PORT:-8080}` → 8080 |
 | `image-processor` | 옷장 이미지 Gemini 파이프라인 워커 (Redis 큐) | 없음 |
+| `vton` | Qwen-Image-Edit-2511 마네킹·가상 피팅 내부 API | `${VTON_GPU_HOST_PORT:-8090}` → 8090 |
 
 - 두 서비스가 HF 모델 캐시 볼륨(`hf_cache`)을 공유해 FashionSigLIP·bge-m3를 한 번만 받는다.
 - 컨테이너 안에는 `.env` 파일이 없다(compose `env_file`이 환경변수로 주입).

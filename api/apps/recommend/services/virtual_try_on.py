@@ -2,12 +2,17 @@
 
 from __future__ import annotations
 
+import base64
+import binascii
 from dataclasses import dataclass, field
 from typing import Any
 
+import requests
+from django.conf import settings
+
 from apps.recommend.services.mixed_outfit_render import (
     LoadedReferenceImage,
-    OpenRouterQwenImageProvider,
+    RenderProviderError,
     RenderItemReference,
     RenderSource,
     _detect_media_type,
@@ -50,6 +55,61 @@ class GeneratedTryOnImage:
     usage: dict[str, Any] = field(default_factory=dict)
 
 
+class GpuQwenImageProvider:
+    """기존 GPU 서버의 Qwen Image Edit 내부 API를 호출한다."""
+
+    provider_name = "gpu"
+
+    def __init__(self, *, session: requests.Session | None = None) -> None:
+        self.session = session or requests.Session()
+
+    def generate(
+        self,
+        *,
+        prompt: str,
+        references: tuple[LoadedReferenceImage, ...],
+    ) -> tuple[bytes, str, dict[str, Any]]:
+        if not settings.VTON_GPU_URL or not settings.VTON_GPU_TOKEN:
+            raise RenderProviderError("VTON GPU API 주소 또는 토큰이 설정되지 않았습니다.")
+        try:
+            response = self.session.post(
+                settings.VTON_GPU_URL,
+                headers={"Authorization": f"Bearer {settings.VTON_GPU_TOKEN}"},
+                json={
+                    "prompt": prompt,
+                    "images": [
+                        base64.b64encode(reference.content).decode("ascii")
+                        for reference in references
+                    ],
+                },
+                timeout=settings.VTON_GPU_TIMEOUT_SECONDS,
+            )
+        except requests.RequestException as exc:
+            raise RenderProviderError(f"VTON GPU 요청 실패: {exc}") from exc
+
+        try:
+            if response.status_code >= 400:
+                raise RenderProviderError(
+                    f"VTON GPU 요청 실패 HTTP {response.status_code}: {response.text[:500]}"
+                )
+            try:
+                payload = response.json()
+            except ValueError as exc:
+                raise RenderProviderError("VTON GPU 응답이 JSON이 아닙니다.") from exc
+        finally:
+            response.close()
+
+        try:
+            content = base64.b64decode(payload["image_base64"], validate=True)
+        except (KeyError, TypeError, ValueError, binascii.Error) as exc:
+            raise RenderProviderError("VTON GPU 응답에 유효한 이미지가 없습니다.") from exc
+        if len(content) > settings.OUTFIT_RENDER_MAX_OUTPUT_BYTES:
+            raise RenderProviderError("VTON GPU 결과 이미지가 허용 크기를 초과했습니다.")
+        media_type = _detect_media_type(content)
+        usage = payload.get("usage") if isinstance(payload.get("usage"), dict) else {}
+        return content, media_type, usage
+
+
 def _reference(label: str, content: bytes) -> LoadedReferenceImage:
     return LoadedReferenceImage(
         item=RenderItemReference(
@@ -65,8 +125,8 @@ def _reference(label: str, content: bytes) -> LoadedReferenceImage:
 
 
 class VirtualTryOnService:
-    def __init__(self, *, provider: OpenRouterQwenImageProvider | None = None) -> None:
-        self.provider = provider or OpenRouterQwenImageProvider()
+    def __init__(self, *, provider: GpuQwenImageProvider | None = None) -> None:
+        self.provider = provider or GpuQwenImageProvider()
 
     def _generate(
         self, prompt: str, references: tuple[LoadedReferenceImage, ...]
