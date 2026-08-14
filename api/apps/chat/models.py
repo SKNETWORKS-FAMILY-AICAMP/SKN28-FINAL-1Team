@@ -12,6 +12,41 @@ from django.db.models import Q
 from django.db.models.functions import Upper
 from django.utils import timezone
 
+from apps.chat.services.stylist_personas import load_stylist_personas
+
+
+def validate_selected_persona_ids(value: object) -> None:
+    """세션 선택값이 활성 스타일리스트의 고정 순서 부분집합인지 검증한다."""
+
+    if not isinstance(value, list):
+        raise ValidationError("스타일리스트 선택값은 JSON 배열이어야 합니다.")
+
+    catalog = load_stylist_personas()
+    if len(value) > catalog.max_select:
+        raise ValidationError(
+            f"스타일리스트는 최대 {catalog.max_select}명까지 선택할 수 있습니다."
+        )
+    if any(not isinstance(persona_id, str) for persona_id in value):
+        raise ValidationError("스타일리스트 ID는 문자열이어야 합니다.")
+    if len(value) != len(set(value)):
+        raise ValidationError("스타일리스트 ID는 중복될 수 없습니다.")
+
+    supported_ids = catalog.supported_persona_ids
+    unsupported_ids = sorted(set(value) - set(supported_ids))
+    if unsupported_ids:
+        raise ValidationError(
+            f"지원하지 않는 스타일리스트 ID입니다: {', '.join(unsupported_ids)}"
+        )
+
+    canonical_ids = tuple(
+        persona_id for persona_id in supported_ids if persona_id in value
+    )
+    if tuple(value) != canonical_ids:
+        raise ValidationError(
+            "스타일리스트 ID는 minimal, experimental, practical 고정 순서로 "
+            "저장해야 합니다."
+        )
+
 
 class PersonaProfile(models.Model):
     """버전이 고정된 채팅 스타일리스트 페르소나 설정."""
@@ -187,6 +222,10 @@ class ChatSession(models.Model):
         WARDROBE_BASED = "WARDROBE_BASED", "옷장 기반 추천"
         NEW_ITEM = "NEW_ITEM", "신규 상품 포함 추천"
 
+    class ResponseMode(models.TextChoices):
+        DEFAULT = "DEFAULT", "기본 응답"
+        STYLIST = "STYLIST", "선택형 스타일리스트 응답"
+
     id = models.UUIDField(
         primary_key=True,
         default=uuid.uuid4,
@@ -203,6 +242,26 @@ class ChatSession(models.Model):
         max_length=24,
         choices=Mode.choices,
         db_comment="세션 생성 후 변경할 수 없는 추천 모드 (WARDROBE_BASED/NEW_ITEM)",
+    )
+    response_mode = models.CharField(
+        max_length=12,
+        choices=ResponseMode.choices,
+        default=ResponseMode.DEFAULT,
+        db_comment="현재 응답 모드 (DEFAULT/STYLIST, 기존 추천 mode와 별도)",
+    )
+    selected_persona_ids = models.JSONField(
+        default=list,
+        blank=True,
+        validators=[validate_selected_persona_ids],
+        db_comment=(
+            "현재 선택한 스타일리스트 ID JSON 배열 "
+            "(minimal/experimental/practical, 고정 순서, 최대 3개)"
+        ),
+    )
+    persona_selection_updated_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        db_comment="스타일리스트 선택 배열이 마지막으로 변경된 시각 (미선택이면 NULL)",
     )
     title = models.CharField(
         max_length=120,
@@ -262,7 +321,9 @@ class ChatSession(models.Model):
 
     class Meta:
         db_table = "chat_session"
-        db_table_comment = "추천 모드·조건·대화 요약을 보관하는 회원·게스트 채팅 세션"
+        db_table_comment = (
+            "추천·응답 모드와 스타일리스트 선택·조건·대화 요약을 보관하는 채팅 세션"
+        )
         ordering = ["-updated_at"]
         indexes = [
             models.Index(
@@ -279,23 +340,65 @@ class ChatSession(models.Model):
                 condition=Q(mode__in=["WARDROBE_BASED", "NEW_ITEM"]),
                 name="ck_chat_session_mode",
             ),
+            models.CheckConstraint(
+                condition=Q(response_mode__in=["DEFAULT", "STYLIST"]),
+                name="ck_chat_session_response_mode",
+            ),
+            models.CheckConstraint(
+                condition=(
+                    Q(response_mode="DEFAULT") | ~Q(selected_persona_ids=[])
+                ),
+                name="ck_chat_session_stylist_ids",
+            ),
         ]
 
     def __str__(self) -> str:
         return f"chat-session {self.id} ({self.mode})"
 
+    def clean(self) -> None:
+        super().clean()
+        if (
+            self.response_mode == self.ResponseMode.STYLIST
+            and not self.selected_persona_ids
+        ):
+            raise ValidationError(
+                {
+                    "selected_persona_ids": (
+                        "STYLIST 응답 모드에서는 스타일리스트를 1명 이상 "
+                        "선택해야 합니다."
+                    )
+                }
+            )
+
     def save(self, *args, **kwargs) -> None:
+        update_fields = kwargs.get("update_fields")
+        selection_will_be_saved = (
+            update_fields is None or "selected_persona_ids" in update_fields
+        )
         if not self._state.adding:
-            previous_mode = (
+            previous = (
                 type(self)
                 .objects.filter(pk=self.pk)
-                .values_list("mode", flat=True)
+                .values("mode", "selected_persona_ids")
                 .first()
             )
-            if previous_mode is not None and previous_mode != self.mode:
+            if previous is not None and previous["mode"] != self.mode:
                 raise ValidationError(
                     {"mode": "추천 모드는 변경할 수 없습니다. 파생 세션을 생성하세요."}
                 )
+            if (
+                previous is not None
+                and selection_will_be_saved
+                and previous["selected_persona_ids"] != self.selected_persona_ids
+            ):
+                self.persona_selection_updated_at = timezone.now()
+                if update_fields is not None:
+                    kwargs["update_fields"] = [
+                        *update_fields,
+                        "persona_selection_updated_at",
+                    ]
+        elif self.selected_persona_ids and self.persona_selection_updated_at is None:
+            self.persona_selection_updated_at = timezone.now()
         super().save(*args, **kwargs)
 
 

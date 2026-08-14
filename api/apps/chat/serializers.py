@@ -232,6 +232,9 @@ class ChatSessionSerializer(serializers.ModelSerializer):
         fields = [
             "id",
             "mode",
+            "response_mode",
+            "selected_persona_ids",
+            "persona_selection_updated_at",
             "title",
             "persona_profile_id",
             "parent_session_id",
