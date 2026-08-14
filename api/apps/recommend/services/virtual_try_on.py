@@ -55,6 +55,10 @@ class GeneratedTryOnImage:
     usage: dict[str, Any] = field(default_factory=dict)
 
 
+class VirtualTryOnBusyError(RenderProviderError):
+    """GPU가 이미 다른 가상 착장 요청을 처리 중이다."""
+
+
 class GpuQwenImageProvider:
     """기존 GPU 서버의 Qwen Image Edit 내부 API를 호출한다."""
 
@@ -69,6 +73,8 @@ class GpuQwenImageProvider:
         prompt: str,
         references: tuple[LoadedReferenceImage, ...],
     ) -> tuple[bytes, str, dict[str, Any]]:
+        if not settings.VIRTUAL_TRY_ON_ENABLED:
+            raise RenderProviderError("가상 착장 기능이 비활성화되어 있습니다.")
         if not settings.VTON_GPU_URL or not settings.VTON_GPU_TOKEN:
             raise RenderProviderError("VTON GPU API 주소 또는 토큰이 설정되지 않았습니다.")
         try:
@@ -88,6 +94,8 @@ class GpuQwenImageProvider:
             raise RenderProviderError(f"VTON GPU 요청 실패: {exc}") from exc
 
         try:
+            if response.status_code == 429:
+                raise VirtualTryOnBusyError("VTON GPU가 다른 요청을 처리 중입니다.")
             if response.status_code >= 400:
                 raise RenderProviderError(
                     f"VTON GPU 요청 실패 HTTP {response.status_code}: {response.text[:500]}"

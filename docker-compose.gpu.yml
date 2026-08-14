@@ -47,6 +47,7 @@ services:
       - .env                  # PRODUCT_*, QDRANT_*, AWS_* 등
     environment:              # env_file보다 우선하는 컨테이너 전용 고정값
       TZ: Asia/Seoul
+      CUDA_VISIBLE_DEVICES: ${GPU_WORKER_VISIBLE_DEVICES:?VTON GPU를 제외한 GPU 번호를 설정하세요}
       # Dockerfile과 같은 값. 아래 hf_cache 볼륨과 짝이다.
       HF_HOME: /app/.cache/huggingface
       # 컨테이너 안에서는 항상 전 인터페이스 bind (외부 노출은 ports가 통제)
@@ -92,6 +93,7 @@ services:
       - .env                  # GEMINI_*, REDIS_*, WARDROBE_*, WORKER_*, AWS_* 등
     environment:
       TZ: Asia/Seoul
+      CUDA_VISIBLE_DEVICES: ${GPU_WORKER_VISIBLE_DEVICES:?VTON GPU를 제외한 GPU 번호를 설정하세요}
       # Dockerfile에는 HF_HOME이 없어 기본값이 /root/.cache/huggingface다.
       # product-indexer와 캐시를 공유하려고 여기서 고정한다.
       HF_HOME: /app/.cache/huggingface
@@ -142,6 +144,7 @@ services:
       - .env                  # GOLDEN_*, GEMINI_*, QDRANT_*, AWS_* 등
     environment:
       TZ: Asia/Seoul
+      CUDA_VISIBLE_DEVICES: ${GPU_WORKER_VISIBLE_DEVICES:?VTON GPU를 제외한 GPU 번호를 설정하세요}
       HF_HOME: /app/.cache/huggingface
       GOLDEN_RUN_ROOT: /app/runs
 
@@ -186,6 +189,7 @@ services:
     env_file: [.env]
     environment:
       TZ: Asia/Seoul
+      CUDA_VISIBLE_DEVICES: ${GPU_WORKER_VISIBLE_DEVICES:?VTON GPU를 제외한 GPU 번호를 설정하세요}
       HF_HOME: /app/.cache/huggingface
       WARDROBE_JOB_QUEUE: ${WARDROBE_ITEM_JOB_QUEUE:-wardrobe:item-jobs}
       WORKER_PIPELINE: qwen-tag
@@ -208,6 +212,7 @@ services:
 
   # 사용자 전신 사진과 추천 룩을 Qwen-Image-Edit-2511로 합성하는 내부 API.
   vton:
+    profiles: [vton]
     build:
       context: ./image-processor
       dockerfile: Dockerfile.vton
@@ -224,7 +229,7 @@ services:
     ports:
       - "${VTON_GPU_HOST_PORT:-8090}:8090"
     volumes:
-      - hf_cache:/app/.cache/huggingface
+      - vton_hf_cache:/app/.cache/huggingface
     healthcheck:
       test:
         - CMD-SHELL
@@ -241,11 +246,13 @@ services:
         reservations:
           devices:
             - driver: nvidia
-              device_ids: ["${VTON_GPU_DEVICE_ID:-0}"]
+              device_ids: ["${VTON_GPU_DEVICE_ID:?VTON 전용 GPU 번호를 설정하세요}"]
               capabilities: [gpu]
 
 volumes:
   # 세 서비스가 같은 임베딩 모델(FashionSigLIP / bge-m3)을 쓰므로 캐시를 공유한다.
   hf_cache:
+  # VTON 대형 체크포인트가 기존 임베딩 모델 캐시를 밀어내지 않도록 분리한다.
+  vton_hf_cache:
   # 골든셋 run 디렉터리 (manifest·임베딩 npz·클러스터).
   golden_runs:

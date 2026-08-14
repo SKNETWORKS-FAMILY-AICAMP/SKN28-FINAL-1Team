@@ -2,12 +2,20 @@ from __future__ import annotations
 
 import base64
 import io
+import threading
 import unittest
 from unittest.mock import patch
 
 from PIL import Image
 
-from vton_server import _authorized, _decode_images, _pipeline_device_map
+from vton_server import (
+    QwenImageEditor,
+    VtonBusyError,
+    _authorized,
+    _decode_images,
+    _ensure_cache_space,
+    _pipeline_device_map,
+)
 
 
 def image_base64() -> str:
@@ -45,6 +53,20 @@ class VtonServerInputTests(unittest.TestCase):
             _decode_images(
                 {"prompt": "dress", "images": [image_base64(), image_base64()]}
             )
+
+    def test_busy_editor_rejects_without_waiting(self) -> None:
+        editor = QwenImageEditor.__new__(QwenImageEditor)
+        editor._lock = threading.Lock()
+        editor._lock.acquire()
+
+        with self.assertRaises(VtonBusyError):
+            editor.generate("fit", [])
+
+    @patch("vton_server.config.VTON_MIN_FREE_DISK_GB", 20)
+    @patch("vton_server._cache_free_gb", return_value=10)
+    def test_low_cache_disk_stops_startup(self, _free_gb) -> None:
+        with self.assertRaisesRegex(SystemExit, "disk is low"):
+            _ensure_cache_space()
 
 
 if __name__ == "__main__":

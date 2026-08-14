@@ -497,6 +497,9 @@ OUTFIT_RENDER_RESOLUTION = os.getenv(
 OUTFIT_RENDER_TIMEOUT_SECONDS = float(
     os.getenv("OUTFIT_RENDER_TIMEOUT_SECONDS", str(DAILY_LOOK_RENDER_TIMEOUT_SECONDS))
 )
+VIRTUAL_TRY_ON_ENABLED = os.getenv("VIRTUAL_TRY_ON_ENABLED", "0").strip().lower() in {
+    "1", "true", "yes", "y",
+}
 VIRTUAL_TRY_ON_MODEL = os.getenv(
     "VIRTUAL_TRY_ON_MODEL",
     os.getenv("VTON_MODEL", "seochan99/Qwen-Image-Edit-2511-bnb-nf4"),

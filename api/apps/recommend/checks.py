@@ -46,14 +46,31 @@ def chat_recommend_deployment_checks(_app_configs, **_kwargs):
                 settings.OUTFIT_RENDER_RESULT_BUCKET,
                 "recommend.E007",
             ),
-            ("VTON_GPU_URL", settings.VTON_GPU_URL, "recommend.E008"),
-            ("VTON_GPU_TOKEN", settings.VTON_GPU_TOKEN, "recommend.E009"),
         )
         for name, value, error_id in render_required:
             if _missing(value):
                 errors.append(
                     Error(
                         f"코디 이미지 생성이 활성화됐지만 {name}이 비어 있습니다.",
+                        hint="기능을 끄거나 운영용 시크릿·비공개 S3 버킷을 설정하세요.",
+                        id=error_id,
+                    )
+                )
+    if settings.VIRTUAL_TRY_ON_ENABLED:
+        vton_required = (
+            ("VTON_GPU_URL", settings.VTON_GPU_URL, "recommend.E008"),
+            ("VTON_GPU_TOKEN", settings.VTON_GPU_TOKEN, "recommend.E009"),
+            (
+                "OUTFIT_RENDER_RESULT_BUCKET",
+                settings.OUTFIT_RENDER_RESULT_BUCKET,
+                "recommend.E010",
+            ),
+        )
+        for name, value, error_id in vton_required:
+            if _missing(value):
+                errors.append(
+                    Error(
+                        f"가상 착장이 활성화됐지만 {name}이 비어 있습니다.",
                         hint="기능을 끄거나 운영용 시크릿·비공개 S3 버킷을 설정하세요.",
                         id=error_id,
                     )

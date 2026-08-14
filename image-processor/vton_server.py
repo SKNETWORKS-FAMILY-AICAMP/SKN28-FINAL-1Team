@@ -8,6 +8,8 @@ import hmac
 import io
 import json
 import logging
+import os
+import shutil
 import threading
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -22,8 +24,27 @@ HEALTH_PATH = "/health"
 GENERATE_PATH = "/v1/virtual-try-on"
 
 
+class VtonBusyError(RuntimeError):
+    """한 장짜리 GPU가 이미 추론 중이다."""
+
+
 def _pipeline_device_map() -> str | None:
     return None if config.VTON_CPU_OFFLOAD else "cuda"
+
+
+def _cache_free_gb() -> float:
+    cache_path = os.environ.get("HF_HOME", "/app/.cache/huggingface")
+    os.makedirs(cache_path, exist_ok=True)
+    return shutil.disk_usage(cache_path).free / (1024**3)
+
+
+def _ensure_cache_space() -> None:
+    free_gb = _cache_free_gb()
+    if free_gb < config.VTON_MIN_FREE_DISK_GB:
+        raise SystemExit(
+            f"VTON cache disk is low: {free_gb:.1f} GiB free "
+            f"(< {config.VTON_MIN_FREE_DISK_GB:.1f} GiB)"
+        )
 
 
 def _authorized(header: str | None) -> bool:
@@ -95,19 +116,24 @@ class QwenImageEditor:
         logger.info("VTON 모델 로딩 완료")
 
     def generate(self, prompt: str, images: list[Image.Image]) -> bytes:
-        generator = self.torch.Generator(device=config.VTON_DEVICE).manual_seed(
-            config.VTON_SEED
-        )
-        with self._lock, self.torch.inference_mode():
-            result = self.pipeline(
-                image=images,
-                prompt=prompt,
-                negative_prompt=" ",
-                num_inference_steps=config.VTON_INFERENCE_STEPS,
-                true_cfg_scale=config.VTON_TRUE_CFG_SCALE,
-                guidance_scale=1.0,
-                generator=generator,
-            ).images[0]
+        if not self._lock.acquire(blocking=False):
+            raise VtonBusyError
+        try:
+            generator = self.torch.Generator(device=config.VTON_DEVICE).manual_seed(
+                config.VTON_SEED
+            )
+            with self.torch.inference_mode():
+                result = self.pipeline(
+                    image=images,
+                    prompt=prompt,
+                    negative_prompt=" ",
+                    num_inference_steps=config.VTON_INFERENCE_STEPS,
+                    true_cfg_scale=config.VTON_TRUE_CFG_SCALE,
+                    guidance_scale=1.0,
+                    generator=generator,
+                ).images[0]
+        finally:
+            self._lock.release()
         output = io.BytesIO()
         result.save(output, format="PNG")
         return output.getvalue()
@@ -120,7 +146,16 @@ class VtonRequestHandler(BaseHTTPRequestHandler):
         if self.path != HEALTH_PATH:
             self._json(HTTPStatus.NOT_FOUND, {"detail": "not found"})
             return
-        self._json(HTTPStatus.OK, {"status": "ok", "model": config.VTON_MODEL})
+        free_gb = _cache_free_gb()
+        healthy = free_gb >= config.VTON_MIN_FREE_DISK_GB
+        self._json(
+            HTTPStatus.OK if healthy else HTTPStatus.SERVICE_UNAVAILABLE,
+            {
+                "status": "ok" if healthy else "disk_low",
+                "model": config.VTON_MODEL,
+                "cache_free_gb": round(free_gb, 1),
+            },
+        )
 
     def do_POST(self) -> None:
         if self.path != GENERATE_PATH:
@@ -139,6 +174,12 @@ class VtonRequestHandler(BaseHTTPRequestHandler):
         try:
             images = _decode_images(payload)
             image = self.server.editor.generate(payload["prompt"], images)  # type: ignore[attr-defined]
+        except VtonBusyError:
+            self.send_response(HTTPStatus.TOO_MANY_REQUESTS)
+            self.send_header("Retry-After", "30")
+            self.send_header("Content-Length", "0")
+            self.end_headers()
+            return
         except ValueError as exc:
             self._json(HTTPStatus.BAD_REQUEST, {"detail": str(exc)})
             return
@@ -196,6 +237,7 @@ def main() -> int:
     )
     if not config.VTON_API_TOKEN:
         raise SystemExit("VTON_GPU_TOKEN is required")
+    _ensure_cache_space()
     server = ThreadingHTTPServer(
         (config.VTON_API_HOST, config.VTON_API_PORT),
         VtonRequestHandler,

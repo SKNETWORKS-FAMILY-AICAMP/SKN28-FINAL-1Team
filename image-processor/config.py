@@ -103,6 +103,7 @@ VTON_SEED = int(os.getenv("VTON_SEED", "0"))
 VTON_MAX_REQUEST_BYTES = int(os.getenv("VTON_MAX_REQUEST_BYTES", str(50 * 1024 * 1024)))
 VTON_MAX_IMAGE_BYTES = int(os.getenv("VTON_MAX_IMAGE_BYTES", str(15 * 1024 * 1024)))
 VTON_MAX_IMAGE_PIXELS = int(os.getenv("VTON_MAX_IMAGE_PIXELS", str(4096 * 4096)))
+VTON_MIN_FREE_DISK_GB = float(os.getenv("VTON_MIN_FREE_DISK_GB", "20"))
 
 # ── 임베딩 (설계서에 없던 단계 — 조율안에 따라 Worker 책임으로 추가) ──
 EMBED_ENABLED = os.getenv("WORKER_EMBED_ENABLED", "1") == "1"
