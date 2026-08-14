@@ -12,6 +12,7 @@ from __future__ import annotations
 import json
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 from apps.recommend.services import vocabulary
 from apps.recommend.services.body_profile import (
@@ -26,6 +27,7 @@ from apps.recommend.services.body_profile import (
     UNDERWEIGHT,
     UNKNOWN,
     BodyProfile,
+    _empirical_percentile,
     build_profile,
 )
 from apps.recommend.services.gender import (
@@ -59,6 +61,28 @@ from apps.recommend.services.style_rules import (
 translate = vocabulary.translate
 
 
+BODY_THRESHOLDS = {
+    "active_threshold_key": "all",
+    "horizontal_classification_references": {
+        sex: {"all": {
+            "shoulder": [35, 40, 45, 50],
+            "chest": [80, 90, 100, 110],
+            "hip": [80, 90, 100, 110],
+        }} for sex in ("M", "F")
+    },
+    "thresholds": {
+        sex: {"all": {
+            "upper_lower": {"p33": -0.2, "p67": 0.2},
+            "waist_definition": {"p33": 0.75, "p90": 0.95},
+            "neck_length": {"p33": 8, "p67": 10},
+            "thigh_calf_ratio": {"p33": 0.8, "p67": 1.1},
+            "torso_leg_ratio": {"p33": 0.63, "p67": 0.69},
+        }} for sex in ("M", "F")
+    },
+}
+
+
+@patch("apps.recommend.services.body_profile.load_body_shape_thresholds", return_value=BODY_THRESHOLDS)
 class BodyProfileTests(unittest.TestCase):
     """실루엣은 **둘레끼리** 비교해야 한다.
 
@@ -68,89 +92,113 @@ class BodyProfileTests(unittest.TestCase):
     하나다. 아래 값은 전부 실제 사람의 cm 둘레다.
     """
 
-    def test_real_bodies_do_not_all_collapse_to_one_silhouette(self):
+    def test_real_bodies_do_not_all_collapse_to_one_silhouette(self, _thresholds):
         """단위를 섞으면 여기서 걸린다 — 판정이 한 값으로 뭉친다."""
         bodies = [
-            {"chest": 102, "waist": 92, "hip": 98, "shoulder": 44},
-            {"chest": 100, "waist": 78, "hip": 88, "shoulder": 50},
-            {"chest": 110, "waist": 108, "hip": 100, "shoulder": 43},
-            {"chest": 84, "waist": 62, "hip": 90, "shoulder": 38},
+            {"gender": "male", "chest": 102, "waist": 92, "hip": 98, "shoulder": 44},
+            {"gender": "male", "chest": 100, "waist": 78, "hip": 88, "shoulder": 50},
+            {"gender": "male", "chest": 110, "waist": 108, "hip": 100, "shoulder": 43},
+            {"gender": "female", "chest": 84, "waist": 62, "hip": 100, "shoulder": 38},
         ]
         got = {build_profile(b).silhouette for b in bodies}
         self.assertGreaterEqual(len(got), 3, f"판정이 뭉쳤다: {got}")
 
-    def test_chest_wider_than_hip_is_inverted(self):
-        p = build_profile({"height": 180, "weight": 70, "chest": 100, "waist": 78, "hip": 88})
+    def test_chest_wider_than_hip_is_inverted(self, _thresholds):
+        p = build_profile({"gender": "male", "height": 180, "weight": 70, "shoulder": 50, "chest": 110, "waist": 78, "hip": 80})
         self.assertEqual(p.silhouette, INVERTED_TRIANGLE)
 
-    def test_hip_wider_than_chest_is_triangle(self):
+    def test_hip_wider_than_chest_is_triangle(self, _thresholds):
         self.assertEqual(
-            build_profile({"chest": 84, "waist": 62, "hip": 90}).silhouette, TRIANGLE
+            build_profile({"gender": "female", "shoulder": 35, "chest": 80, "waist": 62, "hip": 110}).silhouette, TRIANGLE
         )
 
-    def test_balanced_with_small_waist_is_hourglass(self):
+    def test_balanced_with_small_waist_is_hourglass(self, _thresholds):
         self.assertEqual(
-            build_profile({"chest": 90, "waist": 64, "hip": 92}).silhouette, HOURGLASS
+            build_profile({"gender": "female", "shoulder": 45, "chest": 100, "waist": 70, "hip": 100}).silhouette, HOURGLASS
         )
 
-    def test_dominant_waist_is_round(self):
+    def test_dominant_waist_is_round(self, _thresholds):
         self.assertEqual(
-            build_profile({"chest": 96, "waist": 96, "hip": 94}).silhouette, ROUND
+            build_profile({"gender": "female", "shoulder": 45, "chest": 100, "waist": 100, "hip": 100}).silhouette, ROUND
         )
 
-    def test_round_wins_over_chest_hip_spread(self):
+    def test_round_wins_over_chest_hip_spread(self, _thresholds):
         """허리 우세는 상하 균형과 무관하게 성립한다.
 
         예전에는 가슴-엉덩이 균형을 먼저 봐서, 허리 108에 가슴 110/엉덩이 100인
         사람이 명백한 라운드형인데 역삼각형으로 빠졌다.
         """
-        p = build_profile({"height": 165, "weight": 95, "chest": 110, "waist": 108, "hip": 100})
+        p = build_profile({"gender": "male", "height": 165, "weight": 95, "shoulder": 50, "chest": 110, "waist": 108, "hip": 100})
         self.assertEqual(p.silhouette, ROUND)
 
-    def test_balanced_middle_waist_is_rectangle(self):
+    def test_balanced_middle_waist_is_rectangle(self, _thresholds):
         self.assertEqual(
-            build_profile({"chest": 92, "waist": 80, "hip": 92}).silhouette, RECTANGLE
+            build_profile({"gender": "male", "shoulder": 45, "chest": 100, "waist": 85, "hip": 100}).silhouette, RECTANGLE
         )
 
-    def test_balanced_without_waist_stays_unknown(self):
-        p = build_profile({"chest": 92, "hip": 92})
+    def test_balanced_without_waist_stays_unknown(self, _thresholds):
+        p = build_profile({"gender": "male", "shoulder": 45, "chest": 92, "hip": 92})
         self.assertEqual(p.silhouette, UNKNOWN)
         self.assertIn("waist", p.missing)
 
-    def test_without_chest_there_is_no_silhouette(self):
+    def test_without_chest_there_is_no_silhouette(self, _thresholds):
         """모르는 값을 메우지 않는다. 틀린 추천보다 미판정이 낫다."""
         p = build_profile({"height": 170, "weight": 62, "waist": 70, "hip": 90, "shoulder": 44})
         self.assertEqual(p.silhouette, UNKNOWN)
         self.assertIn("chest", p.missing)
 
-    def test_shoulder_survives_as_a_secondary_axis(self):
+    def test_gender_is_mandatory_for_silhouette(self, _thresholds):
         """실루엣에서는 뺐지만 어깨 발달은 실제로 다른 축이다."""
-        broad = build_profile({"chest": 100, "hip": 96, "waist": 80, "shoulder": 50})
-        narrow = build_profile({"chest": 100, "hip": 96, "waist": 80, "shoulder": 38})
-        self.assertEqual(broad.ratios["shoulder_width"], "broad")
-        self.assertEqual(narrow.ratios["shoulder_width"], "narrow")
-        # 같은 둘레라 실루엣은 같아야 한다 — 어깨는 실루엣을 흔들지 않는다
-        self.assertEqual(broad.silhouette, narrow.silhouette)
+        profile = build_profile({"chest": 100, "hip": 96, "waist": 80, "shoulder": 50})
+        self.assertEqual(profile.silhouette, UNKNOWN)
+        self.assertIn("gender", profile.missing)
 
-    def test_bmi_bands(self):
+    def test_bmi_bands(self, _thresholds):
         for w, band in ((50, UNDERWEIGHT), (62, NORMAL), (70, OVERWEIGHT), (85, OBESE)):
             p = build_profile({"height": 170, "weight": w})
             self.assertEqual(p.bmi_band, band, f"{w}kg bmi={p.bmi}")
 
-    def test_no_measurement_is_empty(self):
+    def test_no_measurement_is_empty(self, _thresholds):
         self.assertTrue(build_profile(None).is_empty)
         self.assertTrue(build_profile({}).is_empty)
 
-    def test_leg_volume_ratio(self):
-        self.assertEqual(build_profile({"thigh": 62, "calf": 38}).ratios["leg_volume"], "thigh_dominant")
-        self.assertEqual(build_profile({"thigh": 52, "calf": 37}).ratios["leg_volume"], "balanced")
+    def test_legacy_ratio_axis_names_are_normalized(self, _thresholds):
+        profile = BodyProfile(
+            ratios={"leg_volume": "balanced", "vertical_balance": "long_torso"}
+        )
+        self.assertEqual(
+            profile.ratios,
+            {"thigh_calf_ratio": "balanced", "torso_leg_ratio": "long_torso"},
+        )
 
-    def test_garbage_values_are_ignored(self):
+    def test_thigh_calf_ratio(self, _thresholds):
+        self.assertEqual(build_profile({"gender": "male", "thigh_calf_ratio": 1.2}).ratios["thigh_calf_ratio"], "thigh_dominant")
+        self.assertEqual(build_profile({"gender": "male", "thigh_calf_ratio": 0.82}).ratios["thigh_calf_ratio"], "balanced")
+        self.assertEqual(build_profile({"gender": "male", "thigh_calf_ratio": 0.70}).ratios["thigh_calf_ratio"], "calf_dominant")
+
+    def test_torso_leg_ratio(self, _thresholds):
+        self.assertEqual(build_profile({"gender": "female", "torso_leg_ratio": 0.72}).ratios["torso_leg_ratio"], "long_torso")
+        self.assertEqual(build_profile({"gender": "female", "torso_leg_ratio": 0.66}).ratios["torso_leg_ratio"], "balanced")
+        self.assertEqual(build_profile({"gender": "female", "torso_leg_ratio": 0.58}).ratios["torso_leg_ratio"], "short_torso")
+
+    def test_neck_length_uses_sex_thresholds(self, _thresholds):
+        self.assertEqual(build_profile({"gender": "female", "neck_length": 7}).ratios["neck_length"], "short")
+        self.assertEqual(build_profile({"gender": "female", "neck_length": 9}).ratios["neck_length"], "average")
+        self.assertEqual(build_profile({"gender": "female", "neck_length": 11}).ratios["neck_length"], "long")
+
+    def test_ratio_threshold_boundaries_are_inclusive(self, _thresholds):
+        self.assertEqual(build_profile({"gender": "female", "thigh_calf_ratio": 0.8}).ratios["thigh_calf_ratio"], "calf_dominant")
+        self.assertEqual(build_profile({"gender": "female", "thigh_calf_ratio": 1.1}).ratios["thigh_calf_ratio"], "thigh_dominant")
+
+    def test_empirical_percentile_matches_average_rank_for_ties(self, _thresholds):
+        self.assertEqual(_empirical_percentile(40, [35, 40, 40, 50]), 0.625)
+
+    def test_garbage_values_are_ignored(self, _thresholds):
         self.assertTrue(build_profile({"height": "abc", "weight": -5, "chest": None}).is_empty)
 
-    def test_describe_is_human_readable(self):
-        p = build_profile({"height": 170, "weight": 85, "chest": 96, "waist": 96, "hip": 94})
-        self.assertIn("라운드형", p.describe())
+    def test_describe_is_human_readable(self, _thresholds):
+        p = build_profile({"gender": "male", "height": 170, "weight": 85, "shoulder": 45, "chest": 100, "waist": 100, "hip": 100})
+        self.assertIn("둥근체형", p.describe())
         self.assertIn("비만", p.describe())
 
 
@@ -179,7 +227,7 @@ class RulesTests(unittest.TestCase):
     def setUp(self):
         self.rules = load_body_rules()
     def test_loads_clean(self):
-        self.assertEqual(self.rules.schema_version, "body-fit-rules-v1")
+        self.assertEqual(self.rules.schema_version, "body-fit-rules-v2")
     def test_preference_outweighs_rules(self):
         w = self.rules.weights
         self.assertGreater(abs(w.preference_avoid), abs(w.rule_avoid))
@@ -195,6 +243,19 @@ class RulesTests(unittest.TestCase):
         import json
         doc = json.loads(open(str(RULES_DIR / "body_fit_rules.json"), encoding="utf-8").read())
         self.assertEqual(validate_rules(doc), [])
+
+    def test_golden_and_runtime_threshold_artifacts_are_identical(self):
+        root = RULES_DIR.parents[3]
+        golden = root / "golden-set/body/rules/body_shape_thresholds.json"
+        runtime = RULES_DIR / "body_shape_thresholds.json"
+        self.assertEqual(golden.read_bytes(), runtime.read_bytes())
+
+    def test_runtime_rule_taxonomy_matches_golden_contract(self):
+        root = RULES_DIR.parents[3]
+        runtime = json.loads((RULES_DIR / "body_fit_rules.json").read_text(encoding="utf-8"))
+        golden = json.loads((root / "golden-set/body/rules/body_fit_rules.json").read_text(encoding="utf-8"))
+        self.assertEqual(runtime["golden_source_version"], golden["version"])
+        self.assertEqual(set(runtime["silhouette"]), set(golden["axes"]["width"]["values"]))
     def test_unknown_axis_contributes_nothing(self):
         empty = self.rules.for_profile(BodyProfile())
         self.assertEqual(empty.prefer, ()); self.assertEqual(empty.avoid, ())
@@ -203,7 +264,11 @@ class RulesTests(unittest.TestCase):
         self.assertTrue(hard)
         self.assertEqual(hard[0].match, {"category_large":"상의","length":"크롭"})
     def test_axes_combine(self):
-        p = BodyProfile(silhouette=TRIANGLE, bmi_band=OBESE, ratios={"leg_volume":"thigh_dominant"})
+        p = BodyProfile(
+            silhouette=TRIANGLE,
+            bmi_band=OBESE,
+            ratios={"thigh_calf_ratio": "thigh_dominant", "torso_leg_ratio": "long_torso"},
+        )
         axis = self.rules.for_profile(p)
         self.assertGreater(len(axis.avoid), 3)
     def test_rule_matches_list_payload(self):

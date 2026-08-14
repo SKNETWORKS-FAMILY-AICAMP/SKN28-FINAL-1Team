@@ -4,9 +4,8 @@
 쪽 관심사(입력 확정, DB 저장, 트랜잭션 상태 전이, 응답 형식)만 맡는다
 (CLAUDE.md §7: 모델 코드는 ml/에 두고 웹 계층은 인터페이스로 호출).
 
-두 경로 모두 상세 7개와 체형 지표 3개를 채운다. 사진 경로는 기본 정보 추정으로
-10개를 채운 뒤 VLM 응답으로 덮어쓴다. VLM에게도 10개를 다 물어보지만, 정확도가
-실제로 측정된 부위는 가슴·허리·엉덩이 3개뿐이다.
+두 경로 모두 새 11개 저장 항목을 채운다. 사진 경로는 VLM이 필수 값을 모두 반환해야
+성공하며, 누락된 값을 무사진 임시값으로 대체하지 않는다.
 
 사진 처리는 백그라운드 스레드로 돌린다. 개발용 임시 수단이며 AWS 이관 시
 Celery/SQS로 교체하는 것을 전제로, 호출부(views)는 start_measurement()만 사용한다.
@@ -39,12 +38,12 @@ SOURCE_PHOTO = "photo"
 # 이 시간이 지나도 '진행중'인 트랜잭션은 죽은 것으로 본다.
 # 배포·크래시로 백그라운드 스레드가 사라지면 상태를 바꿔줄 주체가 없어지는데,
 # 사용자당 진행중 1건 제약 때문에 그 사용자는 영영 사진을 못 올리게 된다.
-# VLM 호출은 검증에서 최대 10초대였으므로 10분이면 충분히 여유 있다.
-STALE_TRANSACTION_TIMEOUT_MINUTES = 10
+# VLM 호출은 네트워크 재시도까지 고려해 약 5분 안에 끝나는 것을 목표로 한다.
+STALE_TRANSACTION_TIMEOUT_MINUTES = 5
 
 RATIO_LIMITS = {
-    "thigh_calf_ratio": (Decimal("0.8"), Decimal("1.3")),
-    "torso_leg_ratio": (Decimal("0.6"), Decimal("1.0")),
+    "thigh_calf_ratio": (Decimal("0.1"), Decimal("9.999")),
+    "torso_leg_ratio": (Decimal("0.1"), Decimal("9.999")),
 }
 
 
@@ -159,7 +158,7 @@ def estimate_from_basic_info(
     height: Decimal | None = None,
     weight: Decimal | None = None,
 ) -> BodyMeasurement:
-    """성별·키·몸무게만으로 상세 7개와 체형 지표 3개를 추정해 저장한다 (동기)."""
+    """성별·키·몸무게만으로 11개 항목을 추정해 저장한다 (동기)."""
     measurement, _ = BodyMeasurement.objects.get_or_create(user=user)
     gender, height, weight = resolve_basic_info(
         measurement, gender=gender, height=height, weight=weight

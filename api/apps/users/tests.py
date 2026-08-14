@@ -497,6 +497,22 @@ class BodyMeasurementTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.data["gender"], "female")
 
+    def test_get_returns_canonical_body_type_label(self):
+        BodyMeasurement.objects.create(
+            user=self.user,
+            gender="female",
+            shoulder="38.5",
+            chest="84.5",
+            waist="68.0",
+            hip="92.0",
+        )
+
+        response = self.client.get(reverse("users:body"))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data["body_type"], "inverted_triangle")
+        self.assertEqual(response.data["body_type_label"], "역삼각형체형")
+
     # ---- 기본 수치 (성별·키·몸무게 — 셋 다 필수) ----
 
     BASIC_PAYLOAD = {"gender": "male", "height": "175.5", "weight": "70.0"}
@@ -585,20 +601,19 @@ class BodyMeasurementTests(TestCase):
         )
         self.assertEqual(response.status_code, 400)
 
-    def test_detail_patch_rejects_legacy_ratio_ranges(self):
-        for field, value in (
-            ("thigh_calf_ratio", "0.724"),
-            ("torso_leg_ratio", "1.213"),
-        ):
-            response = self.client.patch(
-                reverse("users:body-detail"), {field: value}, format="json"
-            )
-            self.assertEqual(response.status_code, 400, field)
+    def test_detail_patch_accepts_outside_reference_ratio_ranges(self):
+        """SizeKorea 분포는 참고용이며 사용자가 수정한 양수 비율은 저장한다."""
+        response = self.client.patch(
+            reverse("users:body-detail"),
+            {"thigh_calf_ratio": "1.200", "torso_leg_ratio": "0.250"},
+            format="json",
+        )
+        self.assertEqual(response.status_code, 200)
 
     def test_detail_patch_accepts_redefined_ratio_ranges(self):
         response = self.client.patch(
             reverse("users:body-detail"),
-            {"thigh_calf_ratio": "1.112", "torso_leg_ratio": "0.786"},
+            {"thigh_calf_ratio": "1.112", "torso_leg_ratio": "1.086"},
             format="json",
         )
         self.assertEqual(response.status_code, 200)
@@ -744,13 +759,17 @@ ESTIMATED_MEASUREMENTS = {
     "chest": 98.3,
     "waist": 82.0,
     "hip": 94.9,
-    "thigh": 55.9,
-    "calf": 37.7,
-    "arm": 31.8,
+    "thigh": 55.2,
+    "calf": 37.3,
+    "arm": 32.0,
+    "thigh_length": 40.1,
+    "calf_length": 37.7,
+    "torso_length": 45.0,
+    "leg_length": 68.2,
     "shoulder": 40.2,
     "neck_length": 9.6,
-    "thigh_calf_ratio": 1.112,
-    "torso_leg_ratio": 0.786,
+    "thigh_calf_ratio": 1.064,
+    "torso_leg_ratio": 0.660,
 }
 
 
@@ -780,7 +799,7 @@ class BodyEstimateTests(TestCase):
         self.assertEqual(response.data["source"], "basic_info")
         self.assertIsNone(response.data["transaction_id"])
         self.assertIsNone(response.data["error_message"])
-        # 상세 7개와 체형 지표 3개가 전부 채워져 내려간다.
+        # 상세 항목이 전부 채워져 내려간다.
         measurement = response.data["measurement"]
         for field, value in ESTIMATED_MEASUREMENTS.items():
             self.assertEqual(float(measurement[field]), value, field)
@@ -1021,43 +1040,65 @@ class BudgetViewTests(TestCase):
         response = self.client.get(self.url)
         self.assertEqual(response.status_code, 401)
 
-    def test_budget_returns_null_when_not_set(self):
+    def test_budget_returns_empty_object_when_not_set(self):
         self.client.force_authenticate(self.user)
         response = self.client.get(self.url)
         self.assertEqual(response.status_code, 200)
-        self.assertIsNone(response.data["monthly_budget"])
+        self.assertEqual(response.data["category_budgets"], {})
+        self.assertEqual(
+            response.data["effective_category_budgets"]["상의"], 50_000
+        )
+        self.assertEqual(
+            response.data["effective_category_budgets"]["아우터"], 150_000
+        )
 
     def test_budget_can_be_set(self):
         self.client.force_authenticate(self.user)
         response = self.client.put(
-            self.url, {"monthly_budget": 100_000}, format="json"
+            self.url,
+            {"category_budgets": {"상의": 100_000, "하의": 150_000}},
+            format="json",
         )
         self.assertEqual(response.status_code, 200)
         self.user.refresh_from_db()
-        self.assertEqual(self.user.monthly_budget, 100_000)
+        self.assertEqual(
+            self.user.category_budgets, {"상의": 100_000, "하의": 150_000}
+        )
 
-    def test_budget_can_be_cleared(self):
-        self.user.monthly_budget = 100_000
-        self.user.save(update_fields=["monthly_budget"])
+    def test_custom_budget_overrides_only_that_category(self):
         self.client.force_authenticate(self.user)
         response = self.client.put(
-            self.url, {"monthly_budget": None}, format="json"
+            self.url, {"category_budgets": {"상의": 120_000}}, format="json"
+        )
+
+        self.assertEqual(response.data["effective_category_budgets"]["상의"], 120_000)
+        self.assertEqual(response.data["effective_category_budgets"]["하의"], 50_000)
+
+    def test_budget_can_be_cleared(self):
+        self.user.category_budgets = {"상의": 100_000}
+        self.user.save(update_fields=["category_budgets"])
+        self.client.force_authenticate(self.user)
+        response = self.client.put(
+            self.url, {"category_budgets": {}}, format="json"
         )
         self.assertEqual(response.status_code, 200)
         self.user.refresh_from_db()
-        self.assertIsNone(self.user.monthly_budget)
+        self.assertEqual(self.user.category_budgets, {})
+        self.assertEqual(
+            response.data["effective_category_budgets"]["액세서리"], 50_000
+        )
 
     def test_budget_rejects_non_ten_thousand_unit(self):
         self.client.force_authenticate(self.user)
         response = self.client.put(
-            self.url, {"monthly_budget": 105_000}, format="json"
+            self.url, {"category_budgets": {"상의": 105_000}}, format="json"
         )
         self.assertEqual(response.status_code, 400)
 
     def test_budget_rejects_too_small_amount(self):
         self.client.force_authenticate(self.user)
         response = self.client.put(
-            self.url, {"monthly_budget": 0}, format="json"
+            self.url, {"category_budgets": {"상의": 0}}, format="json"
         )
         self.assertEqual(response.status_code, 400)
 
@@ -1066,12 +1107,21 @@ class BudgetViewTests(TestCase):
         response = self.client.put(self.url, {}, format="json")
         self.assertEqual(response.status_code, 400)
 
+    def test_budget_rejects_unknown_category(self):
+        self.client.force_authenticate(self.user)
+        response = self.client.put(
+            self.url, {"category_budgets": {"잡화": 100_000}}, format="json"
+        )
+        self.assertEqual(response.status_code, 400)
+
     def test_budget_is_isolated_per_user(self):
         other_user = User.objects.create(
             username="kakao_other",
-            monthly_budget=500_000,
+            category_budgets={"아우터": 500_000},
         )
         self.client.force_authenticate(self.user)
-        self.client.put(self.url, {"monthly_budget": 100_000}, format="json")
+        self.client.put(
+            self.url, {"category_budgets": {"상의": 100_000}}, format="json"
+        )
         other_user.refresh_from_db()
-        self.assertEqual(other_user.monthly_budget, 500_000)
+        self.assertEqual(other_user.category_budgets, {"아우터": 500_000})

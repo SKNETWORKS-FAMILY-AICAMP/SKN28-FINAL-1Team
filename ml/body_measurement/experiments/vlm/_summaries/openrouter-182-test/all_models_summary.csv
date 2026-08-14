@@ -1,7 +1,0 @@
-﻿chest_mae_cm,chest_p90_cm,chest_rmse_cm,detail_file,failed,hip_mae_cm,hip_p90_cm,hip_rmse_cm,mean_latency_sec,model,subjects,success,waist_mae_cm,waist_p90_cm,waist_rmse_cm
-5.942,11.7,9.574,ml\body_measurement\reports\vlm_openrouter_182\qwen3-vl-8b_test_set_results.csv,14,4.59,9.4,6.547,1.082,qwen3-vl-8b,182,168,7.59,14.8,9.402
-4.47,8.6,8.166,ml\body_measurement\reports\vlm_openrouter_182\gemma-3-12b_test_set_results.csv,0,3.253,6.2,4.264,1.186,gemma-3-12b,182,182,5.208,10.3,6.361
-3.745,6.5,7.494,ml\body_measurement\reports\vlm_openrouter_182\gemini-flash-lite_test_set_results.csv,0,3.307,6.3,4.041,2.063,gemini-flash-lite,182,182,3.036,6.2,3.755
-3.824,6.2,7.703,ml\body_measurement\reports\vlm_openrouter_182\gemini-flash_test_set_results.csv,0,2.779,6.2,3.558,1.366,gemini-flash,182,182,3.424,6.5,4.114
-2.3,5.0,2.791,ml\body_measurement\reports\vlm_openrouter_182\kimi-k2.5_test_set_results.csv,175,3.0,5.7,3.444,72.27,kimi-k2.5,182,7,4.586,11.7,5.902
-,,,ml\body_measurement\reports\vlm_openrouter_182\grok-4.3_test_set_results.csv,182,,,,,grok-4.3,182,0,,,

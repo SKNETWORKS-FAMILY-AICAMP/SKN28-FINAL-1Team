@@ -361,20 +361,25 @@ class SwaggerEndpointTests(SimpleTestCase):
         )
 
         field = schema["components"]["schemas"]["BudgetRequest"]
-        self.assertEqual(field["required"], ["monthly_budget"])
-        budget_field = field["properties"]["monthly_budget"]
-        self.assertTrue(budget_field["nullable"])  # null로 예산 해제
-        self.assertEqual(budget_field["minimum"], 10_000)
-        self.assertEqual(budget_field["maximum"], 2_147_480_000)
+        self.assertEqual(field["required"], ["category_budgets"])
+        budget_field = field["properties"]["category_budgets"]
+        amount_field = budget_field["additionalProperties"]
+        self.assertEqual(amount_field["minimum"], 10_000)
+        self.assertEqual(amount_field["maximum"], 2_147_480_000)
         self.assertIn("1만원 단위", budget_field["description"])
+        self.assertNotIn("effective_category_budgets", field["properties"])
+        response_field = schema["components"]["schemas"]["Budget"]
+        effective_field = response_field["properties"]["effective_category_budgets"]
+        self.assertTrue(effective_field["readOnly"])
 
         # 예시 드롭다운 (이름은 drf-spectacular가 공백을 지워 생성한다)
         self.assertEqual(
             set(request_body["examples"]),
-            {"예산설정(월30만원)", "예산해제(null)"},
+            {"카테고리별예산설정", "모든예산을기본값으로복원"},
         )
-        self.assertIsNone(
-            request_body["examples"]["예산해제(null)"]["value"]["monthly_budget"]
+        self.assertEqual(
+            request_body["examples"]["모든예산을기본값으로복원"]["value"]["category_budgets"],
+            {},
         )
 
         # 응답쪽도 설정됨/미설정 두 가지를 보여준다

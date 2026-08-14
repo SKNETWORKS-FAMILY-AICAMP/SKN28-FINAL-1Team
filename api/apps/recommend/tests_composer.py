@@ -172,6 +172,23 @@ class OutfitComposerTests(SimpleTestCase):
         )
         self.assertEqual(result.total_product_price, 70_000)
 
+    def test_category_budget_is_applied_to_each_product(self) -> None:
+        top = _slot(
+            _template("golden-top", layer_role="TOP", image_ref="golden/top.jpg"),
+            _candidate(ItemSource.PRODUCT, "expensive-top", price=120_000),
+            _candidate(ItemSource.PRODUCT, "affordable-top", price=90_000, score=0.7),
+        )
+
+        result = self.composer.compose(
+            CompositionRequest(
+                mode=RecommendationMode.NEW_ITEM,
+                slot_results=(top,),
+                category_budgets={"상의": 100_000},
+            )
+        )
+
+        self.assertEqual(result.items[0].source_id, "affordable-top")
+
     def test_same_candidate_is_not_selected_for_two_slots(self) -> None:
         duplicated = _candidate(ItemSource.WARDROBE, "same-item")
         top = _slot(

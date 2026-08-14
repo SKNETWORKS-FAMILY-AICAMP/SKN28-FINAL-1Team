@@ -286,8 +286,7 @@ class BodyDetailView(APIView):
 class BodyEstimateView(APIView):
     """POST /api/v1/users/me/body/estimate/ — 사진 없이 상세 신체치수 추정.
 
-    성별·키·몸무게만으로 상세 7개와 체형 지표 3개(목길이·허벅지/종아리 비율·
-    상하체 비율)를 추정해 저장하고 결과를 반환한다. 세 값을 본문에 담지 않으면
+    성별·키·몸무게만으로 새 11개 항목을 추정해 저장하고 결과를 반환한다. 세 값을 본문에 담지 않으면
     이미 저장된 기본 신체치수를 사용한다.
 
     추론이 수십 ms로 끝나므로 동기 처리한다(사진 경로는 VLM 호출이 수 초 걸려
@@ -488,7 +487,7 @@ class PursuitView(APIView):
 
 
 class BudgetView(APIView):
-    """GET/PUT /api/v1/users/me/budget/ — 월 의류 구매 예산 조회/설정.
+    """GET/PUT /api/v1/users/me/budget/ — 카테고리별 상품 예산 조회/설정.
 
     Swagger 문서(operation_id·request/response 스키마·예시)는 다른 users 뷰와
     마찬가지로 api_docs/extensions.py의 BudgetViewExtension이 담당한다.

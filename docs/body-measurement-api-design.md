@@ -32,8 +32,8 @@ flowchart TD
 | 단계 | 값을 만드는 주체 | 대상 필드                       |
 | ---- | ---------------- | ------------------------------- |
 | 1    | 사람             | 성별 · 키 · 몸무게            |
-| 2    | AI               | 상세 10개 (치수 7개 + 비율 3개) |
-| 3    | 사람             | 상세 10개 (치수 7개 + 비율 3개) |
+| 2    | AI               | 상세 14개 (치수 7개 + 길이 5개 + 비율 2개) |
+| 3    | 사람             | 상세 14개 (치수 7개 + 길이 5개 + 비율 2개) |
 
 1. **성별·키·몸무게는 AI가 만들지 않는다.** 저장되는 값은 항상 사람이 입력한 값이다.
 2. 2단계 API도 성별·키·몸무게를 요청 본문으로 받을 수 있다. 이때 저장되는 값 역시
@@ -48,7 +48,7 @@ flowchart TD
 | - | ------ | -------------------------------------------------- | ---------------------------------- | --------- |
 | 1 | GET    | `/api/v1/users/me/body/`                         | 신체치수 조회                      | 200       |
 | 2 | PUT    | `/api/v1/users/me/body/basic/`                   | 성별·키·몸무게 입력 (셋 다 필수) | 200       |
-| 3 | PATCH  | `/api/v1/users/me/body/detail/`                  | 상세 10개 수정 (전부 선택)         | 200       |
+| 3 | PATCH  | `/api/v1/users/me/body/detail/`                  | 상세 14개 수정 (전부 선택)         | 200       |
 | 4 | POST   | `/api/v1/users/me/body/estimate/`                | 사진 없이 추정 (동기)              | 200       |
 | 5 | POST   | `/api/v1/users/me/body/photos/`                  | 사진으로 추정 시작 (비동기)        | 202       |
 | 6 | GET    | `/api/v1/users/me/body/photos/{transaction_id}/` | 사진 추정 결과 조회                | 200       |
@@ -103,9 +103,13 @@ POST 응답 코드 자체는 동기(200)/비동기(202)라 같게 만들 수 없
     "calf": "37.3",
     "arm": "32.0",
     "shoulder": "40.3",
-    "neck_length": "9.6",
-    "thigh_calf_ratio": "1.112",
-    "torso_leg_ratio": "0.786",
+    "thigh_length": "29.7",
+    "calf_length": "39.2",
+    "torso_length": "42.2",
+    "leg_length": "68.9",
+    "neck_length": "8.3",
+    "thigh_calf_ratio": "0.762",
+    "torso_leg_ratio": "0.613",
     "updated_at": "2026-08-05T12:33:54+09:00"
   },
   "error_message": null
@@ -117,12 +121,13 @@ POST 응답 코드 자체는 동기(200)/비동기(202)라 같게 만들 수 없
 | `status`         | `in_progress` / `succeeded` / `failed`       |
 | `source`         | `basic_info` (사진 없음) / `photo` (사진 있음) |
 | `transaction_id` | 사진 추정일 때만 UUID, 무사진은`null`            |
-| `measurement`    | 상세 10개는 항상 채워져 있고`null`이 없다        |
+| `measurement`    | 상세 14개는 항상 채워져 있고`null`이 없다        |
 | `error_message`  | 실패했을 때만 사유, 아니면`null`                 |
 
 ### 4.3 프론트 처리
 
-`measurement` 내부 14개 필드(기본 3개 + 상세 10개 + `updated_at`)는 6개 API가 모두
+`measurement` 내부 17개 필드(기본 3개 + 상세 14개 + `updated_at`)는 6개 API가 모두
+
 동일하므로 아래 한 줄로 통일할 수 있다.
 
 ```js
@@ -179,8 +184,8 @@ VLM이 일부 부위를 빠뜨려도 응답에 빈칸이 생기지 않게 하기
 
 | 경로      | 모델                                      | 예측 부위                      |
 | --------- | ----------------------------------------- | ------------------------------ |
-| 사진 없음 | `hist_gradient_boosting` (scikit-learn) | 10개                           |
-| 사진 있음 | Kimi K2.5 (OpenRouter)                    | 10개 (기본 모델 값 위에 덮어씀) |
+| 사진 없음 | `hist_gradient_boosting` (scikit-learn) | 14개                           |
+| 사진 있음 | Kimi K2.5 (OpenRouter)                    | 14개 (기본 모델 값 위에 덮어씀) |
 
 ### 6.1 모델 선정 근거
 
