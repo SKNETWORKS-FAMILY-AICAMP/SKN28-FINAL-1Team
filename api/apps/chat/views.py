@@ -50,6 +50,7 @@ from apps.chat.serializers import (
     ChatRunSerializer,
     ChatSessionCreateSerializer,
     ChatSessionDeriveSerializer,
+    ChatSessionResponseModeUpdateSerializer,
     ChatSessionSearchItemSerializer,
     ChatSessionSearchQuerySerializer,
     ChatSessionSearchResponseSerializer,
@@ -63,7 +64,7 @@ from apps.chat.serializers import (
 from apps.chat.services import attachments as attachment_service
 from apps.chat.services import history as history_service
 from apps.chat.services import identity as identity_service
-from apps.chat.services import mood_analysis, stylist_catalog
+from apps.chat.services import mood_analysis, response_modes, stylist_catalog
 from apps.chat.services import queue as chat_queue
 from apps.chat.services import sessions as session_service
 from apps.chat.services.events import ChatEvent, ChatEventStore, encode_sse, heartbeat
@@ -174,6 +175,68 @@ class StylistListView(APIView):
     def get(self, request):
         payload = stylist_catalog.get_member_stylist_catalog(request.user)
         return Response(StylistListResponseSerializer(payload).data)
+
+
+class ChatSessionResponseModeView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    @extend_schema(
+        operation_id="chat_session_response_mode_update",
+        tags=[CHAT_TAG],
+        summary="채팅 세션 응답 모드 변경",
+        description=(
+            "같은 채팅방에서 기본 통합 응답과 스타일리스트별 응답을 전환합니다. "
+            "STYLIST 전환은 선택값을 세션과 회원 마지막 선택에 함께 저장합니다. "
+            "DEFAULT로 돌아가도 선택값은 삭제하지 않으며 추천 출처 모드인 "
+            "WARDROBE_BASED/NEW_ITEM은 변경하지 않습니다."
+        ),
+        parameters=[_SESSION_ID_PARAMETER],
+        request={"application/json": ChatSessionResponseModeUpdateSerializer},
+        examples=[
+            OpenApiExample(
+                name="미니멀·실용형 활성화",
+                value={
+                    "response_mode": "STYLIST",
+                    "selected_persona_ids": ["minimal", "practical"],
+                },
+                request_only=True,
+            ),
+            OpenApiExample(
+                name="기본 응답으로 복귀",
+                value={"response_mode": "DEFAULT"},
+                request_only=True,
+            ),
+        ],
+        responses={
+            200: ChatSessionSerializer,
+            400: OpenApiResponse(description="응답 모드 또는 스타일리스트 선택 검증 실패"),
+            401: OpenApiResponse(description="회원 JWT가 없거나 유효하지 않음"),
+            404: OpenApiResponse(description="세션이 없거나 현재 회원의 소유가 아님"),
+        },
+    )
+    def patch(self, request, session_id):
+        serializer = ChatSessionResponseModeUpdateSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        values = serializer.validated_data
+        try:
+            session = response_modes.update_session_response_mode(
+                user=request.user,
+                identity=_identity(request),
+                session_id=session_id,
+                response_mode=values["response_mode"],
+                selected_persona_ids=values.get("selected_persona_ids"),
+            )
+        except response_modes.ChatResponseModeSessionNotFound as exc:
+            return Response(
+                {"code": exc.code, "detail": str(exc)},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+        except response_modes.ChatResponseModeError as exc:
+            return Response(
+                {"code": exc.code, "detail": str(exc)},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        return Response(ChatSessionSerializer(session).data)
 
 
 def _guest_token(request) -> str:

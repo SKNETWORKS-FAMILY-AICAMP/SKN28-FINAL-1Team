@@ -210,6 +210,22 @@ class StylistListResponseSerializer(serializers.Serializer):
     stylists = StylistListItemSerializer(many=True, read_only=True)
 
 
+class ChatSessionResponseModeUpdateSerializer(serializers.Serializer):
+    response_mode = serializers.ChoiceField(
+        choices=ChatSession.ResponseMode.choices,
+        help_text="응답 구성 모드 (DEFAULT/STYLIST)",
+    )
+    selected_persona_ids = serializers.ListField(
+        child=serializers.CharField(allow_blank=False, max_length=32),
+        required=False,
+        max_length=3,
+        help_text=(
+            "STYLIST 전환 시 선택할 스타일리스트 ID 배열. 생략하면 현재 세션 "
+            "선택값, 회원 마지막 선택값, minimal 순서로 복원합니다."
+        ),
+    )
+
+
 class GuestIdentityResponseSerializer(serializers.Serializer):
     identity_id = serializers.UUIDField(read_only=True)
     expires_at = serializers.DateTimeField(read_only=True)

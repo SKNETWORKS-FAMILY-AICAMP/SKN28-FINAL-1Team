@@ -11,6 +11,7 @@ from apps.chat.views import (
     ChatSessionListCreateView,
     ChatSessionMessageListView,
     ChatSessionMessagePageView,
+    ChatSessionResponseModeView,
     ChatSessionSearchView,
     GuestClaimView,
     GuestIdentityView,
@@ -33,6 +34,11 @@ urlpatterns = [
         "chat/sessions/<uuid:session_id>/",
         ChatSessionDetailView.as_view(),
         name="session-detail",
+    ),
+    path(
+        "chat/sessions/<uuid:session_id>/response-mode/",
+        ChatSessionResponseModeView.as_view(),
+        name="session-response-mode",
     ),
     path(
         "chat/sessions/<uuid:session_id>/derive/",
