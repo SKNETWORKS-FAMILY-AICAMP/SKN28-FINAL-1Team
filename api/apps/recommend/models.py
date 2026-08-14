@@ -27,6 +27,7 @@ from __future__ import annotations
 import uuid
 
 from django.conf import settings
+from django.core.exceptions import ValidationError
 from django.db import models
 from django.db.models import Q
 
@@ -250,11 +251,15 @@ class OutfitAnalysis(models.Model):
 
 
 class RecommendationResult(models.Model):
-    """한 번의 채팅 추천 실행에서 확정된 추천 결과 묶음."""
+    """기본 응답 하나 또는 스타일리스트 한 명의 확정 추천 결과."""
 
     class Mode(models.TextChoices):
         WARDROBE_BASED = "WARDROBE_BASED", "옷장 기반 추천"
         NEW_ITEM = "NEW_ITEM", "신규 상품 포함 추천"
+
+    class ResponseMode(models.TextChoices):
+        DEFAULT = "DEFAULT", "기본 통합 응답"
+        STYLIST = "STYLIST", "스타일리스트별 응답"
 
     id = models.UUIDField(
         primary_key=True,
@@ -276,12 +281,57 @@ class RecommendationResult(models.Model):
         db_column="session_id",
         db_comment="추천이 생성된 채팅 세션 FK (chat_session.id)",
     )
-    run = models.OneToOneField(
+    run = models.ForeignKey(
         "chat.ChatRun",
         on_delete=models.CASCADE,
-        related_name="recommendation_result",
+        related_name="recommendation_results",
         db_column="run_id",
-        db_comment="추천을 생성한 채팅 실행 FK (chat_run.id, 실행당 결과 최대 1개)",
+        db_comment="추천을 생성한 채팅 실행 FK (chat_run.id)",
+    )
+    persona_execution = models.OneToOneField(
+        "chat.ChatRunPersona",
+        on_delete=models.CASCADE,
+        null=True,
+        blank=True,
+        related_name="recommendation_result",
+        db_column="persona_execution_id",
+        db_comment=("스타일리스트별 실행 FK (chat_run_persona.id, 기본 응답이면 NULL)"),
+    )
+    response_mode = models.CharField(
+        max_length=12,
+        choices=ResponseMode.choices,
+        default=ResponseMode.DEFAULT,
+        db_comment="추천 결과 응답 모드 (DEFAULT/STYLIST)",
+    )
+    persona_id = models.CharField(
+        max_length=32,
+        blank=True,
+        default="",
+        db_comment=(
+            "결과를 생성한 스타일리스트 고정 ID "
+            "(minimal/experimental/practical, 기본 응답이면 빈 문자열)"
+        ),
+    )
+    persona_version = models.PositiveIntegerField(
+        null=True,
+        blank=True,
+        db_comment="결과 생성 당시 스타일리스트 설정 버전 (기본 응답이면 NULL)",
+    )
+    persona_explanation = models.CharField(
+        max_length=500,
+        blank=True,
+        default="",
+        db_comment="확정된 코디를 설명하는 스타일리스트 핵심 문장",
+    )
+    validated_reason_codes = models.JSONField(
+        default=list,
+        blank=True,
+        db_comment="Validator를 통과한 추천 근거 코드 문자열 JSON 배열",
+    )
+    strategy_snapshot = models.JSONField(
+        default=dict,
+        blank=True,
+        db_comment="결과 선택에 사용한 스타일리스트 추천 전략 JSON 스냅샷",
     )
     mode = models.CharField(
         max_length=24,
@@ -304,8 +354,8 @@ class RecommendationResult(models.Model):
     class Meta:
         db_table = "recommendation_result"
         db_table_comment = (
-            "채팅과 독립적으로 조회하는 추천 결과 묶음 "
-            "(소유 identity·세션·실행·모드·골든셋 버전 보관)"
+            "채팅과 독립적으로 조회하는 기본 또는 스타일리스트별 추천 결과 "
+            "(소유권·실행·전략·근거·골든셋 버전 보관)"
         )
         ordering = ["-created_at"]
         indexes = [
@@ -317,10 +367,116 @@ class RecommendationResult(models.Model):
                 fields=["session", "-created_at"],
                 name="ix_reco_result_session",
             ),
+            models.Index(
+                fields=["run", "response_mode"],
+                name="ix_reco_result_run_mode",
+            ),
+        ]
+        constraints = [
+            models.CheckConstraint(
+                condition=Q(response_mode__in=["DEFAULT", "STYLIST"]),
+                name="ck_reco_result_response_mode",
+            ),
+            models.CheckConstraint(
+                condition=(
+                    Q(
+                        response_mode="DEFAULT",
+                        persona_id="",
+                        persona_version__isnull=True,
+                        persona_execution__isnull=True,
+                    )
+                    | Q(
+                        response_mode="STYLIST",
+                        persona_id__in=["minimal", "experimental", "practical"],
+                        persona_version__gte=1,
+                        persona_execution__isnull=False,
+                    )
+                ),
+                name="ck_reco_result_persona_fields",
+            ),
+            models.UniqueConstraint(
+                fields=["run"],
+                condition=Q(response_mode="DEFAULT"),
+                name="uq_reco_result_default_run",
+            ),
+            models.UniqueConstraint(
+                fields=["run", "persona_id"],
+                condition=Q(response_mode="STYLIST"),
+                name="uq_reco_result_run_persona",
+            ),
         ]
 
     def __str__(self) -> str:
-        return f"recommendation-result {self.id} ({self.mode})"
+        scope = self.persona_id or self.response_mode
+        return f"recommendation-result {self.id} ({self.mode}/{scope})"
+
+    def clean(self) -> None:
+        """소유권과 실행 스냅샷이 서로 다른 결과가 저장되는 것을 막는다."""
+
+        super().clean()
+        errors: dict[str, str] = {}
+        if self.run_id:
+            if self.session_id and self.run.session_id != self.session_id:
+                errors["session"] = "추천 결과 세션이 상위 ChatRun 세션과 다릅니다."
+            if self.identity_id and self.run.session.identity_id != self.identity_id:
+                errors["identity"] = "추천 결과 소유자가 상위 ChatRun 소유자와 다릅니다."
+            if self.response_mode != self.run.response_mode:
+                errors["response_mode"] = (
+                    "추천 결과 응답 모드가 상위 ChatRun 스냅샷과 다릅니다."
+                )
+
+        if not isinstance(self.validated_reason_codes, list) or any(
+            not isinstance(code, str) or not code.strip()
+            for code in self.validated_reason_codes
+        ):
+            errors["validated_reason_codes"] = (
+                "검증 근거 코드는 비어 있지 않은 문자열 배열이어야 합니다."
+            )
+        elif len(self.validated_reason_codes) != len(
+            set(self.validated_reason_codes)
+        ):
+            errors["validated_reason_codes"] = (
+                "검증 근거 코드는 중복될 수 없습니다."
+            )
+        if not isinstance(self.strategy_snapshot, dict):
+            errors["strategy_snapshot"] = "전략 스냅샷은 JSON 객체여야 합니다."
+
+        if self.response_mode == self.ResponseMode.STYLIST:
+            if not self.persona_execution_id:
+                errors["persona_execution"] = (
+                    "스타일리스트 결과에는 개별 실행 연결이 필요합니다."
+                )
+            else:
+                execution = self.persona_execution
+                if self.run_id and execution.run_id != self.run_id:
+                    errors["persona_execution"] = (
+                        "개별 스타일리스트 실행의 상위 ChatRun이 다릅니다."
+                    )
+                if execution.persona_id != self.persona_id:
+                    errors["persona_id"] = (
+                        "스타일리스트 ID가 개별 실행 스냅샷과 다릅니다."
+                    )
+                if execution.persona_version != self.persona_version:
+                    errors["persona_version"] = (
+                        "스타일리스트 버전이 개별 실행 스냅샷과 다릅니다."
+                    )
+        elif any(
+            (
+                self.persona_id,
+                self.persona_version is not None,
+                self.persona_execution_id is not None,
+            )
+        ):
+            errors["response_mode"] = (
+                "기본 응답에는 스타일리스트 실행 정보를 저장할 수 없습니다."
+            )
+
+        if errors:
+            raise ValidationError(errors)
+
+    def save(self, *args, **kwargs) -> None:
+        self.clean()
+        super().save(*args, **kwargs)
 
 
 class GoldenTemplateSnapshot(models.Model):
@@ -453,6 +609,22 @@ class OutfitComposition(models.Model):
 
     def __str__(self) -> str:
         return f"outfit-composition {self.result_id}#{self.rank} ({self.status})"
+
+    def clean(self) -> None:
+        super().clean()
+        if (
+            self.result_id
+            and self.result.response_mode
+            == RecommendationResult.ResponseMode.STYLIST
+            and self.rank != 1
+        ):
+            raise ValidationError(
+                {"rank": "스타일리스트별 추천 결과는 순위 1 코디 하나만 저장합니다."}
+            )
+
+    def save(self, *args, **kwargs) -> None:
+        self.clean()
+        super().save(*args, **kwargs)
 
 
 class OutfitCompositionItem(models.Model):

@@ -124,7 +124,10 @@ class ChatRecommendationPipeline:
         context: dict[str, Any],
         analysis: TurnAnalysis,
     ) -> RecommendationPipelineResult:
-        existing = RecommendationResult.objects.filter(run=run).first()
+        existing = RecommendationResult.objects.filter(
+            run=run,
+            response_mode=RecommendationResult.ResponseMode.DEFAULT,
+        ).first()
         if existing is not None:
             transaction.on_commit(lambda: render_jobs.schedule_result(existing.pk))
             return RecommendationPipelineResult(
@@ -352,6 +355,7 @@ class ChatRecommendationPipeline:
             identity=run.session.identity,
             session=run.session,
             run=run,
+            response_mode=RecommendationResult.ResponseMode.DEFAULT,
             mode=run.session.mode,
             dataset_version=(
                 settings.CHAT_GOLDENSET_DATASET_VERSION
