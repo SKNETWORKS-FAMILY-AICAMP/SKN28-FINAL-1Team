@@ -1,18 +1,16 @@
 """API 서버가 호출하는 신체치수 추론 인터페이스.
 
-추론 경로는 두 개지만, 둘 다 상세 7개와 체형 지표 3개를 채운 같은 형태의 dict를 반환한다.
+추론 경로는 두 개지만, 둘 다 상세 14개 필드를 채운 같은 형태의 dict를 반환한다.
 
-- ``estimate_from_basic``  : 성별·키·몸무게 → 표 기반 모델이 상세 7개와 지표 3개 예측
-- ``estimate_from_photos`` : 위 10개를 만든 뒤, 사진 VLM 응답으로 덮어씀
+- ``estimate_from_basic``  : 코어·둘레·정확 길이 Hist 모델을 조합하고 비율 계산
+- ``estimate_from_photos`` : 사진 VLM의 길이 예측에서 비율을 계산
 
-사진 VLM은 10개를 다 물어본다. 과거 모델 비교 보고서는 비용을 아끼려고
-가슴·허리·엉덩이 3개만 채점했지만, 현재 OpenRouter benchmark prompt도
-10개 키를 요청한다. SizeKorea 기반 VLM 라벨에는
-허벅지·장딴지·팔·어깨 정답도 복구되어 오프라인 평가는 상세 7개 모두 가능하다.
+사진 VLM은 저장할 치수와 비율 계산용 길이를 함께 요청한다. 기존 결과는 허벅지·종아리
+둘레와 팔뚝둘레를 사용했으므로 새 길이 정의의 평가에 재사용하지 않는다.
 
 학습 코드(``benchmark.py``)와 달리 이 모듈은 서빙 전용이다. 모델을 하나만 lazy 로드하고
 CLI·S3·학습 의존성을 갖지 않는다. 상수는 학습 시점
-``experiments/tabular/_datasets/sizekorea-1000-v1/run_manifest.json``
+``data/hist/manifest.json``
 값과 반드시 일치해야 한다.
 """
 
@@ -23,6 +21,7 @@ import json
 import math
 import os
 import re
+import time
 import threading
 from pathlib import Path
 
@@ -32,10 +31,46 @@ import requests
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 
-# 학습 시점과 동일해야 하는 값들 (run_manifest.json / benchmark.py 기준).
+# 학습 시점과 동일해야 하는 값들 (data/hist/manifest.json / retrain_11targets.py 기준).
 # 순서가 어긋나면 예외 없이 조용히 틀린 숫자가 나오므로 임의로 바꾸지 않는다.
 FEATURES = ["gender", "height", "weight"]
-TARGETS = ["chest", "waist", "hip", "thigh", "calf", "arm", "shoulder"]
+# 모델(hist_gradient_boosting_181.joblib)이 내놓는 값의 **순서**.
+# scripts/train_hist_181.py 의 TARGETS 와 반드시 같아야 한다 — zip(strict=True)로 묶는다.
+#
+# 학습 자료는 이미지 세트 181명(SizeKorea 8차 직접측정) 한 벌이다. 사진 경로와 무사진
+# 경로가 같은 사람·같은 계측 정의를 쓰게 하려는 것이다. 3D 측정(4,545행)에는 허벅지·
+# 종아리·팔뚝 둘레 컬럼이 없고 우리 181명이 그 조사에 들어 있지도 않다(8개 항목
+# 최근접 L1거리 최소 4.46cm, 0거리 0명).
+MEASUREMENT_TARGETS = [
+    "chest",
+    "waist",
+    "hip",
+    "thigh",
+    "calf",
+    "arm",
+    "shoulder",
+    "thigh_length",
+    "calf_length",
+    "torso_length",
+    "leg_length",
+    "neck_length",
+]
+
+# 길이에서 나눗셈으로 만드는 비율 2개 — 학습하지 않는다.
+# 원본에서 비율 컬럼이 길이의 몫과 100퍼센트 일치함을 확인했고, 몫을 회귀로 배우면
+# 예측 비율이 예측 길이의 몫과 어긋날 수 있어 계산으로 만든다.
+RATIO_TARGETS = ["thigh_calf_ratio", "torso_leg_ratio"]
+RATIO_SOURCES = {
+    "thigh_calf_ratio": ("thigh_length", "calf_length"),
+    "torso_leg_ratio": ("torso_length", "leg_length"),
+}
+
+# ⚠️ neck_length 는 키·몸무게로 예측되지 않는다. 정의를 4가지로 바꿔 재봐도
+#    5-겹 CV R2가 -0.36~0.10 이라 사실상 집단 평균이 나온다(main 도 성별 회귀식으로
+#    채우던 값이라 동작은 같다). 실제 값을 얻으려면 사진(VLM) 경로를 써야 한다.
+UNINFORMATIVE_TARGETS = ["neck_length"]
+
+TARGETS = MEASUREMENT_TARGETS + RATIO_TARGETS
 GENDER_CODES = {"M": 0.0, "F": 1.0}
 GENDER_ALIASES = {
     "M": "M",
@@ -47,43 +82,135 @@ GENDER_ALIASES = {
     "남성": "M",
     "여성": "F",
 }
+GENDER_PUBLIC_LABELS = {"M": "male", "F": "female"}
 
-# 사진 VLM에게 물어보고 최종 API에서 제공할 값 = 7대 부위 + 3대 체형 지표
-PHOTO_TARGETS = TARGETS + ["neck_length", "thigh_calf_ratio", "torso_leg_ratio"]
-# 응답에 핵심 3개가 없으면 사진 추정이 실패한 것으로 본다.
-PHOTO_CORE_TARGETS = ["chest", "waist", "hip"]
+# 사진 VLM에게 직접 물어보는 값. 비율은 응답값을 저장하지 않고 서버에서 계산한다.
+PHOTO_MEASUREMENT_TARGETS = [
+    "shoulder",
+    "chest",
+    "waist",
+    "hip",
+    "thigh_length",
+    "calf_length",
+    "torso_length",
+    "leg_length",
+    "neck_length",
+    # 둘레 3종도 사진에서 직접 물어본다 — 무사진 모델은 181명으로만 학습해서
+    # 사진이 있으면 그 값을 우선 쓰는 편이 낫다.
+    "thigh",
+    "calf",
+    "arm",
+]
+PHOTO_SUPPORT_TARGETS = ["torso_length", "leg_length"]
+PHOTO_TARGETS = TARGETS
+PHOTO_RESPONSE_TARGETS = PHOTO_MEASUREMENT_TARGETS
 
-# 새 시각적 비율 정의의 저장·응답 허용 범위. 모델이 범위를 벗어난 값을
-# 반환하면 사진 경로에서는 기본 정보 추정값을 유지한다.
-RATIO_RANGES = {
-    "thigh_calf_ratio": (0.8, 1.3),
-    "torso_leg_ratio": (0.6, 1.0),
+# SizeKorea 기준 참고 분포. 저장 실패 조건이 아니라 해석·문서화 기준으로만 쓴다.
+RATIO_REFERENCE_RANGES = {
+    "thigh_calf_ratio": (0.652, 0.970),
+    "torso_leg_ratio": (0.466, 0.637),
 }
-DEFAULT_TORSO_LEG_RATIO = 0.786
 
 # 학습 데이터(SizeKorea) 범위를 벗어난 입력은 KNN이 외삽하지 못해 신뢰할 수 없다.
 HEIGHT_RANGE_CM = (100.0, 230.0)
 WEIGHT_RANGE_KG = (25.0, 300.0)
 
 OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions"
-# 서빙은 측정값 7개와 체형 지표 3개, 총 10개를 물어보는 _full 프롬프트를 쓴다.
-# 모델 선정 벤치마크(scripts/run_openrouter.py)는 현재 10개를 요청한다.
-# 과거 3개 prompt의 기록된 MAE는 보고서에 보존한다.
+# 서빙은 새 11개 저장 항목을 물어보는 _full 프롬프트를 쓴다.
 PROMPT_PATH = PROJECT_ROOT / "prompts" / "body_measurement_prompt_full.j2"
 SCHEMA_PATH = PROJECT_ROOT / "prompts" / "body_measurement_schema_full.json"
 
-# 서빙 모델은 hist_gradient_boosting이다.
+# 기존 181명 모델은 사진과 같은 직접측정 모집단의 코어 치수 4개만 담당한다.
 # ⚠️ 이 아티팩트는 scikit-learn 1.8.0으로 저장됐고, 1.9.0에서 열면
 #    ModuleNotFoundError: No module named '_loss'로 실패한다. 실행 환경의
 #    scikit-learn은 반드시 1.8.0으로 고정해야 한다 (api/requirements.txt).
-DEFAULT_MODEL_PATH = PROJECT_ROOT / "artifacts" / "models" / "hist_gradient_boosting.joblib"
+DEFAULT_MODEL_PATH = (
+    PROJECT_ROOT / "data" / "hist" / "models" / "hist_gradient_boosting_181.joblib"
+)
+DEFAULT_EXACT_LENGTH_MODEL_PATH = (
+    PROJECT_ROOT
+    / "data"
+    / "hist"
+    / "models"
+    / "hist_gradient_boosting_exact_lengths_v2.joblib"
+)
 # 사진 기반 서빙 모델. validation 39명에서 평균 MAE 2.757cm로 후보 중 가장 정확했다
 # (Qwen 3.597 / Grok 3.441 / Gemini 3.962). 호출당 $0.004492로 Qwen보다 약 30배
 # 비싸지만 정확도를 우선한다.
 DEFAULT_VLM_MODEL = "moonshotai/kimi-k2.5"
 
+# 기존 181명 모델의 12개 출력 순서. 서빙에서는 코어 치수 4개만 채택한다.
+LEGACY_MODEL_OUTPUTS = [
+    "chest",
+    "waist",
+    "hip",
+    "thigh",
+    "calf",
+    "arm",
+    "shoulder",
+    "thigh_length",
+    "calf_length",
+    "torso_length",
+    "leg_length",
+    "neck_length",
+]
+
+CORE_TARGETS = ["chest", "waist", "hip", "shoulder"]
+EXACT_LENGTH_TARGETS = [
+    "thigh_length",
+    "calf_length",
+    "torso_length",
+    "leg_length",
+    "neck_length",
+]
+
+# 예측 결과에서 추출할 실제 길이/기본 지표 9개
+LENGTH_TARGETS = [
+    "shoulder",
+    "chest",
+    "waist",
+    "hip",
+    "thigh_length",
+    "calf_length",
+    "torso_length",
+    "leg_length",
+    "neck_length",
+]
+
+# 둘레 모델이 예측하는 타겟
+CIRCUMFERENCE_TARGETS = ["thigh", "calf", "arm"]
+
 _model = None
 _model_lock = threading.Lock()
+
+_exact_length_model = None
+_exact_length_model_lock = threading.Lock()
+
+_circumference_model = None
+_circumference_model_lock = threading.Lock()
+
+
+def _circumference_model_path() -> Path:
+    return Path(
+        os.getenv("BODY_CIRCUMFERENCE_MODEL_PATH")
+        or (PROJECT_ROOT / "data" / "hist" / "models" / "hist_gradient_boosting_circumference.joblib")
+    )
+
+
+def load_circumference_model():
+    global _circumference_model
+    if _circumference_model is None:
+        with _circumference_model_lock:
+            if _circumference_model is None:
+                path = _circumference_model_path()
+                if not path.exists():
+                    raise BodyEstimationError(
+                        f"둘레 추정 모델 파일이 없습니다: {path}. "
+                        "BODY_CIRCUMFERENCE_MODEL_PATH 환경변수를 확인하세요."
+                    )
+                _circumference_model = joblib.load(path)
+    return _circumference_model
+
 
 
 class BodyEstimationError(Exception):
@@ -115,6 +242,28 @@ def load_model():
     return _model
 
 
+def _exact_length_model_path() -> Path:
+    return Path(
+        os.getenv("BODY_EXACT_LENGTH_MODEL_PATH") or DEFAULT_EXACT_LENGTH_MODEL_PATH
+    )
+
+
+def load_exact_length_model():
+    """사용자 랜드마크 정의로 학습한 길이 v2 모델을 한 번만 로드한다."""
+    global _exact_length_model
+    if _exact_length_model is None:
+        with _exact_length_model_lock:
+            if _exact_length_model is None:
+                path = _exact_length_model_path()
+                if not path.exists():
+                    raise BodyEstimationError(
+                        f"정확 길이 추정 모델 파일이 없습니다: {path}. "
+                        "BODY_EXACT_LENGTH_MODEL_PATH 환경변수를 확인하세요."
+                    )
+                _exact_length_model = joblib.load(path)
+    return _exact_length_model
+
+
 def normalize_gender(gender: str) -> str:
     """'male'/'남성'/'M' 등 표기 차이를 학습 때 쓴 'M'/'F'로 맞춘다."""
     key = str(gender).strip().upper()
@@ -122,6 +271,11 @@ def normalize_gender(gender: str) -> str:
     if normalized is None:
         raise BodyEstimationError(f"성별은 male 또는 female이어야 합니다: {gender!r}")
     return normalized
+
+
+def public_gender(gender: str) -> str:
+    """API/Swagger/VLM 프롬프트에 노출할 성별 표기는 male/female로 통일한다."""
+    return GENDER_PUBLIC_LABELS[normalize_gender(gender)]
 
 
 def _build_features(gender: str, height: float, weight: float) -> pd.DataFrame:
@@ -153,61 +307,64 @@ def _build_features(gender: str, height: float, weight: float) -> pd.DataFrame:
     )
 
 
-def calculate_ratios(gender: str, height: float, weight: float) -> dict[str, float]:
-    """기본 정보로 3개 지표를 계산한다.
+def apply_ratios(measurements: dict[str, float]) -> dict[str, float]:
+    """길이에서 비율 2개를 계산해 채운다. 분모가 없거나 0이면 그 비율만 건너뛴다.
 
-    목길이와 허벅지/종아리 비율은 성별별 회귀식으로 계산한다. 상하체 비율은
-    키·몸무게만으로 시각적 랜드마크를 알 수 없으므로 기준값을 반환하며,
-    사진 경로에서 유효한 VLM 측정값이 있으면 그 값으로 덮어쓴다.
+    비율을 예측값으로 받지 않고 여기서 만드는 이유는, 그래야 응답의 비율이 같은 응답의
+    길이와 항상 일치하기 때문이다 (사진 경로에서 길이만 덮어써도 비율이 따라 움직인다).
     """
-    g = normalize_gender(gender)
-    h = float(height)
-    w = float(weight)
-
-    if g == "M":
-        neck_len = (
-            -10.006382911223897
-            + (0.13626812434249555 * h)
-            + (-0.06165386384938887 * w)
-        )
-        thigh_calf = (
-            0.9469918492058431
-            + (0.001212376672129909 * h)
-            + (-0.0007217358314418855 * w)
-        )
-    else:
-        neck_len = (
-            -5.330732028008625
-            + (0.1026503757117952 * h)
-            + (-0.05444849074436387 * w)
-        )
-        thigh_calf = (
-            0.9565370468792599
-            + (0.0013321559570070288 * h)
-            + (-0.0008278299981845468 * w)
-        )
-
-    return {
-        "neck_length": round(neck_len, 1),
-        "thigh_calf_ratio": round(thigh_calf, 3),
-        "torso_leg_ratio": DEFAULT_TORSO_LEG_RATIO,
-    }
+    for ratio, (numerator, denominator) in RATIO_SOURCES.items():
+        top, bottom = measurements.get(numerator), measurements.get(denominator)
+        if top is None or bottom is None or bottom <= 0:
+            continue
+        value = top / bottom
+        if math.isfinite(value):
+            measurements[ratio] = round(value, 3)
+    return measurements
 
 
 def estimate_from_basic(gender: str, height: float, weight: float) -> dict[str, float]:
-    """성별·키·몸무게로 10개 부위/비율을 추정한다. 값은 cm 또는 비율 단위."""
+    """성별·키·몸무게로 치수 12개를 추정하고 비율 2개를 계산한다 (총 14개).
+
+    길이·기본 9개와 둘레 3개는 학습 데이터가 달라 모델이 둘로 나뉘어 있다.
+    길이 모델은 비율 2개도 함께 내놓지만 그 출력은 버리고 계산값으로 대체한다.
+    """
     features = _build_features(gender, height, weight)
+
     predicted = load_model().predict(features)[0]
-    
     measurements = {
         target: round(float(value), 1)
-        for target, value in zip(TARGETS, predicted, strict=True)
+        for target, value in zip(LEGACY_MODEL_OUTPUTS, predicted, strict=True)
+        if target in CORE_TARGETS
     }
-    
-    # 3대 비율 추가 연산 병합
-    ratios = calculate_ratios(gender, height, weight)
-    measurements.update(ratios)
-    return measurements
+
+    exact_lengths = load_exact_length_model().predict(features)[0]
+    measurements.update(
+        {
+            target: round(float(value), 1)
+            for target, value in zip(EXACT_LENGTH_TARGETS, exact_lengths, strict=True)
+        }
+    )
+
+    circumference = load_circumference_model().predict(features)[0]
+    measurements.update(
+        {
+            target: round(float(value), 1)
+            for target, value in zip(CIRCUMFERENCE_TARGETS, circumference, strict=True)
+        }
+    )
+
+    return apply_ratios(measurements)
+
+
+def _safe_ratio(numerator: float, denominator: float, field_name: str) -> float:
+    """VLM이 준 기준 길이 2개로 저장용 비율을 계산한다."""
+    if denominator <= 0:
+        raise BodyEstimationError(f"{field_name} 계산에 필요한 분모가 0 이하입니다.")
+    ratio = numerator / denominator
+    if not math.isfinite(ratio):
+        raise BodyEstimationError(f"{field_name} 계산 결과가 유효하지 않습니다.")
+    return round(ratio, 3)
 
 
 # ---------------------------------------------------------------------------
@@ -226,7 +383,7 @@ def _render_prompt(gender: str, height: float, weight: float) -> str:
         PROMPT_PATH.read_text(encoding="utf-8")
     )
     prompt = template.render(
-        gender=normalize_gender(gender),
+        gender=public_gender(gender),
         height_cm=float(height),
         weight_kg=float(weight),
     )
@@ -245,9 +402,8 @@ def _image_part(image_bytes: bytes) -> dict:
 def _parse_prediction(content: str) -> dict[str, float]:
     """모델 응답 JSON에서 부위별 수치를 꺼낸다. 코드펜스로 감싸서 오는 경우가 있다.
 
-    핵심 3개(가슴·허리·엉덩이)는 없으면 실패로 본다. 나머지 7개는 모델이
-    빠뜨리거나 숫자가 아니면 조용히 건너뛰고, 호출부가 기본 정보 추정값을
-    그대로 쓰게 한다 — 사진 한 장 때문에 응답에 빈칸이 생기면 안 된다.
+    필수 측정값 중 하나라도 빠지거나 숫자가 아니면 실패로 본다. 사진 응답을
+    무사진 모델의 임시값으로 조용히 대체하지 않는다.
     """
     cleaned = re.sub(r"^```(?:json)?\s*", "", content.strip(), flags=re.IGNORECASE)
     cleaned = re.sub(r"\s*```$", "", cleaned)
@@ -258,38 +414,36 @@ def _parse_prediction(content: str) -> dict[str, float]:
     if not isinstance(payload, dict):
         raise BodyEstimationError("모델 응답은 JSON 객체여야 합니다.")
 
-    missing = [
-        f"{target}_cm" for target in PHOTO_CORE_TARGETS if f"{target}_cm" not in payload
-    ]
+    missing = []
+    for target in PHOTO_RESPONSE_TARGETS:
+        key_name = f"{target}_cm"
+        if key_name not in payload:
+            missing.append(key_name)
     if missing:
         raise BodyEstimationError(f"모델 응답에 필수 키가 없습니다: {missing}")
 
     predicted: dict[str, float] = {}
-    for target in PHOTO_TARGETS:
-        # 비율 지표들은 _cm을 붙이지 않고 본 명칭 그대로 조회
-        if target.endswith("_ratio"):
-            key_name = target
-        else:
-            key_name = f"{target}_cm"
-            
+    support: dict[str, float] = {}
+    for target in PHOTO_RESPONSE_TARGETS:
+        key_name = f"{target}_cm"
         value = payload.get(key_name)
         try:
-            # 비율 지표는 소수점 3자리까지, 치수 지표는 1자리까지 정밀도를 유지
-            precision = 3 if target.endswith("_ratio") else 1
             numeric = float(value)
             if not math.isfinite(numeric):
                 raise ValueError("finite number required")
-            if target in RATIO_RANGES:
-                minimum, maximum = RATIO_RANGES[target]
-                if not minimum <= numeric <= maximum:
-                    # 사진 값이 새 정의의 범위를 벗어나면 기본 정보 추정값을 유지한다.
-                    continue
-            predicted[target] = round(numeric, precision)
+            predicted[target] = round(numeric, 1)
+            if target in PHOTO_SUPPORT_TARGETS:
+                support[target] = numeric
         except (TypeError, ValueError):
-            if target in PHOTO_CORE_TARGETS:
-                raise BodyEstimationError(
-                    f"모델이 {target} 값을 숫자로 주지 않았습니다: {value!r}"
-                ) from None
+            raise BodyEstimationError(
+                f"모델이 {key_name} 값을 숫자로 주지 않았습니다: {value!r}"
+            ) from None
+    predicted["thigh_calf_ratio"] = _safe_ratio(
+        predicted["thigh_length"], predicted["calf_length"], "thigh_calf_ratio"
+    )
+    predicted["torso_leg_ratio"] = _safe_ratio(
+        predicted["torso_length"], predicted["leg_length"], "torso_leg_ratio"
+    )
     return predicted
 
 
@@ -304,7 +458,8 @@ def _call_vlm(prompt: str, front_image: bytes, side_image: bytes) -> str:
         raise BodyEstimationError("OPENROUTER_API_KEY가 설정되지 않았습니다.")
 
     model = os.getenv("BODY_VLM_MODEL") or DEFAULT_VLM_MODEL
-    timeout = float(os.getenv("BODY_VLM_TIMEOUT_SECONDS", "120"))
+    timeout = float(os.getenv("BODY_VLM_TIMEOUT_SECONDS", "90"))
+    max_retries = int(os.getenv("BODY_VLM_MAX_RETRIES", "3"))
     headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
 
     last_finish_reason = None
@@ -326,13 +481,28 @@ def _call_vlm(prompt: str, front_image: bytes, side_image: bytes) -> str:
             "reasoning": {"effort": "none"},
             "response_format": {"type": "json_object"},
         }
-        response = requests.post(
-            OPENROUTER_URL, headers=headers, json=payload, timeout=timeout
-        )
-        if not response.ok:
-            raise BodyEstimationError(
+        last_error = None
+        for attempt in range(1, max_retries + 1):
+            try:
+                response = requests.post(
+                    OPENROUTER_URL, headers=headers, json=payload, timeout=timeout
+                )
+            except requests.RequestException as error:
+                last_error = error
+                if attempt < max_retries:
+                    time.sleep(min(attempt, 3))
+                continue
+
+            if response.ok:
+                break
+            last_error = BodyEstimationError(
                 f"VLM 호출 실패 (HTTP {response.status_code})"
             )
+            if response.status_code < 500 or attempt == max_retries:
+                raise last_error
+            time.sleep(min(attempt, 3))
+        else:
+            raise BodyEstimationError(f"VLM 호출 실패: {last_error}") from last_error
 
         choice = response.json()["choices"][0]
         content = choice["message"].get("content")
@@ -356,13 +526,11 @@ def estimate_from_photos(
 ) -> dict[str, float]:
     """사진 2장 + 기본 정보로 상세 치수·체형 지표를 추정한다.
 
-    기본 정보 추정으로 10개를 먼저 채운 뒤 VLM 응답으로 덮어쓴다. VLM이 값을
-    빠뜨리면 그 부위만 기본 정보 추정값이 남는다 — 어느 쪽이든 값이 비지 않는다.
+    VLM이 필수 길이값을 모두 반환해야 성공한다. 누락 시 기본 정보의 임시 수치로
+    대체하지 않고 오류를 반환한다.
     반환 형태는
     ``estimate_from_basic``과 완전히 같아서 API 응답 스키마가 갈라지지 않는다.
     """
-    measurements = estimate_from_basic(gender, height, weight)
     prompt = _render_prompt(gender, height, weight)
     content = _call_vlm(prompt, front_image, side_image)
-    measurements.update(_parse_prediction(content))
-    return measurements
+    return _parse_prediction(content)

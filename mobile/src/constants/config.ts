@@ -165,7 +165,7 @@ export const OutfitHistoryEndpoints = {
  *             + 체형 지표 3개(neck_length, thigh_calf_ratio, torso_leg_ratio).
  *   지표 3개는 2026-08-10 백엔드에 추가됐다(users 마이그레이션 0014~0016, PR#10).
  *   항목별 라벨·단위·범위는 constants/body-measures.ts 가 단일 출처다.
- *   ※ 수치는 Decimal 소수 1자리(1~999.9), 비율 2개는 3자리(thigh_calf 0.8~1.3 · torso_leg 0.6~1.0).
+ *   ※ 수치는 Decimal 소수 1자리(1~999.9), 비율 2개는 3자리(thigh_calf 0.7~1.3 · torso_leg는 골든 임계값 기준).
  *   ※ estimate 와 photos/{id} 는 같은 결과 형식을 준다 —
  *     { status, source, transaction_id, measurement, error_message }. 추정 치수가 응답에 들어 있어
  *     따로 GET body 를 부를 필요가 없다. estimate 는 본문을 비우면 저장된 기본 정보를 쓴다.

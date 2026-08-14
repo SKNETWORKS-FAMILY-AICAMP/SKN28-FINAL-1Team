@@ -1,9 +1,0 @@
-[
-  {"model": "tabpfn_v2", "target": "chest", "mae": 2.484054, "rmse": 3.161852, "r2": 0.867479, "p90_absolute_error": 5.002925, "fit_seconds": 8.208138, "predict_ms_per_row": 9.849576},
-  {"model": "tabpfn_v2", "target": "waist", "mae": 3.317963, "rmse": 4.136839, "r2": 0.833903, "p90_absolute_error": 6.463167, "fit_seconds": 8.208138, "predict_ms_per_row": 9.849576},
-  {"model": "tabpfn_v2", "target": "hip", "mae": 2.382576, "rmse": 3.056910, "r2": 0.746575, "p90_absolute_error": 5.034064, "fit_seconds": 8.208138, "predict_ms_per_row": 9.849576},
-  {"model": "tabpfn_v2", "target": "thigh", "mae": 2.261006, "rmse": 2.905415, "r2": 0.651467, "p90_absolute_error": 4.764128, "fit_seconds": 8.208138, "predict_ms_per_row": 9.849576},
-  {"model": "tabpfn_v2", "target": "calf", "mae": 1.112673, "rmse": 1.443447, "r2": 0.778268, "p90_absolute_error": 2.376257, "fit_seconds": 8.208138, "predict_ms_per_row": 9.849576},
-  {"model": "tabpfn_v2", "target": "arm", "mae": 1.086886, "rmse": 1.438839, "r2": 0.818118, "p90_absolute_error": 2.159990, "fit_seconds": 8.208138, "predict_ms_per_row": 9.849576},
-  {"model": "tabpfn_v2", "target": "shoulder", "mae": 1.151851, "rmse": 1.458336, "r2": 0.731912, "p90_absolute_error": 2.410880, "fit_seconds": 8.208138, "predict_ms_per_row": 9.849576}
-]

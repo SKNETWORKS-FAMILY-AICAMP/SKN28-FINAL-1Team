@@ -178,7 +178,7 @@ def _measure_field(label: str) -> models.DecimalField:
 class BodyMeasurement(models.Model):
     """사용자 신체치수 (설정 페이지 입력값). 사용자당 1행.
 
-    기본 수치(성별/키/몸무게), 상세 둘레와 체형 지표를 한 행으로 관리한다.
+    기본 수치(성별/키/몸무게), 상세 치수와 체형 지표를 한 행으로 관리한다.
     상세 수치와 체형 지표는 전부 선택 입력이라 null을 허용하며, 사진 기반
     추론 기능이 같은 컬럼을 추론값으로 갱신하는 것을 전제로 한다.
     """
@@ -202,7 +202,10 @@ class BodyMeasurement(models.Model):
     )
     height = _measure_field("키(cm)")
     weight = _measure_field("몸무게(kg)")
-    # 상세 수치 (전부 선택)
+    # 상세 수치 (전부 선택). 추천용 체형 지표이므로 정밀 의료 실측이 아니라
+    # 옷 핏과 실루엣 판단에 쓰는 길이/비율로 해석한다.
+    # 2026-08-12: 둘레 계약(thigh/calf/arm)은 그대로 두고 길이 4개를 **추가**했다.
+    # 화면에는 둘레만 노출하고, 길이는 서버가 함께 추정해 응답에만 실어 준다.
     chest = _measure_field("가슴둘레(cm)")
     waist = _measure_field("허리둘레(cm)")
     hip = _measure_field("엉덩이둘레(cm)")
@@ -210,43 +213,47 @@ class BodyMeasurement(models.Model):
     calf = _measure_field("종아리둘레(cm)")
     arm = _measure_field("팔뚝둘레(cm)")
     shoulder = _measure_field("어깨너비(cm)")
+    thigh_length = _measure_field("패션용 허벅지 길이감(cm, 샅선/인심 라인→무릎뼈)")
+    calf_length = _measure_field("패션용 종아리 길이감(cm, 무릎뼈→복사뼈/발목)")
+    torso_length = _measure_field("패션용 상체 길이감(cm, 어깨선→골반점)")
+    leg_length = _measure_field("패션용 하체 길이감(cm, 골반점/위앞엉덩뼈가시→복사뼈/발목)")
 
     # 체형 분류에 사용하는 길이·비율 지표
     neck_length = models.DecimalField(
-        "목길이(cm)",
+        "패션용 목 길이감(cm)",
         max_digits=4,
         decimal_places=1,
         null=True,
         blank=True,
         validators=[MinValueValidator(Decimal("1"))],
-        help_text="목길이(cm)",
-        db_comment="목길이(cm)",
+        help_text="패션용 목 길이감(cm, 정면 기준 턱밑/턱끝 라인→목앞/쇄골 라인)",
+        db_comment="패션용 목 길이감(cm, 정면 기준 턱밑/턱끝 라인→목앞/쇄골 라인)",
     )
     thigh_calf_ratio = models.DecimalField(
-        "허벅지/종아리 비율",
+        "허벅지/종아리 길이감 비율",
         max_digits=5,
         decimal_places=3,
         null=True,
         blank=True,
         validators=[
-            MinValueValidator(Decimal("0.8")),
-            MaxValueValidator(Decimal("1.3")),
+            MinValueValidator(Decimal("0.1")),
+            MaxValueValidator(Decimal("9.999")),
         ],
-        help_text="허벅지/종아리 비율 (길이 기준)",
-        db_comment="허벅지/종아리 비율 (길이 기준)",
+        help_text="패션용 허벅지 길이감 / 종아리 길이감 비율 (정확 3D 랜드마크 SizeKorea 평균 0.823, p01~p99 약 0.652~0.970)",
+        db_comment="패션용 허벅지 길이감 / 종아리 길이감 비율",
     )
     torso_leg_ratio = models.DecimalField(
-        "상하체 비율",
+        "상하체 길이감 비율",
         max_digits=5,
         decimal_places=3,
         null=True,
         blank=True,
         validators=[
-            MinValueValidator(Decimal("0.6")),
-            MaxValueValidator(Decimal("1.0")),
+            MinValueValidator(Decimal("0.1")),
+            MaxValueValidator(Decimal("9.999")),
         ],
-        help_text="상하체 비율 (길이 기준)",
-        db_comment="상하체 비율 (길이 기준)",
+        help_text="패션용 상체 길이감 / 하체 길이감 비율 (상체=어깨선→골반점, 하체=골반점→복사뼈; 정확 3D 랜드마크 SizeKorea 평균 0.546, p01~p99 약 0.466~0.637)",
+        db_comment="패션용 상체 길이감 / 하체 길이감 비율",
     )
 
     created_at = models.DateTimeField(
@@ -256,7 +263,7 @@ class BodyMeasurement(models.Model):
 
     class Meta:
         db_table = "body_measurements"
-        db_table_comment = "사용자 신체치수 (기본 정보·상세 둘레·체형 지표, 사용자당 1행)"
+        db_table_comment = "사용자 신체치수 (기본 정보·상세 치수·체형 지표, 사용자당 1행)"
         verbose_name = "신체치수"
         verbose_name_plural = "신체치수"
 

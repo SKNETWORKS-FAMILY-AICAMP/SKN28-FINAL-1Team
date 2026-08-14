@@ -4,6 +4,11 @@ from django.contrib.auth.password_validation import validate_password
 from django.db import transaction
 from rest_framework import serializers
 
+from apps.recommend.services.body_profile import (
+    SILHOUETTE_LABELS,
+    UNKNOWN,
+    build_profile,
+)
 from apps.users.constants import (
     BUDGET_CATEGORIES,
     PREFERENCE_CATEGORIES,
@@ -178,8 +183,11 @@ class UserSerializer(serializers.ModelSerializer):
 
 
 BODY_BASIC_FIELDS = ["gender", "height", "weight"]
+# 2026-08-12: 기존 둘레 7개는 유지하고 길이 4개를 **추가**했다 (상세 14개).
+# 앞 7개만 화면에 보이고, *_length 는 응답에만 실린다 — 프론트는 아직 쓰지 않는다.
 BODY_DETAIL_FIELDS = [
     "chest", "waist", "hip", "thigh", "calf", "arm", "shoulder",
+    "thigh_length", "calf_length", "torso_length", "leg_length",
     "neck_length", "thigh_calf_ratio", "torso_leg_ratio"
 ]
 
@@ -192,14 +200,45 @@ class BodyMeasurementSerializer(serializers.ModelSerializer):
     """
 
     gender = serializers.SerializerMethodField()
+    body_type = serializers.SerializerMethodField()
+    body_type_label = serializers.SerializerMethodField()
 
     class Meta:
         model = BodyMeasurement
-        fields = [*BODY_BASIC_FIELDS, *BODY_DETAIL_FIELDS, "updated_at"]
-        read_only_fields = ["updated_at"]
+        fields = [
+            *BODY_BASIC_FIELDS,
+            *BODY_DETAIL_FIELDS,
+            "body_type",
+            "body_type_label",
+            "updated_at",
+        ]
+        read_only_fields = ["body_type", "body_type_label", "updated_at"]
 
     def get_gender(self, obj) -> str | None:
         return obj.gender or None
+
+    def _body_profile(self, obj) -> object:
+        cache = getattr(self, "_body_profile_cache", {})
+        key = id(obj)
+        if key in cache:
+            return cache[key]
+        profile = build_profile(
+            {
+                name: getattr(obj, name, None)
+                for name in [*BODY_BASIC_FIELDS, *BODY_DETAIL_FIELDS]
+            }
+        )
+        cache[key] = profile
+        self._body_profile_cache = cache
+        return profile
+
+    def get_body_type(self, obj) -> str | None:
+        silhouette = self._body_profile(obj).silhouette
+        return None if silhouette == UNKNOWN else silhouette
+
+    def get_body_type_label(self, obj) -> str | None:
+        silhouette = self._body_profile(obj).silhouette
+        return None if silhouette == UNKNOWN else SILHOUETTE_LABELS[silhouette]
 
 
 class BodyBasicInputSerializer(serializers.ModelSerializer):
@@ -310,7 +349,7 @@ class BodyEstimationResultSerializer(serializers.Serializer):
         allow_null=True, help_text="사진 측정일 때만 값이 있다. 무사진 추정은 null."
     )
     measurement = BodyMeasurementSerializer(
-        help_text="추정된 신체치수 전체. 상세 7개와 체형 지표 3개가 포함된다."
+        help_text="추정된 패션용 체형 지표 11개 전체."
     )
     error_message = serializers.CharField(
         allow_null=True, help_text="실패했을 때만 사유가 들어간다."
