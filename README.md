@@ -84,11 +84,11 @@ docker compose -f docker-compose.gpu.yml logs -f
 | --- | --- | --- |
 | `product-indexer` | 네이버·11번가 상품 임베딩 + drain 트리거 API | `${PRODUCT_INDEXER_API_HOST_PORT:-8080}` → 8080 |
 | `image-processor` | 옷장 이미지 Gemini 파이프라인 워커 (Redis 큐) | 없음 |
-| `vton` | Qwen-Image-Edit-2511 마네킹·가상 피팅 내부 API | `${VTON_GPU_HOST_PORT:-8090}` → 8090 |
+| `vton` | Qwen-Image-Edit-2511 NF4 마네킹·가상 피팅 내부 API | `${VTON_GPU_HOST_PORT:-8090}` → 8090 |
 
 - 두 서비스가 HF 모델 캐시 볼륨(`hf_cache`)을 공유해 FashionSigLIP·bge-m3를 한 번만 받는다.
 - 컨테이너 안에는 `.env` 파일이 없다(compose `env_file`이 환경변수로 주입).
-- VTON은 24GB GPU에서 실행할 수 있도록 transformer·text encoder를 NF4 4비트로 로드한다.
+- VTON은 24GB GPU와 제한된 디스크에서 실행할 수 있도록 사전 양자화된 Apache-2.0 NF4 체크포인트를 로드한다.
   리포에서 직접 실행할 때만 코드가 루트 `.env` 파일을 찾아 읽으며, 다른 경로를
   쓰려면 `ENV_FILE=/path/to/.env`로 지정한다.
 - GPU 없는 호스트에서 스모크 테스트하려면 `docker-compose.gpu.yml`의

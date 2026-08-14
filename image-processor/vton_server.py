@@ -64,7 +64,6 @@ class QwenImageEditor:
     def __init__(self) -> None:
         import torch
         from diffusers import QwenImageEditPlusPipeline
-        from diffusers.quantizers import PipelineQuantizationConfig
 
         self.torch = torch
         # ponytail: GPU 한 장에서는 직렬 추론이 가장 안전하다. 다중 GPU가 생기면 worker를 복제한다.
@@ -82,20 +81,9 @@ class QwenImageEditor:
             else:
                 dtype = torch.float16
         logger.info("VTON 모델 NF4 4비트 로딩 시작: %s", config.VTON_MODEL)
-        quantization_config = PipelineQuantizationConfig(
-            quant_backend="bitsandbytes_4bit",
-            quant_kwargs={
-                "load_in_4bit": True,
-                "bnb_4bit_quant_type": "nf4",
-                "bnb_4bit_compute_dtype": dtype,
-                "bnb_4bit_use_double_quant": True,
-            },
-            components_to_quantize=["transformer", "text_encoder"],
-        )
         self.pipeline = QwenImageEditPlusPipeline.from_pretrained(
             config.VTON_MODEL,
             torch_dtype=dtype,
-            quantization_config=quantization_config,
             device_map="cuda",
         )
         if config.VTON_CPU_OFFLOAD:

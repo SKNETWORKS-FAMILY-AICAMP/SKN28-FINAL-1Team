@@ -88,7 +88,9 @@ QWEN_MAX_PIXELS = int(os.getenv("WORKER_QWEN_MAX_PIXELS", str(1024 * 28 * 28)))
 ITEM_NORMALIZE_MAX_PX = int(os.getenv("WORKER_ITEM_NORMALIZE_MAX_PX", "1024"))
 
 # ── 가상 피팅 이미지 편집 API ──
-VTON_MODEL = os.getenv("VTON_MODEL", "Qwen/Qwen-Image-Edit-2511").strip()
+VTON_MODEL = os.getenv(
+    "VTON_MODEL", "seochan99/Qwen-Image-Edit-2511-bnb-nf4"
+).strip()
 VTON_API_TOKEN = os.getenv("VTON_GPU_TOKEN", "").strip()
 VTON_API_HOST = os.getenv("VTON_GPU_HOST", "0.0.0.0").strip()
 VTON_API_PORT = int(os.getenv("VTON_GPU_PORT", "8090"))
