@@ -96,7 +96,7 @@ VTON_API_HOST = os.getenv("VTON_GPU_HOST", "0.0.0.0").strip()
 VTON_API_PORT = int(os.getenv("VTON_GPU_PORT", "8090"))
 VTON_DEVICE = os.getenv("VTON_DEVICE", "cuda").strip()
 VTON_DTYPE = os.getenv("VTON_DTYPE", "auto").strip().lower()
-VTON_CPU_OFFLOAD = os.getenv("VTON_CPU_OFFLOAD", "1") == "1"
+VTON_CPU_OFFLOAD = os.getenv("VTON_CPU_OFFLOAD", "0") == "1"
 VTON_INFERENCE_STEPS = int(os.getenv("VTON_INFERENCE_STEPS", "40"))
 VTON_TRUE_CFG_SCALE = float(os.getenv("VTON_TRUE_CFG_SCALE", "4.0"))
 VTON_SEED = int(os.getenv("VTON_SEED", "0"))

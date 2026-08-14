@@ -108,7 +108,7 @@ class QwenImageEditor:
         logger.info("VTON 모델 NF4 4비트 로딩 시작: %s", config.VTON_MODEL)
         self.pipeline = QwenImageEditPlusPipeline.from_pretrained(
             config.VTON_MODEL,
-            torch_dtype=dtype,
+            dtype=dtype,
             device_map=_pipeline_device_map(),
         )
         if config.VTON_CPU_OFFLOAD:

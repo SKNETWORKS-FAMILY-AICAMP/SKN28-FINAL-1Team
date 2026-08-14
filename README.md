@@ -91,6 +91,7 @@ docker compose -f docker-compose.gpu.yml logs -f
   `vton_hf_cache`에 격리한다.
 - 컨테이너 안에는 `.env` 파일이 없다(compose `env_file`이 환경변수로 주입).
 - VTON은 24GB GPU와 제한된 디스크에서 실행할 수 있도록 사전 양자화된 Apache-2.0 NF4 체크포인트를 로드한다.
+  Qwen-Image-Edit-2511 설정을 지원하는 Diffusers 0.39를 사용하고 전용 GPU에 직접 적재한다.
   기본 GPU 스택에는 자동으로 포함되지 않으며 `./run-gpu.sh vton`으로만 시작한다.
   `GPU_WORKER_VISIBLE_DEVICES`에는 기존 워커용 GPU 목록을, `VTON_GPU_DEVICE_ID`에는
   겹치지 않는 VTON 전용 GPU 하나를 설정한다. 캐시 여유 공간이
