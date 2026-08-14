@@ -22,6 +22,10 @@ HEALTH_PATH = "/health"
 GENERATE_PATH = "/v1/virtual-try-on"
 
 
+def _pipeline_device_map() -> str | None:
+    return None if config.VTON_CPU_OFFLOAD else "cuda"
+
+
 def _authorized(header: str | None) -> bool:
     if not config.VTON_API_TOKEN or not header or not header.startswith("Bearer "):
         return False
@@ -84,7 +88,7 @@ class QwenImageEditor:
         self.pipeline = QwenImageEditPlusPipeline.from_pretrained(
             config.VTON_MODEL,
             torch_dtype=dtype,
-            device_map="cuda",
+            device_map=_pipeline_device_map(),
         )
         if config.VTON_CPU_OFFLOAD:
             self.pipeline.enable_model_cpu_offload()
