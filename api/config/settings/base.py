@@ -661,6 +661,31 @@ CHAT_OPENAI_MAX_OUTPUT_TOKENS = int(
     os.getenv("CHAT_OPENAI_MAX_OUTPUT_TOKENS", "1200")
 )
 CHAT_PROMPT_VERSION = os.getenv("CHAT_PROMPT_VERSION", "chat-orchestrator-v1").strip()
+PERSONA_LLM_PROVIDER = os.getenv("PERSONA_LLM_PROVIDER", "openai").strip().lower()
+_PERSONA_LLM_DEFAULT_MODEL = (
+    GEMINI_MODEL if PERSONA_LLM_PROVIDER == "gemini" else CHAT_OPENAI_MODEL
+)
+PERSONA_LLM_MODEL = os.getenv(
+    "PERSONA_LLM_MODEL",
+    _PERSONA_LLM_DEFAULT_MODEL,
+).strip()
+PERSONA_LLM_TIMEOUT_SECONDS = float(
+    os.getenv(
+        "PERSONA_LLM_TIMEOUT_SECONDS",
+        str(
+            GEMINI_TIMEOUT_SECONDS
+            if PERSONA_LLM_PROVIDER == "gemini"
+            else CHAT_OPENAI_TIMEOUT_SECONDS
+        ),
+    )
+)
+PERSONA_LLM_MAX_OUTPUT_TOKENS = int(
+    os.getenv("PERSONA_LLM_MAX_OUTPUT_TOKENS", "400")
+)
+PERSONA_LLM_PROMPT_VERSION = os.getenv(
+    "PERSONA_LLM_PROMPT_VERSION",
+    "persona-narration-v1",
+).strip()
 CHAT_GOLDENSET_DATASET_VERSION = os.getenv(
     "CHAT_GOLDENSET_DATASET_VERSION", ""
 ).strip()
