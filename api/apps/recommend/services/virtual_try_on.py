@@ -4,12 +4,16 @@ from __future__ import annotations
 
 import base64
 import binascii
+import hashlib
+import json
 from dataclasses import dataclass, field
+from decimal import Decimal
 from typing import Any
 
 import requests
 from django.conf import settings
 
+from apps.recommend.services.body_profile import UNKNOWN, build_profile
 from apps.recommend.services.mixed_outfit_render import (
     LoadedReferenceImage,
     RenderProviderError,
@@ -17,9 +21,25 @@ from apps.recommend.services.mixed_outfit_render import (
     RenderSource,
     _detect_media_type,
 )
+from apps.users.models import BodyMeasurement
 
 DIRECT_PROMPT_VERSION = "virtual-try-on-direct-v1"
-MANNEQUIN_PROMPT_VERSION = "virtual-try-on-mannequin-v6"
+MANNEQUIN_PROMPT_VERSION = "virtual-try-on-mannequin-v7"
+
+BODY_MEASUREMENT_FIELDS = (
+    "height",
+    "weight",
+    "chest",
+    "waist",
+    "hip",
+    "thigh",
+    "calf",
+    "arm",
+    "shoulder",
+    "neck_length",
+    "thigh_calf_ratio",
+    "torso_leg_ratio",
+)
 
 DIRECT_PROMPT = """Image 1 is the target person. Image 2 is the outfit reference.
 Preserve the exact face, identity, hairstyle, visible body shape, body proportions,
@@ -51,6 +71,57 @@ body and pose. Do not add a base outfit, undershirt, turtleneck, extra sleeves,
 extra trousers, socks, or any layer absent from Image 2. Do not create a stone or
 plaster statue, realistic skin, or sculpted hairstyle. Do not slim, enlarge,
 reshape, idealize, or beautify the source body."""
+
+
+def load_body_profile(user: Any) -> dict[str, Any]:
+    """로그인 사용자의 저장된 체형값을 VTON용 JSON 데이터로 만든다."""
+    if not getattr(user, "is_authenticated", False):
+        return {}
+    measurement = BodyMeasurement.objects.filter(user=user).first()
+    if measurement is None:
+        return {}
+
+    values = {
+        field: float(value) if isinstance(value, Decimal) else value
+        for field in BODY_MEASUREMENT_FIELDS
+        if (value := getattr(measurement, field, None)) is not None
+    }
+    if measurement.gender:
+        values["gender"] = measurement.gender
+    if not values:
+        return {}
+    profile = build_profile(values)
+    return {
+        "measurements": values,
+        "silhouette": None if profile.silhouette == UNKNOWN else profile.silhouette,
+        "bmi_band": None if profile.bmi_band == UNKNOWN else profile.bmi_band,
+        "proportion_traits": profile.ratios,
+    }
+
+
+def body_profile_contract(body_profile: dict[str, Any]) -> str:
+    """체형값 변경 시 기존 VTON 결과 캐시를 재사용하지 않게 한다."""
+    payload = json.dumps(
+        body_profile,
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    )
+    return hashlib.sha256(payload.encode()).hexdigest()
+
+
+def _mannequin_prompt(body_profile: dict[str, Any] | None) -> str:
+    if not body_profile:
+        return MANNEQUIN_PROMPT
+    body_json = json.dumps(body_profile, ensure_ascii=False, sort_keys=True)
+    return f"""{MANNEQUIN_PROMPT}
+
+Target user's saved body data (measurements are cm, weight is kg):
+{body_json}
+Use this data only to preserve the user's body proportions and prevent a generic
+fashion-model silhouette. Keep Image 1 as the authority for pose, camera framing,
+and visible silhouette when an estimated value conflicts with the photograph.
+Do not print, label, or otherwise expose the measurements in the output image."""
 
 
 @dataclass(frozen=True)
@@ -156,8 +227,14 @@ class VirtualTryOnService:
             (_reference("target_person", person), _reference("outfit", outfit)),
         )
 
-    def fit_mannequin(self, person: bytes, outfit: bytes) -> GeneratedTryOnImage:
+    def fit_mannequin(
+        self,
+        person: bytes,
+        outfit: bytes,
+        *,
+        body_profile: dict[str, Any] | None = None,
+    ) -> GeneratedTryOnImage:
         return self._generate(
-            MANNEQUIN_PROMPT,
+            _mannequin_prompt(body_profile),
             (_reference("target_person", person), _reference("outfit", outfit)),
         )

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-from unittest.mock import Mock
+from decimal import Decimal
+from unittest.mock import Mock, patch
 
 from django.test import SimpleTestCase, override_settings
 
@@ -11,8 +12,9 @@ from apps.recommend.services.virtual_try_on import (
     MANNEQUIN_PROMPT,
     VirtualTryOnBusyError,
     VirtualTryOnService,
+    body_profile_contract,
+    load_body_profile,
 )
-
 PNG = b"\x89PNG\r\n\x1a\nimage"
 
 
@@ -45,6 +47,80 @@ class VirtualTryOnServiceTests(SimpleTestCase):
         self.assertIn("Do not add a base outfit", call["prompt"])
         self.assertIn("featureless pure white", call["prompt"])
         self.assertIn("Do not redesign", call["prompt"])
+
+    def test_mannequin_fit_adds_saved_body_constraints(self) -> None:
+        body_profile = {
+            "measurements": {"height": 168.0, "waist": 76.0, "hip": 96.0},
+            "silhouette": "triangle",
+        }
+
+        self.service.fit_mannequin(PNG, PNG, body_profile=body_profile)
+
+        prompt = self.provider.generate.call_args.kwargs["prompt"]
+        self.assertIn('"height": 168.0', prompt)
+        self.assertIn('"silhouette": "triangle"', prompt)
+        self.assertIn("Do not print, label, or otherwise expose", prompt)
+
+    def test_body_profile_change_changes_cache_contract(self) -> None:
+        first = body_profile_contract({"measurements": {"waist": 76.0}})
+        second = body_profile_contract({"measurements": {"waist": 82.0}})
+
+        self.assertNotEqual(first, second)
+
+
+class StoredBodyProfileTests(SimpleTestCase):
+    @patch("apps.recommend.services.virtual_try_on.BodyMeasurement.objects.filter")
+    def test_loads_existing_measurements_and_shape_classification(
+        self,
+        filter_mock: Mock,
+    ) -> None:
+        user = Mock(is_authenticated=True)
+        measurement = Mock(
+            gender="female",
+            height=Decimal("168.0"),
+            weight=Decimal("58.0"),
+            chest=Decimal("92.0"),
+            waist=Decimal("76.0"),
+            hip=Decimal("98.0"),
+            shoulder=Decimal("40.0"),
+            torso_leg_ratio=Decimal("0.780"),
+        )
+        for field in ("thigh", "calf", "arm", "neck_length", "thigh_calf_ratio"):
+            setattr(measurement, field, None)
+        filter_mock.return_value.first.return_value = measurement
+
+        profile = load_body_profile(user)
+
+        filter_mock.assert_called_once_with(user=user)
+        self.assertEqual(profile["measurements"]["waist"], 76.0)
+        self.assertEqual(profile["measurements"]["torso_leg_ratio"], 0.78)
+        self.assertEqual(profile["silhouette"], "triangle")
+
+    @patch("apps.recommend.services.virtual_try_on.BodyMeasurement.objects.filter")
+    def test_empty_measurement_keeps_existing_mannequin_behavior(
+        self,
+        filter_mock: Mock,
+    ) -> None:
+        user = Mock(is_authenticated=True)
+        measurement = Mock(gender="")
+        for field in (
+            "height",
+            "weight",
+            "chest",
+            "waist",
+            "hip",
+            "thigh",
+            "calf",
+            "arm",
+            "shoulder",
+            "neck_length",
+            "thigh_calf_ratio",
+            "torso_leg_ratio",
+        ):
+            setattr(measurement, field, None)
+        filter_mock.return_value.first.return_value = measurement
+
+        self.assertEqual(load_body_profile(user), {})
 
 
 @override_settings(

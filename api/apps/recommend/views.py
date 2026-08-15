@@ -75,6 +75,8 @@ from .services.virtual_try_on import (
     MANNEQUIN_PROMPT_VERSION,
     VirtualTryOnBusyError,
     VirtualTryOnService,
+    body_profile_contract,
+    load_body_profile,
 )
 
 logger = logging.getLogger(__name__)
@@ -951,6 +953,7 @@ class RecommendationCardVirtualTryOnView(APIView):
             max_bytes=settings.OUTFIT_RENDER_MAX_OUTPUT_BYTES,
         )
         mode = serializer.validated_data["mode"]
+        body_profile = load_body_profile(request.user) if mode == "mannequin" else {}
         service = VirtualTryOnService()
         prefix = settings.VIRTUAL_TRY_ON_RESULT_PREFIX
         person_hash = hashlib.sha256(person).hexdigest()
@@ -960,12 +963,13 @@ class RecommendationCardVirtualTryOnView(APIView):
             if mode == "person"
             else MANNEQUIN_PROMPT_VERSION
         )
-        contract = hashlib.sha256(
-            (
-                f"{mode}|{person_hash}|{outfit_hash}|"
-                f"{settings.VIRTUAL_TRY_ON_MODEL}|{prompt_contract}"
-            ).encode()
-        ).hexdigest()
+        contract_source = (
+            f"{mode}|{person_hash}|{outfit_hash}|"
+            f"{settings.VIRTUAL_TRY_ON_MODEL}|{prompt_contract}"
+        )
+        if mode == "mannequin":
+            contract_source += f"|{body_profile_contract(body_profile)}"
+        contract = hashlib.sha256(contract_source.encode()).hexdigest()
         final_key = f"{prefix}/{contract[:2]}/{contract}/result.png"
         bucket = settings.OUTFIT_RENDER_RESULT_BUCKET
         if not bucket:
@@ -978,7 +982,11 @@ class RecommendationCardVirtualTryOnView(APIView):
         if not cache_hit:
             try:
                 if mode == "mannequin":
-                    result = service.fit_mannequin(person, outfit)
+                    result = service.fit_mannequin(
+                        person,
+                        outfit,
+                        body_profile=body_profile,
+                    )
                 else:
                     result = service.fit_person(person, outfit)
             except VirtualTryOnBusyError:
@@ -1058,16 +1066,18 @@ class DailyLookVirtualTryOnView(APIView):
             max_bytes=settings.OUTFIT_RENDER_MAX_OUTPUT_BYTES,
         )
         mode = serializer.validated_data["mode"]
+        body_profile = load_body_profile(request.user) if mode == "mannequin" else {}
         prompt_version = (
             DIRECT_PROMPT_VERSION if mode == "person" else MANNEQUIN_PROMPT_VERSION
         )
-        contract = hashlib.sha256(
-            (
-                f"daily|{look.pk}|{mode}|{hashlib.sha256(person).hexdigest()}|"
-                f"{hashlib.sha256(outfit).hexdigest()}|{settings.VIRTUAL_TRY_ON_MODEL}|"
-                f"{prompt_version}"
-            ).encode()
-        ).hexdigest()
+        contract_source = (
+            f"daily|{look.pk}|{mode}|{hashlib.sha256(person).hexdigest()}|"
+            f"{hashlib.sha256(outfit).hexdigest()}|{settings.VIRTUAL_TRY_ON_MODEL}|"
+            f"{prompt_version}"
+        )
+        if mode == "mannequin":
+            contract_source += f"|{body_profile_contract(body_profile)}"
+        contract = hashlib.sha256(contract_source.encode()).hexdigest()
         bucket = settings.OUTFIT_RENDER_RESULT_BUCKET
         if not bucket:
             return Response(
@@ -1082,7 +1092,11 @@ class DailyLookVirtualTryOnView(APIView):
             service = VirtualTryOnService()
             try:
                 result = (
-                    service.fit_mannequin(person, outfit)
+                    service.fit_mannequin(
+                        person,
+                        outfit,
+                        body_profile=body_profile,
+                    )
                     if mode == "mannequin"
                     else service.fit_person(person, outfit)
                 )
