@@ -1,5 +1,4 @@
 import {
-  SharedSpaceInviteBanner,
   SharedSpaceInviteSheet,
   SharedSpaceJoinSheet,
   SharedSpaceMembers,
@@ -100,7 +99,7 @@ function matchesQuery(item: Card, query: string): boolean {
 }
 
 export default function ClosetScreen() {
-  const { isLoggedIn } = useAuth();
+  const { isLoggedIn, user: me } = useAuth();
   const { frameWidth, contentStyle } = useBreakpoint();
   const cardW = gridCardWidth(frameWidth);
   const cardH = gridCardImageHeight(cardW);
@@ -126,6 +125,8 @@ export default function ClosetScreen() {
   const [joinOpen, setJoinOpen] = useState(false);
   const [manageRoom, setManageRoom] = useState<{ id: string; title: string; draftTitle: string } | null>(null);
   const [deleteRoom, setDeleteRoom] = useState<{ id: string; title: string } | null>(null);
+  const [createOpen, setCreateOpen] = useState(false);
+  const [createDraftTitle, setCreateDraftTitle] = useState('공유 옷장');
   const [categories, setCategories] = useState<string[]>(DEFAULT_CATEGORIES);
   const [sharedCategories, setSharedCategories] = useState<SharedRoomCategory[]>([]);
   const [editOpen, setEditOpen] = useState(false);
@@ -156,10 +157,12 @@ export default function ClosetScreen() {
     toast('옷장에 추가됐어요', { variant: 'success' });
   }, [completed, reload, toast]);
 
-  const handleUnshareItem = async (itemId: string, itemName: string) => {
+  const handleUnshareItem = async (itemId: string) => {
+    /* 옷 이름을 문구에 넣지 않는다 — 이름이 길거나 비어 있으면 문장이 깨진다.
+       어느 옷을 눌렀는지는 방금 누른 카드로 이미 분명하다. */
     const ok = await confirm({
       title: '공유 해제',
-      message: `[${itemName}]을 공유 옷장에서 삭제할까요? (내 옷장에는 그대로 유지됩니다.)`,
+      message: '이 아이템 공유를 해제할까요? (내 옷장에는 그대로 유지됩니다.)',
       confirmLabel: '공유 해제',
       destructive: true,
     });
@@ -215,8 +218,11 @@ export default function ClosetScreen() {
       ]);
       setSharedCategories(categoryList);
       setCategories([...DEFAULT_CATEGORIES, ...categoryList.map((category) => category.name)]);
+      /* '나' 판정은 내 user id 로 한다. 예전엔 username === 'dev_autologin' 문자열
+         비교였는데, 실사용자 username 은 email_<uuid>/kakao_<id> 라 절대 매칭되지 않아
+         공유 해제(X) 버튼이 프로덕션에서 아예 안 그려졌다. */
       const memberNames = membersList.map((m) =>
-        m.user.username === 'dev_autologin' ? '나' : sharedUserDisplayName(m.user)
+        m.user.id === me?.id ? '나' : sharedUserDisplayName(m.user)
       );
       const targetRoom = (currentRoomsList || sharedRooms).find((r) => r.id === roomId);
       setSharedSpace({
@@ -233,7 +239,7 @@ export default function ClosetScreen() {
           category: si.wardrobe_item.category_large,
           image: si.wardrobe_item.image_url,
           owner:
-            si.registered_by?.username === 'dev_autologin'
+            si.registered_by?.id === me?.id
               ? '나'
               : si.registered_by
                 ? sharedUserDisplayName(si.registered_by)
@@ -272,15 +278,25 @@ export default function ClosetScreen() {
     }
   }, [isLoggedIn, tab]);
 
-  const handleCreateSpace = async () => {
-    let title = '공유 옷장';
-    if (Platform.OS === 'web') {
-      const input = window.prompt('새로운 공유 옷장의 이름을 입력해주세요:', '공유 옷장');
-      if (input === null) return; // 취소 누른 경우
-      if (input.trim()) {
-        title = input.trim();
-      }
+  /* 예전엔 웹에서 window.prompt 를 썼는데, 브라우저가 그리는 창이라 우리 다이얼로그와
+     생김새가 전혀 달랐다(그리고 네이티브에선 아예 물어보지도 못해 이름이 고정이었다).
+     이름 수정 모달과 같은 우리 모달로 통일한다. */
+  const handleCreateSpace = () => {
+    setCreateDraftTitle('공유 옷장');
+    setCreateOpen(true);
+  };
+
+  const submitCreateSpace = async () => {
+    const title = createDraftTitle.trim();
+    if (!title) {
+      toast('옷장 이름을 입력해 주세요.', { variant: 'error' });
+      return;
     }
+    if (title.length > 10) {
+      toast('10글자 이내로 작성해주세요.', { variant: 'error' });
+      return;
+    }
+    setCreateOpen(false);
     try {
       const room = await createSharedRoom(title);
       toast(`'${title}'을 만들었어요`, { variant: 'success' });
@@ -303,6 +319,12 @@ export default function ClosetScreen() {
     const newTitle = manageRoom.draftTitle.trim();
     if (!newTitle) {
       toast('옷장 이름을 입력해 주세요.', { variant: 'error' });
+      return;
+    }
+    /* 입력 자체는 10글자 넘게 쳐지게 두고(maxLength 로 조용히 잘리면 왜 안 되는지 모른다)
+       저장 시점에 팝업으로 알린다. 서버도 같은 기준으로 400 을 낸다. */
+    if (newTitle.length > 10) {
+      toast('10글자 이내로 작성해주세요.', { variant: 'error' });
       return;
     }
     if (newTitle === manageRoom.title) {
@@ -543,6 +565,18 @@ export default function ClosetScreen() {
             style={styles.roomTabsScroll}
             contentContainerStyle={styles.roomTabsContainer}
           >
+            {/* 추가 버튼은 맨 앞 — 방이 많아지면 끝의 버튼은 가로 스크롤에 묻혀
+                '방을 더 만들 수 있다'는 사실 자체가 안 보인다. */}
+            <Pressable
+              style={[styles.roomTab, styles.roomTabAdd]}
+              onPress={handleCreateSpace}
+              accessibilityLabel="공유 옷장 추가"
+            >
+              <Icon name="plus" tintColor={ink(0.6)} size={12} />
+              <Text style={[styles.roomTabText, { marginLeft: 4, color: ink(0.6) }]}>
+                추가
+              </Text>
+            </Pressable>
             {sharedRooms.map((room) => {
               const isSelected = room.id === sharedSpace?.id;
               return (
@@ -572,31 +606,19 @@ export default function ClosetScreen() {
                 </Pressable>
               );
             })}
-            <Pressable
-              style={[styles.roomTab, styles.roomTabAdd]}
-              onPress={handleCreateSpace}
-            >
-              <Icon name="plus" tintColor={ink(0.6)} size={12} />
-              <Text style={[styles.roomTabText, { marginLeft: 4, color: ink(0.6) }]}>
-                새 옷장
-              </Text>
-            </Pressable>
             {/* '코드로 참여'는 멤버 줄의 [초대] 옆 입력칸으로 옮겼다 —
                 가로 스크롤 끝에 묻혀 있어 눈에 띄지 않았다. */}
           </ScrollView>
         ) : null}
 
         {tab === 'shared' && sharedSpace ? (
-          <>
-            <SharedSpaceMembers
-              space={sharedSpace}
-              onInvite={() => setInviteOpen(true)}
-              onJoin={handleJoinSpace}
-            />
-            {sharedSpace.members.length <= 1 ? (
-              <SharedSpaceInviteBanner onInvite={() => setInviteOpen(true)} />
-            ) : null}
-          </>
+          /* '아직 혼자예요' 초대 유도 배너는 없앴다 — 바로 윗줄에 [+초대] 버튼과
+             참여코드 입력칸이 이미 있어서, 같은 말을 세 번 하는 화면이 된다. */
+          <SharedSpaceMembers
+            space={sharedSpace}
+            onInvite={() => setInviteOpen(true)}
+            onJoin={handleJoinSpace}
+          />
         ) : null}
 
         {tab === 'shared' && !sharedSpace ? (
@@ -707,7 +729,7 @@ export default function ClosetScreen() {
                         style={styles.unshareBtn}
                         onPress={(e) => {
                           e.stopPropagation();
-                          handleUnshareItem(it.id, it.name);
+                          handleUnshareItem(it.id);
                         }}
                         hitSlop={8}
                       >
@@ -739,6 +761,44 @@ export default function ClosetScreen() {
         />
         <PhotoSourceSheet visible={sourceOpen} onClose={() => setSourceOpen(false)} />
 
+        {/* 공유 옷장 만들기 — 이름 수정 모달과 같은 껍데기를 쓴다 */}
+        <Modal
+          visible={createOpen}
+          transparent
+          animationType="fade"
+          onRequestClose={() => setCreateOpen(false)}>
+          <Pressable style={styles.dialogBackdrop} onPress={() => setCreateOpen(false)}>
+            <Pressable style={styles.dialogCard} onPress={() => {}}>
+              <Text style={styles.dialogTitle}>새 공유 옷장</Text>
+              <Text style={styles.dialogMessage}>옷장 이름을 지어 주세요. (10글자 이내)</Text>
+              <TextInput
+                style={styles.dialogInput}
+                value={createDraftTitle}
+                onChangeText={setCreateDraftTitle}
+                maxLength={20} // 10글자 초과는 저장 시 안내한다 — 타이핑을 막지 않는다
+                autoFocus
+                selectTextOnFocus
+                returnKeyType="done"
+                onSubmitEditing={submitCreateSpace}
+                placeholder="공유 옷장"
+                placeholderTextColor={ink(0.3)}
+              />
+              <View style={styles.dialogActions}>
+                <Pressable
+                  style={[styles.dialogButton, styles.dialogCancel]}
+                  onPress={() => setCreateOpen(false)}>
+                  <Text style={styles.dialogCancelText}>취소</Text>
+                </Pressable>
+                <Pressable
+                  style={[styles.dialogButton, styles.dialogSave]}
+                  onPress={submitCreateSpace}>
+                  <Text style={styles.dialogConfirmText}>만들기</Text>
+                </Pressable>
+              </View>
+            </Pressable>
+          </Pressable>
+        </Modal>
+
         <Modal
           visible={!!manageRoom}
           transparent
@@ -754,7 +814,7 @@ export default function ClosetScreen() {
                 onChangeText={(draftTitle) =>
                   setManageRoom((room) => (room ? { ...room, draftTitle } : room))
                 }
-                maxLength={100}
+                maxLength={20} // 10글자 초과는 저장 시 팝업으로 거른다 — 타이핑을 막지 않는다
                 autoFocus
                 returnKeyType="done"
                 onSubmitEditing={handleRenameSpace}
@@ -788,14 +848,14 @@ export default function ClosetScreen() {
           <Pressable style={styles.dialogBackdrop} onPress={() => setDeleteRoom(null)}>
             <Pressable style={styles.dialogCard} onPress={() => {}}>
               <Text style={styles.dialogTitle}>공유 옷장을 삭제할까요?</Text>
+              {/* 개인 옷장 원본은 공유 옷장 작업으로 절대 지워지지 않는다(서버 정책).
+                  방을 지우면 방의 공유 목록·초대 링크만 사라지므로, 예전의
+                  "공유한 내 옷도 삭제" 선택지는 없앴다 — 고를 수 있는 게 없다. */}
               <Text style={styles.dialogMessage}>
-                공유 목록과 초대 링크는 삭제됩니다.{"\n"}개인 옷장에 있는 내가 공유한 옷은 어떻게 할까요?
+                공유 목록과 초대 링크가 삭제됩니다.{"\n"}내 옷장의 아이템은 그대로 유지됩니다.
               </Text>
-              <Pressable style={styles.keepItemsButton} onPress={() => handleDeleteSpace(false)}>
-                <Text style={styles.keepItemsText}>옷은 내 옷장에 유지</Text>
-              </Pressable>
-              <Pressable style={styles.deleteItemsButton} onPress={() => handleDeleteSpace(true)}>
-                <Text style={styles.dialogConfirmText}>공유한 내 옷도 삭제</Text>
+              <Pressable style={styles.deleteItemsButton} onPress={() => handleDeleteSpace(false)}>
+                <Text style={styles.dialogConfirmText}>삭제</Text>
               </Pressable>
               <Pressable style={styles.dialogCancelOnly} onPress={() => setDeleteRoom(null)}>
                 <Text style={styles.dialogCancelText}>취소</Text>
@@ -934,7 +994,11 @@ const styles = StyleSheet.create({
 
   // ── 공유방 가로 탭 스타일 ──
   roomTabsScroll: {
-    marginVertical: 12,
+    /* 위 간격은 0 — SearchFilterBar 의 칩 줄이 이미 paddingBottom:20 을 갖고 있어서,
+       여기에 marginTop 을 더하면 32px 이 되어 검색바→칩 간격(18px)보다 눈에 띄게 벌어진다.
+       0 으로 두면 20px 이 되어 위쪽 리듬과 맞는다. */
+    marginTop: 0,
+    marginBottom: 12,
     maxHeight: 40,
     minHeight: 40,
   },

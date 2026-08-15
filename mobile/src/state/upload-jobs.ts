@@ -7,9 +7,9 @@ import {
   uploadWardrobePhoto,
   type WardrobeBatchCreated,
   type WardrobeBatchItemInput,
+  type SharedItemStatus,
   type WardrobeBatchStatus,
 } from '@/lib/wardrobeApi';
-import { reserveShare } from '@/state/pending-share';
 
 /**
  * 옷 등록 진행 상황 — 화면이 아니라 여기서 돌린다.
@@ -135,7 +135,7 @@ export const uploadJobs = {
   getRevision: () => revision,
 
   /** 사진 한 장을 올리고 처리가 끝날 때까지 따라간다. 화면이 닫혀도 계속된다. */
-  start(uri: string, opts?: { name?: string; mimeType?: string; sharedRoomId?: string; skipProcessing?: boolean; itemName?: string; category?: string }): Promise<void> {
+  start(uri: string, opts?: { name?: string; mimeType?: string; sharedRoomId?: string; sharedStatus?: SharedItemStatus; skipProcessing?: boolean; itemName?: string; category?: string }): Promise<void> {
     return new Promise<void>((resolve) => {
       const key = `u${++seq}`;
       jobs = [...jobs, { key, phase: 'uploading' }];
@@ -150,6 +150,11 @@ export const uploadJobs = {
             skipProcessing: opts?.skipProcessing,
             itemName: opts?.itemName,
             category: opts?.category,
+            /* 공유 예약은 업로드를 시작할 때 함께 보낸다. 예전엔 처리가 끝난 뒤
+               기기 저장소에 적어 뒀는데, 그 사이 앱을 닫거나 다른 기기에서 확정하면
+               예약이 통째로 사라졌다. 이제 서버가 job → 아이템으로 들고 간다. */
+            sharedRoomId: opts?.sharedRoomId,
+            sharedStatus: opts?.sharedStatus,
           })).job_id;
         } catch (e) {
           update(key, {
@@ -167,19 +172,8 @@ export const uploadJobs = {
           try {
             const job = await getUploadJob(jobId);
             if (job.status === 'DONE') {
-              if (opts?.sharedRoomId) {
-                /* 갓 등록된 옷은 confirmed=false 라 서버가 공유를 거부한다.
-                   그래서 지금 올리지 않고 예약해 두고, 사용자가 태그를 확인해
-                   확정하는 순간(confirmWardrobeItem) 자동으로 공유한다. */
-                try {
-                  await reserveShare(
-                    (job.items || []).map((it) => it.id),
-                    opts.sharedRoomId,
-                  );
-                } catch (err) {
-                  console.error('공유 예약 저장 실패:', err);
-                }
-              }
+              /* 공유 예약은 서버가 이미 아이템에 붙여 뒀다(pending_share_room).
+                 확정하는 순간 서버가 알아서 소진하므로 여기서 할 일이 없다. */
               drop(key);
               completed += 1;
               notify();

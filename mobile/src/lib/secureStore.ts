@@ -131,20 +131,13 @@ export function clearOutfitClaimTokens(): Promise<void> {
 }
 
 /**
- * "확정되면 이 방에 공유해 달라"는 예약함 (itemId → roomId).
+ * 예전 공유 예약함(itemId → roomId)의 잔재를 지운다.
  *
- * 갓 등록된 옷은 `confirmed=false` 라 서버가 공유를 거부한다. 확정은 사용자가
- * 태그 확인 화면에서 하므로, 앱을 껐다 켠 뒤일 수도 있다 — 그래서 메모리가 아니라
- * 여기에 남긴다.
+ * 예약은 이제 서버(`wardrobe_item.pending_share_room`)가 들고 있다 — 기기에 두면
+ * PC 에서 올리고 폰에서 확정할 때 공유가 사라지기 때문이다. 남은 값은 아무도 읽지
+ * 않으므로, 앱이 뜰 때 한 번 치워 저장소를 깨끗이 둔다.
+ * 이 정리 호출은 구버전 사용자가 모두 넘어간 뒤 지워도 된다.
  */
-export function savePendingShare(value: string): Promise<void> {
-  return setItem(PENDING_SHARE_KEY, value);
-}
-
-export function getPendingShare(): Promise<string | null> {
-  return getItem(PENDING_SHARE_KEY);
-}
-
-export function clearPendingShare(): Promise<void> {
+export function clearLegacyPendingShare(): Promise<void> {
   return deleteItem(PENDING_SHARE_KEY);
 }

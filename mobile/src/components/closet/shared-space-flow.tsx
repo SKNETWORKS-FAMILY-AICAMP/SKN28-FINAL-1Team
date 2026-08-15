@@ -1,7 +1,7 @@
 import { Icon } from '@/components/icon';
 import { useToast } from '@/components/ui';
 import { Editorial, ink, Type } from '@/constants/theme';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { INVITE_BASE_URL } from '@/constants/config';
 import {
   copyText,
@@ -71,21 +71,8 @@ export function SharedSpaceOnboarding({
   );
 }
 
-/** 스페이스가 있지만 멤버가 본인뿐일 때 — 초대 유도 */
-export function SharedSpaceInviteBanner({ onInvite }: { onInvite: () => void }) {
-  return (
-    <Pressable style={styles.inviteBanner} onPress={onInvite}>
-      <View style={styles.inviteBannerIcon}>
-        <Icon name="person.2" tintColor={Editorial.ink} size={18} />
-      </View>
-      <View style={styles.inviteBannerBody}>
-        <Text style={styles.inviteBannerTitle}>아직 혼자예요</Text>
-        <Text style={styles.inviteBannerDesc}>친구를 초대하면 옷장을 함께 볼 수 있어요</Text>
-      </View>
-      <Icon name="chevron.right" tintColor={ink(0.35)} size={16} />
-    </Pressable>
-  );
-}
+/* '아직 혼자예요' 초대 배너(SharedSpaceInviteBanner)는 2026-08-16 제거했다.
+   멤버 줄에 [+초대] 버튼과 참여코드 입력칸이 이미 있어 같은 말이 세 번 나왔다. */
 
 /** 가입 순서(index) 기반 고정 색. 초대장 화면도 같은 색을 써야 해서 여기서 내보낸다. */
 export const MEMBER_COLORS = [
@@ -431,29 +418,6 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   secondaryBtnText: { fontSize: Type.footnote, fontWeight: '600', color: Editorial.textSoft },
-
-  inviteBanner: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginHorizontal: 20,
-    marginBottom: 16,
-    padding: 14,
-    borderRadius: 14,
-    backgroundColor: Editorial.surfaceSoft,
-    borderWidth: 1, borderColor: Editorial.line,
-    gap: 12,
-  },
-  inviteBannerIcon: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: Editorial.surface,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  inviteBannerBody: { flex: 1 },
-  inviteBannerTitle: { fontSize: Type.footnote, fontWeight: '600', color: Editorial.ink },
-  inviteBannerDesc: { fontSize: Type.micro, color: Editorial.textCaption, marginTop: 2 },
 
   membersRow: {
     flexDirection: 'row',

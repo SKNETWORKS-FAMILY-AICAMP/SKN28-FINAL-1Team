@@ -93,7 +93,17 @@ export type WardrobeItemQuery = {
  */
 export async function uploadWardrobePhoto(
   uri: string,
-  opts: { name?: string; mimeType?: string; skipProcessing?: boolean; itemName?: string; category?: string } = {},
+  opts: {
+    name?: string;
+    mimeType?: string;
+    skipProcessing?: boolean;
+    itemName?: string;
+    category?: string;
+    /* '공유 옷장' 토글로 고른 방·상태. 업로드 시작 시점에 서버로 넘겨 예약으로 남긴다 —
+       기기에 들고 있으면 PC 에서 올리고 폰에서 확정할 때 공유가 사라진다. */
+    sharedRoomId?: string;
+    sharedStatus?: SharedItemStatus;
+  } = {},
 ): Promise<{ job_id: string; status: UploadJobStatus }> {
   const name = opts.name ?? guessFileName(uri, 'wardrobe.jpg');
   const type = opts.mimeType ?? guessMimeType(name);
@@ -108,6 +118,8 @@ export async function uploadWardrobePhoto(
     if (opts.skipProcessing) form.append('skip_processing', 'true');
     if (opts.itemName) form.append('item_name', opts.itemName);
     if (opts.category) form.append('category_large', opts.category);
+    if (opts.sharedRoomId) form.append('shared_room_id', opts.sharedRoomId);
+    if (opts.sharedStatus) form.append('shared_status', opts.sharedStatus);
     return apiFetch<{ job_id: string; status: UploadJobStatus }>(WardrobeEndpoints.uploads, {
       method: 'POST',
       body: form,
@@ -127,6 +139,8 @@ export async function uploadWardrobePhoto(
         ...(opts.skipProcessing ? { skip_processing: 'true' } : {}),
         ...(opts.itemName ? { item_name: opts.itemName } : {}),
         ...(opts.category ? { category_large: opts.category } : {}),
+        ...(opts.sharedRoomId ? { shared_room_id: opts.sharedRoomId } : {}),
+        ...(opts.sharedStatus ? { shared_status: opts.sharedStatus } : {}),
       },
       headers: {
         Accept: 'application/json',
@@ -300,12 +314,21 @@ export async function getWardrobeItem(itemId: string): Promise<WardrobeApiItem> 
   }
 }
 
-/** 태그 수정. confirmed:true 를 함께 보내면 확정까지 한 번에 된다. */
+/**
+ * 태그 수정. confirmed:true 를 함께 보내면 확정까지 한 번에 된다.
+ *
+ * 확정 응답에는 `shared_room_id` 가 실려 온다 — 등록할 때 켜 둔 공유 예약을 서버가
+ * 이 순간 소진하기 때문이다. 공유가 안 됐으면(방을 나갔다거나) null 이며,
+ * 그 경우에도 확정 자체는 성공이다.
+ */
 export function patchWardrobeItem(
   itemId: string,
   patch: WardrobeItemPatch,
-): Promise<WardrobeApiItem> {
-  return api.patch<WardrobeApiItem>(WardrobeEndpoints.item(itemId), patch);
+): Promise<WardrobeApiItem & { shared_room_id?: string | null }> {
+  return api.patch<WardrobeApiItem & { shared_room_id?: string | null }>(
+    WardrobeEndpoints.item(itemId),
+    patch,
+  );
 }
 
 export function deleteWardrobeItem(itemId: string): Promise<unknown> {
@@ -329,6 +352,9 @@ export function itemDisplayName(item: WardrobeApiItem): string {
    백엔드가 확장자·content-type 으로 형식을 거르므로(jpeg/png/webp/heic) 최소한은 맞춰 보낸다. */
 
 // ── 공유 옷장 (Shared Wardrobe) API ──
+/** 공유 옷의 상태. 서버 `SharedWardrobeItem.Status` 와 값이 1:1 로 맞아야 한다. */
+export type SharedItemStatus = 'available' | 'borrowed' | 'private';
+
 export type SharedRoom = {
   id: string;
   title: string;
@@ -465,7 +491,7 @@ export function deleteSharedRoomCategory(roomId: string, categoryId: string): Pr
   );
 }
 
-export function registerItemToSharedRoom(roomId: string, wardrobeItemId: string, status: 'available' | 'borrowed' | 'private' = 'available'): Promise<SharedRoomItem> {
+export function registerItemToSharedRoom(roomId: string, wardrobeItemId: string, status: SharedItemStatus = 'available'): Promise<SharedRoomItem> {
   return api.post<SharedRoomItem>(`/api/v1/shared-wardrobes/${roomId}/items/`, {
     wardrobe_item_id: wardrobeItemId,
     status

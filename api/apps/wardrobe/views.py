@@ -17,7 +17,10 @@ import redis as redis_lib
 from django.core.cache import caches
 from django.db import transaction
 from django.db.models import Q
-from django.shortcuts import get_object_or_404
+# DRF 판을 쓴다 — django.shortcuts 판은 pk 자리에 UUID 형식이 아닌 문자열이 오면
+# ValidationError 가 그대로 터져 500 이 된다. DRF 판은 (TypeError, ValueError,
+# ValidationError) 를 모두 404 로 바꿔 준다.
+from rest_framework.generics import get_object_or_404
 from django.utils import timezone
 from rest_framework import status
 from rest_framework.parsers import FormParser, JSONParser, MultiPartParser
@@ -223,6 +226,15 @@ class WardrobeUploadView(APIView):
             user=request.user,
             original_file_name=(image.name or "")[:255],
         )
+        # '공유 옷장' 토글을 켜고 시작했으면 방을 job 에 붙여 둔다. 지금은 옷이 없어서
+        # 공유할 대상이 없고, 만들어져도 confirmed=False 라 서버가 거부한다 —
+        # 확정 시점까지 예약으로 들고 간다. 멤버가 아니면 조용히 무시한다(위조 방지).
+        shared_room_id = (request.data.get("shared_room_id") or "").strip()
+        if shared_room_id and shared_service.is_room_member(request.user, shared_room_id):
+            job.shared_room_id = shared_room_id
+            shared_status = (request.data.get("shared_status") or "").strip()
+            if shared_status in SharedWardrobeItem.Status.values:
+                job.shared_status = shared_status
         key = storage.original_key(request.user.pk, job.pk, image.name)
         try:
             storage.upload_fileobj(image, key, image.content_type)
@@ -240,7 +252,7 @@ class WardrobeUploadView(APIView):
             category = request.data.get("category_large", "")
             if category not in T.CATEGORY_LARGE:
                 category = "기타"
-            WardrobeItem.objects.create(
+            item = WardrobeItem.objects.create(
                 user=request.user,
                 job=job,
                 s3_key=key,
@@ -249,7 +261,12 @@ class WardrobeUploadView(APIView):
                 confirmed=True,
                 added_to_closet_at=timezone.now(),
                 seg_meta={"processing": "skipped", "source": "library"},
+                pending_share_room_id=job.shared_room_id,
+                pending_share_status=job.shared_status,
             )
+            # 카탈로그 경로는 그 자리에서 confirmed=True 다 — 확정을 기다릴 이유가 없어
+            # 예약을 즉시 소진한다. (사진 경로는 사용자가 태그를 확인할 때 소진된다.)
+            shared_service.redeem_pending_share(item)
             job.status = WardrobeUploadJob.Status.DONE
             job.finished_at = timezone.now()
             job.save(update_fields=["status", "finished_at"])
@@ -369,6 +386,10 @@ class WardrobeCallbackView(APIView):
                     job=job,
                     embedding_version=vectors.EMBEDDING_VERSION if image_vec else "",
                     added_to_closet_at=adopted_at,
+                    # 등록 시 켠 '공유 옷장' 예약을 job → 아이템으로 옮긴다.
+                    # 여기서 바로 공유하지 않는 이유: 이 옷은 아직 confirmed=False 다.
+                    pending_share_room_id=job.shared_room_id,
+                    pending_share_status=job.shared_status,
                     **item_data,
                 )
                 created.append((item, image_vec, text_vec))
@@ -465,8 +486,17 @@ class WardrobeItemDetailView(APIView):
         serializer = WardrobeItemUpdateSerializer(item, data=request.data, partial=True)
         serializer.is_valid(raise_exception=True)
         item = serializer.save()
+
+        # 확정되는 순간이 예약을 소진할 유일한 시점이다 — 그 전에는 서버가 공유를 거부한다.
+        # 공유는 곁가지라 실패해도 확정 응답을 깨지 않는다. 결과는 shared_room_id 로 알린다.
+        shared_room_id = None
+        if item.confirmed and item.pending_share_room_id:
+            shared_item = shared_service.redeem_pending_share(item)
+            if shared_item:
+                shared_room_id = str(shared_item.room_id)
+
         vectors.update_payload(item)  # Qdrant payload 동기화 (best-effort)
-        return Response(WardrobeItemSerializer(item).data)
+        return Response({**WardrobeItemSerializer(item).data, "shared_room_id": shared_room_id})
 
     def delete(self, request, item_id):
         item = get_object_or_404(WardrobeItem, pk=item_id, user=request.user)
@@ -623,10 +653,14 @@ class SharedWardrobeViewSet(viewsets.ModelViewSet):
     )
     def create(self, request, *args, **kwargs):
         # 방 개설 API
-        title = request.data.get("title")
+        title = (request.data.get("title") or "").strip()
         if not title:
             return Response({"detail": "방 이름을 입력해 주세요."}, status=status.HTTP_400_BAD_REQUEST)
-        
+        # 정책상 10글자 (2026-08-16). 시리얼라이저를 안 거치는 경로라 여기서 안 거르면
+        # DB max_length 초과 시 StringDataRightTruncation 500 까지 뚫린다.
+        if len(title) > 10:
+            return Response({"detail": "10글자 이내로 작성해주세요."}, status=status.HTTP_400_BAD_REQUEST)
+
         room = shared_service.create_shared_room(request.user, title)
         serializer = self.get_serializer(room)
         # 방장이므로 역할을 포함하여 응답
@@ -634,14 +668,38 @@ class SharedWardrobeViewSet(viewsets.ModelViewSet):
         data["role"] = "owner"
         return Response(data, status=status.HTTP_201_CREATED)
 
+    def update(self, request, *args, **kwargs):
+        """방 이름 수정 — 멤버 누구나 가능 (2026-08-16 팀 결정).
+
+        삭제·초대코드 재발급과 달리 이름은 파괴적이지 않고, 변경 주체는 어차피
+        user id 로 남는다. get_queryset 이 "멤버인가"는 이미 걸러 준다.
+        직접 구현하는 이유는 권한이 아니라 **입력 검증** — ModelViewSet 기본
+        구현은 잘못된 title 을 그대로 DB 에 밀어 넣는다.
+        """
+        room = self.get_object()
+
+        title = (request.data.get("title") or "").strip()
+        if not title:
+            return Response({"detail": "방 이름을 입력해 주세요."}, status=status.HTTP_400_BAD_REQUEST)
+        if len(title) > 10:
+            return Response({"detail": "10글자 이내로 작성해주세요."}, status=status.HTTP_400_BAD_REQUEST)
+
+        room.title = title
+        room.save(update_fields=["title"])
+        return Response(self.get_serializer(room).data)
+
+    def partial_update(self, request, *args, **kwargs):
+        # PATCH 도 같은 규칙 — title 하나뿐이라 update 와 구분할 이유가 없다.
+        return self.update(request, *args, **kwargs)
+
     @extend_schema(
-        summary="공유 옷장 삭제",
+        summary="공유 옷장 삭제 (개인 옷장 원본은 절대 삭제하지 않음)",
         parameters=[
             OpenApiParameter(
                 name="delete_personal_items",
                 type=OpenApiTypes.BOOL,
                 location=OpenApiParameter.QUERY,
-                description="현재 사용자가 이 방에 공유한 개인 옷도 함께 삭제할지 여부",
+                description="(deprecated) 구버전 호환용 — 어떤 값을 보내도 개인 옷장 원본은 삭제되지 않는다",
             ),
         ],
         responses={204: OpenApiResponse(description="삭제 완료")},
@@ -658,23 +716,13 @@ class SharedWardrobeViewSet(viewsets.ModelViewSet):
                 status=status.HTTP_403_FORBIDDEN,
             )
 
-        delete_personal_items = request.query_params.get("delete_personal_items", "false").lower() == "true"
-
-        with transaction.atomic():
-            personal_item_ids = list(
-                SharedWardrobeItem.objects.filter(room=room, registered_by=request.user)
-                .values_list("wardrobe_item_id", flat=True)
-                .distinct()
-            )
-            room.delete()
-
-            if delete_personal_items:
-                WardrobeItem.objects.filter(pk__in=personal_item_ids, user=request.user).delete()
-
-        if delete_personal_items:
-            for item_id in personal_item_ids:
-                vectors.delete_item(item_id)
-
+        # ⚠️ 개인 옷장 원본(WardrobeItem)은 공유 옷장 어떤 작업으로도 건드리지 않는다
+        # (2026-08-16 정책). 예전의 delete_personal_items=true 는 원본까지 지웠는데,
+        # 원본 삭제는 CASCADE 로 캘린더 기록·룩북 게시물·다른 방의 공유까지 끌고
+        # 내려간다 — 방 하나 정리하려다 몇 달치 착장 기록을 잃는 사고다.
+        # 방을 지우면 방에 걸린 공유 목록(SharedWardrobeItem)은 CASCADE 로 함께
+        # 사라지고, 그걸로 끝이다. 파라미터는 구버전 앱 호환을 위해 받기만 한다.
+        room.delete()
         return Response(status=status.HTTP_204_NO_CONTENT)
 
     @extend_schema(

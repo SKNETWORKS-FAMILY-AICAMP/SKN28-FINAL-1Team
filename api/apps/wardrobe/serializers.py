@@ -100,9 +100,13 @@ class WardrobeItemSerializer(serializers.ModelSerializer):
             "layer_role", "layer_order", "seg_meta", "confirmed", "created_at",
             # NULL 이면 아직 옷장 밖 — 룩 상세가 '옷장에 추가' 버튼을 그릴지 판단한다.
             "added_to_closet_at",
+            # 확정하면 이 방에 공유된다는 예약. 상세 화면이 "확정 시 OO방에 공유" 안내를
+            # 그릴 수 있어야 사용자가 등록할 때 켠 토글을 확정 직전에 다시 확인할 수 있다.
+            "pending_share_room", "pending_share_status",
         ]
         read_only_fields = [
             "id", "job", "s3_key", "seg_meta", "created_at", "added_to_closet_at",
+            "pending_share_room", "pending_share_status",
         ]
 
     def get_image_url(self, obj) -> str:
