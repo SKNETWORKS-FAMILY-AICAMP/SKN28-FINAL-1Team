@@ -43,6 +43,8 @@ class VirtualTryOnServiceTests(SimpleTestCase):
             ["target_person", "outfit"],
         )
         self.assertIn("Do not add a base outfit", call["prompt"])
+        self.assertIn("featureless pure white", call["prompt"])
+        self.assertIn("Do not redesign", call["prompt"])
 
 
 @override_settings(

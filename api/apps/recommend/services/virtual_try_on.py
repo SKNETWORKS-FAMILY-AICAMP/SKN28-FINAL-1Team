@@ -19,7 +19,7 @@ from apps.recommend.services.mixed_outfit_render import (
 )
 
 DIRECT_PROMPT_VERSION = "virtual-try-on-direct-v1"
-MANNEQUIN_PROMPT_VERSION = "virtual-try-on-mannequin-v5"
+MANNEQUIN_PROMPT_VERSION = "virtual-try-on-mannequin-v6"
 
 DIRECT_PROMPT = """Image 1 is the target person. Image 2 is the outfit reference.
 Preserve the exact face, identity, hairstyle, visible body shape, body proportions,
@@ -35,14 +35,19 @@ In one edit, replace the person with a modern clothing-store display mannequin a
 dress it only in the complete outfit from Image 2. Preserve Image 1's exact body
 silhouette, shoulder width, torso length, waist width, hip width, arm and leg
 proportions, apparent height, pose, hand and foot positions, camera angle, framing,
-lighting, and background. The mannequin must be smooth glossy white fiberglass.
+and lighting. Replace the entire background with a seamless, featureless pure white
+studio background. Show no store interior, clothing racks, furniture, ceiling,
+walls, decorations, or horizon line. The mannequin must be smooth glossy white fiberglass.
 Its head must be a plain faceless bald seamless oval shell, with no facial features,
 hair, likeness, identity, skin texture, or human expression. Visible neck, arms,
 hands, ankles, and feet not covered by the reference outfit must be smooth solid
 white mannequin material. Completely discard every garment originally worn in
-Image 1. Preserve only the outfit from Image 2, including its intended garment
-types, colors, patterns, materials, layering, sleeve lengths, neckline, waistline,
-and hem lengths. Do not add a base outfit, undershirt, turtleneck, extra sleeves,
+Image 1. Copy the outfit from Image 2 as faithfully as possible. Do not redesign,
+restyle, simplify, recolor, or replace any garment. Preserve its exact garment
+types, silhouette, colors, prints, logos, patterns, fabric appearance, texture,
+seams, buttons, pockets, collar, layering, sleeve lengths, neckline, waistline,
+and hem lengths. Change only the drape and geometry required to fit the mannequin's
+body and pose. Do not add a base outfit, undershirt, turtleneck, extra sleeves,
 extra trousers, socks, or any layer absent from Image 2. Do not create a stone or
 plaster statue, realistic skin, or sculpted hairstyle. Do not slim, enlarge,
 reshape, idealize, or beautify the source body."""
