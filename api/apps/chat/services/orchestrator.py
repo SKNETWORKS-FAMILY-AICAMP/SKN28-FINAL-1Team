@@ -68,7 +68,9 @@ def _session_run_snapshot(session: ChatSession) -> dict[str, object]:
         session.full_clean()
         persona_versions = catalog.versions(persona_ids)
     except (ValidationError, ValueError) as exc:
-        raise ChatRunInvalid("세션의 스타일리스트 선택 상태가 올바르지 않습니다.") from exc
+        raise ChatRunInvalid(
+            "세션의 스타일리스트 선택 상태가 올바르지 않습니다."
+        ) from exc
     return {
         "response_mode": session.response_mode,
         "persona_ids": persona_ids,
@@ -320,6 +322,7 @@ class ChatOrchestrator:
             context = self.context_service.build(
                 session=run.session,
                 request_message=run.request_message,
+                current_run=run,
             )
             context_fingerprint = context.fingerprint
             context_cache_hit = context.cache_hit
