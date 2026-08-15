@@ -1,9 +1,9 @@
 ### 공유 옷장 (Shared Wardrobe) 설계 · 구현 명세서
 
-- **작성일**: 2026-08-10 (초안) / **갱신**: 2026-08-11 (구현 코드 대조 완료)
+- **작성일**: 2026-08-10 (초안) / **갱신**: 2026-08-16 (최신 구현 코드 대조 완료 `443aa13`)
 - **작성자**: 전하영 (Jira SCRUM-282/283 관련)
 - **브랜치**: `feature/shared-wardrobe`
-- **검증 기준**: 아래 내용은 전부 `4cc6e71` 시점의 **실제 코드를 읽고 대조**했다. 파일:라인 인용은 그 커밋 기준이다.
+- **검증 기준**: 아래 내용은 전부 `443aa13` 시점의 **실제 코드를 읽고 대조**했다.
 
 ---
 
@@ -13,17 +13,19 @@
 
 | #  | 룰                            | 상세                                                                                                                                  | 근거                                                               |
 | -- | ----------------------------- | ------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------ |
-| 1  | 방 생성                       | 개설자가 자동으로`owner`. 방 개수 제한 없음                                                                                         | `shared_wardrobe.py` `create_shared_room`                      |
-| 2  | 초대코드                      | 영대문자+숫자 6자리 난수. 중복 검사 최대 50회 재시도                                                                                  | `shared_wardrobe.py:11-18`                                       |
-| 3  | 코드 유효기간                 | 24시간 (`code_expires_at`). 만료 시 가입 차단                                                                                       | `shared_wardrobe.py:25, 89-90`                                   |
-| 4  | 코드 재발급                   | `owner`만 가능. 기존 코드 무효화 후 새 24시간 코드 발급                                                                             | `shared_wardrobe.py:57-70`                                       |
-| 5  | 정원                          | **최대 6명**. 초과 시 가입 거부                                                                                                 | `shared_wardrobe.py:98`                                          |
-| 6  | 중복 가입                     | 이미 멤버면 에러 대신 기존 방으로 정상 진입 (레코드 추가 안 함)                                                                       | `shared_wardrobe.py` `join_shared_room`                        |
-| 7  | 동시성                        | 가입 시`select_for_update()` 행 잠금 → 동시 요청이 정원 6명을 우회 못 함                                                           | `shared_wardrobe.py:83`                                          |
-| 8  | 멤버 색상                     | 가입 순서(배열 인덱스) 기반 고정 6색 (§4.2)                                                                                          | `shared-space-flow.tsx:85-112`                                   |
-| 9  | 아이템 공유                   | 개인 옷장 원본은 유지한 채, 방과의 관계만 생성/삭제                                                                                   | `SharedWardrobeItem` 모델                                        |
-| 10 | **방장 탈퇴 위임**      | owner가 나가도 방을 폭파하지 않는다. 남은 멤버 중**`joined_at`이 가장 빠른 사람에게 owner 자동 위임**. 남은 인원 0명일 때만 방 삭제 | `shared_wardrobe.py` `leave_shared_room`                       |
-| 11 | **탈퇴 시 아이템 처리** | `delete_my_items=True` → 내가 등록한 공유 아이템 일괄 삭제 / `False` → 옷은 방에 남기고 `registered_by`만 `NULL` 처리(기부) | `shared_wardrobe.py` `leave_shared_room`, `views.py:316-323` |
+| 1  | 방 생성                       | 개설자가 자동으로 `owner`. 방 개수 제한 없음. 방 이름 10자 이내 검증                                                                 | `shared_wardrobe.py` `create_shared_room`                          |
+| 2  | 초대코드                      | 영대문자+숫자 6자리 난수. 중복 검사 최대 50회 재시도                                                                                  | `shared_wardrobe.py:11-18`                                         |
+| 3  | 코드 유효기간                 | 24시간 (`code_expires_at`). 만료 시 가입 차단                                                                                       | `shared_wardrobe.py:25, 89-90`                                     |
+| 4  | 코드 재발급                   | `owner`만 가능. 기존 코드 무효화 후 새 24시간 코드 발급                                                                             | `shared_wardrobe.py:57-70`                                         |
+| 5  | 정원                          | **최대 6명**. 초과 시 가입 거부                                                                                                 | `shared_wardrobe.py:98`                                            |
+| 6  | 중복 가입                     | 이미 멤버면 에러 대신 기존 방으로 정상 진입 (레코드 추가 안 함)                                                                       | `shared_wardrobe.py` `join_shared_room`                          |
+| 7  | 동시성                        | 가입/탈퇴 시 `select_for_update()` 행 잠금 → 동시 요청 시 정원 6명 우회 및 유령 방 남김 차단                                          | `shared_wardrobe.py:83, 124`                                       |
+| 8  | 멤버 색상                     | 가입 순서(배열 인덱스) 기반 고정 6색 (§4.2)                                                                                          | `shared-space-flow.tsx:85-112`                                     |
+| 9  | 아이템 공유                   | 개인 옷장 원본은 유지한 채, 방과의 관계만 생성/삭제. **한 옷을 여러 방에 동시 공유 가능**                                             | `SharedWardrobeItem` 모델, `item-detail.tsx`                       |
+| 10 | **공유 예약 DB화**            | 이미지 업로드 시 선택한 공유 방/상태를 백엔드 DB(`pending_share_room`, `pending_share_status`)에 보관 후 확정(PATCH) 시 자동 소진   | `models.py`, `shared_wardrobe.py:redeem_pending_share`             |
+| 11 | **방장 탈퇴 위임**            | owner가 나가도 방을 폭파하지 않는다. 남은 멤버 중 **`joined_at`이 가장 빠른 사람에게 owner 자동 위임**. 남은 인원 0명일 때만 방 삭제 | `shared_wardrobe.py` `leave_shared_room`                         |
+| 12 | **탈퇴 시 아이템 처리**       | `delete_my_items=True` → 내가 등록한 공유 아이템 일괄 삭제 / `False` → 옷은 방에 남기고 `registered_by`만 `NULL` 처리(기부)         | `shared_wardrobe.py` `leave_shared_room`, `views.py:316-323`       |
+| 13 | **방 삭제 시 원본 옷 보호**   | 공유 방 삭제 시 해당 방의 공유 레코드만 삭제되며 **개인 원본 옷장(`WardrobeItem`)은 절대 삭제되지 않음**                             | `views.py` `SharedWardrobeViewSet.destroy`                        |
 
 ### 1.2 아직 구현 안 된 것
 
@@ -219,24 +221,13 @@
 
 ---
 
-## 6. 🚨 데모 전용 개조 — PR 전에 되돌려야 함
+---
 
-| # | 개조                                                                     | 위치                                                  | 실제 위험도                                                                                                                                                                                                                                                 |
-| - | ------------------------------------------------------------------------ | ----------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 1 | ~~`DJANGO_SETTINGS_MODULE: config.settings.swagger_noauth` 하드코딩~~ | ~~`docker-compose.yml`~~                           | ✅**2026-08-11 원복 완료.** api·outfit-worker 모두 `${DJANGO_SETTINGS_MODULE:-config.settings.prod}`로 되돌려 migrate와 형식을 통일했다. **Infisical 주입이 원칙**이고 noauth는 임시라는 게 확정된 방침. `docker compose config` 통과 확인 |
-| 2 | `settings.DEBUG`일 때 "철수/영희/민수" 자동 가입                       | `shared_wardrobe.py:39-42` `create_shared_room()` | **높음.** 핵심 서비스 함수 안에 목 데이터 생성 코드가 있다. DEBUG가 켜진 스테이징에서 유령 멤버 3명이 정원 6명 중 3자리를 잡아먹는다                                                                                                                  |
-| 3 | `CORS_ALLOW_ALL_ORIGINS = True`                                        | `api/config/settings/swagger_noauth.py:30`          | 낮음. 로컬 전용 설정 파일 안에만 있고 prod 설정에는 없다. 다만 파일이 커밋돼 있으니 인지는 필요                                                                                                                                                             |
-| 4 | S3 → 컨테이너 로컬`media/` 저장                                       | `storage.py:23` `IS_LOCAL`, `:43-48`, `:60`   | 낮음~중간.`IS_LOCAL = not BUCKET or DEBUG or AUTO_LOGIN_ENABLED` **조건부 폴백**이라 `WARDROBE_S3_BUCKET`이 설정되고 DEBUG가 꺼진 prod에서는 S3를 정상 사용한다. 무조건 치환이 아니다                                                             |
-| 5 | 로컬 모드에서 워커 큐 우회, 즉시`DONE`                                 | `api/apps/wardrobe/views.py:66-84`                  | 중간. Celery/Redis 비동기 경로가**한 번도 실전 검증되지 않았다.** 프로덕션 첫 배포에서 처음 돌아가는 코드가 된다                                                                                                                                      |
+## 6. 개발 및 인프라 설정 참고사항
 
-| 6 | ~~**앱에서 모든 사진 등록에 `skip_processing` 강제**~~ (2026-08-13 추가) | ~~`mobile/src/app/item-add.tsx` `LOCAL_SKIP_IMAGE_PROCESSING`~~ | ✅ **2026-08-14 원복 완료.** 상수와 사용처를 통째로 삭제했다. 이제 앨범·카메라 사진은 정상적으로 큐(GPU image-processor)를 탄다. 카탈로그에서 고른 상품컷만 `skipProcessing`을 쓴다 — 그건 원래 설계다 |
-| 7 | ~~**메인 API가 Gemini를 직접 동기 호출해 태깅**~~ (2026-08-13 추가) | ~~`api/apps/wardrobe/views.py` `_tag_locally_with_gemini`, `docker-compose.yml` `LOCAL_GEMINI_TAGGING`~~ | ✅ **2026-08-14 원복 완료.** 게이트 함수·태깅 함수·카테고리 별칭표·업로드뷰 호출부·compose 항목·`.env.example` 줄·해당 테스트까지 전부 삭제했다. ⚠️ `api/apps/wardrobe/services/gemini.py` 와 `storage.download_to_tempfile()` 은 **호출부가 사라져 지금은 미사용 상태**로 남아 있다 (다른 용도로 쓸 계획이 없으면 정리 대상) |
+### 6.0 환경 설정 원칙
 
-**남은 우선순위**: 2번(DEBUG 목 멤버) → 5번(워커 큐 우회) → 3번 → 4번 순. **6·7번은 원복 완료.**
-
-### 6.0 환경 설정 원칙 (2026-08-11 확정)
-
-`DJANGO_SETTINGS_MODULE`은 **Infisical 주입이 원칙**이다. `swagger_noauth`는 로컬 데모용 임시 모드이며 compose 파일에 리터럴로 박지 않는다.
+`DJANGO_SETTINGS_MODULE`은 **Infisical 주입이 원칙**이다. `swagger_noauth`는 로컬 개발/테스트용 모드이며 compose 파일에 리터럴로 박지 않는다.
 
 로컬에서 인증 우회가 필요할 때만 주입값 위에 한 번 덮어쓴다.
 
@@ -245,7 +236,7 @@ infisical run --env=dev -- env DJANGO_SETTINGS_MODULE=config.settings.swagger_no
   docker compose up -d db qdrant api outfit-worker redis
 ```
 
-같은 내용을 `docker-compose.yml` 상단 주석에도 적어 뒀다.
+---
 
 ### 6.1 다중 사용자 미검증
 
