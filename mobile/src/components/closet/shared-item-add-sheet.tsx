@@ -68,8 +68,8 @@ export function SharedItemAddSheet({
   const sheetWidth = Math.min(windowWidth, 480) - 40; // paddingHorizontal 20 * 2
   const gap = 8;
   const tileWidth = Math.max(Math.floor((sheetWidth - gap * 3) / 4), 60);
-  const tileHeight = tileWidth + 20; // 썸네일(tileWidth) + 텍스트(20px)
-  const twoRowsHeight = tileHeight * 2 + gap; // 가로 4개 * 세로 2개 고정 높이
+  const tileHeight = tileWidth + 26; // 썸네일(tileWidth) + 텍스트 여유 공간(26px)
+  const twoRowsHeight = tileHeight * 2 + gap + 12; // 2행 전체 높이 + 하단 패딩 여유
 
   useEffect(() => {
     if (!visible) return;
@@ -224,9 +224,9 @@ const styles = StyleSheet.create({
   center: { paddingVertical: 48, alignItems: 'center' },
   emptyText: { fontSize: Type.footnote, color: Editorial.textCaption, textAlign: 'center', lineHeight: 20 },
   grid: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, paddingBottom: 12 },
-  tile: { borderRadius: 12, overflow: 'hidden' },
+  tile: { borderRadius: 12 },
   tileOn: { opacity: 0.95 },
-  thumb: { width: '100%', borderRadius: 12, backgroundColor: Editorial.surfaceSoft },
+  thumb: { width: '100%', borderRadius: 12, overflow: 'hidden', backgroundColor: Editorial.surfaceSoft },
   thumbEmpty: { borderWidth: 1, borderColor: Editorial.line },
   check: {
     position: 'absolute',
@@ -239,7 +239,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  tileName: { fontSize: Type.micro, color: Editorial.textCaption, marginTop: 4, textAlign: 'center' },
+  tileName: { fontSize: Type.micro, color: Editorial.textCaption, marginTop: 4, textAlign: 'center', lineHeight: 14 },
   submitBtn: {
     marginTop: 16,
     height: 48,
