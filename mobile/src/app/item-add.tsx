@@ -22,17 +22,25 @@ export default function ItemAddScreen() {
   const [sourceOpen, setSourceOpen] = useState(false);
   const [sharedRooms, setSharedRooms] = useState<SharedRoom[]>([]);
   const [shareEnabled, setShareEnabled] = useState(false);
-  const [selectedRoomId, setSelectedRoomId] = useState('');
+  const [selectedRoomIds, setSelectedRoomIds] = useState<string[]>([]);
   const [roomPickerOpen, setRoomPickerOpen] = useState(false);
 
   useEffect(() => {
     getMySharedRooms()
       .then((rooms) => {
         setSharedRooms(rooms);
-        setSelectedRoomId(rooms[0]?.id ?? '');
+        if (rooms.length > 0) {
+          setSelectedRoomIds([rooms[0].id]);
+        }
       })
       .catch(() => setSharedRooms([]));
   }, []);
+
+  const handleToggleRoom = (roomId: string) => {
+    setSelectedRoomIds((prev) =>
+      prev.includes(roomId) ? prev.filter((id) => id !== roomId) : [...prev, roomId]
+    );
+  };
 
   const close = () => {
     draftItem.setPhoto(null);
@@ -50,7 +58,8 @@ export default function ItemAddScreen() {
        ⚠️ 이름 키는 `name` 이다. 예전엔 `itemName` 으로 넘겨서 — 스프레드라
        타입 검사도 안 걸리고 — 옷 이름이 조용히 버려졌다. */
     uploadJobs.start(photo, {
-      sharedRoomId: shareEnabled ? selectedRoomId : undefined,
+      sharedRoomIds: shareEnabled ? selectedRoomIds : undefined,
+      sharedRoomId: shareEnabled ? selectedRoomIds[0] : undefined,
       ...(libraryItem
         ? { skipProcessing: true, name: libraryItem.name, category: libraryItem.category }
         : {}),
@@ -78,57 +87,65 @@ export default function ItemAddScreen() {
         <ScrollView contentContainerStyle={[styles.content, contentStyle(ContentMax.narrow)]}>
           {sharedRooms.length > 0 ? (
             <View style={styles.shareArea}>
-              <View style={styles.shareRow}>
-                <View style={styles.shareToggleWrap}>
-                  {/* 좁은 화면에서 '공유 옷장에 공유'가 잘려 '공유 옷장에..'로 보였다 */}
-                  <Text style={styles.shareLabel} numberOfLines={1}>공유 옷장</Text>
+              <View style={styles.shareHeader}>
+                <Text style={styles.shareLabel}>공유 옷장</Text>
+                <Pressable
+                  style={[styles.switchContainer, shareEnabled && styles.switchContainerActive]}
+                  onPress={() => setShareEnabled(!shareEnabled)}
+                >
+                  <View style={[styles.switchCircle, shareEnabled && styles.switchCircleActive]} />
+                </Pressable>
+              </View>
+
+              {shareEnabled && (
+                <View style={styles.dropdownWrapper}>
                   <Pressable
-                    style={[styles.switch, shareEnabled && styles.switchOn]}
-                    onPress={() => {
-                      setShareEnabled((enabled) => !enabled);
-                      setRoomPickerOpen(false);
-                    }}>
-                    <View style={[styles.switchKnob, shareEnabled && styles.switchKnobOn]} />
-                  </Pressable>
-                </View>
-                <View style={styles.roomPickerWrap}>
-                  <Pressable
-                    style={[styles.roomPicker, !shareEnabled && styles.roomPickerDisabled]}
-                    onPress={() => setRoomPickerOpen((open) => !open)}
-                    disabled={!shareEnabled}>
-                    <Text style={styles.roomPickerText} numberOfLines={1}>
-                      {shareEnabled
-                        ? sharedRooms.find((room) => room.id === selectedRoomId)?.title ?? '방 선택'
-                        : '등록할 방 선택'}
+                    style={styles.dropdownHeader}
+                    onPress={() => setRoomPickerOpen(!roomPickerOpen)}
+                  >
+                    <Text style={styles.dropdownSelectedText} numberOfLines={1}>
+                      등록할 방 선택
                     </Text>
                     <Icon
                       name={roomPickerOpen ? 'chevron.up' : 'chevron.down'}
-                      tintColor={shareEnabled ? Editorial.textCaption : ink(0.25)}
-                      size={15}
+                      tintColor={Editorial.textCaption}
+                      size={14}
                     />
                   </Pressable>
-                  {shareEnabled && roomPickerOpen ? (
-                    <ScrollView
-                      style={styles.roomMenu}
-                      nestedScrollEnabled
-                      showsVerticalScrollIndicator={sharedRooms.length > 4}>
-                      {sharedRooms.map((room) => (
-                        <Pressable
-                          key={room.id}
-                          style={[styles.roomOption, selectedRoomId === room.id && styles.roomOptionSelected]}
-                          onPress={() => {
-                            setSelectedRoomId(room.id);
-                            setRoomPickerOpen(false);
-                          }}>
-                          <Text style={[styles.roomOptionText, selectedRoomId === room.id && styles.roomOptionTextSelected]}>
-                            {room.title}
-                          </Text>
-                        </Pressable>
-                      ))}
-                    </ScrollView>
-                  ) : null}
+                  {roomPickerOpen && (
+                    <View style={styles.dropdownList}>
+                      {sharedRooms.map((room) => {
+                        const checked = selectedRoomIds.includes(room.id);
+                        return (
+                          <Pressable
+                            key={room.id}
+                            style={[
+                              styles.dropdownItem,
+                              checked && styles.dropdownItemActive,
+                            ]}
+                            onPress={() => handleToggleRoom(room.id)}
+                            accessibilityRole="checkbox"
+                            accessibilityState={{ checked }}
+                          >
+                            <Text
+                              style={[
+                                styles.dropdownItemText,
+                                checked && styles.dropdownItemTextActive,
+                              ]}
+                              numberOfLines={1}
+                            >
+                              {room.title}
+                            </Text>
+                            {checked ? (
+                              <Icon name="checkmark" tintColor={Editorial.ink} size={13} />
+                            ) : null}
+                          </Pressable>
+                        );
+                      })}
+                    </View>
+                  )}
                 </View>
-              </View>
+              )}
             </View>
           ) : null}
 
@@ -168,46 +185,109 @@ const styles = StyleSheet.create({
   subtitle: { fontSize: Type.caption, color: Editorial.textCaption },
   divider: { height: 1, backgroundColor: ink(0.08) },
   content: { paddingHorizontal: 20, paddingTop: 18, paddingBottom: 24, gap: 14 },
-  shareArea: { position: 'relative', zIndex: 20, elevation: 20, overflow: 'visible', borderWidth: 1, borderColor: Editorial.line, borderRadius: 14, padding: 14, gap: 12 },
-  shareRow: { position: 'relative', zIndex: 20, flexDirection: 'row', alignItems: 'center', gap: 9 },
-  shareToggleWrap: { flex: 4, minWidth: 0, flexDirection: 'row', alignItems: 'center', justifyContent: 'flex-start', gap: 8 },
-  shareLabel: { flexShrink: 1, fontSize: Type.footnote, fontWeight: '600', color: INK },
-  switch: { width: 42, height: 24, borderRadius: 12, backgroundColor: ink(0.16), padding: 2, justifyContent: 'center' },
-  switchOn: { backgroundColor: '#34C759' },
-  switchKnob: { width: 20, height: 20, borderRadius: 10, backgroundColor: '#fff' },
-  switchKnobOn: { alignSelf: 'flex-end' },
-  roomPickerWrap: { position: 'relative', zIndex: 30, flex: 6, minWidth: 0 },
-  roomPicker: {
+  shareArea: {
+    position: 'relative',
+    zIndex: 100,
+    elevation: 20,
+    backgroundColor: Editorial.surface,
+    borderWidth: 1,
+    borderColor: Editorial.line,
+    borderRadius: 16,
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+    gap: 12,
+  },
+  shareHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  shareLabel: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: INK,
+  },
+  switchContainer: {
+    width: 44,
+    height: 24,
+    borderRadius: 999,
+    backgroundColor: ink(0.12),
+    padding: 2,
+    justifyContent: 'center',
+  },
+  switchContainerActive: {
+    backgroundColor: Editorial.ink,
+  },
+  switchCircle: {
+    width: 20,
+    height: 20,
+    borderRadius: 999,
+    backgroundColor: '#fff',
+  },
+  switchCircleActive: {
+    alignSelf: 'flex-end',
+  },
+  dropdownWrapper: {
+    position: 'relative',
+    zIndex: 101,
+  },
+  dropdownHeader: {
     height: 38,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
     paddingHorizontal: 12,
-    borderWidth: 1,
-    borderColor: Editorial.line,
-    borderRadius: 10,
+    borderRadius: 8,
     backgroundColor: Editorial.surfaceSoft,
-  },
-  roomPickerDisabled: { backgroundColor: ink(0.04) },
-  roomPickerText: { flex: 1, marginRight: 8, fontSize: Type.footnote, color: INK },
-  roomMenu: {
-    position: 'absolute',
-    zIndex: 40,
-    elevation: 40,
-    top: 42,
-    right: 0,
-    left: 0,
-    maxHeight: 160,
-    overflow: 'hidden',
     borderWidth: 1,
     borderColor: Editorial.line,
-    borderRadius: 10,
+  },
+  dropdownSelectedText: {
+    fontSize: 12,
+    color: Editorial.ink,
+    flex: 1,
+  },
+  dropdownList: {
+    position: 'absolute',
+    top: 44,
+    left: 0,
+    right: 0,
+    borderRadius: 8,
+    backgroundColor: Editorial.surface,
+    borderWidth: 1,
+    borderColor: Editorial.line,
+    zIndex: 102,
+    elevation: 24,
+    maxHeight: 160,
+    overflow: 'scroll',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.1,
+    shadowRadius: 6,
+  },
+  dropdownItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 8,
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: Editorial.lineSoft,
     backgroundColor: Editorial.surface,
   },
-  roomOption: { paddingHorizontal: 12, paddingVertical: 11, borderBottomWidth: 1, borderBottomColor: Editorial.lineSoft },
-  roomOptionSelected: { backgroundColor: Editorial.surfaceSoft },
-  roomOptionText: { fontSize: Type.footnote, color: Editorial.textSoft },
-  roomOptionTextSelected: { fontWeight: '700', color: INK },
+  dropdownItemActive: {
+    backgroundColor: Editorial.surfaceSoft,
+  },
+  dropdownItemText: {
+    flex: 1,
+    fontSize: 12,
+    color: Editorial.textSoft,
+  },
+  dropdownItemTextActive: {
+    fontWeight: '600',
+    color: Editorial.ink,
+  },
   photo: { zIndex: 0, height: 300, borderRadius: 16, overflow: 'hidden', backgroundColor: Editorial.surface, borderWidth: 1, borderColor: Editorial.line },
   photoEmpty: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: 6 },
   photoEmptyIcon: { fontSize: 26, color: ink(0.35) },

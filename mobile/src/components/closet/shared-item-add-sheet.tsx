@@ -14,7 +14,16 @@
  */
 import { Image } from 'expo-image';
 import { useCallback, useEffect, useState } from 'react';
-import { ActivityIndicator, Modal, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import {
+  ActivityIndicator,
+  Modal,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  View,
+  useWindowDimensions,
+} from 'react-native';
 
 import { Icon } from '@/components/icon';
 import { useToast } from '@/components/ui';
@@ -49,10 +58,18 @@ export function SharedItemAddSheet({
   onDone: () => void | Promise<void>;
 }) {
   const toast = useToast();
+  const { width: windowWidth } = useWindowDimensions();
   const [items, setItems] = useState<Candidate[]>([]);
   const [selected, setSelected] = useState<string[]>([]);
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
+
+  // 모바일 화면 폭에 맞춘 가로 4개 * 세로 2개 정확한 높이 계산
+  const sheetWidth = Math.min(windowWidth, 480) - 40; // paddingHorizontal 20 * 2
+  const gap = 8;
+  const tileWidth = Math.max(Math.floor((sheetWidth - gap * 3) / 4), 60);
+  const tileHeight = tileWidth + 20; // 썸네일(tileWidth) + 텍스트(20px)
+  const twoRowsHeight = tileHeight * 2 + gap; // 가로 4개 * 세로 2개 고정 높이
 
   useEffect(() => {
     if (!visible) return;
@@ -141,18 +158,25 @@ export function SharedItemAddSheet({
               </Text>
             </View>
           ) : (
-            <ScrollView contentContainerStyle={styles.grid}>
+            <ScrollView
+              style={{ height: twoRowsHeight, maxHeight: twoRowsHeight, flexGrow: 0 }}
+              contentContainerStyle={styles.grid}
+              showsVerticalScrollIndicator={items.length > 8}>
               {items.map((it) => {
                 const on = selected.includes(it.id);
                 return (
                   <Pressable
                     key={it.id}
-                    style={[styles.tile, on && styles.tileOn]}
+                    style={[styles.tile, { width: tileWidth }, on && styles.tileOn]}
                     onPress={() => toggle(it.id)}>
                     {it.image ? (
-                      <Image source={{ uri: it.image }} style={styles.thumb} contentFit="cover" />
+                      <Image
+                        source={{ uri: it.image }}
+                        style={[styles.thumb, { height: tileWidth }]}
+                        contentFit="cover"
+                      />
                     ) : (
-                      <View style={[styles.thumb, styles.thumbEmpty]} />
+                      <View style={[styles.thumb, styles.thumbEmpty, { height: tileWidth }]} />
                     )}
                     {on ? (
                       <View style={styles.check}>
@@ -199,10 +223,10 @@ const styles = StyleSheet.create({
   subtitle: { fontSize: Type.footnote, color: Editorial.textCaption, marginTop: 4 },
   center: { paddingVertical: 48, alignItems: 'center' },
   emptyText: { fontSize: Type.footnote, color: Editorial.textCaption, textAlign: 'center', lineHeight: 20 },
-  grid: { flexDirection: 'row', flexWrap: 'wrap', gap: 10, paddingBottom: 12 },
-  tile: { width: '30%', borderRadius: 12, overflow: 'hidden' },
+  grid: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, paddingBottom: 12 },
+  tile: { borderRadius: 12, overflow: 'hidden' },
   tileOn: { opacity: 0.95 },
-  thumb: { width: '100%', aspectRatio: 1, borderRadius: 12, backgroundColor: Editorial.surfaceSoft },
+  thumb: { width: '100%', borderRadius: 12, backgroundColor: Editorial.surfaceSoft },
   thumbEmpty: { borderWidth: 1, borderColor: Editorial.line },
   check: {
     position: 'absolute',
@@ -215,9 +239,9 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  tileName: { fontSize: Type.micro, color: Editorial.textCaption, marginTop: 6 },
+  tileName: { fontSize: Type.micro, color: Editorial.textCaption, marginTop: 4, textAlign: 'center' },
   submitBtn: {
-    marginTop: 8,
+    marginTop: 16,
     height: 48,
     borderRadius: 12,
     backgroundColor: Editorial.ink,

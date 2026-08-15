@@ -4,6 +4,7 @@ import {
   createWardrobeBatch,
   getUploadJob,
   getWardrobeBatch,
+  registerItemToSharedRoom,
   uploadWardrobePhoto,
   type WardrobeBatchCreated,
   type WardrobeBatchItemInput,
@@ -135,11 +136,17 @@ export const uploadJobs = {
   getRevision: () => revision,
 
   /** 사진 한 장을 올리고 처리가 끝날 때까지 따라간다. 화면이 닫혀도 계속된다. */
-  start(uri: string, opts?: { name?: string; mimeType?: string; sharedRoomId?: string; sharedStatus?: SharedItemStatus; skipProcessing?: boolean; itemName?: string; category?: string }): Promise<void> {
+  start(uri: string, opts?: { name?: string; mimeType?: string; sharedRoomId?: string; sharedRoomIds?: string[]; sharedStatus?: SharedItemStatus; skipProcessing?: boolean; itemName?: string; category?: string }): Promise<void> {
     return new Promise<void>((resolve) => {
       const key = `u${++seq}`;
       jobs = [...jobs, { key, phase: 'uploading' }];
       notify();
+
+      const roomIds = opts?.sharedRoomIds && opts.sharedRoomIds.length > 0
+        ? opts.sharedRoomIds
+        : (opts?.sharedRoomId ? [opts.sharedRoomId] : []);
+      const primaryRoomId = roomIds[0];
+      const extraRoomIds = roomIds.slice(1);
 
       (async () => {
         let jobId: string;
@@ -150,10 +157,8 @@ export const uploadJobs = {
             skipProcessing: opts?.skipProcessing,
             itemName: opts?.itemName,
             category: opts?.category,
-            /* 공유 예약은 업로드를 시작할 때 함께 보낸다. 예전엔 처리가 끝난 뒤
-               기기 저장소에 적어 뒀는데, 그 사이 앱을 닫거나 다른 기기에서 확정하면
-               예약이 통째로 사라졌다. 이제 서버가 job → 아이템으로 들고 간다. */
-            sharedRoomId: opts?.sharedRoomId,
+            /* 첫 번째 방은 백엔드 pending_share_room 예약으로 넘긴다 */
+            sharedRoomId: primaryRoomId,
             sharedStatus: opts?.sharedStatus,
           })).job_id;
         } catch (e) {
@@ -172,8 +177,18 @@ export const uploadJobs = {
           try {
             const job = await getUploadJob(jobId);
             if (job.status === 'DONE') {
-              /* 공유 예약은 서버가 이미 아이템에 붙여 뒀다(pending_share_room).
-                 확정하는 순간 서버가 알아서 소진하므로 여기서 할 일이 없다. */
+              /* 추가로 선택한 공유 방들이 있으면 생성된 아이템에 대해 직접 등록한다 */
+              if (extraRoomIds.length > 0 && job.items?.length) {
+                for (const item of job.items) {
+                  for (const rId of extraRoomIds) {
+                    try {
+                      await registerItemToSharedRoom(rId, item.id, opts?.sharedStatus ?? 'available');
+                    } catch (e) {
+                      if (__DEV__) console.warn('추가 방 공유 실패:', rId, e);
+                    }
+                  }
+                }
+              }
               drop(key);
               completed += 1;
               notify();
