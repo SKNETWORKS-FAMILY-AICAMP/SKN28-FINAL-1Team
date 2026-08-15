@@ -16,7 +16,7 @@ import { uploadJobs } from '@/state/upload-jobs';
 const INK = Editorial.ink;
 
 export default function ItemAddScreen() {
-  const { contentStyle } = useBreakpoint();
+  const { contentStyle, isMobile } = useBreakpoint();
   const photo = useDraftPhoto();
   const toast = useToast();
   const [sourceOpen, setSourceOpen] = useState(false);
@@ -68,6 +68,140 @@ export default function ItemAddScreen() {
     close();
   };
 
+  // 모바일 버전 전용 박스 UI (한 줄 레이아웃)
+  const shareBoxMobile = sharedRooms.length > 0 ? (
+    <View style={styles.shareAreaMobile}>
+      <View style={styles.shareRow}>
+        <View style={styles.shareToggleWrap}>
+          <Text style={styles.shareLabel} numberOfLines={1}>공유 옷장</Text>
+          <Pressable
+            style={[styles.switch, shareEnabled && styles.switchOn]}
+            onPress={() => {
+              setShareEnabled((enabled) => !enabled);
+              if (shareEnabled) setRoomPickerOpen(false);
+            }}>
+            <View style={[styles.switchKnob, shareEnabled && styles.switchKnobOn]} />
+          </Pressable>
+        </View>
+        <View style={styles.roomPickerWrap}>
+          <Pressable
+            style={[styles.roomPicker, !shareEnabled && styles.roomPickerDisabled]}
+            onPress={() => setRoomPickerOpen((open) => !open)}
+            disabled={!shareEnabled}>
+            <Text style={[styles.roomPickerText, !shareEnabled && styles.roomPickerTextDisabled]} numberOfLines={1}>
+              등록할 방 선택
+            </Text>
+            <Icon
+              name={roomPickerOpen ? 'chevron.up' : 'chevron.down'}
+              tintColor={shareEnabled ? Editorial.textCaption : ink(0.25)}
+              size={15}
+            />
+          </Pressable>
+          {shareEnabled && roomPickerOpen ? (
+            <View style={styles.roomMenu}>
+              <ScrollView
+                nestedScrollEnabled
+                showsVerticalScrollIndicator={sharedRooms.length > 4}
+                style={{ maxHeight: 160 }}>
+                {sharedRooms.map((room) => {
+                  const checked = selectedRoomIds.includes(room.id);
+                  return (
+                    <Pressable
+                      key={room.id}
+                      style={[styles.roomOption, checked && styles.roomOptionSelected]}
+                      onPress={() => handleToggleRoom(room.id)}
+                      accessibilityRole="checkbox"
+                      accessibilityState={{ checked }}
+                      accessibilityLabel={`${room.title}${checked ? ' 선택됨' : ' 눌러서 선택'}`}>
+                      <Text
+                        style={[styles.roomOptionText, checked && styles.roomOptionTextSelected]}
+                        numberOfLines={1}>
+                        {room.title}
+                      </Text>
+                      {checked ? (
+                        <Icon name="checkmark" tintColor={INK} size={13} />
+                      ) : null}
+                    </Pressable>
+                  );
+                })}
+              </ScrollView>
+            </View>
+          ) : null}
+        </View>
+      </View>
+    </View>
+  ) : null;
+
+  // PC 웹버전 전용 박스 UI (toggle ON 시 아래 2행에 드롭박스 생성)
+  const shareBoxDesktop = sharedRooms.length > 0 ? (
+    <View style={styles.shareAreaDesktop}>
+      <View style={styles.shareHeader}>
+        <Text style={styles.shareLabel}>공유 옷장</Text>
+        <Pressable
+          style={[styles.switchContainer, shareEnabled && styles.switchContainerActive]}
+          onPress={() => {
+            setShareEnabled(!shareEnabled);
+            if (shareEnabled) setRoomPickerOpen(false);
+          }}
+        >
+          <View style={[styles.switchCircle, shareEnabled && styles.switchCircleActive]} />
+        </Pressable>
+      </View>
+      {shareEnabled && (
+        <View style={styles.dropdownWrapper}>
+          <Pressable
+            style={styles.dropdownHeader}
+            onPress={() => setRoomPickerOpen(!roomPickerOpen)}
+          >
+            <Text style={styles.dropdownSelectedText} numberOfLines={1}>
+              등록할 방 선택
+            </Text>
+            <Icon
+              name={roomPickerOpen ? 'chevron.up' : 'chevron.down'}
+              tintColor={Editorial.textCaption}
+              size={14}
+            />
+          </Pressable>
+          {roomPickerOpen && (
+            <View style={styles.dropdownList}>
+              <ScrollView
+                nestedScrollEnabled
+                showsVerticalScrollIndicator={sharedRooms.length > 4}
+                style={{ maxHeight: 160 }}>
+                {sharedRooms.map((room) => {
+                  const checked = selectedRoomIds.includes(room.id);
+                  return (
+                    <Pressable
+                      key={room.id}
+                      style={[
+                        styles.dropdownItem,
+                        checked && styles.dropdownItemActive,
+                      ]}
+                      onPress={() => handleToggleRoom(room.id)}
+                      accessibilityRole="checkbox"
+                      accessibilityState={{ checked }}>
+                      <Text
+                        style={[
+                          styles.dropdownItemText,
+                          checked && styles.dropdownItemTextActive,
+                        ]}
+                        numberOfLines={1}>
+                        {room.title}
+                      </Text>
+                      {checked ? (
+                        <Icon name="checkmark" tintColor={Editorial.ink} size={13} />
+                      ) : null}
+                    </Pressable>
+                  );
+                })}
+              </ScrollView>
+            </View>
+          )}
+        </View>
+      )}
+    </View>
+  ) : null;
+
   return (
     <ModalShell maxWidth={ContentMax.narrow}>
       <View style={styles.container}>
@@ -85,68 +219,7 @@ export default function ItemAddScreen() {
         <View style={styles.divider} />
 
         <ScrollView contentContainerStyle={[styles.content, contentStyle(ContentMax.narrow)]}>
-          {sharedRooms.length > 0 ? (
-            <View style={styles.shareArea}>
-              <View style={styles.shareRow}>
-                <View style={styles.shareToggleWrap}>
-                  <Text style={styles.shareLabel} numberOfLines={1}>공유 옷장</Text>
-                  <Pressable
-                    style={[styles.switch, shareEnabled && styles.switchOn]}
-                    onPress={() => {
-                      setShareEnabled((enabled) => !enabled);
-                      if (shareEnabled) setRoomPickerOpen(false);
-                    }}>
-                    <View style={[styles.switchKnob, shareEnabled && styles.switchKnobOn]} />
-                  </Pressable>
-                </View>
-                <View style={styles.roomPickerWrap}>
-                  <Pressable
-                    style={[styles.roomPicker, !shareEnabled && styles.roomPickerDisabled]}
-                    onPress={() => setRoomPickerOpen((open) => !open)}
-                    disabled={!shareEnabled}>
-                    <Text style={[styles.roomPickerText, !shareEnabled && styles.roomPickerTextDisabled]} numberOfLines={1}>
-                      등록할 방 선택
-                    </Text>
-                    <Icon
-                      name={roomPickerOpen ? 'chevron.up' : 'chevron.down'}
-                      tintColor={shareEnabled ? Editorial.textCaption : ink(0.25)}
-                      size={15}
-                    />
-                  </Pressable>
-                  {shareEnabled && roomPickerOpen ? (
-                    <View style={styles.roomMenu}>
-                      <ScrollView
-                        nestedScrollEnabled
-                        showsVerticalScrollIndicator={sharedRooms.length > 4}
-                        style={{ maxHeight: 160 }}>
-                        {sharedRooms.map((room) => {
-                          const checked = selectedRoomIds.includes(room.id);
-                          return (
-                            <Pressable
-                              key={room.id}
-                              style={[styles.roomOption, checked && styles.roomOptionSelected]}
-                              onPress={() => handleToggleRoom(room.id)}
-                              accessibilityRole="checkbox"
-                              accessibilityState={{ checked }}
-                              accessibilityLabel={`${room.title}${checked ? ' 선택됨' : ' 눌러서 선택'}`}>
-                              <Text
-                                style={[styles.roomOptionText, checked && styles.roomOptionTextSelected]}
-                                numberOfLines={1}>
-                                {room.title}
-                              </Text>
-                              {checked ? (
-                                <Icon name="checkmark" tintColor={INK} size={13} />
-                              ) : null}
-                            </Pressable>
-                          );
-                        })}
-                      </ScrollView>
-                    </View>
-                  ) : null}
-                </View>
-              </View>
-            </View>
-          ) : null}
+          {isMobile ? shareBoxMobile : shareBoxDesktop}
 
           <Pressable style={styles.photo} onPress={() => setSourceOpen(true)}>
             {photo ? (
@@ -184,7 +257,105 @@ const styles = StyleSheet.create({
   subtitle: { fontSize: Type.caption, color: Editorial.textCaption },
   divider: { height: 1, backgroundColor: ink(0.08) },
   content: { paddingHorizontal: 20, paddingTop: 18, paddingBottom: 24, gap: 14 },
-  shareArea: { position: 'relative', zIndex: 100, elevation: 20, overflow: 'visible', borderWidth: 1, borderColor: Editorial.line, borderRadius: 14, padding: 14, backgroundColor: Editorial.surface },
+  shareAreaMobile: { position: 'relative', zIndex: 100, elevation: 20, overflow: 'visible', borderWidth: 1, borderColor: Editorial.line, borderRadius: 14, padding: 14, backgroundColor: Editorial.surface },
+  shareAreaDesktop: {
+    backgroundColor: Editorial.surfaceSoft,
+    borderRadius: 16,
+    padding: 14,
+    borderWidth: 1,
+    borderColor: Editorial.line,
+    position: 'relative',
+    zIndex: 100,
+    elevation: 20,
+  },
+  shareHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  switchContainer: {
+    width: 44,
+    height: 24,
+    borderRadius: 999,
+    backgroundColor: ink(0.12),
+    paddingHorizontal: 2,
+    justifyContent: 'center',
+  },
+  switchContainerActive: {
+    backgroundColor: '#34C759',
+  },
+  switchCircle: {
+    width: 20,
+    height: 20,
+    borderRadius: 10,
+    backgroundColor: '#FFFFFF',
+  },
+  switchCircleActive: {
+    alignSelf: 'flex-end',
+  },
+  dropdownWrapper: {
+    position: 'relative',
+    zIndex: 101,
+    marginTop: 10,
+  },
+  dropdownHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    height: 40,
+    paddingHorizontal: 12,
+    borderRadius: 8,
+    backgroundColor: Editorial.surface,
+    borderWidth: 1,
+    borderColor: Editorial.line,
+  },
+  dropdownSelectedText: {
+    fontSize: 12,
+    color: Editorial.ink,
+    flex: 1,
+  },
+  dropdownList: {
+    position: 'absolute',
+    top: 44,
+    left: 0,
+    right: 0,
+    borderRadius: 8,
+    backgroundColor: Editorial.surface,
+    borderWidth: 1,
+    borderColor: Editorial.line,
+    zIndex: 102,
+    elevation: 40,
+    maxHeight: 160,
+    overflow: 'hidden',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.12,
+    shadowRadius: 6,
+  },
+  dropdownItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 8,
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: Editorial.lineSoft,
+    backgroundColor: Editorial.surface,
+  },
+  dropdownItemActive: {
+    backgroundColor: Editorial.surfaceSoft,
+  },
+  dropdownItemText: {
+    flex: 1,
+    marginRight: 8,
+    fontSize: Type.footnote,
+    color: Editorial.textSoft,
+  },
+  dropdownItemTextActive: {
+    fontWeight: '700',
+    color: INK,
+  },
   shareRow: { position: 'relative', zIndex: 100, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 10 },
   shareToggleWrap: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   shareLabel: { fontSize: Type.footnote, fontWeight: '600', color: INK },
