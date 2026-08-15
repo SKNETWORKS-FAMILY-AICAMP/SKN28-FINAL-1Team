@@ -8,7 +8,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { ItemTagSheet } from '@/components/closet/item-tag-sheet';
 import { DetailTwoPane } from '@/components/detail-two-pane';
-import { Editorial, ink, Fonts } from '@/constants/theme';
+import { Editorial, ink, Fonts, Type } from '@/constants/theme';
 import { useBreakpoint } from '@/hooks/use-breakpoint';
 import { confirmWardrobeItem, useWardrobeItem } from '@/hooks/use-wardrobe';
 import { deleteWardrobeItem, itemDisplayName, type WardrobeApiItem, getMySharedRooms, listSharedRoomItems, registerItemToSharedRoom, unregisterItemFromSharedRoom, type SharedRoom } from '@/lib/wardrobeApi';
@@ -245,6 +245,66 @@ export default function ItemDetail() {
           }
           details={
             <View style={styles.body}>
+              {/* 공유 옷장 설정 박스 UI (상단 헤더 편집/삭제 아이콘 바로 아래) */}
+              {!isReadOnly && sharedRooms.length > 0 ? (
+                <View style={styles.shareArea}>
+                  <View style={styles.shareRow}>
+                    <View style={styles.shareToggleWrap}>
+                      <Text style={styles.shareLabel} numberOfLines={1}>공유 옷장</Text>
+                      <Pressable
+                        style={[styles.switch, shareEnabled && styles.switchOn]}
+                        onPress={() => handleToggleShare(!shareEnabled)}>
+                        <View style={[styles.switchKnob, shareEnabled && styles.switchKnobOn]} />
+                      </Pressable>
+                    </View>
+                    <View style={styles.roomPickerWrap}>
+                      <Pressable
+                        style={[styles.roomPicker, !shareEnabled && styles.roomPickerDisabled]}
+                        onPress={() => setDropdownOpen((open) => !open)}
+                        disabled={!shareEnabled}>
+                        <Text style={[styles.roomPickerText, !shareEnabled && styles.roomPickerTextDisabled]} numberOfLines={1}>
+                          공유할 옷장 선택
+                        </Text>
+                        <Icon
+                          name={dropdownOpen ? 'chevron.up' : 'chevron.down'}
+                          tintColor={shareEnabled ? Editorial.textCaption : ink(0.25)}
+                          size={15}
+                        />
+                      </Pressable>
+                      {shareEnabled && dropdownOpen ? (
+                        <View style={styles.roomMenu}>
+                          <ScrollView
+                            nestedScrollEnabled
+                            showsVerticalScrollIndicator={sharedRooms.length > 4}
+                            style={{ maxHeight: 160 }}>
+                            {sharedRooms.map((room) => {
+                              const checked = sharedRoomIds.includes(room.id);
+                              return (
+                                <Pressable
+                                  key={room.id}
+                                  style={[styles.roomOption, checked && styles.roomOptionSelected]}
+                                  onPress={() => handleToggleRoom(room.id)}
+                                  accessibilityRole="checkbox"
+                                  accessibilityState={{ checked }}>
+                                  <Text
+                                    style={[styles.roomOptionText, checked && styles.roomOptionTextSelected]}
+                                    numberOfLines={1}>
+                                    {room.title}
+                                  </Text>
+                                  {checked ? (
+                                    <Icon name="checkmark" tintColor={INK} size={13} />
+                                  ) : null}
+                                </Pressable>
+                              );
+                            })}
+                          </ScrollView>
+                        </View>
+                      ) : null}
+                    </View>
+                  </View>
+                </View>
+              ) : null}
+
               <Text style={styles.name}>{itemDisplayName(item)}</Text>
               {item.style.length > 0 ? (
                 <Text style={styles.styleLine}>{item.style.join(' · ')}</Text>
@@ -268,74 +328,6 @@ export default function ItemDetail() {
                       {confirming ? '확인 중…' : '태그가 맞아요'}
                     </Text>
                   </Pressable>
-                </View>
-              ) : null}
-
-              {/* 공유 옷장 설정 영역 (색 정보 상단에 상주) */}
-              {!isReadOnly && sharedRooms.length > 0 ? (
-                <View style={styles.shareArea}>
-                  <View style={styles.shareHeader}>
-                    <Text style={styles.shareLabel}>공유 옷장</Text>
-                    <Pressable
-                      style={[styles.switchContainer, shareEnabled && styles.switchContainerActive]}
-                      onPress={() => handleToggleShare(!shareEnabled)}
-                    >
-                      <View style={[styles.switchCircle, shareEnabled && styles.switchCircleActive]} />
-                    </Pressable>
-                  </View>
-                  {shareEnabled && (
-                    <View style={styles.dropdownWrapper}>
-                      <Pressable
-                        style={styles.dropdownHeader}
-                        onPress={() => setDropdownOpen(!dropdownOpen)}
-                      >
-                        {/* 고른 방 이름을 여기 나열하지 않는다 — 이름이 길거나 여러 개면
-                            줄이 복잡해진다. 어디에 들어갔는지는 목록의 체크로 읽는다. */}
-                        <Text style={styles.dropdownSelectedText} numberOfLines={1}>
-                          공유할 옷장 선택
-                        </Text>
-                        <Icon
-                          name={dropdownOpen ? 'chevron.up' : 'chevron.down'}
-                          tintColor={Editorial.textCaption}
-                          size={14}
-                        />
-                      </Pressable>
-                      {dropdownOpen && (
-                        <View style={styles.dropdownList}>
-                          {sharedRooms.map((room) => {
-                            const checked = sharedRoomIds.includes(room.id);
-                            return (
-                              <Pressable
-                                key={room.id}
-                                style={[
-                                  styles.dropdownItem,
-                                  checked && styles.dropdownItemActive,
-                                ]}
-                                onPress={() => handleToggleRoom(room.id)}
-                                accessibilityRole="checkbox"
-                                accessibilityState={{ checked }}
-                                accessibilityLabel={`${room.title}${checked ? ' 공유 중, 눌러서 해제' : ' 눌러서 공유'}`}
-                              >
-                                <Text
-                                  style={[
-                                    styles.dropdownItemText,
-                                    checked && styles.dropdownItemTextActive,
-                                  ]}
-                                  numberOfLines={1}
-                                >
-                                  {room.title}
-                                </Text>
-                                {/* 고른 방만 오른쪽 끝에 체크 — 안 고른 방은 아무 표시도 없다 */}
-                                {checked ? (
-                                  <Icon name="checkmark" tintColor={Editorial.ink} size={13} />
-                                ) : null}
-                              </Pressable>
-                            );
-                          })}
-                        </View>
-                      )}
-                    </View>
-                  )}
                 </View>
               ) : null}
 
@@ -390,111 +382,124 @@ export default function ItemDetail() {
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: Editorial.page },
   shareArea: {
-    backgroundColor: Editorial.surfaceSoft,
-    borderRadius: 16,
-    padding: 14,
-    marginTop: 22,
+    position: 'relative',
+    zIndex: 100,
+    elevation: 20,
+    overflow: 'visible',
     borderWidth: 1,
     borderColor: Editorial.line,
-    /* 드롭다운이 이 블록 밖(아래 스펙 그리드·'태그가 비어있어요' 위)으로 펼쳐진다.
-       zIndex 는 형제끼리만 겨루므로, 안쪽 dropdownWrapper 에만 걸면 소용이 없다 —
-       뒤에 오는 형제가 통째로 위에 그려져 글자가 겹쳐 보였다. 블록 자체를 올린다.
-       elevation 은 안드로이드용(zIndex 만으로는 안 올라간다). */
-    zIndex: 20,
-    elevation: 20,
+    borderRadius: 14,
+    padding: 14,
+    marginBottom: 16,
+    backgroundColor: Editorial.surface,
   },
-  shareHeader: {
+  shareRow: {
+    position: 'relative',
+    zIndex: 100,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
+    gap: 10,
+  },
+  shareToggleWrap: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
   },
   shareLabel: {
-    fontSize: 13,
+    fontSize: Type.footnote,
     fontWeight: '600',
     color: INK,
   },
-  switchContainer: {
-    width: 44,
+  switch: {
+    width: 42,
     height: 24,
-    borderRadius: 999,
-    backgroundColor: ink(0.12),
-    paddingHorizontal: 2,
+    borderRadius: 12,
+    backgroundColor: ink(0.16),
+    padding: 2,
     justifyContent: 'center',
   },
-  switchContainerActive: {
+  switchOn: {
     backgroundColor: '#34C759',
   },
-  switchCircle: {
+  switchKnob: {
     width: 20,
     height: 20,
     borderRadius: 10,
-    backgroundColor: '#FFFFFF',
+    backgroundColor: '#fff',
   },
-  switchCircleActive: {
+  switchKnobOn: {
     alignSelf: 'flex-end',
   },
-  dropdownWrapper: {
+  roomPickerWrap: {
     position: 'relative',
-    zIndex: 100,
-    marginTop: 10,
+    zIndex: 101,
+    flex: 1,
   },
-  dropdownHeader: {
+  roomPicker: {
+    height: 38,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    height: 40,
     paddingHorizontal: 12,
-    borderRadius: 8,
-    backgroundColor: Editorial.surface,
     borderWidth: 1,
     borderColor: Editorial.line,
-  },
-  dropdownSelectedText: {
-    fontSize: 12,
-    color: Editorial.ink,
-    flex: 1,
-  },
-  dropdownList: {
-    position: 'absolute',
-    top: 44,
-    left: 0,
-    right: 0,
-    borderRadius: 8,
-    backgroundColor: Editorial.surface,
-    borderWidth: 1,
-    borderColor: Editorial.line,
-    zIndex: 101,
-    elevation: 24, // 안드로이드에서 아래 형제 위로 띄운다
-    maxHeight: 120,
-    overflow: 'scroll',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.1,
-    shadowRadius: 6,
-  },
-  dropdownItem: {
-    flexDirection: 'row',        // 이름은 왼쪽, 체크는 오른쪽 끝
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    gap: 8,
-    paddingVertical: 10,
-    paddingHorizontal: 12,
-    borderBottomWidth: 1,
-    borderBottomColor: Editorial.lineSoft,
-    // 항목마다 불투명 면을 준다 — 부모 배경만 믿으면 웹에서 뒤 텍스트가 비쳐 보인다
-    backgroundColor: Editorial.surface,
-  },
-  dropdownItemActive: {
+    borderRadius: 10,
     backgroundColor: Editorial.surfaceSoft,
   },
-  dropdownItemText: {
-    flex: 1,   // 이름이 길어도 체크를 밀어내지 않는다
-    fontSize: 11,
+  roomPickerDisabled: {
+    backgroundColor: ink(0.04),
+    opacity: 0.6,
+  },
+  roomPickerText: {
+    flex: 1,
+    marginRight: 8,
+    fontSize: Type.footnote,
+    color: INK,
+  },
+  roomPickerTextDisabled: {
+    color: ink(0.35),
+  },
+  roomMenu: {
+    position: 'absolute',
+    zIndex: 102,
+    elevation: 40,
+    top: 42,
+    right: 0,
+    left: 0,
+    maxHeight: 160,
+    overflow: 'hidden',
+    borderWidth: 1,
+    borderColor: Editorial.line,
+    borderRadius: 10,
+    backgroundColor: Editorial.surface,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.12,
+    shadowRadius: 6,
+  },
+  roomOption: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 12,
+    paddingVertical: 11,
+    borderBottomWidth: 1,
+    borderBottomColor: Editorial.lineSoft,
+    backgroundColor: Editorial.surface,
+  },
+  roomOptionSelected: {
+    backgroundColor: Editorial.surfaceSoft,
+  },
+  roomOptionText: {
+    flex: 1,
+    marginRight: 8,
+    fontSize: Type.footnote,
     color: Editorial.textSoft,
   },
-  dropdownItemTextActive: {
-    fontWeight: '600',
-    color: Editorial.ink,
+  roomOptionTextSelected: {
+    fontWeight: '700',
+    color: INK,
   },
   headerSafe: { backgroundColor: Editorial.page },
   header: {
