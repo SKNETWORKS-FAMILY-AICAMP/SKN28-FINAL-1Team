@@ -219,8 +219,9 @@ export default function ItemDetail() {
   const specs = specsOf(item);
   const category = [item.category_large, item.category_small].filter(Boolean).join(' · ');
 
-  const shareBox = !isReadOnly && sharedRooms.length > 0 ? (
-    <View style={isMobile ? styles.shareAreaMobile : styles.shareAreaDesktop}>
+  // 모바일 버전 전용 박스 UI (사진 위, 한 줄 레이아웃)
+  const shareBoxMobile = !isReadOnly && sharedRooms.length > 0 ? (
+    <View style={styles.shareAreaMobile}>
       <View style={styles.shareRow}>
         <View style={styles.shareToggleWrap}>
           <Text style={styles.shareLabel} numberOfLines={1}>공유 옷장</Text>
@@ -278,6 +279,73 @@ export default function ItemDetail() {
     </View>
   ) : null;
 
+  // PC 웹버전 전용 박스 UI (기존 위치, toggle on 시 2행에 드롭박스 생성)
+  const shareBoxDesktop = !isReadOnly && sharedRooms.length > 0 ? (
+    <View style={styles.shareAreaDesktop}>
+      <View style={styles.shareHeader}>
+        <Text style={styles.shareLabel}>공유 옷장</Text>
+        <Pressable
+          style={[styles.switchContainer, shareEnabled && styles.switchContainerActive]}
+          onPress={() => handleToggleShare(!shareEnabled)}
+        >
+          <View style={[styles.switchCircle, shareEnabled && styles.switchCircleActive]} />
+        </Pressable>
+      </View>
+      {shareEnabled && (
+        <View style={styles.dropdownWrapper}>
+          <Pressable
+            style={styles.dropdownHeader}
+            onPress={() => setDropdownOpen(!dropdownOpen)}
+          >
+            <Text style={styles.dropdownSelectedText} numberOfLines={1}>
+              공유할 옷장 선택
+            </Text>
+            <Icon
+              name={dropdownOpen ? 'chevron.up' : 'chevron.down'}
+              tintColor={Editorial.textCaption}
+              size={14}
+            />
+          </Pressable>
+          {dropdownOpen && (
+            <View style={styles.dropdownList}>
+              <ScrollView
+                nestedScrollEnabled
+                showsVerticalScrollIndicator={sharedRooms.length > 4}
+                style={{ maxHeight: 160 }}>
+                {sharedRooms.map((room) => {
+                  const checked = sharedRoomIds.includes(room.id);
+                  return (
+                    <Pressable
+                      key={room.id}
+                      style={[
+                        styles.dropdownItem,
+                        checked && styles.dropdownItemActive,
+                      ]}
+                      onPress={() => handleToggleRoom(room.id)}
+                      accessibilityRole="checkbox"
+                      accessibilityState={{ checked }}>
+                      <Text
+                        style={[
+                          styles.dropdownItemText,
+                          checked && styles.dropdownItemTextActive,
+                        ]}
+                        numberOfLines={1}>
+                        {room.title}
+                      </Text>
+                      {checked ? (
+                        <Icon name="checkmark" tintColor={Editorial.ink} size={13} />
+                      ) : null}
+                    </Pressable>
+                  );
+                })}
+              </ScrollView>
+            </View>
+          )}
+        </View>
+      )}
+    </View>
+  ) : null;
+
   return (
     <View style={styles.container}>
       {header}
@@ -286,7 +354,7 @@ export default function ItemDetail() {
         showsVerticalScrollIndicator={false}
         contentContainerStyle={[styles.content, contentStyle(maxW)]}>
         {/* 모바일: 1. 공유 옷장 토글 박스 -> 2. 옷 사진 -> 3. 아이템 제목 순서 */}
-        {isMobile ? shareBox : null}
+        {isMobile ? shareBoxMobile : null}
 
         {/* 데스크톱: [사진 | 상세] 2단 / 태블릿·모바일: 세로 */}
         <DetailTwoPane
@@ -312,8 +380,8 @@ export default function ItemDetail() {
                 <Text style={styles.styleLine}>{item.style.join(' · ')}</Text>
               ) : null}
 
-              {/* PC 웹(데스크톱): 아까와 동일하게 오른쪽 열 내부 배치 */}
-              {!isMobile ? shareBox : null}
+              {/* PC 웹(데스크톱): 기존 위치에 2행 드롭박스 형태 렌더링 */}
+              {!isMobile ? shareBoxDesktop : null}
 
               {/* 확인 대기 — 확정 전에는 추천에 쓰이지 않는다는 걸 알려준다 */}
               {!isReadOnly && !item.confirmed ? (
@@ -401,17 +469,102 @@ const styles = StyleSheet.create({
     backgroundColor: Editorial.surface,
   },
   shareAreaDesktop: {
-    position: 'relative',
-    zIndex: 100,
-    elevation: 20,
-    overflow: 'visible',
-    borderWidth: 1,
-    borderColor: Editorial.line,
-    borderRadius: 14,
+    backgroundColor: Editorial.surfaceSoft,
+    borderRadius: 16,
     padding: 14,
     marginTop: 18,
-    marginBottom: 18,
+    borderWidth: 1,
+    borderColor: Editorial.line,
+    position: 'relative',
+    zIndex: 20,
+    elevation: 20,
+  },
+  shareHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  switchContainer: {
+    width: 44,
+    height: 24,
+    borderRadius: 999,
+    backgroundColor: ink(0.12),
+    paddingHorizontal: 2,
+    justifyContent: 'center',
+  },
+  switchContainerActive: {
+    backgroundColor: '#34C759',
+  },
+  switchCircle: {
+    width: 20,
+    height: 20,
+    borderRadius: 10,
+    backgroundColor: '#FFFFFF',
+  },
+  switchCircleActive: {
+    alignSelf: 'flex-end',
+  },
+  dropdownWrapper: {
+    position: 'relative',
+    zIndex: 100,
+    marginTop: 10,
+  },
+  dropdownHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    height: 40,
+    paddingHorizontal: 12,
+    borderRadius: 8,
     backgroundColor: Editorial.surface,
+    borderWidth: 1,
+    borderColor: Editorial.line,
+  },
+  dropdownSelectedText: {
+    fontSize: 12,
+    color: Editorial.ink,
+    flex: 1,
+  },
+  dropdownList: {
+    position: 'absolute',
+    top: 44,
+    left: 0,
+    right: 0,
+    borderRadius: 8,
+    backgroundColor: Editorial.surface,
+    borderWidth: 1,
+    borderColor: Editorial.line,
+    zIndex: 101,
+    elevation: 24,
+    maxHeight: 160,
+    overflow: 'hidden',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.1,
+    shadowRadius: 6,
+  },
+  dropdownItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 8,
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: Editorial.lineSoft,
+    backgroundColor: Editorial.surface,
+  },
+  dropdownItemActive: {
+    backgroundColor: Editorial.surfaceSoft,
+  },
+  dropdownItemText: {
+    flex: 1,
+    fontSize: 11,
+    color: Editorial.textSoft,
+  },
+  dropdownItemTextActive: {
+    fontWeight: '600',
+    color: Editorial.ink,
   },
   shareRow: {
     position: 'relative',
