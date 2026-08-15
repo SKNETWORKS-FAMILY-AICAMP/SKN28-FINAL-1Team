@@ -169,7 +169,7 @@ class QwenImageEditor:
             config.VTON_LIGHTNING_MODEL,
             weight_name=config.VTON_LIGHTNING_WEIGHT,
         )
-        self.pipeline.enable_vae_tiling()
+        self.pipeline.vae.enable_tiling()
         _configure_offload(self.pipeline, torch)
         logger.info("VTON 모델 로딩 완료")
 
