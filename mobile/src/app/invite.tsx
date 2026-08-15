@@ -115,8 +115,13 @@ export default function InviteScreen() {
           : '공유 옷장에 참여했어요!',
         { variant: 'success' },
       );
-      // closet 탭의 shared 서브탭이 켜지도록 closet으로 리디렉션
-      router.replace('/(tabs)/closet?tab=shared');
+      // closet 탭의 shared 서브탭 및 특정 방이 켜지도록 직통 리디렉션
+      const roomId = res.room_id;
+      if (roomId) {
+        router.replace(`/(tabs)/closet?tab=shared&room=${roomId}`);
+      } else {
+        router.replace('/(tabs)/closet?tab=shared');
+      }
     } catch (err) {
       console.error('초대 수락 실패:', err);
       toast(err instanceof Error ? err.message : '참여하지 못했어요.', { variant: 'error' });
@@ -125,23 +130,26 @@ export default function InviteScreen() {
     }
   }, [inviteCode, router, toast]);
 
-  /* 링크로 들어온 사람은 이미 "들어가겠다"는 의사를 밝힌 것이다.
-     로그인돼 있으면 버튼을 한 번 더 누르게 하지 않고 바로 참여시킨다.
-     로그인 전이면 아무것도 하지 않는다 — 아래 미리보기를 보고 로그인한 뒤,
-     돌아오면 이 효과가 다시 돌아 자동으로 참여된다. */
+  const goHome = () => router.replace('/(tabs)/closet');
+  const goLogin = () => router.push(`/login?redirect=${encodeURIComponent(`/invite?code=${inviteCode}`)}`);
+
+  /* 사용자가 로그인을 안했으면 즉시 로그인 페이지로 직행 (초대코드 redirect 파라미터 전달).
+     로그인을 완료하면 이 초대장 화면으로 되돌아와 아래 자동 참여 효과가 쏘아진다. */
+  useEffect(() => {
+    if (!inviteCode) return;
+    if (!isLoggedIn) {
+      router.replace(`/login?redirect=${encodeURIComponent(`/invite?code=${inviteCode}`)}`);
+    }
+  }, [inviteCode, isLoggedIn, router]);
+
+  /* 이미 로그인되어 있으면 사용자가 버튼을 누르지 않아도 즉시 자동 참여 후
+     해당 공유 옷장 방으로 직통 리다이렉트한다. */
   useEffect(() => {
     if (!inviteCode || !isLoggedIn) return;
     if (autoJoined.current === inviteCode) return;
     autoJoined.current = inviteCode;
     void handleAcceptInvite();
   }, [inviteCode, isLoggedIn, handleAcceptInvite]);
-
-  const goHome = () => router.replace('/(tabs)/closet');
-
-  /* 로그인 뒤 여기로 되돌아와야 자동 참여가 이어진다. replace 가 아니라 push 로 쌓아
-     로그인 화면에서 뒤로 가면 초대장이 그대로 남게 한다. */
-  const goLogin = () =>
-    router.push(`/login?redirect=${encodeURIComponent(`/invite?code=${inviteCode}`)}`);
 
   // 코드 없이 들어온 경우 — 조회할 것이 없으니 바로 '없는 초대장'으로 본다
   if (!inviteCode) {
