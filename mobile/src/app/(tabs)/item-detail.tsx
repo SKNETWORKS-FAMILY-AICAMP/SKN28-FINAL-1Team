@@ -226,6 +226,66 @@ export default function ItemDetail() {
       <ScrollView
         showsVerticalScrollIndicator={false}
         contentContainerStyle={[styles.content, contentStyle(maxW)]}>
+        {/* 공유 옷장 설정 박스 UI (사진보다 상단에 배치) */}
+        {!isReadOnly && sharedRooms.length > 0 ? (
+          <View style={styles.shareAreaTop}>
+            <View style={styles.shareRow}>
+              <View style={styles.shareToggleWrap}>
+                <Text style={styles.shareLabel} numberOfLines={1}>공유 옷장</Text>
+                <Pressable
+                  style={[styles.switch, shareEnabled && styles.switchOn]}
+                  onPress={() => handleToggleShare(!shareEnabled)}>
+                  <View style={[styles.switchKnob, shareEnabled && styles.switchKnobOn]} />
+                </Pressable>
+              </View>
+              <View style={styles.roomPickerWrap}>
+                <Pressable
+                  style={[styles.roomPicker, !shareEnabled && styles.roomPickerDisabled]}
+                  onPress={() => setDropdownOpen((open) => !open)}
+                  disabled={!shareEnabled}>
+                  <Text style={[styles.roomPickerText, !shareEnabled && styles.roomPickerTextDisabled]} numberOfLines={1}>
+                    공유할 옷장 선택
+                  </Text>
+                  <Icon
+                    name={dropdownOpen ? 'chevron.up' : 'chevron.down'}
+                    tintColor={shareEnabled ? Editorial.textCaption : ink(0.25)}
+                    size={15}
+                  />
+                </Pressable>
+                {shareEnabled && dropdownOpen ? (
+                  <View style={styles.roomMenu}>
+                    <ScrollView
+                      nestedScrollEnabled
+                      showsVerticalScrollIndicator={sharedRooms.length > 4}
+                      style={{ maxHeight: 160 }}>
+                      {sharedRooms.map((room) => {
+                        const checked = sharedRoomIds.includes(room.id);
+                        return (
+                          <Pressable
+                            key={room.id}
+                            style={[styles.roomOption, checked && styles.roomOptionSelected]}
+                            onPress={() => handleToggleRoom(room.id)}
+                            accessibilityRole="checkbox"
+                            accessibilityState={{ checked }}>
+                            <Text
+                              style={[styles.roomOptionText, checked && styles.roomOptionTextSelected]}
+                              numberOfLines={1}>
+                              {room.title}
+                            </Text>
+                            {checked ? (
+                              <Icon name="checkmark" tintColor={INK} size={13} />
+                            ) : null}
+                          </Pressable>
+                        );
+                      })}
+                    </ScrollView>
+                  </View>
+                ) : null}
+              </View>
+            </View>
+          </View>
+        ) : null}
+
         {/* 데스크톱: [사진 | 상세] 2단 / 태블릿·모바일: 세로 */}
         <DetailTwoPane
           image={
@@ -245,66 +305,6 @@ export default function ItemDetail() {
           }
           details={
             <View style={styles.body}>
-              {/* 공유 옷장 설정 박스 UI (상단 헤더 편집/삭제 아이콘 바로 아래) */}
-              {!isReadOnly && sharedRooms.length > 0 ? (
-                <View style={styles.shareArea}>
-                  <View style={styles.shareRow}>
-                    <View style={styles.shareToggleWrap}>
-                      <Text style={styles.shareLabel} numberOfLines={1}>공유 옷장</Text>
-                      <Pressable
-                        style={[styles.switch, shareEnabled && styles.switchOn]}
-                        onPress={() => handleToggleShare(!shareEnabled)}>
-                        <View style={[styles.switchKnob, shareEnabled && styles.switchKnobOn]} />
-                      </Pressable>
-                    </View>
-                    <View style={styles.roomPickerWrap}>
-                      <Pressable
-                        style={[styles.roomPicker, !shareEnabled && styles.roomPickerDisabled]}
-                        onPress={() => setDropdownOpen((open) => !open)}
-                        disabled={!shareEnabled}>
-                        <Text style={[styles.roomPickerText, !shareEnabled && styles.roomPickerTextDisabled]} numberOfLines={1}>
-                          공유할 옷장 선택
-                        </Text>
-                        <Icon
-                          name={dropdownOpen ? 'chevron.up' : 'chevron.down'}
-                          tintColor={shareEnabled ? Editorial.textCaption : ink(0.25)}
-                          size={15}
-                        />
-                      </Pressable>
-                      {shareEnabled && dropdownOpen ? (
-                        <View style={styles.roomMenu}>
-                          <ScrollView
-                            nestedScrollEnabled
-                            showsVerticalScrollIndicator={sharedRooms.length > 4}
-                            style={{ maxHeight: 160 }}>
-                            {sharedRooms.map((room) => {
-                              const checked = sharedRoomIds.includes(room.id);
-                              return (
-                                <Pressable
-                                  key={room.id}
-                                  style={[styles.roomOption, checked && styles.roomOptionSelected]}
-                                  onPress={() => handleToggleRoom(room.id)}
-                                  accessibilityRole="checkbox"
-                                  accessibilityState={{ checked }}>
-                                  <Text
-                                    style={[styles.roomOptionText, checked && styles.roomOptionTextSelected]}
-                                    numberOfLines={1}>
-                                    {room.title}
-                                  </Text>
-                                  {checked ? (
-                                    <Icon name="checkmark" tintColor={INK} size={13} />
-                                  ) : null}
-                                </Pressable>
-                              );
-                            })}
-                          </ScrollView>
-                        </View>
-                      ) : null}
-                    </View>
-                  </View>
-                </View>
-              ) : null}
-
               <Text style={styles.name}>{itemDisplayName(item)}</Text>
               {item.style.length > 0 ? (
                 <Text style={styles.styleLine}>{item.style.join(' · ')}</Text>
@@ -381,7 +381,7 @@ export default function ItemDetail() {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: Editorial.page },
-  shareArea: {
+  shareAreaTop: {
     position: 'relative',
     zIndex: 100,
     elevation: 20,
@@ -390,6 +390,8 @@ const styles = StyleSheet.create({
     borderColor: Editorial.line,
     borderRadius: 14,
     padding: 14,
+    marginHorizontal: 20,
+    marginTop: 10,
     marginBottom: 16,
     backgroundColor: Editorial.surface,
   },
