@@ -716,7 +716,7 @@ export default function ClosetScreen() {
                         <Text style={[
                           styles.ownerText,
                           sharedSpace && sharedSpace.members.indexOf(it.owner) === 0 && { color: '#1C1917' }
-                        ]}>{it.owner}님</Text>
+                        ]}>{it.owner}</Text>
                       </View>
                     ) : null}
                     {tab === 'shared' && it.owner === '나' && (

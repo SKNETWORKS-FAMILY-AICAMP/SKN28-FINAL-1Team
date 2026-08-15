@@ -245,7 +245,7 @@ export default function SavedLook() {
                     </View>
                     <View style={styles.pieceBody}>
                       <Text style={styles.pieceSlot}>
-                        {item.owner ? `${item.owner}님 옷` : SOURCE_LABEL[item.source]}
+                        {item.owner ? `${item.owner} 옷` : SOURCE_LABEL[item.source]}
                       </Text>
                       <Text style={styles.pieceName} numberOfLines={1}>
                         {item.name}
