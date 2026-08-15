@@ -11,19 +11,19 @@
 
 ### 1.1 구현된 룰
 
-| #  | 룰                            | 상세                                                                                                                                        | 근거                                                               |
-| -- | ----------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------ |
-| 1  | 방 생성                       | 개설자가 자동으로`owner`. 방 개수 제한 없음                                                                                               | `shared_wardrobe.py` `create_shared_room`                      |
-| 2  | 초대코드                      | 영대문자+숫자 6자리 난수. 중복 검사 최대 50회 재시도                                                                                        | `shared_wardrobe.py:11-18`                                       |
-| 3  | 코드 유효기간                 | 24시간 (`code_expires_at`). 만료 시 가입 차단                                                                                             | `shared_wardrobe.py:25, 89-90`                                   |
-| 4  | 코드 재발급                   | `owner`만 가능. 기존 코드 무효화 후 새 24시간 코드 발급                                                                                   | `shared_wardrobe.py:57-70`                                       |
-| 5  | 정원                          | **최대 6명**. 초과 시 가입 거부                                                                                                       | `shared_wardrobe.py:98`                                          |
-| 6  | 중복 가입                     | 이미 멤버면 에러 대신 기존 방으로 정상 진입 (레코드 추가 안 함)                                                                             | `shared_wardrobe.py` `join_shared_room`                        |
-| 7  | 동시성                        | 가입 시`select_for_update()` 행 잠금 → 동시 요청이 정원 6명을 우회 못 함                                                                 | `shared_wardrobe.py:83`                                          |
-| 8  | 멤버 색상                     | 가입 순서(배열 인덱스) 기반 고정 6색 (§4.2)                                                                                                | `shared-space-flow.tsx:85-112`                                   |
-| 9  | 아이템 공유                   | 개인 옷장 원본은 유지한 채, 방과의 관계만 생성/삭제                                                                                         | `SharedWardrobeItem` 모델                                        |
+| #  | 룰                            | 상세                                                                                                                                  | 근거                                                               |
+| -- | ----------------------------- | ------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------ |
+| 1  | 방 생성                       | 개설자가 자동으로`owner`. 방 개수 제한 없음                                                                                         | `shared_wardrobe.py` `create_shared_room`                      |
+| 2  | 초대코드                      | 영대문자+숫자 6자리 난수. 중복 검사 최대 50회 재시도                                                                                  | `shared_wardrobe.py:11-18`                                       |
+| 3  | 코드 유효기간                 | 24시간 (`code_expires_at`). 만료 시 가입 차단                                                                                       | `shared_wardrobe.py:25, 89-90`                                   |
+| 4  | 코드 재발급                   | `owner`만 가능. 기존 코드 무효화 후 새 24시간 코드 발급                                                                             | `shared_wardrobe.py:57-70`                                       |
+| 5  | 정원                          | **최대 6명**. 초과 시 가입 거부                                                                                                 | `shared_wardrobe.py:98`                                          |
+| 6  | 중복 가입                     | 이미 멤버면 에러 대신 기존 방으로 정상 진입 (레코드 추가 안 함)                                                                       | `shared_wardrobe.py` `join_shared_room`                        |
+| 7  | 동시성                        | 가입 시`select_for_update()` 행 잠금 → 동시 요청이 정원 6명을 우회 못 함                                                           | `shared_wardrobe.py:83`                                          |
+| 8  | 멤버 색상                     | 가입 순서(배열 인덱스) 기반 고정 6색 (§4.2)                                                                                          | `shared-space-flow.tsx:85-112`                                   |
+| 9  | 아이템 공유                   | 개인 옷장 원본은 유지한 채, 방과의 관계만 생성/삭제                                                                                   | `SharedWardrobeItem` 모델                                        |
 | 10 | **방장 탈퇴 위임**      | owner가 나가도 방을 폭파하지 않는다. 남은 멤버 중**`joined_at`이 가장 빠른 사람에게 owner 자동 위임**. 남은 인원 0명일 때만 방 삭제 | `shared_wardrobe.py` `leave_shared_room`                       |
-| 11 | **탈퇴 시 아이템 처리** | `delete_my_items=True` → 내가 등록한 공유 아이템 일괄 삭제 / `False` → 옷은 방에 남기고 `registered_by`만 `NULL` 처리(기부)       | `shared_wardrobe.py` `leave_shared_room`, `views.py:316-323` |
+| 11 | **탈퇴 시 아이템 처리** | `delete_my_items=True` → 내가 등록한 공유 아이템 일괄 삭제 / `False` → 옷은 방에 남기고 `registered_by`만 `NULL` 처리(기부) | `shared_wardrobe.py` `leave_shared_room`, `views.py:316-323` |
 
 ### 1.2 아직 구현 안 된 것
 
@@ -170,16 +170,16 @@
 - **보안 판단**: 쿼리스트링에 코드를 싣는 건 Slack·Notion과 같은 표준 방식. 6자리(약 21억 조합) + 24시간 만료 + owner 재발급으로 방어한다
 - **카카오 공유** (2026-08-13 개편, `mobile/src/lib/kakaoShare.ts`로 분리):
 
-| 플랫폼 | 경로 | 키 |
-| --- | --- | --- |
-| iOS / Android | `@react-native-kakao/share` `shareFeedTemplate` → 카카오톡이 열려 친구·채팅방 선택 | **네이티브 앱 키** (`initSocialSDKs`에서 초기화) |
-| 웹 | Kakao JS SDK `Share.sendDefault` → PC는 카카오 공유 팝업, 모바일 웹은 카카오톡 앱 | **JavaScript 키** (`EXPO_PUBLIC_KAKAO_JAVASCRIPT_KEY`) |
+| 플랫폼        | 경로                                                                                     | 키                                                             |
+| ------------- | ---------------------------------------------------------------------------------------- | -------------------------------------------------------------- |
+| iOS / Android | `@react-native-kakao/share` `shareFeedTemplate` → 카카오톡이 열려 친구·채팅방 선택 | **네이티브 앱 키** (`initSocialSDKs`에서 초기화)       |
+| 웹            | Kakao JS SDK`Share.sendDefault` → PC는 카카오 공유 팝업, 모바일 웹은 카카오톡 앱      | **JavaScript 키** (`EXPO_PUBLIC_KAKAO_JAVASCRIPT_KEY`) |
 
-  - ⚠️ **웹에서 네이티브 앱 키로 `Kakao.init`을 부르면 예외 없이 조용히 실패한다.** 개편 전 코드가 정확히 이 상태였다 (`shared-space-flow.tsx`에서 `KAKAO_NATIVE_APP_KEY`로 init). 상수를 `KAKAO_JAVASCRIPT_KEY`로 분리해 다시 못 섞게 했다
-  - 웹은 카카오 개발자센터 > 플랫폼 > Web 에 **도메인 등록이 선행**되어야 한다 (`http://localhost:8081` 포함)
-  - 카드 본문(description)에 참여 코드를 적고, 공유를 누르는 순간 **초대 문구 전체를 클립보드에도 복사**한다 (`expo-clipboard`). 카톡이 안 열려도 사용자가 직접 붙여넣을 수 있게 하는 폴백
-  - 폴백 순서: 카카오 SDK → OS 공유 시트 → 클립보드. 어디서 끝났는지를 `KakaoShareResult`로 돌려주고 토스트 문구를 다르게 띄운다
-  - iOS `LSApplicationQueriesSchemes`의 `kakaolink`는 `@react-native-kakao/core` 플러그인이 이미 넣어 준다 — app.json 추가 설정 불필요. 다만 **네이티브 공유는 dev client 재빌드가 필요**하다 (Expo Go 불가)
+- ⚠️ **웹에서 네이티브 앱 키로 `Kakao.init`을 부르면 예외 없이 조용히 실패한다.** 개편 전 코드가 정확히 이 상태였다 (`shared-space-flow.tsx`에서 `KAKAO_NATIVE_APP_KEY`로 init). 상수를 `KAKAO_JAVASCRIPT_KEY`로 분리해 다시 못 섞게 했다
+- 웹은 카카오 개발자센터 > 플랫폼 > Web 에 **도메인 등록이 선행**되어야 한다 (`http://localhost:8081` 포함)
+- 카드 본문(description)에 참여 코드를 적고, 공유를 누르는 순간 **초대 문구 전체를 클립보드에도 복사**한다 (`expo-clipboard`). 카톡이 안 열려도 사용자가 직접 붙여넣을 수 있게 하는 폴백
+- 폴백 순서: 카카오 SDK → OS 공유 시트 → 클립보드. 어디서 끝났는지를 `KakaoShareResult`로 돌려주고 토스트 문구를 다르게 띄운다
+- iOS `LSApplicationQueriesSchemes`의 `kakaolink`는 `@react-native-kakao/core` 플러그인이 이미 넣어 준다 — app.json 추가 설정 불필요. 다만 **네이티브 공유는 dev client 재빌드가 필요**하다 (Expo Go 불가)
 
 ### 4.5 채팅 ↔ 옷장 연동
 
@@ -257,14 +257,14 @@ infisical run --env=dev -- env DJANGO_SETTINGS_MODULE=config.settings.swagger_no
 
 ## 7. 미해결 · 미검증
 
-| # | 항목                                      | 상태                                      | 근거                                                                                                                                                                                                                                                                                                                                                  |
-| - | ----------------------------------------- | ----------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 1 | 옷장 탭 무한 렌더링                       | **코드 수정 확인 · 런타임 미검증** | 원인 2개 모두 코드에서 수정 확인됨: ①`app-tabs.web.tsx:116-121`에 `if (h !== barHeight)` 가드 존재 ② `upload-jobs.ts:173/177`이 원시 숫자 반환 훅(`useBatchTotal`/`useBatchCompletedCount`)이고 `closet.tsx:128-129`가 이걸 쓴다. `useBatchProgress`는 export되지 않는다. **다만 실제로 앱을 띄워 재현 테스트를 하지는 않았다** |
-| 2 | `SharedWardrobeItem.status` 대여 플로우 | 스키마만 존재                             | `borrowed`로 바꾸는 API·UI 없음 (§2.3)                                                                                                                                                                                                                                                                                                            |
-| 3 | 카카오톡 카드 공유 모바일 실기기 동작     | 미검증                                    | PC 웹에서만 테스트                                                                                                                                                                                                                                                                                                                                    |
+| # | 항목                                      | 상태                                                                                        | 근거                                                                                                                                                                                                                                                                                                                                                  |
+| - | ----------------------------------------- | ------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1 | 옷장 탭 무한 렌더링                       | **코드 수정 확인 · 런타임 미검증**                                                   | 원인 2개 모두 코드에서 수정 확인됨: ①`app-tabs.web.tsx:116-121`에 `if (h !== barHeight)` 가드 존재 ② `upload-jobs.ts:173/177`이 원시 숫자 반환 훅(`useBatchTotal`/`useBatchCompletedCount`)이고 `closet.tsx:128-129`가 이걸 쓴다. `useBatchProgress`는 export되지 않는다. **다만 실제로 앱을 띄워 재현 테스트를 하지는 않았다** |
+| 2 | `SharedWardrobeItem.status` 대여 플로우 | 스키마만 존재                                                                               | `borrowed`로 바꾸는 API·UI 없음 (§2.3)                                                                                                                                                                                                                                                                                                            |
+| 3 | 카카오톡 카드 공유 모바일 실기기 동작     | 미검증                                                                                      | PC 웹에서만 테스트                                                                                                                                                                                                                                                                                                                                    |
 | 4 | 앱 설치/미설치 분기 딥링크                | **코드 구현 완료 · 실기기 미검증** — 시뮬레이터로는 카카오톡 앱 실행 경로를 못 탄다 | §1.2                                                                                                                                                                                                                                                                                                                                                 |
-| 5 | 다중 계정 시나리오 전반                   | 미검증                                    | §6.1                                                                                                                                                                                                                                                                                                                                                 |
-| 6 | 비동기 워커 경로 (Celery/Redis)           | 미검증                                    | 로컬은 §6-5로 우회 중                                                                                                                                                                                                                                                                                                                                |
+| 5 | 다중 계정 시나리오 전반                   | 미검증                                                                                      | §6.1                                                                                                                                                                                                                                                                                                                                                 |
+| 6 | 비동기 워커 경로 (Celery/Redis)           | 미검증                                                                                      | 로컬은 §6-5로 우회 중                                                                                                                                                                                                                                                                                                                                |
 
 **1번 확정 방법**: `npx expo start` → `옷장` 탭 클릭 → 에러 팝업이 안 뜨면 해결 확정.
 
@@ -321,6 +321,7 @@ npx expo start
 ## 10. Qdrant 코디 추천 검색 격리 & 아이템 상태 관리 구현
 
 ### 10.1 공유 옷장 추천 검색 격리 (Retrieval Search Isolation)
+
 - **개념**: Qdrant 옷장 추천 검색 시 단일 `user_id` 조건을 **"접근 가능한 아이템 id 화이트리스트"** (`allowed_item_ids`)로 일반화
 - **접근 범위 (`accessible_item_ids`)**:
   - 내 옷: `user=user, confirmed=True`
@@ -330,8 +331,8 @@ npx expo start
 - **컬렉션 상수화**: `WARDROBE_ITEM_COLLECTION` (`os.getenv("QDRANT_WARDROBE_COLLECTION", "wardrobe_items")`) 사용
 
 ### 10.2 공유 아이템 상태 변경 API 및 클라이언트 함수
+
 - **API 엔드포인트**: `PATCH /api/v1/shared-wardrobes/{room_id}/items/` (`item_id` 또는 `wardrobe_item_id`, `status` 바디 전달)
 - **상태 종류**: `available` (공유가능), `borrowed` (대여중), `private` (나만보기)
 - **권한 체크**: 방 멤버이면서 아이템 공유 등록자 또는 방장(`owner`)만 변경 가능
 - **클라이언트 함수**: `updateSharedItemStatus(roomId, itemId, status)` (`mobile/src/lib/wardrobeApi.ts`)
-

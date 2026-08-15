@@ -559,12 +559,7 @@ export default function ClosetScreen() {
           : null}
 
         {tab === 'shared' && sharedRooms.length > 0 ? (
-          <ScrollView
-            horizontal
-            showsHorizontalScrollIndicator={false}
-            style={styles.roomTabsScroll}
-            contentContainerStyle={styles.roomTabsContainer}
-          >
+          <View style={styles.roomTabsWrap}>
             {/* 추가 버튼은 맨 앞 — 방이 많아지면 끝의 버튼은 가로 스크롤에 묻혀
                 '방을 더 만들 수 있다'는 사실 자체가 안 보인다. */}
             <Pressable
@@ -608,7 +603,7 @@ export default function ClosetScreen() {
             })}
             {/* '코드로 참여'는 멤버 줄의 [초대] 옆 입력칸으로 옮겼다 —
                 가로 스크롤 끝에 묻혀 있어 눈에 띄지 않았다. */}
-          </ScrollView>
+          </View>
         ) : null}
 
         {tab === 'shared' && sharedSpace ? (
@@ -992,20 +987,15 @@ const styles = StyleSheet.create({
     elevation: 8,
   },
 
-  // ── 공유방 가로 탭 스타일 ──
-  roomTabsScroll: {
-    /* 위 간격은 0 — SearchFilterBar 의 칩 줄이 이미 paddingBottom:20 을 갖고 있어서,
-       여기에 marginTop 을 더하면 32px 이 되어 검색바→칩 간격(18px)보다 눈에 띄게 벌어진다.
-       0 으로 두면 20px 이 되어 위쪽 리듬과 맞는다. */
-    marginTop: 0,
-    marginBottom: 12,
-    maxHeight: 40,
-    minHeight: 40,
-  },
-  roomTabsContainer: {
+  // ── 공유방 탭 스타일 (한눈에 나열) ──
+  roomTabsWrap: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    alignItems: 'center',
     paddingHorizontal: PAD,
     gap: 8,
-    alignItems: 'center',
+    marginTop: 0,
+    marginBottom: 12,
   },
   roomTab: {
     paddingHorizontal: 16,
