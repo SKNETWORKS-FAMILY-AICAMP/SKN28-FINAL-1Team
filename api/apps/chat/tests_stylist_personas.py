@@ -13,6 +13,7 @@ from apps.chat.services.stylist_personas import (
     StylistPersonaConfigurationError,
     clear_stylist_persona_cache,
     load_stylist_personas,
+    strategy_profile_from_snapshot,
 )
 
 
@@ -63,6 +64,21 @@ class StylistPersonaConfigurationTests(SimpleTestCase):
         self.assertEqual(experimental.voice_profile.max_sentences, 1)
         self.assertIn("호기심", experimental.voice_profile.tone_traits)
 
+    def test_strategy_profile_is_restored_from_run_snapshot(self) -> None:
+        source = self._default_document()["personas"][0]["strategy_profile"]
+
+        restored = strategy_profile_from_snapshot(source)
+
+        self.assertEqual(restored.objectives, tuple(source["objectives"]))
+        self.assertEqual(restored.weight_for("color_cohesion"), 0.25)
+
+    def test_invalid_run_strategy_snapshot_is_rejected(self) -> None:
+        with self.assertRaisesMessage(
+            StylistPersonaConfigurationError,
+            "score_weights",
+        ):
+            strategy_profile_from_snapshot({"objectives": ["불완전"]})
+
     def test_versions_reject_duplicate_snapshot_ids(self) -> None:
         catalog = load_stylist_personas()
 
@@ -99,9 +115,7 @@ class StylistPersonaConfigurationTests(SimpleTestCase):
 
     def test_weight_sum_must_equal_one(self) -> None:
         document = self._default_document()
-        document["personas"][0]["strategy_profile"]["score_weights"][0][
-            "weight"
-        ] = 0.5
+        document["personas"][0]["strategy_profile"]["score_weights"][0]["weight"] = 0.5
 
         with TemporaryDirectory() as directory:
             path = self._write_document(directory, document)

@@ -14,6 +14,10 @@ from django.db import transaction
 
 from apps.chat.models import ChatRun, ChatRunPersona, ChatSession
 from apps.chat.services.openai_adapter import TurnAnalysis
+from apps.chat.services.stylist_strategy import (
+    PreferencePolarity,
+    StrategyPlan,
+)
 from apps.recommend.models import (
     GoldenTemplateSnapshot,
     OutfitCompositionItem,
@@ -192,6 +196,7 @@ class ChatRecommendationPipeline:
         context: dict[str, Any],
         analysis: TurnAnalysis,
         max_validated_templates: int | None = None,
+        strategy_plan: StrategyPlan | None = None,
     ) -> GeneratedRecommendationCandidates:
         """Retriever·Composer·Validator를 실행하고 DB 저장 전 후보를 반환한다."""
 
@@ -210,6 +215,9 @@ class ChatRecommendationPipeline:
             )
 
         pursuit = self._merged_pursuit(context, analysis)
+        if strategy_plan is not None:
+            pursuit = self._apply_strategy_preferences(pursuit, strategy_plan)
+        candidate_limit = strategy_plan.candidate_limit if strategy_plan else 5
         body = build_profile(context.get("profile", {}).get("body"))
         retrieval = self._retrieve_golden(
             RetrievalRequest(
@@ -219,14 +227,18 @@ class ChatRecommendationPipeline:
                 gender=self._gender(context),
                 occasion=analysis.conditions.occasion,
                 season=analysis.conditions.season,
-                query_text=analysis.search_query or context["current_request"],
+                query_text=(
+                    strategy_plan.search_query
+                    if strategy_plan is not None
+                    else analysis.search_query or context["current_request"]
+                ),
                 presentation_groups=self._presentation_groups(
                     context=context,
                     analysis=analysis,
                 ),
                 dataset_version=settings.CHAT_GOLDENSET_DATASET_VERSION,
                 dataset_statuses=settings.CHAT_GOLDENSET_DATASET_STATUSES,
-                limit=5,
+                limit=candidate_limit,
                 hard_filter=True,
                 # 골든 코디는 내부 조합 템플릿이다. 원본 이미지 노출 권한은
                 # 결과 표출·렌더링 경계에서 별도로 검사한다.
@@ -275,6 +287,8 @@ class ChatRecommendationPipeline:
                 batch.compositions,
                 start=1,
             ):
+                if len(generated) + len(template_candidates) >= candidate_limit:
+                    break
                 validation = self.validator.validate(
                     composition,
                     context=self._validation_context(
@@ -298,6 +312,8 @@ class ChatRecommendationPipeline:
             if template_candidates:
                 generated.extend(template_candidates)
                 validated_template_count += 1
+                if len(generated) >= candidate_limit:
+                    break
                 if (
                     max_validated_templates is not None
                     and validated_template_count >= max_validated_templates
@@ -585,6 +601,31 @@ class ChatRecommendationPipeline:
             )
         )
         return {"preferred": preferred, "avoided": avoided}
+
+    @staticmethod
+    def _apply_strategy_preferences(
+        pursuit: dict[str, dict[str, list[str]]],
+        plan: StrategyPlan,
+    ) -> dict[str, dict[str, list[str]]]:
+        """전략의 소프트 보정을 원본 사용자 조건을 보존한 검색 입력으로 변환한다."""
+
+        adjusted = {
+            polarity: {
+                axis: list(values)
+                for axis, values in (pursuit.get(polarity) or {}).items()
+            }
+            for polarity in ("preferred", "avoided")
+        }
+        axis_names = {"style": "styles", "color": "colors", "fit": "fits"}
+        for row in plan.preference_adjustments:
+            polarity = (
+                "preferred" if row.polarity is PreferencePolarity.PREFER else "avoided"
+            )
+            axis = axis_names[row.axis]
+            adjusted[polarity][axis] = list(
+                dict.fromkeys([*adjusted[polarity].get(axis, []), *row.values])
+            )
+        return adjusted
 
     @staticmethod
     def _presentation_groups(

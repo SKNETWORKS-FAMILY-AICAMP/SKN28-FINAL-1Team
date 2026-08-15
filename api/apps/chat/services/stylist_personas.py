@@ -155,8 +155,7 @@ def _text_tuple(value: Any, *, where: str) -> tuple[str, ...]:
     if not isinstance(value, list) or not value:
         raise ValueError(f"{where}: 하나 이상의 문자열 배열이어야 합니다.")
     result = tuple(
-        _text(row, where=f"{where}[{index}]")
-        for index, row in enumerate(value)
+        _text(row, where=f"{where}[{index}]") for index, row in enumerate(value)
     )
     if len(result) != len(set(result)):
         raise ValueError(f"{where}: 같은 문자열을 중복해서 사용할 수 없습니다.")
@@ -215,6 +214,15 @@ def _strategy_profile(value: Any, *, where: str) -> StrategyProfile:
             where=f"{where}.hypothesis_count",
         ),
     )
+
+
+def strategy_profile_from_snapshot(value: object) -> StrategyProfile:
+    """ChatRunPersona에 고정된 전략 JSON을 현재 설정과 독립적으로 복원한다."""
+
+    try:
+        return _strategy_profile(value, where="strategy_snapshot")
+    except (TypeError, ValueError) as exc:
+        raise StylistPersonaConfigurationError(str(exc)) from exc
 
 
 def _voice_profile(value: Any, *, where: str) -> VoiceProfile:
@@ -332,11 +340,11 @@ def _parse_catalog(document: Any) -> StylistPersonaCatalog:
     min_select = _integer(raw.get("min_select"), where="min_select", minimum=1)
     max_select = _integer(raw.get("max_select"), where="max_select", minimum=1)
     if min_select != 1 or max_select != 3:
-        raise ValueError("선택 제한은 제품 정책상 min_select=1, max_select=3이어야 합니다.")
+        raise ValueError(
+            "선택 제한은 제품 정책상 min_select=1, max_select=3이어야 합니다."
+        )
 
-    experimental = next(
-        persona for persona in ordered if persona.id == "experimental"
-    )
+    experimental = next(persona for persona in ordered if persona.id == "experimental")
     if experimental.strategy_profile.hypothesis_count != 2:
         raise ValueError(
             "personas.experimental.strategy_profile.hypothesis_count: "
