@@ -577,6 +577,30 @@ ChatRun
 }
 ```
 
+### 허용값 계약
+
+변경·유지 축은 다음 값만 허용한다.
+
+- 슬롯 스타일: `top_style`, `bottom_style`, `outer_style`, `footwear_style`
+- 스타일 관계: `style_mix`
+- 실루엣: `top_silhouette`, `bottom_silhouette`, `outer_silhouette`
+- 색상 관계: `color_family`, `color_contrast`
+- 조합 관계: `proportion`, `layering`, `material_mix`, `pattern_density`
+- 미사용 탐색: `underused_item_slot` (변경 축 전용)
+
+사유 코드는 다음 값만 허용한다.
+
+- `RECENT_SLOT_REPETITION`
+- `RECENT_SILHOUETTE_REPETITION`
+- `RECENT_STYLE_REPETITION`
+- `RECENT_COLOR_REPETITION`
+- `RECENT_COMBINATION_REPETITION`
+- `CALENDAR_ITEM_UNDERUSE`
+- `STRONG_PREFERENCE_ANCHOR`
+- `SAME_COLOR_MATERIAL_VARIATION`
+
+가설은 변경 축 1~2개와 유지 축 1~3개로 구성한다. 같은 축을 동시에 변경·유지할 수 없으며, 요청 결과는 변경·유지 축 조합이 서로 다른 가설 정확히 2개여야 한다.
+
 ### 입력
 
 - 현재 사용자 요청
@@ -593,6 +617,22 @@ ChatRun
 - 존재하지 않는 아이템 속성 생성
 - 하드 조건 우회
 - 고정된 레트로·강한 색 키워드 반복
+
+### 진행 상태
+
+- [x] ID 없는 변경·유지 축 enum과 허용값 정의
+- [x] 최근 추천·착용·강한 선호 근거로 제한한 reason code enum 정의
+- [x] 변경 축 1~2개·유지 축 1~3개 및 상호 배타 검증
+- [x] 요청당 정확히 2개 가설과 축 조합 중복 검증
+- [x] 알 수 없는 필드·아이템 ID·Validator 우회 필드 거부
+- [x] 최근 추천·캘린더·피드백을 ID 없는 빈도 요약으로 변환
+- [x] 기존 메인 OpenAI 어댑터를 통한 가설 전용 구조화 출력 호출
+- [x] 가설 전용 프롬프트에서 아이템 선택·속성 생성·하드 조건 우회 금지
+- [ ] 개별 가설 필터링
+- [x] 반복 슬롯 → 반복 실루엣 → 캘린더 미착용 → 소재/비율 순서의 결정적 fallback
+- [x] 제공자 실패·API 설정 누락 시 추천 예외 대신 규칙 가설 2개 반환
+- [x] LLM/fallback 출처와 안전한 오류 코드의 실행 스냅샷 구조 제공
+- [ ] 실험형 공통 전략 연결
 
 ### 검증과 fallback
 
