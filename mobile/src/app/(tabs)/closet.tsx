@@ -562,6 +562,7 @@ export default function ClosetScreen() {
           <ScrollView
             horizontal
             showsHorizontalScrollIndicator={false}
+            style={styles.roomTabsScroll}
             contentContainerStyle={styles.roomTabsScrollContent}>
             {/* 추가 버튼은 맨 앞 — 방이 많아지면 끝의 버튼은 가로 스크롤에 묻혀
                 '방을 더 만들 수 있다'는 사실 자체가 안 보인다. */}
@@ -991,10 +992,16 @@ const styles = StyleSheet.create({
   },
 
   // ── 공유방 탭 스타일 (가로 스크롤) ──
+  roomTabsScroll: {
+    width: '100%',
+    flexGrow: 0,
+    flexShrink: 0,
+  },
   roomTabsScrollContent: {
     paddingHorizontal: PAD,
     flexDirection: 'row',
     alignItems: 'center',
+    flexWrap: 'nowrap',
     gap: 8,
     marginTop: 0,
     marginBottom: 12,
