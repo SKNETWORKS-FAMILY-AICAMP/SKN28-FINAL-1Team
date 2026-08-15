@@ -98,6 +98,25 @@ class WardrobeUploadJob(models.Model):
         blank=True,
         db_comment="외부 수집 시 클라이언트가 제공한 옷장 부분 태그 JSON",
     )
+    # ── 공유 예약 ──
+    # 등록 화면에서 '공유 옷장' 토글을 켜고 시작한 job. 이 시점의 옷은 아직 존재하지도
+    # 않으므로 방 선택을 job 이 들고 있다가, 아이템이 만들어질 때 아이템으로 옮긴다.
+    # 기기가 아니라 여기에 두는 이유: PC 에서 올리고 폰에서 확정해도 공유가 살아야 한다.
+    shared_room = models.ForeignKey(
+        "SharedWardrobeRoom",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="pending_jobs",
+        db_comment="등록 시 지정한 공유 예약 방 FK (NULL: 공유 안 함, 방 삭제 시 NULL)",
+    )
+    shared_status = models.CharField(
+        "공유 예약 상태",
+        max_length=15,
+        blank=True,
+        default="",
+        db_comment="공유 예약 시 적용할 상태 (available/borrowed/private, 빈 문자열: 예약 없음)",
+    )
     source_s3_key = models.CharField(
         "원본 S3 키", max_length=512, db_comment="업로드 원본 이미지 S3 키"
     )
@@ -215,6 +234,27 @@ class WardrobeItem(models.Model):
             "사용자가 이 옷을 옷장에 두기로 한 시각 "
             "(NULL: 룩 사진에서 뽑혔지만 아직 옷장에 넣지 않음 — 옷장 목록에서 제외)"
         ),
+    )
+    # ── 공유 예약 ──
+    # "확정되면 이 방에 공유한다". 갓 만들어진 옷은 confirmed=False 라 서버가 공유를
+    # 거부하므로(shared_wardrobe.register_item_to_shared_room), 확정 전까지 여기 대기시킨다.
+    # 확정(PATCH confirmed=true) 시점에 서버가 소진하고 NULL 로 되돌린다.
+    # ⚠️ 이 컬럼은 '예약'이지 '공유 상태'가 아니다. 실제 공유 관계는 shared_wardrobe_item
+    #    (room, wardrobe_item) 행이며, 한 옷이 여러 방에 걸릴 수 있어 1:N 을 여기 담을 수 없다.
+    pending_share_room = models.ForeignKey(
+        "SharedWardrobeRoom",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="pending_items",
+        db_comment="확정 시 공유할 예약 방 FK (NULL: 예약 없음, 방 삭제 시 NULL)",
+    )
+    pending_share_status = models.CharField(
+        "공유 예약 상태",
+        max_length=15,
+        blank=True,
+        default="",
+        db_comment="예약 소진 시 적용할 공유 상태 (available/borrowed/private, 빈 문자열: 기본값 사용)",
     )
     embedding_version = models.CharField(
         max_length=40, blank=True, default="", db_comment="Qdrant 임베딩 버전 (재임베딩 판단 기준)"

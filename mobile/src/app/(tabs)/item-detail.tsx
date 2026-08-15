@@ -1,8 +1,8 @@
 import { Icon } from '@/components/icon';
 import { ErrorState, LoadingState, SmartImage, useConfirm, useToast } from '@/components/ui';
-import { router, useLocalSearchParams } from 'expo-router';
+import { router, useFocusEffect, useLocalSearchParams } from 'expo-router';
 import { goBack } from '@/lib/goBack';
-import { useState } from 'react';
+import { useCallback, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
@@ -12,7 +12,6 @@ import { Editorial, ink, Fonts } from '@/constants/theme';
 import { useBreakpoint } from '@/hooks/use-breakpoint';
 import { confirmWardrobeItem, useWardrobeItem } from '@/hooks/use-wardrobe';
 import { deleteWardrobeItem, itemDisplayName, type WardrobeApiItem, getMySharedRooms, listSharedRoomItems, registerItemToSharedRoom, unregisterItemFromSharedRoom, type SharedRoom } from '@/lib/wardrobeApi';
-import { useEffect } from 'react';
 
 const INK = Editorial.ink;
 const BONE = Editorial.bone;
@@ -46,67 +45,94 @@ export default function ItemDetail() {
   const [sharedRooms, setSharedRooms] = useState<SharedRoom[]>([]);
   const [sharedRoomIds, setSharedRoomIds] = useState<string[]>([]);
   const [shareEnabled, setShareEnabled] = useState(false);
-  const [selectedRoomId, setSelectedRoomId] = useState<string>('');
   const [dropdownOpen, setDropdownOpen] = useState(false);
 
-  // 공유 상태 동기화 및 방 목록 조회
-  useEffect(() => {
-    if (id && !isReadOnly) {
-      getMySharedRooms().then((rooms) => {
-        setSharedRooms(rooms || []);
-        if (rooms && rooms.length > 0) {
-          setSelectedRoomId(rooms[0].id);
-          // 이 아이템이 어느 방에 공유되어 있는지 확인
-          rooms.forEach((room) => {
-            listSharedRoomItems(room.id).then((items) => {
-              const hasItem = items.some((it) => it.wardrobe_item.id === id);
-              if (hasItem) {
-                setSharedRoomIds([room.id]);
-                setShareEnabled(true);
-                setSelectedRoomId(room.id);
-              }
-            });
-          });
-        }
-      });
+  /* 공유 상태 동기화.
+   *
+   * useFocusEffect 인 이유: 이 화면은 탭 스택에 얹혀 한 번 뜨면 언마운트되지 않는다.
+   * 마운트 시 1회만 조회하면, 옷장 공유 탭에서 X로 공유를 해제하고 돌아와도
+   * 토글이 계속 켜진 채로 남는다(반대 방향은 이 화면이 직접 바꾸니 맞아 보였다).
+   * 화면에 들어올 때마다 서버 상태로 다시 맞춘다.
+   *
+   * 그리고 스캔 전에 반드시 초기화한다 — 예전엔 "찾으면 true" 만 있고
+   * "못 찾으면 false" 가 없어서, 한 번 켜진 값이 다음 아이템까지 따라왔다. */
+  const syncShareState = useCallback(async () => {
+    if (!id || isReadOnly) return;
+    try {
+      const rooms = (await getMySharedRooms()) || [];
+      setSharedRooms(rooms);
+      if (rooms.length === 0) {
+        setSharedRoomIds([]);
+        setShareEnabled(false);
+        return;
+      }
+
+      // 방별 조회를 모두 기다린 뒤 한 번에 판정한다 — 개별 then 으로 흩어 놓으면
+      // 늦게 온 응답이 먼저 온 결과를 덮어써 상태가 요동친다.
+      const results = await Promise.all(
+        rooms.map(async (room) => ({
+          roomId: room.id,
+          hasItem: (await listSharedRoomItems(room.id)).some((it) => it.wardrobe_item.id === id),
+        })),
+      );
+      const shared = results.filter((r) => r.hasItem).map((r) => r.roomId);
+
+      setSharedRoomIds(shared);
+      setShareEnabled(shared.length > 0);
+
+    } catch {
+      /* 공유 상태는 곁가지다 — 못 읽어도 상세 화면 자체는 그대로 보여준다 */
     }
   }, [id, isReadOnly]);
 
+  useFocusEffect(
+    useCallback(() => {
+      void syncShareState();
+    }, [syncShareState]),
+  );
+
+  /* 토글은 '공유 여부'가 아니라 **방 목록을 펼칠지**만 정한다.
+     켤 때 아무 방에도 넣지 않는 이유: 어느 방에 넣을지는 아래 목록에서 고르는 것이고,
+     임의로 첫 방에 밀어 넣으면 사용자가 고르기도 전에 공유가 일어난다.
+     끌 때는 지금 들어가 있는 모든 방에서 뺀다 — "공유 안 함"의 뜻이 그것뿐이다. */
   const handleToggleShare = async (nextEnabled: boolean) => {
     if (!item) return;
+    if (nextEnabled) {
+      setShareEnabled(true);
+      setDropdownOpen(true);
+      return;
+    }
     try {
-      if (nextEnabled) {
-        if (!selectedRoomId) return;
-        await registerItemToSharedRoom(selectedRoomId, item.id);
-        setSharedRoomIds([selectedRoomId]);
-        setShareEnabled(true);
-        toast('공유 옷장에 공유했어요');
-      } else {
-        // 기존 공유된 모든 방에서 해제
-        for (const rid of sharedRoomIds) {
-          await unregisterItemFromSharedRoom(rid, item.id);
-        }
-        setSharedRoomIds([]);
-        setShareEnabled(false);
-        toast('공유를 취소했어요');
+      for (const rid of sharedRoomIds) {
+        await unregisterItemFromSharedRoom(rid, item.id);
       }
+      setSharedRoomIds([]);
+      setShareEnabled(false);
+      setDropdownOpen(false);
+      toast('공유를 취소했어요');
     } catch (e) {
       toast(e instanceof Error ? e.message : '공유 처리에 실패했어요', { variant: 'error' });
     }
   };
 
-  const handleSelectRoom = async (roomId: string) => {
+  /* 목록의 방을 누를 때마다 그 방만 켜고 끈다(한 번 더 누르면 해제).
+     한 벌을 여러 방에 걸 수 있어야 하므로 다른 방은 건드리지 않는다 —
+     예전엔 방을 고르면 나머지 방에서 빼버려서, 고르는 게 아니라 '이동'이었다.
+     고르고 나서도 목록을 닫지 않는다: 두 번째 방을 이어서 고를 수 있어야 한다. */
+  const handleToggleRoom = async (roomId: string) => {
     if (!item) return;
+    const alreadyShared = sharedRoomIds.includes(roomId);
     try {
-      for (const rid of sharedRoomIds) {
-        await unregisterItemFromSharedRoom(rid, item.id);
+      if (alreadyShared) {
+        await unregisterItemFromSharedRoom(roomId, item.id);
+        setSharedRoomIds((prev) => prev.filter((rid) => rid !== roomId));
+      } else {
+        await registerItemToSharedRoom(roomId, item.id);
+        setSharedRoomIds((prev) => [...prev, roomId]);
+
       }
-      await registerItemToSharedRoom(roomId, item.id);
-      setSharedRoomIds([roomId]);
-      setSelectedRoomId(roomId);
-      toast('공유 옷장을 변경했어요');
     } catch (e) {
-      toast(e instanceof Error ? e.message : '공유 옷장 변경에 실패했어요', { variant: 'error' });
+      toast(e instanceof Error ? e.message : '공유 처리에 실패했어요', { variant: 'error' });
     }
   };
 
@@ -249,7 +275,7 @@ export default function ItemDetail() {
               {!isReadOnly && sharedRooms.length > 0 ? (
                 <View style={styles.shareArea}>
                   <View style={styles.shareHeader}>
-                    <Text style={styles.shareLabel}>공유 옷장에 공유</Text>
+                    <Text style={styles.shareLabel}>공유 옷장</Text>
                     <Pressable
                       style={[styles.switchContainer, shareEnabled && styles.switchContainerActive]}
                       onPress={() => handleToggleShare(!shareEnabled)}
@@ -263,10 +289,10 @@ export default function ItemDetail() {
                         style={styles.dropdownHeader}
                         onPress={() => setDropdownOpen(!dropdownOpen)}
                       >
+                        {/* 고른 방 이름을 여기 나열하지 않는다 — 이름이 길거나 여러 개면
+                            줄이 복잡해진다. 어디에 들어갔는지는 목록의 체크로 읽는다. */}
                         <Text style={styles.dropdownSelectedText} numberOfLines={1}>
-                          {selectedRoomId
-                            ? sharedRooms.find((r) => r.id === selectedRoomId)?.title
-                            : '선택'}
+                          공유할 옷장 선택
                         </Text>
                         <Icon
                           name={dropdownOpen ? 'chevron.up' : 'chevron.down'}
@@ -276,29 +302,36 @@ export default function ItemDetail() {
                       </Pressable>
                       {dropdownOpen && (
                         <View style={styles.dropdownList}>
-                          {sharedRooms.map((room) => (
-                            <Pressable
-                              key={room.id}
-                              style={[
-                                styles.dropdownItem,
-                                selectedRoomId === room.id && styles.dropdownItemActive,
-                              ]}
-                              onPress={() => {
-                                handleSelectRoom(room.id);
-                                setDropdownOpen(false);
-                              }}
-                            >
-                              <Text
+                          {sharedRooms.map((room) => {
+                            const checked = sharedRoomIds.includes(room.id);
+                            return (
+                              <Pressable
+                                key={room.id}
                                 style={[
-                                  styles.dropdownItemText,
-                                  selectedRoomId === room.id && styles.dropdownItemTextActive,
+                                  styles.dropdownItem,
+                                  checked && styles.dropdownItemActive,
                                 ]}
-                                numberOfLines={1}
+                                onPress={() => handleToggleRoom(room.id)}
+                                accessibilityRole="checkbox"
+                                accessibilityState={{ checked }}
+                                accessibilityLabel={`${room.title}${checked ? ' 공유 중, 눌러서 해제' : ' 눌러서 공유'}`}
                               >
-                                {room.title}
-                              </Text>
-                            </Pressable>
-                          ))}
+                                <Text
+                                  style={[
+                                    styles.dropdownItemText,
+                                    checked && styles.dropdownItemTextActive,
+                                  ]}
+                                  numberOfLines={1}
+                                >
+                                  {room.title}
+                                </Text>
+                                {/* 고른 방만 오른쪽 끝에 체크 — 안 고른 방은 아무 표시도 없다 */}
+                                {checked ? (
+                                  <Icon name="checkmark" tintColor={Editorial.ink} size={13} />
+                                ) : null}
+                              </Pressable>
+                            );
+                          })}
                         </View>
                       )}
                     </View>
@@ -363,6 +396,12 @@ const styles = StyleSheet.create({
     marginTop: 22,
     borderWidth: 1,
     borderColor: Editorial.line,
+    /* 드롭다운이 이 블록 밖(아래 스펙 그리드·'태그가 비어있어요' 위)으로 펼쳐진다.
+       zIndex 는 형제끼리만 겨루므로, 안쪽 dropdownWrapper 에만 걸면 소용이 없다 —
+       뒤에 오는 형제가 통째로 위에 그려져 글자가 겹쳐 보였다. 블록 자체를 올린다.
+       elevation 은 안드로이드용(zIndex 만으로는 안 올라간다). */
+    zIndex: 20,
+    elevation: 20,
   },
   shareHeader: {
     flexDirection: 'row',
@@ -425,6 +464,7 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: Editorial.line,
     zIndex: 101,
+    elevation: 24, // 안드로이드에서 아래 형제 위로 띄운다
     maxHeight: 120,
     overflow: 'scroll',
     shadowColor: '#000',
@@ -433,15 +473,22 @@ const styles = StyleSheet.create({
     shadowRadius: 6,
   },
   dropdownItem: {
+    flexDirection: 'row',        // 이름은 왼쪽, 체크는 오른쪽 끝
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 8,
     paddingVertical: 10,
     paddingHorizontal: 12,
     borderBottomWidth: 1,
     borderBottomColor: Editorial.lineSoft,
+    // 항목마다 불투명 면을 준다 — 부모 배경만 믿으면 웹에서 뒤 텍스트가 비쳐 보인다
+    backgroundColor: Editorial.surface,
   },
   dropdownItemActive: {
     backgroundColor: Editorial.surfaceSoft,
   },
   dropdownItemText: {
+    flex: 1,   // 이름이 길어도 체크를 밀어내지 않는다
     fontSize: 11,
     color: Editorial.textSoft,
   },

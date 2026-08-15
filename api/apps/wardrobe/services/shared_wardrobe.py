@@ -1,6 +1,7 @@
 import random
 import string
 from datetime import timedelta
+from django.core.exceptions import ValidationError
 from django.utils import timezone
 from django.db import transaction
 from apps.wardrobe.models import SharedWardrobeRoom, SharedWardrobeMember, SharedWardrobeItem, WardrobeItem
@@ -111,12 +112,19 @@ def leave_shared_room(user, room_id: str, delete_my_items: bool = True) -> None:
       - 방 안에 더이상 남은 유저가 0명이면 방을 폐쇄(Delete) 처리합니다.
     - 아이템 처리:
       - delete_my_items 가 True이면 사용자가 해당 공유 옷장에 기여한 옷들을 일괄 삭제합니다.
-      - False이면 옷은 기부되어 공유 옷장에 유지됩니다 (등록 유저는 NULL 처리).
+      - False이면 등록자 연결만 NULL 로 바꿔 방에 남깁니다("기부").
+        ⚠️ 기부는 원본이 살아 있는 동안만 유지된다 — 공유 행은 원본 WardrobeItem 을
+        CASCADE 로 따라가므로, 탈퇴자가 나중에 개인 옷장에서 그 옷을 지우면 방에서도
+        사라진다. 원본과 무관한 영속 기부가 필요해지면 이미지·메타 복제가 선행돼야 한다.
     """
     try:
-        room = SharedWardrobeRoom.objects.get(pk=room_id)
+        # select_for_update: 마지막 두 멤버가 동시에 탈퇴하면 둘 다 "남은 인원 1명"을
+        # 보고 아무도 방을 지우지 않아, 조회는 안 되는데 초대코드로는 들어와지는
+        # 유령 방이 남는다. join/refresh 와 같은 방 행 잠금으로 직렬화한다.
+        room = SharedWardrobeRoom.objects.select_for_update().get(pk=room_id)
         membership = SharedWardrobeMember.objects.get(room=room, user=user)
-    except (SharedWardrobeRoom.DoesNotExist, SharedWardrobeMember.DoesNotExist):
+    except (SharedWardrobeRoom.DoesNotExist, SharedWardrobeMember.DoesNotExist, ValidationError):
+        # ValidationError: room_id 가 UUID 형식이 아닐 때 — 없는 방과 같게 취급한다(500 방지)
         raise ValueError("참여하고 있지 않은 공유 옷장 방입니다.")
 
     # 1. 탈퇴자 등록 옷 처리 분기
@@ -154,7 +162,7 @@ def register_item_to_shared_room(user, room_id: str, wardrobe_item_id: str, stat
         room = SharedWardrobeRoom.objects.get(pk=room_id)
         # 방 참여자인지 확인
         SharedWardrobeMember.objects.get(room=room, user=user)
-    except (SharedWardrobeRoom.DoesNotExist, SharedWardrobeMember.DoesNotExist):
+    except (SharedWardrobeRoom.DoesNotExist, SharedWardrobeMember.DoesNotExist, ValidationError):
         raise ValueError("공유 옷장 참여 멤버만 옷을 공유할 수 있습니다.")
 
     try:
@@ -163,7 +171,7 @@ def register_item_to_shared_room(user, room_id: str, wardrobe_item_id: str, stat
             user=user,
             confirmed=True,
         )
-    except WardrobeItem.DoesNotExist:
+    except (WardrobeItem.DoesNotExist, ValidationError):
         raise ValueError("내 개인 옷장에서 사용자가 확정한 옷만 공유할 수 있습니다.")
 
     shared_item, _ = SharedWardrobeItem.objects.get_or_create(
@@ -182,12 +190,16 @@ def update_shared_item_status(user, room_id: str, item_id: str, status: str) -> 
     try:
         room = SharedWardrobeRoom.objects.get(pk=room_id)
         membership = SharedWardrobeMember.objects.get(room=room, user=user)
-    except (SharedWardrobeRoom.DoesNotExist, SharedWardrobeMember.DoesNotExist):
+    except (SharedWardrobeRoom.DoesNotExist, SharedWardrobeMember.DoesNotExist, ValidationError):
         raise ValueError("공유 옷장 참여 멤버만 상태를 변경할 수 있습니다.")
 
-    shared_item = SharedWardrobeItem.objects.filter(room=room, wardrobe_item_id=item_id).first()
-    if not shared_item:
-        shared_item = SharedWardrobeItem.objects.filter(room=room, pk=item_id).first()
+    try:
+        shared_item = SharedWardrobeItem.objects.filter(room=room, wardrobe_item_id=item_id).first()
+        if not shared_item:
+            shared_item = SharedWardrobeItem.objects.filter(room=room, pk=item_id).first()
+    except ValidationError:
+        # item_id 가 UUID 형식이 아님 — 못 찾은 것과 같게 취급한다(500 방지)
+        shared_item = None
 
     if not shared_item:
         raise ValueError("공유 옷장에서 아이템을 찾을 수 없습니다.")
@@ -203,3 +215,44 @@ def update_shared_item_status(user, room_id: str, item_id: str, status: str) -> 
     shared_item.save(update_fields=["status"])
     return shared_item
 
+
+
+def is_room_member(user, room_id: str) -> bool:
+    """이 사용자가 지금 그 방의 멤버인가. 공유 예약을 받아 줄지 판단하는 데 쓴다."""
+    if not room_id:
+        return False
+    try:
+        return SharedWardrobeMember.objects.filter(room_id=room_id, user=user).exists()
+    except ValidationError:
+        return False  # UUID 형식이 아닌 값 — 멤버 아님과 같게 취급한다(500 방지)
+
+
+@transaction.atomic
+def redeem_pending_share(item: WardrobeItem) -> SharedWardrobeItem | None:
+    """확정된 옷의 공유 예약을 소진한다. 확정 처리(PATCH confirmed=true) 직후에 부른다.
+
+    원자성 규칙 — "비우기"와 "등록"은 한 트랜잭션이다:
+      - 등록 성공          → 예약 비움 + 공유 행 생성이 같이 커밋
+      - ValueError(방 나감/방 삭제) → 되살릴 수 없는 예약이므로 비움만 커밋
+      - 그 밖의 예외(DB 오류 등)   → 전체 롤백. **예약이 살아남아 재시도가 가능하다.**
+    데코레이터 없이 비우기를 먼저 저장하면 등록이 죽는 순간 예약도 같이 증발해,
+    일시적 DB 오류 한 번에 사용자가 켠 토글이 영영 사라진다.
+
+    호출부(확정 API)는 이 함수가 None 을 주면 '공유는 못 했지만 확정은 성공'으로 응답한다.
+    """
+    room_id = item.pending_share_room_id
+    if not room_id:
+        return None
+
+    status = item.pending_share_status or SharedWardrobeItem.Status.AVAILABLE
+    item.pending_share_room = None
+    item.pending_share_status = ""
+    item.save(update_fields=["pending_share_room", "pending_share_status"])
+
+    try:
+        # register_* 도 atomic 이라 여기서는 savepoint 로 중첩된다 —
+        # ValueError 로 빠져도 바깥(예약 비우기)은 살아서 커밋된다.
+        return register_item_to_shared_room(item.user, str(room_id), str(item.pk), status)
+    except ValueError:
+        # 방을 나갔거나 방이 지워진 뒤 확정한 경우. 확정 자체를 실패시키지 않는다.
+        return None

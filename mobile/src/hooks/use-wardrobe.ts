@@ -9,7 +9,6 @@ import {
   type WardrobeItemPatch,
   type WardrobeItemQuery,
 } from '@/lib/wardrobeApi';
-import { redeemShareReservation } from '@/state/pending-share';
 
 /**
  * 옷장 데이터 훅. 전송은 lib/wardrobeApi.ts, 상태·폴링은 여기.
@@ -124,8 +123,11 @@ export function useWardrobeItem(itemId: string | undefined): ItemResult {
 /**
  * 태그 확인·수정 후 확정. 화면에서 바로 쓰도록 얇게 감쌌다.
  *
- * 확정 직후에 공유 예약을 소진한다 — 등록할 때 '공유 옷장에 공유'를 켠 옷은
- * 그때는 미확정이라 서버가 거부했고, 확정된 지금이 유일하게 공유 가능한 시점이다.
+ * 공유 예약 소진은 **서버가 같은 요청 안에서** 한다 — 등록할 때 '공유 옷장에 공유'를
+ * 켠 옷은 그때는 미확정이라 거부됐고, 확정된 지금이 유일하게 공유 가능한 시점이다.
+ * 예전엔 이 예약을 기기(secureStore)에 들고 있어서 PC 에서 올리고 폰에서 확정하면
+ * 공유가 통째로 사라졌다. 지금은 `wardrobe_item.pending_share_room` 이 들고 있다.
+ *
  * 공유는 곁가지라 실패해도 확정 결과를 그대로 돌려준다 (`sharedRoomId`가 null일 뿐).
  */
 export async function confirmWardrobeItem(
@@ -133,8 +135,7 @@ export async function confirmWardrobeItem(
   patch: WardrobeItemPatch = {},
 ): Promise<{ item: WardrobeApiItem; sharedRoomId: string | null }> {
   const item = await patchWardrobeItem(itemId, { ...patch, confirmed: true });
-  const sharedRoomId = await redeemShareReservation(itemId);
-  return { item, sharedRoomId };
+  return { item, sharedRoomId: item.shared_room_id ?? null };
 }
 
 export { deleteWardrobeItem, patchWardrobeItem };

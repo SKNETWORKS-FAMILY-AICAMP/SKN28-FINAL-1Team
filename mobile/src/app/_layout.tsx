@@ -7,6 +7,7 @@ import { AnimatedSplashOverlay } from '@/components/animated-icon';
 import { DevReset } from '@/components/dev-reset';
 import { ConfirmProvider, ToastProvider } from '@/components/ui';
 import { useKakaoInviteLink } from '@/hooks/use-kakao-link';
+import { clearLegacyPendingShare } from '@/lib/secureStore';
 import { initSocialSDKs } from '@/lib/socialLogin';
 import { authStore } from '@/state/auth';
 import { outfitAnalysisStore } from '@/state/outfit-analysis';
@@ -31,6 +32,9 @@ export default function RootLayout() {
     outfitAnalysisStore.bootstrap();
     /* 두 스토어를 구독하므로 뒤에 둔다 — 비로그인 분석의 claim 토큰을 모았다가 로그인 때 넘긴다. */
     outfitClaimStore.bootstrap();
+    /* 공유 예약이 서버로 옮겨가기 전(secureStore) 남은 값을 치운다. 아무도 읽지 않지만
+       남겨 두면 나중에 "예약이 어디 있지"를 두 군데서 찾게 된다. */
+    void clearLegacyPendingShare();
   }, []);
   return (
     <ThemeProvider value={colorScheme === 'dark' ? DarkTheme : DefaultTheme}>
