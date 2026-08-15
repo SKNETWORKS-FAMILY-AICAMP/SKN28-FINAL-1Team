@@ -1004,7 +1004,7 @@ const styles = StyleSheet.create({
     flexWrap: 'nowrap',
     gap: 8,
     marginTop: 0,
-    marginBottom: 12,
+    marginBottom: 4,
   },
   roomTab: {
     paddingHorizontal: 16,
