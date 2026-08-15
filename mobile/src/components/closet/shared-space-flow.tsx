@@ -426,7 +426,7 @@ const styles = StyleSheet.create({
        wrap 을 주면 자리가 모자랄 때 입력칸이 아랫줄로 내려가 온전히 보인다. */
     flexWrap: 'wrap',
     paddingHorizontal: 20,
-    marginBottom: 8,
+    marginBottom: 12,
     gap: 8,
   },
   memberAvatars: { flexDirection: 'row' },

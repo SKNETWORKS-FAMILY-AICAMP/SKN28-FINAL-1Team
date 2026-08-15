@@ -135,8 +135,8 @@ const styles = StyleSheet.create({
     padding: 0,
   },
 
-  chipScroll: { flexGrow: 0, height: 60 },
-  chipRow: { paddingHorizontal: PAD, gap: 8, paddingBottom: 20, alignItems: 'center' },
+  chipScroll: { flexGrow: 0 },
+  chipRow: { paddingHorizontal: PAD, gap: 8, paddingTop: 2, paddingBottom: 6, alignItems: 'center' },
   chip: {
     height: 36,
     paddingHorizontal: 15,

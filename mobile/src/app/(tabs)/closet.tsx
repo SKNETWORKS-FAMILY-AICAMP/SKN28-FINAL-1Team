@@ -1003,8 +1003,8 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     flexWrap: 'nowrap',
     gap: 8,
-    marginTop: 8,
-    marginBottom: 8,
+    marginTop: 6,
+    marginBottom: 12,
   },
   roomTab: {
     paddingHorizontal: 16,
