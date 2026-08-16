@@ -5,6 +5,7 @@ from apps.chat.views import (
     ChatAttachmentMoodDecisionView,
     ChatRunDetailView,
     ChatRunEventStreamView,
+    ChatRunPersonaRetryView,
     ChatSessionAttachmentUploadView,
     ChatSessionDeriveView,
     ChatSessionDetailView,
@@ -79,5 +80,10 @@ urlpatterns = [
         "chat/runs/<uuid:run_id>/events/",
         ChatRunEventStreamView.as_view(),
         name="run-events",
+    ),
+    path(
+        "chat/runs/<uuid:run_id>/personas/<str:persona_id>/retry/",
+        ChatRunPersonaRetryView.as_view(),
+        name="run-persona-retry",
     ),
 ]

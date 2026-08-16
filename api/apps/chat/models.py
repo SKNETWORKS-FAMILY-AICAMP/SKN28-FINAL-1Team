@@ -102,6 +102,13 @@ def validate_stylist_persona_id(value: object) -> None:
         raise ValidationError(f"지원하지 않는 스타일리스트 ID입니다: {value}")
 
 
+def validate_persona_error_history(value: object) -> None:
+    """재시도 전 오류 이력이 JSON 객체 배열인지 검증한다."""
+
+    if not isinstance(value, list) or any(not isinstance(row, dict) for row in value):
+        raise ValidationError("스타일리스트 오류 이력은 JSON 객체 배열이어야 합니다.")
+
+
 class PersonaProfile(models.Model):
     """버전이 고정된 채팅 스타일리스트 페르소나 설정."""
 
@@ -996,6 +1003,12 @@ class ChatRunPersona(models.Model):
     retry_count = models.PositiveSmallIntegerField(
         default=0,
         db_comment="해당 스타일리스트 실행 재시도 횟수 (최초 실행은 0)",
+    )
+    error_history = models.JSONField(
+        default=list,
+        blank=True,
+        validators=[validate_persona_error_history],
+        db_comment="스타일리스트 재시도 전 오류 이력 JSON 배열 (시각·코드·메시지)",
     )
     started_at = models.DateTimeField(
         null=True,

@@ -20,7 +20,7 @@ from apps.chat.models import (
     ChatRunPersona,
     ChatSession,
 )
-from apps.chat.services import mood_analysis
+from apps.chat.services import mood_analysis, stylist_results
 from apps.chat.services.context import ChatContextService, fingerprint
 from apps.chat.services.openai_adapter import (
     ChatLLMError,
@@ -28,12 +28,25 @@ from apps.chat.services.openai_adapter import (
     OpenAIChatAdapter,
     TurnAnalysis,
 )
+from apps.chat.services.persona_narration import (
+    PersonaNarrationItem,
+    PersonaNarrationRequest,
+    PersonaNarrationService,
+    RuleBasedPersonaNarrator,
+    build_persona_narration_service,
+)
 from apps.chat.services.recommendation_pipeline import (
     ChatRecommendationError,
     ChatRecommendationPipeline,
 )
 from apps.chat.services.sessions import ChatSessionForbidden, append_message
+from apps.chat.services.stylist_execution import (
+    StylistExecutionCoordinator,
+    StylistExecutionError,
+    StylistExecutionResult,
+)
 from apps.chat.services.stylist_personas import load_stylist_personas
+from apps.recommend.models import OutfitComposition, RecommendationResult
 
 logger = logging.getLogger(__name__)
 
@@ -59,6 +72,7 @@ class OrchestrationResult:
     run: ChatRun
     response_message: ChatMessage
     recommendation_result_id: str | None = None
+    recommendation_result_ids: tuple[str, ...] = ()
 
 
 def _session_run_snapshot(session: ChatSession) -> dict[str, object]:
@@ -285,6 +299,15 @@ def reset_run_for_retry(run_id) -> bool:
             ChatAttachment.AnalysisStatus.FAILED,
         },
     ).update(analysis_status=ChatAttachment.AnalysisStatus.QUEUED)
+    ChatRunPersona.objects.filter(run=run).update(
+        status=ChatRunPersona.Status.PENDING,
+        latency_ms=0,
+        error_code="",
+        error_message="",
+        started_at=None,
+        completed_at=None,
+        updated_at=now,
+    )
     return True
 
 
@@ -297,12 +320,18 @@ class ChatOrchestrator:
         context_service: ChatContextService | None = None,
         llm: OpenAIChatAdapter | None = None,
         recommendation_pipeline: ChatRecommendationPipeline | None = None,
+        stylist_coordinator: StylistExecutionCoordinator | None = None,
+        persona_narration_service: PersonaNarrationService | None = None,
     ) -> None:
         self.context_service = context_service or ChatContextService()
         self.llm = llm or OpenAIChatAdapter()
         self.recommendation_pipeline = (
             recommendation_pipeline or ChatRecommendationPipeline()
         )
+        self.stylist_coordinator = stylist_coordinator or StylistExecutionCoordinator(
+            persistence_pipeline=self.recommendation_pipeline,
+        )
+        self.persona_narration_service = persona_narration_service
 
     def process(self, run_id) -> OrchestrationResult:
         started = time.monotonic()
@@ -344,11 +373,13 @@ class ChatOrchestrator:
             )
 
             recommendation_result_id = None
+            recommendation_result_ids: tuple[str, ...] = ()
             final_status = ChatRun.Status.SUCCEEDED
             response_text: str
             response_metadata: dict = {"run_id": str(run.id)}
 
             if self._requests_mode_change(run.session.mode, analysis):
+                self._discard_unstarted_persona_executions(run)
                 final_status = ChatRun.Status.NEEDS_CLARIFICATION
                 response_text = (
                     analysis.response_text.strip()
@@ -356,33 +387,62 @@ class ChatOrchestrator:
                 )
                 response_metadata["target_mode"] = analysis.target_mode
             elif analysis.action == "CLARIFY":
+                self._discard_unstarted_persona_executions(run)
                 final_status = ChatRun.Status.NEEDS_CLARIFICATION
                 response_text = (
                     analysis.clarification_question.strip()
                     or "추천에 필요한 상황이나 조건을 조금 더 알려주세요."
                 )
             elif analysis.action == "RESPOND":
+                self._discard_unstarted_persona_executions(run)
                 response_text = (
                     analysis.response_text.strip()
                     or "패션 추천과 관련해 궁금한 조건을 알려주세요."
                 )
             else:
-                pipeline_result = self.recommendation_pipeline.execute(
-                    run=run,
-                    context=context.payload,
-                    analysis=analysis,
-                )
-                explained = self.llm.explain_recommendation(
-                    identity_id=str(run.session.identity_id),
-                    persona=context.payload["persona"],
-                    mode=run.session.mode,
-                    approved_recommendation=pipeline_result.approved_payload,
-                )
-                usage += explained.usage
-                provider_response_id = explained.response_id
-                response_text = explained.value.message.strip()
-                recommendation_result_id = str(pipeline_result.result.id)
-                response_metadata["recommendation_result_id"] = recommendation_result_id
+                if run.response_mode == ChatSession.ResponseMode.STYLIST:
+                    stylist_execution = self.stylist_coordinator.execute(
+                        run=run,
+                        persona_executions=tuple(run.persona_executions.all()),
+                        context=context.payload,
+                        analysis=analysis,
+                    )
+                    usage += self._apply_persona_narrations(stylist_execution)
+                    recommendation_result_ids = (
+                        stylist_execution.recommendation_result_ids
+                    )
+                    response_metadata["recommendation_result_ids"] = list(
+                        recommendation_result_ids
+                    )
+                    response_metadata["stylist_results"] = (
+                        stylist_results.message_metadata_results(run)
+                    )
+                    response_text = (
+                        "완료된 스타일리스트 추천부터 확인해 주세요. "
+                        "일부 추천은 처리하지 못했어요."
+                        if stylist_execution.partial_failure
+                        else "선택한 스타일리스트의 추천이 준비됐어요."
+                    )
+                else:
+                    pipeline_result = self.recommendation_pipeline.execute(
+                        run=run,
+                        context=context.payload,
+                        analysis=analysis,
+                    )
+                    explained = self.llm.explain_recommendation(
+                        identity_id=str(run.session.identity_id),
+                        persona=context.payload["persona"],
+                        mode=run.session.mode,
+                        approved_recommendation=pipeline_result.approved_payload,
+                    )
+                    usage += explained.usage
+                    provider_response_id = explained.response_id
+                    response_text = explained.value.message.strip()
+                    recommendation_result_id = str(pipeline_result.result.id)
+                    recommendation_result_ids = (recommendation_result_id,)
+                    response_metadata["recommendation_result_id"] = (
+                        recommendation_result_id
+                    )
 
             response_message, _ = append_message(
                 identity=run.session.identity,
@@ -426,6 +486,7 @@ class ChatOrchestrator:
                 run=run,
                 response_message=response_message,
                 recommendation_result_id=recommendation_result_id,
+                recommendation_result_ids=recommendation_result_ids,
             )
         except Exception as exc:
             if attachment is not None:
@@ -454,6 +515,220 @@ class ChatOrchestrator:
                 },
             )
             raise
+
+    def process_persona_retry(
+        self,
+        *,
+        run_id,
+        persona_id: str,
+        retry_count: int,
+    ) -> OrchestrationResult:
+        """원본 run과 메시지를 유지하며 실패한 스타일리스트 한 명만 재실행한다."""
+
+        started = time.monotonic()
+        run, execution = self._start_persona_retry(
+            run_id=run_id,
+            persona_id=persona_id,
+            retry_count=retry_count,
+        )
+        usage = LLMUsage()
+        provider_response_id = ""
+        try:
+            context = self.context_service.build(
+                session=run.session,
+                request_message=run.request_message,
+                current_run=run,
+            )
+            analyzed = self.llm.analyze_turn(
+                identity_id=str(run.session.identity_id),
+                context=context.payload,
+            )
+            usage += analyzed.usage
+            provider_response_id = analyzed.response_id
+            analysis = self._effective_analysis(run.session, analyzed.value)
+            analysis = analysis.model_copy(
+                update={"action": "RECOMMEND", "target_mode": "CURRENT"}
+            )
+            retried = self.stylist_coordinator.execute_retry(
+                run=run,
+                persona_execution=execution,
+                context=context.payload,
+                analysis=analysis,
+            )
+            usage += self._apply_persona_narrations(retried)
+            response_message = self._upsert_stylist_response_message(run)
+            duration_ms = int((time.monotonic() - started) * 1000)
+            now = timezone.now()
+            ChatRun.objects.filter(pk=run.pk).update(
+                status=ChatRun.Status.SUCCEEDED,
+                response_message=response_message,
+                provider_response_id=provider_response_id,
+                input_tokens=run.input_tokens + usage.input_tokens,
+                cached_input_tokens=(
+                    run.cached_input_tokens + usage.cached_input_tokens
+                ),
+                output_tokens=run.output_tokens + usage.output_tokens,
+                latency_ms=run.latency_ms + duration_ms,
+                error_code="",
+                error_message="",
+                completed_at=now,
+                updated_at=now,
+            )
+            run.refresh_from_db()
+            return OrchestrationResult(
+                run=run,
+                response_message=response_message,
+                recommendation_result_ids=retried.recommendation_result_ids,
+            )
+        except Exception as exc:
+            self._fail_persona_retry(
+                run=run,
+                execution=execution,
+                exc=exc,
+                latency_ms=int((time.monotonic() - started) * 1000),
+            )
+            raise
+
+    @staticmethod
+    @transaction.atomic
+    def _start_persona_retry(
+        *,
+        run_id,
+        persona_id: str,
+        retry_count: int,
+    ) -> tuple[ChatRun, ChatRunPersona]:
+        now = timezone.now()
+        run = (
+            ChatRun.objects.select_for_update()
+            .select_related(
+                "session",
+                "session__identity",
+                "session__identity__user",
+                "request_message",
+                "response_message",
+            )
+            .filter(pk=run_id)
+            .first()
+        )
+        if run is None:
+            raise ChatRunInvalid("채팅 실행을 찾을 수 없습니다.")
+        if (
+            run.response_mode != ChatSession.ResponseMode.STYLIST
+            or run.status != ChatRun.Status.PENDING
+        ):
+            raise ChatRunAlreadyProcessing(
+                "현재 상태에서는 해당 스타일리스트 재실행을 시작할 수 없습니다."
+            )
+        execution = (
+            ChatRunPersona.objects.select_for_update()
+            .filter(
+                run=run,
+                persona_id=persona_id,
+                status=ChatRunPersona.Status.PENDING,
+                retry_count=retry_count,
+            )
+            .first()
+        )
+        if execution is None:
+            raise ChatRunAlreadyProcessing(
+                "현재 상태에서는 해당 스타일리스트 재실행을 시작할 수 없습니다."
+            )
+        run.status = ChatRun.Status.RUNNING
+        run.started_at = now
+        run.completed_at = None
+        run.save(update_fields=["status", "started_at", "completed_at", "updated_at"])
+        return run, execution
+
+    def _upsert_stylist_response_message(self, run: ChatRun) -> ChatMessage:
+        current = stylist_results.with_stylist_results(
+            ChatRun.objects.select_related("response_message")
+        ).get(pk=run.pk)
+        snapshots = stylist_results.message_metadata_results(current)
+        result_ids = [
+            row["result_id"] for row in snapshots if row["result_id"] is not None
+        ]
+        has_failure = any(
+            row["status"] == ChatRunPersona.Status.FAILED for row in snapshots
+        )
+        content = (
+            "완료된 스타일리스트 추천부터 확인해 주세요. 일부 추천은 처리하지 못했어요."
+            if has_failure
+            else "선택한 스타일리스트의 추천이 준비됐어요."
+        )
+        metadata = {
+            "run_id": str(run.pk),
+            "recommendation_result_ids": result_ids,
+            "stylist_results": snapshots,
+        }
+        if current.response_message_id:
+            ChatMessage.objects.filter(pk=current.response_message_id).update(
+                content=content,
+                metadata=metadata,
+                status=ChatMessage.Status.COMPLETED,
+                updated_at=timezone.now(),
+            )
+            current.response_message.refresh_from_db()
+            return current.response_message
+        response_message, _ = append_message(
+            identity=run.session.identity,
+            session_id=run.session_id,
+            role=ChatMessage.Role.ASSISTANT,
+            content=content,
+            status=ChatMessage.Status.COMPLETED,
+            client_message_id=f"run:{run.pk}:response",
+            metadata=metadata,
+        )
+        return response_message
+
+    @staticmethod
+    def _fail_persona_retry(
+        *,
+        run: ChatRun,
+        execution: ChatRunPersona,
+        exc: Exception,
+        latency_ms: int,
+    ) -> None:
+        now = timezone.now()
+        error_code = str(getattr(exc, "code", ChatOrchestrationError.code))[:64]
+        safe_message = (
+            str(exc)[:500]
+            if isinstance(
+                exc,
+                (
+                    ChatLLMError,
+                    ChatRecommendationError,
+                    ChatOrchestrationError,
+                    StylistExecutionError,
+                ),
+            )
+            else "스타일리스트 추천 처리 중 내부 오류가 발생했습니다."
+        )
+        ChatRunPersona.objects.filter(
+            pk=execution.pk,
+            status__in=(
+                ChatRunPersona.Status.PENDING,
+                ChatRunPersona.Status.RUNNING,
+            ),
+        ).update(
+            status=ChatRunPersona.Status.FAILED,
+            latency_ms=max(latency_ms, 0),
+            error_code=error_code,
+            error_message=safe_message,
+            completed_at=now,
+            updated_at=now,
+        )
+        has_success = ChatRunPersona.objects.filter(
+            run=run,
+            status=ChatRunPersona.Status.SUCCEEDED,
+        ).exists()
+        ChatRun.objects.filter(pk=run.pk).update(
+            status=(ChatRun.Status.SUCCEEDED if has_success else ChatRun.Status.FAILED),
+            error_code=("" if has_success else error_code),
+            error_message=("" if has_success else safe_message),
+            latency_ms=run.latency_ms + max(latency_ms, 0),
+            completed_at=now,
+            updated_at=now,
+        )
 
     def _process_photo_mood(
         self,
@@ -514,6 +789,88 @@ class ChatOrchestrator:
             run=run,
             response_message=response_message,
         )
+
+    def _apply_persona_narrations(
+        self,
+        execution: StylistExecutionResult,
+    ) -> LLMUsage:
+        usage = LLMUsage()
+        catalog = load_stylist_personas()
+        service = self.persona_narration_service
+        if service is None:
+            try:
+                service = build_persona_narration_service(
+                    openai_chat_adapter=self.llm,
+                )
+            except Exception:  # noqa: BLE001 - 설명 실패는 추천 성공과 격리한다.
+                logger.warning(
+                    "페르소나 말투 서비스 초기화 실패, 규칙 fallback 사용",
+                    exc_info=True,
+                )
+
+        for success in execution.successes:
+            result = success.persisted.result
+            composition = (
+                result.compositions.filter(
+                    status=OutfitComposition.Status.VALIDATED,
+                )
+                .prefetch_related("items")
+                .order_by("rank", "created_at")
+                .first()
+            )
+            if composition is None:
+                continue
+            items = tuple(
+                PersonaNarrationItem(
+                    slot=item.slot,
+                    name=self._item_display_name(item.item_snapshot, item.slot),
+                )
+                for item in composition.items.all()
+            )
+            request = PersonaNarrationRequest(
+                persona_id=success.persona_id,
+                outfit_id=str(composition.pk),
+                items=items,
+                reason_codes=tuple(result.validated_reason_codes),
+                voice_profile=catalog.get(success.persona_id).voice_profile,
+            )
+            try:
+                if service is None:
+                    raise RuntimeError("페르소나 말투 제공자가 초기화되지 않았습니다.")
+                narrated = service.generate(request)
+            except Exception:  # noqa: BLE001 - 말투 실패는 추천 성공과 격리한다.
+                logger.warning(
+                    "페르소나 설명 생성 실패, 규칙 fallback 사용: persona=%s",
+                    success.persona_id,
+                    exc_info=True,
+                )
+                narrated = RuleBasedPersonaNarrator().generate(
+                    request,
+                    requested_provider=settings.PERSONA_LLM_PROVIDER,
+                    reason="PERSONA_NARRATION_FAILED",
+                )
+            RecommendationResult.objects.filter(pk=result.pk).update(
+                persona_explanation=narrated.message,
+            )
+            result.persona_explanation = narrated.message
+            usage += narrated.usage
+        return usage
+
+    @staticmethod
+    def _item_display_name(snapshot: object, fallback: str) -> str:
+        if isinstance(snapshot, dict):
+            for key in ("display_name", "item_name", "product_name", "name", "title"):
+                value = snapshot.get(key)
+                if value not in (None, ""):
+                    return str(value)
+        return fallback
+
+    @staticmethod
+    def _discard_unstarted_persona_executions(run: ChatRun) -> None:
+        ChatRunPersona.objects.filter(
+            run=run,
+            status=ChatRunPersona.Status.PENDING,
+        ).delete()
 
     @staticmethod
     def _start(run_id) -> ChatRun:
@@ -700,6 +1057,7 @@ class ChatOrchestrator:
                 ChatLLMError,
                 ChatRecommendationError,
                 ChatOrchestrationError,
+                StylistExecutionError,
                 mood_analysis.ChatMoodError,
             ),
         ):
@@ -722,6 +1080,19 @@ class ChatOrchestrator:
         )
         ChatMessage.objects.filter(pk=run.request_message_id).update(
             status=ChatMessage.Status.FAILED,
+            updated_at=now,
+        )
+        ChatRunPersona.objects.filter(
+            run=run,
+            status__in=(
+                ChatRunPersona.Status.PENDING,
+                ChatRunPersona.Status.RUNNING,
+            ),
+        ).update(
+            status=ChatRunPersona.Status.FAILED,
+            error_code=str(error_code)[:64],
+            error_message=safe_message,
+            completed_at=now,
             updated_at=now,
         )
         logger.warning(

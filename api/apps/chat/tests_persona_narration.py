@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from dataclasses import replace
 from types import SimpleNamespace
 from unittest.mock import Mock
 
@@ -18,6 +19,7 @@ from apps.chat.services.persona_narration import (
     PersonaNarrationRequest,
     PersonaNarrationService,
     ProviderNarration,
+    RuleBasedPersonaNarrator,
     build_persona_narration_service,
 )
 from apps.chat.services.stylist_personas import load_stylist_personas
@@ -101,6 +103,135 @@ class PersonaNarrationTests(SimpleTestCase):
 
         with self.assertRaises(ValidationError):
             PersonaNarrationDraft.model_validate(payload)
+
+    def test_rule_based_fallback_uses_fixed_minimal_reason_priority(self) -> None:
+        request = replace(
+            self._request(),
+            reason_codes=(
+                "MINIMAL_RECENT_HISTORY",
+                "MINIMAL_SILHOUETTE_CONSISTENCY",
+                "MINIMAL_COLOR_COHESION",
+            ),
+        )
+
+        result = self._fallback().generate(
+            request,
+            requested_provider="openai",
+            reason="PERSONA_NARRATION_PROVIDER_FAILED",
+        )
+
+        self.assertEqual(
+            result.message,
+            "상의 크루넥 니트, 하의 테이퍼드 팬츠 조합에서 "
+            "색상 조화·실루엣 일관성 기준으로 차분하게 정리했어요.",
+        )
+
+    def test_rule_based_fallback_prioritizes_and_deduplicates_common_reason(
+        self,
+    ) -> None:
+        catalog = load_stylist_personas()
+        request = PersonaNarrationRequest(
+            persona_id="practical",
+            outfit_id="outfit-2",
+            items=(
+                PersonaNarrationItem(slot="TOP", name="셔츠"),
+                PersonaNarrationItem(slot="BOTTOM", name="팬츠"),
+                PersonaNarrationItem(slot="OUTER", name="재킷"),
+                PersonaNarrationItem(slot="FOOTWEAR", name="스니커즈"),
+            ),
+            reason_codes=(
+                "PRACTICAL_WEATHER_FIT",
+                "STYLIST_DUPLICATE_ALLOWED_NO_DISTINCT_CANDIDATE",
+                "STYLIST_DUPLICATE_ALLOWED_CANDIDATE_EXHAUSTED",
+            ),
+            voice_profile=catalog.get("practical").voice_profile,
+        )
+
+        result = self._fallback().generate(
+            request,
+            requested_provider="gemini",
+            reason="PERSONA_NARRATION_NOT_CONFIGURED",
+        )
+
+        self.assertEqual(
+            result.message,
+            "상의 셔츠, 하의 팬츠 등 4개 아이템 조합에서 "
+            "유효 후보 범위에서 품질을 우선한 판단·날씨 적합성 기준으로 "
+            "활용하기 쉽게 구성했어요.",
+        )
+        self.assertEqual(
+            result.message.count("유효 후보 범위에서 품질을 우선한 판단"),
+            1,
+        )
+
+    def test_rule_based_fallback_ignores_unknown_reason_codes(self) -> None:
+        request = replace(
+            self._request(),
+            reason_codes=("UNMAPPED_REASON",),
+        )
+
+        first = self._fallback().generate(
+            request,
+            requested_provider="openai",
+            reason="PERSONA_NARRATION_CONTRACT_FAILED",
+        )
+        second = self._fallback().generate(
+            request,
+            requested_provider="openai",
+            reason="PERSONA_NARRATION_CONTRACT_FAILED",
+        )
+
+        self.assertEqual(first.message, second.message)
+        self.assertIn("검증된 추천 조건", first.message)
+        self.assertNotIn("UNMAPPED_REASON", first.message)
+
+    def test_rule_based_fallback_uses_experimental_voice_rule(self) -> None:
+        catalog = load_stylist_personas()
+        request = replace(
+            self._request(),
+            persona_id="experimental",
+            reason_codes=(
+                "EXPERIMENTAL_NOVELTY",
+                "EXPERIMENTAL_HYPOTHESIS_ALIGNMENT",
+            ),
+            voice_profile=catalog.get("experimental").voice_profile,
+        )
+
+        result = self._fallback().generate(
+            request,
+            requested_provider="gemini",
+            reason="PERSONA_NARRATION_PROVIDER_FAILED",
+        )
+
+        self.assertEqual(
+            result.message,
+            "상의 크루넥 니트, 하의 테이퍼드 팬츠 조합에서 "
+            "변화 가설과의 정합성·새로움 기준으로 익숙함은 지키고 변화를 "
+            "더했어요.",
+        )
+
+    def test_rule_based_fallback_keeps_long_item_names_within_one_sentence(
+        self,
+    ) -> None:
+        request = replace(
+            self._request(),
+            items=(
+                PersonaNarrationItem(slot="TOP", name="긴" * 200),
+                PersonaNarrationItem(slot="BOTTOM", name="팬츠"),
+                PersonaNarrationItem(slot="OUTER", name="재킷"),
+            ),
+        )
+
+        result = self._fallback().generate(
+            request,
+            requested_provider="openai",
+            reason="PERSONA_NARRATION_PROVIDER_FAILED",
+        )
+
+        self.assertLessEqual(len(result.message), 300)
+        self.assertEqual(result.message.count("."), 1)
+        self.assertIn("상의, 하의 팬츠 등 3개 아이템 조합", result.message)
+        self.assertNotIn("긴" * 200, result.message)
 
     @override_settings(
         PERSONA_LLM_MODEL="gpt-4o-mini",
@@ -267,6 +398,10 @@ class PersonaNarrationTests(SimpleTestCase):
             reason_codes=["MINIMAL_COLOR_COHESION", "TPO_VALIDATED"],
             attribute_claims=[],
         )
+
+    @staticmethod
+    def _fallback() -> RuleBasedPersonaNarrator:
+        return RuleBasedPersonaNarrator()
 
 
 class _DraftNarrator:

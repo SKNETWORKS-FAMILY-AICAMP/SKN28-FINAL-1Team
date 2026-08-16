@@ -344,6 +344,31 @@ class StylistExecutionCoordinatorTests(SimpleTestCase):
         self.assertEqual(timeout.error_code, "STYLIST_PERSONA_TIMEOUT")
         self.assertEqual(timeout.latency_ms, 30)
 
+    def test_retry_executes_only_requested_persona(self) -> None:
+        run, executions = self._scope(("minimal", "practical"))
+        target = executions[1]
+        state = _FakeStateStore()
+        persistence = _FakePersistencePipeline()
+        coordinator = self._coordinator(
+            run=run,
+            executions=executions,
+            pipeline_factory=self._successful_factory(),
+            state=state,
+            persistence=persistence,
+        )
+
+        result = coordinator.execute_retry(
+            run=run,
+            persona_execution=target,
+            context={"original": True},
+            analysis=Mock(),
+        )
+
+        self.assertEqual(result.recommendation_result_ids, ("result-practical",))
+        self.assertEqual(state.running, ("execution-practical",))
+        self.assertEqual(set(state.succeeded), {"execution-practical"})
+        self.assertEqual(len(persistence.calls), 1)
+
     @staticmethod
     def _scope(persona_ids: tuple[str, ...]):
         run = SimpleNamespace(
@@ -356,6 +381,7 @@ class StylistExecutionCoordinatorTests(SimpleTestCase):
                 pk=f"execution-{persona_id}",
                 run_id=run.pk,
                 persona_id=persona_id,
+                status="PENDING",
                 strategy_snapshot={"persona_id": persona_id},
             )
             for persona_id in persona_ids

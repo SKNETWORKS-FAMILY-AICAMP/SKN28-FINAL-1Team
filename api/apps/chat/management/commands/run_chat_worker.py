@@ -14,7 +14,7 @@ from django.conf import settings
 from django.core.management.base import BaseCommand
 from django.utils import timezone
 
-from apps.chat.models import ChatRun
+from apps.chat.models import ChatRun, ChatRunPersona
 from apps.chat.serializers import ChatMessageSerializer
 from apps.chat.services import queue
 from apps.chat.services.events import ChatEventStore
@@ -29,6 +29,7 @@ from apps.chat.services.orchestrator import (
     ChatRunInvalid,
     reset_run_for_retry,
 )
+from apps.chat.services.persona_retry import reset_interrupted_persona_retry
 from apps.chat.services.recommendation_pipeline import ChatRecommendationError
 
 logger = logging.getLogger(__name__)
@@ -83,12 +84,26 @@ class Command(BaseCommand):
 
     def _recover_interrupted(self) -> None:
         for raw in queue.recover_processing():
-            run_id = self._parse_run_id(raw)
-            if run_id and reset_run_for_retry(run_id):
+            payload = self._parse_payload(raw)
+            if payload is None:
+                continue
+            run_id = str(payload["run_id"])
+            if payload.get("task") == queue.PERSONA_RETRY_TASK:
+                reset = reset_interrupted_persona_retry(
+                    run_id=run_id,
+                    persona_id=str(payload.get("persona_id", "")),
+                )
+            else:
+                reset = reset_run_for_retry(run_id)
+            if reset:
                 self._publish(
                     run_id,
                     "retrying",
-                    {"run_id": run_id, "status": ChatRun.Status.PENDING},
+                    {
+                        "run_id": run_id,
+                        "status": ChatRun.Status.PENDING,
+                        "persona_id": payload.get("persona_id"),
+                    },
                 )
 
     @staticmethod
@@ -107,7 +122,22 @@ class Command(BaseCommand):
         recovered = 0
         for run in runs:
             try:
-                queue.enqueue(run)
+                retry_execution = (
+                    run.persona_executions.filter(
+                        status=ChatRunPersona.Status.PENDING,
+                        retry_count__gt=0,
+                    )
+                    .order_by("display_order")
+                    .first()
+                )
+                if retry_execution is None:
+                    queue.enqueue(run)
+                else:
+                    queue.enqueue_persona_retry(
+                        run_id=run.pk,
+                        persona_id=retry_execution.persona_id,
+                        retry_count=retry_execution.retry_count,
+                    )
             except redis.RedisError:
                 logger.warning("미적재 ChatRun 복구 중 Redis 연결 실패", exc_info=True)
                 break
@@ -123,17 +153,29 @@ class Command(BaseCommand):
         return recovered
 
     @staticmethod
-    def _parse_run_id(raw: str) -> str | None:
+    def _parse_payload(raw: str) -> dict[str, object] | None:
         try:
-            return str(json.loads(raw)["run_id"])
+            payload = json.loads(raw)
+            if not isinstance(payload, dict) or not payload.get("run_id"):
+                return None
+            return payload
         except (ValueError, KeyError, TypeError):
             return None
 
+    @classmethod
+    def _parse_run_id(cls, raw: str) -> str | None:
+        payload = cls._parse_payload(raw)
+        return str(payload["run_id"]) if payload is not None else None
+
     def _handle(self, raw: str) -> None:
-        run_id = self._parse_run_id(raw)
-        if run_id is None:
+        payload = self._parse_payload(raw)
+        if payload is None:
             logger.error("채팅 큐 페이로드 해석 실패, 폐기: %s", raw[:200])
             queue.ack(raw, "?")
+            return
+        run_id = str(payload["run_id"])
+        if payload.get("task") == queue.PERSONA_RETRY_TASK:
+            self._handle_persona_retry(raw, payload)
             return
 
         run = (
@@ -191,6 +233,59 @@ class Command(BaseCommand):
         else:
             self._publish_terminal(result.run)
             queue.ack(raw, run_id)
+
+    def _handle_persona_retry(
+        self,
+        raw: str,
+        payload: dict[str, object],
+    ) -> None:
+        run_id = str(payload["run_id"])
+        persona_id = str(payload.get("persona_id", ""))
+        retry_count = payload.get("retry_count")
+        key = queue.delivery_key(payload)
+        if (
+            not persona_id
+            or isinstance(retry_count, bool)
+            or not isinstance(retry_count, int)
+        ):
+            logger.error("스타일리스트 재실행 페이로드 해석 실패: %s", raw[:200])
+            queue.dead_letter(raw, key, "STYLIST_RETRY_PAYLOAD_INVALID")
+            return
+        if not ChatRun.objects.filter(pk=run_id).exists():
+            queue.ack(raw, key)
+            return
+        self._publish(
+            run_id,
+            "running",
+            {
+                "run_id": run_id,
+                "status": ChatRun.Status.RUNNING,
+                "persona_id": persona_id,
+            },
+        )
+        try:
+            result = ChatOrchestrator().process_persona_retry(
+                run_id=run_id,
+                persona_id=persona_id,
+                retry_count=retry_count,
+            )
+        except ChatRunAlreadyProcessing:
+            current = ChatRun.objects.select_related("response_message").get(pk=run_id)
+            self._publish_terminal(current)
+            queue.ack(raw, key)
+        except Exception:
+            logger.exception(
+                "스타일리스트 개별 재실행 실패: run=%s persona=%s",
+                run_id,
+                persona_id,
+            )
+            current = ChatRun.objects.select_related("response_message").get(pk=run_id)
+            self._publish_terminal(current)
+            # 수동 재실행 1회는 한 번만 소비한다. 다시 시도할지는 사용자가 결정한다.
+            queue.ack(raw, key)
+        else:
+            self._publish_terminal(result.run)
+            queue.ack(raw, key)
 
     @staticmethod
     def _is_retryable(exc: Exception) -> bool:

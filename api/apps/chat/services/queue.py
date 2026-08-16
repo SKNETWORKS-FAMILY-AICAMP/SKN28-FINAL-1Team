@@ -11,6 +11,8 @@ from django.conf import settings
 
 logger = logging.getLogger(__name__)
 
+PERSONA_RETRY_TASK = "PERSONA_RETRY"
+
 
 @lru_cache(maxsize=1)
 def get_client() -> redis.Redis:
@@ -29,6 +31,36 @@ def enqueue(run) -> None:
     """큐에는 ChatRun 참조만 넣고 대화·추천 본문은 PostgreSQL에 둔다."""
     payload = json.dumps({"run_id": str(run.pk)}, separators=(",", ":"))
     get_client().lpush(settings.CHAT_QUEUE_PENDING_KEY, payload)
+
+
+def enqueue_persona_retry(*, run_id, persona_id: str, retry_count: int) -> None:
+    """실패 카드 한 장의 재실행임을 명시해 일반 run 작업과 구분한다."""
+
+    payload = json.dumps(
+        {
+            "task": PERSONA_RETRY_TASK,
+            "run_id": str(run_id),
+            "persona_id": persona_id,
+            "retry_count": retry_count,
+        },
+        separators=(",", ":"),
+    )
+    get_client().lpush(settings.CHAT_QUEUE_PENDING_KEY, payload)
+
+
+def delivery_key(payload: dict[str, object]) -> str:
+    """같은 run의 일반 실행과 개별 재실행 재배달 횟수를 분리한다."""
+
+    run_id = str(payload.get("run_id", "?"))
+    if payload.get("task") != PERSONA_RETRY_TASK:
+        return run_id
+    return ":".join(
+        (
+            run_id,
+            str(payload.get("persona_id", "?")),
+            str(payload.get("retry_count", "?")),
+        )
+    )
 
 
 def fetch(timeout: int | None = None) -> str | None:

@@ -188,13 +188,73 @@ class PersonaNarrator(Protocol):
     ) -> ProviderNarration: ...
 
 
-class TemplatePersonaNarrator:
+class RuleBasedPersonaNarrator:
+    """검증 코드와 아이템 슬롯만으로 결정적인 페르소나 문장을 만든다."""
+
     provider = "template"
 
-    _ENDING: ClassVar[dict[str, str]] = {
-        "minimal": "검증된 조건 안에서 차분하게 정리한 코디예요.",
-        "experimental": "검증된 조건은 지키면서 새로운 인상으로 묶은 코디예요.",
-        "practical": "검증된 조건을 실제로 활용하기 쉽게 묶은 코디예요.",
+    _SLOT_LABELS: ClassVar[dict[str, str]] = {
+        "TOP": "상의",
+        "BOTTOM": "하의",
+        "OUTER": "아우터",
+        "FOOTWEAR": "신발",
+        "SHOES": "신발",
+        "ACCESSORY": "액세서리",
+        "BAG": "가방",
+    }
+    _COMMON_REASON_RULES: ClassVar[tuple[tuple[str, str], ...]] = (
+        (
+            "STYLIST_DUPLICATE_REPLACED",
+            "스타일리스트 간 겹침을 줄인 선택",
+        ),
+        (
+            "STYLIST_DUPLICATE_ALLOWED_QUALITY_GUARD",
+            "다양성보다 추천 품질을 우선한 판단",
+        ),
+        (
+            "STYLIST_DUPLICATE_ALLOWED_CANDIDATE_EXHAUSTED",
+            "유효 후보 범위에서 품질을 우선한 판단",
+        ),
+        (
+            "STYLIST_DUPLICATE_ALLOWED_NO_DISTINCT_CANDIDATE",
+            "유효 후보 범위에서 품질을 우선한 판단",
+        ),
+    )
+    _PERSONA_REASON_RULES: ClassVar[dict[str, tuple[tuple[str, str], ...]]] = {
+        "minimal": (
+            ("MINIMAL_COLOR_COHESION", "색상 조화"),
+            ("MINIMAL_SILHOUETTE_CONSISTENCY", "실루엣 일관성"),
+            ("MINIMAL_VISUAL_SIMPLICITY", "시각적 간결함"),
+            ("MINIMAL_WARDROBE_REUSABILITY", "반복 활용도"),
+            ("MINIMAL_TPO_FIT", "상황 적합성"),
+            ("MINIMAL_RECENT_HISTORY", "최근 추천과의 겹침"),
+        ),
+        "experimental": (
+            ("EXPERIMENTAL_HYPOTHESIS_ALIGNMENT", "변화 가설과의 정합성"),
+            ("EXPERIMENTAL_RECENT_HISTORY", "최근 추천과의 거리"),
+            ("EXPERIMENTAL_NOVELTY", "새로움"),
+            ("EXPERIMENTAL_UNDERUSED_ITEM", "최근 덜 활용한 구성"),
+            ("EXPERIMENTAL_CROSS_STYLE", "스타일 조합의 변화"),
+        ),
+        "practical": (
+            ("PRACTICAL_WEATHER_FIT", "날씨 적합성"),
+            ("PRACTICAL_ACTIVITY_FIT", "활동 적합성"),
+            ("PRACTICAL_WEARING_CONVENIENCE", "착용 편의"),
+            ("PRACTICAL_MAINTENANCE_EASE", "관리 편의"),
+            (
+                "PRACTICAL_WARDROBE_BUDGET_EFFICIENCY",
+                "옷장과 예산의 효율",
+            ),
+            ("PRACTICAL_PREFERENCE_TPO_FIT", "취향과 상황 적합성"),
+            ("PRACTICAL_RECENT_HISTORY", "최근 선호 이력"),
+        ),
+    }
+    _MESSAGE_RULES: ClassVar[dict[str, str]] = {
+        "minimal": "{items}에서 {reasons} 기준으로 차분하게 정리했어요.",
+        "experimental": (
+            "{items}에서 {reasons} 기준으로 익숙함은 지키고 변화를 더했어요."
+        ),
+        "practical": "{items}에서 {reasons} 기준으로 활용하기 쉽게 구성했어요.",
     }
 
     def generate(
@@ -204,12 +264,15 @@ class TemplatePersonaNarrator:
         requested_provider: str,
         reason: str,
     ) -> PersonaNarrationResult:
-        item_text = ", ".join(
-            f"{item.slot}의 {item.name}" for item in request.items[:3]
+        item_text = self._item_summary(request.items)
+        reason_text = self._reason_summary(
+            request.persona_id,
+            request.reason_codes,
         )
-        if len(request.items) > 3:
-            item_text = f"{item_text} 외 {len(request.items) - 3}개 아이템"
-        message = f"{item_text} 조합은 {self._ENDING[request.persona_id]}"
+        message = self._MESSAGE_RULES[request.persona_id].format(
+            items=item_text,
+            reasons=reason_text,
+        )
         _validate_sentence(message)
         return PersonaNarrationResult(
             message=message,
@@ -220,9 +283,46 @@ class TemplatePersonaNarrator:
             fallback_reason=reason,
         )
 
+    @classmethod
+    def _item_summary(cls, items: tuple[PersonaNarrationItem, ...]) -> str:
+        labels: list[str] = []
+        for item in items[:2]:
+            slot = cls._SLOT_LABELS.get(item.slot.strip().upper(), "아이템")
+            labels.append(f"{slot} {item.name}" if len(item.name) <= 60 else slot)
+        summary = ", ".join(labels)
+        if len(items) > 2:
+            summary = f"{summary} 등 {len(items)}개 아이템 조합"
+        else:
+            summary = f"{summary} 조합"
+        return summary
+
+    @classmethod
+    def _reason_summary(
+        cls,
+        persona_id: str,
+        reason_codes: tuple[str, ...],
+    ) -> str:
+        available = set(reason_codes)
+        selected: list[str] = []
+        for code, phrase in (
+            *cls._COMMON_REASON_RULES,
+            *cls._PERSONA_REASON_RULES[persona_id],
+        ):
+            if code in available and phrase not in selected:
+                selected.append(phrase)
+            if len(selected) == 2:
+                break
+        if not selected:
+            return "검증된 추천 조건"
+        return "·".join(selected)
+
+
+# 기존 이름은 호출부 호환성을 위해 유지한다.
+TemplatePersonaNarrator = RuleBasedPersonaNarrator
+
 
 class PersonaNarrationService:
-    """설정된 한 제공자만 호출하고 실패 시 템플릿으로 종료한다."""
+    """설정된 한 제공자만 호출하고 실패 시 규칙 기반 설명으로 종료한다."""
 
     def __init__(
         self,

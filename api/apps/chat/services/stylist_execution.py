@@ -389,6 +389,92 @@ class StylistExecutionCoordinator:
             raise AllStylistExecutionsFailed(result)
         return result
 
+    def execute_retry(
+        self,
+        *,
+        run: ChatRun,
+        persona_execution: ChatRunPersona,
+        context: dict[str, Any],
+        analysis: TurnAnalysis,
+        allowed_duplicate_slots: tuple[str, ...] = (),
+    ) -> StylistExecutionResult:
+        """PENDING으로 준비된 스타일리스트 한 명만 같은 실행 스냅샷으로 재실행한다."""
+
+        started = time.monotonic()
+        self._validate_retry_scope(run, persona_execution)
+        execution_id = str(persona_execution.pk)
+        self.state_store.mark_running((execution_id,))
+        try:
+            strategy_context = self.pipeline_factory().build_context(
+                run=run,
+                context=context,
+                analysis=analysis,
+            )
+        except Exception as exc:
+            failure = self._failure(
+                persona_id=persona_execution.persona_id,
+                execution_id=execution_id,
+                exc=exc,
+                latency_ms=self._elapsed_ms(started),
+                error_code=_COMMON_CONTEXT_CODE,
+            )
+            self._mark_failure(failure)
+            result = self._result(run, (), (failure,), started)
+            raise StylistCommonContextFailed(result) from exc
+
+        outcome = self._execute_one(
+            run_id=str(run.pk),
+            execution_id=execution_id,
+            persona_id=persona_execution.persona_id,
+            context=context,
+            analysis=analysis,
+            strategy_context=strategy_context,
+        )
+        if outcome.candidates is None:
+            failure = self._failure_from_outcome(outcome)
+            self._mark_failure(failure)
+            result = self._result(run, (), (failure,), started)
+            raise AllStylistExecutionsFailed(result)
+
+        try:
+            selection = self.duplicate_resolver.resolve(
+                (outcome.candidates,),
+                allowed_duplicate_slots=allowed_duplicate_slots,
+            ).selections[0]
+            persisted = self.persistence_pipeline.persist_candidates(
+                run=run,
+                generated=selection.source.generated,
+                selected=(selection.selected.candidate,),
+                persona_execution=persona_execution,
+                validated_reason_codes=selection.validated_reason_codes,
+                strategy_snapshot=self._strategy_snapshot(
+                    selection,
+                    base=persona_execution.strategy_snapshot,
+                ),
+            )
+        except Exception as exc:  # noqa: BLE001 - 해당 카드만 실패로 확정한다.
+            failure = self._failure(
+                persona_id=persona_execution.persona_id,
+                execution_id=execution_id,
+                exc=exc,
+                latency_ms=self._elapsed_ms(started),
+            )
+            self._mark_failure(failure)
+            result = self._result(run, (), (failure,), started)
+            raise AllStylistExecutionsFailed(result) from exc
+
+        latency_ms = self._elapsed_ms(started)
+        self.state_store.mark_succeeded(execution_id, latency_ms=latency_ms)
+        success = StylistPersonaSuccess(
+            persona_id=persona_execution.persona_id,
+            persona_execution_id=execution_id,
+            candidates=outcome.candidates,
+            selection=selection,
+            persisted=persisted,
+            latency_ms=latency_ms,
+        )
+        return self._result(run, (success,), (), started)
+
     def _execute_parallel(
         self,
         *,
@@ -529,6 +615,28 @@ class StylistExecutionCoordinator:
             persona_id: index for index, persona_id in enumerate(EXPECTED_PERSONA_ORDER)
         }
         return tuple(sorted(rows, key=lambda row: order[row.persona_id]))
+
+    @staticmethod
+    def _validate_retry_scope(
+        run: ChatRun,
+        execution: ChatRunPersona,
+    ) -> None:
+        if run.response_mode != ChatSession.ResponseMode.STYLIST:
+            raise StylistExecutionScopeError(
+                "스타일리스트 개별 재실행은 STYLIST 응답 모드만 지원합니다."
+            )
+        if (
+            execution.run_id != run.pk
+            or execution.persona_id not in run.persona_ids
+            or execution.persona_id not in EXPECTED_PERSONA_ORDER
+        ):
+            raise StylistExecutionScopeError(
+                "ChatRun 스냅샷에 속한 스타일리스트만 재실행할 수 있습니다."
+            )
+        if execution.status != ChatRunPersona.Status.PENDING:
+            raise StylistExecutionScopeError(
+                "PENDING 상태로 준비된 스타일리스트만 재실행할 수 있습니다."
+            )
 
     def _fail_all(
         self,

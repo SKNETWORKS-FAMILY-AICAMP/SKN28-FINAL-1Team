@@ -49,6 +49,7 @@ from apps.chat.serializers import (
     ChatMoodAnalysisResponseSerializer,
     ChatMoodDecisionResponseSerializer,
     ChatMoodDecisionSerializer,
+    ChatRunPersonaRetryResponseSerializer,
     ChatRunSerializer,
     ChatSessionCreateSerializer,
     ChatSessionDeriveSerializer,
@@ -66,13 +67,23 @@ from apps.chat.serializers import (
 from apps.chat.services import attachments as attachment_service
 from apps.chat.services import history as history_service
 from apps.chat.services import identity as identity_service
-from apps.chat.services import mood_analysis, response_modes, stylist_catalog
+from apps.chat.services import (
+    mood_analysis,
+    response_modes,
+    stylist_catalog,
+    stylist_results,
+)
 from apps.chat.services import queue as chat_queue
 from apps.chat.services import sessions as session_service
 from apps.chat.services.events import ChatEvent, ChatEventStore, encode_sse, heartbeat
 from apps.chat.services.orchestrator import (
     mark_enqueue_failed,
     submit_message_and_create_run,
+)
+from apps.chat.services.persona_retry import (
+    PersonaRetryError,
+    mark_persona_retry_enqueue_failed,
+    prepare_failed_persona_retry,
 )
 
 logger = logging.getLogger(__name__)
@@ -93,6 +104,17 @@ _RUN_ID_PARAMETER = path_uuid_parameter(
     name="run_id",
     source="메시지 전송 또는 사진 무드 분석 응답의 run.id를 입력합니다.",
     example="33333333-3333-4333-8333-333333333333",
+)
+_PERSONA_ID_PARAMETER = OpenApiParameter(
+    name="persona_id",
+    type=OpenApiTypes.STR,
+    location=OpenApiParameter.PATH,
+    required=True,
+    description=(
+        "재실행할 선택형 스타일리스트 ID. "
+        "minimal, experimental, practical 중 원본 run에 포함된 FAILED 값"
+    ),
+    examples=[OpenApiExample(name="실험형 재실행", value="experimental")],
 )
 
 _SEARCH_QUERY_PARAMETER = OpenApiParameter(
@@ -216,9 +238,88 @@ _STYLIST_MODE_RESPONSE_EXAMPLE = OpenApiExample(
     status_codes=["200"],
 )
 
+_STYLIST_RUN_RESPONSE_EXAMPLE = OpenApiExample(
+    name="스타일리스트별 부분 완료 상태",
+    value={
+        "id": "33333333-3333-4333-8333-333333333333",
+        "session_id": "11111111-1111-4111-8111-111111111111",
+        "request_message_id": "22222222-2222-4222-8222-222222222222",
+        "response_message_id": None,
+        "status": "RUNNING",
+        "response_mode": "STYLIST",
+        "persona_ids": ["minimal", "experimental"],
+        "results": [
+            {
+                "persona_id": "minimal",
+                "display_name": "미니멀",
+                "display_order": 1,
+                "status": "SUCCEEDED",
+                "result_id": "44444444-4444-4444-8444-444444444444",
+                "message": "색상 조화 기준으로 차분하게 정리했어요.",
+                "validated_reason_codes": ["MINIMAL_COLOR_COHESION"],
+                "card": {
+                    "card_id": "55555555-5555-4555-8555-555555555555",
+                    "rank": 1,
+                    "total_product_price": 59000,
+                    "validation_reasons": [{"code": "VALID", "message": "검증 통과"}],
+                    "warnings": [],
+                    "items": [
+                        {
+                            "item_id": "66666666-6666-4666-8666-666666666666",
+                            "position": 1,
+                            "slot": "TOP",
+                            "source_type": "PRODUCT",
+                            "source_id": "product-1",
+                            "display_name": "크루넥 니트",
+                            "category": "상의",
+                            "color": "네이비",
+                            "image_ref": "products/product-1.jpg",
+                            "price_snapshot": 59000,
+                            "purchase_url": "https://shop.example/items/product-1",
+                            "reasons": ["스타일과 카테고리가 일치함"],
+                        }
+                    ],
+                    "image": None,
+                },
+                "error": None,
+                "retry_count": 0,
+                "latency_ms": 1240,
+                "started_at": "2026-08-16T10:00:00+09:00",
+                "completed_at": "2026-08-16T10:00:01+09:00",
+            },
+            {
+                "persona_id": "experimental",
+                "display_name": "실험형",
+                "display_order": 2,
+                "status": "RUNNING",
+                "result_id": None,
+                "message": "",
+                "validated_reason_codes": [],
+                "card": None,
+                "error": None,
+                "retry_count": 0,
+                "latency_ms": 0,
+                "started_at": "2026-08-16T10:00:00+09:00",
+                "completed_at": None,
+            },
+        ],
+        "enqueued_at": "2026-08-16T09:59:59+09:00",
+        "error_code": "",
+        "error_message": "",
+        "started_at": "2026-08-16T10:00:00+09:00",
+        "completed_at": None,
+        "created_at": "2026-08-16T09:59:59+09:00",
+        "updated_at": "2026-08-16T10:00:01+09:00",
+    },
+    response_only=True,
+    status_codes=["200"],
+)
+
 _MEMBER_JWT_ERROR_EXAMPLE = OpenApiExample(
     name="회원 인증 필요",
-    value={"detail": "자격 인증데이터(authentication credentials)가 제공되지 않았습니다."},
+    value={
+        "detail": "자격 인증데이터(authentication credentials)가 제공되지 않았습니다."
+    },
     response_only=True,
     status_codes=["401"],
 )
@@ -471,7 +572,9 @@ class GuestIdentityView(APIView):
             200: GuestClaimResponseSerializer,
             400: OpenApiResponse(description="confirm 값 검증 실패"),
             401: OpenApiResponse(description="회원 JWT 또는 게스트 쿠키가 없음"),
-            409: OpenApiResponse(description="게스트가 만료·이전됐거나 쿠키가 유효하지 않음"),
+            409: OpenApiResponse(
+                description="게스트가 만료·이전됐거나 쿠키가 유효하지 않음"
+            ),
         },
     )
 )
@@ -617,7 +720,9 @@ class ChatSessionSearchView(APIView):
         parameters=[_SESSION_ID_PARAMETER],
         responses={
             200: ChatSessionSerializer,
-            404: OpenApiResponse(description="세션이 없거나 현재 identity의 소유가 아님"),
+            404: OpenApiResponse(
+                description="세션이 없거나 현재 identity의 소유가 아님"
+            ),
         },
     ),
     patch=extend_schema(
@@ -637,7 +742,9 @@ class ChatSessionSearchView(APIView):
         responses={
             200: ChatSessionSerializer,
             400: OpenApiResponse(description="제목 검증 실패"),
-            404: OpenApiResponse(description="세션이 없거나 현재 identity의 소유가 아님"),
+            404: OpenApiResponse(
+                description="세션이 없거나 현재 identity의 소유가 아님"
+            ),
         },
     ),
     delete=extend_schema(
@@ -648,7 +755,9 @@ class ChatSessionSearchView(APIView):
         parameters=[_SESSION_ID_PARAMETER],
         responses={
             204: OpenApiResponse(description="삭제 완료"),
-            404: OpenApiResponse(description="세션이 없거나 현재 identity의 소유가 아님"),
+            404: OpenApiResponse(
+                description="세션이 없거나 현재 identity의 소유가 아님"
+            ),
         },
     ),
 )
@@ -750,7 +859,9 @@ class ChatSessionDeriveView(APIView):
         parameters=[_SESSION_ID_PARAMETER],
         responses={
             200: ChatMessageSerializer(many=True),
-            404: OpenApiResponse(description="세션이 없거나 현재 identity의 소유가 아님"),
+            404: OpenApiResponse(
+                description="세션이 없거나 현재 identity의 소유가 아님"
+            ),
         },
     ),
     post=extend_schema(
@@ -777,7 +888,9 @@ class ChatSessionDeriveView(APIView):
             200: ChatMessageSubmitResponseSerializer,
             202: ChatMessageSubmitResponseSerializer,
             400: OpenApiResponse(description="메시지·client_message_id 검증 실패"),
-            404: OpenApiResponse(description="세션이 없거나 현재 identity의 소유가 아님"),
+            404: OpenApiResponse(
+                description="세션이 없거나 현재 identity의 소유가 아님"
+            ),
             503: OpenApiResponse(description="Redis 채팅 실행 큐를 사용할 수 없음"),
         },
     ),
@@ -888,7 +1001,9 @@ class ChatSessionMessagePageView(APIView):
         responses={
             200: ChatMessagePageResponseSerializer,
             400: OpenApiResponse(description="limit·cursor 검증 실패"),
-            404: OpenApiResponse(description="세션이 없거나 요청 identity의 소유가 아님"),
+            404: OpenApiResponse(
+                description="세션이 없거나 요청 identity의 소유가 아님"
+            ),
         },
     )
     def get(self, request, session_id):
@@ -959,7 +1074,9 @@ class ChatSessionAttachmentUploadView(APIView):
             200: ChatAttachmentUploadResponseSerializer,
             201: ChatAttachmentUploadResponseSerializer,
             400: OpenApiResponse(description="이미지·요청값 검증 실패"),
-            404: OpenApiResponse(description="세션이 없거나 요청 identity의 소유가 아님"),
+            404: OpenApiResponse(
+                description="세션이 없거나 요청 identity의 소유가 아님"
+            ),
             409: OpenApiResponse(description="client_message_id가 다른 메시지와 충돌"),
             503: OpenApiResponse(description="채팅 이미지 저장소를 사용할 수 없음"),
         },
@@ -996,9 +1113,7 @@ class ChatSessionAttachmentUploadView(APIView):
                 "attachment": ChatAttachmentSerializer(result.attachment).data,
                 "created": result.created,
             },
-            status=(
-                status.HTTP_201_CREATED if result.created else status.HTTP_200_OK
-            ),
+            status=(status.HTTP_201_CREATED if result.created else status.HTTP_200_OK),
         )
 
 
@@ -1178,7 +1293,9 @@ class ChatAttachmentMoodDecisionView(APIView):
 def _owned_run(request, run_id) -> ChatRun:
     identity = _identity(request)
     return get_object_or_404(
-        ChatRun.objects.select_related("response_message"),
+        stylist_results.with_stylist_results(
+            ChatRun.objects.select_related("response_message")
+        ),
         pk=run_id,
         session__identity=identity,
         session__deleted_at__isnull=True,
@@ -1220,12 +1337,20 @@ def _terminal_event(run: ChatRun) -> ChatEvent | None:
             "조회합니다. `PENDING` → `RUNNING` → `SUCCEEDED`, "
             "`NEEDS_CLARIFICATION` 또는 `FAILED`로 변합니다. `SUCCEEDED`이면 "
             "response_message_id를 확인하고 메시지 조회 API에서 최종 답변을 읽습니다. "
+            "STYLIST 실행은 `results`에 선택한 스타일리스트를 고정 순서로 모두 "
+            "포함하므로 폴링 중 완료된 카드부터 표시할 수 있습니다. "
             "Swagger에서 비동기 완료를 확인할 때 권장하는 API입니다."
         ),
         parameters=[_RUN_ID_PARAMETER],
         responses={
-            200: ChatRunSerializer,
-            404: OpenApiResponse(description="실행이 없거나 현재 identity의 소유가 아님"),
+            200: OpenApiResponse(
+                response=ChatRunSerializer,
+                description="전체 run과 스타일리스트별 실행·카드 상태",
+                examples=[_STYLIST_RUN_RESPONSE_EXAMPLE],
+            ),
+            404: OpenApiResponse(
+                description="실행이 없거나 현재 identity의 소유가 아님"
+            ),
         },
     )
 )
@@ -1234,6 +1359,148 @@ class ChatRunDetailView(APIView):
 
     def get(self, request, run_id):
         return Response(ChatRunSerializer(_owned_run(request, run_id)).data)
+
+
+class ChatRunPersonaRetryView(APIView):
+    """실패한 선택형 스타일리스트 카드 한 장만 원본 run에서 재실행한다."""
+
+    permission_classes = [IsAuthenticated]
+
+    @extend_schema(
+        operation_id="chat_run_persona_retry_create",
+        tags=[STYLIST_CHAT_TAG],
+        summary="실패한 스타일리스트만 재실행",
+        description=(
+            "회원의 STYLIST run에서 FAILED인 스타일리스트 한 명만 원본 메시지와 "
+            "실행 스냅샷으로 다시 큐에 넣습니다. 성공한 다른 스타일리스트 결과는 "
+            "유지됩니다. 요청 본문은 없으며, 같은 run.id를 폴링하면 대상 결과가 "
+            "PENDING → RUNNING → SUCCEEDED 또는 FAILED로 변합니다. "
+            "동시에 두 개의 실패 카드를 재실행할 수는 없습니다.\n\n"
+            f"{STYLIST_CHAT_GUIDE}"
+        ),
+        parameters=[_RUN_ID_PARAMETER, _PERSONA_ID_PARAMETER],
+        request=None,
+        responses={
+            202: OpenApiResponse(
+                response=ChatRunPersonaRetryResponseSerializer,
+                description="개별 스타일리스트 재실행 접수 완료",
+                examples=[
+                    OpenApiExample(
+                        name="실험형 재실행 접수",
+                        value={
+                            "run": {
+                                "id": "33333333-3333-4333-8333-333333333333",
+                                "status": "PENDING",
+                                "response_mode": "STYLIST",
+                                "persona_ids": ["minimal", "experimental"],
+                                "results": [
+                                    {
+                                        "persona_id": "minimal",
+                                        "status": "SUCCEEDED",
+                                        "result_id": "44444444-4444-4444-8444-444444444444",
+                                        "retry_count": 0,
+                                    },
+                                    {
+                                        "persona_id": "experimental",
+                                        "status": "PENDING",
+                                        "result_id": None,
+                                        "retry_count": 1,
+                                    },
+                                ],
+                            },
+                            "events_url": (
+                                "http://localhost:8000/api/v1/chat/runs/"
+                                "33333333-3333-4333-8333-333333333333/events/"
+                            ),
+                        },
+                        response_only=True,
+                        status_codes=["202"],
+                    )
+                ],
+            ),
+            401: OpenApiResponse(description="로그인 필요"),
+            404: OpenApiResponse(description="run이 없거나 현재 회원의 소유가 아님"),
+            409: OpenApiResponse(
+                description=(
+                    "STYLIST run이 아님, 선택되지 않은 ID, FAILED가 아님, "
+                    "이미 결과가 존재함 또는 다른 실행이 진행 중"
+                )
+            ),
+            503: OpenApiResponse(description="Redis 재실행 큐 연결 실패"),
+        },
+    )
+    def post(self, request, run_id, persona_id):
+        _owned_run(request, run_id)
+        try:
+            prepared = prepare_failed_persona_retry(
+                run_id=run_id,
+                persona_id=persona_id,
+            )
+        except PersonaRetryError as exc:
+            return Response(
+                {"code": exc.code, "detail": str(exc)},
+                status=status.HTTP_409_CONFLICT,
+            )
+
+        try:
+            chat_queue.enqueue_persona_retry(
+                run_id=prepared.run_id,
+                persona_id=prepared.persona_id,
+                retry_count=prepared.retry_count,
+            )
+        except redis.RedisError:
+            logger.exception(
+                "스타일리스트 재실행 큐 적재 실패: run=%s persona=%s",
+                prepared.run_id,
+                prepared.persona_id,
+            )
+            mark_persona_retry_enqueue_failed(
+                run_id=prepared.run_id,
+                persona_id=prepared.persona_id,
+            )
+            current = _owned_run(request, run_id)
+            return Response(
+                {
+                    "code": "CHAT_QUEUE_UNAVAILABLE",
+                    "detail": "스타일리스트 재실행 큐에 연결할 수 없습니다.",
+                    "run": ChatRunSerializer(current).data,
+                },
+                status=status.HTTP_503_SERVICE_UNAVAILABLE,
+            )
+
+        enqueued_at = timezone.now()
+        ChatRun.objects.filter(
+            pk=run_id,
+            status=ChatRun.Status.PENDING,
+        ).update(enqueued_at=enqueued_at, updated_at=enqueued_at)
+        try:
+            ChatEventStore().publish(
+                run_id,
+                "queued",
+                {
+                    "run_id": str(run_id),
+                    "status": ChatRun.Status.PENDING,
+                    "persona_id": persona_id,
+                    "retry_count": prepared.retry_count,
+                },
+            )
+        except redis.RedisError:
+            logger.warning(
+                "스타일리스트 재실행 queued 이벤트 기록 실패: run=%s persona=%s",
+                run_id,
+                persona_id,
+                exc_info=True,
+            )
+        current = _owned_run(request, run_id)
+        return Response(
+            {
+                "run": ChatRunSerializer(current).data,
+                "events_url": request.build_absolute_uri(
+                    reverse("chat:run-events", kwargs={"run_id": run_id})
+                ),
+            },
+            status=status.HTTP_202_ACCEPTED,
+        )
 
 
 @extend_schema_view(
@@ -1263,7 +1530,9 @@ class ChatRunDetailView(APIView):
                 response=OpenApiTypes.STR,
                 description="종료 이벤트까지 유지되는 Server-Sent Events 스트림",
             ),
-            404: OpenApiResponse(description="실행이 없거나 현재 identity의 소유가 아님"),
+            404: OpenApiResponse(
+                description="실행이 없거나 현재 identity의 소유가 아님"
+            ),
         },
     )
 )
