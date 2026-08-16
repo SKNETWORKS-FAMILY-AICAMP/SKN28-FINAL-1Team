@@ -70,7 +70,12 @@ export default function Calendar() {
   const entry = entries[selectedKey];
   /* 오늘은 아직 입는 중이라 '지난 날'로 보지 않는다 — 채워 넣기보다 고르기가 먼저다. */
   const isPast = selectedKey < TODAY;
-  const { items: frequentItems, recordCount: frequentCount } = useFrequentItems(isLoggedIn);
+  /* 자주 입은 옷 지름길은 넓은 화면에서만 — 좁은 화면에선 카드가 길어져 정작 눌러야 할
+     '기록하기'가 접히는 곳 아래로 밀린다. 안 보여줄 화면에선 조회도 하지 않는다. */
+  const showFrequent = isDesktop;
+  const { items: frequentItems, recordCount: frequentCount } = useFrequentItems(
+    isLoggedIn && showFrequent,
+  );
   /* 이 기록과 같이 만들어진 룩북 룩. 룩북에서 지웠으면 못 찾으니 그때는 연결을 감춘다. */
   const linkedLook = savedLooks.find((l) => l.id === entry?.lookId);
 
@@ -306,9 +311,9 @@ export default function Calendar() {
               <Text style={styles.emptyText}>이 날은 기록된 착장이 없어요</Text>
 
               {/* 지난 날은 채워 넣는 게 먼저고, 오늘·앞으로는 무엇을 입을지가 먼저다.
-                  같은 두 버튼이라도 순서만 바꾸면 그 날짜에 맞는 행동이 앞에 온다. */}
-              {/* 지난 날은 자주 입은 옷으로 바로 채울 수 있게 지름길을 먼저 준다. */}
-              {isPast ? (
+                  같은 두 버튼이라도 순서만 바꾸면 그 날짜에 맞는 행동이 앞에 온다.
+                  지난 날은 자주 입은 옷으로 바로 채울 수 있게 지름길을 먼저 준다. */}
+              {isPast && showFrequent ? (
                 <FrequentShortcut
                   items={frequentItems}
                   recordCount={frequentCount}
