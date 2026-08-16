@@ -1267,3 +1267,98 @@ class SavedOutfit(models.Model):
     def save(self, *args, **kwargs) -> None:
         self.clean()
         super().save(*args, **kwargs)
+
+
+class ProductClickEvent(models.Model):
+    """회원이 추천 카드의 판매 상품 링크를 누른 참고 행동 이벤트."""
+
+    id = models.UUIDField(
+        primary_key=True,
+        default=uuid.uuid4,
+        editable=False,
+        db_comment="상품 클릭 이벤트 UUID",
+    )
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name="recommendation_product_clicks",
+        db_comment="상품을 클릭한 회원 FK (게스트 수집 불가)",
+    )
+    item = models.ForeignKey(
+        OutfitCompositionItem,
+        on_delete=models.CASCADE,
+        related_name="product_click_events",
+        db_comment="클릭한 추천 카드의 판매 상품 아이템 FK",
+    )
+    result_id_snapshot = models.UUIDField(
+        db_comment="클릭 당시 추천 결과 UUID 스냅샷",
+    )
+    composition_id_snapshot = models.UUIDField(
+        db_comment="클릭 당시 추천 카드 UUID 스냅샷",
+    )
+    persona_id = models.CharField(
+        max_length=32,
+        blank=True,
+        default="",
+        db_comment="클릭 당시 스타일리스트 ID (기본 추천이면 빈 문자열)",
+    )
+    source_collection = models.CharField(
+        max_length=128,
+        db_comment="클릭 당시 상품 원본 컬렉션 스냅샷",
+    )
+    source_id = models.CharField(
+        max_length=128,
+        db_comment="클릭 당시 상품 원본 레코드 식별자 스냅샷",
+    )
+    created_at = models.DateTimeField(
+        auto_now_add=True,
+        db_comment="상품 클릭 이벤트 수집 시각",
+    )
+
+    class Meta:
+        db_table = "product_click_event"
+        db_table_comment = "추천 카드 판매 상품 클릭 참고 행동 이벤트"
+        ordering = ["-created_at"]
+        indexes = [
+            models.Index(
+                fields=["user", "item", "-created_at"],
+                name="ix_prod_click_user_item",
+            ),
+        ]
+
+    def __str__(self) -> str:
+        return f"product-click {self.user_id}:{self.source_collection}:{self.source_id}"
+
+    def clean(self) -> None:
+        """상품·카드·추천·회원 귀속과 저장 스냅샷의 일치를 검증한다."""
+
+        super().clean()
+        if not self.item_id:
+            return
+        errors: dict[str, str] = {}
+        composition = self.item.composition
+        result = composition.result
+        if self.item.source_type != OutfitCompositionItem.SourceType.PRODUCT:
+            errors["item"] = "판매 상품 아이템 클릭만 수집할 수 있습니다."
+        if composition.status != OutfitComposition.Status.VALIDATED:
+            errors["item"] = "검증을 통과한 추천 카드의 상품만 수집할 수 있습니다."
+        if result.identity.user_id is None or result.identity.user_id != self.user_id:
+            errors["user"] = "추천 상품의 소유 회원만 클릭 이벤트를 저장할 수 있습니다."
+        if self.result_id_snapshot != result.id:
+            errors["result_id_snapshot"] = "추천 결과 스냅샷이 상품 귀속과 다릅니다."
+        if self.composition_id_snapshot != composition.id:
+            errors["composition_id_snapshot"] = (
+                "추천 카드 스냅샷이 상품 귀속과 다릅니다."
+            )
+        if self.persona_id != result.persona_id:
+            errors["persona_id"] = "스타일리스트 스냅샷이 추천 결과와 다릅니다."
+        if self.source_collection != self.item.source_collection:
+            errors["source_collection"] = "상품 컬렉션 스냅샷이 원본과 다릅니다."
+        if self.source_id != self.item.source_id:
+            errors["source_id"] = "상품 식별자 스냅샷이 원본과 다릅니다."
+        if errors:
+            raise ValidationError(errors)
+
+    def save(self, *args, **kwargs) -> None:
+        self.clean()
+        super().save(*args, **kwargs)

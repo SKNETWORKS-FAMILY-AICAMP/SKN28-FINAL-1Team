@@ -1,11 +1,13 @@
 from __future__ import annotations
 
 import uuid
+from datetime import timedelta
 
 from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.test import TestCase
 from django.urls import reverse
+from django.utils import timezone
 from rest_framework import status
 from rest_framework.test import APIClient
 
@@ -14,6 +16,7 @@ from apps.chat.services import identity as identity_service
 from apps.recommend.models import (
     OutfitComposition,
     OutfitCompositionItem,
+    ProductClickEvent,
     RecommendationFeedback,
     RecommendationResult,
     SavedOutfit,
@@ -353,3 +356,120 @@ class RecommendationApiTests(TestCase):
         self.assertEqual(rejected_response.status_code, status.HTTP_404_NOT_FOUND)
         self.assertEqual(other_response.status_code, status.HTTP_404_NOT_FOUND)
         self.assertFalse(SavedOutfit.objects.exists())
+
+    def test_product_click_is_deduplicated_within_five_minutes(self):
+        result, card, _ = self._result(self.identity)
+        item = card.items.get()
+        self.client.force_authenticate(self.user)
+        url = reverse(
+            "recommend:recommendation-product-click",
+            args=[result.id, card.id, item.id],
+        )
+
+        created = self.client.post(url, {}, format="json")
+        repeated = self.client.post(url, {}, format="json")
+
+        self.assertEqual(created.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(repeated.status_code, status.HTTP_200_OK)
+        self.assertEqual(
+            created.data["product_click_id"],
+            repeated.data["product_click_id"],
+        )
+        self.assertFalse(created.data["deduplicated"])
+        self.assertTrue(repeated.data["deduplicated"])
+        self.assertEqual(created.data["result_id"], str(result.id))
+        self.assertEqual(created.data["card_id"], str(card.id))
+        self.assertEqual(created.data["item_id"], str(item.id))
+        self.assertIsNone(created.data["persona_id"])
+        self.assertEqual(created.data["source_collection"], item.source_collection)
+        self.assertEqual(created.data["source_id"], item.source_id)
+        self.assertEqual(ProductClickEvent.objects.count(), 1)
+
+    def test_product_click_after_deduplication_window_creates_new_event(self):
+        result, card, _ = self._result(self.identity)
+        item = card.items.get()
+        old_event = ProductClickEvent.objects.create(
+            user=self.user,
+            item=item,
+            result_id_snapshot=result.id,
+            composition_id_snapshot=card.id,
+            persona_id=result.persona_id,
+            source_collection=item.source_collection,
+            source_id=item.source_id,
+        )
+        ProductClickEvent.objects.filter(pk=old_event.pk).update(
+            created_at=timezone.now() - timedelta(minutes=6)
+        )
+        self.client.force_authenticate(self.user)
+
+        response = self.client.post(
+            reverse(
+                "recommend:recommendation-product-click",
+                args=[result.id, card.id, item.id],
+            ),
+            {},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertFalse(response.data["deduplicated"])
+        self.assertEqual(ProductClickEvent.objects.count(), 2)
+
+    def test_product_click_requires_member(self):
+        credential = identity_service.issue_guest_identity()
+        result, card, _ = self._result(credential.identity)
+        item = card.items.get()
+        self.client.cookies[settings.CHAT_GUEST_COOKIE_NAME] = credential.token
+
+        response = self.client.post(
+            reverse(
+                "recommend:recommendation-product-click",
+                args=[result.id, card.id, item.id],
+            ),
+            {},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+        self.assertFalse(ProductClickEvent.objects.exists())
+
+    def test_product_click_rejects_other_owner_and_wardrobe_item(self):
+        result, card, _ = self._result(self.identity)
+        other_result, other_card, _ = self._result(self.other_identity)
+        other_item = other_card.items.get()
+        wardrobe_item = OutfitCompositionItem.objects.create(
+            composition=card,
+            position=2,
+            slot="BOTTOM",
+            source_type=OutfitCompositionItem.SourceType.WARDROBE,
+            source_id="wardrobe-202",
+            source_collection="wardrobe_items",
+            source_point_id="wardrobe-point-202",
+            template_item_point_id="golden-item-202",
+            replacement_score=0.88,
+            image_ref="wardrobe/202.jpg",
+            reasons=["옷장 아이템"],
+            item_snapshot={"item_name": "보유 중인 바지"},
+        )
+        self.client.force_authenticate(self.user)
+
+        other_response = self.client.post(
+            reverse(
+                "recommend:recommendation-product-click",
+                args=[other_result.id, other_card.id, other_item.id],
+            ),
+            {},
+            format="json",
+        )
+        wardrobe_response = self.client.post(
+            reverse(
+                "recommend:recommendation-product-click",
+                args=[result.id, card.id, wardrobe_item.id],
+            ),
+            {},
+            format="json",
+        )
+
+        self.assertEqual(other_response.status_code, status.HTTP_404_NOT_FOUND)
+        self.assertEqual(wardrobe_response.status_code, status.HTTP_404_NOT_FOUND)
+        self.assertFalse(ProductClickEvent.objects.exists())

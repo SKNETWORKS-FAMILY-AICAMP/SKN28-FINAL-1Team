@@ -12,6 +12,7 @@ from .models import (
     OutfitComposition,
     OutfitCompositionItem,
     OutfitRenderJob,
+    ProductClickEvent,
     RecommendationFeedback,
     RecommendationResult,
     SavedOutfit,
@@ -547,6 +548,37 @@ class SavedOutfitSerializer(serializers.ModelSerializer):
             "is_saved",
             "saved_at",
         ]
+
+
+class ProductClickEventSerializer(serializers.ModelSerializer):
+    product_click_id = serializers.UUIDField(source="id", read_only=True)
+    result_id = serializers.UUIDField(source="result_id_snapshot", read_only=True)
+    card_id = serializers.UUIDField(
+        source="composition_id_snapshot",
+        read_only=True,
+    )
+    item_id = serializers.UUIDField(read_only=True)
+    persona_id = serializers.SerializerMethodField()
+    deduplicated = serializers.BooleanField(default=False, read_only=True)
+    clicked_at = serializers.DateTimeField(source="created_at", read_only=True)
+
+    class Meta:
+        model = ProductClickEvent
+        fields = [
+            "product_click_id",
+            "result_id",
+            "card_id",
+            "item_id",
+            "persona_id",
+            "source_collection",
+            "source_id",
+            "deduplicated",
+            "clicked_at",
+        ]
+
+    @extend_schema_field(serializers.CharField(allow_null=True))
+    def get_persona_id(self, obj: ProductClickEvent) -> str | None:
+        return obj.persona_id or None
 
 
 def _snapshot_text(snapshot: object, *keys: str) -> str | None:

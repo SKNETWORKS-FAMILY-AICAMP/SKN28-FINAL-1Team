@@ -98,8 +98,8 @@ def load_user_behavior_signals(
 ) -> dict[str, Any]:
     """사용 가능한 행동 데이터를 의미와 강도를 보존해 한 번씩 로드한다.
 
-    추천 노출은 선호로 승격하지 않고 반복 회피 자료로만 둔다. 아직 저장소가 없는
-    저장 코디·상품 클릭은 데이터 0건이 아니라 수집 불가 상태로 반환한다.
+    추천 노출은 선호로 승격하지 않고 반복 회피 자료로만 둔다. 저장 코디와 상품
+    클릭은 저장소가 있어도 로더 연결 전까지 0건이 아닌 수집 불가 상태로 반환한다.
     """
 
     recent_recommendations = load_recent_recommendations(
@@ -130,12 +130,12 @@ def load_user_behavior_signals(
             "saved_outfits": {
                 "available": False,
                 "signal_strength": "WEAK",
-                "reason": "STORAGE_NOT_IMPLEMENTED",
+                "reason": "LOADER_NOT_IMPLEMENTED",
             },
             "product_clicks": {
                 "available": False,
                 "signal_strength": "REFERENCE",
-                "reason": "STORAGE_NOT_IMPLEMENTED",
+                "reason": "LOADER_NOT_IMPLEMENTED",
             },
         },
         "summary": {

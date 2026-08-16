@@ -188,6 +188,14 @@ class UserBehaviorSignalServiceTests(SimpleTestCase):
 
         self.assertFalse(result["collection_status"]["saved_outfits"]["available"])
         self.assertFalse(result["collection_status"]["product_clicks"]["available"])
+        self.assertEqual(
+            result["collection_status"]["saved_outfits"]["reason"],
+            "LOADER_NOT_IMPLEMENTED",
+        )
+        self.assertEqual(
+            result["collection_status"]["product_clicks"]["reason"],
+            "LOADER_NOT_IMPLEMENTED",
+        )
         self.assertIsNone(result["summary"]["saved_outfits"])
         self.assertIsNone(result["summary"]["product_clicks"])
         self.assertIsNone(result["signals"]["weak_preferences"]["saved_outfits"])

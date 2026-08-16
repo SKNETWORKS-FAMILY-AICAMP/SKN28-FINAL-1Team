@@ -7,6 +7,7 @@ from .views import (
     OutfitAnalysisHistoryView,
     OutfitAnalysisView,
     OutfitRenderEventStreamView,
+    ProductClickEventView,
     RecommendationCardDetailView,
     RecommendationCardRenderView,
     RecommendationFeedbackView,
@@ -61,6 +62,14 @@ urlpatterns = [
         "recommendations/<uuid:result_id>/cards/<uuid:card_id>/save/",
         SavedOutfitView.as_view(),
         name="recommendation-save",
+    ),
+    path(
+        (
+            "recommendations/<uuid:result_id>/cards/<uuid:card_id>/"
+            "items/<uuid:item_id>/click/"
+        ),
+        ProductClickEventView.as_view(),
+        name="recommendation-product-click",
     ),
     path(
         "recommendations/<uuid:result_id>/cards/<uuid:card_id>/render/",
