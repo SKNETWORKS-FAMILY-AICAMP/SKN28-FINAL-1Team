@@ -57,6 +57,27 @@ _PRESERVABLE_AXES = frozenset(ExperimentAxis) - {
 _AXIS_ORDER = {axis: index for index, axis in enumerate(ExperimentAxis)}
 
 
+class ExperimentalHypothesisCandidate(BaseModel):
+    """LLM 구조화 출력에서 개별 검증 전까지 값을 문자열로 보존한다."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    change_axes: tuple[str, ...]
+    preserve_axes: tuple[str, ...]
+    reason_code: str
+
+
+class ExperimentalHypothesisCandidateBatch(BaseModel):
+    """두 후보를 모두 수신한 뒤 각 가설을 독립 검증하기 위한 전송 계약."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    hypotheses: tuple[ExperimentalHypothesisCandidate, ...] = Field(
+        min_length=EXPERIMENT_HYPOTHESIS_COUNT,
+        max_length=EXPERIMENT_HYPOTHESIS_COUNT,
+    )
+
+
 class ExperimentalHypothesis(BaseModel):
     """아이템을 선택하지 않고 검색에서 바꿀 관계와 유지할 관계만 표현한다."""
 

@@ -14,7 +14,9 @@ from django.utils.crypto import salted_hmac
 from openai import OpenAI
 from pydantic import BaseModel, Field
 
-from apps.chat.services.experimental_hypotheses import ExperimentalHypothesisBatch
+from apps.chat.services.experimental_hypotheses import (
+    ExperimentalHypothesisCandidateBatch,
+)
 from apps.chat.services.experimental_hypothesis_generation import (
     EXPERIMENTAL_HYPOTHESIS_INSTRUCTIONS,
     build_experimental_hypothesis_payload,
@@ -214,11 +216,11 @@ class OpenAIChatAdapter:
         *,
         identity_id: str,
         context: dict,
-    ) -> LLMResult[ExperimentalHypothesisBatch]:
+    ) -> LLMResult[ExperimentalHypothesisCandidateBatch]:
         """ID 없는 개인화 요약으로 실험형 검색 가설 두 개를 생성한다."""
 
         return self._parse(
-            schema=ExperimentalHypothesisBatch,
+            schema=ExperimentalHypothesisCandidateBatch,
             instructions=EXPERIMENTAL_HYPOTHESIS_INSTRUCTIONS,
             identity_id=identity_id,
             payload=build_experimental_hypothesis_payload(context),

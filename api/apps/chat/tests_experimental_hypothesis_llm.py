@@ -10,6 +10,7 @@ from apps.chat.services.experimental_hypotheses import (
     EXPERIMENT_AXIS_VALUES,
     EXPERIMENT_REASON_CODE_VALUES,
     ExperimentalHypothesisBatch,
+    ExperimentalHypothesisCandidateBatch,
 )
 from apps.chat.services.experimental_hypothesis_generation import (
     EXPERIMENTAL_HYPOTHESIS_INSTRUCTIONS,
@@ -37,6 +38,12 @@ def _batch() -> ExperimentalHypothesisBatch:
     )
 
 
+def _candidate_batch() -> ExperimentalHypothesisCandidateBatch:
+    return ExperimentalHypothesisCandidateBatch.model_validate(
+        _batch().model_dump(mode="json")
+    )
+
+
 @override_settings(
     CHAT_OPENAI_MODEL="gpt-4o-mini",
     CHAT_PROMPT_VERSION="test-prompt-v1",
@@ -46,7 +53,7 @@ class ExperimentalHypothesisLLMTests(SimpleTestCase):
     def test_calls_existing_main_llm_with_strict_hypothesis_schema(self) -> None:
         response = SimpleNamespace(
             id="resp-hypothesis",
-            output_parsed=_batch(),
+            output_parsed=_candidate_batch(),
             usage=SimpleNamespace(
                 input_tokens=80,
                 output_tokens=24,
@@ -63,11 +70,14 @@ class ExperimentalHypothesisLLMTests(SimpleTestCase):
 
         kwargs = client.responses.parse.call_args.kwargs
         payload = json.loads(kwargs["input"][0]["content"])
-        self.assertIs(kwargs["text_format"], ExperimentalHypothesisBatch)
+        self.assertIs(kwargs["text_format"], ExperimentalHypothesisCandidateBatch)
         self.assertIs(kwargs["instructions"], EXPERIMENTAL_HYPOTHESIS_INSTRUCTIONS)
         self.assertFalse(kwargs["store"])
         self.assertNotEqual(kwargs["safety_identifier"], "internal-user-id")
-        self.assertIn("ExperimentalHypothesisBatch", kwargs["prompt_cache_key"])
+        self.assertIn(
+            "ExperimentalHypothesisCandidateBatch",
+            kwargs["prompt_cache_key"],
+        )
         self.assertEqual(
             payload["allowed_values"]["axes"], list(EXPERIMENT_AXIS_VALUES)
         )
@@ -75,7 +85,7 @@ class ExperimentalHypothesisLLMTests(SimpleTestCase):
             payload["allowed_values"]["reason_codes"],
             list(EXPERIMENT_REASON_CODE_VALUES),
         )
-        self.assertEqual(result.value, _batch())
+        self.assertEqual(result.value, _candidate_batch())
         self.assertEqual(result.response_id, "resp-hypothesis")
         self.assertEqual(result.usage.cached_input_tokens, 20)
 
