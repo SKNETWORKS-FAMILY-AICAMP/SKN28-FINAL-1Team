@@ -16,6 +16,7 @@ import { Icon } from '@/components/icon';
 import { SmartImage, useToast } from '@/components/ui';
 import { ContentMax, Editorial, Fonts, ink, Type } from '@/constants/theme';
 import { useBreakpoint } from '@/hooks/use-breakpoint';
+import { pickOutfitPhoto } from '@/lib/pickItemPhoto';
 import { chatStore, useChatSession, type ChatMessage } from '@/state/chat';
 
 const INK = Editorial.ink;
@@ -155,29 +156,54 @@ export function ChatConversation({
   };
 
   /**
-   * 사진 넣기.
+   * 사진 넣기 — 갤러리에서 고른 사진을 올리고 무드까지 읽어낸다.
    *
-   * ⚠️ **아직 서버에 붙지 않았다.** 백엔드에는 첨부 업로드(/attachments/) → 무드 분석
-   *    (/analysis/) → 반영 여부 결정(/mood-decision/) 세 단계가 이미 있고, 아래 무드 카드
-   *    UI 가 그 흐름과 그대로 맞물린다. 텍스트 대화를 먼저 붙이느라 남겨 둔 자리다.
-   *
-   *    전에는 여기서 고정 태그(#미니멀 …)를 띄워 분석한 척했다. 진짜 대화가 붙은 지금
-   *    그렇게 두면 어느 답이 진짜인지 구분할 수 없어, 아직임을 그대로 알린다.
+   * 대화가 없는 패널에서 사진부터 넣을 수 있으므로 여기서도 세션을 먼저 만든다.
+   * 분석이 끝날 때까지 타이핑 표시를 띄운다 — 답변을 기다리는 것과 같은 성격이라
+   * 같은 표시를 쓴다.
    */
-  const attachPhoto = () => {
-    toast('사진으로 추천받기는 곧 연결돼요');
+  const attachPhoto = async () => {
+    if (typing) return;
+    let uri: string | null = null;
+    try {
+      uri = await pickOutfitPhoto();
+    } catch {
+      toast('사진을 불러오지 못했어요', { variant: 'error' });
+      return;
+    }
+    if (!uri) return; // 고르다 취소 — 아무 일도 일어나지 않는다
+
+    setTyping(true);
+    scrollToEnd();
+    try {
+      let id = activeId;
+      if (!id) {
+        const created = await chatStore.createSession('closet');
+        id = created.id;
+        setPanelSessionId(id);
+      }
+      await chatStore.attachPhoto(id, uri);
+    } catch (e) {
+      toast(e instanceof Error ? e.message : '사진을 올리지 못했어요', { variant: 'error' });
+    } finally {
+      setTyping(false);
+      scrollToEnd();
+    }
   };
 
-  /**
-   * 무드 카드의 두 버튼. 카드를 만드는 경로(사진 분석)가 아직 없어 지금은 닿지 않지만,
-   * 첨부를 붙일 때 여기에 /mood-decision/ 의 APPROVE·REJECT 를 그대로 넣으면 된다.
-   */
-  const acceptMood = (_tags: string[]) => {
-    toast('사진으로 추천받기는 곧 연결돼요');
-  };
+  /** 무드 카드의 두 버튼. 어느 카드가 진행 중인지 알아야 그 카드만 잠글 수 있다. */
+  const [deciding, setDeciding] = useState<string | null>(null);
 
-  const rejectMood = () => {
-    toast('사진으로 추천받기는 곧 연결돼요');
+  const decideMood = async (attachmentId: string, decision: 'APPROVE' | 'REJECT') => {
+    if (!activeId || deciding) return;
+    setDeciding(attachmentId);
+    try {
+      await chatStore.decideMood(activeId, attachmentId, decision);
+    } catch (e) {
+      toast(e instanceof Error ? e.message : '반영하지 못했어요', { variant: 'error' });
+    } finally {
+      setDeciding(null);
+    }
   };
 
   return (
@@ -281,6 +307,7 @@ export function ChatConversation({
                 ) : m.kind === 'mood' ? (
                   <View style={styles.moodCard}>
                     <Text style={styles.moodLead}>사진에서 이런 무드가 보여요</Text>
+                    {m.summary ? <Text style={styles.moodSummary}>{m.summary}</Text> : null}
                     <View style={styles.recTags}>
                       {m.tags.map((t) => (
                         <View key={t} style={styles.recTag}>
@@ -288,14 +315,32 @@ export function ChatConversation({
                         </View>
                       ))}
                     </View>
-                    <View style={styles.moodBtns}>
-                      <Pressable style={styles.moodPrimary} onPress={() => acceptMood(m.tags)}>
-                        <Text style={styles.moodPrimaryText}>이걸로 추천받기</Text>
-                      </Pressable>
-                      <Pressable style={styles.moodGhost} onPress={rejectMood}>
-                        <Text style={styles.moodGhostText}>아니에요</Text>
-                      </Pressable>
-                    </View>
+                    {/* 한 번 고른 뒤엔 버튼을 치우고 결과만 남긴다 — 결정은 서버에 저장돼
+                        다시 열어도 그대로고, 같은 카드를 두 번 고를 일이 없다. */}
+                    {m.decision === null ? (
+                      <View style={styles.moodBtns}>
+                        <Pressable
+                          style={styles.moodPrimary}
+                          disabled={deciding === m.attachmentId}
+                          onPress={() => decideMood(m.attachmentId, 'APPROVE')}>
+                          <Text style={styles.moodPrimaryText}>
+                            {deciding === m.attachmentId ? '반영하는 중…' : '이 무드로 추천받기'}
+                          </Text>
+                        </Pressable>
+                        <Pressable
+                          style={styles.moodGhost}
+                          disabled={deciding === m.attachmentId}
+                          onPress={() => decideMood(m.attachmentId, 'REJECT')}>
+                          <Text style={styles.moodGhostText}>아니에요</Text>
+                        </Pressable>
+                      </View>
+                    ) : (
+                      <Text style={styles.moodDecided}>
+                        {m.decision === 'APPROVED'
+                          ? '이 무드를 반영했어요. 이제 어떤 자리에 입을지 말해주세요.'
+                          : '이 무드는 반영하지 않았어요.'}
+                      </Text>
+                    )}
                   </View>
                 ) : (
                   <View style={styles.aiBubble}>
@@ -469,6 +514,10 @@ const styles = StyleSheet.create({
     backgroundColor: Editorial.surface,
   },
   moodLead: { fontSize: 13, color: Editorial.textSoft },
+  /** 서버가 읽어낸 한 줄 요약. 태그만으로는 왜 그렇게 읽었는지가 안 보인다. */
+  moodSummary: { fontSize: Type.footnote, color: INK, lineHeight: 20 },
+  /** 결정한 뒤 버튼 자리를 대신한다. */
+  moodDecided: { fontSize: Type.caption, color: Editorial.textSoft, lineHeight: 18 },
   moodBtns: { flexDirection: 'row', gap: 8, marginTop: 2 },
   moodPrimary: {
     height: 36,
