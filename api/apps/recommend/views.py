@@ -72,10 +72,13 @@ from .services.render_events import (
 )
 from .services.virtual_try_on import (
     DIRECT_PROMPT_VERSION,
+    MANNEQUIN_BASE_PROMPT_VERSION,
     MANNEQUIN_PROMPT_VERSION,
     VirtualTryOnBusyError,
     VirtualTryOnService,
     body_profile_contract,
+    load_composition_garments,
+    load_daily_garments,
     load_body_profile,
 )
 
@@ -84,6 +87,33 @@ logger = logging.getLogger(__name__)
 DEFAULT_HISTORY_LIMIT = 20
 MAX_HISTORY_LIMIT = 100
 _REDIS_STREAM_ID = re.compile(r"^(?:0|[1-9]\d*)-(?:0|[1-9]\d*)$")
+
+
+def _cached_body_mannequin(
+    service: VirtualTryOnService,
+    person: bytes,
+    body_profile: dict,
+    bucket: str,
+) -> bytes:
+    source = (
+        f"{hashlib.sha256(person).hexdigest()}|"
+        f"{body_profile_contract(body_profile)}|"
+        f"{settings.VIRTUAL_TRY_ON_MODEL}|{MANNEQUIN_BASE_PROMPT_VERSION}"
+    )
+    contract = hashlib.sha256(source.encode()).hexdigest()
+    key = (
+        f"{settings.VIRTUAL_TRY_ON_RESULT_PREFIX}/mannequins/"
+        f"{contract[:2]}/{contract}/base.png"
+    )
+    if storage.exists_for(bucket, key):
+        return storage.download_for(
+            bucket,
+            key,
+            max_bytes=settings.OUTFIT_RENDER_MAX_OUTPUT_BYTES,
+        )
+    result = service.build_mannequin(person, body_profile=body_profile)
+    storage.put_bytes_for(bucket, key, result.content, result.media_type)
+    return result.content
 
 _RESULT_ID_PARAMETER = path_uuid_parameter(
     name="result_id",
@@ -905,7 +935,8 @@ class RecommendationCardVirtualTryOnView(APIView):
         description=(
             "완료된 추천 카드 이미지와 전신 사진을 Qwen에 전달합니다. `person`은 "
             "얼굴·체형·포즈를 유지하고 옷만 교체하며, `mannequin`은 같은 체형의 "
-            "마네킹에 선택한 추천 룩을 한 번에 입힙니다. 요청 사진 원본은 저장하지 않습니다."
+            "마네킹을 체형별로 만든 뒤 선택한 추천 룩의 원본 의류를 입힙니다. "
+            "요청 사진 원본은 저장하지 않습니다."
         ),
         parameters=[_RESULT_ID_PARAMETER, _CARD_ID_PARAMETER],
         request=VirtualTryOnRequestSerializer,
@@ -981,14 +1012,29 @@ class RecommendationCardVirtualTryOnView(APIView):
         cache_hit = storage.exists_for(bucket, final_key)
         if not cache_hit:
             try:
+                garments = load_composition_garments(card)
+            except OutfitRenderError:
+                logger.warning(
+                    "개별 의류 참조 로드 실패, 완성 코디 이미지로 대체: card=%s",
+                    card.pk,
+                    exc_info=True,
+                )
+                garments = ()
+            try:
                 if mode == "mannequin":
-                    result = service.fit_mannequin(
+                    mannequin = _cached_body_mannequin(
+                        service,
                         person,
+                        body_profile,
+                        bucket,
+                    )
+                    result = service.dress_mannequin(
+                        mannequin,
                         outfit,
-                        body_profile=body_profile,
+                        garments=garments,
                     )
                 else:
-                    result = service.fit_person(person, outfit)
+                    result = service.fit_person(person, outfit, garments=garments)
             except VirtualTryOnBusyError:
                 return Response(
                     {"detail": "가상 착장 서버가 작업 중입니다. 잠시 후 다시 시도해 주세요."},
@@ -1091,14 +1137,28 @@ class DailyLookVirtualTryOnView(APIView):
         if not cache_hit:
             service = VirtualTryOnService()
             try:
+                garments = load_daily_garments(look.result or {})
+            except OutfitRenderError:
+                logger.warning(
+                    "오늘의 룩 개별 의류 참조 로드 실패, 완성 코디 이미지로 대체: look=%s",
+                    look.pk,
+                    exc_info=True,
+                )
+                garments = ()
+            try:
                 result = (
-                    service.fit_mannequin(
-                        person,
+                    service.dress_mannequin(
+                        _cached_body_mannequin(
+                            service,
+                            person,
+                            body_profile,
+                            bucket,
+                        ),
                         outfit,
-                        body_profile=body_profile,
+                        garments=garments,
                     )
                     if mode == "mannequin"
-                    else service.fit_person(person, outfit)
+                    else service.fit_person(person, outfit, garments=garments)
                 )
             except VirtualTryOnBusyError:
                 return Response(

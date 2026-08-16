@@ -105,6 +105,19 @@ VTON_OFFLOAD_MODE = os.getenv("VTON_OFFLOAD_MODE", "group").strip().lower()
 VTON_INFERENCE_STEPS = int(os.getenv("VTON_INFERENCE_STEPS", "4"))
 VTON_GUIDANCE_SCALE = float(os.getenv("VTON_GUIDANCE_SCALE", "1.0"))
 VTON_TRUE_CFG_SCALE = float(os.getenv("VTON_TRUE_CFG_SCALE", "1.0"))
+VTON_QUALITY_INFERENCE_STEPS = int(
+    os.getenv("VTON_QUALITY_INFERENCE_STEPS", "30")
+)
+VTON_QUALITY_TRUE_CFG_SCALE = float(
+    os.getenv("VTON_QUALITY_TRUE_CFG_SCALE", "4.0")
+)
+VTON_NEGATIVE_PROMPT = os.getenv(
+    "VTON_NEGATIVE_PROMPT",
+    "changed garment color, changed pattern, changed logo, extra clothing, "
+    "undershirt, layered clothing, store interior, text, watermark",
+).strip()
+VTON_FIDELITY_MIN_SCORE = float(os.getenv("VTON_FIDELITY_MIN_SCORE", "0.55"))
+VTON_FIDELITY_RETRIES = int(os.getenv("VTON_FIDELITY_RETRIES", "1"))
 VTON_SEED = int(os.getenv("VTON_SEED", "0"))
 VTON_MAX_REQUEST_BYTES = int(os.getenv("VTON_MAX_REQUEST_BYTES", str(50 * 1024 * 1024)))
 VTON_MAX_IMAGE_BYTES = int(os.getenv("VTON_MAX_IMAGE_BYTES", str(15 * 1024 * 1024)))

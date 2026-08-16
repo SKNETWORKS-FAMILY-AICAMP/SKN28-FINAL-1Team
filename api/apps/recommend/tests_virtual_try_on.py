@@ -18,6 +18,7 @@ from apps.recommend.services.virtual_try_on import (
     VirtualTryOnService,
     body_profile_contract,
     load_body_profile,
+    reference_from_bytes,
 )
 PNG = b"\x89PNG\r\n\x1a\nimage"
 
@@ -38,6 +39,7 @@ class VirtualTryOnServiceTests(SimpleTestCase):
             ["target_person", "outfit"],
         )
         self.assertIn("Do not slim, enlarge, reshape", call["prompt"])
+        self.assertEqual(call["profile"], "fast")
 
     def test_mannequin_fit_is_one_edit_without_base_clothes(self) -> None:
         self.service.fit_mannequin(PNG, PNG)
@@ -70,6 +72,32 @@ class VirtualTryOnServiceTests(SimpleTestCase):
         second = body_profile_contract({"measurements": {"waist": 82.0}})
 
         self.assertNotEqual(first, second)
+
+    def test_individual_garments_replace_composite_reference(self) -> None:
+        garments = (
+            reference_from_bytes("top", PNG),
+            reference_from_bytes("bottom", PNG),
+        )
+
+        self.service.fit_mannequin(PNG, PNG, garments=garments)
+
+        call = self.provider.generate.call_args.kwargs
+        self.assertEqual(
+            [ref.item.slot for ref in call["references"]],
+            ["target_person", "top", "bottom"],
+        )
+        self.assertIn("Image 2: top garment reference", call["prompt"])
+        self.assertIn("Image 3: bottom garment reference", call["prompt"])
+
+    def test_two_stage_mannequin_removes_clothes_before_dressing(self) -> None:
+        self.service.build_mannequin(PNG, body_profile={"measurements": {"waist": 80}})
+        build_call = self.provider.generate.call_args.kwargs
+        self.assertEqual(len(build_call["references"]), 1)
+        self.assertIn("no clothing, bodysuit", build_call["prompt"])
+
+        self.service.dress_mannequin(PNG, PNG)
+        dress_call = self.provider.generate.call_args.kwargs
+        self.assertIn("already prepared target retail mannequin", dress_call["prompt"])
 
 
 class StoredBodyProfileTests(SimpleTestCase):
@@ -143,7 +171,8 @@ class VirtualTryOnCommandTests(SimpleTestCase):
         user_get.return_value = Mock(pk=2)
         profile = {"measurements": {"height": 168.0}}
         profile_loader.return_value = profile
-        service_class.return_value.fit_mannequin.return_value = Mock(content=PNG)
+        service_class.return_value.build_mannequin.return_value = Mock(content=PNG)
+        service_class.return_value.dress_mannequin.return_value = Mock(content=PNG)
 
         with TemporaryDirectory() as directory:
             person = Path(directory) / "person.jpg"
@@ -163,10 +192,15 @@ class VirtualTryOnCommandTests(SimpleTestCase):
             )
 
         profile_loader.assert_called_once_with(user_get.return_value)
-        service_class.return_value.fit_mannequin.assert_called_once_with(
-            PNG,
+        service_class.assert_called_once_with(profile="fast", seed=None)
+        service_class.return_value.build_mannequin.assert_called_once_with(
             PNG,
             body_profile=profile,
+        )
+        service_class.return_value.dress_mannequin.assert_called_once_with(
+            PNG,
+            PNG,
+            garments=(),
         )
 
 
@@ -194,6 +228,7 @@ class GpuQwenImageProviderTests(SimpleTestCase):
         request = session.post.call_args
         self.assertEqual(request.kwargs["headers"]["Authorization"], "Bearer shared-secret")
         self.assertEqual(len(request.kwargs["json"]["images"]), 2)
+        self.assertEqual(request.kwargs["json"]["profile"], "fast")
         self.assertEqual(request.kwargs["timeout"], 600)
         self.assertEqual(result.media_type, "image/png")
         self.assertEqual(result.usage["model"], "Qwen/Qwen-Image-Edit-2511")

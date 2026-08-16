@@ -93,8 +93,8 @@ def _decode_images(payload: dict[str, Any]) -> list[Image.Image]:
     encoded_images = payload.get("images")
     if not isinstance(prompt, str) or not prompt.strip() or len(prompt) > 8_000:
         raise ValueError("prompt is required")
-    if not isinstance(encoded_images, list) or len(encoded_images) != 2:
-        raise ValueError("exactly two reference images are required")
+    if not isinstance(encoded_images, list) or not 1 <= len(encoded_images) <= 6:
+        raise ValueError("between one and six reference images are required")
 
     images: list[Image.Image] = []
     for encoded in encoded_images:
@@ -118,8 +118,43 @@ def _decode_images(payload: dict[str, Any]) -> list[Image.Image]:
     return images
 
 
+def _color_histogram(image: Image.Image) -> list[float]:
+    """흰 배경을 제외한 저해상도 HSV 분포를 의류 색상 지문으로 쓴다."""
+    histogram = [0] * 192
+    pixels = image.convert("HSV").resize((128, 128)).get_flattened_data()
+    for hue, saturation, value in pixels:
+        if saturation < 15 and value > 220:
+            continue
+        index = (
+            (hue * 12 // 256) * 16
+            + (saturation * 4 // 256) * 4
+            + value * 4 // 256
+        )
+        histogram[index] += 1
+    total = sum(histogram)
+    return [count / total for count in histogram] if total else [0.0] * 192
+
+
+def _garment_color_similarity(
+    result: Image.Image,
+    garments: list[Image.Image],
+) -> float | None:
+    if not garments:
+        return None
+    result_histogram = _color_histogram(result)
+    garment_histograms = [_color_histogram(image) for image in garments]
+    reference = [
+        sum(values) / len(garment_histograms)
+        for values in zip(*garment_histograms)
+    ]
+    return sum(
+        min(expected, actual)
+        for expected, actual in zip(reference, result_histogram)
+    )
+
+
 class QwenImageEditor:
-    """공식 Qwen 베이스에 LightX2V 4-step LoRA를 적용한다."""
+    """한 파이프라인에서 기본 Qwen과 LightX2V 4-step을 전환한다."""
 
     def __init__(self) -> None:
         import torch
@@ -156,15 +191,16 @@ class QwenImageEditor:
             subfolder="transformer",
             torch_dtype=dtype,
         )
-        scheduler = FlowMatchEulerDiscreteScheduler.from_config(
+        lightning_scheduler = FlowMatchEulerDiscreteScheduler.from_config(
             _lightning_scheduler_config()
         )
         self.pipeline = QwenImageEditPlusPipeline.from_pretrained(
             config.VTON_MODEL,
             transformer=transformer,
-            scheduler=scheduler,
             torch_dtype=dtype,
         )
+        self.base_scheduler = self.pipeline.scheduler
+        self.lightning_scheduler = lightning_scheduler
         self.pipeline.load_lora_weights(
             config.VTON_LIGHTNING_MODEL,
             weight_name=config.VTON_LIGHTNING_WEIGHT,
@@ -173,28 +209,63 @@ class QwenImageEditor:
         _configure_offload(self.pipeline, torch)
         logger.info("VTON 모델 로딩 완료")
 
-    def generate(self, prompt: str, images: list[Image.Image]) -> bytes:
+    def generate(
+        self,
+        prompt: str,
+        images: list[Image.Image],
+        *,
+        profile: str = "fast",
+        seed: int | None = None,
+    ) -> tuple[bytes, float | None, int]:
         if not self._lock.acquire(blocking=False):
             raise VtonBusyError
         try:
-            generator = self.torch.Generator(device=config.VTON_DEVICE).manual_seed(
-                config.VTON_SEED
+            if profile == "quality":
+                self.pipeline.disable_lora()
+                self.pipeline.scheduler = self.base_scheduler
+                steps = config.VTON_QUALITY_INFERENCE_STEPS
+                true_cfg_scale = config.VTON_QUALITY_TRUE_CFG_SCALE
+            elif profile == "fast":
+                self.pipeline.enable_lora()
+                self.pipeline.scheduler = self.lightning_scheduler
+                steps = config.VTON_INFERENCE_STEPS
+                true_cfg_scale = config.VTON_TRUE_CFG_SCALE
+            else:
+                raise ValueError("profile must be fast or quality")
+            initial_seed = config.VTON_SEED if seed is None else seed
+            max_attempts = 1 + (
+                config.VTON_FIDELITY_RETRIES
+                if profile == "quality" and len(images) > 1
+                else 0
             )
-            with self.torch.inference_mode():
-                result = self.pipeline(
-                    image=images,
-                    prompt=prompt,
-                    negative_prompt=" ",
-                    num_inference_steps=config.VTON_INFERENCE_STEPS,
-                    true_cfg_scale=config.VTON_TRUE_CFG_SCALE,
-                    guidance_scale=config.VTON_GUIDANCE_SCALE,
-                    generator=generator,
-                ).images[0]
+            best_result = None
+            best_score = None
+            attempts = 0
+            for offset in range(max_attempts):
+                attempts += 1
+                generator = self.torch.Generator(
+                    device=config.VTON_DEVICE
+                ).manual_seed(initial_seed + offset)
+                with self.torch.inference_mode():
+                    result = self.pipeline(
+                        image=images,
+                        prompt=prompt,
+                        negative_prompt=config.VTON_NEGATIVE_PROMPT,
+                        num_inference_steps=steps,
+                        true_cfg_scale=true_cfg_scale,
+                        guidance_scale=config.VTON_GUIDANCE_SCALE,
+                        generator=generator,
+                    ).images[0]
+                score = _garment_color_similarity(result, images[1:])
+                if best_score is None or (score is not None and score > best_score):
+                    best_result, best_score = result, score
+                if score is None or score >= config.VTON_FIDELITY_MIN_SCORE:
+                    break
         finally:
             self._lock.release()
         output = io.BytesIO()
-        result.save(output, format="PNG")
-        return output.getvalue()
+        best_result.save(output, format="PNG")
+        return output.getvalue(), best_score, attempts
 
 
 class VtonRequestHandler(BaseHTTPRequestHandler):
@@ -235,8 +306,14 @@ class VtonRequestHandler(BaseHTTPRequestHandler):
             return
         try:
             images = _decode_images(payload)
-            image = self.server.editor.generate(  # type: ignore[attr-defined]
-                payload["prompt"], images
+            profile = payload.get("profile", "fast")
+            seed = payload.get("seed")
+            if profile not in {"fast", "quality"}:
+                raise ValueError("profile must be fast or quality")
+            if seed is not None and (not isinstance(seed, int) or seed < 0):
+                raise ValueError("seed must be a non-negative integer")
+            image, fidelity_score, attempts = self.server.editor.generate(  # type: ignore[attr-defined]
+                payload["prompt"], images, profile=profile, seed=seed
             )
         except VtonBusyError:
             self.send_response(HTTPStatus.TOO_MANY_REQUESTS)
@@ -262,8 +339,21 @@ class VtonRequestHandler(BaseHTTPRequestHandler):
                 "media_type": "image/png",
                 "usage": {
                     "model": config.VTON_MODEL,
-                    "accelerator": config.VTON_LIGHTNING_MODEL,
-                    "inference_steps": config.VTON_INFERENCE_STEPS,
+                    "profile": profile,
+                    "accelerator": (
+                        config.VTON_LIGHTNING_MODEL if profile == "fast" else ""
+                    ),
+                    "inference_steps": (
+                        config.VTON_INFERENCE_STEPS
+                        if profile == "fast"
+                        else config.VTON_QUALITY_INFERENCE_STEPS
+                    ),
+                    "fidelity_score": (
+                        round(fidelity_score, 4)
+                        if fidelity_score is not None
+                        else None
+                    ),
+                    "attempts": attempts,
                 },
             },
         )

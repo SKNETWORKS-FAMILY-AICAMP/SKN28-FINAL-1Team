@@ -5,7 +5,7 @@ import io
 import math
 import threading
 import unittest
-from unittest.mock import Mock, patch
+from unittest.mock import MagicMock, Mock, patch
 
 from PIL import Image
 
@@ -16,6 +16,7 @@ from vton_server import (
     _decode_images,
     _ensure_cache_space,
     _configure_offload,
+    _garment_color_similarity,
     _lightning_scheduler_config,
 )
 
@@ -27,6 +28,15 @@ def image_base64() -> str:
 
 
 class VtonServerInputTests(unittest.TestCase):
+    def test_garment_color_similarity_prefers_same_color(self) -> None:
+        navy = Image.new("RGB", (32, 32), (10, 20, 80))
+        red = Image.new("RGB", (32, 32), (180, 20, 20))
+
+        same = _garment_color_similarity(navy, [navy])
+        different = _garment_color_similarity(red, [navy])
+
+        self.assertGreater(same, different)
+
     def test_lightning_scheduler_matches_distilled_model(self) -> None:
         scheduler = _lightning_scheduler_config()
 
@@ -66,8 +76,20 @@ class VtonServerInputTests(unittest.TestCase):
         self.assertTrue(all(image.mode == "RGB" for image in images))
 
     def test_rejects_missing_outfit_reference(self) -> None:
-        with self.assertRaisesRegex(ValueError, "exactly two"):
-            _decode_images({"prompt": "dress", "images": [image_base64()]})
+        with self.assertRaisesRegex(ValueError, "between one and six"):
+            _decode_images({"prompt": "dress", "images": []})
+
+    def test_accepts_single_body_reference_for_mannequin_base(self) -> None:
+        images = _decode_images({"prompt": "build mannequin", "images": [image_base64()]})
+
+        self.assertEqual(len(images), 1)
+
+    def test_accepts_individual_garment_references(self) -> None:
+        images = _decode_images(
+            {"prompt": "dress", "images": [image_base64()] * 4}
+        )
+
+        self.assertEqual(len(images), 4)
 
     @patch("vton_server.config.VTON_MAX_IMAGE_PIXELS", 1)
     def test_rejects_excessive_image_dimensions(self) -> None:
@@ -83,6 +105,29 @@ class VtonServerInputTests(unittest.TestCase):
 
         with self.assertRaises(VtonBusyError):
             editor.generate("fit", [])
+
+    @patch("vton_server.config.VTON_FIDELITY_RETRIES", 0)
+    @patch("vton_server.config.VTON_QUALITY_INFERENCE_STEPS", 30)
+    @patch("vton_server.config.VTON_QUALITY_TRUE_CFG_SCALE", 4.0)
+    def test_quality_profile_disables_lightning_lora(self) -> None:
+        editor = QwenImageEditor.__new__(QwenImageEditor)
+        editor._lock = threading.Lock()
+        editor.torch = MagicMock()
+        editor.torch.Generator.return_value.manual_seed.return_value = Mock()
+        editor.pipeline = Mock()
+        editor.pipeline.return_value.images = [Image.new("RGB", (2, 2), "navy")]
+        editor.base_scheduler = Mock()
+        editor.lightning_scheduler = Mock()
+
+        _image, _score, attempts = editor.generate(
+            "fit", [Image.new("RGB", (2, 2), "white")], profile="quality"
+        )
+
+        editor.pipeline.disable_lora.assert_called_once_with()
+        self.assertIs(editor.pipeline.scheduler, editor.base_scheduler)
+        self.assertEqual(editor.pipeline.call_args.kwargs["num_inference_steps"], 30)
+        self.assertEqual(editor.pipeline.call_args.kwargs["true_cfg_scale"], 4.0)
+        self.assertEqual(attempts, 1)
 
     @patch("vton_server.config.VTON_MIN_FREE_DISK_GB", 20)
     @patch("vton_server._cache_free_gb", return_value=10)
