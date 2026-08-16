@@ -574,11 +574,21 @@ class ProductClickEventSerializer(serializers.ModelSerializer):
             "source_id",
             "deduplicated",
             "clicked_at",
+            "engagement_duration_ms",
+            "engagement_recorded_at",
         ]
 
     @extend_schema_field(serializers.CharField(allow_null=True))
     def get_persona_id(self, obj: ProductClickEvent) -> str | None:
         return obj.persona_id or None
+
+
+class ProductClickEngagementRequestSerializer(serializers.Serializer):
+    duration_ms = serializers.IntegerField(
+        min_value=0,
+        max_value=86_400_000,
+        help_text="외부 판매처 이동 후 앱 복귀까지 측정한 근사 체류 시간(ms, 최대 24시간)",
+    )
 
 
 def _snapshot_text(snapshot: object, *keys: str) -> str | None:

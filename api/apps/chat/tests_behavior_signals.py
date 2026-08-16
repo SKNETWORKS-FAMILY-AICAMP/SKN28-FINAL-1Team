@@ -68,7 +68,55 @@ class UserBehaviorSignalServiceTests(SimpleTestCase):
                 "combinations": [],
                 "slots": [{"slot": "TOP", "count": 2}],
             },
-            "saved_signal_available": False,
+            "saved_signal_available": True,
+        }
+
+    @staticmethod
+    def _saved_outfits() -> dict:
+        return {
+            "history_limit": 100,
+            "history_scope": "LATEST_100_SAVED_OUTFITS",
+            "events": [
+                {
+                    "saved_outfit_id": "saved-1",
+                    "saved_at": "2026-08-14T12:07:00+09:00",
+                    "result_id": "result-1",
+                    "composition_id": "card-like",
+                    "persona_id": "minimal",
+                    "outfit": {"styles": ["미니멀"], "items": []},
+                }
+            ],
+            "feature_counts": {},
+        }
+
+    @staticmethod
+    def _product_clicks() -> dict:
+        return {
+            "history_limit": 100,
+            "history_scope": "LATEST_100_PRODUCT_CLICKS",
+            "events": [
+                {
+                    "product_click_id": "click-1",
+                    "clicked_at": "2026-08-14T12:04:00+09:00",
+                    "engagement_duration_ms": 42_000,
+                    "engagement_recorded_at": "2026-08-14T12:04:42+09:00",
+                    "result_id": "result-1",
+                    "composition_id": "card-like",
+                    "persona_id": "minimal",
+                    "item": {"source_id": "product-1"},
+                },
+                {
+                    "product_click_id": "click-2",
+                    "clicked_at": "2026-08-14T12:08:00+09:00",
+                    "engagement_duration_ms": None,
+                    "engagement_recorded_at": None,
+                    "result_id": "result-1",
+                    "composition_id": "card-no-feedback",
+                    "persona_id": "minimal",
+                    "item": {"source_id": "product-3"},
+                },
+            ],
+            "feature_counts": {},
         }
 
     @staticmethod
@@ -118,15 +166,21 @@ class UserBehaviorSignalServiceTests(SimpleTestCase):
             ],
         }
 
+    @patch("apps.chat.services.behavior_signals.load_product_click_history")
+    @patch("apps.chat.services.behavior_signals.load_saved_outfit_history")
     @patch("apps.chat.services.behavior_signals.load_calendar_wear_history")
     @patch("apps.chat.services.behavior_signals.load_recent_recommendations")
     def test_loads_each_source_once_and_preserves_signal_strengths(
         self,
         recent_loader,
         calendar_loader,
+        saved_loader,
+        click_loader,
     ) -> None:
         recent_loader.return_value = self._recent_recommendations()
         calendar_loader.return_value = self._calendar_wear()
+        saved_loader.return_value = self._saved_outfits()
+        click_loader.return_value = self._product_clicks()
         identity = Mock(name="identity")
         current_run = Mock(name="current_run")
 
@@ -144,7 +198,9 @@ class UserBehaviorSignalServiceTests(SimpleTestCase):
             identity=identity,
             as_of=self.AS_OF,
         )
-        self.assertEqual(result["schema_version"], "1.0")
+        saved_loader.assert_called_once_with(identity=identity)
+        click_loader.assert_called_once_with(identity=identity)
+        self.assertEqual(result["schema_version"], "1.1")
         self.assertEqual(result["as_of_date"], "2026-08-15")
         self.assertEqual(result["summary"]["calendar_registrations_30d"], 4)
         self.assertEqual(result["summary"]["worn_item_occurrences_30d"], 7)
@@ -170,15 +226,42 @@ class UserBehaviorSignalServiceTests(SimpleTestCase):
         self.assertEqual(dislike["strength"], "NEGATIVE")
         self.assertEqual(dislike["reason_codes"], ["COLOR", "FIT"])
 
+        saved = result["signals"]["weak_preferences"]["saved_outfits"][0]
+        clicks = result["signals"]["reference_information"]["product_clicks"]
+        self.assertEqual(saved["signal_type"], "OUTFIT_SAVED")
+        self.assertEqual(saved["strength"], "WEAK")
+        self.assertEqual(clicks[0]["strength"], "REFERENCE")
+        self.assertEqual(clicks[0]["polarity"], "NEUTRAL")
+        self.assertEqual(clicks[0]["engagement_duration_ms"], 42_000)
+        self.assertTrue(clicks[0]["corroborated_preference"])
+        self.assertEqual(
+            clicks[0]["preference_evidence"],
+            ["OUTFIT_SAVED", "RECOMMENDATION_LIKE"],
+        )
+        self.assertFalse(clicks[1]["corroborated_preference"])
+        self.assertEqual(result["summary"]["product_clicks_with_duration"], 1)
+
+    @patch("apps.chat.services.behavior_signals.load_product_click_history")
+    @patch("apps.chat.services.behavior_signals.load_saved_outfit_history")
     @patch("apps.chat.services.behavior_signals.load_calendar_wear_history")
     @patch("apps.chat.services.behavior_signals.load_recent_recommendations")
-    def test_unavailable_sources_are_not_reported_as_zero_events(
+    def test_available_empty_sources_are_reported_as_zero_events(
         self,
         recent_loader,
         calendar_loader,
+        saved_loader,
+        click_loader,
     ) -> None:
         recent_loader.return_value = self._recent_recommendations()
         calendar_loader.return_value = self._calendar_wear()
+        saved_loader.return_value = {
+            **self._saved_outfits(),
+            "events": [],
+        }
+        click_loader.return_value = {
+            **self._product_clicks(),
+            "events": [],
+        }
 
         result = load_user_behavior_signals(
             identity=Mock(),
@@ -186,32 +269,32 @@ class UserBehaviorSignalServiceTests(SimpleTestCase):
             as_of=self.AS_OF,
         )
 
-        self.assertFalse(result["collection_status"]["saved_outfits"]["available"])
-        self.assertFalse(result["collection_status"]["product_clicks"]["available"])
+        self.assertTrue(result["collection_status"]["saved_outfits"]["available"])
+        self.assertTrue(result["collection_status"]["product_clicks"]["available"])
+        self.assertEqual(result["summary"]["saved_outfits"], 0)
+        self.assertEqual(result["summary"]["product_clicks"], 0)
+        self.assertEqual(result["signals"]["weak_preferences"]["saved_outfits"], [])
         self.assertEqual(
-            result["collection_status"]["saved_outfits"]["reason"],
-            "LOADER_NOT_IMPLEMENTED",
+            result["signals"]["reference_information"]["product_clicks"], []
         )
-        self.assertEqual(
-            result["collection_status"]["product_clicks"]["reason"],
-            "LOADER_NOT_IMPLEMENTED",
-        )
-        self.assertIsNone(result["summary"]["saved_outfits"])
-        self.assertIsNone(result["summary"]["product_clicks"])
-        self.assertIsNone(result["signals"]["weak_preferences"]["saved_outfits"])
-        self.assertIsNone(result["signals"]["reference_information"]["product_clicks"])
 
+    @patch("apps.chat.services.behavior_signals.load_product_click_history")
+    @patch("apps.chat.services.behavior_signals.load_saved_outfit_history")
     @patch("apps.chat.services.behavior_signals.load_calendar_wear_history")
     @patch("apps.chat.services.behavior_signals.load_recent_recommendations")
     def test_recommendation_exposure_is_only_used_for_repetition_avoidance(
         self,
         recent_loader,
         calendar_loader,
+        saved_loader,
+        click_loader,
     ) -> None:
         recent = self._recent_recommendations()
         calendar = self._calendar_wear()
         recent_loader.return_value = recent
         calendar_loader.return_value = calendar
+        saved_loader.return_value = self._saved_outfits()
+        click_loader.return_value = self._product_clicks()
 
         result = load_user_behavior_signals(
             identity=Mock(),

@@ -23,7 +23,12 @@ from apps.chat.models import (
 )
 from apps.chat.services.behavior_signals import load_user_behavior_signals
 from apps.chat.services.context_cache import JsonCache, RedisJsonCache
-from apps.recommend.models import RecommendationFeedback, RecommendationResult
+from apps.recommend.models import (
+    ProductClickEvent,
+    RecommendationFeedback,
+    RecommendationResult,
+    SavedOutfit,
+)
 from apps.style_calendar.models import CalendarEntry, CalendarWardrobeItem
 from apps.users.constants import effective_category_budgets
 from apps.users.models import BodyMeasurement, Pursuit
@@ -228,6 +233,12 @@ class ChatContextService:
             "as_of_date": as_of,
             "recommendations": {"count": 0, "updated_at": None},
             "recommendation_feedback": {"count": 0, "updated_at": None},
+            "saved_outfits": {"count": 0, "updated_at": None},
+            "product_clicks": {
+                "count": 0,
+                "created_at": None,
+                "engagement_recorded_at": None,
+            },
             "calendar_entries": {"count": 0, "updated_at": None},
             "calendar_item_links": {"count": 0, "updated_at": None},
         }
@@ -270,6 +281,19 @@ class ChatContextService:
                             count=Count("id"),
                             updated_at=Max("updated_at"),
                         )
+                    ),
+                    "saved_outfits": SavedOutfit.objects.filter(
+                        user_id=identity.user_id,
+                    ).aggregate(
+                        count=Count("id"),
+                        updated_at=Max("created_at"),
+                    ),
+                    "product_clicks": ProductClickEvent.objects.filter(
+                        user_id=identity.user_id,
+                    ).aggregate(
+                        count=Count("id"),
+                        created_at=Max("created_at"),
+                        engagement_recorded_at=Max("engagement_recorded_at"),
                     ),
                     "calendar_entries": CalendarEntry.objects.filter(
                         user_id=identity.user_id,

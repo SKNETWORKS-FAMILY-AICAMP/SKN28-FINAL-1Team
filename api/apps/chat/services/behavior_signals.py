@@ -6,10 +6,14 @@ from datetime import date
 from typing import Any
 
 from apps.chat.models import ChatIdentity, ChatRun
+from apps.chat.services.behavior_event_history import (
+    load_product_click_history,
+    load_saved_outfit_history,
+)
 from apps.chat.services.calendar_wear_history import load_calendar_wear_history
 from apps.chat.services.recent_recommendations import load_recent_recommendations
 
-BEHAVIOR_SIGNAL_SCHEMA_VERSION = "1.0"
+BEHAVIOR_SIGNAL_SCHEMA_VERSION = "1.1"
 
 
 def _feedback_signal(
@@ -90,6 +94,59 @@ def _calendar_registration_signals(
     ]
 
 
+def _saved_outfit_signals(
+    saved_outfits: dict[str, Any],
+) -> list[dict[str, Any]]:
+    return [
+        {
+            "signal_type": "OUTFIT_SAVED",
+            "strength": "WEAK",
+            "polarity": "POSITIVE",
+            "occurred_at": event["saved_at"],
+            "saved_outfit_id": event["saved_outfit_id"],
+            "result_id": event["result_id"],
+            "composition_id": event["composition_id"],
+            "persona_id": event.get("persona_id"),
+            "outfit": event["outfit"],
+        }
+        for event in saved_outfits["events"]
+    ]
+
+
+def _product_click_signals(
+    product_clicks: dict[str, Any],
+    *,
+    saved_composition_ids: set[str],
+    liked_composition_ids: set[str],
+) -> list[dict[str, Any]]:
+    signals = []
+    for event in product_clicks["events"]:
+        composition_id = event["composition_id"]
+        evidence = []
+        if composition_id in saved_composition_ids:
+            evidence.append("OUTFIT_SAVED")
+        if composition_id in liked_composition_ids:
+            evidence.append("RECOMMENDATION_LIKE")
+        signals.append(
+            {
+                "signal_type": "PRODUCT_CLICK",
+                "strength": "REFERENCE",
+                "polarity": "NEUTRAL",
+                "occurred_at": event["clicked_at"],
+                "product_click_id": event["product_click_id"],
+                "result_id": event["result_id"],
+                "composition_id": composition_id,
+                "persona_id": event.get("persona_id"),
+                "engagement_duration_ms": event.get("engagement_duration_ms"),
+                "engagement_recorded_at": event.get("engagement_recorded_at"),
+                "preference_evidence": evidence,
+                "corroborated_preference": bool(evidence),
+                "item": event["item"],
+            }
+        )
+    return signals
+
+
 def load_user_behavior_signals(
     *,
     identity: ChatIdentity,
@@ -98,8 +155,9 @@ def load_user_behavior_signals(
 ) -> dict[str, Any]:
     """사용 가능한 행동 데이터를 의미와 강도를 보존해 한 번씩 로드한다.
 
-    추천 노출은 선호로 승격하지 않고 반복 회피 자료로만 둔다. 저장 코디와 상품
-    클릭은 저장소가 있어도 로더 연결 전까지 0건이 아닌 수집 불가 상태로 반환한다.
+    추천 노출은 선호로 승격하지 않고 반복 회피 자료로만 둔다. 상품 클릭과 체류
+    시간은 중립 참고 정보이며, 저장 또는 LIKE가 같은 카드에 있을 때만 보강 근거를
+    표시한다. 클릭 자체는 이 경우에도 약한 선호로 승격하지 않는다.
     """
 
     recent_recommendations = load_recent_recommendations(
@@ -110,8 +168,16 @@ def load_user_behavior_signals(
         identity=identity,
         as_of=as_of,
     )
+    saved_outfits = load_saved_outfit_history(identity=identity)
+    product_clicks = load_product_click_history(identity=identity)
     likes, dislikes = _recommendation_feedback_signals(recent_recommendations)
     calendar_registrations = _calendar_registration_signals(calendar_wear)
+    saved_signals = _saved_outfit_signals(saved_outfits)
+    click_signals = _product_click_signals(
+        product_clicks,
+        saved_composition_ids={row["composition_id"] for row in saved_signals},
+        liked_composition_ids={row["composition_id"] for row in likes},
+    )
 
     return {
         "schema_version": BEHAVIOR_SIGNAL_SCHEMA_VERSION,
@@ -128,14 +194,15 @@ def load_user_behavior_signals(
                 "history_scope": "RECENT_10_RUNS",
             },
             "saved_outfits": {
-                "available": False,
+                "available": True,
                 "signal_strength": "WEAK",
-                "reason": "LOADER_NOT_IMPLEMENTED",
+                "history_scope": saved_outfits["history_scope"],
             },
             "product_clicks": {
-                "available": False,
+                "available": True,
                 "signal_strength": "REFERENCE",
-                "reason": "LOADER_NOT_IMPLEMENTED",
+                "history_scope": product_clicks["history_scope"],
+                "preference_requires_corroboration": True,
             },
         },
         "summary": {
@@ -145,8 +212,15 @@ def load_user_behavior_signals(
             ],
             "liked_recommendation_cards": len(likes),
             "disliked_recommendation_cards": len(dislikes),
-            "saved_outfits": None,
-            "product_clicks": None,
+            "saved_outfits": len(saved_signals),
+            "product_clicks": len(click_signals),
+            "product_clicks_with_duration": sum(
+                signal["engagement_duration_ms"] is not None
+                for signal in click_signals
+            ),
+            "corroborated_product_clicks": sum(
+                signal["corroborated_preference"] for signal in click_signals
+            ),
         },
         "signals": {
             "strong_preferences": {
@@ -155,13 +229,13 @@ def load_user_behavior_signals(
             },
             "weak_preferences": {
                 "liked_recommendation_cards": likes,
-                "saved_outfits": None,
+                "saved_outfits": saved_signals,
             },
             "negative_preferences": {
                 "disliked_recommendation_cards": dislikes,
             },
             "reference_information": {
-                "product_clicks": None,
+                "product_clicks": click_signals,
             },
         },
         "repetition_avoidance": {
@@ -172,5 +246,7 @@ def load_user_behavior_signals(
         "source_data": {
             "recent_recommendations": recent_recommendations,
             "calendar_wear": calendar_wear,
+            "saved_outfits": saved_outfits,
+            "product_clicks": product_clicks,
         },
     }

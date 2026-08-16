@@ -15,7 +15,10 @@ from apps.recommend.models import (
     ProductClickEvent,
     RecommendationResult,
 )
-from apps.recommend.serializers import ProductClickEventSerializer
+from apps.recommend.serializers import (
+    ProductClickEngagementRequestSerializer,
+    ProductClickEventSerializer,
+)
 from apps.recommend.services.recommendation_results import (
     PRODUCT_CLICK_DEDUPLICATION_WINDOW,
 )
@@ -75,6 +78,8 @@ class ProductClickContractTests(SimpleTestCase):
     def test_serializer_exposes_attribution_and_deduplication(self) -> None:
         event = self._event()
         event.deduplicated = True
+        event.engagement_duration_ms = 42_000
+        event.engagement_recorded_at = timezone.now()
 
         payload = ProductClickEventSerializer(event).data
 
@@ -84,6 +89,8 @@ class ProductClickContractTests(SimpleTestCase):
         self.assertEqual(payload["item_id"], str(event.item_id))
         self.assertEqual(payload["persona_id"], "minimal")
         self.assertTrue(payload["deduplicated"])
+        self.assertEqual(payload["engagement_duration_ms"], 42_000)
+        self.assertIsNotNone(payload["engagement_recorded_at"])
 
     def test_click_endpoint_and_deduplication_window_are_stable(self) -> None:
         result_id = uuid.uuid4()
@@ -103,3 +110,21 @@ class ProductClickContractTests(SimpleTestCase):
             ),
         )
         self.assertEqual(PRODUCT_CLICK_DEDUPLICATION_WINDOW, timedelta(minutes=5))
+
+    def test_engagement_endpoint_and_duration_contract_are_stable(self) -> None:
+        click_id = uuid.uuid4()
+        path = reverse(
+            "recommend:recommendation-product-click-engagement",
+            args=[click_id],
+        )
+        self.assertEqual(
+            path,
+            f"/api/v1/recommendations/product-clicks/{click_id}/engagement/",
+        )
+
+        valid = ProductClickEngagementRequestSerializer(data={"duration_ms": 42_000})
+        too_long = ProductClickEngagementRequestSerializer(
+            data={"duration_ms": 86_400_001}
+        )
+        self.assertTrue(valid.is_valid())
+        self.assertFalse(too_long.is_valid())

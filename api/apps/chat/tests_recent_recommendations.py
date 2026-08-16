@@ -19,6 +19,7 @@ from apps.recommend.models import (
     OutfitCompositionItem,
     RecommendationFeedback,
     RecommendationResult,
+    SavedOutfit,
 )
 
 User = get_user_model()
@@ -180,7 +181,11 @@ class RecentRecommendationLoaderTests(TestCase):
             display_order=1,
         )
         practical_card = self._card(practical, source_id="shared-product")
-        self._card(minimal, source_id="shared-product")
+        minimal_saved_card = self._card(minimal, source_id="shared-product")
+        saved = SavedOutfit.objects.create(
+            user=self.user,
+            composition=minimal_saved_card,
+        )
         GoldenTemplateSnapshot.objects.create(
             result=minimal,
             golden_id="golden-1",
@@ -214,9 +219,12 @@ class RecentRecommendationLoaderTests(TestCase):
         self.assertEqual(minimal_card["styles"], ["모던", "미니멀"])
         self.assertEqual(minimal_card["colors"], ["딥", "네이비"])
         self.assertEqual(minimal_card["fits"], ["레귤러핏"])
-        self.assertIsNone(minimal_card["is_saved"])
+        self.assertTrue(minimal_card["is_saved"])
+        self.assertEqual(minimal_card["saved_at"], saved.created_at.isoformat())
+        self.assertFalse(practical_payload["is_saved"])
+        self.assertIsNone(practical_payload["saved_at"])
         self.assertEqual(practical_payload["feedback"]["reaction"], "LIKE")
-        self.assertFalse(history["saved_signal_available"])
+        self.assertTrue(history["saved_signal_available"])
         self.assertEqual(history["repetitions"]["items"][0]["count"], 2)
         self.assertEqual(history["repetitions"]["combinations"][0]["count"], 2)
         self.assertEqual(history["repetitions"]["slots"], [{"slot": "TOP", "count": 2}])

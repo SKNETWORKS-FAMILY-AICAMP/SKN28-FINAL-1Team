@@ -61,6 +61,8 @@ _SUMMARY_FIELDS = (
     "disliked_recommendation_cards",
     "saved_outfits",
     "product_clicks",
+    "product_clicks_with_duration",
+    "corroborated_product_clicks",
 )
 _COLLECTION_FIELDS = (
     "calendar_wear",
@@ -74,6 +76,7 @@ _COLLECTION_DETAIL_FIELDS = (
     "like_strength",
     "dislike_strength",
     "history_scope",
+    "preference_requires_corroboration",
     "reason",
 )
 _MAX_COUNT_VALUES = 20
@@ -243,6 +246,7 @@ def _feedback_summary(behavior: dict[str, Any]) -> dict[str, Any]:
     negative = _mapping(signals.get("negative_preferences"))
     groups = {
         "liked": _rows(weak.get("liked_recommendation_cards")),
+        "saved": _rows(weak.get("saved_outfits")),
         "disliked": _rows(negative.get("disliked_recommendation_cards")),
     }
     result: dict[str, Any] = {}
@@ -265,6 +269,27 @@ def _feedback_summary(behavior: dict[str, Any]) -> dict[str, Any]:
                 for name, counter in counters.items()
             },
         }
+    click_rows = _rows(
+        _mapping(signals.get("reference_information")).get("product_clicks")
+    )
+    click_counters = {"styles": Counter(), "colors": Counter(), "fits": Counter()}
+    for row in click_rows:
+        item = _mapping(row.get("item"))
+        for field, counter in click_counters.items():
+            _add_values(counter, item.get(field))
+    result["product_click_reference"] = {
+        "event_count": len(click_rows),
+        "duration_observed_count": sum(
+            row.get("engagement_duration_ms") is not None for row in click_rows
+        ),
+        "corroborated_count": sum(
+            bool(row.get("corroborated_preference")) for row in click_rows
+        ),
+        **{
+            f"{name}_counts": _count_rows(counter)
+            for name, counter in click_counters.items()
+        },
+    }
     return result
 
 

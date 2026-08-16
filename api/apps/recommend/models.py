@@ -1314,6 +1314,18 @@ class ProductClickEvent(models.Model):
         auto_now_add=True,
         db_comment="상품 클릭 이벤트 수집 시각",
     )
+    engagement_duration_ms = models.PositiveBigIntegerField(
+        null=True,
+        blank=True,
+        db_comment=(
+            "외부 판매처 이동 후 앱 복귀까지의 근사 체류 시간(ms, 미수집 시 NULL)"
+        ),
+    )
+    engagement_recorded_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        db_comment="상품 클릭 근사 체류 시간을 마지막으로 수집한 시각",
+    )
 
     class Meta:
         db_table = "product_click_event"

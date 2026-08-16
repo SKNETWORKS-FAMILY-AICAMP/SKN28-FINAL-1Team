@@ -231,3 +231,34 @@ def record_product_click(
         source_id=item.source_id,
     )
     return event, True
+
+
+@transaction.atomic
+def update_product_click_engagement(
+    *,
+    identity: ChatIdentity,
+    product_click_id: uuid.UUID,
+    duration_ms: int,
+) -> ProductClickEvent | None:
+    """회원 소유 클릭의 근사 체류 시간을 재시도에 안전하게 갱신한다."""
+
+    if identity.user_id is None:
+        return None
+    event = (
+        ProductClickEvent.objects.select_for_update()
+        .filter(pk=product_click_id, user_id=identity.user_id)
+        .first()
+    )
+    if event is None:
+        return None
+    if (
+        event.engagement_duration_ms is not None
+        and event.engagement_duration_ms >= duration_ms
+    ):
+        return event
+    event.engagement_duration_ms = duration_ms
+    event.engagement_recorded_at = timezone.now()
+    event.save(
+        update_fields=["engagement_duration_ms", "engagement_recorded_at"]
+    )
+    return event

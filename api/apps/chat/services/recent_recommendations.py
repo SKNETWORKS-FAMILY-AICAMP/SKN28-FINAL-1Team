@@ -14,6 +14,7 @@ from apps.recommend.models import (
     OutfitCompositionItem,
     RecommendationFeedback,
     RecommendationResult,
+    SavedOutfit,
 )
 
 RECENT_RECOMMENDATION_RUN_LIMIT = 10
@@ -119,7 +120,11 @@ def _item_payload(item: OutfitCompositionItem) -> dict[str, Any]:
     }
 
 
-def _result_payload(result: RecommendationResult) -> dict[str, Any]:
+def _result_payload(
+    result: RecommendationResult,
+    *,
+    saved_at_by_composition: dict[str, str],
+) -> dict[str, Any]:
     template_snapshot = (
         result.golden_template.payload_snapshot
         if hasattr(result, "golden_template")
@@ -131,6 +136,7 @@ def _result_payload(result: RecommendationResult) -> dict[str, Any]:
     cards: list[dict[str, Any]] = []
     for composition in result.recent_validated_compositions:
         items = [_item_payload(item) for item in composition.items.all()]
+        saved_at = saved_at_by_composition.get(str(composition.id))
         cards.append(
             {
                 "composition_id": str(composition.id),
@@ -147,8 +153,8 @@ def _result_payload(result: RecommendationResult) -> dict[str, Any]:
                 "fits": _merge_values(template_fits, *(item["fits"] for item in items)),
                 "items": items,
                 "feedback": _feedback_payload(composition),
-                # 추천 카드를 별도로 저장하는 모델이 추가되기 전까지는 미수집이다.
-                "is_saved": None,
+                "is_saved": saved_at is not None,
+                "saved_at": saved_at,
             }
         )
     return {
@@ -272,8 +278,16 @@ def load_recent_recommendations(
             "run_limit": RECENT_RECOMMENDATION_RUN_LIMIT,
             "runs": [],
             "repetitions": {"items": [], "combinations": [], "slots": []},
-            "saved_signal_available": False,
+            "saved_signal_available": True,
         }
+
+    saved_at_by_composition = {
+        str(row["composition_id"]): row["created_at"].isoformat()
+        for row in SavedOutfit.objects.filter(
+            user_id=identity.user_id,
+            composition__result__run_id__in=run_ids,
+        ).values("composition_id", "created_at")
+    }
 
     item_queryset = OutfitCompositionItem.objects.order_by("position", "created_at")
     composition_queryset = (
@@ -318,7 +332,13 @@ def load_recent_recommendations(
             {
                 "run_id": str(row["run_id"]),
                 "recommended_at": row["recommended_at"].isoformat(),
-                "results": [_result_payload(result) for result in run_results],
+                "results": [
+                    _result_payload(
+                        result,
+                        saved_at_by_composition=saved_at_by_composition,
+                    )
+                    for result in run_results
+                ],
             }
         )
 
@@ -326,5 +346,5 @@ def load_recent_recommendations(
         "run_limit": RECENT_RECOMMENDATION_RUN_LIMIT,
         "runs": runs,
         "repetitions": _repetition_summary(runs),
-        "saved_signal_available": False,
+        "saved_signal_available": True,
     }

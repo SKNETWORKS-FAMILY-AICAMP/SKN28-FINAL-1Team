@@ -415,6 +415,38 @@ class RecommendationApiTests(TestCase):
         self.assertFalse(response.data["deduplicated"])
         self.assertEqual(ProductClickEvent.objects.count(), 2)
 
+    def test_product_click_engagement_keeps_largest_duration_for_owner(self):
+        result, card, _ = self._result(self.identity)
+        item = card.items.get()
+        event = ProductClickEvent.objects.create(
+            user=self.user,
+            item=item,
+            result_id_snapshot=result.id,
+            composition_id_snapshot=card.id,
+            persona_id=result.persona_id,
+            source_collection=item.source_collection,
+            source_id=item.source_id,
+        )
+        self.client.force_authenticate(self.user)
+        url = reverse(
+            "recommend:recommendation-product-click-engagement",
+            args=[event.id],
+        )
+
+        updated = self.client.patch(url, {"duration_ms": 42_000}, format="json")
+        retried = self.client.patch(url, {"duration_ms": 20_000}, format="json")
+
+        self.assertEqual(updated.status_code, status.HTTP_200_OK)
+        self.assertEqual(retried.status_code, status.HTTP_200_OK)
+        self.assertEqual(updated.data["engagement_duration_ms"], 42_000)
+        self.assertEqual(retried.data["engagement_duration_ms"], 42_000)
+        self.assertIsNotNone(updated.data["engagement_recorded_at"])
+
+        other_client = APIClient()
+        other_client.force_authenticate(self.other_user)
+        rejected = other_client.patch(url, {"duration_ms": 50_000}, format="json")
+        self.assertEqual(rejected.status_code, status.HTTP_404_NOT_FOUND)
+
     def test_product_click_requires_member(self):
         credential = identity_service.issue_guest_identity()
         result, card, _ = self._result(credential.identity)
