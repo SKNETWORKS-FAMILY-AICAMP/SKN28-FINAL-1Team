@@ -5,7 +5,8 @@ from pathlib import Path
 from django.core.management.base import BaseCommand, CommandError
 
 from apps.recommend.services.mixed_outfit_render import OutfitRenderError
-from apps.recommend.services.virtual_try_on import VirtualTryOnService
+from apps.recommend.services.virtual_try_on import VirtualTryOnService, load_body_profile
+from apps.users.models import User
 
 
 class Command(BaseCommand):
@@ -20,6 +21,11 @@ class Command(BaseCommand):
             choices=["person", "mannequin"],
             default="person",
         )
+        parser.add_argument(
+            "--user-id",
+            type=int,
+            help="마네킹에 반영할 로컬 DB 사용자 ID",
+        )
         parser.add_argument("--output", default="virtual_try_on_result.png")
         # 이전 테스트 명령과의 호환을 위해 받기만 한다.
         parser.add_argument("--mannequin-output")
@@ -31,10 +37,25 @@ class Command(BaseCommand):
         except OSError as exc:
             raise CommandError(f"입력 이미지를 읽지 못했습니다: {exc}") from exc
 
+        body_profile = {}
+        if options["user_id"] is not None:
+            if options["mode"] != "mannequin":
+                raise CommandError("--user-id는 --mode mannequin에서만 사용할 수 있습니다.")
+            try:
+                user = User.objects.get(pk=options["user_id"])
+            except User.DoesNotExist as exc:
+                raise CommandError("사용자를 찾을 수 없습니다.") from exc
+            body_profile = load_body_profile(user)
+            self.stdout.write(f"저장 체형 반영: user_id={user.pk}")
+
         service = VirtualTryOnService()
         try:
             if options["mode"] == "mannequin":
-                result = service.fit_mannequin(person, outfit)
+                result = service.fit_mannequin(
+                    person,
+                    outfit,
+                    body_profile=body_profile,
+                )
             else:
                 result = service.fit_person(person, outfit)
         except OutfitRenderError as exc:

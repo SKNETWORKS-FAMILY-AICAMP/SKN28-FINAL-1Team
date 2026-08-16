@@ -1,8 +1,12 @@
 from __future__ import annotations
 
 from decimal import Decimal
+from io import StringIO
+from pathlib import Path
+from tempfile import TemporaryDirectory
 from unittest.mock import Mock, patch
 
+from django.core.management import call_command
 from django.test import SimpleTestCase, override_settings
 
 from apps.recommend.checks import chat_recommend_deployment_checks
@@ -121,6 +125,49 @@ class StoredBodyProfileTests(SimpleTestCase):
         filter_mock.return_value.first.return_value = measurement
 
         self.assertEqual(load_body_profile(user), {})
+
+
+class VirtualTryOnCommandTests(SimpleTestCase):
+    @patch(
+        "apps.recommend.management.commands.test_virtual_try_on."
+        "VirtualTryOnService"
+    )
+    @patch("apps.recommend.management.commands.test_virtual_try_on.load_body_profile")
+    @patch("apps.recommend.management.commands.test_virtual_try_on.User.objects.get")
+    def test_mannequin_uses_saved_body_profile(
+        self,
+        user_get: Mock,
+        profile_loader: Mock,
+        service_class: Mock,
+    ) -> None:
+        user_get.return_value = Mock(pk=2)
+        profile = {"measurements": {"height": 168.0}}
+        profile_loader.return_value = profile
+        service_class.return_value.fit_mannequin.return_value = Mock(content=PNG)
+
+        with TemporaryDirectory() as directory:
+            person = Path(directory) / "person.jpg"
+            outfit = Path(directory) / "outfit.jpg"
+            output = Path(directory) / "result.png"
+            person.write_bytes(PNG)
+            outfit.write_bytes(PNG)
+
+            call_command(
+                "test_virtual_try_on",
+                person=str(person),
+                outfit=str(outfit),
+                mode="mannequin",
+                user_id=2,
+                output=str(output),
+                stdout=StringIO(),
+            )
+
+        profile_loader.assert_called_once_with(user_get.return_value)
+        service_class.return_value.fit_mannequin.assert_called_once_with(
+            PNG,
+            PNG,
+            body_profile=profile,
+        )
 
 
 @override_settings(
