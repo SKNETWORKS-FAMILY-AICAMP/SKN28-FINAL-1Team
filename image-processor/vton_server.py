@@ -121,7 +121,12 @@ def _decode_images(payload: dict[str, Any]) -> list[Image.Image]:
 def _color_histogram(image: Image.Image) -> list[float]:
     """흰 배경을 제외한 저해상도 HSV 분포를 의류 색상 지문으로 쓴다."""
     histogram = [0] * 192
-    pixels = image.convert("HSV").resize((128, 128)).get_flattened_data()
+    resized = image.convert("HSV").resize((128, 128))
+    pixels = (
+        resized.get_flattened_data()
+        if hasattr(resized, "get_flattened_data")
+        else resized.getdata()
+    )
     for hue, saturation, value in pixels:
         if saturation < 15 and value > 220:
             continue
