@@ -38,6 +38,9 @@ from apps.chat.services.persona_narration import (
     RuleBasedPersonaNarrator,
     build_persona_narration_service,
 )
+from apps.chat.services.personalization_snapshot import (
+    build_personalization_snapshot,
+)
 from apps.chat.services.recommendation_pipeline import (
     ChatRecommendationError,
     ChatRecommendationPipeline,
@@ -78,7 +81,11 @@ class OrchestrationResult:
     recommendation_result_ids: tuple[str, ...] = ()
 
 
-def _session_run_snapshot(session: ChatSession) -> dict[str, object]:
+def _session_run_snapshot(
+    session: ChatSession,
+    *,
+    identity: ChatIdentity,
+) -> dict[str, object]:
     persona_ids = list(session.selected_persona_ids)
     catalog = load_stylist_personas()
     try:
@@ -97,6 +104,10 @@ def _session_run_snapshot(session: ChatSession) -> dict[str, object]:
             for persona_id in persona_ids
         },
         "stylist_config_version": catalog.schema_version,
+        "personalization_snapshot": build_personalization_snapshot(
+            identity=identity,
+            captured_at=timezone.now(),
+        ),
     }
 
 
@@ -198,7 +209,7 @@ def create_run(
     if existing is not None:
         return existing, False
 
-    snapshot = _session_run_snapshot(session)
+    snapshot = _session_run_snapshot(session, identity=identity)
 
     try:
         run, created = ChatRun.objects.get_or_create(

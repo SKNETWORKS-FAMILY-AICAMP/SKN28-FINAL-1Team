@@ -46,6 +46,7 @@ class ChatMessageSnapshotApiTests(APITestCase):
             stored = ChatRun.objects.get(pk=run.pk)
             observed["response_mode"] = stored.response_mode
             observed["persona_ids"] = stored.persona_ids
+            observed["personalization_snapshot"] = stored.personalization_snapshot
             observed["persona_rows"] = list(
                 stored.persona_executions.values_list("persona_id", flat=True)
             )
@@ -69,6 +70,14 @@ class ChatMessageSnapshotApiTests(APITestCase):
         )
         self.assertEqual(observed["response_mode"], "STYLIST")
         self.assertEqual(observed["persona_ids"], ["minimal", "practical"])
+        personalization = observed["personalization_snapshot"]
+        self.assertEqual(personalization["schema_version"], "1.0")
+        self.assertTrue(personalization["personalized"])
+        self.assertIn("captured_at", personalization)
+        self.assertEqual(
+            set(personalization["sources"]),
+            {"profile", "wardrobe", "behavior"},
+        )
         self.assertEqual(observed["persona_rows"], ["minimal", "practical"])
 
     @patch("apps.chat.views.ChatEventStore.publish")
@@ -90,6 +99,11 @@ class ChatMessageSnapshotApiTests(APITestCase):
             "client_message_id": "snapshot-api-duplicate",
         }
         first = self.client.post(self.url, payload, format="json")
+        original_snapshot = ChatRun.objects.get(
+            pk=first.data["run"]["id"]
+        ).personalization_snapshot
+        self.user.category_budgets = {"상의": 120_000}
+        self.user.save(update_fields=["category_budgets"])
 
         response_modes.update_session_response_mode(
             user=self.user,
@@ -105,3 +119,22 @@ class ChatMessageSnapshotApiTests(APITestCase):
         self.assertEqual(duplicate.data["run"]["persona_ids"], ["minimal"])
         run = ChatRun.objects.get(pk=first.data["run"]["id"])
         self.assertEqual(ChatRunPersona.objects.filter(run=run).count(), 1)
+        self.assertEqual(run.personalization_snapshot, original_snapshot)
+
+        next_response = self.client.post(
+            self.url,
+            {
+                "content": "변경된 예산으로 다시 추천해줘",
+                "client_message_id": "snapshot-api-after-budget-change",
+            },
+            format="json",
+        )
+        next_snapshot = ChatRun.objects.get(
+            pk=next_response.data["run"]["id"]
+        ).personalization_snapshot
+        self.assertNotEqual(
+            next_snapshot["sources"]["profile"]["category_budgets_fingerprint"],
+            original_snapshot["sources"]["profile"][
+                "category_budgets_fingerprint"
+            ],
+        )

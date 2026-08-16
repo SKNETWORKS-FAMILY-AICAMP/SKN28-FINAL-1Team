@@ -11,7 +11,6 @@ from decimal import Decimal
 from typing import Any
 
 from django.conf import settings
-from django.db.models import Count, Max
 from django.utils import timezone
 
 from apps.chat.models import (
@@ -23,17 +22,12 @@ from apps.chat.models import (
 )
 from apps.chat.services.behavior_signals import load_user_behavior_signals
 from apps.chat.services.context_cache import JsonCache, RedisJsonCache
-from apps.recommend.models import (
-    ProductClickEvent,
-    RecommendationFeedback,
-    RecommendationResult,
-    SavedOutfit,
+from apps.chat.services.personalization_snapshot import (
+    load_personalization_source_versions,
 )
-from apps.style_calendar.models import CalendarEntry, CalendarWardrobeItem
 from apps.users.constants import effective_category_budgets
-from apps.users.models import BodyMeasurement, Pursuit
+from apps.users.models import BodyMeasurement
 from apps.users.services.pursuit import get_pursuit
-from apps.wardrobe.models import WardrobeItem
 from apps.weather.services import get_current_weather, resolve_coordinates
 
 _SPACE_RE = re.compile(r"\s+")
@@ -207,6 +201,7 @@ class ChatContextService:
                 "session_conditions": session.context_state or {},
                 "persona_version": persona.version,
                 "behavior_signals": behavior_signals,
+                "personalization_reference": current_run.personalization_snapshot,
             }
         )
         return ChatContext(
@@ -224,98 +219,14 @@ class ChatContextService:
         weather: dict[str, Any],
         as_of: date,
     ) -> dict[str, Any]:
-        profile_version: dict[str, Any] = {
-            "identity_type": identity.identity_type,
-            "category_budgets": effective_category_budgets(None),
-        }
-        wardrobe_version: dict[str, Any] = {"count": 0, "updated_at": None}
-        behavior_versions: dict[str, Any] = {
-            "as_of_date": as_of,
-            "recommendations": {"count": 0, "updated_at": None},
-            "recommendation_feedback": {"count": 0, "updated_at": None},
-            "saved_outfits": {"count": 0, "updated_at": None},
-            "product_clicks": {
-                "count": 0,
-                "created_at": None,
-                "engagement_recorded_at": None,
-            },
-            "calendar_entries": {"count": 0, "updated_at": None},
-            "calendar_item_links": {"count": 0, "updated_at": None},
-        }
-        if identity.user_id is not None:
-            pursuit_updated = (
-                Pursuit.objects.filter(user_id=identity.user_id)
-                .values_list("updated_at", flat=True)
-                .first()
-            )
-            body_updated = (
-                BodyMeasurement.objects.filter(user_id=identity.user_id)
-                .values_list("updated_at", flat=True)
-                .first()
-            )
-            profile_version.update(
-                {
-                    "user_id": identity.user_id,
-                    "pursuit_updated_at": pursuit_updated,
-                    "body_updated_at": body_updated,
-                    "category_budgets": effective_category_budgets(
-                        identity.user.category_budgets
-                    ),
-                }
-            )
-            wardrobe_version = WardrobeItem.objects.filter(
-                user_id=identity.user_id,
-            ).aggregate(count=Count("id"), updated_at=Max("updated_at"))
-            behavior_versions.update(
-                {
-                    "recommendations": RecommendationResult.objects.filter(
-                        identity=identity,
-                    ).aggregate(
-                        count=Count("id"),
-                        updated_at=Max("updated_at"),
-                    ),
-                    "recommendation_feedback": (
-                        RecommendationFeedback.objects.filter(
-                            composition__result__identity=identity,
-                        ).aggregate(
-                            count=Count("id"),
-                            updated_at=Max("updated_at"),
-                        )
-                    ),
-                    "saved_outfits": SavedOutfit.objects.filter(
-                        user_id=identity.user_id,
-                    ).aggregate(
-                        count=Count("id"),
-                        updated_at=Max("created_at"),
-                    ),
-                    "product_clicks": ProductClickEvent.objects.filter(
-                        user_id=identity.user_id,
-                    ).aggregate(
-                        count=Count("id"),
-                        created_at=Max("created_at"),
-                        engagement_recorded_at=Max("engagement_recorded_at"),
-                    ),
-                    "calendar_entries": CalendarEntry.objects.filter(
-                        user_id=identity.user_id,
-                    ).aggregate(
-                        count=Count("id"),
-                        updated_at=Max("updated_at"),
-                    ),
-                    "calendar_item_links": CalendarWardrobeItem.objects.filter(
-                        calendar__user_id=identity.user_id,
-                        wardrobe_item__user_id=identity.user_id,
-                    ).aggregate(
-                        count=Count("id"),
-                        updated_at=Max("updated_at"),
-                    ),
-                }
-            )
+        personalization = load_personalization_source_versions(
+            identity=identity,
+            as_of=as_of,
+        )
 
         return _json_safe(
             {
-                "profile": profile_version,
-                "wardrobe": wardrobe_version,
-                "behavior": behavior_versions,
+                **personalization,
                 "weather": {
                     "region": weather.get("region"),
                     "observed_at": weather.get("observed_at"),

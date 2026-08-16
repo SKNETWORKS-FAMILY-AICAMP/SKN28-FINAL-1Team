@@ -93,6 +93,30 @@ def validate_persona_prompt_version_snapshot(value: object) -> None:
         raise ValidationError("프롬프트 버전은 비어 있지 않은 문자열이어야 합니다.")
 
 
+def validate_personalization_snapshot(value: object) -> None:
+    """실행 접수 당시 개인화 기준 스냅샷의 최소 계약을 검증한다."""
+
+    if not isinstance(value, dict):
+        raise ValidationError("개인화 데이터 기준 스냅샷은 JSON 객체여야 합니다.")
+    if not value:
+        return
+    for key in ("schema_version", "captured_at", "as_of_date", "identity_type"):
+        if not isinstance(value.get(key), str) or not value[key].strip():
+            raise ValidationError(f"개인화 스냅샷의 {key} 값이 필요합니다.")
+    if not isinstance(value.get("personalized"), bool):
+        raise ValidationError("개인화 스냅샷의 personalized 값은 boolean이어야 합니다.")
+    sources = value.get("sources")
+    if not isinstance(sources, dict):
+        raise ValidationError("개인화 스냅샷의 sources 값은 JSON 객체여야 합니다.")
+    if any(
+        not isinstance(sources.get(key), dict)
+        for key in ("profile", "wardrobe", "behavior")
+    ):
+        raise ValidationError(
+            "개인화 스냅샷 sources에는 profile, wardrobe, behavior 객체가 필요합니다."
+        )
+
+
 def validate_stylist_persona_id(value: object) -> None:
     """스타일리스트별 실행 행의 ID가 현재 지원 목록에 있는지 검증한다."""
 
@@ -771,6 +795,15 @@ class ChatRun(models.Model):
         blank=True,
         default="",
         db_comment="실행 접수 당시 스타일리스트 설정 파일 스키마 버전",
+    )
+    personalization_snapshot = models.JSONField(
+        default=dict,
+        blank=True,
+        validators=[validate_personalization_snapshot],
+        db_comment=(
+            "실행 접수 당시 개인화 원천별 행 수·마지막 변경 시각·설정 지문 "
+            "JSON (기존 실행은 빈 객체)"
+        ),
     )
     enqueued_at = models.DateTimeField(
         null=True,
