@@ -119,8 +119,15 @@ export function useStylists() {
 
 /**
  * 근거 코드 → 사람이 읽는 말.
- * 값은 백엔드가 실제로 만드는 것들이다 (api/apps/chat/services/*_stylist_strategy.py 의 _REASON_CODES).
+ * 값은 백엔드가 실제로 만드는 것들이다 (api/apps/chat/services/*_stylist_strategy.py).
  * 모르는 코드는 지어내지 않고 코드 그대로 보여준다 — 뜻을 추측해 붙이면 없는 근거가 생긴다.
+ *
+ * ⚠️ 코드가 나오는 자리가 **두 군데**다. `_REASON_CODES` 딕셔너리만 보면 빠뜨린다
+ *    (실제로 PRACTICAL_PREFERENCE_TPO_FIT·PRACTICAL_RECENT_HISTORY 를 그렇게 놓쳤다).
+ *    새 페르소나가 붙으면 `git grep -nE 'reason_code\s*=' -- api/apps/chat/services/` 로 훑을 것.
+ *
+ * 문구는 **무엇을 쟀는지**까지만 말하고 결과를 단정하지 않는다. 한 코드가 가점·감점 양쪽에
+ * 쓰이는 경우가 있어서(PRACTICAL_RECENT_HISTORY) "겹치지 않아요"처럼 단정하면 틀릴 수 있다.
  */
 const REASON_LABELS: Record<string, string> = {
   MINIMAL_COLOR_COHESION: '색을 정돈했어요',
@@ -142,6 +149,9 @@ const REASON_LABELS: Record<string, string> = {
   PRACTICAL_WEARING_CONVENIENCE: '입고 벗기 편해요',
   PRACTICAL_MAINTENANCE_EASE: '관리하기 쉬워요',
   PRACTICAL_WARDROBE_BUDGET_EFFICIENCY: '옷장·예산을 아꼈어요',
+  // tag_confidence·tpo_fit·preference_fit 의 평균이다 — 취향과 자리를 함께 본다.
+  PRACTICAL_PREFERENCE_TPO_FIT: '취향과 자리에 맞아요',
+  PRACTICAL_RECENT_HISTORY: '최근 착용을 참고했어요',
 };
 
 export function reasonLabel(code: string): string {

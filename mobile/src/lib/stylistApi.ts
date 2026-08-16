@@ -11,7 +11,7 @@ import { stylistMock } from '@/lib/stylistMock';
  * api/apps/chat/serializers.py 를 그대로 옮긴 것이다. 산문 요약이 아니라 그 코드가 기준이다.
  *
  * ⚠️ **이 엔드포인트들은 배포 서버·main 에 아직 없다.** 라우트가 없으면 404 가 오는데,
- *    그때는 lib/stylistMock.ts 가 대신 답한다(withFallback). 브랜치가 머지되면 첫 호출이
+ *    그때는 lib/stylistMock.ts 가 대신 답한다(probeAndList). 브랜치가 머지되면 첫 호출이
  *    성공하면서 목업은 저절로 꺼진다 — 붙일 때 고칠 코드가 없게 하려는 것.
  */
 
@@ -62,8 +62,16 @@ export type ApiPersonaCard = {
   card_id: string;
   rank: number;
   total_product_price: number | null;
-  /** Validator 가 통과시킨 근거. 배열이지만 원소가 문자열인지 객체인지는 고정돼 있지 않다. */
-  validation_reasons: unknown[];
+  /**
+   * Validator 가 남긴 **문제 목록**이다 — 이름과 달리 '조건을 충족했다'는 근거가 아니다.
+   * (recommendation_pipeline.py 가 validation.issues 를 그대로 넣는다.)
+   * severity 는 ERROR|WARNING 이고 code 는 REQUIRED_SLOT_MISSING 처럼 전부 결함 이름이다.
+   * VALIDATED 카드에는 보통 비어 있거나 WARNING 만 남는다.
+   *
+   * 화면에서 쓰지 않는다 — 사용자에게 보여줄 주의 문구는 `warnings` 쪽이고, 이것은
+   * 검증기 내부 사정이라 카드에 올리면 소음이 된다.
+   */
+  validation_reasons: { severity: string; code: string; message: string; slot: string }[];
   warnings: string[];
   items: ApiRecommendationItem[];
   /** 코디 이미지 렌더 작업. 아직 안 만들어졌으면 null. */
@@ -142,10 +150,19 @@ export function isStylistMocked(): boolean {
   return missing === true;
 }
 
-async function withFallback<T>(real: () => Promise<T>, mock: () => Promise<T>): Promise<T> {
-  if (missing === true) return mock();
+/**
+ * 목업으로 갈지 **판정하는 곳은 여기 하나뿐이다.**
+ *
+ * 왜 이 자리인가 — 404 가 "라우트가 없다"는 뜻인지 확실한 요청은 이것뿐이다. 다른 자리는
+ * 전부 id 를 받는다: 없는 세션에 response-mode 를 걸어도 404, 없는 run 에 재시도를 걸어도
+ * 404 다. 거기서 판정하면 **라우트가 멀쩡한 서버에서도 목업으로 굳어 버린다.**
+ * (지금 화면 흐름상 팝업이 목록을 먼저 부르지만, 호출 순서에 기대는 안전은 다음 변경에
+ *  깨진다. 판정 자체를 한 곳으로 좁혀 둔다.)
+ */
+async function probeAndList(): Promise<ApiStylistCatalog> {
+  if (missing === true) return stylistMock.listStylists();
   try {
-    const out = await real();
+    const out = await api.get<ApiStylistCatalog>(ChatEndpoints.stylists);
     missing = false;
     return out;
   } catch (e) {
@@ -153,20 +170,29 @@ async function withFallback<T>(real: () => Promise<T>, mock: () => Promise<T>): 
     if (missing === null && routeAbsent) {
       missing = true;
       warnOnce();
-      return mock();
+      return stylistMock.listStylists();
     }
     throw e;
   }
 }
 
+/**
+ * 이미 정해진 판정만 따른다 — 여기서는 목업으로 넘기는 결정을 하지 않는다.
+ * 아직 안 정해졌으면(`null`) 실서버로 보내고 오류는 그대로 올린다. 그 편이 낫다:
+ * 진짜 오류(없는 세션·없는 run)를 목업 뒤에 숨기면 무엇이 잘못됐는지 알 수 없다.
+ */
+function orMock<T>(real: () => Promise<T>, mock: () => Promise<T>): Promise<T> {
+  return missing === true ? mock() : real();
+}
+
 /* ── 호출 ───────────────────────────────────────────── */
 
-/** 고를 수 있는 스타일리스트 목록 + 복원할 선택값. 팝업을 열기 전에 부른다. */
+/**
+ * 고를 수 있는 스타일리스트 목록 + 복원할 선택값. 팝업을 열기 전에 부른다.
+ * 스타일리스트 기능을 쓰는 첫 호출이고, 목업 판정도 여기서만 한다(probeAndList 주석).
+ */
 export function listStylists(): Promise<ApiStylistCatalog> {
-  return withFallback(
-    () => api.get<ApiStylistCatalog>(ChatEndpoints.stylists),
-    () => stylistMock.listStylists(),
-  );
+  return probeAndList();
 }
 
 /**
@@ -185,7 +211,7 @@ export function updateResponseMode(
     mode === 'STYLIST' && personaIds
       ? { response_mode: mode, selected_persona_ids: personaIds }
       : { response_mode: mode };
-  return withFallback(
+  return orMock(
     () =>
       api.patch<{ response_mode: ApiResponseMode; selected_persona_ids: StylistId[] }>(
         ChatEndpoints.responseMode(sessionId),
@@ -225,7 +251,7 @@ export async function getStylistRun(
 
 /** 실패한 스타일리스트 한 명만 다시 실행. 본문 없음, 같은 run 을 다시 폴링한다. */
 export function retryPersona(runId: string, personaId: StylistId): Promise<ApiPersonaAction> {
-  return withFallback(
+  return orMock(
     () => api.post<ApiPersonaAction>(ChatEndpoints.personaRetry(runId, personaId)),
     () => stylistMock.retryPersona(runId, personaId),
   );
@@ -239,7 +265,7 @@ export function requestAlternative(
   runId: string,
   personaId: StylistId,
 ): Promise<ApiPersonaAction> {
-  return withFallback(
+  return orMock(
     () => api.post<ApiPersonaAction>(ChatEndpoints.personaAlternative(runId, personaId)),
     () => stylistMock.requestAlternative(runId, personaId),
   );
@@ -247,7 +273,7 @@ export function requestAlternative(
 
 /** 고른 코디를 내 룩으로 저장한다. */
 export function saveCard(resultId: string, cardId: string): Promise<unknown> {
-  return withFallback(
+  return orMock(
     () => api.post<unknown>(RecommendEndpoints.saveCard(resultId, cardId)),
     () => stylistMock.saveCard(resultId, cardId),
   );
