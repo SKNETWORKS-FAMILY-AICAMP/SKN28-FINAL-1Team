@@ -73,32 +73,38 @@ export function useCalendarMonth(year: number, month: number, enabled = true): R
   return useCalendarRange(start, end, enabled);
 }
 
-/** 자주 입은 옷을 셀 때 돌아보는 기간. 계절이 바뀌면 옷도 바뀌므로 너무 길게 잡지 않는다. */
+/** 입었던 옷을 셀 때 돌아보는 기간. 계절이 바뀌면 옷도 바뀌므로 너무 길게 잡지 않는다. */
 const FREQUENT_WINDOW_DAYS = 90;
-/** 기록이 이보다 적으면 "자주"라고 부를 수 없다 — 한 번 입은 옷을 자주라 하면 거짓말이 된다. */
-export const FREQUENT_MIN_RECORDS = 3;
 
-export type FrequentItem = { id: string; name: string; image?: string; count: number };
+export type FrequentItem = {
+  id: string;
+  name: string;
+  image?: string;
+  count: number;
+  /** 마지막으로 입은 날('YYYY-MM-DD'). 한 번만 입은 옷은 횟수 대신 이 날짜를 보여준다. */
+  lastWorn: string;
+};
 
 type FrequentResult = {
   items: FrequentItem[];
-  /** 돌아본 기간의 기록 수. FREQUENT_MIN_RECORDS 미만이면 화면은 인사이트를 감춘다. */
-  recordCount: number;
   loading: boolean;
 };
 
 /**
- * 최근에 자주 입은 옷 몇 개.
+ * 최근에 입었던 옷 몇 개.
  *
  * 빈 날에 "그날 뭘 입었는지" 채워 넣는 지름길로 쓴다 — 날짜가 비는 이유는 정보가 없어서가
  * 아니라 기록이 귀찮아서라, 읽을거리보다 입력을 줄이는 쪽이 쓸모 있다.
+ *
+ * 기록 수로 막지 않는다. 한 벌만 입었어도 그 한 벌이 다음 기록의 지름길이 되고,
+ * 기다리게 하면 기록이 쌓일 일 자체가 없다. 대신 **부르는 이름을 바꾼다** —
+ * 두 번 이상 입은 옷이 있어야 '자주', 아니면 '최근에'다(화면 쪽에서 판단).
  *
  * 스토어를 거치지 않고 따로 조회한다. 스토어는 보고 있는 달만 담는데 빈도는 더 긴 기간을
  * 봐야 하고, 여기서 스토어를 채우면 달 이동과 서로 덮어쓴다.
  */
 export function useFrequentItems(enabled = true, topN = 3): FrequentResult {
   const [items, setItems] = useState<FrequentItem[]>([]);
-  const [recordCount, setRecordCount] = useState(0);
   const [loading, setLoading] = useState(enabled);
 
   useEffect(() => {
@@ -119,6 +125,8 @@ export function useFrequentItems(enabled = true, topN = 3): FrequentResult {
             const prev = counts.get(link.wardrobe_item_id);
             if (prev) {
               prev.count += 1;
+              // 같은 옷이 여러 날에 걸쳐 있으면 가장 나중 날을 남긴다.
+              if (entry.date > prev.lastWorn) prev.lastWorn = entry.date;
               continue;
             }
             counts.set(link.wardrobe_item_id, {
@@ -126,13 +134,17 @@ export function useFrequentItems(enabled = true, topN = 3): FrequentResult {
               name: (link.snapshot.item_name as string) || '이름 없는 아이템',
               image: link.image_url || undefined,
               count: 1,
+              lastWorn: entry.date,
             });
           }
         }
+        /* 많이 입은 순. 횟수가 같으면 최근에 입은 것이 앞선다 —
+           한 번씩만 입은 옷들뿐일 때 순서가 뒤죽박죽으로 보이지 않게. */
         setItems(
-          [...counts.values()].sort((a, b) => b.count - a.count).slice(0, topN),
+          [...counts.values()]
+            .sort((a, b) => b.count - a.count || b.lastWorn.localeCompare(a.lastWorn))
+            .slice(0, topN),
         );
-        setRecordCount(list.length);
       })
       // 인사이트는 곁다리라 실패해도 화면에 오류를 띄우지 않는다 — 조용히 감춘다.
       .catch(() => {})
@@ -145,5 +157,5 @@ export function useFrequentItems(enabled = true, topN = 3): FrequentResult {
     };
   }, [enabled, topN]);
 
-  return { items, recordCount, loading };
+  return { items, loading };
 }

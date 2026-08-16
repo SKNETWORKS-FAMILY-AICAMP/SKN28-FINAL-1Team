@@ -13,13 +13,12 @@ import { LoginGate, SmartImage } from '@/components/ui';
 import { ContentMax, Editorial, Fonts, ink, Type } from '@/constants/theme';
 import { useBreakpoint } from '@/hooks/use-breakpoint';
 import {
-  FREQUENT_MIN_RECORDS,
   useCalendarMonth,
   useFrequentItems,
   type FrequentItem,
 } from '@/hooks/use-calendar';
 import { useAuth } from '@/state/auth';
-import { calendarStore, toDateKey, todayKey } from '@/state/calendar';
+import { calendarStore, parseDateKey, toDateKey, todayKey } from '@/state/calendar';
 import { useSavedLooks } from '@/state/saved';
 
 const INK = Editorial.ink;
@@ -73,9 +72,7 @@ export default function Calendar() {
   /* 자주 입은 옷 지름길은 넓은 화면에서만 — 좁은 화면에선 카드가 길어져 정작 눌러야 할
      '기록하기'가 접히는 곳 아래로 밀린다. 안 보여줄 화면에선 조회도 하지 않는다. */
   const showFrequent = isDesktop;
-  const { items: frequentItems, recordCount: frequentCount } = useFrequentItems(
-    isLoggedIn && showFrequent,
-  );
+  const { items: frequentItems } = useFrequentItems(isLoggedIn && showFrequent);
   /* 이 기록과 같이 만들어진 룩북 룩. 룩북에서 지웠으면 못 찾으니 그때는 연결을 감춘다. */
   const linkedLook = savedLooks.find((l) => l.id === entry?.lookId);
 
@@ -314,11 +311,7 @@ export default function Calendar() {
                   같은 두 버튼이라도 순서만 바꾸면 그 날짜에 맞는 행동이 앞에 온다.
                   지난 날은 자주 입은 옷으로 바로 채울 수 있게 지름길을 먼저 준다. */}
               {isPast && showFrequent ? (
-                <FrequentShortcut
-                  items={frequentItems}
-                  recordCount={frequentCount}
-                  onPick={fillWith}
-                />
+                <FrequentShortcut items={frequentItems} onPick={fillWith} />
               ) : null}
 
               {/* 이 카드가 뜬 이유는 '이 날 기록이 없어서'다. 그러니 지난 날이든 앞날이든
@@ -363,32 +356,38 @@ export default function Calendar() {
   );
 }
 
+/** '2026-08-12' → '8/12'. 썸네일 아래 좁은 칸이라 년도와 요일은 뺀다. */
+function shortDate(key: string): string {
+  const { month, day } = parseDateKey(key);
+  return `${month}/${day}`;
+}
+
 /**
- * 지난 빈 날에 보여주는 지름길 — 자주 입은 옷을 눌러 바로 기록을 시작한다.
+ * 지난 빈 날에 보여주는 지름길 — 입었던 옷을 눌러 바로 기록을 시작한다.
  *
- * 기록이 얼마 없으면 감춘다. 한 번 입은 옷을 "자주"라고 부르면 사용자가 아는 사실과
- * 어긋나서, 다음부터 이 자리를 믿지 않게 된다.
+ * 기록 수로 막지 않는다. 한 벌만 입었어도 그게 다음 기록의 지름길이 된다.
+ * 대신 **부르는 이름을 맞춘다** — 두 번 이상 입은 옷이 있을 때만 '자주'다.
+ * 한 번뿐인 옷에 "1번"이라 적으면 초라해 보여, 그 자리엔 입은 날짜를 넣는다.
  */
 function FrequentShortcut({
   items,
-  recordCount,
   onPick,
 }: {
   items: FrequentItem[];
-  recordCount: number;
   onPick: (item: FrequentItem) => void;
 }) {
-  if (recordCount < FREQUENT_MIN_RECORDS || items.length === 0) {
+  if (items.length === 0) {
     return (
       <Text style={styles.frequentHint}>
-        기록이 쌓이면 자주 입는 옷을 알려드릴게요
+        입은 옷을 기록해두면 다음부터 여기서 바로 고를 수 있어요
       </Text>
     );
   }
 
+  const repeated = items.some((item) => item.count > 1);
   return (
     <View style={styles.frequentBox}>
-      <Text style={styles.frequentTitle}>자주 입은 옷</Text>
+      <Text style={styles.frequentTitle}>{repeated ? '자주 입은 옷' : '최근에 입은 옷'}</Text>
       <View style={styles.frequentRow}>
         {items.map((item) => (
           <Pressable key={item.id} style={styles.frequentItem} onPress={() => onPick(item)}>
@@ -402,7 +401,9 @@ function FrequentShortcut({
             <Text style={styles.frequentName} numberOfLines={1}>
               {item.name}
             </Text>
-            <Text style={styles.frequentCount}>{item.count}번</Text>
+            <Text style={styles.frequentCount}>
+              {item.count > 1 ? `${item.count}번` : shortDate(item.lastWorn)}
+            </Text>
           </Pressable>
         ))}
       </View>
@@ -426,8 +427,11 @@ const styles = StyleSheet.create({
   frequentHint: { marginTop: 4, fontSize: 12, color: Editorial.textCaption, textAlign: 'center' },
   frequentBox: { alignSelf: 'stretch', marginTop: 4, marginBottom: 4, gap: 8 },
   frequentTitle: { fontSize: 12, fontWeight: '600', color: Editorial.textCaption, textAlign: 'center' },
-  frequentRow: { flexDirection: 'row', gap: 8 },
-  frequentItem: { flex: 1, alignItems: 'center', gap: 4 },
+  /* 개수가 적어도 카드의 다른 요소(아이콘·문구·버튼)와 같이 가운데에 선다 */
+  frequentRow: { flexDirection: 'row', justifyContent: 'center', gap: 8 },
+  /* 상한은 3개일 때의 한 칸 크기 — 패널 400 - 카드 여백 40 - gap 16, 나누기 3.
+     상한이 없으면 옷이 하나뿐인 날 썸네일이 카드를 다 먹고 버튼을 아래로 민다. */
+  frequentItem: { flex: 1, maxWidth: 112, alignItems: 'center', gap: 4 },
   frequentThumb: { aspectRatio: 1, backgroundColor: Editorial.surface },
   frequentThumbEmpty: {
     width: '100%',
