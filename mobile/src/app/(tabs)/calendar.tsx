@@ -427,8 +427,11 @@ const styles = StyleSheet.create({
   frequentHint: { marginTop: 4, fontSize: 12, color: Editorial.textCaption, textAlign: 'center' },
   frequentBox: { alignSelf: 'stretch', marginTop: 4, marginBottom: 4, gap: 8 },
   frequentTitle: { fontSize: 12, fontWeight: '600', color: Editorial.textCaption, textAlign: 'center' },
-  frequentRow: { flexDirection: 'row', gap: 8 },
-  frequentItem: { flex: 1, alignItems: 'center', gap: 4 },
+  /* 개수가 적어도 카드의 다른 요소(아이콘·문구·버튼)와 같이 가운데에 선다 */
+  frequentRow: { flexDirection: 'row', justifyContent: 'center', gap: 8 },
+  /* 상한은 3개일 때의 한 칸 크기 — 패널 400 - 카드 여백 40 - gap 16, 나누기 3.
+     상한이 없으면 옷이 하나뿐인 날 썸네일이 카드를 다 먹고 버튼을 아래로 민다. */
+  frequentItem: { flex: 1, maxWidth: 112, alignItems: 'center', gap: 4 },
   frequentThumb: { aspectRatio: 1, backgroundColor: Editorial.surface },
   frequentThumbEmpty: {
     width: '100%',
