@@ -285,7 +285,11 @@ class RecommendationCandidatePipelineTests(TestCase):
         self.assertEqual(output.result.golden_template.golden_id, "golden-1")
         self.assertEqual(composer.compose.call_count, 1)
 
-    def test_stylist_persistence_requires_and_saves_one_candidate(self) -> None:
+    @patch("apps.chat.services.recommendation_pipeline.render_jobs.schedule_result")
+    def test_stylist_persistence_saves_one_candidate_without_auto_render(
+        self,
+        mock_schedule: Mock,
+    ) -> None:
         run, execution = self._run(stylist=True)
         assert execution is not None
         pipeline, _ = self._pipeline()
@@ -303,14 +307,15 @@ class RecommendationCandidatePipelineTests(TestCase):
                 selected=generated.candidates,
                 persona_execution=execution,
             )
-        output = pipeline.persist_candidates(
-            run=run,
-            generated=generated,
-            selected=(generated.candidates[0],),
-            persona_execution=execution,
-            persona_explanation="정돈된 실루엣을 우선한 추천입니다.",
-            validated_reason_codes=("STYLE_MATCH", "STYLE_MATCH"),
-        )
+        with self.captureOnCommitCallbacks(execute=True):
+            output = pipeline.persist_candidates(
+                run=run,
+                generated=generated,
+                selected=(generated.candidates[0],),
+                persona_execution=execution,
+                persona_explanation="정돈된 실루엣을 우선한 추천입니다.",
+                validated_reason_codes=("STYLE_MATCH", "STYLE_MATCH"),
+            )
 
         self.assertEqual(output.result.response_mode, "STYLIST")
         self.assertEqual(output.result.persona_id, "minimal")
@@ -320,3 +325,4 @@ class RecommendationCandidatePipelineTests(TestCase):
             output.result.strategy_snapshot,
             execution.strategy_snapshot,
         )
+        mock_schedule.assert_not_called()

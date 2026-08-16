@@ -171,7 +171,7 @@ class ChatRecommendationPipeline:
             response_mode=RecommendationResult.ResponseMode.DEFAULT,
         ).first()
         if existing is not None:
-            transaction.on_commit(lambda: render_jobs.schedule_result(existing.pk))
+            self._schedule_render_on_commit(run=run, result_id=existing.pk)
             return RecommendationPipelineResult(
                 result=existing,
                 approved_payload=self._approved_payload(existing),
@@ -387,7 +387,10 @@ class ChatRecommendationPipeline:
             persona_execution=persona_execution,
         )
         if existing is not None and not replace_current:
-            transaction.on_commit(lambda: render_jobs.schedule_result(existing.pk))
+            self._schedule_render_on_commit(
+                run=locked_run,
+                result_id=existing.pk,
+            )
             return RecommendationPipelineResult(
                 result=existing,
                 approved_payload=self._approved_payload(existing),
@@ -461,11 +464,19 @@ class ChatRecommendationPipeline:
             )
 
         result_id = result.pk
-        transaction.on_commit(lambda: render_jobs.schedule_result(result_id))
+        self._schedule_render_on_commit(run=locked_run, result_id=result_id)
         return RecommendationPipelineResult(
             result=result,
             approved_payload=self._approved_payload(result),
         )
+
+    @staticmethod
+    def _schedule_render_on_commit(*, run: ChatRun, result_id: Any) -> None:
+        """기본 추천만 저장 커밋 후 이미지를 자동 생성한다."""
+
+        if run.response_mode != ChatSession.ResponseMode.DEFAULT:
+            return
+        transaction.on_commit(lambda: render_jobs.schedule_result(result_id))
 
     @staticmethod
     def _validate_persistence_scope(
