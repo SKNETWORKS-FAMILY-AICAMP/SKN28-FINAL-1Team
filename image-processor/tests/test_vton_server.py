@@ -27,6 +27,14 @@ def image_base64() -> str:
     return base64.b64encode(output.getvalue()).decode("ascii")
 
 
+def rotated_jpeg_base64() -> str:
+    output = io.BytesIO()
+    exif = Image.Exif()
+    exif[274] = 6
+    Image.new("RGB", (4, 2), "white").save(output, format="JPEG", exif=exif)
+    return base64.b64encode(output.getvalue()).decode("ascii")
+
+
 class VtonServerInputTests(unittest.TestCase):
     def test_garment_color_similarity_prefers_same_color(self) -> None:
         navy = Image.new("RGB", (32, 32), (10, 20, 80))
@@ -74,6 +82,13 @@ class VtonServerInputTests(unittest.TestCase):
 
         self.assertEqual(len(images), 2)
         self.assertTrue(all(image.mode == "RGB" for image in images))
+
+    def test_applies_jpeg_exif_orientation(self) -> None:
+        images = _decode_images(
+            {"prompt": "build mannequin", "images": [rotated_jpeg_base64()]}
+        )
+
+        self.assertEqual(images[0].size, (2, 4))
 
     def test_rejects_missing_outfit_reference(self) -> None:
         with self.assertRaisesRegex(ValueError, "between one and six"):

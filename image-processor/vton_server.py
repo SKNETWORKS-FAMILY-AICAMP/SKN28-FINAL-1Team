@@ -16,7 +16,7 @@ from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Any
 
-from PIL import Image
+from PIL import Image, ImageOps
 
 import config
 
@@ -111,7 +111,7 @@ def _decode_images(payload: dict[str, Any]) -> list[Image.Image]:
                 if source.width * source.height > config.VTON_MAX_IMAGE_PIXELS:
                     raise ValueError("image dimensions are too large")
                 source.load()
-                image = source.convert("RGB")
+                image = ImageOps.exif_transpose(source).convert("RGB")
         except (OSError, ValueError) as exc:
             raise ValueError("invalid image") from exc
         images.append(image)
