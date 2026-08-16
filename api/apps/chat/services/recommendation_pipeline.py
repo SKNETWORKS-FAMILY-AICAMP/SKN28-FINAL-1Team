@@ -11,6 +11,7 @@ from typing import Any
 
 from django.conf import settings
 from django.db import transaction
+from django.db.models import Max
 
 from apps.chat.models import ChatRun, ChatRunPersona, ChatSession
 from apps.chat.services.openai_adapter import TurnAnalysis
@@ -345,6 +346,8 @@ class ChatRecommendationPipeline:
         persona_explanation: str = "",
         validated_reason_codes: Sequence[str] = (),
         strategy_snapshot: dict[str, Any] | None = None,
+        result_type: str = RecommendationResult.ResultType.INITIAL,
+        replace_current: bool = False,
     ) -> RecommendationPipelineResult:
         """중복 검사·재정렬 뒤 선택된 후보만 최종 추천 결과로 저장한다."""
 
@@ -356,6 +359,14 @@ class ChatRecommendationPipeline:
             )
         if strategy_snapshot is not None and not isinstance(strategy_snapshot, dict):
             raise OutfitCompositionFailed("전략 스냅샷은 JSON 객체여야 합니다.")
+        if result_type not in RecommendationResult.ResultType.values:
+            raise OutfitCompositionFailed("지원하지 않는 추천 결과 생성 목적입니다.")
+        if replace_current != (
+            result_type == RecommendationResult.ResultType.ALTERNATIVE
+        ):
+            raise OutfitCompositionFailed(
+                "다른 추천 결과만 현재 스타일리스트 결과를 교체할 수 있습니다."
+            )
         self._validate_persistence_scope(
             run=run,
             generated=generated,
@@ -375,12 +386,29 @@ class ChatRecommendationPipeline:
             run=locked_run,
             persona_execution=persona_execution,
         )
-        if existing is not None:
+        if existing is not None and not replace_current:
             transaction.on_commit(lambda: render_jobs.schedule_result(existing.pk))
             return RecommendationPipelineResult(
                 result=existing,
                 approved_payload=self._approved_payload(existing),
             )
+        if replace_current and (persona_execution is None or existing is None):
+            raise OutfitCompositionFailed(
+                "다른 추천을 생성할 현재 스타일리스트 결과가 없습니다."
+            )
+
+        generation = 1
+        replaces = None
+        if replace_current:
+            generation = (
+                RecommendationResult.objects.filter(
+                    run=locked_run,
+                    persona_id=persona_execution.persona_id,
+                ).aggregate(value=Max("generation"))["value"]
+                or 1
+            ) + 1
+            replaces = existing
+            RecommendationResult.objects.filter(pk=existing.pk).update(is_current=False)
 
         candidate = selected_candidates[0].golden
         result = RecommendationResult.objects.create(
@@ -404,6 +432,10 @@ class ChatRecommendationPipeline:
                     else {}
                 )
             ),
+            result_type=result_type,
+            generation=generation,
+            is_current=True,
+            replaces=replaces,
             mode=locked_run.session.mode,
             dataset_version=(
                 settings.CHAT_GOLDENSET_DATASET_VERSION
@@ -515,7 +547,10 @@ class ChatRecommendationPipeline:
         )
         if persona_execution is None:
             return queryset.filter(persona_execution__isnull=True).first()
-        return queryset.filter(persona_execution=persona_execution).first()
+        return queryset.filter(
+            persona_execution=persona_execution,
+            is_current=True,
+        ).first()
 
     @staticmethod
     def _normalize_reason_codes(codes: Sequence[str]) -> list[str]:

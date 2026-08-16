@@ -13,6 +13,7 @@ from apps.chat.services.stylist_execution import (
     StylistExecutionCoordinator,
 )
 from apps.chat.services.stylist_recommendation_pipeline import (
+    PersonaRecommendationCandidates,
     StylistRecommendationPipelineError,
 )
 from apps.chat.services.stylist_strategy import (
@@ -20,6 +21,13 @@ from apps.chat.services.stylist_strategy import (
     SortMetric,
     SortRule,
     StrategyPlan,
+)
+from apps.recommend.models import RecommendationResult
+from apps.recommend.services.item_retriever import ItemSource
+from apps.recommend.services.outfit_types import (
+    OutfitComposition,
+    OutfitItem,
+    RecommendationMode,
 )
 
 
@@ -50,13 +58,16 @@ class _FakeDuplicateResolver:
     def resolve(self, results, *, allowed_duplicate_slots=()):
         selections = []
         for source in results:
+            selected = (
+                source.ranked_candidates[0]
+                if getattr(source, "ranked_candidates", ())
+                else SimpleNamespace(candidate=f"candidate-{source.persona_id}")
+            )
             selections.append(
                 SimpleNamespace(
                     persona_id=source.persona_id,
                     source=source,
-                    selected=SimpleNamespace(
-                        candidate=f"candidate-{source.persona_id}"
-                    ),
+                    selected=selected,
                     validated_reason_codes=("STRATEGY_MATCH",),
                     snapshot=lambda persona_id=source.persona_id: {
                         "selected_rank": 1,
@@ -369,6 +380,50 @@ class StylistExecutionCoordinatorTests(SimpleTestCase):
         self.assertEqual(set(state.succeeded), {"execution-practical"})
         self.assertEqual(len(persistence.calls), 1)
 
+    def test_alternative_skips_current_duplicate_and_persists_next_candidate(
+        self,
+    ) -> None:
+        run, executions = self._scope(("minimal",))
+        duplicate = _composition(top="top-1", bottom="bottom-1", shoes="shoes-1")
+        distinct = _composition(top="top-2", bottom="bottom-2", shoes="shoes-2")
+
+        class Pipeline:
+            def build_context(self, **_kwargs):
+                return object()
+
+            def execute_persona(self, *, persona_execution, **_kwargs):
+                return self_result(
+                    persona_execution,
+                    compositions=(duplicate, distinct),
+                )
+
+        state = _FakeStateStore()
+        persistence = _FakePersistencePipeline()
+        coordinator = self._coordinator(
+            run=run,
+            executions=executions,
+            pipeline_factory=Pipeline,
+            state=state,
+            persistence=persistence,
+        )
+
+        coordinator.execute_alternative(
+            run=run,
+            persona_execution=executions[0],
+            context={},
+            analysis=Mock(),
+            excluded_compositions=(duplicate,),
+        )
+
+        call = persistence.calls[0]
+        self.assertEqual(call["selected"][0].composition, distinct)
+        self.assertEqual(
+            call["result_type"],
+            RecommendationResult.ResultType.ALTERNATIVE,
+        )
+        self.assertTrue(call["replace_current"])
+        self.assertIn("STYLIST_ALTERNATIVE_DISTINCT", call["validated_reason_codes"])
+
     @staticmethod
     def _scope(persona_ids: tuple[str, ...]):
         run = SimpleNamespace(
@@ -423,17 +478,51 @@ class StylistExecutionCoordinatorTests(SimpleTestCase):
         )
 
 
-def self_result(execution):
+def self_result(execution, *, compositions=()):
     plan = StrategyPlan(
         search_query=f"{execution.persona_id} query",
         preference_adjustments=(),
         candidate_limit=3,
         sort_rules=(SortRule(SortMetric.ORIGINAL_ORDER, SortDirection.ASC),),
     )
-    return SimpleNamespace(
+    return PersonaRecommendationCandidates(
         persona_id=execution.persona_id,
         persona_execution_id=str(execution.pk),
         generated=SimpleNamespace(run_id="run-1"),
         strategy_result=SimpleNamespace(plan=plan),
         hypothesis_snapshot={},
+        ranked_candidates=tuple(
+            SimpleNamespace(
+                candidate=SimpleNamespace(composition=composition),
+            )
+            for composition in compositions
+        ),
+        hypothesis_usage=SimpleNamespace(),
+        hypothesis_response_id="",
+    )
+
+
+def _composition(*, top: str, bottom: str, shoes: str) -> OutfitComposition:
+    values = (("TOP", top), ("BOTTOM", bottom), ("FOOTWEAR", shoes))
+    return OutfitComposition(
+        mode=RecommendationMode.NEW_ITEM,
+        items=tuple(
+            OutfitItem(
+                slot_id=slot,
+                template_point_id=f"template-{slot}",
+                category_large=slot,
+                layer_role="",
+                source_type=ItemSource.PRODUCT,
+                source_id=source_id,
+                source_collection="products",
+                point_id=source_id,
+                image_ref="",
+                price=10000,
+                score=0.9,
+                reasons=(),
+            )
+            for slot, source_id in values
+        ),
+        missing_slot_ids=(),
+        total_product_price=30000,
     )

@@ -219,7 +219,9 @@ class WardrobeLinkSerializer(serializers.Serializer):
     """save_to_wardrobe로 연계된 옷장 등록 job의 진행 상황과 결과."""
 
     job_id = serializers.UUIDField(help_text="옷장 등록 job UUID")
-    status = serializers.CharField(help_text="등록 상태 (PENDING/PROCESSING/DONE/FAILED)")
+    status = serializers.CharField(
+        help_text="등록 상태 (PENDING/PROCESSING/DONE/FAILED)"
+    )
     error_message = serializers.CharField(
         allow_blank=True, help_text="등록 실패 사유 (FAILED가 아니면 빈 문자열)"
     )
@@ -684,6 +686,7 @@ class OutfitRenderJobSerializer(serializers.ModelSerializer):
 
 class RecommendationHistoryItemSerializer(serializers.ModelSerializer):
     result_id = serializers.UUIDField(source="id", read_only=True)
+    replaces_result_id = serializers.UUIDField(source="replaces_id", read_only=True)
     card_count = serializers.SerializerMethodField()
     top_card = serializers.SerializerMethodField()
 
@@ -697,6 +700,10 @@ class RecommendationHistoryItemSerializer(serializers.ModelSerializer):
             "persona_id",
             "persona_version",
             "persona_explanation",
+            "result_type",
+            "generation",
+            "is_current",
+            "replaces_result_id",
             "created_at",
             "card_count",
             "top_card",
@@ -720,6 +727,7 @@ class RecommendationHistoryResponseSerializer(serializers.Serializer):
 
 class RecommendationResultDetailSerializer(serializers.ModelSerializer):
     result_id = serializers.UUIDField(source="id", read_only=True)
+    replaces_result_id = serializers.UUIDField(source="replaces_id", read_only=True)
     cards = serializers.SerializerMethodField()
 
     class Meta:
@@ -734,6 +742,10 @@ class RecommendationResultDetailSerializer(serializers.ModelSerializer):
             "persona_version",
             "persona_explanation",
             "validated_reason_codes",
+            "result_type",
+            "generation",
+            "is_current",
+            "replaces_result_id",
             "dataset_version",
             "created_at",
             "cards",

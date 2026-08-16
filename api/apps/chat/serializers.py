@@ -202,6 +202,9 @@ class ChatRunPersonaResultSerializer(serializers.ModelSerializer):
     validated_reason_codes = serializers.SerializerMethodField()
     card = serializers.SerializerMethodField()
     error = serializers.SerializerMethodField()
+    result_type = serializers.SerializerMethodField()
+    generation = serializers.SerializerMethodField()
+    previous_result_ids = serializers.SerializerMethodField()
 
     class Meta:
         model = ChatRunPersona
@@ -211,11 +214,18 @@ class ChatRunPersonaResultSerializer(serializers.ModelSerializer):
             "display_order",
             "status",
             "result_id",
+            "result_type",
+            "generation",
+            "previous_result_ids",
             "message",
             "validated_reason_codes",
             "card",
             "error",
             "retry_count",
+            "alternative_status",
+            "alternative_count",
+            "alternative_error_code",
+            "alternative_error_message",
             "latency_ms",
             "started_at",
             "completed_at",
@@ -233,6 +243,35 @@ class ChatRunPersonaResultSerializer(serializers.ModelSerializer):
     def get_message(self, obj: ChatRunPersona) -> str:
         result = self._result(obj)
         return result.persona_explanation if result is not None else ""
+
+    def get_result_type(self, obj: ChatRunPersona) -> str | None:
+        result = self._result(obj)
+        return (
+            getattr(result, "result_type", RecommendationResult.ResultType.INITIAL)
+            if result is not None
+            else None
+        )
+
+    def get_generation(self, obj: ChatRunPersona) -> int | None:
+        result = self._result(obj)
+        return getattr(result, "generation", 1) if result is not None else None
+
+    @extend_schema_field(serializers.ListField(child=serializers.UUIDField()))
+    def get_previous_result_ids(self, obj: ChatRunPersona) -> list:
+        result = self._result(obj)
+        if result is None:
+            return []
+        prefetched = getattr(obj, "historical_recommendation_results", None)
+        if prefetched is not None:
+            return [row.pk for row in prefetched]
+        manager = getattr(obj, "recommendation_results", None)
+        if manager is None:
+            return []
+        return list(
+            manager.filter(is_current=False)
+            .order_by("generation")
+            .values_list("id", flat=True)
+        )
 
     @extend_schema_field(serializers.ListField(child=serializers.CharField()))
     def get_validated_reason_codes(self, obj: ChatRunPersona) -> list[str]:
@@ -450,6 +489,11 @@ class ChatSessionSearchItemSerializer(ChatSessionSerializer):
 
 
 class ChatRunPersonaRetryResponseSerializer(serializers.Serializer):
+    run = ChatRunSerializer(read_only=True)
+    events_url = serializers.URLField(read_only=True)
+
+
+class ChatRunPersonaAlternativeResponseSerializer(serializers.Serializer):
     run = ChatRunSerializer(read_only=True)
     events_url = serializers.URLField(read_only=True)
 

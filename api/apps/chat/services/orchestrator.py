@@ -21,6 +21,9 @@ from apps.chat.models import (
     ChatSession,
 )
 from apps.chat.services import mood_analysis, stylist_results
+from apps.chat.services.alternative_recommendations import (
+    load_alternative_exclusions,
+)
 from apps.chat.services.context import ChatContextService, fingerprint
 from apps.chat.services.openai_adapter import (
     ChatLLMError,
@@ -589,6 +592,148 @@ class ChatOrchestrator:
             )
             raise
 
+    def process_persona_alternative(
+        self,
+        *,
+        run_id,
+        persona_id: str,
+        source_result_id: str,
+        generation: int,
+    ) -> OrchestrationResult:
+        """현재 결과를 보존한 채 대상 스타일리스트의 다른 추천만 생성한다."""
+
+        started = time.monotonic()
+        run, execution = self._start_persona_alternative(
+            run_id=run_id,
+            persona_id=persona_id,
+            source_result_id=source_result_id,
+            generation=generation,
+        )
+        usage = LLMUsage()
+        provider_response_id = ""
+        try:
+            exclusions = load_alternative_exclusions(
+                run=run,
+                persona_execution=execution,
+            )
+            context = self.context_service.build(
+                session=run.session,
+                request_message=run.request_message,
+                current_run=run,
+            )
+            analyzed = self.llm.analyze_turn(
+                identity_id=str(run.session.identity_id),
+                context=context.payload,
+            )
+            usage += analyzed.usage
+            provider_response_id = analyzed.response_id
+            analysis = self._effective_analysis(run.session, analyzed.value).model_copy(
+                update={"action": "RECOMMEND", "target_mode": "CURRENT"}
+            )
+            generated = self.stylist_coordinator.execute_alternative(
+                run=run,
+                persona_execution=execution,
+                context=context.payload,
+                analysis=analysis,
+                excluded_compositions=exclusions,
+            )
+            usage += self._apply_persona_narrations(generated)
+            response_message = self._upsert_stylist_response_message(run)
+            duration_ms = int((time.monotonic() - started) * 1000)
+            now = timezone.now()
+            ChatRunPersona.objects.filter(pk=execution.pk).update(
+                alternative_status=ChatRunPersona.AlternativeStatus.SUCCEEDED,
+                alternative_error_code="",
+                alternative_error_message="",
+                updated_at=now,
+            )
+            ChatRun.objects.filter(pk=run.pk).update(
+                status=ChatRun.Status.SUCCEEDED,
+                response_message=response_message,
+                provider_response_id=provider_response_id,
+                input_tokens=run.input_tokens + usage.input_tokens,
+                cached_input_tokens=run.cached_input_tokens + usage.cached_input_tokens,
+                output_tokens=run.output_tokens + usage.output_tokens,
+                latency_ms=run.latency_ms + duration_ms,
+                error_code="",
+                error_message="",
+                completed_at=now,
+                updated_at=now,
+            )
+            run.refresh_from_db()
+            return OrchestrationResult(
+                run=run,
+                response_message=response_message,
+                recommendation_result_ids=generated.recommendation_result_ids,
+            )
+        except Exception as exc:
+            self._fail_persona_alternative(
+                run=run,
+                execution=execution,
+                exc=exc,
+                latency_ms=int((time.monotonic() - started) * 1000),
+            )
+            raise
+
+    @staticmethod
+    @transaction.atomic
+    def _start_persona_alternative(
+        *,
+        run_id,
+        persona_id: str,
+        source_result_id: str,
+        generation: int,
+    ) -> tuple[ChatRun, ChatRunPersona]:
+        run = (
+            ChatRun.objects.select_for_update()
+            .select_related(
+                "session",
+                "session__identity",
+                "session__identity__user",
+                "request_message",
+                "response_message",
+            )
+            .filter(pk=run_id)
+            .first()
+        )
+        if run is None:
+            raise ChatRunInvalid("채팅 실행을 찾을 수 없습니다.")
+        if (
+            run.response_mode != ChatSession.ResponseMode.STYLIST
+            or run.status != ChatRun.Status.PENDING
+        ):
+            raise ChatRunAlreadyProcessing(
+                "현재 상태에서는 다른 추천을 시작할 수 없습니다."
+            )
+        execution = (
+            ChatRunPersona.objects.select_for_update()
+            .filter(
+                run=run,
+                persona_id=persona_id,
+                status=ChatRunPersona.Status.PENDING,
+                alternative_status=ChatRunPersona.AlternativeStatus.PENDING,
+            )
+            .first()
+        )
+        current_exists = RecommendationResult.objects.filter(
+            pk=source_result_id,
+            persona_execution=execution,
+            is_current=True,
+            generation=generation - 1,
+        ).exists()
+        if execution is None or generation < 2 or not current_exists:
+            raise ChatRunAlreadyProcessing(
+                "현재 결과 세대와 다른 추천 큐 스냅샷이 일치하지 않습니다."
+            )
+        now = timezone.now()
+        run.status = ChatRun.Status.RUNNING
+        run.started_at = now
+        run.completed_at = None
+        run.save(update_fields=["status", "started_at", "completed_at", "updated_at"])
+        execution.alternative_status = ChatRunPersona.AlternativeStatus.RUNNING
+        execution.save(update_fields=["alternative_status", "updated_at"])
+        return run, execution
+
     @staticmethod
     @transaction.atomic
     def _start_persona_retry(
@@ -725,6 +870,48 @@ class ChatOrchestrator:
             status=(ChatRun.Status.SUCCEEDED if has_success else ChatRun.Status.FAILED),
             error_code=("" if has_success else error_code),
             error_message=("" if has_success else safe_message),
+            latency_ms=run.latency_ms + max(latency_ms, 0),
+            completed_at=now,
+            updated_at=now,
+        )
+
+    @staticmethod
+    def _fail_persona_alternative(
+        *,
+        run: ChatRun,
+        execution: ChatRunPersona,
+        exc: Exception,
+        latency_ms: int,
+    ) -> None:
+        now = timezone.now()
+        error_code = str(getattr(exc, "code", ChatOrchestrationError.code))[:64]
+        safe_message = (
+            str(exc)[:500]
+            if isinstance(
+                exc,
+                (
+                    ChatLLMError,
+                    ChatRecommendationError,
+                    ChatOrchestrationError,
+                    StylistExecutionError,
+                ),
+            )
+            else "다른 추천 처리 중 내부 오류가 발생했습니다."
+        )
+        ChatRunPersona.objects.filter(pk=execution.pk).update(
+            status=ChatRunPersona.Status.SUCCEEDED,
+            error_code="",
+            error_message="",
+            alternative_status=ChatRunPersona.AlternativeStatus.FAILED,
+            alternative_error_code=error_code,
+            alternative_error_message=safe_message,
+            completed_at=now,
+            updated_at=now,
+        )
+        ChatRun.objects.filter(pk=run.pk).update(
+            status=ChatRun.Status.SUCCEEDED,
+            error_code="",
+            error_message="",
             latency_ms=run.latency_ms + max(latency_ms, 0),
             completed_at=now,
             updated_at=now,

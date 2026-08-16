@@ -6,7 +6,7 @@ import math
 import time
 from collections.abc import Callable, Sequence
 from concurrent.futures import Future, ThreadPoolExecutor, wait
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Any, Protocol
 
 from django.db import close_old_connections, connections, transaction
@@ -23,6 +23,7 @@ from apps.chat.services.stylist_duplicate_resolver import (
     StylistCandidateSelection,
     StylistDuplicateResolutionError,
     StylistDuplicateResolver,
+    classify_duplicate,
 )
 from apps.chat.services.stylist_personas import EXPECTED_PERSONA_ORDER
 from apps.chat.services.stylist_recommendation_pipeline import (
@@ -31,6 +32,8 @@ from apps.chat.services.stylist_recommendation_pipeline import (
     StylistRecommendationPipelineError,
 )
 from apps.chat.services.stylist_strategy import StylistStrategyContractError
+from apps.recommend.models import RecommendationResult
+from apps.recommend.services.outfit_types import OutfitComposition
 
 MAX_STYLIST_WORKERS = 3
 STYLIST_BATCH_TIMEOUT_SECONDS = 20.0
@@ -66,6 +69,10 @@ class AllStylistExecutionsFailed(StylistExecutionError):
     def __init__(self, result: StylistExecutionResult) -> None:
         super().__init__("선택한 모든 스타일리스트 추천에 실패했습니다.")
         self.result = result
+
+
+class StylistAlternativeExhausted(StylistExecutionError):
+    code = "STYLIST_ALTERNATIVE_EXHAUSTED"
 
 
 @dataclass(frozen=True)
@@ -397,6 +404,9 @@ class StylistExecutionCoordinator:
         context: dict[str, Any],
         analysis: TurnAnalysis,
         allowed_duplicate_slots: tuple[str, ...] = (),
+        excluded_compositions: tuple[OutfitComposition, ...] = (),
+        result_type: str = RecommendationResult.ResultType.INITIAL,
+        replace_current: bool = False,
     ) -> StylistExecutionResult:
         """PENDING으로 준비된 스타일리스트 한 명만 같은 실행 스냅샷으로 재실행한다."""
 
@@ -437,20 +447,50 @@ class StylistExecutionCoordinator:
             raise AllStylistExecutionsFailed(result)
 
         try:
+            source = outcome.candidates
+            if excluded_compositions:
+                distinct = tuple(
+                    candidate
+                    for candidate in source.ranked_candidates
+                    if all(
+                        classify_duplicate(
+                            candidate.candidate.composition,
+                            excluded,
+                            allowed_duplicate_slots=allowed_duplicate_slots,
+                        )
+                        is None
+                        for excluded in excluded_compositions
+                    )
+                )
+                if not distinct:
+                    raise StylistAlternativeExhausted(
+                        "현재 카드와 최근 추천 10회를 피하는 다른 코디를 찾지 못했습니다."
+                    )
+                source = replace(source, ranked_candidates=distinct)
             selection = self.duplicate_resolver.resolve(
-                (outcome.candidates,),
+                (source,),
                 allowed_duplicate_slots=allowed_duplicate_slots,
             ).selections[0]
+            reason_codes = selection.validated_reason_codes
+            strategy_snapshot = self._strategy_snapshot(
+                selection,
+                base=persona_execution.strategy_snapshot,
+            )
+            if replace_current:
+                reason_codes = (*reason_codes, "STYLIST_ALTERNATIVE_DISTINCT")
+                strategy_snapshot["alternative_exclusions"] = {
+                    "card_count": len(excluded_compositions),
+                    "recent_run_limit": 10,
+                }
             persisted = self.persistence_pipeline.persist_candidates(
                 run=run,
                 generated=selection.source.generated,
                 selected=(selection.selected.candidate,),
                 persona_execution=persona_execution,
-                validated_reason_codes=selection.validated_reason_codes,
-                strategy_snapshot=self._strategy_snapshot(
-                    selection,
-                    base=persona_execution.strategy_snapshot,
-                ),
+                validated_reason_codes=reason_codes,
+                strategy_snapshot=strategy_snapshot,
+                result_type=result_type,
+                replace_current=replace_current,
             )
         except Exception as exc:  # noqa: BLE001 - 해당 카드만 실패로 확정한다.
             failure = self._failure(
@@ -474,6 +514,27 @@ class StylistExecutionCoordinator:
             latency_ms=latency_ms,
         )
         return self._result(run, (success,), (), started)
+
+    def execute_alternative(
+        self,
+        *,
+        run: ChatRun,
+        persona_execution: ChatRunPersona,
+        context: dict[str, Any],
+        analysis: TurnAnalysis,
+        excluded_compositions: tuple[OutfitComposition, ...],
+        allowed_duplicate_slots: tuple[str, ...] = (),
+    ) -> StylistExecutionResult:
+        return self.execute_retry(
+            run=run,
+            persona_execution=persona_execution,
+            context=context,
+            analysis=analysis,
+            allowed_duplicate_slots=allowed_duplicate_slots,
+            excluded_compositions=excluded_compositions,
+            result_type=RecommendationResult.ResultType.ALTERNATIVE,
+            replace_current=True,
+        )
 
     def _execute_parallel(
         self,

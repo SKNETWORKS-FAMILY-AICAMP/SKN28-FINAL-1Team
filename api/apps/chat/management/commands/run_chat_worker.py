@@ -17,6 +17,11 @@ from django.utils import timezone
 from apps.chat.models import ChatRun, ChatRunPersona
 from apps.chat.serializers import ChatMessageSerializer
 from apps.chat.services import queue
+from apps.chat.services.alternative_recommendations import (
+    finalize_persisted_alternative,
+    mark_alternative_enqueue_failed,
+    reset_interrupted_alternative,
+)
 from apps.chat.services.events import ChatEventStore
 from apps.chat.services.mood_analysis import (
     ChatMoodAnalysisStateInvalid,
@@ -93,6 +98,11 @@ class Command(BaseCommand):
                     run_id=run_id,
                     persona_id=str(payload.get("persona_id", "")),
                 )
+            elif payload.get("task") == queue.PERSONA_ALTERNATIVE_TASK:
+                reset = reset_interrupted_alternative(
+                    run_id=run_id,
+                    persona_id=str(payload.get("persona_id", "")),
+                )
             else:
                 reset = reset_run_for_retry(run_id)
             if reset:
@@ -122,6 +132,13 @@ class Command(BaseCommand):
         recovered = 0
         for run in runs:
             try:
+                alternative_execution = (
+                    run.persona_executions.filter(
+                        alternative_status=ChatRunPersona.AlternativeStatus.PENDING,
+                    )
+                    .order_by("display_order")
+                    .first()
+                )
                 retry_execution = (
                     run.persona_executions.filter(
                         status=ChatRunPersona.Status.PENDING,
@@ -130,7 +147,15 @@ class Command(BaseCommand):
                     .order_by("display_order")
                     .first()
                 )
-                if retry_execution is None:
+                if alternative_execution is not None:
+                    current = alternative_execution.recommendation_result
+                    queue.enqueue_persona_alternative(
+                        run_id=run.pk,
+                        persona_id=alternative_execution.persona_id,
+                        source_result_id=str(current.pk),
+                        generation=current.generation + 1,
+                    )
+                elif retry_execution is None:
                     queue.enqueue(run)
                 else:
                     queue.enqueue_persona_retry(
@@ -176,6 +201,9 @@ class Command(BaseCommand):
         run_id = str(payload["run_id"])
         if payload.get("task") == queue.PERSONA_RETRY_TASK:
             self._handle_persona_retry(raw, payload)
+            return
+        if payload.get("task") == queue.PERSONA_ALTERNATIVE_TASK:
+            self._handle_persona_alternative(raw, payload)
             return
 
         run = (
@@ -281,7 +309,75 @@ class Command(BaseCommand):
             )
             current = ChatRun.objects.select_related("response_message").get(pk=run_id)
             self._publish_terminal(current)
-            # 수동 재실행 1회는 한 번만 소비한다. 다시 시도할지는 사용자가 결정한다.
+            queue.ack(raw, key)
+        else:
+            self._publish_terminal(result.run)
+            queue.ack(raw, key)
+
+    def _handle_persona_alternative(
+        self,
+        raw: str,
+        payload: dict[str, object],
+    ) -> None:
+        run_id = str(payload["run_id"])
+        persona_id = str(payload.get("persona_id", ""))
+        source_result_id = str(payload.get("source_result_id", ""))
+        generation = payload.get("generation")
+        key = queue.delivery_key(payload)
+        if (
+            not persona_id
+            or not source_result_id
+            or isinstance(generation, bool)
+            or not isinstance(generation, int)
+            or generation < 2
+        ):
+            queue.dead_letter(raw, key, "STYLIST_ALTERNATIVE_PAYLOAD_INVALID")
+            return
+        if not ChatRun.objects.filter(pk=run_id).exists():
+            queue.ack(raw, key)
+            return
+        if finalize_persisted_alternative(
+            run_id=run_id,
+            persona_id=persona_id,
+            generation=generation,
+        ):
+            current = ChatRun.objects.select_related("response_message").get(pk=run_id)
+            self._publish_terminal(current)
+            queue.ack(raw, key)
+            return
+        self._publish(
+            run_id,
+            "running",
+            {
+                "run_id": run_id,
+                "status": ChatRun.Status.RUNNING,
+                "persona_id": persona_id,
+                "task": queue.PERSONA_ALTERNATIVE_TASK,
+            },
+        )
+        try:
+            result = ChatOrchestrator().process_persona_alternative(
+                run_id=run_id,
+                persona_id=persona_id,
+                source_result_id=source_result_id,
+                generation=generation,
+            )
+        except ChatRunAlreadyProcessing:
+            mark_alternative_enqueue_failed(
+                run_id=run_id,
+                persona_id=persona_id,
+            )
+            current = ChatRun.objects.select_related("response_message").get(pk=run_id)
+            self._publish_terminal(current)
+            queue.ack(raw, key)
+        except Exception:
+            logger.exception(
+                "스타일리스트 다른 추천 실패: run=%s persona=%s",
+                run_id,
+                persona_id,
+            )
+            current = ChatRun.objects.select_related("response_message").get(pk=run_id)
+            self._publish_terminal(current)
             queue.ack(raw, key)
         else:
             self._publish_terminal(result.run)

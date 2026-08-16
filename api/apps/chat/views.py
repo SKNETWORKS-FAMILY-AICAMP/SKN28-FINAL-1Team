@@ -49,6 +49,7 @@ from apps.chat.serializers import (
     ChatMoodAnalysisResponseSerializer,
     ChatMoodDecisionResponseSerializer,
     ChatMoodDecisionSerializer,
+    ChatRunPersonaAlternativeResponseSerializer,
     ChatRunPersonaRetryResponseSerializer,
     ChatRunSerializer,
     ChatSessionCreateSerializer,
@@ -75,6 +76,11 @@ from apps.chat.services import (
 )
 from apps.chat.services import queue as chat_queue
 from apps.chat.services import sessions as session_service
+from apps.chat.services.alternative_recommendations import (
+    AlternativeRecommendationError,
+    mark_alternative_enqueue_failed,
+    prepare_alternative_recommendation,
+)
 from apps.chat.services.events import ChatEvent, ChatEventStore, encode_sse, heartbeat
 from apps.chat.services.orchestrator import (
     mark_enqueue_failed,
@@ -1487,6 +1493,146 @@ class ChatRunPersonaRetryView(APIView):
         except redis.RedisError:
             logger.warning(
                 "스타일리스트 재실행 queued 이벤트 기록 실패: run=%s persona=%s",
+                run_id,
+                persona_id,
+                exc_info=True,
+            )
+        current = _owned_run(request, run_id)
+        return Response(
+            {
+                "run": ChatRunSerializer(current).data,
+                "events_url": request.build_absolute_uri(
+                    reverse("chat:run-events", kwargs={"run_id": run_id})
+                ),
+            },
+            status=status.HTTP_202_ACCEPTED,
+        )
+
+
+class ChatRunPersonaAlternativeView(APIView):
+    """성공한 스타일리스트의 현재 카드를 보존하며 다른 추천을 생성한다."""
+
+    permission_classes = [IsAuthenticated]
+
+    @extend_schema(
+        operation_id="chat_run_persona_alternative_create",
+        tags=[STYLIST_CHAT_TAG],
+        summary="선택한 스타일리스트의 다른 추천 생성",
+        description=(
+            "회원의 성공한 스타일리스트 카드 한 장만 다시 생성합니다. 현재 카드와 "
+            "현재 run을 제외한 최근 추천 10회의 완전 중복·주요 슬롯 중복 후보를 "
+            "제외합니다. 기존 결과는 이력으로 보존되고 새 결과가 현재 결과가 됩니다. "
+            "요청 본문은 없으며 같은 run.id를 폴링해 alternative_status와 generation을 "
+            "확인합니다.\n\n"
+            f"{STYLIST_CHAT_GUIDE}"
+        ),
+        parameters=[_RUN_ID_PARAMETER, _PERSONA_ID_PARAMETER],
+        request=None,
+        responses={
+            202: OpenApiResponse(
+                response=ChatRunPersonaAlternativeResponseSerializer,
+                description="다른 추천 비동기 접수 완료",
+                examples=[
+                    OpenApiExample(
+                        name="미니멀 다른 추천 접수",
+                        value={
+                            "run": {
+                                "id": "33333333-3333-4333-8333-333333333333",
+                                "status": "PENDING",
+                                "response_mode": "STYLIST",
+                                "persona_ids": ["minimal", "practical"],
+                                "results": [
+                                    {
+                                        "persona_id": "minimal",
+                                        "status": "PENDING",
+                                        "result_id": "44444444-4444-4444-8444-444444444444",
+                                        "result_type": "INITIAL",
+                                        "generation": 1,
+                                        "previous_result_ids": [],
+                                        "alternative_status": "PENDING",
+                                        "alternative_count": 1,
+                                    }
+                                ],
+                            },
+                            "events_url": (
+                                "http://localhost:8000/api/v1/chat/runs/"
+                                "33333333-3333-4333-8333-333333333333/events/"
+                            ),
+                        },
+                        response_only=True,
+                        status_codes=["202"],
+                    )
+                ],
+            ),
+            401: OpenApiResponse(description="로그인 필요"),
+            404: OpenApiResponse(description="run이 없거나 현재 회원의 소유가 아님"),
+            409: OpenApiResponse(
+                description=(
+                    "STYLIST run이 아님, 성공 결과가 없음 또는 다른 작업이 진행 중"
+                )
+            ),
+            503: OpenApiResponse(description="Redis 다른 추천 큐 연결 실패"),
+        },
+    )
+    def post(self, request, run_id, persona_id):
+        _owned_run(request, run_id)
+        try:
+            prepared = prepare_alternative_recommendation(
+                run_id=run_id,
+                persona_id=persona_id,
+            )
+        except AlternativeRecommendationError as exc:
+            return Response(
+                {"code": exc.code, "detail": str(exc)},
+                status=status.HTTP_409_CONFLICT,
+            )
+        try:
+            chat_queue.enqueue_persona_alternative(
+                run_id=prepared.run_id,
+                persona_id=prepared.persona_id,
+                source_result_id=prepared.source_result_id,
+                generation=prepared.generation,
+            )
+        except redis.RedisError:
+            logger.exception(
+                "스타일리스트 다른 추천 큐 적재 실패: run=%s persona=%s",
+                prepared.run_id,
+                prepared.persona_id,
+            )
+            mark_alternative_enqueue_failed(
+                run_id=prepared.run_id,
+                persona_id=prepared.persona_id,
+            )
+            current = _owned_run(request, run_id)
+            return Response(
+                {
+                    "code": "CHAT_QUEUE_UNAVAILABLE",
+                    "detail": "다른 추천 큐에 연결할 수 없습니다.",
+                    "run": ChatRunSerializer(current).data,
+                },
+                status=status.HTTP_503_SERVICE_UNAVAILABLE,
+            )
+
+        enqueued_at = timezone.now()
+        ChatRun.objects.filter(pk=run_id, status=ChatRun.Status.PENDING).update(
+            enqueued_at=enqueued_at,
+            updated_at=enqueued_at,
+        )
+        try:
+            ChatEventStore().publish(
+                run_id,
+                "queued",
+                {
+                    "run_id": str(run_id),
+                    "status": ChatRun.Status.PENDING,
+                    "persona_id": persona_id,
+                    "task": chat_queue.PERSONA_ALTERNATIVE_TASK,
+                    "generation": prepared.generation,
+                },
+            )
+        except redis.RedisError:
+            logger.warning(
+                "스타일리스트 다른 추천 queued 이벤트 기록 실패: run=%s persona=%s",
                 run_id,
                 persona_id,
                 exc_info=True,

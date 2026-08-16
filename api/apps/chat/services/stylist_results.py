@@ -19,17 +19,29 @@ def with_stylist_results(queryset: QuerySet[ChatRun]) -> QuerySet[ChatRun]:
         .prefetch_related("items")
         .order_by("rank", "created_at")
     )
-    executions = (
-        ChatRunPersona.objects.select_related("recommendation_result")
-        .prefetch_related(
-            Prefetch(
-                "recommendation_result__compositions",
-                queryset=cards,
-                to_attr="public_compositions",
-            )
+    current_results = RecommendationResult.objects.filter(
+        is_current=True
+    ).prefetch_related(
+        Prefetch(
+            "compositions",
+            queryset=cards,
+            to_attr="public_compositions",
         )
-        .order_by("display_order")
     )
+    executions = ChatRunPersona.objects.prefetch_related(
+        Prefetch(
+            "recommendation_results",
+            queryset=current_results,
+            to_attr="current_recommendation_results",
+        ),
+        Prefetch(
+            "recommendation_results",
+            queryset=RecommendationResult.objects.filter(is_current=False).order_by(
+                "generation"
+            ),
+            to_attr="historical_recommendation_results",
+        ),
+    ).order_by("display_order")
     return queryset.prefetch_related(
         Prefetch("persona_executions", queryset=executions)
     )
@@ -49,6 +61,9 @@ def message_metadata_results(run: ChatRun) -> list[dict[str, object]]:
                 "persona_id": execution.persona_id,
                 "status": execution.status,
                 "result_id": str(result.pk) if result is not None else None,
+                "result_type": result.result_type if result is not None else None,
+                "generation": result.generation if result is not None else None,
+                "alternative_status": execution.alternative_status,
                 "error": (
                     {
                         "code": execution.error_code,

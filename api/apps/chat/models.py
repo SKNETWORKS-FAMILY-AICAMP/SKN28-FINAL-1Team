@@ -941,6 +941,13 @@ class ChatRunPersona(models.Model):
         SUCCEEDED = "SUCCEEDED", "성공"
         FAILED = "FAILED", "실패"
 
+    class AlternativeStatus(models.TextChoices):
+        IDLE = "IDLE", "요청 없음"
+        PENDING = "PENDING", "다른 추천 대기"
+        RUNNING = "RUNNING", "다른 추천 처리 중"
+        SUCCEEDED = "SUCCEEDED", "다른 추천 성공"
+        FAILED = "FAILED", "다른 추천 실패"
+
     id = models.UUIDField(
         primary_key=True,
         default=uuid.uuid4,
@@ -1010,6 +1017,28 @@ class ChatRunPersona(models.Model):
         validators=[validate_persona_error_history],
         db_comment="스타일리스트 재시도 전 오류 이력 JSON 배열 (시각·코드·메시지)",
     )
+    alternative_status = models.CharField(
+        max_length=16,
+        choices=AlternativeStatus.choices,
+        default=AlternativeStatus.IDLE,
+        db_comment="다른 추천 요청 상태 (IDLE/PENDING/RUNNING/SUCCEEDED/FAILED)",
+    )
+    alternative_count = models.PositiveSmallIntegerField(
+        default=0,
+        db_comment="해당 스타일리스트의 다른 추천 요청 횟수",
+    )
+    alternative_error_code = models.CharField(
+        max_length=64,
+        blank=True,
+        default="",
+        db_comment="마지막 다른 추천 실패 오류 코드 (성공 또는 미요청이면 빈 문자열)",
+    )
+    alternative_error_message = models.CharField(
+        max_length=500,
+        blank=True,
+        default="",
+        db_comment="마지막 다른 추천 실패 안내 (성공 또는 미요청이면 빈 문자열)",
+    )
     started_at = models.DateTimeField(
         null=True,
         blank=True,
@@ -1055,6 +1084,18 @@ class ChatRunPersona(models.Model):
                 name="ck_chat_run_persona_status",
             ),
             models.CheckConstraint(
+                condition=Q(
+                    alternative_status__in=[
+                        "IDLE",
+                        "PENDING",
+                        "RUNNING",
+                        "SUCCEEDED",
+                        "FAILED",
+                    ]
+                ),
+                name="ck_chat_run_persona_alt_status",
+            ),
+            models.CheckConstraint(
                 condition=Q(persona_version__gte=1),
                 name="ck_chat_run_persona_version",
             ),
@@ -1092,6 +1133,21 @@ class ChatRunPersona(models.Model):
             errors["display_order"] = "스타일리스트 고정 표시 순서와 다릅니다."
         if errors:
             raise ValidationError(errors)
+
+    @property
+    def recommendation_result(self):
+        """기존 단건 접근 계약을 현재 노출 결과로 유지한다."""
+
+        from apps.recommend.models import RecommendationResult
+
+        prefetched = getattr(self, "current_recommendation_results", None)
+        if prefetched is not None:
+            result = next(iter(prefetched), None)
+        else:
+            result = self.recommendation_results.filter(is_current=True).first()
+        if result is None:
+            raise RecommendationResult.DoesNotExist
+        return result
 
     def __str__(self) -> str:
         return f"chat-run-persona {self.run_id}:{self.persona_id} ({self.status})"

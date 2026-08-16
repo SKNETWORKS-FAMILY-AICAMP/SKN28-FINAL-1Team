@@ -261,6 +261,10 @@ class RecommendationResult(models.Model):
         DEFAULT = "DEFAULT", "기본 통합 응답"
         STYLIST = "STYLIST", "스타일리스트별 응답"
 
+    class ResultType(models.TextChoices):
+        INITIAL = "INITIAL", "최초 추천"
+        ALTERNATIVE = "ALTERNATIVE", "다른 추천"
+
     id = models.UUIDField(
         primary_key=True,
         default=uuid.uuid4,
@@ -288,14 +292,16 @@ class RecommendationResult(models.Model):
         db_column="run_id",
         db_comment="추천을 생성한 채팅 실행 FK (chat_run.id)",
     )
-    persona_execution = models.OneToOneField(
+    persona_execution = models.ForeignKey(
         "chat.ChatRunPersona",
         on_delete=models.CASCADE,
         null=True,
         blank=True,
-        related_name="recommendation_result",
+        related_name="recommendation_results",
         db_column="persona_execution_id",
-        db_comment=("스타일리스트별 실행 FK (chat_run_persona.id, 기본 응답이면 NULL)"),
+        db_comment=(
+            "스타일리스트별 실행 FK (chat_run_persona.id, 기본 응답이면 NULL, 재추천 이력 허용)"
+        ),
     )
     response_mode = models.CharField(
         max_length=12,
@@ -332,6 +338,28 @@ class RecommendationResult(models.Model):
         default=dict,
         blank=True,
         db_comment="결과 선택에 사용한 스타일리스트 추천 전략 JSON 스냅샷",
+    )
+    result_type = models.CharField(
+        max_length=16,
+        choices=ResultType.choices,
+        default=ResultType.INITIAL,
+        db_comment="추천 결과 생성 목적 (INITIAL/ALTERNATIVE)",
+    )
+    generation = models.PositiveSmallIntegerField(
+        default=1,
+        db_comment="동일 run·스타일리스트 안의 추천 결과 세대 (최초 1, 다른 추천마다 증가)",
+    )
+    is_current = models.BooleanField(
+        default=True,
+        db_comment="동일 run·스타일리스트에서 현재 노출할 최신 결과 여부",
+    )
+    replaces = models.ForeignKey(
+        "self",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="replaced_by_results",
+        db_comment="다른 추천이 교체한 직전 추천 결과 FK (최초 추천이면 NULL)",
     )
     mode = models.CharField(
         max_length=24,
@@ -400,9 +428,22 @@ class RecommendationResult(models.Model):
                 name="uq_reco_result_default_run",
             ),
             models.UniqueConstraint(
-                fields=["run", "persona_id"],
+                fields=["run", "persona_id", "generation"],
                 condition=Q(response_mode="STYLIST"),
-                name="uq_reco_result_run_persona",
+                name="uq_reco_result_run_persona_gen",
+            ),
+            models.UniqueConstraint(
+                fields=["run", "persona_id"],
+                condition=Q(response_mode="STYLIST", is_current=True),
+                name="uq_reco_result_current_persona",
+            ),
+            models.CheckConstraint(
+                condition=Q(generation__gte=1),
+                name="ck_reco_result_generation",
+            ),
+            models.CheckConstraint(
+                condition=Q(result_type__in=["INITIAL", "ALTERNATIVE"]),
+                name="ck_reco_result_type",
             ),
         ]
 
@@ -440,6 +481,26 @@ class RecommendationResult(models.Model):
             )
         if not isinstance(self.strategy_snapshot, dict):
             errors["strategy_snapshot"] = "전략 스냅샷은 JSON 객체여야 합니다."
+
+        if self.result_type == self.ResultType.INITIAL:
+            if self.generation != 1 or self.replaces_id is not None:
+                errors["result_type"] = (
+                    "최초 추천은 generation 1이며 교체 전 결과가 없어야 합니다."
+                )
+        elif self.response_mode != self.ResponseMode.STYLIST:
+            errors["result_type"] = "다른 추천 결과는 STYLIST 응답만 지원합니다."
+        elif self.generation < 2 or self.replaces_id is None:
+            errors["result_type"] = (
+                "다른 추천은 generation 2 이상이며 직전 결과를 연결해야 합니다."
+            )
+        elif (
+            self.replaces.run_id != self.run_id
+            or self.replaces.persona_id != self.persona_id
+            or self.replaces.generation != self.generation - 1
+        ):
+            errors["replaces"] = (
+                "교체 전 결과는 같은 run·스타일리스트의 바로 이전 세대여야 합니다."
+            )
 
         if self.response_mode == self.ResponseMode.STYLIST:
             if not self.persona_execution_id:
