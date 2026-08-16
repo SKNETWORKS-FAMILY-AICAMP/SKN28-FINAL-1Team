@@ -323,12 +323,32 @@ export const LookbookEndpoints = {
  * ⚠️ 게스트 채팅(/chat/guest/)은 **HttpOnly 쿠키**로 신원을 잡는 방식이라 네이티브·크로스
  *    오리진에서 다루기 까다롭다. 지금은 로그인 사용자만 붙인다.
  */
+/**
+ * 사진 첨부 → 무드 분석 → 반영 여부는 **세 번의 호출**로 나뉜다.
+ *
+ *   POST /chat/sessions/{id}/attachments/                      multipart → 201 { message, attachment, created }
+ *   POST /chat/sessions/{id}/attachments/{aid}/analysis/                → 202 { attachment, run, events_url }
+ *   POST /chat/sessions/{id}/attachments/{aid}/mood-decision/  { decision } → 200 { attachment, changed, applied, context_state }
+ *
+ * 올리는 것과 분석하는 것이 나뉜 이유 — 사진만 보내고 분석은 원할 때 시킬 수 있다.
+ * 분석도 답변과 같은 run 구조라 끝날 때까지 기다려야 한다(lib/chatStream.ts).
+ *
+ * ⚠️ 요청과 저장값의 철자가 다르다. 보낼 때는 `APPROVE`/`REJECT`, 첨부에 남는 값은
+ *    `APPROVED`/`REJECTED`(미결정은 `UNDECIDED`)다. 둘을 섞어 비교하면 결정 상태를 놓친다.
+ * ⚠️ 무드를 승인해도 **추천이 자동으로 만들어지지 않는다.** 세션의 context_state 에만
+ *    반영되고, 다음 질문부터 그 무드가 조건으로 쓰인다.
+ */
 export const ChatEndpoints = {
   sessions: '/api/v1/chat/sessions/',
   session: (sessionId: string) => `/api/v1/chat/sessions/${sessionId}/`,
   messages: (sessionId: string) => `/api/v1/chat/sessions/${sessionId}/messages/`,
   run: (runId: string) => `/api/v1/chat/runs/${runId}/`,
   runEvents: (runId: string) => `/api/v1/chat/runs/${runId}/events/`,
+  attachments: (sessionId: string) => `/api/v1/chat/sessions/${sessionId}/attachments/`,
+  attachmentAnalysis: (sessionId: string, attachmentId: string) =>
+    `/api/v1/chat/sessions/${sessionId}/attachments/${attachmentId}/analysis/`,
+  attachmentMoodDecision: (sessionId: string, attachmentId: string) =>
+    `/api/v1/chat/sessions/${sessionId}/attachments/${attachmentId}/mood-decision/`,
 } as const;
 
 /**

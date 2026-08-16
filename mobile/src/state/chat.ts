@@ -3,16 +3,21 @@ import { useSyncExternalStore } from 'react';
 import { Editorial } from '@/constants/theme';
 import {
   createSession as apiCreateSession,
+  decideMood as apiDecideMood,
   deleteSession as apiDeleteSession,
   listMessages as apiListMessages,
   listSessions as apiListSessions,
   newClientMessageId,
   renameSession as apiRenameSession,
   sendMessage as apiSendMessage,
+  startMoodAnalysis as apiStartMoodAnalysis,
+  uploadAttachment as apiUploadAttachment,
   type ApiChatMessage,
   type ApiChatMode,
   type ApiChatRun,
   type ApiChatSession,
+  type ApiMoodAnalysis,
+  type ApiMoodDecision,
 } from '@/lib/chatApi';
 import { isAnswered, waitForRun } from '@/lib/chatStream';
 import {
@@ -76,7 +81,17 @@ export type ChatMessage =
   /** 사용자가 올린 사진. uri 가 없던 시절(목업)에도 말풍선은 떠서 optional 로 둔다. */
   | { id: string; role: 'user'; kind: 'image'; uri?: string }
   /** 첨부한 사진에서 읽어낸 무드 — 추구미로 삼을지 묻는 카드 */
-  | { id: string; role: 'ai'; kind: 'mood'; tags: string[] }
+  | {
+      id: string;
+      role: 'ai';
+      kind: 'mood';
+      /** 결정을 보낼 때 필요하다. 카드가 어느 사진에서 나왔는지도 이 값으로 안다. */
+      attachmentId: string;
+      tags: string[];
+      summary: string;
+      /** null 이면 아직 안 고른 상태 — 그때만 버튼을 보여준다. */
+      decision: 'APPROVED' | 'REJECTED' | null;
+    }
   /**
    * 답변을 못 받은 질문 아래에 남기는 줄.
    * 토스트는 사라지므로, 대화를 다시 열었을 때 "질문만 있고 답이 없는" 상태로 보이지 않게 한다.
@@ -195,12 +210,58 @@ function toRecMessage(messageId: string, card: ApiRecommendationCard): ChatMessa
 }
 
 /**
+ * 무드 분석이 끝나면 서버가 **답변 메시지**를 하나 남긴다
+ * (metadata.message_kind === 'mood', "사진에서 … 무드가 보여요. 반영할까요?").
+ *
+ * 그 메시지를 글 말풍선으로 그리는 대신 카드로 바꾼다. 카드가 같은 내용에 태그와
+ * 선택 버튼까지 담고 있어서, 둘 다 그리면 같은 말이 연달아 두 번 나온다.
+ *
+ * 결정 상태(APPROVED/REJECTED)는 메시지가 아니라 **첨부**에 남으므로 밖에서 찾아 넣는다.
+ */
+function toMoodMessage(
+  api: ApiChatMessage,
+  decisions: Map<string, ApiMoodDecision | null>,
+): ChatMessage | null {
+  const meta = api.metadata ?? {};
+  if (meta.message_kind !== 'mood') return null;
+  const analysis = (meta.mood_analysis ?? {}) as Partial<ApiMoodAnalysis>;
+  const tags = analysis.tags ?? [];
+  const attachmentId = typeof meta.attachment_id === 'string' ? meta.attachment_id : '';
+  if (tags.length === 0 || !attachmentId) return null;
+
+  const decided = decisions.get(attachmentId);
+  return {
+    id: api.id,
+    role: 'ai',
+    kind: 'mood',
+    attachmentId,
+    tags,
+    summary: analysis.summary ?? '',
+    // UNDECIDED 와 null 은 같은 뜻으로 다룬다 — 아직 안 고른 것.
+    decision: decided === 'APPROVED' || decided === 'REJECTED' ? decided : null,
+  };
+}
+
+/** 첨부에만 있는 결정 상태를 attachment_id 로 찾을 수 있게 모은다. */
+function collectDecisions(list: ApiChatMessage[]): Map<string, ApiMoodDecision | null> {
+  const map = new Map<string, ApiMoodDecision | null>();
+  for (const m of list) {
+    for (const a of m.attachments) map.set(a.id, a.mood_decision);
+  }
+  return map;
+}
+
+/**
  * 서버 메시지 → 말풍선.
  * SYSTEM·TOOL 은 사람에게 보여줄 말이 아니라 버린다. 사진 첨부는 사진 말풍선을 따로 만들어
  * 글보다 앞에 놓는다 — 올릴 때 사진이 먼저였으니 다시 열어도 그 순서여야 한다.
  * 추천 카드는 말풍선 **뒤에** 붙는다 (먼저 말로 설명하고 그다음 코디를 보여주는 순서).
  */
-function toMessages(api: ApiChatMessage, cards: ApiRecommendationCard[] = []): ChatMessage[] {
+function toMessages(
+  api: ApiChatMessage,
+  cards: ApiRecommendationCard[] = [],
+  decisions: Map<string, ApiMoodDecision | null> = new Map(),
+): ChatMessage[] {
   if (api.role !== 'USER' && api.role !== 'ASSISTANT') return [];
   const role = api.role === 'USER' ? 'user' : 'ai';
   const out: ChatMessage[] = [];
@@ -210,6 +271,14 @@ function toMessages(api: ApiChatMessage, cards: ApiRecommendationCard[] = []): C
       out.push({ id: `${api.id}-a${a.id}`, role: 'user', kind: 'image', uri: a.image_url ?? undefined });
     }
   }
+
+  // 무드 답변은 글 대신 카드로 그린다 (toMoodMessage 주석 참고).
+  const mood = role === 'ai' ? toMoodMessage(api, decisions) : null;
+  if (mood) {
+    out.push(mood);
+    return out;
+  }
+
   const text = api.content.trim();
   if (text) out.push({ id: api.id, role, kind: 'text', text });
   for (const card of cards) out.push(toRecMessage(api.id, card));
@@ -279,6 +348,11 @@ function toSession(api: ApiChatSession, previous?: ChatSession): ChatSession {
 
 let sessions: ChatSession[] = [];
 let loading = false;
+/**
+ * 목록을 **한 번이라도** 받아왔는지. 빈 배열만으로는 "아직 안 불러옴"과 "정말 없음"을
+ * 구분할 수 없어서, 첫 렌더에 "대화가 없어요" 화면이 한 프레임 번쩍이는 문제가 있었다.
+ */
+let loadedOnce = false;
 let error: string | null = null;
 const listeners = new Set<() => void>();
 
@@ -326,6 +400,7 @@ export const chatStore = {
       error = messageOf(e, '대화 목록을 불러오지 못했어요');
     } finally {
       loading = false;
+      loadedOnce = true;
       setStatus();
       notify();
     }
@@ -337,9 +412,10 @@ export const chatStore = {
     if (!options.force && current?.messagesLoaded) return;
     const list = await apiListMessages(id);
     const cards = await fetchCards(list);
+    const decisions = collectDecisions(list);
     replaceSession(id, (s) => ({
       ...s,
-      messages: list.flatMap((m) => toMessages(m, cards.get(m.id))),
+      messages: list.flatMap((m) => toMessages(m, cards.get(m.id), decisions)),
       messagesLoaded: true,
     }));
   },
@@ -434,6 +510,39 @@ export const chatStore = {
     return run;
   },
 
+  /**
+   * 사진 올리고 무드까지 읽어낸다. 올리기 → 분석 시작 → 분석 끝날 때까지 대기, 세 걸음이다.
+   *
+   * 중간에 한 번씩 대화를 다시 받아오는 이유 — 사진 말풍선은 올리자마자 보여야 하고,
+   * 무드 카드는 분석이 끝나야 생긴다. 마지막에 한 번만 받아오면 사진이 늦게 뜬다.
+   *
+   * 분석이 실패해도 사진은 이미 대화에 남는다. 그래서 실패를 예외로 올려 화면이
+   * 알리게 하되, 올린 사진까지 되돌리지는 않는다.
+   */
+  async attachPhoto(id: string, uri: string): Promise<void> {
+    const uploaded = await apiUploadAttachment(id, { uri }, newClientMessageId());
+    await this.loadMessages(id, { force: true }).catch(() => {});
+
+    const started = await apiStartMoodAnalysis(id, uploaded.attachment.id);
+    const run = await waitForRun(started.run.id);
+    await this.loadMessages(id, { force: true }).catch(() => {});
+
+    if (run.status === 'FAILED') {
+      throw new Error(run.error_message || '사진에서 무드를 읽지 못했어요');
+    }
+  },
+
+  /**
+   * 읽어낸 무드를 추천 조건에 반영할지 정한다.
+   *
+   * ⚠️ 승인해도 **추천이 바로 만들어지지 않는다.** 세션 조건에만 반영되고, 다음 질문부터
+   *    그 무드가 쓰인다. 그래서 화면은 승인 뒤에 무엇을 하면 되는지 알려줘야 한다.
+   */
+  async decideMood(id: string, attachmentId: string, decision: 'APPROVE' | 'REJECT'): Promise<void> {
+    await apiDecideMood(id, attachmentId, decision);
+    await this.loadMessages(id, { force: true });
+  },
+
   subscribe(listener: () => void) {
     listeners.add(listener);
     return () => listeners.delete(listener);
@@ -443,9 +552,15 @@ export const chatStore = {
 /* useSyncExternalStore 는 getSnapshot 이 매번 같은 참조를 주길 요구한다.
    loading·error 를 객체로 만들어 돌려주면 렌더마다 새 객체라 무한 루프가 된다.
    그래서 바뀔 때만 새로 만들어 둔다. */
-let status: { loading: boolean; error: string | null } = { loading: false, error: null };
+let status: { loading: boolean; loadedOnce: boolean; error: string | null } = {
+  loading: false,
+  loadedOnce: false,
+  error: null,
+};
 function setStatus() {
-  if (status.loading !== loading || status.error !== error) status = { loading, error };
+  if (status.loading !== loading || status.error !== error || status.loadedOnce !== loadedOnce) {
+    status = { loading, loadedOnce, error };
+  }
 }
 
 export function useChatSessions(): ChatSession[] {
@@ -453,7 +568,7 @@ export function useChatSessions(): ChatSession[] {
 }
 
 /** 목록 로딩·오류 상태. 빈 화면과 '못 불러옴'을 구분해 보여주기 위한 것. */
-export function useChatStatus(): { loading: boolean; error: string | null } {
+export function useChatStatus(): { loading: boolean; loadedOnce: boolean; error: string | null } {
   return useSyncExternalStore(chatStore.subscribe, chatStore.getStatus, chatStore.getStatus);
 }
 
