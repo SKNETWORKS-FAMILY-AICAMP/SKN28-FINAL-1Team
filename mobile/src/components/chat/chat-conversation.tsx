@@ -106,8 +106,26 @@ export function ChatConversation({
   const [typing, setTyping] = useState(false);
   const toast = useToast();
 
+  /**
+   * 스타일리스트 카드가 채워지는 상황 — 진행이 바뀔 때마다 달라지는 짧은 글자로 만든다.
+   * 말풍선 배열 전체를 effect 의 의존성으로 걸면 상관없는 변화에도 화면이 끌려 내려간다.
+   */
+  const stylistProgress = messages
+    .map((m) => (m.kind === 'stylist' ? m.cards.map((c) => c.status[0]).join('') : ''))
+    .join('');
+  /** 아직 안 끝난 카드가 있는지 (P=PENDING, R=RUNNING) */
+  const stylistPending = /[PR]/.test(stylistProgress);
+
   const scrollRef = useRef<ScrollView>(null);
   const timers = useRef<ReturnType<typeof setTimeout>[]>([]);
+
+  /* 카드가 하나씩 채워지는 동안 시야가 따라가게 한다. 안 따라가면 먼저 끝난 카드만 보이고
+     뒤에 붙는 카드는 화면 밖에서 쌓여, '완료된 것부터 보여준다'가 무의미해진다. */
+  useEffect(() => {
+    if (!stylistProgress) return;
+    const t = setTimeout(() => scrollRef.current?.scrollToEnd({ animated: true }), 60);
+    return () => clearTimeout(t);
+  }, [stylistProgress]);
 
   const scrollToEnd = () => {
     const t = setTimeout(() => scrollRef.current?.scrollToEnd({ animated: true }), 60);
@@ -466,7 +484,10 @@ export function ChatConversation({
           );
         })}
 
-        {typing ? (
+        {/* 스타일리스트 카드가 이미 깔렸으면 타이핑 점은 띄우지 않는다 — 지금 답을 만드는 건
+            코지가 아니라 스타일리스트들이고, 그 진행은 카드가 각자 보여주고 있다.
+            (질문을 접수하는 잠깐은 카드가 아직 없어서 점이 뜬다. 그때는 맞는 표시다.) */}
+        {typing && !stylistPending ? (
           <View style={styles.aiRow}>
             <View style={styles.avatar}>
               <Text style={styles.avatarMark}>c</Text>
