@@ -349,6 +349,16 @@ export const ChatEndpoints = {
     `/api/v1/chat/sessions/${sessionId}/attachments/${attachmentId}/analysis/`,
   attachmentMoodDecision: (sessionId: string, attachmentId: string) =>
     `/api/v1/chat/sessions/${sessionId}/attachments/${attachmentId}/mood-decision/`,
+
+  /* ── 스타일리스트 모드 ──
+     ⚠️ 아래 네 자리는 아직 **배포 서버에 없다**(origin/feature/chat-main-integration 전용).
+        없는 서버에서는 404 가 오고 lib/stylistApi.ts 가 목업으로 대신한다. */
+  stylists: '/api/v1/chat/stylists/',
+  responseMode: (sessionId: string) => `/api/v1/chat/sessions/${sessionId}/response-mode/`,
+  personaRetry: (runId: string, personaId: string) =>
+    `/api/v1/chat/runs/${runId}/personas/${personaId}/retry/`,
+  personaAlternative: (runId: string, personaId: string) =>
+    `/api/v1/chat/runs/${runId}/personas/${personaId}/alternative/`,
 } as const;
 
 /**
@@ -361,4 +371,8 @@ export const ChatEndpoints = {
  */
 export const RecommendEndpoints = {
   result: (resultId: string) => `/api/v1/recommendations/${resultId}/`,
+  /** 카드 한 장을 내 룩으로 저장 — 스타일리스트 카드의 '이 코디로 할래요'가 부른다.
+      ⚠️ 이 자리도 아직 배포 서버에 없다(위 stylists 주석과 같은 브랜치). */
+  saveCard: (resultId: string, cardId: string) =>
+    `/api/v1/recommendations/${resultId}/cards/${cardId}/save/`,
 } as const;
