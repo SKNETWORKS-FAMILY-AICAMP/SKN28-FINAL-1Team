@@ -12,6 +12,7 @@ from .views import (
     RecommendationFeedbackView,
     RecommendationHistoryView,
     RecommendationResultDetailView,
+    SavedOutfitView,
 )
 
 app_name = "recommend"
@@ -55,6 +56,11 @@ urlpatterns = [
         "recommendations/<uuid:result_id>/cards/<uuid:card_id>/feedback/",
         RecommendationFeedbackView.as_view(),
         name="recommendation-feedback",
+    ),
+    path(
+        "recommendations/<uuid:result_id>/cards/<uuid:card_id>/save/",
+        SavedOutfitView.as_view(),
+        name="recommendation-save",
     ),
     path(
         "recommendations/<uuid:result_id>/cards/<uuid:card_id>/render/",

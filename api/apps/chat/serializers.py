@@ -14,7 +14,11 @@ from apps.chat.models import (
 )
 from apps.chat.services import attachment_storage
 from apps.chat.services.stylist_personas import load_stylist_personas
-from apps.recommend.models import OutfitRenderJob, RecommendationResult
+from apps.recommend.models import (
+    OutfitComposition,
+    OutfitRenderJob,
+    RecommendationResult,
+)
 from apps.recommend.serializers import (
     OutfitRenderJobSerializer,
     RecommendationCardItemSerializer,
@@ -185,6 +189,7 @@ class ChatRunPersonaCardSerializer(serializers.Serializer):
     warnings = serializers.JSONField(read_only=True)
     items = RecommendationCardItemSerializer(many=True, read_only=True)
     image = serializers.SerializerMethodField()
+    is_saved = serializers.SerializerMethodField()
 
     @extend_schema_field(OutfitRenderJobSerializer(allow_null=True))
     def get_image(self, obj):
@@ -193,6 +198,10 @@ class ChatRunPersonaCardSerializer(serializers.Serializer):
         except OutfitRenderJob.DoesNotExist:
             return None
         return OutfitRenderJobSerializer(render_job, context=self.context).data
+
+    @extend_schema_field(serializers.BooleanField())
+    def get_is_saved(self, obj: OutfitComposition) -> bool:
+        return bool(obj.saved_records.all())
 
 
 class ChatRunPersonaResultSerializer(serializers.ModelSerializer):
@@ -289,7 +298,7 @@ class ChatRunPersonaResultSerializer(serializers.ModelSerializer):
             else result.compositions.filter(
                 status="VALIDATED",
             )
-            .prefetch_related("items")
+            .prefetch_related("items", "saved_records")
             .order_by("rank", "created_at")
         )
         card = next(iter(cards), None)

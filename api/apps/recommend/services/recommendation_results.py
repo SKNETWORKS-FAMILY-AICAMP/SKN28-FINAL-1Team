@@ -12,6 +12,7 @@ from apps.recommend.models import (
     OutfitComposition,
     RecommendationFeedback,
     RecommendationResult,
+    SavedOutfit,
 )
 
 
@@ -20,7 +21,7 @@ def _public_compositions() -> QuerySet[OutfitComposition]:
     return (
         OutfitComposition.objects.filter(status=OutfitComposition.Status.VALIDATED)
         .select_related("feedback")
-        .prefetch_related("items")
+        .prefetch_related("items", "saved_records")
         .order_by("rank", "created_at")
     )
 
@@ -113,3 +114,60 @@ def delete_feedback(
         composition__status=OutfitComposition.Status.VALIDATED,
     ).delete()
     return deleted > 0
+
+
+@transaction.atomic
+def save_outfit(
+    *,
+    identity: ChatIdentity,
+    result_id: uuid.UUID,
+    card_id: uuid.UUID,
+) -> tuple[SavedOutfit | None, bool]:
+    """회원이 소유한 검증 완료 코디를 멱등 저장한다."""
+
+    if identity.user_id is None:
+        return None, False
+    composition = (
+        OutfitComposition.objects.select_for_update()
+        .select_related("result__identity")
+        .filter(
+            pk=card_id,
+            result_id=result_id,
+            result__identity=identity,
+            status=OutfitComposition.Status.VALIDATED,
+        )
+        .first()
+    )
+    if composition is None:
+        return None, False
+    saved_outfit, created = SavedOutfit.objects.get_or_create(
+        user_id=identity.user_id,
+        composition=composition,
+    )
+    return saved_outfit, created
+
+
+@transaction.atomic
+def delete_saved_outfit(
+    *,
+    identity: ChatIdentity,
+    result_id: uuid.UUID,
+    card_id: uuid.UUID,
+) -> bool:
+    """소유 카드가 존재하면 저장 여부와 관계없이 멱등 해제한다."""
+
+    if identity.user_id is None:
+        return False
+    composition_exists = OutfitComposition.objects.filter(
+        pk=card_id,
+        result_id=result_id,
+        result__identity=identity,
+        status=OutfitComposition.Status.VALIDATED,
+    ).exists()
+    if not composition_exists:
+        return False
+    SavedOutfit.objects.filter(
+        user_id=identity.user_id,
+        composition_id=card_id,
+    ).delete()
+    return True

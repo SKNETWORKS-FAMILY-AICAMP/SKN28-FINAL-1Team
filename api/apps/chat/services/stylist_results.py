@@ -16,7 +16,7 @@ def with_stylist_results(queryset: QuerySet[ChatRun]) -> QuerySet[ChatRun]:
             status=OutfitComposition.Status.VALIDATED,
         )
         .select_related("render_job")
-        .prefetch_related("items")
+        .prefetch_related("items", "saved_records")
         .order_by("rank", "created_at")
     )
     current_results = RecommendationResult.objects.filter(

@@ -54,6 +54,7 @@ from .serializers import (
     RecommendationHistoryQuerySerializer,
     RecommendationHistoryResponseSerializer,
     RecommendationResultDetailSerializer,
+    SavedOutfitSerializer,
 )
 from .services import analysis as analysis_service
 from .services import claim as claim_service
@@ -790,6 +791,73 @@ class RecommendationFeedbackView(APIView):
             result_id=result_id,
             card_id=card_id,
         )
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+
+class SavedOutfitView(APIView):
+    """회원이 소유한 추천 카드의 저장 상태를 멱등 변경한다."""
+
+    permission_classes = [IsAuthenticated]
+
+    @extend_schema(
+        operation_id="recommendation_saved_outfit_put",
+        tags=[CHAT_TAG],
+        summary="추천 코디 저장",
+        description=(
+            "로그인 회원이 소유한 검증 완료 추천 코디를 저장합니다. 같은 카드를 "
+            "다시 요청하면 기존 저장 행과 최초 저장 시각을 그대로 반환합니다."
+        ),
+        parameters=[_RESULT_ID_PARAMETER, _CARD_ID_PARAMETER],
+        request=None,
+        responses={
+            200: SavedOutfitSerializer,
+            201: SavedOutfitSerializer,
+            401: OpenApiResponse(description="로그인 회원 필요"),
+            404: OpenApiResponse(
+                description="카드가 없거나 요청 회원의 소유가 아니거나 검증 미통과"
+            ),
+        },
+    )
+    def put(self, request: Request, result_id, card_id) -> Response:
+        identity = _recommendation_identity(request)
+        saved_outfit, created = recommendation_service.save_outfit(
+            identity=identity,
+            result_id=result_id,
+            card_id=card_id,
+        )
+        if saved_outfit is None:
+            raise NotFound("추천 카드를 찾을 수 없습니다.")
+        return Response(
+            SavedOutfitSerializer(saved_outfit).data,
+            status=status.HTTP_201_CREATED if created else status.HTTP_200_OK,
+        )
+
+    @extend_schema(
+        operation_id="recommendation_saved_outfit_delete",
+        tags=[CHAT_TAG],
+        summary="추천 코디 저장 해제",
+        description=(
+            "로그인 회원이 소유한 추천 코디의 저장 상태를 해제합니다. 이미 저장이 "
+            "해제된 카드에 다시 요청해도 204를 반환합니다."
+        ),
+        parameters=[_RESULT_ID_PARAMETER, _CARD_ID_PARAMETER],
+        responses={
+            204: None,
+            401: OpenApiResponse(description="로그인 회원 필요"),
+            404: OpenApiResponse(
+                description="카드가 없거나 요청 회원의 소유가 아니거나 검증 미통과"
+            ),
+        },
+    )
+    def delete(self, request: Request, result_id, card_id) -> Response:
+        identity = _recommendation_identity(request)
+        card_exists = recommendation_service.delete_saved_outfit(
+            identity=identity,
+            result_id=result_id,
+            card_id=card_id,
+        )
+        if not card_exists:
+            raise NotFound("추천 카드를 찾을 수 없습니다.")
         return Response(status=status.HTTP_204_NO_CONTENT)
 
 

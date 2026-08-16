@@ -14,6 +14,7 @@ from apps.recommend.models import (
     OutfitCompositionItem,
     OutfitRenderJob,
     RecommendationResult,
+    SavedOutfit,
 )
 
 User = get_user_model()
@@ -113,6 +114,7 @@ class StylistResultResponseTests(APITestCase):
             composition_fingerprint="a" * 64,
             render_fingerprint="b" * 64,
         )
+        SavedOutfit.objects.create(user=self.user, composition=card)
 
         response = self.client.get(reverse("chat:run-detail", args=[self.run.pk]))
 
@@ -129,6 +131,7 @@ class StylistResultResponseTests(APITestCase):
         self.assertEqual(rows[0]["card"]["items"][0]["display_name"], "크루넥 니트")
         self.assertEqual(rows[0]["card"]["image"]["status"], "QUEUED")
         self.assertEqual(str(rows[0]["card"]["image"]["job_id"]), str(job.pk))
+        self.assertTrue(rows[0]["card"]["is_saved"])
         self.assertEqual(
             rows[0]["validated_reason_codes"],
             ["MINIMAL_COLOR_COHESION"],

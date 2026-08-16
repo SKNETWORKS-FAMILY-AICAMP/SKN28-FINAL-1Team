@@ -14,6 +14,7 @@ from .models import (
     OutfitRenderJob,
     RecommendationFeedback,
     RecommendationResult,
+    SavedOutfit,
 )
 from .services import storage, wardrobe_link
 
@@ -532,6 +533,22 @@ class RecommendationFeedbackSerializer(serializers.ModelSerializer):
         ]
 
 
+class SavedOutfitSerializer(serializers.ModelSerializer):
+    saved_outfit_id = serializers.UUIDField(source="id", read_only=True)
+    card_id = serializers.UUIDField(source="composition_id", read_only=True)
+    is_saved = serializers.BooleanField(default=True, read_only=True)
+    saved_at = serializers.DateTimeField(source="created_at", read_only=True)
+
+    class Meta:
+        model = SavedOutfit
+        fields = [
+            "saved_outfit_id",
+            "card_id",
+            "is_saved",
+            "saved_at",
+        ]
+
+
 def _snapshot_text(snapshot: object, *keys: str) -> str | None:
     if not isinstance(snapshot, dict):
         return None
@@ -607,6 +624,7 @@ class RecommendationCardSerializer(serializers.ModelSerializer):
     card_id = serializers.UUIDField(source="id", read_only=True)
     items = RecommendationCardItemSerializer(many=True, read_only=True)
     feedback = serializers.SerializerMethodField()
+    is_saved = serializers.SerializerMethodField()
 
     class Meta:
         model = OutfitComposition
@@ -618,6 +636,7 @@ class RecommendationCardSerializer(serializers.ModelSerializer):
             "warnings",
             "items",
             "feedback",
+            "is_saved",
         ]
 
     @extend_schema_field(RecommendationFeedbackSerializer(allow_null=True))
@@ -627,6 +646,10 @@ class RecommendationCardSerializer(serializers.ModelSerializer):
         except RecommendationFeedback.DoesNotExist:
             return None
         return RecommendationFeedbackSerializer(feedback).data
+
+    @extend_schema_field(serializers.BooleanField())
+    def get_is_saved(self, obj: OutfitComposition) -> bool:
+        return bool(obj.saved_records.all())
 
 
 class OutfitRenderJobSerializer(serializers.ModelSerializer):

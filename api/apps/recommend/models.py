@@ -1207,3 +1207,63 @@ class RecommendationFeedback(models.Model):
 
     def __str__(self) -> str:
         return f"recommendation-feedback {self.composition_id} ({self.reaction})"
+
+
+class SavedOutfit(models.Model):
+    """회원이 나중에 다시 보기 위해 저장한 검증 완료 추천 코디."""
+
+    id = models.UUIDField(
+        primary_key=True,
+        default=uuid.uuid4,
+        editable=False,
+        db_comment="저장 코디 UUID",
+    )
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name="saved_outfits",
+        db_comment="코디를 저장한 회원 FK (게스트 저장 불가)",
+    )
+    composition = models.ForeignKey(
+        OutfitComposition,
+        on_delete=models.CASCADE,
+        related_name="saved_records",
+        db_comment="저장 대상 검증 완료 추천 코디 FK (outfit_composition.id)",
+    )
+    created_at = models.DateTimeField(
+        auto_now_add=True,
+        db_comment="코디를 최초 저장한 시각",
+    )
+
+    class Meta:
+        db_table = "saved_outfit"
+        db_table_comment = "회원이 저장한 추천 코디와 최초 저장 시각"
+        ordering = ["-created_at"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["user", "composition"],
+                name="uq_saved_outfit_user_comp",
+            ),
+        ]
+
+    def __str__(self) -> str:
+        return f"saved-outfit {self.user_id}:{self.composition_id}"
+
+    def clean(self) -> None:
+        """검증 카드의 실제 소유 회원만 저장할 수 있게 모델 경계에서도 막는다."""
+
+        super().clean()
+        if not self.composition_id:
+            return
+        errors: dict[str, str] = {}
+        if self.composition.status != OutfitComposition.Status.VALIDATED:
+            errors["composition"] = "검증을 통과한 추천 코디만 저장할 수 있습니다."
+        owner_id = self.composition.result.identity.user_id
+        if owner_id is None or owner_id != self.user_id:
+            errors["user"] = "추천 코디의 소유 회원만 저장할 수 있습니다."
+        if errors:
+            raise ValidationError(errors)
+
+    def save(self, *args, **kwargs) -> None:
+        self.clean()
+        super().save(*args, **kwargs)
