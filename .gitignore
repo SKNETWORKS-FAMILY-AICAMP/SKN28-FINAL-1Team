@@ -209,6 +209,8 @@ docs/*
 main
 input
 nohup.out
+# cloudflared 퀵터널 실행 로그 — 터널을 열 때마다 새로 생긴다
+.cloudflared-api.out
 
 collector/eleven/tests/test_category_mapping.py
 
