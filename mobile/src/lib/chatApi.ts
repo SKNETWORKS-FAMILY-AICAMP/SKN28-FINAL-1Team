@@ -1,5 +1,15 @@
-import { ChatEndpoints } from '@/constants/config';
-import { api } from '@/lib/apiClient';
+import { Platform } from 'react-native';
+
+import { API_BASE_URL, ChatEndpoints } from '@/constants/config';
+import { api, ApiError } from '@/lib/apiClient';
+import { getAccessToken } from '@/lib/secureStore';
+import {
+  guessFileName,
+  guessMimeType,
+  isRemote,
+  toLocalFile,
+  uploadMultipart,
+} from '@/lib/uploadFile';
 
 /**
  * 채팅 API 의 원형(DTO)과 호출 함수.
@@ -25,13 +35,33 @@ export type ApiRunStatus =
   | 'SUCCEEDED'
   | 'FAILED';
 
+export type ApiAnalysisStatus =
+  | 'NOT_REQUESTED'
+  | 'QUEUED'
+  | 'PROCESSING'
+  | 'SUCCEEDED'
+  | 'FAILED';
+
+/** 첨부에 남는 결정 상태. **요청에 보내는 값(APPROVE/REJECT)과 철자가 다르다.** */
+export type ApiMoodDecision = 'UNDECIDED' | 'APPROVED' | 'REJECTED';
+
+/** 사진에서 읽어낸 무드. tags 는 최대 5개이고 `#` 은 붙어 있지 않다. */
+export type ApiMoodAnalysis = {
+  summary: string;
+  tags: string[];
+  styles: string[];
+  colors: string[];
+  fits: string[];
+};
+
 export type ApiChatAttachment = {
   id: string;
   mime_type: string;
   size: number;
-  analysis_status: string;
-  analysis_result: unknown;
-  mood_decision: string | null;
+  analysis_status: ApiAnalysisStatus;
+  /** 분석 전에는 빈 객체다. SUCCEEDED 일 때만 ApiMoodAnalysis 모양이 된다. */
+  analysis_result: Partial<ApiMoodAnalysis> | null;
+  mood_decision: ApiMoodDecision | null;
   image_url: string | null;
   created_at: string;
 };
@@ -58,6 +88,15 @@ export type ApiChatSession = {
   last_message_at: string;
   created_at: string;
   updated_at: string;
+
+  /* ── 스타일리스트 모드 ──
+     ⚠️ 셋 다 **없을 수 있다.** 이 필드들은 origin/feature/chat-main-integration 에서 붙는데
+        배포 서버·main 은 아직 그 전이라 아예 내려오지 않는다. 없을 때 DEFAULT 로 덮어쓰면
+        방금 켠 모드가 목록 새로고침 한 번에 꺼지므로, 받는 쪽에서 '없음'과 'DEFAULT' 를
+        구분해야 한다 (state/chat.ts 의 toSession). */
+  response_mode?: 'DEFAULT' | 'STYLIST';
+  selected_persona_ids?: string[];
+  persona_selection_updated_at?: string | null;
 };
 
 export type ApiChatRun = {
@@ -129,4 +168,115 @@ export function sendMessage(
 /** run 단건 조회 — 네이티브 폴링과 SSE 실패 시 복구에 쓴다. */
 export function getRun(runId: string): Promise<ApiChatRun> {
   return api.get<ApiChatRun>(ChatEndpoints.run(runId));
+}
+
+/* ── 사진 첨부 ─────────────────────────────────────── */
+
+export type ApiAttachmentUpload = {
+  message: ApiChatMessage;
+  attachment: ApiChatAttachment;
+  /** false 면 같은 client_message_id 로 이미 올린 사진이다 (재시도가 중복을 만들지 않는다). */
+  created: boolean;
+};
+
+export type ApiMoodAnalysisStart = {
+  attachment: ApiChatAttachment;
+  run: ApiChatRun;
+  events_url: string;
+};
+
+export type ApiMoodDecisionResult = {
+  attachment: ApiChatAttachment;
+  changed: boolean;
+  /** 이 무드가 실제로 추천 조건에 반영됐는지 */
+  applied: boolean;
+};
+
+/**
+ * 사진 올리기. 사진만 저장되고 **분석은 아직 시작되지 않는다** — startMoodAnalysis 로 따로 건다.
+ *
+ * 업로드 방식이 플랫폼마다 다르다. 옷장·룩북과 같은 이유이고 같은 방식을 쓴다.
+ *   - 웹: 고른 사진을 Blob 으로 만들어 표준 FormData 에 넣는다.
+ *   - 네이티브: Expo SDK 54+ 의 전역 fetch 가 표준(WinterCG) 구현이라 예전 RN 관용구인
+ *     `{ uri, name, type }` 파트를 받지 못한다(`Unsupported FormDataPart implementation`).
+ *     XHR 은 이 파트를 네이티브로 처리하므로 uploadMultipart 로 보낸다.
+ *
+ * ⚠️ 네이티브 경로는 apiClient 를 타지 않아 401 자동 재발급이 없다 — 토큰을 직접 붙인다.
+ */
+export async function uploadAttachment(
+  sessionId: string,
+  input: { uri: string; name?: string; mimeType?: string },
+  clientMessageId: string,
+  content = '',
+): Promise<ApiAttachmentUpload> {
+  const path = ChatEndpoints.attachments(sessionId);
+  const name = input.name ?? guessFileName(input.uri, 'chat-photo.jpg');
+  const mimeType = input.mimeType ?? guessMimeType(name);
+  const form = new FormData();
+
+  if (Platform.OS === 'web') {
+    const blob = await fetch(input.uri).then((r) => {
+      if (!r.ok) throw new Error('선택한 사진을 불러오지 못했어요.');
+      return r.blob();
+    });
+    form.append('image', blob, name);
+    form.append('client_message_id', clientMessageId);
+    if (content) form.append('content', content);
+    return api.post<ApiAttachmentUpload>(path, form);
+  }
+
+  const local = isRemote(input.uri) ? await toLocalFile(input.uri, name) : null;
+  const uri = local ? local.file.uri : input.uri;
+  try {
+    form.append('image', { uri, name, type: mimeType } as unknown as Blob);
+    form.append('client_message_id', clientMessageId);
+    if (content) form.append('content', content);
+    const token = await getAccessToken();
+    const res = await uploadMultipart(`${API_BASE_URL}${path}`, form, { token });
+    if (res.status >= 400) {
+      throw new ApiError(uploadErrorMessage(res.body), res.status, res.body);
+    }
+    return JSON.parse(res.body) as ApiAttachmentUpload;
+  } finally {
+    // 내려받은 임시 파일만 지운다. 사용자가 고른 사진은 우리 것이 아니다.
+    if (local?.downloaded) {
+      try {
+        local.file.delete();
+      } catch {
+        // 캐시 파일이라 못 지워도 그냥 둔다.
+      }
+    }
+  }
+}
+
+/** XHR 응답 본문에서 서버가 준 사유를 꺼낸다. JSON 이 아니면 일반 문구로 돌아간다. */
+function uploadErrorMessage(body: string): string {
+  try {
+    const data = JSON.parse(body) as { detail?: string; image?: string[] };
+    return data.detail ?? data.image?.[0] ?? '사진을 올리지 못했어요';
+  } catch {
+    return '사진을 올리지 못했어요';
+  }
+}
+
+/** 무드 분석 시작. 답변과 같은 run 구조라 끝날 때까지 기다려야 한다. */
+export function startMoodAnalysis(
+  sessionId: string,
+  attachmentId: string,
+): Promise<ApiMoodAnalysisStart> {
+  return api.post<ApiMoodAnalysisStart>(
+    ChatEndpoints.attachmentAnalysis(sessionId, attachmentId),
+  );
+}
+
+/** 읽어낸 무드를 추천 조건에 반영할지 결정한다. 보내는 값은 APPROVE/REJECT 다. */
+export function decideMood(
+  sessionId: string,
+  attachmentId: string,
+  decision: 'APPROVE' | 'REJECT',
+): Promise<ApiMoodDecisionResult> {
+  return api.post<ApiMoodDecisionResult>(
+    ChatEndpoints.attachmentMoodDecision(sessionId, attachmentId),
+    { decision },
+  );
 }
