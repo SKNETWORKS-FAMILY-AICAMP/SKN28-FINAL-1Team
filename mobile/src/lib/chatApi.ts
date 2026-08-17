@@ -88,6 +88,15 @@ export type ApiChatSession = {
   last_message_at: string;
   created_at: string;
   updated_at: string;
+
+  /* ── 스타일리스트 모드 ──
+     ⚠️ 셋 다 **없을 수 있다.** 이 필드들은 origin/feature/chat-main-integration 에서 붙는데
+        배포 서버·main 은 아직 그 전이라 아예 내려오지 않는다. 없을 때 DEFAULT 로 덮어쓰면
+        방금 켠 모드가 목록 새로고침 한 번에 꺼지므로, 받는 쪽에서 '없음'과 'DEFAULT' 를
+        구분해야 한다 (state/chat.ts 의 toSession). */
+  response_mode?: 'DEFAULT' | 'STYLIST';
+  selected_persona_ids?: string[];
+  persona_selection_updated_at?: string | null;
 };
 
 export type ApiChatRun = {

@@ -349,6 +349,16 @@ export const ChatEndpoints = {
     `/api/v1/chat/sessions/${sessionId}/attachments/${attachmentId}/analysis/`,
   attachmentMoodDecision: (sessionId: string, attachmentId: string) =>
     `/api/v1/chat/sessions/${sessionId}/attachments/${attachmentId}/mood-decision/`,
+
+  /* ── 스타일리스트 모드 ──
+     ⚠️ 아래 네 자리는 아직 **배포 서버에 없다**(origin/feature/chat-main-integration 전용).
+        없는 서버에서는 404 가 오고 lib/stylistApi.ts 가 목업으로 대신한다. */
+  stylists: '/api/v1/chat/stylists/',
+  responseMode: (sessionId: string) => `/api/v1/chat/sessions/${sessionId}/response-mode/`,
+  personaRetry: (runId: string, personaId: string) =>
+    `/api/v1/chat/runs/${runId}/personas/${personaId}/retry/`,
+  personaAlternative: (runId: string, personaId: string) =>
+    `/api/v1/chat/runs/${runId}/personas/${personaId}/alternative/`,
 } as const;
 
 /**
@@ -359,6 +369,23 @@ export const ChatEndpoints = {
  * 채팅 답변이 추천까지 만들면 그 메시지의 metadata.recommendation_result_id 로 여기를 부른다.
  * 카드 하나가 코디 한 벌이고, 그 안의 items 가 착장 아이템이다.
  */
+/**
+ * 스타일리스트 API 가 없을 때 목업으로 대신 그려도 되는지 (lib/stylistApi.ts).
+ *
+ * ⚠️ **배포된 실서버에서는 켜면 안 된다.** 게이트웨이 설정이 틀려 404 가 나는 상황까지
+ *    "라우트가 아직 없구나"로 삼켜 버리면, 사용자에게 **지어낸 코디**를 진짜 추천인 것처럼
+ *    보여주게 된다. 장애가 목업 뒤에 숨는 쪽이 오류 화면보다 나쁘다.
+ *
+ * 그래서 기본은 개발 빌드에서만 열어 둔다. 팀원 체험용 웹 배포처럼 백엔드가 아직 안 붙은
+ * 곳에서 화면을 보여줘야 하면 그 빌드에만 EXPO_PUBLIC_STYLIST_MOCK=1 을 준다.
+ */
+export const ALLOW_STYLIST_MOCK =
+  __DEV__ || process.env.EXPO_PUBLIC_STYLIST_MOCK === '1';
+
 export const RecommendEndpoints = {
   result: (resultId: string) => `/api/v1/recommendations/${resultId}/`,
+  /** 카드 한 장을 내 룩으로 저장 — 스타일리스트 카드의 '이 코디로 할래요'가 부른다.
+      ⚠️ 이 자리도 아직 배포 서버에 없다(위 stylists 주석과 같은 브랜치). */
+  saveCard: (resultId: string, cardId: string) =>
+    `/api/v1/recommendations/${resultId}/cards/${cardId}/save/`,
 } as const;

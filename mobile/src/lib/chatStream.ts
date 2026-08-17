@@ -1,4 +1,9 @@
 import { getRun, type ApiChatRun, type ApiRunStatus } from '@/lib/chatApi';
+import {
+  getStylistRun,
+  type ApiStylistRun,
+  type StylistId,
+} from '@/lib/stylistApi';
 
 /**
  * 답변 run 이 끝날 때까지 기다린다.
@@ -76,6 +81,51 @@ export async function waitForRun(
   for (let attempt = 0; ; attempt += 1) {
     const run = await getRun(runId);
     if (isTerminal(run.status)) return run;
+
+    if (Date.now() - startedAt > TIMEOUT_MS) throw new ChatRunTimeout();
+    await sleep(delayFor(attempt), signal);
+  }
+}
+
+/**
+ * 스타일리스트 run 을 끝까지 기다리되, **중간 상태를 매번 넘겨준다**.
+ *
+ * 기본 답변과 다른 점 — 결과가 여러 개고 끝나는 시각이 제각각이다. 다 끝난 뒤 한 번에 그리면
+ * 먼저 끝난 카드가 남을 기다리는 동안 빈 화면이 된다. 그래서 폴링할 때마다 onProgress 로
+ * 넘겨 완료된 카드부터 채우게 한다(설계서 18장: "완료된 스타일리스트 카드부터 표시한다").
+ *
+ * 끝났다고 보는 기준은 run.status 가 아니라 **페르소나 전원이 끝났는지**다. 한 명이 실패해도
+ * 나머지는 계속 진행되므로 run 하나의 상태만 보면 남은 카드를 놓친다.
+ */
+export async function waitForStylistRun(
+  runId: string,
+  options: {
+    signal?: AbortSignal;
+    onProgress?: (run: ApiStylistRun) => void;
+    /** 목업이 자리를 만들 때만 쓴다 (lib/stylistApi.ts 의 getStylistRun 주석 참고). */
+    hint?: { personaIds: StylistId[]; question: string };
+    /**
+     * 그만 기다려도 되는 조건. 기본은 '전원 종료'다.
+     * 재시도·다른 추천은 이미 전원이 끝난 run 을 다시 건드리는 것이라 기본 조건으로는
+     * 첫 폴링에서 바로 끝나 버린다 — 그래서 부르는 쪽이 조건을 바꿔 넘긴다.
+     */
+    until?: (run: ApiStylistRun) => boolean;
+  } = {},
+): Promise<ApiStylistRun> {
+  const { signal, onProgress, hint, until } = options;
+  const startedAt = Date.now();
+
+  const settled = (run: ApiStylistRun) =>
+    run.results.length > 0 &&
+    run.results.every((r) => r.status === 'SUCCEEDED' || r.status === 'FAILED');
+
+  for (let attempt = 0; ; attempt += 1) {
+    const run = await getStylistRun(runId, hint);
+    onProgress?.(run);
+
+    // 결과 자리가 아직 안 생겼는데 run 이 먼저 끝나 버린 경우(=스타일리스트 실행 자체가 실패)
+    if (run.results.length === 0 && isTerminal(run.status)) return run;
+    if (until ? until(run) : settled(run)) return run;
 
     if (Date.now() - startedAt > TIMEOUT_MS) throw new ChatRunTimeout();
     await sleep(delayFor(attempt), signal);
