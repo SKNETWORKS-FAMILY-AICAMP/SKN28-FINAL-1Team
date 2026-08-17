@@ -127,7 +127,8 @@ export function SessionList({
   const failedEmpty = error !== null && isEmpty;
 
   const open = (id: string) => {
-    router.push({ pathname: '/chat-room', params: { id } });
+    // 목록에서 들어갔으면 목록으로 돌아온다.
+    router.push({ pathname: '/chat-room', params: { id, from: '/(tabs)/chat' } });
     onOpened?.();
   };
 

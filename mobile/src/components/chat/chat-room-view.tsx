@@ -1,4 +1,4 @@
-import { router } from 'expo-router';
+import { router, type Href } from 'expo-router';
 import { useEffect, useState } from 'react';
 import { Modal, Pressable, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -10,7 +10,7 @@ import { Icon } from '@/components/icon';
 import { EmptyState, LoadingState } from '@/components/ui';
 import { ChatPanelWidth, ContentMax, Editorial, ink } from '@/constants/theme';
 import { useBreakpoint } from '@/hooks/use-breakpoint';
-import { goBack } from '@/lib/goBack';
+import { backTo, goBack } from '@/lib/goBack';
 import { chatStore, CHAT_MODE_META, useChatSession, useChatStatus, useLatestSession } from '@/state/chat';
 
 const INK = Editorial.ink;
@@ -27,12 +27,28 @@ const INK = Editorial.ink;
 export function ChatRoomView({
   sessionId,
   showBack = false,
+  from,
 }: {
   sessionId?: string;
   /** 다른 화면에서 밀고 들어온 경우에만 뒤로가기를 둔다 (탭으로 들어온 /chat 은 갈 곳이 없다) */
   showBack?: boolean;
+  /** 들어온 자리. 뒤로가기는 여기로 돌아간다 (룩 상세·저장 룩이 쓰는 것과 같은 패턴). */
+  from?: string;
 }) {
   const { contentStyle, isWide } = useBreakpoint();
+
+  /**
+   * 뒤로가기가 갈 자리와, 버튼을 보여줄지.
+   *
+   * **넓은 화면의 '/(tabs)/chat' 은 목록이 아니라 '가장 최근 대화'** 다(app/(tabs)/chat.tsx).
+   * 방금 보던 대화가 대개 최근이라 눌러도 같은 화면이 나오고, 버튼이 고장 난 것처럼 읽힌다.
+   * 넓은 화면에는 목록이 오른쪽 패널로 이미 옆에 있으니 돌아갈 자리가 없는 게 맞다 —
+   * 그럴 땐 버튼을 두지 않는다. 판단은 **목적지**로 한다(from 유무가 아니라):
+   * 목록에서 들어오면 from 이 '/(tabs)/chat' 이라 넓은 화면에선 역시 제자리이기 때문이다.
+   * 좁은 화면의 '/(tabs)/chat' 은 진짜 목록 화면이라 그대로 둔다.
+   */
+  const backTarget = from ?? '/(tabs)/chat';
+  const backVisible = showBack && !(isWide && backTarget === '/(tabs)/chat');
 
   /* 옷 상세·저장한 룩처럼 id 없이 들어오는 입구가 있다 → 가장 최근 대화로 이어 붙인다. */
   const requested = useChatSession(sessionId);
@@ -74,8 +90,11 @@ export function ChatRoomView({
       <View style={styles.container}>
         <SafeAreaView edges={['top']} style={styles.headerSafe}>
           <View style={[styles.header, contentStyle(ContentMax.narrow)]}>
-            {showBack ? (
-              <Pressable hitSlop={12} onPress={() => goBack('/(tabs)/home')}>
+            {backVisible ? (
+              <Pressable
+                hitSlop={12}
+                accessibilityLabel="뒤로"
+                onPress={() => goBack(backTo(from, '/(tabs)/home'))}>
                 <Icon name="chevron.left" tintColor={INK} size={20} />
               </Pressable>
             ) : null}
@@ -100,8 +119,11 @@ export function ChatRoomView({
         <SafeAreaView edges={['top']} style={styles.headerSafe}>
           <View style={[styles.header, contentStyle(ContentMax.narrow)]}>
             <View style={styles.headerSide}>
-              {showBack ? (
-                <Pressable hitSlop={12} onPress={() => goBack('/(tabs)/chat')}>
+              {backVisible ? (
+                <Pressable
+                  hitSlop={12}
+                  accessibilityLabel="뒤로"
+                  onPress={() => goBack(backTarget as Href)}>
                   <Icon name="chevron.left" tintColor={INK} size={20} />
                 </Pressable>
               ) : null}
