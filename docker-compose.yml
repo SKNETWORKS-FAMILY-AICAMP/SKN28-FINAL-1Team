@@ -154,6 +154,7 @@ services:
     volumes:
       # migrate와 같은 이유 — 신체치수 추론 모듈과 모델 joblib이 ml/ 아래에 있다.
       - ./ml:/ml:ro
+      - ./data/lookbook:/data/lookbook:ro
     ports:
       - "8000:8000"
     # gunicorn 옵션(bind / workers / 액세스·에러 로그)은 api/gunicorn.conf.py가

@@ -14,6 +14,8 @@ export type LookRelated = {
   brand: string;
   price: string;
   tone: number;
+  /** 가격 비교 상품의 네이버 쇼핑 썸네일. */
+  image?: string;
   /**
    * 외부 쇼핑몰 상품 주소. 백엔드 catalog 가 아직 link 를 안 내려줘서 지금은 비어 있고,
    * 비어 있으면 `mall` 에서 브랜드+상품명 검색 주소를 만든다(lib/mall.ts).

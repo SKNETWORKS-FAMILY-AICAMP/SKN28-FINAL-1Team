@@ -25,6 +25,22 @@ DEFAULT_PAGE_SIZE = 20
 MAX_PAGE_SIZE = 100
 
 
+class DiscoveryLookQuerySerializer(serializers.Serializer):
+    query = serializers.CharField(
+        required=False, allow_blank=True, default="", max_length=100
+    )
+    tag = serializers.CharField(
+        required=False, allow_blank=True, default="", max_length=30
+    )
+    gender = serializers.ChoiceField(
+        required=False, allow_blank=True, choices=("WOMAN", "MAN"), default=""
+    )
+    limit = serializers.IntegerField(
+        required=False, min_value=1, max_value=50, default=20
+    )
+    offset = serializers.IntegerField(required=False, min_value=0, default=0)
+
+
 class StrictObjectInputMixin:
     """입력 serializer가 JSON 객체와 선언된 필드만 받도록 제한한다."""
 

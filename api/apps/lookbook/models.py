@@ -245,3 +245,61 @@ class LookbookWardrobeItem(models.Model):
 
     def __str__(self) -> str:
         return f"{self.lookbook_id}:{self.wardrobe_item_id}"
+
+
+class CuratedLook(models.Model):
+    """운영자가 CSV로 관리하는 공개 룩북 콘텐츠."""
+
+    class Gender(models.TextChoices):
+        WOMAN = "WOMAN", "여성"
+        MAN = "MAN", "남성"
+
+    external_id = models.CharField(
+        max_length=100, unique=True, db_comment="CSV에서 사용하는 운영자 룩 고유 ID"
+    )
+    gender = models.CharField(
+        max_length=10,
+        choices=Gender.choices,
+        default=Gender.WOMAN,
+        db_comment="룩 노출 성별 구분 (WOMAN/MAN)",
+    )
+    category = models.CharField(max_length=30, db_comment="룩북 필터 카테고리")
+    title = models.CharField(max_length=200, db_comment="룩 제목")
+    subtitle = models.CharField(max_length=200, blank=True, db_comment="룩 부제")
+    cover_image_url = models.TextField(db_comment="전신 코디 대표 이미지 URL")
+    tags = models.JSONField(default=list, blank=True, db_comment="룩 필터 태그 배열 JSON")
+    is_active = models.BooleanField(default=True, db_comment="공개 둘러보기 노출 여부")
+    created_at = models.DateTimeField(auto_now_add=True, db_comment="생성 시각")
+    updated_at = models.DateTimeField(auto_now=True, db_comment="수정 시각")
+
+    class Meta:
+        db_table = "lookbook_curated_look"
+        db_table_comment = "운영자가 선별해 공개하는 룩북 콘텐츠"
+        ordering = ["category", "external_id"]  # noqa: RUF012
+
+
+class CuratedLookItem(models.Model):
+    """운영자 룩의 원본 상품과 유사상품 검색 기준."""
+
+    look = models.ForeignKey(
+        CuratedLook,
+        on_delete=models.CASCADE,
+        related_name="items",
+        db_comment="운영자 룩 FK",
+    )
+    slot = models.CharField(max_length=30, db_comment="구성 위치 (상의/하의/신발/액세서리)")
+    name = models.CharField(max_length=500, db_comment="원본 상품명")
+    brand = models.CharField(max_length=200, blank=True, db_comment="원본 상품 브랜드 또는 판매처")
+    price = models.PositiveIntegerField(null=True, blank=True, db_comment="원본 판매가 (원)")
+    product_url = models.TextField(db_comment="네이버 쇼핑 원본 상품 상세 URL")
+    image_url = models.TextField(blank=True, db_comment="원본 상품 대표 이미지 URL")
+    related_keyword = models.CharField(max_length=200, db_comment="유사상품 네이버 검색어")
+    sort_order = models.PositiveIntegerField(default=0, db_comment="구성 아이템 표시 순서")
+
+    class Meta:
+        db_table = "lookbook_curated_item"
+        db_table_comment = "운영자 룩 구성 아이템과 네이버 원본 상품 연결"
+        ordering = ["sort_order", "id"]  # noqa: RUF012
+        constraints = [  # noqa: RUF012
+            models.UniqueConstraint(fields=["look", "slot"], name="uq_curated_look_slot")
+        ]

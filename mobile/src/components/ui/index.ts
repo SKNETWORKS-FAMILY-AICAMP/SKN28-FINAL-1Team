@@ -7,6 +7,7 @@ export { Avatar } from './avatar';
 export { SearchFilterBar } from './search-filter-bar';
 export { SegmentedToggle } from './segmented-toggle';
 export { CategoryEditSheet } from './category-edit-sheet';
+export { LookbookFilterSheet } from './lookbook-filter-sheet';
 export { ToastProvider, useToast } from './toast';
 export { ConfirmProvider, useConfirm } from './confirm-dialog';
 export { ModalShell } from './modal-shell';

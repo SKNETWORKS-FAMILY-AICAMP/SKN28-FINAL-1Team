@@ -20,6 +20,8 @@ import { useBreakpoint } from '@/hooks/use-breakpoint';
 import { useDailyLook } from '@/hooks/use-daily-look';
 import { useHome } from '@/hooks/use-home';
 import { DetailTwoPane } from '@/components/detail-two-pane';
+import { useDiscoveryLook } from '@/hooks/use-discovery-look';
+import type { LookVariant } from '@/constants/today-look';
 
 const INK = Editorial.ink;
 const WINE = Editorial.wine;
@@ -43,8 +45,32 @@ export default function LookDetail() {
      폴링해 보는 사이 완성되면 화면이 실제 추천으로 바뀐다. 완성 전·비회원이면
      번들 목업으로 물러난다 — 홈 카드의 템플릿 폴백과 같은 규칙. */
   const { look: dailyLook } = useDailyLook(isLoggedIn);
+  const discoveryLook = useDiscoveryLook(id);
   const apiVariant = useMemo(() => dailyLookToVariant(dailyLook), [dailyLook]);
-  const look = (!id || id === 'daily') && apiVariant ? apiVariant : resolveLookVariant(id);
+  const discoveryVariant = useMemo<LookVariant | null>(() => discoveryLook ? ({
+    id: discoveryLook.id,
+    title: discoveryLook.title,
+    subtitle: discoveryLook.subtitle,
+    image: discoveryLook.image,
+    reasons: discoveryLook.reasons,
+    pieces: discoveryLook.items.map((item) => ({
+      slot: item.slot,
+      image: item.image,
+      name: item.name,
+      brand: item.brand,
+      tone: 0.08,
+      mine: false,
+      related: item.similar_products.map((product) => ({
+        name: product.name,
+        brand: product.brand,
+        price: String(product.price),
+        tone: 0.08,
+        image: product.image,
+        link: product.link,
+      })),
+    })),
+  }) : null, [discoveryLook]);
+  const look = discoveryVariant ?? ((!id || id === 'daily') && apiVariant ? apiVariant : resolveLookVariant(id));
   const PIECES = look.pieces;
   const lookTags = tagsOf(look.subtitle);
   /* 사진은 원격 URL 이 있으면 그것, 없으면 번들 목업(오늘의 룩) */
@@ -289,12 +315,15 @@ export default function LookDetail() {
                               style={styles.relatedMain}
                               onPress={() => openExternal(url)}
                               accessibilityLabel={`${r.brand} ${r.name} — ${mallLabel(url)}에서 보기`}>
-                              <View
-                                style={[
-                                  styles.relatedThumb,
-                                  { backgroundColor: `rgba(28,25,23,${r.tone})` },
-                                ]}
-                              />
+                              <View style={styles.relatedThumb}>
+                                <SmartImage
+                                  uri={r.image}
+                                  width={44}
+                                  height={44}
+                                  radius={10}
+                                  contentFit="cover"
+                                />
+                              </View>
                               <View style={styles.relatedBody}>
                                 <Text style={styles.relatedName} numberOfLines={1}>
                                   {r.name}
