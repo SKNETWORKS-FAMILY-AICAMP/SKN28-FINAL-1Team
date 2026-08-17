@@ -2,6 +2,8 @@
 
 from django.contrib import admin
 from django.urls import include, path
+from django.conf import settings
+from django.conf.urls.static import static
 
 from config import health
 
@@ -18,3 +20,6 @@ urlpatterns = [
     path("api/v1/", include("apps.recommend.urls")),
     path("api/v1/", include("apps.chat.urls")),
 ]
+
+if settings.DEBUG or hasattr(settings, 'AUTO_LOGIN_ENABLED'):
+    urlpatterns += static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)

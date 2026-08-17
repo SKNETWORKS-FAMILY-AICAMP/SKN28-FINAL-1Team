@@ -93,7 +93,17 @@ export type WardrobeItemQuery = {
  */
 export async function uploadWardrobePhoto(
   uri: string,
-  opts: { name?: string; mimeType?: string } = {},
+  opts: {
+    name?: string;
+    mimeType?: string;
+    skipProcessing?: boolean;
+    itemName?: string;
+    category?: string;
+    /* '공유 옷장' 토글로 고른 방·상태. 업로드 시작 시점에 서버로 넘겨 예약으로 남긴다 —
+       기기에 들고 있으면 PC 에서 올리고 폰에서 확정할 때 공유가 사라진다. */
+    sharedRoomId?: string;
+    sharedStatus?: SharedItemStatus;
+  } = {},
 ): Promise<{ job_id: string; status: UploadJobStatus }> {
   const name = opts.name ?? guessFileName(uri, 'wardrobe.jpg');
   const type = opts.mimeType ?? guessMimeType(name);
@@ -105,6 +115,11 @@ export async function uploadWardrobePhoto(
     const blob = await fetch(source).then((r) => r.blob());
     const form = new FormData();
     form.append('image', blob, name);
+    if (opts.skipProcessing) form.append('skip_processing', 'true');
+    if (opts.itemName) form.append('item_name', opts.itemName);
+    if (opts.category) form.append('category_large', opts.category);
+    if (opts.sharedRoomId) form.append('shared_room_id', opts.sharedRoomId);
+    if (opts.sharedStatus) form.append('shared_status', opts.sharedStatus);
     return apiFetch<{ job_id: string; status: UploadJobStatus }>(WardrobeEndpoints.uploads, {
       method: 'POST',
       body: form,
@@ -120,6 +135,13 @@ export async function uploadWardrobePhoto(
       uploadType: UploadType.MULTIPART,
       fieldName: 'image',
       mimeType: type,
+      parameters: {
+        ...(opts.skipProcessing ? { skip_processing: 'true' } : {}),
+        ...(opts.itemName ? { item_name: opts.itemName } : {}),
+        ...(opts.category ? { category_large: opts.category } : {}),
+        ...(opts.sharedRoomId ? { shared_room_id: opts.sharedRoomId } : {}),
+        ...(opts.sharedStatus ? { shared_status: opts.sharedStatus } : {}),
+      },
       headers: {
         Accept: 'application/json',
         ...(token ? { Authorization: `Bearer ${token}` } : {}),
@@ -150,8 +172,12 @@ function parseUploadResponse(res: {
   }
 
   if (res.status < 200 || res.status >= 300) {
-    const detail = (data as { detail?: string } | null)?.detail;
-    throw new ApiError(detail ?? `업로드 실패 (${res.status})`, res.status, data);
+    const payload = data as Record<string, unknown> | null;
+    const fieldError = payload
+      ? Object.values(payload).flat().find((value) => typeof value === 'string')
+      : null;
+    const detail = typeof payload?.detail === 'string' ? payload.detail : null;
+    throw new ApiError(detail ?? (fieldError as string | null) ?? `업로드 실패 (${res.status})`, res.status, data);
   }
 
   return data as { job_id: string; status: UploadJobStatus };
@@ -288,12 +314,21 @@ export async function getWardrobeItem(itemId: string): Promise<WardrobeApiItem> 
   }
 }
 
-/** 태그 수정. confirmed:true 를 함께 보내면 확정까지 한 번에 된다. */
+/**
+ * 태그 수정. confirmed:true 를 함께 보내면 확정까지 한 번에 된다.
+ *
+ * 확정 응답에는 `shared_room_id` 가 실려 온다 — 등록할 때 켜 둔 공유 예약을 서버가
+ * 이 순간 소진하기 때문이다. 공유가 안 됐으면(방을 나갔다거나) null 이며,
+ * 그 경우에도 확정 자체는 성공이다.
+ */
 export function patchWardrobeItem(
   itemId: string,
   patch: WardrobeItemPatch,
-): Promise<WardrobeApiItem> {
-  return api.patch<WardrobeApiItem>(WardrobeEndpoints.item(itemId), patch);
+): Promise<WardrobeApiItem & { shared_room_id?: string | null }> {
+  return api.patch<WardrobeApiItem & { shared_room_id?: string | null }>(
+    WardrobeEndpoints.item(itemId),
+    patch,
+  );
 }
 
 export function deleteWardrobeItem(itemId: string): Promise<unknown> {
@@ -316,3 +351,172 @@ export function itemDisplayName(item: WardrobeApiItem): string {
 /* ── 파일 이름·형식 추정 ─────────────────────────────────
    백엔드가 확장자·content-type 으로 형식을 거르므로(jpeg/png/webp/heic) 최소한은 맞춰 보낸다. */
 
+// ── 공유 옷장 (Shared Wardrobe) API ──
+/** 공유 옷의 상태. 서버 `SharedWardrobeItem.Status` 와 값이 1:1 로 맞아야 한다. */
+export type SharedItemStatus = 'available' | 'borrowed' | 'private';
+
+export type SharedRoom = {
+  id: string;
+  title: string;
+  invite_code: string | null;
+  code_expires_at: string | null;
+  created_at: string;
+  role?: 'owner' | 'member';
+};
+
+/**
+ * 공유 옷장에 등장하는 사용자.
+ *
+ * `username` 은 로그인 방식별 내부 식별자다 (이메일 가입 `email_<uuid>`,
+ * 소셜 `<provider>_<id>`). 화면에는 **절대 쓰지 않는다** — 이메일 가입자 아바타가
+ * 전부 'e' 로 보이던 원인이다. 표시용 이름은 서버가 정하는 `display_name`
+ * (= nickname 우선, 없으면 username) 을 쓴다.
+ */
+export type SharedRoomUser = {
+  id: number;
+  username: string;
+  nickname: string;
+  display_name: string;
+  email: string;
+};
+
+export type SharedRoomMember = {
+  id: number;
+  user: SharedRoomUser;
+  role: 'owner' | 'member';
+  joined_at: string;
+};
+
+/** 화면에 쓸 이름. 구버전 서버가 display_name 을 안 주면 nickname → username 순으로 물러난다. */
+export function sharedUserDisplayName(user: SharedRoomUser | null | undefined): string {
+  if (!user) return '멤버';
+  return user.display_name?.trim() || user.nickname?.trim() || user.username || '멤버';
+}
+
+export type SharedRoomItem = {
+  id: string;
+  registered_by: SharedRoomUser | null;
+  wardrobe_item: WardrobeApiItem;
+  status: 'available' | 'borrowed' | 'private';
+  created_at: string;
+};
+
+export function createSharedRoom(title: string): Promise<SharedRoom> {
+  return api.post<SharedRoom>('/api/v1/shared-wardrobes/', { title });
+}
+
+export function renameSharedRoom(roomId: string, title: string): Promise<SharedRoom> {
+  return api.patch<SharedRoom>(`/api/v1/shared-wardrobes/${roomId}/`, { title });
+}
+
+export function deleteSharedRoom(roomId: string, deletePersonalItems = false): Promise<unknown> {
+  return api.delete(
+    `/api/v1/shared-wardrobes/${roomId}/?delete_personal_items=${deletePersonalItems}`,
+  );
+}
+
+export function joinSharedRoom(inviteCode: string): Promise<{ room_id: string; title: string; status: string }> {
+  return api.post<{ room_id: string; title: string; status: string }>('/api/v1/shared-wardrobes/join/', { invite_code: inviteCode });
+}
+
+/** 초대장 미리보기 응답 — 방 UUID·실명·이메일은 오지 않는다(비로그인에게 노출 금지). */
+export type SharedRoomPreviewMember = {
+  /** 가입 순서(0~5). 아바타 색을 여기서 뽑는다 — 배열 위치가 아니라 이 값을 쓸 것. */
+  index: number;
+  label: string;
+  role: 'owner' | 'member';
+};
+
+export type SharedRoomPreviewItem = {
+  image_url: string;
+  item_name: string;
+  category_large: string;
+  color: string;
+  owner_index: number;
+  owner_label: string;
+};
+
+export type SharedRoomPreview = {
+  title: string;
+  member_count: number;
+  capacity: number;
+  can_join: boolean;
+  /** true 면 초대 코드가 만료된 것 — items 는 빈 배열로 온다. */
+  expired: boolean;
+  members: SharedRoomPreviewMember[];
+  items: SharedRoomPreviewItem[];
+};
+
+/**
+ * 초대 코드로 방을 구경(읽기 전용). 비로그인 방문자용이라 인증 헤더를 붙이지 않는다 —
+ * 붙이면 만료된 토큰일 때 401 → 세션 종료 흐름으로 튄다.
+ */
+export function previewSharedRoom(code: string): Promise<SharedRoomPreview> {
+  return api.get<SharedRoomPreview>(
+    `/api/v1/shared-wardrobes/preview/?code=${encodeURIComponent(code)}`,
+    { auth: false },
+  );
+}
+
+export function refreshInviteCode(roomId: string): Promise<{ room_id: string; invite_code: string; code_expires_at: string }> {
+  return api.post<{ room_id: string; invite_code: string; code_expires_at: string }>(`/api/v1/shared-wardrobes/${roomId}/refresh-code/`);
+}
+
+export function leaveSharedRoom(roomId: string, deleteMyItems: boolean = true): Promise<unknown> {
+  return api.post(`/api/v1/shared-wardrobes/${roomId}/leave/`, { delete_my_items: deleteMyItems });
+}
+
+export function listSharedRoomItems(roomId: string): Promise<SharedRoomItem[]> {
+  return api.get<SharedRoomItem[]>(`/api/v1/shared-wardrobes/${roomId}/items/`);
+}
+
+export type SharedRoomCategory = {
+  id: string;
+  name: string;
+  created_by: number | null;
+  created_at: string;
+};
+
+export function listSharedRoomCategories(roomId: string): Promise<SharedRoomCategory[]> {
+  return api.get<SharedRoomCategory[]>(`/api/v1/shared-wardrobes/${roomId}/categories/`);
+}
+
+export function createSharedRoomCategory(roomId: string, name: string): Promise<SharedRoomCategory> {
+  return api.post<SharedRoomCategory>(`/api/v1/shared-wardrobes/${roomId}/categories/`, { name });
+}
+
+export function deleteSharedRoomCategory(roomId: string, categoryId: string): Promise<unknown> {
+  return api.delete(
+    `/api/v1/shared-wardrobes/${roomId}/categories/?category_id=${encodeURIComponent(categoryId)}`,
+  );
+}
+
+export function registerItemToSharedRoom(roomId: string, wardrobeItemId: string, status: SharedItemStatus = 'available'): Promise<SharedRoomItem> {
+  return api.post<SharedRoomItem>(`/api/v1/shared-wardrobes/${roomId}/items/`, {
+    wardrobe_item_id: wardrobeItemId,
+    status
+  });
+}
+
+export function updateSharedItemStatus(
+  roomId: string,
+  itemId: string,
+  status: 'available' | 'borrowed' | 'private',
+): Promise<SharedRoomItem> {
+  return api.patch<SharedRoomItem>(`/api/v1/shared-wardrobes/${roomId}/items/`, {
+    item_id: itemId,
+    status,
+  });
+}
+
+export function unregisterItemFromSharedRoom(roomId: string, wardrobeItemId: string): Promise<unknown> {
+  return api.delete(`/api/v1/shared-wardrobes/${roomId}/items/?wardrobe_item_id=${wardrobeItemId}`);
+}
+
+export function listSharedRoomMembers(roomId: string): Promise<SharedRoomMember[]> {
+  return api.get<SharedRoomMember[]>(`/api/v1/shared-wardrobes/${roomId}/members/`);
+}
+
+export function getMySharedRooms(): Promise<SharedRoom[]> {
+  return api.get<SharedRoom[]>('/api/v1/shared-wardrobes/');
+}

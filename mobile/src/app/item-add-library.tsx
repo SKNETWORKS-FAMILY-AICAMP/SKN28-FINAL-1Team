@@ -14,9 +14,10 @@ const PAD = 20;
 
 export default function ItemAddLibraryScreen() {
   const { contentStyle } = useBreakpoint();
-  const pick = (uri?: string) => {
-    if (!uri) return;
-    draftItem.setPhoto(uri);
+  const pick = (item: (typeof LIBRARY_ITEMS)[number]) => {
+    if (!item.image) return;
+    draftItem.setPhoto(item.image);
+    draftItem.setLibraryItem({ name: item.name, category: item.category });
     router.replace('/item-add');
   };
 
@@ -35,7 +36,7 @@ export default function ItemAddLibraryScreen() {
 
         <ScrollView contentContainerStyle={[styles.list, contentStyle(ContentMax.default)]}>
           {LIBRARY_ITEMS.map((item) => (
-            <Pressable key={item.id} style={styles.row} onPress={() => pick(item.image)}>
+            <Pressable key={item.id} style={styles.row} onPress={() => pick(item)}>
               <SmartImage uri={item.image} width={64} height={80} radius={10} />
               <View style={styles.rowText}>
                 <Text style={styles.rowName}>{item.name}</Text>

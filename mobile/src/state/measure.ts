@@ -104,6 +104,12 @@ type BodyDto = Record<BodyMeasureKey, Numeric> & {
   updated_at: string | null;
 };
 
+type BodyEstimationResult = {
+  status: 'pending' | 'processing' | 'succeeded' | 'failed';
+  measurement: BodyDto;
+  error_message?: string | null;
+};
+
 function toNum(v: unknown): number | null {
   if (v === null || v === undefined || v === '') return null;
   const n = Number(v);
@@ -137,15 +143,10 @@ function toMeasurement(dto: BodyDto): Measurement | null {
   return measures;
 }
 
-/** 추정 결과 형식 — 무사진(POST estimate)과 사진(GET photos/{id})이 공유한다. */
-type BodyEstimationResult = {
-  status: 'in_progress' | 'succeeded' | 'failed';
-  source: 'basic_info' | 'photo';
-  transaction_id: string | null;
-  measurement: BodyDto;
-  /** 실패했을 때만 사유가 들어온다. */
-  error_message: string | null;
-};
+function isMissingBasicInfo(error: unknown, input: MeasureInput | null): boolean {
+  const sentBasicInfo = Boolean(input && input.sex !== 'none');
+  return !sentBasicInfo && error instanceof ApiError && error.status === 400;
+}
 
 /** 추정 결과 → 스토어 결과. 치수가 덜 왔으면 null (호출부가 실패로 알린다). */
 function toResult(outcome: BodyEstimationResult, usedPhotos: boolean): MeasureResult | null {
@@ -435,7 +436,13 @@ export const measureStore = {
       pendingTransactionId = null;
       setState({
         status: 'error',
-        error: e instanceof ApiError ? e.message : '사진 측정에 실패했어요. 다시 시도해주세요.',
+        result: null,
+        error:
+          e instanceof ApiError
+            ? e.message
+            : '사진 측정에 실패했어요. 다시 시도해주세요.',
+        // 업로드 400 도 기본 정보 부족이 원인일 수 있다 (서버가 저장된 값을 못 찾은 경우).
+        needsInput: isMissingBasicInfo(e, state.input),
       });
     }
   },

@@ -45,6 +45,7 @@ from apps.recommend.services.wardrobe_composer import (
     WardrobeCompositionRequest,
     WardrobeOutfitComposer,
 )
+from apps.recommend.services.wardrobe_link import accessible_item_ids
 
 
 class ChatRecommendationError(RuntimeError):
@@ -138,6 +139,11 @@ class ChatRecommendationPipeline:
             raise OutfitCompositionFailed(
                 "옷장 기반 추천은 회원의 확정된 옷장 아이템이 필요합니다."
             )
+        allowed_wardrobe_item_ids = (
+            tuple(accessible_item_ids(session.identity.user))
+            if user_id is not None
+            else None
+        )
 
         pursuit = self._merged_pursuit(context, analysis)
         body = build_profile(context.get("profile", {}).get("body"))
@@ -180,6 +186,7 @@ class ChatRecommendationPipeline:
                             template_item_point_id=point_id,
                             sources=self._sources(session.mode, user_id),
                             user_id=user_id,
+                            allowed_wardrobe_item_ids=allowed_wardrobe_item_ids,
                             max_price=analysis.conditions.budget,
                             category_budgets=category_budgets,
                             dataset_version=settings.CHAT_GOLDENSET_DATASET_VERSION,

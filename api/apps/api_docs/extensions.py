@@ -1125,6 +1125,16 @@ class WardrobeItemDetailViewExtension(OpenApiViewExtension):
 
     def view_replacement(self):
         @extend_schema_view(
+            get=extend_schema(
+                operation_id="wardrobe_item_detail",
+                tags=["Wardrobe"],
+                summary="아이템 상세 조회",
+                responses={
+                    200: WardrobeItemSerializer,
+                    401: DetailResponseSerializer,
+                    404: DetailResponseSerializer,
+                },
+            ),
             patch=extend_schema(
                 operation_id="wardrobe_item_update",
                 tags=["Wardrobe"],
@@ -1156,6 +1166,29 @@ class WardrobeItemDetailViewExtension(OpenApiViewExtension):
             pass
 
         return DocumentedWardrobeItemDetailView
+
+
+class WardrobeItemAddToClosetViewExtension(OpenApiViewExtension):
+    target_class = "apps.wardrobe.views.WardrobeItemAddToClosetView"
+
+    def view_replacement(self):
+        @extend_schema_view(
+            post=extend_schema(
+                operation_id="wardrobe_item_add_to_closet",
+                tags=["Wardrobe"],
+                summary="아이템을 내 옷장에 추가",
+                request=None,
+                responses={
+                    200: WardrobeItemSerializer,
+                    401: DetailResponseSerializer,
+                    404: DetailResponseSerializer,
+                },
+            )
+        )
+        class DocumentedWardrobeItemAddToClosetView(self.target_class):
+            pass
+
+        return DocumentedWardrobeItemAddToClosetView
 
 
 # =============================================================================

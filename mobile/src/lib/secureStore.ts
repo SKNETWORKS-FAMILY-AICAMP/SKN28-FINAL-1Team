@@ -16,6 +16,7 @@ const REFRESH_KEY = 'auth_refresh_token';
 const DEMO_KEY = 'auth_demo_session';
 const OUTFIT_ANALYSIS_KEY = 'outfit_analysis_job';
 const OUTFIT_CLAIM_KEY = 'outfit_claim_tokens';
+const PENDING_SHARE_KEY = 'wardrobe_pending_share';
 
 const isWeb = Platform.OS === 'web';
 
@@ -127,4 +128,16 @@ export function getOutfitClaimTokens(): Promise<string | null> {
 
 export function clearOutfitClaimTokens(): Promise<void> {
   return deleteItem(OUTFIT_CLAIM_KEY);
+}
+
+/**
+ * 예전 공유 예약함(itemId → roomId)의 잔재를 지운다.
+ *
+ * 예약은 이제 서버(`wardrobe_item.pending_share_room`)가 들고 있다 — 기기에 두면
+ * PC 에서 올리고 폰에서 확정할 때 공유가 사라지기 때문이다. 남은 값은 아무도 읽지
+ * 않으므로, 앱이 뜰 때 한 번 치워 저장소를 깨끗이 둔다.
+ * 이 정리 호출은 구버전 사용자가 모두 넘어간 뒤 지워도 된다.
+ */
+export function clearLegacyPendingShare(): Promise<void> {
+  return deleteItem(PENDING_SHARE_KEY);
 }

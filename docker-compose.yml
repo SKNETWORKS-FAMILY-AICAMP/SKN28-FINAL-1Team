@@ -17,7 +17,10 @@
 #   config.settings.prod           운영 (기본값)
 #   config.settings.dev            로컬 개발
 #   config.settings.swagger        + Swagger UI (/api/docs/)
-#   config.settings.swagger_noauth + Swagger UI + 인증 우회 (로컬 전용, 프로덕션 금지)
+#
+# 값은 Infisical 주입이 원칙이다. db/migrate/api/outfit-worker 모두 동일하게
+# ${DJANGO_SETTINGS_MODULE:-config.settings.prod}로 받는다 — compose에 리터럴을
+# 박으면 주입값을 덮어써서 팀원 dev 환경이 통째로 깨진다.
 # ============================================================
 services:
   db:
@@ -151,6 +154,7 @@ services:
       # (`infisical run --env=dev -- docker compose ...`). 미주입 시 빈 값이라
       # 사진 경로만 실패하고 나머지 API는 정상 동작한다.
       OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
+      GEMINI_MODEL: ${GEMINI_MODEL:-gemini-3.5-flash}
     volumes:
       # migrate와 같은 이유 — 신체치수 추론 모듈과 모델 joblib이 ml/ 아래에 있다.
       - ./ml:/ml:ro

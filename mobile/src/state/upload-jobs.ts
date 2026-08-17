@@ -4,9 +4,11 @@ import {
   createWardrobeBatch,
   getUploadJob,
   getWardrobeBatch,
+  registerItemToSharedRoom,
   uploadWardrobePhoto,
   type WardrobeBatchCreated,
   type WardrobeBatchItemInput,
+  type SharedItemStatus,
   type WardrobeBatchStatus,
 } from '@/lib/wardrobeApi';
 
@@ -134,59 +136,93 @@ export const uploadJobs = {
   getRevision: () => revision,
 
   /** 사진 한 장을 올리고 처리가 끝날 때까지 따라간다. 화면이 닫혀도 계속된다. */
-  start(uri: string, opts?: { name?: string; mimeType?: string }) {
-    const key = `u${++seq}`;
-    jobs = [...jobs, { key, phase: 'uploading' }];
-    notify();
+  start(uri: string, opts?: { name?: string; mimeType?: string; sharedRoomId?: string; sharedRoomIds?: string[]; sharedStatus?: SharedItemStatus; skipProcessing?: boolean; itemName?: string; category?: string }): Promise<void> {
+    return new Promise<void>((resolve) => {
+      const key = `u${++seq}`;
+      jobs = [...jobs, { key, phase: 'uploading' }];
+      notify();
 
-    (async () => {
-      let jobId: string;
-      try {
-        jobId = (await uploadWardrobePhoto(uri, opts)).job_id;
-      } catch (e) {
-        update(key, {
-          phase: 'failed',
-          error: e instanceof Error ? e.message : '사진을 올리지 못했어요',
-        });
-        return;
-      }
-      update(key, { phase: 'processing' });
+      const roomIds = opts?.sharedRoomIds && opts.sharedRoomIds.length > 0
+        ? opts.sharedRoomIds
+        : (opts?.sharedRoomId ? [opts.sharedRoomId] : []);
+      const primaryRoomId = roomIds[0];
+      const extraRoomIds = roomIds.slice(1);
 
-      const startedAt = Date.now();
-      /* 재귀 setTimeout — setInterval 은 응답이 간격보다 느릴 때 요청이 겹친다. */
-      const poll = async () => {
+      (async () => {
+        let jobId: string;
         try {
-          const job = await getUploadJob(jobId);
-          if (job.status === 'DONE') {
-            drop(key);
-            completed += 1;
-            notify();
-            return;
-          }
-          if (job.status === 'FAILED') {
-            update(key, {
-              phase: 'failed',
-              error: job.error_message || '사진을 처리하지 못했어요',
-            });
-            return;
-          }
-          if (Date.now() - startedAt > POLL_TIMEOUT_MS) {
-            update(key, {
-              phase: 'failed',
-              error: '처리가 오래 걸리고 있어요. 잠시 후 옷장을 새로고침해 주세요.',
-            });
-            return;
-          }
-          setTimeout(poll, POLL_INTERVAL_MS);
+          jobId = (await uploadWardrobePhoto(uri, {
+            name: opts?.name,
+            mimeType: opts?.mimeType,
+            skipProcessing: opts?.skipProcessing,
+            itemName: opts?.itemName,
+            category: opts?.category,
+            /* 첫 번째 방은 백엔드 pending_share_room 예약으로 넘긴다 */
+            sharedRoomId: primaryRoomId,
+            sharedStatus: opts?.sharedStatus,
+          })).job_id;
         } catch (e) {
           update(key, {
             phase: 'failed',
-            error: e instanceof Error ? e.message : '처리 상태를 확인하지 못했어요',
+            error: e instanceof Error ? e.message : '사진을 올리지 못했어요',
           });
+          resolve();
+          return;
         }
-      };
-      setTimeout(poll, POLL_INTERVAL_MS);
-    })();
+        update(key, { phase: 'processing' });
+
+        const startedAt = Date.now();
+        /* 재귀 setTimeout — setInterval 은 응답이 간격보다 느릴 때 요청이 겹친다. */
+        const poll = async () => {
+          try {
+            const job = await getUploadJob(jobId);
+            if (job.status === 'DONE') {
+              /* 추가로 선택한 공유 방들이 있으면 생성된 아이템에 대해 직접 등록한다 */
+              if (extraRoomIds.length > 0 && job.items?.length) {
+                for (const item of job.items) {
+                  for (const rId of extraRoomIds) {
+                    try {
+                      await registerItemToSharedRoom(rId, item.id, opts?.sharedStatus ?? 'available');
+                    } catch (e) {
+                      if (__DEV__) console.warn('추가 방 공유 실패:', rId, e);
+                    }
+                  }
+                }
+              }
+              drop(key);
+              completed += 1;
+              notify();
+              resolve();
+              return;
+            }
+            if (job.status === 'FAILED') {
+              update(key, {
+                phase: 'failed',
+                error: job.error_message || '사진을 처리하지 못했어요',
+              });
+              resolve();
+              return;
+            }
+            if (Date.now() - startedAt > POLL_TIMEOUT_MS) {
+              update(key, {
+                phase: 'failed',
+                error: '처리가 오래 걸리고 있어요. 잠시 후 옷장을 새로고침해 주세요.',
+              });
+              resolve();
+              return;
+            }
+            setTimeout(poll, POLL_INTERVAL_MS);
+          } catch (e) {
+            update(key, {
+              phase: 'failed',
+              error: e instanceof Error ? e.message : '처리 상태를 확인하지 못했어요',
+            });
+            resolve();
+          }
+        };
+        setTimeout(poll, POLL_INTERVAL_MS);
+      })();
+    });
   },
 
   /**

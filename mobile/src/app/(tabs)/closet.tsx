@@ -1,25 +1,26 @@
 import {
-  createSharedSpace,
-  joinSharedSpace,
-  SharedSpaceInviteBanner,
   SharedSpaceInviteSheet,
   SharedSpaceJoinSheet,
   SharedSpaceMembers,
   SharedSpaceOnboarding,
   type SharedSpace,
 } from '@/components/closet/shared-space-flow';
+import { SharedItemAddSheet } from '@/components/closet/shared-item-add-sheet';
 import { PhotoSourceSheet } from '@/components/closet/photo-source-sheet';
-import { CategoryEditSheet, EmptyState, ErrorState, LoadingState, LoginGate, SearchFilterBar, SegmentedToggle, SmartImage, useToast } from '@/components/ui';
+import { CategoryEditSheet, EmptyState, ErrorState, LoadingState, LoginGate, SearchFilterBar, SegmentedToggle, SmartImage, useConfirm, useToast } from '@/components/ui';
 import { useMultiSelectFilter } from '@/hooks/useMultiSelectFilter';
-import { router } from 'expo-router';
+import { router, useLocalSearchParams } from 'expo-router';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
+  Modal,
+  Platform,
   Pressable,
   RefreshControl,
   ScrollView,
   StyleSheet,
   Text,
+  TextInput,
   View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -30,7 +31,7 @@ import { WARDROBE_FILTER_OPTIONS } from '@/constants/wardrobe-taxonomy';
 import { useBreakpoint } from '@/hooks/use-breakpoint';
 import { useRefresh } from '@/hooks/use-refresh';
 import { useWardrobeItems } from '@/hooks/use-wardrobe';
-import { itemDisplayName } from '@/lib/wardrobeApi';
+import { itemDisplayName, getMySharedRooms, createSharedRoom, joinSharedRoom, listSharedRoomMembers, listSharedRoomItems, listSharedRoomCategories, createSharedRoomCategory, deleteSharedRoomCategory, renameSharedRoom, deleteSharedRoom, unregisterItemFromSharedRoom, sharedUserDisplayName, type SharedRoomCategory } from '@/lib/wardrobeApi';
 import { Icon } from '@/components/icon';
 import { useAuth } from '@/state/auth';
 import {
@@ -45,6 +46,14 @@ import {
 
 const INK = Editorial.ink;
 
+const MEMBER_COLORS = [
+  '#FFD54F', // 노랑
+  '#4FC3F7', // 하늘
+  '#81C784', // 연두
+  '#F06292', // 핑크
+  '#BA68C8', // 보라
+  '#FFB74D', // 주황
+];
 /**
  * 가져오기 배치 한 줄 문구 — 진행 중엔 어디까지 왔는지, 끝나면 결과만.
  * 실패 건수를 감추지 않는다. 몇 벌이 안 들어왔는지 알아야 다시 담을지 정할 수 있다.
@@ -67,6 +76,7 @@ const DEFAULT_CATEGORIES = WARDROBE_FILTER_OPTIONS;
 /** 그리드 카드가 쓰는 최소 형태 — 내 옷장(API)과 공유 옷장(목업)을 한 모양으로 맞춘다. */
 type Card = {
   id: string;
+  wardrobeItemId?: string;
   name: string;
   category: string;
   image?: string;
@@ -89,18 +99,36 @@ function matchesQuery(item: Card, query: string): boolean {
 }
 
 export default function ClosetScreen() {
-  const { isLoggedIn } = useAuth();
+  const { isLoggedIn, user: me } = useAuth();
   const { frameWidth, contentStyle } = useBreakpoint();
   const cardW = gridCardWidth(frameWidth);
   const cardH = gridCardImageHeight(cardW);
 
   const toast = useToast();
+  const confirm = useConfirm();
+  const params = useLocalSearchParams<{ tab?: 'mine' | 'shared' }>();
   const [tab, setTab] = useState<'mine' | 'shared'>('mine');
+
+  // URL 탭 파라미터 감지 및 자동 전환
+  useEffect(() => {
+    if (params.tab && (params.tab === 'mine' || params.tab === 'shared')) {
+      setTab(params.tab);
+    }
+  }, [params.tab]);
+
   const [query, setQuery] = useState('');
   const [sharedSpace, setSharedSpace] = useState<SharedSpace | null>(null);
+  const [sharedRooms, setSharedRooms] = useState<any[]>([]);
+  const [sharedItems, setSharedItems] = useState<Card[]>([]);
   const [inviteOpen, setInviteOpen] = useState(false);
+  const [shareAddOpen, setShareAddOpen] = useState(false);
   const [joinOpen, setJoinOpen] = useState(false);
+  const [manageRoom, setManageRoom] = useState<{ id: string; title: string; draftTitle: string } | null>(null);
+  const [deleteRoom, setDeleteRoom] = useState<{ id: string; title: string } | null>(null);
+  const [createOpen, setCreateOpen] = useState(false);
+  const [createDraftTitle, setCreateDraftTitle] = useState('공유 옷장');
   const [categories, setCategories] = useState<string[]>(DEFAULT_CATEGORIES);
+  const [sharedCategories, setSharedCategories] = useState<SharedRoomCategory[]>([]);
   const [editOpen, setEditOpen] = useState(false);
   const [sourceOpen, setSourceOpen] = useState(false);
   const { toggle, reset, prune, isActive, matches, label } = useMultiSelectFilter();
@@ -129,6 +157,29 @@ export default function ClosetScreen() {
     toast('옷장에 추가됐어요', { variant: 'success' });
   }, [completed, reload, toast]);
 
+  const handleUnshareItem = async (itemId: string) => {
+    /* 옷 이름을 문구에 넣지 않는다 — 이름이 길거나 비어 있으면 문장이 깨진다.
+       어느 옷을 눌렀는지는 방금 누른 카드로 이미 분명하다. */
+    const ok = await confirm({
+      title: '공유 해제',
+      message: '이 아이템 공유를 해제할까요? (내 옷장에는 그대로 유지됩니다.)',
+      confirmLabel: '공유 해제',
+      destructive: true,
+    });
+    if (!ok) return;
+    try {
+      if (!sharedSpace) return;
+      const target = sharedItems.find((x) => x.id === itemId);
+      if (target && target.wardrobeItemId) {
+        await unregisterItemFromSharedRoom(sharedSpace.id, target.wardrobeItemId);
+        toast('공유를 해제했어요', { variant: 'success' });
+        await loadRoomData(sharedSpace.id);
+      }
+    } catch (e) {
+      toast(e instanceof Error ? e.message : '공유를 해제하지 못했어요', { variant: 'error' });
+    }
+  };
+
   /* 가져오기(일괄 등록)는 옷이 여러 벌 들어온다 — 한 벌마다 토스트를 띄우면 시끄러우니
      목록만 조용히 갱신하고, 진행 상황은 아래 줄이 대신 말해준다. */
   const batches = useImportBatches();
@@ -151,25 +202,194 @@ export default function ClosetScreen() {
     [apiItems],
   );
 
-  const sharedSource = sharedSpace && sharedSpace.members.length > 1 ? SHARED_ITEMS : [];
+  const sharedSource = sharedSpace ? sharedItems : [];
   const source = tab === 'mine' ? myItems : sharedSource;
   const items = useMemo(
     () => source.filter((i) => matches(i.category) && matchesQuery(i, query)),
     [source, matches, query],
   );
 
-  const handleCreateSpace = () => {
-    const space = createSharedSpace();
-    setSharedSpace(space);
-    setInviteOpen(true);
-    toast('공유 옷장을 만들었어요', { variant: 'success' });
+  const loadRoomData = async (roomId: string, currentRoomsList?: any[]) => {
+    try {
+      const [membersList, itemsList, categoryList] = await Promise.all([
+        listSharedRoomMembers(roomId),
+        listSharedRoomItems(roomId),
+        listSharedRoomCategories(roomId),
+      ]);
+      setSharedCategories(categoryList);
+      setCategories([...DEFAULT_CATEGORIES, ...categoryList.map((category) => category.name)]);
+      /* '나' 판정은 내 user id 로 한다. 예전엔 username === 'dev_autologin' 문자열
+         비교였는데, 실사용자 username 은 email_<uuid>/kakao_<id> 라 절대 매칭되지 않아
+         공유 해제(X) 버튼이 프로덕션에서 아예 안 그려졌다. */
+      const memberNames = membersList.map((m) =>
+        m.user.id === me?.id ? '나' : sharedUserDisplayName(m.user)
+      );
+      const targetRoom = (currentRoomsList || sharedRooms).find((r) => r.id === roomId);
+      setSharedSpace({
+        id: roomId,
+        name: targetRoom?.title || '공유 옷장',
+        inviteCode: targetRoom?.invite_code || '',
+        members: memberNames,
+      });
+      setSharedItems(
+        itemsList.map((si) => ({
+          id: si.id,
+          wardrobeItemId: si.wardrobe_item.id,
+          name: si.wardrobe_item.item_name || '옷',
+          category: si.wardrobe_item.category_large,
+          image: si.wardrobe_item.image_url,
+          owner:
+            si.registered_by?.id === me?.id
+              ? '나'
+              : si.registered_by
+                ? sharedUserDisplayName(si.registered_by)
+                : undefined,
+        }))
+      );
+    } catch (err) {
+      console.error('공유방 세부 정보 로드 실패:', err);
+    }
   };
 
-  const handleJoinSpace = (code: string) => {
-    const space = joinSharedSpace(code);
-    if (!space) return false;
-    setSharedSpace(space);
-    return true;
+  // 첫 마운트 또는 로그인 상태 변경 시 내 공유 옷장 방 로드
+  useEffect(() => {
+    if (isLoggedIn && tab === 'shared') {
+      getMySharedRooms()
+        .then(async (rooms) => {
+          setSharedRooms(rooms || []);
+          if (rooms && rooms.length > 0) {
+            const selectedId =
+              sharedSpace?.id && rooms.some((r) => r.id === sharedSpace.id)
+                ? sharedSpace.id
+                : rooms[0].id;
+            await loadRoomData(selectedId, rooms);
+          } else {
+            setSharedSpace(null);
+            setSharedItems([]);
+          }
+        })
+        .catch(() => {
+          setSharedRooms([]);
+          setSharedSpace(null);
+          setSharedItems([]);
+          setSharedCategories([]);
+          setCategories(DEFAULT_CATEGORIES);
+        });
+    }
+  }, [isLoggedIn, tab]);
+
+  /* 예전엔 웹에서 window.prompt 를 썼는데, 브라우저가 그리는 창이라 우리 다이얼로그와
+     생김새가 전혀 달랐다(그리고 네이티브에선 아예 물어보지도 못해 이름이 고정이었다).
+     이름 수정 모달과 같은 우리 모달로 통일한다. */
+  const handleCreateSpace = () => {
+    setCreateDraftTitle('공유 옷장');
+    setCreateOpen(true);
+  };
+
+  const submitCreateSpace = async () => {
+    const title = createDraftTitle.trim();
+    if (!title) {
+      toast('옷장 이름을 입력해 주세요.', { variant: 'error' });
+      return;
+    }
+    if (title.length > 10) {
+      toast('10글자 이내로 작성해주세요.', { variant: 'error' });
+      return;
+    }
+    setCreateOpen(false);
+    try {
+      const room = await createSharedRoom(title);
+      toast(`'${title}'을 만들었어요`, { variant: 'success' });
+      const rooms = await getMySharedRooms();
+      setSharedRooms(rooms || []);
+      await loadRoomData(room.id, rooms);
+      setInviteOpen(true);
+    } catch (err) {
+      console.error('공유 옷장 개설 실패:', err);
+      toast(err instanceof Error ? err.message : '공유 옷장 개설에 실패했습니다', { variant: 'error' });
+    }
+  };
+
+  const openRoomManager = (roomId: string, title: string) => {
+    setManageRoom({ id: roomId, title, draftTitle: title });
+  };
+
+  const handleRenameSpace = async () => {
+    if (!manageRoom) return;
+    const newTitle = manageRoom.draftTitle.trim();
+    if (!newTitle) {
+      toast('옷장 이름을 입력해 주세요.', { variant: 'error' });
+      return;
+    }
+    /* 입력 자체는 10글자 넘게 쳐지게 두고(maxLength 로 조용히 잘리면 왜 안 되는지 모른다)
+       저장 시점에 팝업으로 알린다. 서버도 같은 기준으로 400 을 낸다. */
+    if (newTitle.length > 10) {
+      toast('10글자 이내로 작성해주세요.', { variant: 'error' });
+      return;
+    }
+    if (newTitle === manageRoom.title) {
+      setManageRoom(null);
+      return;
+    }
+
+    try {
+      await renameSharedRoom(manageRoom.id, newTitle);
+      setManageRoom(null);
+      const rooms = await getMySharedRooms();
+      setSharedRooms(rooms);
+      if (sharedSpace?.id === manageRoom.id) {
+        setSharedSpace((prev) => (prev ? { ...prev, name: newTitle } : null));
+      }
+      toast('옷장 이름을 수정했어요', { variant: 'success' });
+    } catch (err) {
+      console.error('공유 옷장 이름 수정 실패:', err);
+      toast('이름을 수정하지 못했습니다.', { variant: 'error' });
+    }
+  };
+
+  const handleDeleteSpace = async (deletePersonalItems: boolean) => {
+    if (!deleteRoom) return;
+    const room = deleteRoom;
+
+    try {
+      await deleteSharedRoom(room.id, deletePersonalItems);
+      setDeleteRoom(null);
+      const rooms = await getMySharedRooms();
+      setSharedRooms(rooms);
+
+      if (rooms.length > 0) {
+        await loadRoomData(rooms[0].id, rooms);
+      } else {
+        setSharedSpace(null);
+          setSharedItems([]);
+          setSharedCategories([]);
+          setCategories(DEFAULT_CATEGORIES);
+      }
+      toast('공유 옷장을 삭제했어요', { variant: 'success' });
+    } catch (err) {
+      console.error('공유 옷장 삭제 실패:', err);
+      toast(err instanceof Error ? err.message : '공유 옷장을 삭제하지 못했습니다.', { variant: 'error' });
+    }
+  };
+
+  const handleJoinSpace = async (code: string) => {
+    try {
+      const res = await joinSharedRoom(code);
+      /* 이미 멤버였는데 "참여했어요"라고 하면, 정원이 꽉 차 못 들어간 경우와
+         구분이 안 돼 사용자가 방에 들어간 줄 안다. 서버가 준 status 로 갈라 말한다. */
+      toast(
+        res.status === 'already_member' ? '이미 참여 중인 공유 옷장이에요' : '공유 옷장에 참여했어요',
+        { variant: 'success' },
+      );
+      const rooms = await getMySharedRooms();
+      setSharedRooms(rooms || []);
+      await loadRoomData(res.room_id, rooms);
+      return true;
+    } catch (err) {
+      console.error('공유 옷장 참여 실패:', err);
+      toast(err instanceof Error ? err.message : '유효하지 않거나 만료된 초대 코드입니다', { variant: 'error' });
+      return false;
+    }
   };
 
   const emptyTitle = useMemo(() => {
@@ -183,19 +403,48 @@ export default function ClosetScreen() {
       return '다른 검색어나 카테고리를 선택해 보세요.';
     }
     return tab === 'shared'
-      ? '멤버가 옷을 추가하면 여기에 표시돼요.'
+      ? '내 옷을 공유하거나, 친구를 초대해 보세요.'
       : '첫 아이템을 추가해 옷장을 채워보세요.';
   }, [query, label, tab]);
 
   const handleTabChange = (key: 'mine' | 'shared') => {
     setTab(key);
+    if (key === 'mine') setCategories(DEFAULT_CATEGORIES);
     reset();
     setQuery('');
   };
 
-  const handleSaveCategories = (next: string[]) => {
-    setCategories(next);
-    prune(next.slice(1));
+  const handleSaveCategories = async (next: string[]) => {
+    if (tab !== 'shared' || !sharedSpace) {
+      setCategories(next);
+      prune(next.slice(1));
+      return;
+    }
+
+    const customNames = next.filter((name) => !DEFAULT_CATEGORIES.includes(name));
+    const existingNames = new Set(sharedCategories.map((category) => category.name));
+    const nextNames = new Set(customNames);
+    try {
+      await Promise.all([
+        ...customNames
+          .filter((name) => !existingNames.has(name))
+          .map((name) => createSharedRoomCategory(sharedSpace.id, name)),
+        ...sharedCategories
+          .filter((category) => !nextNames.has(category.name))
+          .map((category) => deleteSharedRoomCategory(sharedSpace.id, category.id)),
+      ]);
+      const saved = await listSharedRoomCategories(sharedSpace.id);
+      setSharedCategories(saved);
+      const savedCategories = [...DEFAULT_CATEGORIES, ...saved.map((category) => category.name)];
+      setCategories(savedCategories);
+      prune(savedCategories.slice(1));
+      toast('카테고리를 저장했어요', { variant: 'success' });
+    } catch (error) {
+      toast(error instanceof Error ? error.message : '카테고리를 저장하지 못했어요', { variant: 'error' });
+      const saved = await listSharedRoomCategories(sharedSpace.id).catch(() => sharedCategories);
+      setSharedCategories(saved);
+      setCategories([...DEFAULT_CATEGORIES, ...saved.map((category) => category.name)]);
+    }
   };
 
   const wardrobeToggle = (
@@ -209,7 +458,18 @@ export default function ClosetScreen() {
     />
   );
 
-  const showAddFab = tab === 'mine';
+  /* 두 탭 모두 `+`를 띄우되 하는 일이 다르다.
+     내 옷장 = 새 옷 등록(사진), 공유 옷장 = 내 옷을 방에 연결.
+     공유 옷장은 옷을 소유하지 않으므로(설계 §2.3) 여기서 사진을 받지 않는다. */
+  const showAddFab = tab === 'mine' || (tab === 'shared' && !!sharedSpace);
+  const onAddFabPress = () => (tab === 'mine' ? setSourceOpen(true) : setShareAddOpen(true));
+
+  /* 이미 방에 올라간 옷은 선택 목록에서 빼야 해서 원본 아이템 id 로 넘긴다.
+     참조가 매번 바뀌면 시트가 재조회를 반복하므로 메모한다. */
+  const sharedWardrobeItemIds = useMemo(
+    () => sharedItems.map((i) => i.wardrobeItemId).filter((id): id is string => !!id),
+    [sharedItems],
+  );
 
   // 옷장은 내 데이터라 비회원에게 보여줄 것이 없다. (훅 순서 유지를 위해 전부 호출한 뒤 분기)
   if (!isLoggedIn) {
@@ -243,7 +503,7 @@ export default function ClosetScreen() {
           <View style={[styles.jobStrip, contentStyle(ContentMax.wide)]}>
             <ActivityIndicator color={INK} size="small" />
             <Text style={styles.jobText}>
-              옷 등록 중 · {running.length}장
+              {`옷 등록 중 · ${running.length}장`}
             </Text>
           </View>
         ) : null}
@@ -298,13 +558,62 @@ export default function ClosetScreen() {
             ))
           : null}
 
+        {tab === 'shared' && sharedRooms.length > 0 ? (
+          <View style={styles.roomTabsWrap}>
+            {/* 추가 버튼은 맨 앞 — 방이 많아지면 끝의 버튼은 가로 스크롤에 묻혀
+                '방을 더 만들 수 있다'는 사실 자체가 안 보인다. */}
+            <Pressable
+              style={[styles.roomTab, styles.roomTabAdd]}
+              onPress={handleCreateSpace}
+              accessibilityLabel="공유 옷장 추가"
+            >
+              <Icon name="plus" tintColor={ink(0.6)} size={12} />
+              <Text style={[styles.roomTabText, { marginLeft: 4, color: ink(0.6) }]}>
+                추가
+              </Text>
+            </Pressable>
+            {sharedRooms.map((room) => {
+              const isSelected = room.id === sharedSpace?.id;
+              return (
+                <Pressable
+                  key={room.id}
+                  style={[
+                    styles.roomTab,
+                    isSelected && styles.roomTabActive,
+                    { flexDirection: 'row', alignItems: 'center' }
+                  ]}
+                  onPress={() => loadRoomData(room.id)}
+                  onLongPress={() => openRoomManager(room.id, room.title)}
+                >
+                  <Text style={[styles.roomTabText, isSelected && styles.roomTabTextActive]}>
+                    {room.title}
+                  </Text>
+                  {isSelected && (
+                    <View style={styles.roomTabActions}>
+                      <Pressable
+                        hitSlop={8}
+                        onPress={() => openRoomManager(room.id, room.title)}
+                        accessibilityLabel="공유 옷장 이름 수정">
+                        <Icon name="pencil" tintColor="#FFFFFF" size={12} />
+                      </Pressable>
+                    </View>
+                  )}
+                </Pressable>
+              );
+            })}
+            {/* '코드로 참여'는 멤버 줄의 [초대] 옆 입력칸으로 옮겼다 —
+                가로 스크롤 끝에 묻혀 있어 눈에 띄지 않았다. */}
+          </View>
+        ) : null}
+
         {tab === 'shared' && sharedSpace ? (
-          <>
-            <SharedSpaceMembers space={sharedSpace} onInvite={() => setInviteOpen(true)} />
-            {sharedSpace.members.length <= 1 ? (
-              <SharedSpaceInviteBanner onInvite={() => setInviteOpen(true)} />
-            ) : null}
-          </>
+          /* '아직 혼자예요' 초대 유도 배너는 없앴다 — 바로 윗줄에 [+초대] 버튼과
+             참여코드 입력칸이 이미 있어서, 같은 말을 세 번 하는 화면이 된다. */
+          <SharedSpaceMembers
+            space={sharedSpace}
+            onInvite={() => setInviteOpen(true)}
+            onJoin={handleJoinSpace}
+          />
         ) : null}
 
         {tab === 'shared' && !sharedSpace ? (
@@ -344,14 +653,17 @@ export default function ClosetScreen() {
                   tab === 'mine' && !query.trim() && label === '전체'
                     ? '아이템 추가하기'
                     : tab === 'shared' && sharedSpace && !query.trim() && label === '전체'
-                      ? '친구 초대하기'
+                      ? /* 빈 공유방에서 할 일은 둘인데(옷 넣기·친구 부르기),
+                           옷이 없으면 초대해도 볼 게 없으니 옷 넣기를 먼저 권한다.
+                           친구 초대는 상단 멤버 줄의 [초대] 칩에 그대로 있다. */
+                        '내 옷 공유하기'
                       : undefined
                 }
                 onAction={
                   tab === 'mine' && !query.trim() && label === '전체'
                     ? () => setSourceOpen(true)
                     : tab === 'shared' && sharedSpace && !query.trim() && label === '전체'
-                      ? () => setInviteOpen(true)
+                      ? () => setShareAddOpen(true)
                       : undefined
                 }
                 style={styles.empty}
@@ -362,8 +674,27 @@ export default function ClosetScreen() {
                   key={it.id}
                   style={[styles.card, { width: cardW }]}
                   onPress={() =>
-                    router.push({ pathname: '/item-detail', params: { id: it.id } })
-                  }>
+                    router.push({
+                      pathname: '/item-detail',
+                      params: {
+                        id: it.wardrobeItemId ?? it.id,
+                        ...(tab === 'shared' ? { readonly: '1' } : {}),
+                      },
+                    })
+                  }
+                  {...{
+                    // Web HTML5 Drag and drop
+                    draggable: true,
+                    onDragStart: (e: any) => {
+                      if (Platform.OS === 'web') {
+                        e.dataTransfer.setData('text/plain', JSON.stringify({
+                          id: it.id,
+                          name: it.name || it.category,
+                          image: it.image
+                        }));
+                      }
+                    }
+                  }}>
                   <View style={[styles.cardImage, { height: cardH }]}>
                     <SmartImage
                       uri={it.image}
@@ -372,11 +703,34 @@ export default function ClosetScreen() {
                       radius={GridCard.radius}
                       contentFit="cover"
                     />
-                    {it.owner ? (
-                      <View style={styles.ownerBadge}>
-                        <Text style={styles.ownerText}>{it.owner}님</Text>
+                     {it.owner ? (
+                      <View style={[
+                        styles.ownerBadge,
+                        {
+                          backgroundColor:
+                            sharedSpace
+                              ? MEMBER_COLORS[sharedSpace.members.indexOf(it.owner) % MEMBER_COLORS.length] || Editorial.ink
+                              : Editorial.ink
+                        }
+                      ]}>
+                        <Text style={[
+                          styles.ownerText,
+                          sharedSpace && sharedSpace.members.indexOf(it.owner) === 0 && { color: '#1C1917' }
+                        ]}>{it.owner}</Text>
                       </View>
                     ) : null}
+                    {tab === 'shared' && it.owner === '나' && (
+                      <Pressable
+                        style={styles.unshareBtn}
+                        onPress={(e) => {
+                          e.stopPropagation();
+                          handleUnshareItem(it.id);
+                        }}
+                        hitSlop={8}
+                      >
+                        <Icon name="xmark" tintColor="#FFFFFF" size={10} />
+                      </Pressable>
+                    )}
                   </View>
                   <View style={styles.cardMeta}>
                     <Text style={styles.cardName} numberOfLines={1}>{it.name}</Text>
@@ -402,6 +756,109 @@ export default function ClosetScreen() {
         />
         <PhotoSourceSheet visible={sourceOpen} onClose={() => setSourceOpen(false)} />
 
+        {/* 공유 옷장 만들기 — 이름 수정 모달과 같은 껍데기를 쓴다 */}
+        <Modal
+          visible={createOpen}
+          transparent
+          animationType="fade"
+          onRequestClose={() => setCreateOpen(false)}>
+          <Pressable style={styles.dialogBackdrop} onPress={() => setCreateOpen(false)}>
+            <Pressable style={styles.dialogCard} onPress={() => {}}>
+              <Text style={styles.dialogTitle}>새 공유 옷장</Text>
+              <Text style={styles.dialogMessage}>옷장 이름을 지어 주세요. (10글자 이내)</Text>
+              <TextInput
+                style={styles.dialogInput}
+                value={createDraftTitle}
+                onChangeText={setCreateDraftTitle}
+                maxLength={20} // 10글자 초과는 저장 시 안내한다 — 타이핑을 막지 않는다
+                autoFocus
+                selectTextOnFocus
+                returnKeyType="done"
+                onSubmitEditing={submitCreateSpace}
+                placeholder="공유 옷장"
+                placeholderTextColor={ink(0.3)}
+              />
+              <View style={styles.dialogActions}>
+                <Pressable
+                  style={[styles.dialogButton, styles.dialogCancel]}
+                  onPress={() => setCreateOpen(false)}>
+                  <Text style={styles.dialogCancelText}>취소</Text>
+                </Pressable>
+                <Pressable
+                  style={[styles.dialogButton, styles.dialogSave]}
+                  onPress={submitCreateSpace}>
+                  <Text style={styles.dialogConfirmText}>만들기</Text>
+                </Pressable>
+              </View>
+            </Pressable>
+          </Pressable>
+        </Modal>
+
+        <Modal
+          visible={!!manageRoom}
+          transparent
+          animationType="fade"
+          onRequestClose={() => setManageRoom(null)}>
+          <Pressable style={styles.dialogBackdrop} onPress={() => setManageRoom(null)}>
+            <Pressable style={styles.dialogCard} onPress={() => {}}>
+              <Text style={styles.dialogTitle}>공유 옷장 관리</Text>
+              <Text style={styles.dialogMessage}>옷장 이름을 수정하거나 삭제할 수 있어요.</Text>
+              <TextInput
+                style={styles.dialogInput}
+                value={manageRoom?.draftTitle ?? ''}
+                onChangeText={(draftTitle) =>
+                  setManageRoom((room) => (room ? { ...room, draftTitle } : room))
+                }
+                maxLength={20} // 10글자 초과는 저장 시 팝업으로 거른다 — 타이핑을 막지 않는다
+                autoFocus
+                returnKeyType="done"
+                onSubmitEditing={handleRenameSpace}
+              />
+              <View style={styles.dialogActions}>
+                <Pressable style={[styles.dialogButton, styles.dialogCancel]} onPress={() => setManageRoom(null)}>
+                  <Text style={styles.dialogCancelText}>취소</Text>
+                </Pressable>
+                <Pressable style={[styles.dialogButton, styles.dialogSave]} onPress={handleRenameSpace}>
+                  <Text style={styles.dialogConfirmText}>이름 수정</Text>
+                </Pressable>
+              </View>
+              <Pressable
+                style={styles.dialogDelete}
+                onPress={() => {
+                  if (!manageRoom) return;
+                  setDeleteRoom({ id: manageRoom.id, title: manageRoom.title });
+                  setManageRoom(null);
+                }}>
+                <Text style={styles.dialogDeleteText}>이 옷장 삭제</Text>
+              </Pressable>
+            </Pressable>
+          </Pressable>
+        </Modal>
+
+        <Modal
+          visible={!!deleteRoom}
+          transparent
+          animationType="fade"
+          onRequestClose={() => setDeleteRoom(null)}>
+          <Pressable style={styles.dialogBackdrop} onPress={() => setDeleteRoom(null)}>
+            <Pressable style={styles.dialogCard} onPress={() => {}}>
+              <Text style={styles.dialogTitle}>공유 옷장을 삭제할까요?</Text>
+              {/* 개인 옷장 원본은 공유 옷장 작업으로 절대 지워지지 않는다(서버 정책).
+                  방을 지우면 방의 공유 목록·초대 링크만 사라지므로, 예전의
+                  "공유한 내 옷도 삭제" 선택지는 없앴다 — 고를 수 있는 게 없다. */}
+              <Text style={styles.dialogMessage}>
+                공유 목록과 초대 링크가 삭제됩니다.{"\n"}내 옷장의 아이템은 그대로 유지됩니다.
+              </Text>
+              <Pressable style={styles.deleteItemsButton} onPress={() => handleDeleteSpace(false)}>
+                <Text style={styles.dialogConfirmText}>삭제</Text>
+              </Pressable>
+              <Pressable style={styles.dialogCancelOnly} onPress={() => setDeleteRoom(null)}>
+                <Text style={styles.dialogCancelText}>취소</Text>
+              </Pressable>
+            </Pressable>
+          </Pressable>
+        </Modal>
+
         <CategoryEditSheet
           visible={editOpen}
           title="카테고리 관리"
@@ -413,10 +870,21 @@ export default function ClosetScreen() {
         {showAddFab ? (
           <Pressable
             style={[styles.addFab, { bottom: 12 }]}
-            onPress={() => setSourceOpen(true)}
-            accessibilityLabel="아이템 추가">
+            onPress={onAddFabPress}
+            accessibilityLabel={tab === 'mine' ? '아이템 추가' : '내 옷 공유하기'}>
             <Icon name="plus" tintColor={INK} size={22} />
           </Pressable>
+        ) : null}
+
+        {sharedSpace ? (
+          <SharedItemAddSheet
+            visible={shareAddOpen}
+            roomId={sharedSpace.id}
+            roomName={sharedSpace.name}
+            alreadySharedItemIds={sharedWardrobeItemIds}
+            onClose={() => setShareAddOpen(false)}
+            onDone={() => loadRoomData(sharedSpace.id)}
+          />
         ) : null}
       </SafeAreaView>
     </View>
@@ -474,6 +942,18 @@ const styles = StyleSheet.create({
     borderRadius: 999,
   },
   ownerText: { fontSize: 11, fontWeight: '600', color: '#fff' },
+  unshareBtn: {
+    position: 'absolute',
+    top: 10,
+    right: 10,
+    width: 22,
+    height: 22,
+    borderRadius: 11,
+    backgroundColor: 'rgba(0,0,0,0.6)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    zIndex: 10,
+  },
   cardMeta: {
     flexDirection: 'row',
     alignItems: 'baseline',
@@ -506,4 +986,107 @@ const styles = StyleSheet.create({
     shadowRadius: 14,
     elevation: 8,
   },
+
+  // ── 공유방 탭 스타일 (한눈에 나열) ──
+  roomTabsWrap: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    alignItems: 'center',
+    paddingHorizontal: PAD,
+    gap: 8,
+    marginTop: 0,
+    marginBottom: 12,
+  },
+  roomTab: {
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    borderRadius: 999,
+    backgroundColor: '#F3F4F6',
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+  },
+  roomTabActive: {
+    backgroundColor: INK,
+    borderColor: INK,
+  },
+  roomTabAdd: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    borderStyle: 'dashed',
+    borderColor: ink(0.3),
+    backgroundColor: 'transparent',
+  },
+  roomTabText: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: ink(0.6),
+  },
+  roomTabTextActive: {
+    color: '#FFFFFF',
+  },
+  roomTabActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginLeft: 7,
+  },
+  dialogBackdrop: {
+    flex: 1,
+    backgroundColor: 'rgba(28,25,23,0.42)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 32,
+  },
+  dialogCard: {
+    width: '100%',
+    maxWidth: 360,
+    backgroundColor: Editorial.surface,
+    borderRadius: 20,
+    paddingHorizontal: 24,
+    paddingTop: 26,
+    paddingBottom: 16,
+  },
+  dialogTitle: { fontSize: 19, fontWeight: '700', color: Editorial.ink, textAlign: 'center' },
+  dialogMessage: {
+    fontSize: 13,
+    color: Editorial.textCaption,
+    textAlign: 'center',
+    marginTop: 10,
+    lineHeight: 21,
+  },
+  dialogInput: {
+    height: 48,
+    marginTop: 20,
+    paddingHorizontal: 14,
+    borderWidth: 1,
+    borderColor: Editorial.line,
+    borderRadius: 12,
+    color: Editorial.ink,
+    fontSize: 15,
+  },
+  dialogActions: { flexDirection: 'row', gap: 10, marginTop: 16 },
+  dialogButton: { flex: 1, height: 48, borderRadius: 14, alignItems: 'center', justifyContent: 'center' },
+  dialogCancel: { backgroundColor: Editorial.surface, borderWidth: 1, borderColor: Editorial.line },
+  dialogSave: { backgroundColor: Editorial.cta },
+  dialogCancelText: { fontSize: 14, fontWeight: '600', color: Editorial.textCaption },
+  dialogConfirmText: { fontSize: 14, fontWeight: '600', color: '#fff' },
+  dialogDelete: { height: 44, marginTop: 12, alignItems: 'center', justifyContent: 'center' },
+  dialogDeleteText: { fontSize: 14, fontWeight: '600', color: Editorial.danger },
+  keepItemsButton: {
+    height: 48,
+    marginTop: 22,
+    borderRadius: 14,
+    backgroundColor: Editorial.cta,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  keepItemsText: { fontSize: 14, fontWeight: '600', color: '#fff' },
+  deleteItemsButton: {
+    height: 48,
+    marginTop: 10,
+    borderRadius: 14,
+    backgroundColor: Editorial.danger,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  dialogCancelOnly: { height: 44, marginTop: 4, alignItems: 'center', justifyContent: 'center' },
 });

@@ -212,6 +212,7 @@ export function ItemTagSheet({
             <Section title="스타일 (여러 개)">
               <ChipRow options={STYLES} {...multi('style')} />
             </Section>
+
           </ScrollView>
 
           <View style={styles.actions}>

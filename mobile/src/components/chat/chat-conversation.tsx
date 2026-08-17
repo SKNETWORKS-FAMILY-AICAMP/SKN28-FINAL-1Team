@@ -18,9 +18,10 @@ import { Icon } from '@/components/icon';
 import { SmartImage, useToast } from '@/components/ui';
 import { ContentMax, Editorial, Fonts, ink, Type } from '@/constants/theme';
 import { useBreakpoint } from '@/hooks/use-breakpoint';
+import { ClosetItemSelectSheet } from './closet-item-select-sheet';
 import { pickOutfitPhoto } from '@/lib/pickItemPhoto';
 import type { StylistId } from '@/lib/stylistApi';
-import { chatStore, useChatSession, type ChatMessage } from '@/state/chat';
+import { chatStore, useChatSession, type ChatMessage, type RecItem } from '@/state/chat';
 import { stylistStore } from '@/state/stylist';
 
 const INK = Editorial.ink;
@@ -105,6 +106,8 @@ export function ChatConversation({
   /* 타이핑 표시는 답변을 기다리는 '지금'만의 상태라 저장하지 않는다 (state/chat.ts 참고). */
   const [typing, setTyping] = useState(false);
   const toast = useToast();
+  
+  const [closetSelectOpen, setClosetSelectOpen] = useState(false);
 
   /**
    * 스타일리스트 카드가 채워지는 상황 — 진행이 바뀔 때마다 달라지는 짧은 글자로 만든다.
@@ -244,6 +247,27 @@ export function ChatConversation({
     setPickerOpen(true);
   };
 
+  const handleSelectClosetItems = async (
+    selectedItems: { id: string; image: string; name: string }[],
+  ) => {
+    if (selectedItems.length === 0) return;
+
+    setTyping(true);
+    try {
+      const itemNames = selectedItems.map((item) => item.name).join(', ');
+      let targetId = activeId;
+      if (!targetId) {
+        const created = await chatStore.createSession('closet');
+        targetId = created.id;
+        setPanelSessionId(targetId);
+      }
+      await chatStore.sendText(targetId, `선택한 옷(${itemNames})을 포함해 코디를 추천해줘.`);
+    } finally {
+      setTyping(false);
+      scrollToEnd();
+    }
+  };
+
   /**
    * 대화가 없으면 하나 만든다 — 패널은 대화 없이 열리는데, 스타일리스트를 골랐다는 건
    * 이미 '이 사람들에게 추천받겠다'는 뜻이라 물어볼 것이 남아 있지 않다.
@@ -314,13 +338,37 @@ export function ChatConversation({
     <KeyboardAvoidingView
       style={styles.flex}
       behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-      keyboardVerticalOffset={0}>
+      keyboardVerticalOffset={0}
+      {...{
+        // Web HTML5 Drag and drop
+        onDragOver: (e: any) => {
+          if (Platform.OS === 'web') {
+            e.preventDefault();
+          }
+        },
+        onDrop: (e: any) => {
+          if (Platform.OS === 'web') {
+            e.preventDefault();
+            try {
+              const dataStr = e.dataTransfer.getData('text/plain');
+              if (dataStr) {
+                const item = JSON.parse(dataStr);
+                if (item && item.id && item.image) {
+                  handleSelectClosetItems([item]);
+                }
+              }
+            } catch (err) {
+              console.error('Drop parsing error:', err);
+            }
+          }
+        }
+      }}>
       <ScrollView
         ref={scrollRef}
         style={styles.flex}
         contentContainerStyle={[styles.messages, widthStyle]}
         keyboardShouldPersistTaps="handled">
-        {messages.map((m) => {
+        {messages.map((m: any) => {
           if (m.role === 'user') {
             return (
               <View key={m.id} style={styles.userRow}>
@@ -337,6 +385,18 @@ export function ChatConversation({
                     ) : (
                       <Icon name="photo" tintColor={ink(0.3)} size={30} />
                     )}
+                  </View>
+                ) : m.kind === 'closet_items' ? (
+                  <View style={styles.attachedItemsContainer}>
+                    <Text style={styles.attachedTitle}>내가 선택한 옷들로 코디 추천해줘 :</Text>
+                    <View style={styles.attachedGrid}>
+                      {m.items?.map((it: any) => (
+                        <View key={it.id} style={styles.attachedCard}>
+                          <SmartImage uri={it.image} width="100%" height={52} contentFit="cover" />
+                          <Text style={styles.attachedCardName} numberOfLines={1}>{it.name}</Text>
+                        </View>
+                      ))}
+                    </View>
                   </View>
                 ) : (
                   <View style={styles.userBubble}>
@@ -396,10 +456,9 @@ export function ChatConversation({
                   <View style={styles.recCard}>
                     <View style={styles.recBody}>
                       <Text style={styles.recTitle}>{m.title}</Text>
-
                       {/* 아이템 한 줄 — 사진이 있는 것만 그리고, 없으면 이름으로 대신한다 */}
                       <View style={styles.recItems}>
-                        {m.items.map((item) => (
+                        {m.items.map((item: RecItem) => (
                           <View key={item.id} style={styles.recItem}>
                             <SmartImage
                               uri={item.imageUrl}
@@ -429,7 +488,7 @@ export function ChatConversation({
                         </Text>
                       ) : null}
 
-                      {m.warnings.map((w) => (
+                      {m.warnings.map((w: string) => (
                         <Text key={w} style={styles.recWarning}>
                           {w}
                         </Text>
@@ -441,7 +500,7 @@ export function ChatConversation({
                     <Text style={styles.moodLead}>사진에서 이런 무드가 보여요</Text>
                     {m.summary ? <Text style={styles.moodSummary}>{m.summary}</Text> : null}
                     <View style={styles.recTags}>
-                      {m.tags.map((t) => (
+                      {m.tags.map((t: any) => (
                         <View key={t} style={styles.recTag}>
                           <Text style={styles.recTagText}>{t}</Text>
                         </View>
@@ -549,6 +608,9 @@ export function ChatConversation({
           <Pressable style={styles.photoBtn} onPress={attachPhoto} hitSlop={8}>
             <Icon name="photo" tintColor={ink(0.55)} size={22} />
           </Pressable>
+          <Pressable style={[styles.photoBtn, { marginLeft: -2 }]} onPress={() => setClosetSelectOpen(true)} hitSlop={8}>
+            <Icon name="tshirt" tintColor={ink(0.55)} size={22} />
+          </Pressable>
           {/* 웹에서 multiline 은 textarea 로 렌더되어 기본 2줄 높이를 갖는다.
               numberOfLines={1} 로 한 줄에서 시작하게 하고, 길어지면 maxHeight 까지 늘어난다. */}
           <TextInput
@@ -571,6 +633,12 @@ export function ChatConversation({
           </Pressable>
         </View>
       </SafeAreaView>
+
+      <ClosetItemSelectSheet
+        visible={closetSelectOpen}
+        onClose={() => setClosetSelectOpen(false)}
+        onSelect={handleSelectClosetItems}
+      />
     </KeyboardAvoidingView>
   );
 }
@@ -781,4 +849,42 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   sendBtnOn: { backgroundColor: Editorial.cta },
+  attachedItemsContainer: {
+    alignSelf: 'flex-end',
+    backgroundColor: Editorial.surfaceSoft,
+    borderWidth: 1,
+    borderColor: Editorial.line,
+    borderRadius: 16,
+    padding: 12,
+    maxWidth: '85%',
+    gap: 8,
+  },
+  attachedTitle: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: ink(0.7),
+  },
+  attachedGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+  },
+  attachedCard: {
+    width: 72,
+    borderRadius: 8,
+    backgroundColor: '#FFFFFF',
+    borderWidth: 1,
+    borderColor: Editorial.line,
+    overflow: 'hidden',
+    alignItems: 'center',
+    paddingBottom: 4,
+  },
+  attachedCardName: {
+    fontSize: 9,
+    fontWeight: '600',
+    color: Editorial.ink,
+    marginTop: 3,
+    paddingHorizontal: 2,
+    textAlign: 'center',
+  },
 });

@@ -56,10 +56,9 @@ docker compose --profile all up -d --build      # 전부
 - 실행 순서는 자동 보장: `db(healthy) → migrate(Django migration) → api/collector`
 - `.env`에 `COMPOSE_PROFILES=api,naver`를 지정하면 `docker compose up -d`만으로 동작
 - **API 실행 모드는 `DJANGO_SETTINGS_MODULE`로 제어** (구 `docker-compose.swagger.yml`은 병합·폐기됨):
-  `config.settings.prod`(기본) / `dev` / `swagger`(+Swagger UI `/api/docs/`) / `swagger_noauth`(+인증 우회, 로컬 전용).
+  `config.settings.prod`(기본) / `dev` / `swagger`(+Swagger UI `/api/docs/`).
   `.env`는 Infisical로 관리되므로 모드 변경은 Infisical의 dev 환경 값 수정 또는
   일회성 실행 시 셸 환경변수 오버라이드(`DJANGO_SETTINGS_MODULE=config.settings.swagger docker compose up -d`)로 한다.
-  ⚠️ `swagger_noauth`는 인증이 꺼지므로 운영 환경에 절대 설정 금지.
 - 호스트 5432 포트가 사용 중이면 `POSTGRES_HOST_PORT`로 db 공개 포트를 변경
 - 어떤 프로필이든 migrate가 api 이미지로 실행되므로 `DJANGO_SECRET_KEY`, `DJANGO_ALLOWED_HOSTS` 필요
 - compose가 값을 찾는 경로는 두 가지이고, 각각 동작이 다르다. 원리는 [docs/infisical-guide.md](docs/infisical-guide.md)를 따른다.
