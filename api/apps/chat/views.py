@@ -71,6 +71,7 @@ from apps.chat.services import identity as identity_service
 from apps.chat.services import (
     mood_analysis,
     response_modes,
+    shared_reference,
     stylist_catalog,
     stylist_results,
 )
@@ -178,6 +179,22 @@ _MESSAGE_CREATE_EXAMPLE = OpenApiExample(
         "content": "이번 주 토요일 성수동 데이트에 입을 코디를 추천해줘",
         "client_message_id": "swagger-message-001",
         "metadata": {"source": "swagger"},
+    },
+    request_only=True,
+)
+_MESSAGE_CREATE_SHARED_REFERENCE_EXAMPLE = OpenApiExample(
+    name="공유 옷을 참고 이미지로 사용",
+    description=(
+        "shared_item_id는 공유 옷장 아이템 응답의 id입니다. 친구 옷은 최종 추천 "
+        "후보가 아니라 유사한 내 옷 또는 새 상품을 찾기 위한 참고 입력으로만 사용합니다."
+    ),
+    value={
+        "content": "이 옷과 비슷한 느낌으로 추천해줘",
+        "client_message_id": "swagger-shared-reference-001",
+        "reference": {
+            "type": "SHARED_WARDROBE_ITEM",
+            "shared_item_id": "44444444-4444-4444-8444-444444444444",
+        },
     },
     request_only=True,
 )
@@ -889,14 +906,19 @@ class ChatSessionDeriveView(APIView):
         ),
         parameters=[_SESSION_ID_PARAMETER],
         request={"application/json": ChatMessageCreateSerializer},
-        examples=[_MESSAGE_CREATE_EXAMPLE],
+        examples=[
+            _MESSAGE_CREATE_EXAMPLE,
+            _MESSAGE_CREATE_SHARED_REFERENCE_EXAMPLE,
+        ],
         responses={
             200: ChatMessageSubmitResponseSerializer,
             202: ChatMessageSubmitResponseSerializer,
             400: OpenApiResponse(description="메시지·client_message_id 검증 실패"),
+            403: OpenApiResponse(description="공유 옷장 참조 권한 없음"),
             404: OpenApiResponse(
-                description="세션이 없거나 현재 identity의 소유가 아님"
+                description="세션 또는 공유 옷장 참조 아이템을 찾을 수 없음"
             ),
+            409: OpenApiResponse(description="공유 옷 이미지·벡터 처리가 아직 완료되지 않음"),
             503: OpenApiResponse(description="Redis 채팅 실행 큐를 사용할 수 없음"),
         },
     ),
@@ -918,13 +940,40 @@ class ChatSessionMessageListView(APIView):
         identity = _identity(request)
         serializer = ChatMessageCreateSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
-        message, _message_created, run, _run_created = submit_message_and_create_run(
-            identity=identity,
-            session_id=session_id,
-            content=serializer.validated_data["content"],
-            client_message_id=serializer.validated_data["client_message_id"],
-            metadata=serializer.validated_data.get("metadata", {}),
-        )
+        try:
+            (
+                message,
+                _message_created,
+                run,
+                _run_created,
+            ) = submit_message_and_create_run(
+                identity=identity,
+                session_id=session_id,
+                content=serializer.validated_data["content"],
+                client_message_id=serializer.validated_data["client_message_id"],
+                metadata=serializer.validated_data.get("metadata", {}),
+                reference=serializer.validated_data.get("reference"),
+            )
+        except shared_reference.SharedReferenceNotFound as exc:
+            return Response(
+                {"code": exc.code, "detail": str(exc)},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+        except shared_reference.SharedReferenceForbidden as exc:
+            return Response(
+                {"code": exc.code, "detail": str(exc)},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+        except shared_reference.SharedReferenceUnavailable as exc:
+            return Response(
+                {"code": exc.code, "detail": str(exc)},
+                status=status.HTTP_409_CONFLICT,
+            )
+        except shared_reference.SharedReferenceError as exc:
+            return Response(
+                {"code": exc.code, "detail": str(exc)},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
 
         if run.status == ChatRun.Status.PENDING:
             try:

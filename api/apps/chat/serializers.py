@@ -86,6 +86,11 @@ class ChatMessageSerializer(serializers.ModelSerializer):
         read_only_fields = fields
 
 
+class SharedWardrobeItemReferenceSerializer(serializers.Serializer):
+    type = serializers.ChoiceField(choices=["SHARED_WARDROBE_ITEM"])
+    shared_item_id = serializers.UUIDField()
+
+
 class ChatMessageCreateSerializer(serializers.Serializer):
     content = serializers.CharField(
         allow_blank=False,
@@ -105,6 +110,14 @@ class ChatMessageCreateSerializer(serializers.Serializer):
     metadata = serializers.JSONField(
         required=False,
         help_text='선택 입력 JSON 객체. Swagger 테스트 예: {"source": "swagger"}',
+    )
+    reference = SharedWardrobeItemReferenceSerializer(
+        required=False,
+        write_only=True,
+        help_text=(
+            "선택 입력. 공유 옷장 아이템을 추천 결과가 아닌 참고 이미지로 사용할 때 "
+            "type=SHARED_WARDROBE_ITEM, shared_item_id=공유 아이템 UUID를 전달합니다."
+        ),
     )
 
     def validate_metadata(self, value):

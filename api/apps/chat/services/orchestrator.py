@@ -46,6 +46,7 @@ from apps.chat.services.recommendation_pipeline import (
     ChatRecommendationPipeline,
 )
 from apps.chat.services.sessions import ChatSessionForbidden, append_message
+from apps.chat.services.shared_reference import build_reference_snapshot
 from apps.chat.services.stylist_execution import (
     StylistExecutionCoordinator,
     StylistExecutionError,
@@ -153,6 +154,7 @@ def submit_message_and_create_run(
     content: str,
     client_message_id: str,
     metadata: dict | None = None,
+    reference: dict[str, object] | None = None,
 ) -> tuple[ChatMessage, bool, ChatRun, bool]:
     """메시지와 실행 스냅샷을 한 트랜잭션에서 멱등 생성한다."""
 
@@ -169,6 +171,7 @@ def submit_message_and_create_run(
         identity=identity,
         session_id=session_id,
         request_message_id=message.id,
+        reference=reference,
     )
     return message, message_created, run, run_created
 
@@ -179,6 +182,7 @@ def create_run(
     identity: ChatIdentity,
     session_id,
     request_message_id,
+    reference: dict[str, object] | None = None,
 ) -> tuple[ChatRun, bool]:
     """사용자 메시지당 실행을 하나만 만들고 큐 재전송을 멱등 처리한다."""
     session = (
@@ -210,6 +214,10 @@ def create_run(
         return existing, False
 
     snapshot = _session_run_snapshot(session, identity=identity)
+    snapshot["reference_snapshot"] = build_reference_snapshot(
+        identity=identity,
+        reference=reference,
+    )
 
     try:
         run, created = ChatRun.objects.get_or_create(
