@@ -1,7 +1,8 @@
 import {
-  CategoryEditSheet,
   ErrorState,
+  CategoryEditSheet,
   LoadingState,
+  LookbookFilterSheet,
   SearchFilterBar,
   SegmentedToggle,
   SmartImage,
@@ -10,6 +11,7 @@ import { Icon, type IconName } from '@/components/icon';
 import { useMultiSelectFilter } from '@/hooks/useMultiSelectFilter';
 import { useRefresh } from '@/hooks/use-refresh';
 import { LOOKBOOK_FILTER_OPTIONS, lookbookStore, useLookbook } from '@/state/lookbook';
+import type { LookGenderFilter } from '@/lib/discoveryLookApi';
 import { likesStore, useLikedLooks } from '@/state/likes';
 import { savedLookStore, useSavedLooks, useSavedLooksState, type LookOrigin } from '@/state/saved';
 import { router, useLocalSearchParams } from 'expo-router';
@@ -32,7 +34,6 @@ const INK = Editorial.ink;
 
 /* 카드 크기는 창 폭에서 파생 → 컴포넌트 안에서 useBreakpoint() 로 구한다. */
 const PAD = GridCard.pad;
-const DEFAULT_TAGS = [...LOOKBOOK_FILTER_OPTIONS];
 
 /**
  * 상단 세그먼트: 둘러보기 / 내 룩북.
@@ -100,13 +101,19 @@ export default function LookbookScreen() {
   const allLooks = useLookbook();
   const savedLooks = useSavedLooks();
   const likedLooks = useLikedLooks();
+  const [query, setQuery] = useState('');
+  const [gender, setGender] = useState<LookGenderFilter>('ALL');
+  const [filterOpen, setFilterOpen] = useState(false);
+  const [categoryEditOpen, setCategoryEditOpen] = useState(false);
+  const [tags, setTags] = useState<string[]>([...LOOKBOOK_FILTER_OPTIONS]);
+  const { toggle, isActive, selected, label, prune } = useMultiSelectFilter();
 
   /* 둘 다 서버에서 온다 — 내 룩북은 내 목록, 둘러보기는 공개 피드.
      세그먼트를 오갈 때마다 기다리게 하지 않으려고 화면에 들어올 때 함께 받는다. */
   const { loading, error, loaded } = useSavedLooksState();
   const loadAll = useCallback(
-    () => Promise.all([savedLookStore.load(), lookbookStore.load()]).then(() => undefined),
-    [],
+    () => Promise.all([savedLookStore.load(), lookbookStore.load(gender)]).then(() => undefined),
+    [gender],
   );
   const { refreshing, onRefresh } = useRefresh(loadAll);
   useEffect(() => {
@@ -119,11 +126,6 @@ export default function LookbookScreen() {
   const { tab } = useLocalSearchParams<{ tab?: string }>();
   const mode: Mode = tab === 'mine' || tab === 'saved' ? 'mine' : 'browse';
   const setMode = (m: Mode) => router.setParams({ tab: m === 'mine' ? 'mine' : 'browse' });
-
-  const [query, setQuery] = useState('');
-  const [tags, setTags] = useState(DEFAULT_TAGS);
-  const [editOpen, setEditOpen] = useState(false);
-  const { toggle, isActive, selected, label, prune } = useMultiSelectFilter();
 
   /* 둘러보기 칩 = 전체 + 위시 + 해시태그. 위시는 사용자가 지울 수 없는 고정 칩이라
      태그 관리(tags)와 따로 두고 여기서만 끼워 넣는다. */
@@ -166,10 +168,15 @@ export default function LookbookScreen() {
     [savedLooks, query],
   );
 
+  const selectGender = (next: LookGenderFilter) => {
+    if (next === gender) return;
+    setGender(next);
+  };
+
   const feedCards: CardData[] = useMemo(
     () =>
       allLooks
-        .filter((l) => matchesTags(l, tagSelection) && matchesQuery(l, query))
+        .filter((l) => (gender === 'ALL' || l.gender === gender) && matchesTags(l, tagSelection) && matchesQuery(l, query))
         .map((l) => ({
           id: l.id,
           uri: l.image,
@@ -178,7 +185,7 @@ export default function LookbookScreen() {
           variantId: l.variantId,
           kind: 'feed' as const,
         })),
-    [allLooks, tagSelection, query],
+    [allLooks, gender, tagSelection, query],
   );
 
   const cards: CardData[] = mode === 'mine' ? mineCards : wishOn ? wishCards : feedCards;
@@ -208,7 +215,6 @@ export default function LookbookScreen() {
     /* 위시는 태그 목록에 없는 고정 칩이라, 태그를 정리해도 선택이 풀리면 안 된다. */
     prune([WISH, ...next.slice(1)]);
   };
-
   return (
     <View style={styles.container}>
       <SafeAreaView edges={['top']} style={styles.safe}>
@@ -223,7 +229,7 @@ export default function LookbookScreen() {
             onToggle={toggle}
             isActive={isActive}
             showChips={mode === 'browse'}
-            onEditCategories={mode === 'browse' ? () => setEditOpen(true) : undefined}
+            onEditCategories={mode === 'browse' ? () => setFilterOpen(true) : undefined}
             trailing={
               <SegmentedToggle value={mode} options={MODE_OPTIONS} onChange={setMode} />
             }
@@ -323,13 +329,23 @@ export default function LookbookScreen() {
           )}
         </ScrollView>
 
+        <LookbookFilterSheet
+          visible={filterOpen}
+          gender={gender}
+          onClose={() => setFilterOpen(false)}
+          onApply={selectGender}
+          onManageCategories={() => {
+            setFilterOpen(false);
+            setCategoryEditOpen(true);
+          }}
+        />
         <CategoryEditSheet
-          visible={editOpen}
-          title="태그 관리"
+          visible={categoryEditOpen}
+          title="카테고리 관리"
           categories={tags}
-          addPlaceholder="새 태그"
-          onClose={() => setEditOpen(false)}
+          onClose={() => setCategoryEditOpen(false)}
           onSave={handleSaveTags}
+          addPlaceholder="새 카테고리"
         />
 
         {/* 올리기는 어느 갈래에서든 같은 자리에 있다 — 결과는 늘 내 룩북에 쌓인다. */}

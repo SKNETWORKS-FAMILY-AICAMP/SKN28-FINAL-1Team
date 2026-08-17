@@ -316,6 +316,8 @@ export const CalendarEndpoints = {
 export const BudgetEndpoint = '/api/v1/users/me/budget/';
 
 export const LookbookEndpoints = {
+  discover: '/api/v1/lookbooks/discover/',
+  discoverDetail: (lookId: string) => `/api/v1/lookbooks/discover/${lookId}/`,
   list: '/api/v1/lookbooks/',
   /* 전체 공개된 룩 — 앱 '둘러보기'가 읽는 목록. 비회원도 볼 수 있다. */
   publicFeed: '/api/v1/lookbooks/public/',
@@ -346,12 +348,42 @@ export const LookbookEndpoints = {
  * ⚠️ 게스트 채팅(/chat/guest/)은 **HttpOnly 쿠키**로 신원을 잡는 방식이라 네이티브·크로스
  *    오리진에서 다루기 까다롭다. 지금은 로그인 사용자만 붙인다.
  */
+/**
+ * 사진 첨부 → 무드 분석 → 반영 여부는 **세 번의 호출**로 나뉜다.
+ *
+ *   POST /chat/sessions/{id}/attachments/                      multipart → 201 { message, attachment, created }
+ *   POST /chat/sessions/{id}/attachments/{aid}/analysis/                → 202 { attachment, run, events_url }
+ *   POST /chat/sessions/{id}/attachments/{aid}/mood-decision/  { decision } → 200 { attachment, changed, applied, context_state }
+ *
+ * 올리는 것과 분석하는 것이 나뉜 이유 — 사진만 보내고 분석은 원할 때 시킬 수 있다.
+ * 분석도 답변과 같은 run 구조라 끝날 때까지 기다려야 한다(lib/chatStream.ts).
+ *
+ * ⚠️ 요청과 저장값의 철자가 다르다. 보낼 때는 `APPROVE`/`REJECT`, 첨부에 남는 값은
+ *    `APPROVED`/`REJECTED`(미결정은 `UNDECIDED`)다. 둘을 섞어 비교하면 결정 상태를 놓친다.
+ * ⚠️ 무드를 승인해도 **추천이 자동으로 만들어지지 않는다.** 세션의 context_state 에만
+ *    반영되고, 다음 질문부터 그 무드가 조건으로 쓰인다.
+ */
 export const ChatEndpoints = {
   sessions: '/api/v1/chat/sessions/',
   session: (sessionId: string) => `/api/v1/chat/sessions/${sessionId}/`,
   messages: (sessionId: string) => `/api/v1/chat/sessions/${sessionId}/messages/`,
   run: (runId: string) => `/api/v1/chat/runs/${runId}/`,
   runEvents: (runId: string) => `/api/v1/chat/runs/${runId}/events/`,
+  attachments: (sessionId: string) => `/api/v1/chat/sessions/${sessionId}/attachments/`,
+  attachmentAnalysis: (sessionId: string, attachmentId: string) =>
+    `/api/v1/chat/sessions/${sessionId}/attachments/${attachmentId}/analysis/`,
+  attachmentMoodDecision: (sessionId: string, attachmentId: string) =>
+    `/api/v1/chat/sessions/${sessionId}/attachments/${attachmentId}/mood-decision/`,
+
+  /* ── 스타일리스트 모드 ──
+     ⚠️ 아래 네 자리는 아직 **배포 서버에 없다**(origin/feature/chat-main-integration 전용).
+        없는 서버에서는 404 가 오고 lib/stylistApi.ts 가 목업으로 대신한다. */
+  stylists: '/api/v1/chat/stylists/',
+  responseMode: (sessionId: string) => `/api/v1/chat/sessions/${sessionId}/response-mode/`,
+  personaRetry: (runId: string, personaId: string) =>
+    `/api/v1/chat/runs/${runId}/personas/${personaId}/retry/`,
+  personaAlternative: (runId: string, personaId: string) =>
+    `/api/v1/chat/runs/${runId}/personas/${personaId}/alternative/`,
 } as const;
 
 /**
@@ -362,6 +394,23 @@ export const ChatEndpoints = {
  * 채팅 답변이 추천까지 만들면 그 메시지의 metadata.recommendation_result_id 로 여기를 부른다.
  * 카드 하나가 코디 한 벌이고, 그 안의 items 가 착장 아이템이다.
  */
+/**
+ * 스타일리스트 API 가 없을 때 목업으로 대신 그려도 되는지 (lib/stylistApi.ts).
+ *
+ * ⚠️ **배포된 실서버에서는 켜면 안 된다.** 게이트웨이 설정이 틀려 404 가 나는 상황까지
+ *    "라우트가 아직 없구나"로 삼켜 버리면, 사용자에게 **지어낸 코디**를 진짜 추천인 것처럼
+ *    보여주게 된다. 장애가 목업 뒤에 숨는 쪽이 오류 화면보다 나쁘다.
+ *
+ * 그래서 기본은 개발 빌드에서만 열어 둔다. 팀원 체험용 웹 배포처럼 백엔드가 아직 안 붙은
+ * 곳에서 화면을 보여줘야 하면 그 빌드에만 EXPO_PUBLIC_STYLIST_MOCK=1 을 준다.
+ */
+export const ALLOW_STYLIST_MOCK =
+  __DEV__ || process.env.EXPO_PUBLIC_STYLIST_MOCK === '1';
+
 export const RecommendEndpoints = {
   result: (resultId: string) => `/api/v1/recommendations/${resultId}/`,
+  /** 카드 한 장을 내 룩으로 저장 — 스타일리스트 카드의 '이 코디로 할래요'가 부른다.
+      ⚠️ 이 자리도 아직 배포 서버에 없다(위 stylists 주석과 같은 브랜치). */
+  saveCard: (resultId: string, cardId: string) =>
+    `/api/v1/recommendations/${resultId}/cards/${cardId}/save/`,
 } as const;

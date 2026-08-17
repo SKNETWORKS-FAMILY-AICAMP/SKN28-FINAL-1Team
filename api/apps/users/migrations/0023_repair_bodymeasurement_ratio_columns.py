@@ -15,7 +15,7 @@ from django.db import migrations
 class Migration(migrations.Migration):
 
     dependencies = [
-        ("users", "0022_merge_20260814"),
+        ("users", "0022_merge_category_budgets_body_measurement"),
     ]
 
     operations = [

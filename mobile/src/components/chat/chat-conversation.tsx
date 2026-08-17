@@ -12,12 +12,17 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import { StylistCardGroup } from '@/components/chat/stylist-cards';
+import { StylistPicker } from '@/components/chat/stylist-picker';
 import { Icon } from '@/components/icon';
 import { SmartImage, useToast } from '@/components/ui';
 import { ContentMax, Editorial, Fonts, ink, Type } from '@/constants/theme';
 import { useBreakpoint } from '@/hooks/use-breakpoint';
 import { ClosetItemSelectSheet } from './closet-item-select-sheet';
+import { pickOutfitPhoto } from '@/lib/pickItemPhoto';
+import type { StylistId } from '@/lib/stylistApi';
 import { chatStore, useChatSession, type ChatMessage, type RecItem } from '@/state/chat';
+import { stylistStore } from '@/state/stylist';
 
 const INK = Editorial.ink;
 const BONE = Editorial.bone;
@@ -94,16 +99,36 @@ export function ChatConversation({
   const activeId = sessionId ?? panelSessionId;
   const session = useChatSession(activeId);
   /* 아직 대화가 없는 패널에는 시작 인사만 보여준다. 대화가 생기면 서버가 넣어 둔
-     인사 메시지가 그 자리를 대신한다. */
-  const messages = session?.messages ?? PANEL_SEED;
+     인사 메시지가 그 자리를 대신한다.
+     timeline 을 보는 이유 — 스타일리스트 카드와 모드 구분선은 서버 대화에 없고 앱이
+     끼워 넣는 것이다(state/chat.ts 의 ChatSession.timeline 주석). */
+  const messages = session?.timeline ?? PANEL_SEED;
   /* 타이핑 표시는 답변을 기다리는 '지금'만의 상태라 저장하지 않는다 (state/chat.ts 참고). */
   const [typing, setTyping] = useState(false);
   const toast = useToast();
   
   const [closetSelectOpen, setClosetSelectOpen] = useState(false);
 
+  /**
+   * 스타일리스트 카드가 채워지는 상황 — 진행이 바뀔 때마다 달라지는 짧은 글자로 만든다.
+   * 말풍선 배열 전체를 effect 의 의존성으로 걸면 상관없는 변화에도 화면이 끌려 내려간다.
+   */
+  const stylistProgress = messages
+    .map((m) => (m.kind === 'stylist' ? m.cards.map((c) => c.status[0]).join('') : ''))
+    .join('');
+  /** 아직 안 끝난 카드가 있는지 (P=PENDING, R=RUNNING) */
+  const stylistPending = /[PR]/.test(stylistProgress);
+
   const scrollRef = useRef<ScrollView>(null);
   const timers = useRef<ReturnType<typeof setTimeout>[]>([]);
+
+  /* 카드가 하나씩 채워지는 동안 시야가 따라가게 한다. 안 따라가면 먼저 끝난 카드만 보이고
+     뒤에 붙는 카드는 화면 밖에서 쌓여, '완료된 것부터 보여준다'가 무의미해진다. */
+  useEffect(() => {
+    if (!stylistProgress) return;
+    const t = setTimeout(() => scrollRef.current?.scrollToEnd({ animated: true }), 60);
+    return () => clearTimeout(t);
+  }, [stylistProgress]);
 
   const scrollToEnd = () => {
     const t = setTimeout(() => scrollRef.current?.scrollToEnd({ animated: true }), 60);
@@ -158,17 +183,68 @@ export function ChatConversation({
   };
 
   /**
-   * 사진 넣기.
+   * 사진 넣기 — 갤러리에서 고른 사진을 올리고 무드까지 읽어낸다.
    *
-   * ⚠️ **아직 서버에 붙지 않았다.** 백엔드에는 첨부 업로드(/attachments/) → 무드 분석
-   *    (/analysis/) → 반영 여부 결정(/mood-decision/) 세 단계가 이미 있고, 아래 무드 카드
-   *    UI 가 그 흐름과 그대로 맞물린다. 텍스트 대화를 먼저 붙이느라 남겨 둔 자리다.
-   *
-   *    전에는 여기서 고정 태그(#미니멀 …)를 띄워 분석한 척했다. 진짜 대화가 붙은 지금
-   *    그렇게 두면 어느 답이 진짜인지 구분할 수 없어, 아직임을 그대로 알린다.
+   * 대화가 없는 패널에서 사진부터 넣을 수 있으므로 여기서도 세션을 먼저 만든다.
+   * 분석이 끝날 때까지 타이핑 표시를 띄운다 — 답변을 기다리는 것과 같은 성격이라
+   * 같은 표시를 쓴다.
    */
-  const attachPhoto = () => {
-    toast('사진으로 추천받기는 곧 연결돼요');
+  const attachPhoto = async () => {
+    if (typing) return;
+    let uri: string | null = null;
+    try {
+      uri = await pickOutfitPhoto();
+    } catch {
+      toast('사진을 불러오지 못했어요', { variant: 'error' });
+      return;
+    }
+    if (!uri) return; // 고르다 취소 — 아무 일도 일어나지 않는다
+
+    setTyping(true);
+    scrollToEnd();
+    try {
+      let id = activeId;
+      if (!id) {
+        const created = await chatStore.createSession('closet');
+        id = created.id;
+        setPanelSessionId(id);
+      }
+      await chatStore.attachPhoto(id, uri);
+    } catch (e) {
+      toast(e instanceof Error ? e.message : '사진을 올리지 못했어요', { variant: 'error' });
+    } finally {
+      setTyping(false);
+      scrollToEnd();
+    }
+  };
+
+  /** 무드 카드의 두 버튼. 어느 카드가 진행 중인지 알아야 그 카드만 잠글 수 있다. */
+  const [deciding, setDeciding] = useState<string | null>(null);
+
+  const decideMood = async (attachmentId: string, decision: 'APPROVE' | 'REJECT') => {
+    if (!activeId || deciding) return;
+    setDeciding(attachmentId);
+    try {
+      await chatStore.decideMood(activeId, attachmentId, decision);
+    } catch (e) {
+      toast(e instanceof Error ? e.message : '반영하지 못했어요', { variant: 'error' });
+    } finally {
+      setDeciding(null);
+    }
+  };
+
+  /* ── 스타일리스트 모드 ─────────────────────────────
+     모드 버튼은 대화방을 옮기지도 새로 만들지도 않는다. 다음 질문을 어떻게 답할지만 바꾼다. */
+
+  const [pickerOpen, setPickerOpen] = useState(false);
+  const stylistOn = session?.responseMode === 'STYLIST';
+  const selectedIds = session?.selectedPersonaIds ?? [];
+  const selectedNames = stylistStore.displayNames(selectedIds);
+
+  const openPicker = () => {
+    // 목록은 대화 중에 바뀌는 값이 아니라 한 번만 받아 둔다. 실패하면 팝업이 오류를 보여준다.
+    stylistStore.load().catch(() => {});
+    setPickerOpen(true);
   };
 
   const handleSelectClosetItems = async (
@@ -193,15 +269,69 @@ export function ChatConversation({
   };
 
   /**
-   * 무드 카드의 두 버튼. 카드를 만드는 경로(사진 분석)가 아직 없어 지금은 닿지 않지만,
-   * 첨부를 붙일 때 여기에 /mood-decision/ 의 APPROVE·REJECT 를 그대로 넣으면 된다.
+   * 대화가 없으면 하나 만든다 — 패널은 대화 없이 열리는데, 스타일리스트를 골랐다는 건
+   * 이미 '이 사람들에게 추천받겠다'는 뜻이라 물어볼 것이 남아 있지 않다.
+   * (첫 질문·첫 사진에서 만드는 것과 같은 이유·같은 모드다.)
    */
-  const acceptMood = (_tags: string[]) => {
-    toast('사진으로 추천받기는 곧 연결돼요');
+  const ensureSession = async (): Promise<string> => {
+    if (activeId) return activeId;
+    const created = await chatStore.createSession('closet');
+    setPanelSessionId(created.id);
+    return created.id;
   };
 
-  const rejectMood = () => {
-    toast('사진으로 추천받기는 곧 연결돼요');
+  /* 모드 저장이 실패하면 이전 모드와 선택을 그대로 둔다(설계서 19장).
+     스토어가 서버 응답을 받은 뒤에만 세션을 바꾸므로 여기서 되돌릴 것은 없다. */
+  const enableStylists = async (ids: StylistId[]) => {
+    setPickerOpen(false);
+    // 0명은 팝업이 막지만, 여기까지 왔다면 켜지 않는다 — 빈 배열을 보내면 서버가 400 을 낸다.
+    if (ids.length === 0) return;
+    try {
+      await chatStore.setResponseMode(await ensureSession(), 'STYLIST', ids);
+    } catch (e) {
+      toast(e instanceof Error ? e.message : '모드를 바꾸지 못했어요', { variant: 'error' });
+    }
+  };
+
+  const disableStylists = async () => {
+    setPickerOpen(false);
+    // 대화가 없으면 끌 것도 없다. 끄자고 대화를 새로 만들지는 않는다.
+    if (!activeId) return;
+    try {
+      await chatStore.setResponseMode(activeId, 'DEFAULT');
+    } catch (e) {
+      toast(e instanceof Error ? e.message : '모드를 바꾸지 못했어요', { variant: 'error' });
+    }
+  };
+
+  const selectCard = async (runId: string, personaId: StylistId) => {
+    if (!activeId) return;
+    try {
+      await chatStore.saveStylistCard(activeId, runId, personaId);
+      toast('내 룩에 저장했어요', { variant: 'success' });
+    } catch (e) {
+      toast(e instanceof Error ? e.message : '저장하지 못했어요', { variant: 'error' });
+    }
+  };
+
+  /* 다른 추천·재실행은 카드가 스스로 진행 상태를 보여주므로(받는 중… / 뼈대) 토스트로
+     또 알리지 않는다. 실패했을 때만 말한다. */
+  const alternativeCard = async (runId: string, personaId: StylistId) => {
+    if (!activeId) return;
+    try {
+      await chatStore.alternativeStylist(activeId, runId, personaId);
+    } catch (e) {
+      toast(e instanceof Error ? e.message : '다른 추천을 받지 못했어요', { variant: 'error' });
+    }
+  };
+
+  const retryCard = async (runId: string, personaId: StylistId) => {
+    if (!activeId) return;
+    try {
+      await chatStore.retryStylist(activeId, runId, personaId);
+    } catch (e) {
+      toast(e instanceof Error ? e.message : '다시 시도하지 못했어요', { variant: 'error' });
+    }
   };
 
   return (
@@ -286,6 +416,34 @@ export function ChatConversation({
               </View>
             );
           }
+          /* 모드가 바뀐 자리. 오간 말이 아니라 상태 표시라 오류 줄과 같은 결로 —
+             말풍선도 아바타도 주지 않는다. 여기부터 답하는 방식이 달라졌다는 표시일 뿐이다. */
+          if (m.kind === 'mode') {
+            return (
+              <View key={m.id} style={styles.modeMarkRow}>
+                <View style={styles.modeMarkLine} />
+                <Text style={styles.modeMarkText}>
+                  {m.mode === 'STYLIST'
+                    ? `스타일리스트 추천 · ${m.names.join(' · ')}`
+                    : '기본 추천'}
+                </Text>
+                <View style={styles.modeMarkLine} />
+              </View>
+            );
+          }
+          /* 스타일리스트 카드는 코지 아바타를 달지 않는다 — 카드마다 답한 사람이 따로 있고,
+             그 이름이 카드 머리에 이미 붙어 있다. 폭도 아바타만큼 들이지 않고 다 쓴다. */
+          if (m.kind === 'stylist') {
+            return (
+              <StylistCardGroup
+                key={m.id}
+                cards={m.cards}
+                onSelect={(personaId) => selectCard(m.runId, personaId)}
+                onAlternative={(personaId) => alternativeCard(m.runId, personaId)}
+                onRetry={(personaId) => retryCard(m.runId, personaId)}
+              />
+            );
+          }
           return (
             <View key={m.id} style={styles.aiRow}>
               <View style={styles.avatar}>
@@ -340,6 +498,7 @@ export function ChatConversation({
                 ) : m.kind === 'mood' ? (
                   <View style={styles.moodCard}>
                     <Text style={styles.moodLead}>사진에서 이런 무드가 보여요</Text>
+                    {m.summary ? <Text style={styles.moodSummary}>{m.summary}</Text> : null}
                     <View style={styles.recTags}>
                       {m.tags.map((t: any) => (
                         <View key={t} style={styles.recTag}>
@@ -347,14 +506,32 @@ export function ChatConversation({
                         </View>
                       ))}
                     </View>
-                    <View style={styles.moodBtns}>
-                      <Pressable style={styles.moodPrimary} onPress={() => acceptMood(m.tags)}>
-                        <Text style={styles.moodPrimaryText}>이걸로 추천받기</Text>
-                      </Pressable>
-                      <Pressable style={styles.moodGhost} onPress={rejectMood}>
-                        <Text style={styles.moodGhostText}>아니에요</Text>
-                      </Pressable>
-                    </View>
+                    {/* 한 번 고른 뒤엔 버튼을 치우고 결과만 남긴다 — 결정은 서버에 저장돼
+                        다시 열어도 그대로고, 같은 카드를 두 번 고를 일이 없다. */}
+                    {m.decision === null ? (
+                      <View style={styles.moodBtns}>
+                        <Pressable
+                          style={styles.moodPrimary}
+                          disabled={deciding === m.attachmentId}
+                          onPress={() => decideMood(m.attachmentId, 'APPROVE')}>
+                          <Text style={styles.moodPrimaryText}>
+                            {deciding === m.attachmentId ? '반영하는 중…' : '이 무드로 추천받기'}
+                          </Text>
+                        </Pressable>
+                        <Pressable
+                          style={styles.moodGhost}
+                          disabled={deciding === m.attachmentId}
+                          onPress={() => decideMood(m.attachmentId, 'REJECT')}>
+                          <Text style={styles.moodGhostText}>아니에요</Text>
+                        </Pressable>
+                      </View>
+                    ) : (
+                      <Text style={styles.moodDecided}>
+                        {m.decision === 'APPROVED'
+                          ? '이 무드를 반영했어요. 이제 어떤 자리에 입을지 말해주세요.'
+                          : '이 무드는 반영하지 않았어요.'}
+                      </Text>
+                    )}
                   </View>
                 ) : (
                   <View style={styles.aiBubble}>
@@ -366,7 +543,10 @@ export function ChatConversation({
           );
         })}
 
-        {typing ? (
+        {/* 스타일리스트 카드가 이미 깔렸으면 타이핑 점은 띄우지 않는다 — 지금 답을 만드는 건
+            코지가 아니라 스타일리스트들이고, 그 진행은 카드가 각자 보여주고 있다.
+            (질문을 접수하는 잠깐은 카드가 아직 없어서 점이 뜬다. 그때는 맞는 표시다.) */}
+        {typing && !stylistPending ? (
           <View style={styles.aiRow}>
             <View style={styles.avatar}>
               <Text style={styles.avatarMark}>c</Text>
@@ -380,19 +560,47 @@ export function ChatConversation({
         ) : null}
       </ScrollView>
 
-      {/* 빠른 프롬프트 */}
-      <ScrollView
-        horizontal
-        showsHorizontalScrollIndicator={false}
-        style={styles.quickScroll}
-        contentContainerStyle={[styles.quickRow, widthStyle]}
-        keyboardShouldPersistTaps="handled">
-        {QUICK.map((q) => (
-          <Pressable key={q} style={styles.quickChip} onPress={() => setText(q)}>
-            <Text style={styles.quickText}>{q}</Text>
-          </Pressable>
-        ))}
-      </ScrollView>
+      {/* 모드 버튼 + 빠른 프롬프트.
+          모드 버튼은 스크롤 밖에 고정한다 — 지금 어떤 방식으로 답하는지는 늘 보여야 한다. */}
+      <View style={[styles.toolRow, widthStyle]}>
+        <Pressable
+          style={[styles.modeBtn, stylistOn && styles.modeBtnOn]}
+          onPress={openPicker}
+          accessibilityRole="button"
+          accessibilityState={{ selected: stylistOn }}
+          accessibilityLabel={
+            stylistOn
+              ? `스타일리스트 모드 켜짐, ${selectedNames.join(', ')}. 선택 바꾸기`
+              : '스타일리스트 모드 켜기'
+          }>
+          <Icon name="person.2" tintColor={stylistOn ? '#fff' : ink(0.55)} size={14} />
+          <Text style={[styles.modeBtnText, stylistOn && styles.modeBtnTextOn]} numberOfLines={1}>
+            {stylistOn && selectedNames.length > 0 ? selectedNames.join(' · ') : '스타일리스트'}
+          </Text>
+        </Pressable>
+
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          style={styles.quickScroll}
+          contentContainerStyle={styles.quickRow}
+          keyboardShouldPersistTaps="handled">
+          {QUICK.map((q) => (
+            <Pressable key={q} style={styles.quickChip} onPress={() => setText(q)}>
+              <Text style={styles.quickText}>{q}</Text>
+            </Pressable>
+          ))}
+        </ScrollView>
+      </View>
+
+      <StylistPicker
+        visible={pickerOpen}
+        active={stylistOn}
+        selectedIds={selectedIds}
+        onClose={() => setPickerOpen(false)}
+        onConfirm={enableStylists}
+        onTurnOff={disableStylists}
+      />
 
       {/* 입력 바 */}
       <SafeAreaView edges={isPanel ? [] : ['bottom']} style={styles.inputSafe}>
@@ -537,6 +745,10 @@ const styles = StyleSheet.create({
     backgroundColor: Editorial.surface,
   },
   moodLead: { fontSize: 13, color: Editorial.textSoft },
+  /** 서버가 읽어낸 한 줄 요약. 태그만으로는 왜 그렇게 읽었는지가 안 보인다. */
+  moodSummary: { fontSize: Type.footnote, color: INK, lineHeight: 20 },
+  /** 결정한 뒤 버튼 자리를 대신한다. */
+  moodDecided: { fontSize: Type.caption, color: Editorial.textSoft, lineHeight: 18 },
   moodBtns: { flexDirection: 'row', gap: 8, marginTop: 2 },
   moodPrimary: {
     height: 36,
@@ -559,9 +771,32 @@ const styles = StyleSheet.create({
   moodGhostText: { fontSize: 12.5, color: Editorial.textCaption },
   recCtaText: { fontSize: 13, fontWeight: '600', color: INK },
 
-  // 빠른 프롬프트
+  /* 모드 구분선 — 실패 줄과 같은 결(작고 조용하게). 가로선을 양옆에 둬서
+     '여기가 경계'라는 것이 글자 없이도 읽히게 한다. */
+  modeMarkRow: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 2 },
+  modeMarkLine: { flex: 1, height: 1, backgroundColor: Editorial.lineSoft },
+  modeMarkText: { fontSize: Type.micro, color: Editorial.textMuted },
+
+  // 모드 버튼 + 빠른 프롬프트
+  toolRow: { flexDirection: 'row', alignItems: 'center', paddingLeft: 16, gap: 8 },
+  modeBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    height: 34,
+    maxWidth: 190,
+    paddingHorizontal: 12,
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: ink(0.14),
+  },
+  /* 켜진 모드는 화면에서 유일하게 '지금 이게 켜져 있다'를 말해야 하는 자리라 면을 채운다. */
+  modeBtnOn: { backgroundColor: Editorial.selected, borderColor: Editorial.selected },
+  modeBtnText: { flexShrink: 1, fontSize: Type.caption, color: Editorial.textCaption, fontWeight: '500' },
+  modeBtnTextOn: { color: '#fff' },
+
   quickScroll: { flexGrow: 0, maxHeight: 52 },
-  quickRow: { paddingHorizontal: 16, gap: 8, paddingVertical: 8 },
+  quickRow: { paddingRight: 16, gap: 8, paddingVertical: 8, alignItems: 'center' },
   quickChip: {
     height: 34,
     justifyContent: 'center',
