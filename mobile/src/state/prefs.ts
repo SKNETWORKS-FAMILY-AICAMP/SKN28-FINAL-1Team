@@ -39,10 +39,33 @@ export const DEFAULT_CATEGORY_BUDGETS: CategoryBudgets = {
   액세서리: 50_000,
 };
 
+/**
+ * ⚠️ 두 필드 모두 **없을 수 있다.** `effective_category_budgets` 는 2026-08-13 에 백엔드에
+ * 들어왔는데, 그 전 버전이 떠 있는 서버는 이 필드 없이 응답한다. 그대로 스토어에 넣으면
+ * `effectiveCategoryBudgets` 가 undefined 가 되고, 그 값을 읽는 화면(룩북·룩 상세·위시·마이)이
+ * 통째로 흰 화면이 된다 — 실제로 그렇게 터졌다. 받는 쪽에서 반드시 메워 넣을 것(normalize).
+ */
 type BudgetResponse = {
-  category_budgets: CategoryBudgets;
-  effective_category_budgets: CategoryBudgets;
+  category_budgets?: CategoryBudgets | null;
+  effective_category_budgets?: CategoryBudgets | null;
 };
+
+/**
+ * 서버 응답을 화면이 믿고 쓸 수 있는 모양으로 맞춘다.
+ *
+ * effective = 기본값 위에 내가 정한 값을 덮은 것이다. 서버가 안 주면 여기서 같은 규칙으로
+ * 만든다 — 비로그인 저장 경로(saveBudget)가 쓰는 계산과 일부러 같게 뒀다.
+ */
+function fromBudgetResponse(
+  response: BudgetResponse,
+): Pick<Prefs, 'categoryBudgets' | 'effectiveCategoryBudgets'> {
+  const own = response.category_budgets ?? {};
+  return {
+    categoryBudgets: own,
+    effectiveCategoryBudgets:
+      response.effective_category_budgets ?? { ...DEFAULT_CATEGORY_BUDGETS, ...own },
+  };
+}
 
 let state: Prefs = {
   nickname: null,
@@ -64,11 +87,7 @@ export const prefsStore = {
     if (!isAuthed()) return;
     try {
       const response = await api.get<BudgetResponse>(BudgetEndpoint);
-      state = {
-        ...state,
-        categoryBudgets: response.category_budgets,
-        effectiveCategoryBudgets: response.effective_category_budgets,
-      };
+      state = { ...state, ...fromBudgetResponse(response) };
       emit();
     } catch {
       /* 예산은 없어도 화면이 도는 값이다 — 못 받아 왔다고 에러를 띄우지 않는다.
@@ -89,11 +108,7 @@ export const prefsStore = {
           category_budgets: normalized,
           effective_category_budgets: { ...DEFAULT_CATEGORY_BUDGETS, ...normalized },
         };
-    state = {
-      ...state,
-      categoryBudgets: response.category_budgets,
-      effectiveCategoryBudgets: response.effective_category_budgets,
-    };
+    state = { ...state, ...fromBudgetResponse(response) };
     emit();
   },
   setPersonalColor(c: string | null) {
@@ -134,8 +149,18 @@ function normalizeBudget(n: number): number {
   return Math.max(MIN_BUDGET, Math.round(n / MIN_BUDGET) * MIN_BUDGET);
 }
 
-/** 슬롯/대분류에 해당하는 상품 1개 예산. 레거시 '잡화' 슬롯은 가방으로 본다. */
-export function categoryBudget(values: CategoryBudgets, rawCategory: string): number | null {
+/**
+ * 슬롯/대분류에 해당하는 상품 1개 예산. 레거시 '잡화' 슬롯은 가방으로 본다.
+ *
+ * values 가 비어 있어도 터지지 않게 받는다 — 예산은 **없어도 화면이 도는 값**이라
+ * (loadBudget 의 catch 주석 참고) 여기서 예외가 나면 잃는 게 예산 표시 하나가 아니라
+ * 그 화면 전체다. 스토어에서 이미 메워 넣지만, 읽는 쪽도 한 번 더 막아 둔다.
+ */
+export function categoryBudget(
+  values: CategoryBudgets | null | undefined,
+  rawCategory: string,
+): number | null {
+  if (!values) return null;
   const category = rawCategory === '잡화'
     ? '가방'
     : BUDGET_CATEGORIES.find((candidate) => rawCategory.startsWith(candidate));
