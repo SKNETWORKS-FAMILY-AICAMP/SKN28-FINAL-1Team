@@ -4,7 +4,7 @@ import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-nati
 import { Icon, type IconName } from '@/components/icon';
 import { Skeleton, SmartImage } from '@/components/ui';
 import { Editorial, ink, Type } from '@/constants/theme';
-import type { StylistId } from '@/lib/stylistApi';
+import { isStylistMocked, type StylistId } from '@/lib/stylistApi';
 import type { StylistCard } from '@/state/chat';
 import { reasonLabel } from '@/state/stylist';
 
@@ -45,8 +45,21 @@ export function StylistCardGroup({
   onAlternative: (personaId: StylistId) => void;
   onRetry: (personaId: StylistId) => void;
 }) {
+  /* 목업으로 그리는 중이면 숨기지 않고 말한다. 지어낸 코디를 진짜 추천으로 읽고
+     스크린샷이 돌아다니면 그게 더 큰 문제가 된다. (판정은 첫 목록 조회에서 이미 끝나 있어
+     카드가 그려질 시점엔 값이 바뀌지 않는다 — 구독하지 않아도 된다.) */
+  const mocked = isStylistMocked();
+
   return (
     <View style={styles.group}>
+      {mocked ? (
+        <View style={styles.mockNote}>
+          <Icon name="exclamationmark.triangle" tintColor={Editorial.textMuted} size={11} />
+          <Text style={styles.mockNoteText}>
+            서버에 스타일리스트 API가 아직 없어 예시로 그린 카드예요
+          </Text>
+        </View>
+      ) : null}
       {cards.map((card) => (
         <StylistOutfitCard
           key={card.personaId}
@@ -152,7 +165,9 @@ function StylistOutfitCard({
             </Text>
           ))}
 
-          {/* 상세 근거 — 접어 둔다. 펼치기 전에는 몇 개인지만 알려 준다. */}
+          {/* 점수에 반영된 항목들 — 접어 둔다. 펼치기 전에는 몇 개인지만 알려 준다.
+              '충족한 조건'이 아니라 '따져본 것'이다. 감점된 항목도 섞여 들어오기 때문에
+              충족 표시로 읽히면 안 된다 (state/stylist.ts 의 REASON_LABELS 주석). */}
           {card.reasonCodes.length > 0 ? (
             <View style={styles.reasons}>
               <Pressable
@@ -160,7 +175,7 @@ function StylistOutfitCard({
                 onPress={() => setOpenReasons((v) => !v)}
                 accessibilityRole="button"
                 accessibilityState={{ expanded: openReasons }}>
-                <Text style={styles.reasonToggleText}>상세 근거 {card.reasonCodes.length}</Text>
+                <Text style={styles.reasonToggleText}>따져본 것 {card.reasonCodes.length}</Text>
                 <Icon
                   name={openReasons ? 'chevron.up' : 'chevron.down'}
                   tintColor={Editorial.textCaption}
@@ -213,6 +228,9 @@ function StylistOutfitCard({
 
 const styles = StyleSheet.create({
   group: { alignSelf: 'stretch', gap: 10 },
+  /* 목업 알림 — 카드보다 조용해야 한다. 경고가 아니라 사실 표시다. */
+  mockNote: { flexDirection: 'row', alignItems: 'center', gap: 5 },
+  mockNoteText: { flex: 1, fontSize: Type.micro, color: Editorial.textMuted, lineHeight: 16 },
   card: {
     borderWidth: 1,
     borderColor: Editorial.line,

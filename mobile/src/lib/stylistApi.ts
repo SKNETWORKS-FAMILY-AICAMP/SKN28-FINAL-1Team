@@ -1,4 +1,4 @@
-import { ChatEndpoints, RecommendEndpoints } from '@/constants/config';
+import { ALLOW_STYLIST_MOCK, ChatEndpoints, RecommendEndpoints } from '@/constants/config';
 import { api, ApiError } from '@/lib/apiClient';
 import type { ApiChatRun } from '@/lib/chatApi';
 import type { ApiRecommendationItem } from '@/lib/recommendApi';
@@ -167,7 +167,9 @@ async function probeAndList(): Promise<ApiStylistCatalog> {
     return out;
   } catch (e) {
     const routeAbsent = e instanceof ApiError && (e.status === 404 || e.status === 405);
-    if (missing === null && routeAbsent) {
+    /* 배포 빌드에서는 404 도 그냥 오류로 올린다 — 목업이 장애를 가리면 사용자가 지어낸
+       코디를 진짜로 받아들인다 (constants/config.ts 의 ALLOW_STYLIST_MOCK 주석). */
+    if (missing === null && routeAbsent && ALLOW_STYLIST_MOCK) {
       missing = true;
       warnOnce();
       return stylistMock.listStylists();
@@ -237,16 +239,23 @@ export async function getStylistRun(
 ): Promise<ApiStylistRun> {
   if (missing === true) return stylistMock.getRun(runId, hint);
   const run = await api.get<ApiStylistRun>(ChatEndpoints.run(runId));
-  if (!Array.isArray(run.results)) {
-    // 라우트는 있는데 results 가 없다 = 스타일리스트 기능 이전 버전의 서버다.
+
+  if (Array.isArray(run.results)) {
+    missing = false;
+    return run;
+  }
+
+  // 라우트는 있는데 results 가 없다 = 스타일리스트 기능 이전 버전의 서버다.
+  if (ALLOW_STYLIST_MOCK) {
     if (missing === null) {
       missing = true;
       warnOnce();
     }
     return stylistMock.getRun(runId, hint);
   }
-  missing = false;
-  return run;
+  /* 배포 빌드에서는 조용히 목업으로 넘어가지 않는다. 여기서 run 을 그대로 돌려주면
+     부르는 쪽이 results.length 에서 터지므로, 무엇이 잘못됐는지 말하고 끝낸다. */
+  throw new Error('서버 응답에 스타일리스트 결과가 없어요. 잠시 후 다시 시도해 주세요.');
 }
 
 /** 실패한 스타일리스트 한 명만 다시 실행. 본문 없음, 같은 run 을 다시 폴링한다. */

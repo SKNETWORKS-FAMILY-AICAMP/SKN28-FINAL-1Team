@@ -122,36 +122,43 @@ export function useStylists() {
  * 값은 백엔드가 실제로 만드는 것들이다 (api/apps/chat/services/*_stylist_strategy.py).
  * 모르는 코드는 지어내지 않고 코드 그대로 보여준다 — 뜻을 추측해 붙이면 없는 근거가 생긴다.
  *
+ * ⚠️ **이 코드들은 "조건을 충족했다"는 뜻이 아니다.** 점수 계산에 쓰인 항목의 이름일 뿐이고,
+ *    **감점된 항목도 그대로 들어온다.** 보정값이
+ *      delta = (score - 0.5) * 2 * weight * SCALE
+ *    이라 점수가 0.5 미만이면 음수인데, reason_codes 는 부호를 가리지 않고 전부 모은다
+ *    (stylist_strategy.py 의 `[row.reason_code for row in adjustments]` — 거르는 곳이 없다).
+ *
+ *    그래서 문구는 **무엇을 따져봤는지**까지만 말한다. "날씨에 맞아요" 처럼 결과를 단정하면
+ *    날씨 적합도가 낮아서 감점된 카드에도 그 말이 붙어 거짓말이 된다.
+ *    실제 추천 이유는 백엔드가 검증된 사실로만 만든 카드 본문 한 문장(`message`)이 말한다.
+ *
  * ⚠️ 코드가 나오는 자리가 **두 군데**다. `_REASON_CODES` 딕셔너리만 보면 빠뜨린다
  *    (실제로 PRACTICAL_PREFERENCE_TPO_FIT·PRACTICAL_RECENT_HISTORY 를 그렇게 놓쳤다).
  *    새 페르소나가 붙으면 `git grep -nE 'reason_code\s*=' -- api/apps/chat/services/` 로 훑을 것.
- *
- * 문구는 **무엇을 쟀는지**까지만 말하고 결과를 단정하지 않는다. 한 코드가 가점·감점 양쪽에
- * 쓰이는 경우가 있어서(PRACTICAL_RECENT_HISTORY) "겹치지 않아요"처럼 단정하면 틀릴 수 있다.
  */
 const REASON_LABELS: Record<string, string> = {
-  MINIMAL_COLOR_COHESION: '색을 정돈했어요',
-  MINIMAL_SILHOUETTE_CONSISTENCY: '실루엣을 일관되게 맞췄어요',
-  MINIMAL_VISUAL_SIMPLICITY: '요소 수를 줄였어요',
-  MINIMAL_WARDROBE_REUSABILITY: '옷장에서 다시 쓰기 쉬워요',
-  MINIMAL_TPO_FIT: '자리에 맞아요',
-  MINIMAL_RECENT_HISTORY: '최근 추천을 참고했어요',
+  MINIMAL_COLOR_COHESION: '색 정돈',
+  MINIMAL_SILHOUETTE_CONSISTENCY: '실루엣 일관성',
+  MINIMAL_VISUAL_SIMPLICITY: '시각적 단순함',
+  MINIMAL_WARDROBE_REUSABILITY: '옷장 활용도',
+  MINIMAL_TPO_FIT: '자리 적합도',
+  MINIMAL_RECENT_HISTORY: '최근 추천 이력',
 
-  EXPERIMENTAL_NOVELTY: '평소와 다른 조합이에요',
-  EXPERIMENTAL_HISTORY_DISTANCE: '최근 추천과 거리를 뒀어요',
-  EXPERIMENTAL_UNDERUSED_ITEM: '덜 입은 옷을 꺼냈어요',
-  EXPERIMENTAL_CROSS_STYLE: '다른 결의 스타일을 섞었어요',
-  EXPERIMENTAL_HYPOTHESIS_ALIGNMENT: '탐색한 방향과 맞아요',
-  EXPERIMENTAL_RECENT_HISTORY: '최근 착용을 참고했어요',
+  EXPERIMENTAL_NOVELTY: '새로움',
+  EXPERIMENTAL_HISTORY_DISTANCE: '최근 추천과의 거리',
+  EXPERIMENTAL_UNDERUSED_ITEM: '덜 입은 옷 활용',
+  EXPERIMENTAL_CROSS_STYLE: '스타일 교차',
+  EXPERIMENTAL_HYPOTHESIS_ALIGNMENT: '탐색 방향과의 정합',
+  EXPERIMENTAL_RECENT_HISTORY: '최근 착용 이력',
 
-  PRACTICAL_WEATHER_FIT: '날씨에 맞아요',
-  PRACTICAL_ACTIVITY_FIT: '활동량에 맞아요',
-  PRACTICAL_WEARING_CONVENIENCE: '입고 벗기 편해요',
-  PRACTICAL_MAINTENANCE_EASE: '관리하기 쉬워요',
-  PRACTICAL_WARDROBE_BUDGET_EFFICIENCY: '옷장·예산을 아꼈어요',
+  PRACTICAL_WEATHER_FIT: '날씨 적합도',
+  PRACTICAL_ACTIVITY_FIT: '활동량 적합도',
+  PRACTICAL_WEARING_CONVENIENCE: '착용 편의성',
+  PRACTICAL_MAINTENANCE_EASE: '관리 편의성',
+  PRACTICAL_WARDROBE_BUDGET_EFFICIENCY: '옷장·예산 효율',
   // tag_confidence·tpo_fit·preference_fit 의 평균이다 — 취향과 자리를 함께 본다.
-  PRACTICAL_PREFERENCE_TPO_FIT: '취향과 자리에 맞아요',
-  PRACTICAL_RECENT_HISTORY: '최근 착용을 참고했어요',
+  PRACTICAL_PREFERENCE_TPO_FIT: '취향·자리 적합도',
+  PRACTICAL_RECENT_HISTORY: '최근 착용 이력',
 };
 
 export function reasonLabel(code: string): string {

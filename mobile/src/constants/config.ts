@@ -369,6 +369,19 @@ export const ChatEndpoints = {
  * 채팅 답변이 추천까지 만들면 그 메시지의 metadata.recommendation_result_id 로 여기를 부른다.
  * 카드 하나가 코디 한 벌이고, 그 안의 items 가 착장 아이템이다.
  */
+/**
+ * 스타일리스트 API 가 없을 때 목업으로 대신 그려도 되는지 (lib/stylistApi.ts).
+ *
+ * ⚠️ **배포된 실서버에서는 켜면 안 된다.** 게이트웨이 설정이 틀려 404 가 나는 상황까지
+ *    "라우트가 아직 없구나"로 삼켜 버리면, 사용자에게 **지어낸 코디**를 진짜 추천인 것처럼
+ *    보여주게 된다. 장애가 목업 뒤에 숨는 쪽이 오류 화면보다 나쁘다.
+ *
+ * 그래서 기본은 개발 빌드에서만 열어 둔다. 팀원 체험용 웹 배포처럼 백엔드가 아직 안 붙은
+ * 곳에서 화면을 보여줘야 하면 그 빌드에만 EXPO_PUBLIC_STYLIST_MOCK=1 을 준다.
+ */
+export const ALLOW_STYLIST_MOCK =
+  __DEV__ || process.env.EXPO_PUBLIC_STYLIST_MOCK === '1';
+
 export const RecommendEndpoints = {
   result: (resultId: string) => `/api/v1/recommendations/${resultId}/`,
   /** 카드 한 장을 내 룩으로 저장 — 스타일리스트 카드의 '이 코디로 할래요'가 부른다.
