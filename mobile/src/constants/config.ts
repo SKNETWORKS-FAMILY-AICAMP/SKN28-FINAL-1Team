@@ -293,6 +293,8 @@ export const CalendarEndpoints = {
 export const BudgetEndpoint = '/api/v1/users/me/budget/';
 
 export const LookbookEndpoints = {
+  discover: '/api/v1/lookbooks/discover/',
+  discoverDetail: (lookId: string) => `/api/v1/lookbooks/discover/${lookId}/`,
   list: '/api/v1/lookbooks/',
   /* 전체 공개된 룩 — 앱 '둘러보기'가 읽는 목록. 비회원도 볼 수 있다. */
   publicFeed: '/api/v1/lookbooks/public/',

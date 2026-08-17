@@ -206,6 +206,7 @@ output
 # Local docs/artifacts
 docs/*
 !docs/wardrobe-product-import-investigation.md
+!docs/lookbook-admin-csv-guide.md
 main
 input
 nohup.out
