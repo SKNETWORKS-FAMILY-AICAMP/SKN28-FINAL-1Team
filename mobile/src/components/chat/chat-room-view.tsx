@@ -1,5 +1,5 @@
 import { router } from 'expo-router';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Modal, Pressable, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
@@ -7,11 +7,11 @@ import { ChatConversation } from '@/components/chat/chat-conversation';
 import { SessionList } from '@/components/chat/session-list';
 import { ChatSessionSheet } from '@/components/chat/session-sheet';
 import { Icon } from '@/components/icon';
-import { EmptyState } from '@/components/ui';
+import { EmptyState, LoadingState } from '@/components/ui';
 import { ChatPanelWidth, ContentMax, Editorial, ink } from '@/constants/theme';
 import { useBreakpoint } from '@/hooks/use-breakpoint';
 import { goBack } from '@/lib/goBack';
-import { CHAT_MODE_META, useChatSession, useLatestSession } from '@/state/chat';
+import { chatStore, CHAT_MODE_META, useChatSession, useChatStatus, useLatestSession } from '@/state/chat';
 
 const INK = Editorial.ink;
 
@@ -38,9 +38,34 @@ export function ChatRoomView({
   const requested = useChatSession(sessionId);
   const latest = useLatestSession();
   const session = requested ?? latest;
+  const { loadedOnce } = useChatStatus();
+
+  /**
+   * 목록을 여기서도 받아온다.
+   *
+   * ⚠️ 지난 대화 패널(SessionList)이 목록을 받아 오지만, 그 패널은 **대화가 있을 때만**
+   *    그려진다. 그래서 목록을 한 번도 못 받은 채로 들어오면
+   *    "대화 없음 → 패널 안 뜸 → 목록을 받을 일이 영영 없음" 으로 갇힌다.
+   *    넓은 화면의 /chat 이 대화가 있는데도 "이어갈 대화가 없어요" 를 띄우던 원인이다
+   *    (좁은 화면은 SessionList 가 바로 떠서 멀쩡했다 — 그래서 폭에 따라 달라 보였다).
+   *    이미 받아 뒀으면 건너뛴다. 갱신은 패널 쪽이 계속 맡는다.
+   */
+  useEffect(() => {
+    if (!loadedOnce) chatStore.loadSessions().catch(() => {});
+  }, [loadedOnce]);
 
   const [managing, setManaging] = useState(false);
   const [listOpen, setListOpen] = useState(false);
+
+  /* 아직 한 번도 못 받아온 것과 정말 없는 것은 다르다. 받아오기 전에 "대화 없음" 을 그리면
+     대화가 있는 사람에게도 그 화면이 먼저 보인다 (SessionList 의 firstLoad 와 같은 이유). */
+  if (!session && !loadedOnce) {
+    return (
+      <View style={styles.container}>
+        <LoadingState message="대화를 불러오는 중…" />
+      </View>
+    );
+  }
 
   /* 이어 붙일 대화가 없으면(전부 삭제했거나 처음이거나) 모드부터 고르게 한다.
      여기서 대화를 몰래 만들면, 마지막 대화를 지우고 나온 직후 빈 '새 대화'가 되살아난다. */
