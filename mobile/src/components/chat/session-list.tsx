@@ -109,7 +109,7 @@ export function SessionList({
      대화도 결과에 나온다(앱이 받아둔 것만 훑던 때는 제목으로만 걸렸다). */
   const search = useSessionSearch(query);
 
-  const { loading, error } = useChatStatus();
+  const { loadedOnce, error } = useChatStatus();
   const reload = useCallback(() => chatStore.loadSessions(), []);
   const { refreshing, onRefresh } = useRefresh(reload);
 
@@ -120,9 +120,10 @@ export function SessionList({
   }, [reload]);
 
   const isEmpty = groups.every((g) => g.sessions.length === 0);
-  /* 처음 불러오는 중과 '정말 없음'은 다르다. 이미 목록이 있으면 갱신 중이어도 그대로 보여준다. */
-  const firstLoad = loading && isEmpty;
-  const failedEmpty = !loading && error !== null && isEmpty;
+  /* 아직 한 번도 못 받아온 상태를 '대화 없음'으로 그리면, 화면에 들어서는 순간
+     "새 채팅 시작하기"가 한 프레임 번쩍인다. 받아오기 전에는 로딩으로 둔다. */
+  const firstLoad = !loadedOnce && error === null;
+  const failedEmpty = error !== null && isEmpty;
 
   const open = (id: string) => {
     router.push({ pathname: '/chat-room', params: { id } });

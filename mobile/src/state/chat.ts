@@ -9,10 +9,10 @@ import {
   newClientMessageId,
   pageMessages as apiPageMessages,
   renameSession as apiRenameSession,
-  requestMoodAnalysis as apiRequestMoodAnalysis,
   searchSessions as apiSearchSessions,
   sendMessage as apiSendMessage,
-  uploadPhoto as apiUploadPhoto,
+  startMoodAnalysis as apiStartMoodAnalysis,
+  uploadAttachment as apiUploadAttachment,
   type ApiChatMessage,
   type ApiChatMode,
   type ApiChatRun,
@@ -20,13 +20,30 @@ import {
   type ApiChatSessionSearchItem,
   type ApiMoodDecision,
   type ApiMoodDecisionInput,
+  type ApiMoodAnalysis,
 } from '@/lib/chatApi';
-import { isAnswered, waitForRun } from '@/lib/chatStream';
+import { isAnswered, waitForRun, waitForStylistRun } from '@/lib/chatStream';
 import {
   getRecommendationResult,
   imageUrlOf,
   type ApiRecommendationCard,
+  type ApiRenderJob,
+  type ApiRenderStatus,
 } from '@/lib/recommendApi';
+import {
+  getStylistRun,
+  getCardRenderStatus as apiGetCardRenderStatus,
+  requestAlternative as apiRequestAlternative,
+  renderCard as apiRenderCard,
+  retryPersona as apiRetryPersona,
+  saveCard as apiSaveCard,
+  updateResponseMode as apiUpdateResponseMode,
+  type ApiPersonaResult,
+  type ApiResponseMode,
+  type ApiStylistRun,
+  type StylistId,
+} from '@/lib/stylistApi';
+import { stylistStore } from '@/state/stylist';
 
 /**
  * 채팅 세션 — 목록(C1)·대화(C2)·모드 선택(C3)이 같은 출처를 봐야 하므로 여기로 모았다.
@@ -90,10 +107,13 @@ export type ChatMessage =
       id: string;
       role: 'ai';
       kind: 'mood';
-      /** 승인·거절을 보낼 대상. 카드를 만든 첨부 사진이다. */
+      /** 결정을 보낼 때 필요하다. 카드가 어느 사진에서 나왔는지도 이 값으로 안다. */
       attachmentId: string;
       tags: string[];
-      decision: ApiMoodDecision;
+      summary: string;
+      /** null 이면 아직 안 고른 상태 — 그때만 버튼을 보여준다. */
+      decision: 'APPROVED' | 'REJECTED' | null;
+      //decision: ApiMoodDecision;
     }
   /**
    * 답변을 못 받은 질문 아래에 남기는 줄.
@@ -114,13 +134,73 @@ export type ChatMessage =
       /** 새로 사야 하는 상품 합계. 옷장 옷만으로 짠 코디면 0 이라 표시하지 않는다. */
       totalPrice: number | null;
       warnings: string[];
+    }
+  /**
+   * 응답 모드가 바뀐 자리에 남기는 줄. **말풍선이 아니다** — 오간 말이 아니라 상태 표시라,
+   * 실패 줄과 같은 결로 그린다. 여기부터 답하는 방식이 달라졌음을 되돌아봤을 때 알 수 있게 한다.
+   */
+  | {
+      id: string;
+      role: 'ai';
+      kind: 'mode';
+      mode: ApiResponseMode;
+      /** STYLIST 일 때 답할 사람들의 이름 */
+      names: string[];
+    }
+  /** 스타일리스트별 카드 묶음. 인원수만큼 자리가 먼저 생기고 끝난 것부터 채워진다. */
+  | {
+      id: string;
+      role: 'ai';
+      kind: 'stylist';
+      runId: string;
+      cards: StylistCard[];
     };
+
+/**
+ * 스타일리스트 한 명이 내놓은 카드의 화면용 모양.
+ * 아직 안 끝났으면 status 가 PENDING/RUNNING 이고 items 는 비어 있다 — 그 상태로도 자리는 있다.
+ */
+export type StylistCard = {
+  personaId: StylistId;
+  name: string;
+  /** 카드 순서를 고정하는 값. 끝난 순서로 자리가 바뀌면 볼 때마다 위치가 달라진다. */
+  order: number;
+  status: 'PENDING' | 'RUNNING' | 'SUCCEEDED' | 'FAILED';
+  /** 페르소나 관점의 핵심 문장 하나 */
+  message: string;
+  /** 접힌 영역에 보여줄 근거 코드 (state/stylist.ts 의 reasonLabel 로 옮겨 그린다) */
+  reasonCodes: string[];
+  items: RecItem[];
+  totalPrice: number | null;
+  warnings: string[];
+  /** '이 코디로 할래요'·'다른 추천'에 필요하다. 아직 결과가 없으면 null. */
+  resultId: string | null;
+  cardId: string | null;
+  errorText: string | null;
+  /** 다른 추천을 받는 중. 지금 카드는 남겨 두고 표시만 바꾼다. */
+  alternating: boolean;
+  alternativeCount: number;
+  saved: boolean;
+  /** 선택한 카드에만 생기는 코디 이미지 작업 상태. */
+  renderStatus: ApiRenderStatus | null;
+  renderImageUrl: string | null;
+  renderErrorText: string | null;
+};
 
 export type ChatSession = {
   id: string;
   mode: ChatMode;
   title: string;
+  /** 서버가 가진 대화의 사본. 새로고침하면 이 배열은 통째로 다시 만들어진다. */
   messages: ChatMessage[];
+  /**
+   * 화면에 그릴 순서 — messages 에 스타일리스트 카드·모드 구분선을 끼워 넣은 것.
+   *
+   * 왜 따로 두는가 — 그 둘은 **서버 대화에 없다**. 카드는 run 에 딸린 것이고 구분선은 앱이
+   * 남기는 표시라, 대화를 새로 받아오면(loadMessages) 사라진다. 그래서 messages 는 서버
+   * 사본으로 두고, 끼워 넣은 결과를 여기에 따로 만든다. 화면은 이쪽만 그린다.
+   */
+  timeline: ChatMessage[];
   /** 대화를 한 번이라도 열어 메시지를 받아왔는지. 목록만 받은 세션은 false 다. */
   messagesLoaded: boolean;
   /**
@@ -128,6 +208,10 @@ export type ChatSession = {
    * 화면은 이 값으로 '이전 대화 더 보기'를 그릴지 정한다.
    */
   olderCursor: string | null;
+  /** 다음 질문을 어떻게 답할지. 대화방을 옮기지 않고 이 값만 바뀐다. */
+  responseMode: ApiResponseMode;
+  /** STYLIST 일 때 답할 스타일리스트들 (1~3명). 끄더라도 지우지 않는다 — 다시 켜면 복원한다. */
+  selectedPersonaIds: StylistId[];
   updatedAt: number;
 };
 
@@ -181,46 +265,46 @@ function toRecMessage(
   };
 }
 
-function metaString(api: ApiChatMessage, key: string): string {
-  const value = api.metadata?.[key];
-  return typeof value === 'string' ? value : '';
-}
-
-/** 사진 무드 결정 상태는 **첨부**에 붙어 있다(무드 카드를 만든 AI 메시지가 아니라). */
-function decisionsOf(list: ApiChatMessage[]): Map<string, ApiMoodDecision> {
-  const map = new Map<string, ApiMoodDecision>();
-  for (const message of list) {
-    for (const attachment of message.attachments) {
-      map.set(attachment.id, attachment.mood_decision ?? 'UNDECIDED');
-    }
-  }
-  return map;
-}
-
 /**
- * 사진 분석 답변 → 무드 카드.
- * 서버가 붙인 message_kind='mood' 로 알아본다. 태그가 비어 있으면 물어볼 것이 없으니
- * 카드를 만들지 않고 서버가 쓴 문장을 그대로 말풍선으로 보여준다.
+ * 무드 분석이 끝나면 서버가 **답변 메시지**를 하나 남긴다
+ * (metadata.message_kind === 'mood', "사진에서 … 무드가 보여요. 반영할까요?").
+ *
+ * 그 메시지를 글 말풍선으로 그리는 대신 카드로 바꾼다. 카드가 같은 내용에 태그와
+ * 선택 버튼까지 담고 있어서, 둘 다 그리면 같은 말이 연달아 두 번 나온다.
+ *
+ * 결정 상태(APPROVED/REJECTED)는 메시지가 아니라 **첨부**에 남으므로 밖에서 찾아 넣는다.
  */
 function toMoodMessage(
   api: ApiChatMessage,
-  decisions: Map<string, ApiMoodDecision>,
+  decisions: Map<string, ApiMoodDecision | null>,
 ): ChatMessage | null {
-  if (metaString(api, 'message_kind') !== 'mood') return null;
-  const attachmentId = metaString(api, 'attachment_id');
-  const rawTags = (api.metadata?.mood_analysis as { tags?: unknown } | undefined)?.tags;
-  const tags = Array.isArray(rawTags)
-    ? rawTags.filter((tag): tag is string => typeof tag === 'string' && tag.length > 0)
-    : [];
-  if (!attachmentId || tags.length === 0) return null;
+  const meta = api.metadata ?? {};
+  if (meta.message_kind !== 'mood') return null;
+  const analysis = (meta.mood_analysis ?? {}) as Partial<ApiMoodAnalysis>;
+  const tags = analysis.tags ?? [];
+  const attachmentId = typeof meta.attachment_id === 'string' ? meta.attachment_id : '';
+  if (tags.length === 0 || !attachmentId) return null;
+
+  const decided = decisions.get(attachmentId);
   return {
     id: api.id,
     role: 'ai',
     kind: 'mood',
     attachmentId,
     tags,
-    decision: decisions.get(attachmentId) ?? 'UNDECIDED',
+    summary: analysis.summary ?? '',
+    // UNDECIDED 와 null 은 같은 뜻으로 다룬다 — 아직 안 고른 것.
+    decision: decided === 'APPROVED' || decided === 'REJECTED' ? decided : null,
   };
+}
+
+/** 첨부에만 있는 결정 상태를 attachment_id 로 찾을 수 있게 모은다. */
+function collectDecisions(list: ApiChatMessage[]): Map<string, ApiMoodDecision | null> {
+  const map = new Map<string, ApiMoodDecision | null>();
+  for (const m of list) {
+    for (const a of m.attachments) map.set(a.id, a.mood_decision);
+  }
+  return map;
 }
 
 /**
@@ -232,7 +316,7 @@ function toMoodMessage(
 function toMessages(
   api: ApiChatMessage,
   cards: ApiRecommendationCard[] = [],
-  decisions: Map<string, ApiMoodDecision> = new Map(),
+  decisions: Map<string, ApiMoodDecision | null> = new Map(),
 ): ChatMessage[] {
   if (api.role !== 'USER' && api.role !== 'ASSISTANT') return [];
   const role = api.role === 'USER' ? 'user' : 'ai';
@@ -250,6 +334,14 @@ function toMessages(
       out.push({ id: `${api.id}-a${a.id}`, role: 'user', kind: 'image', uri: a.image_url ?? undefined });
     }
   }
+
+  // 무드 답변은 글 대신 카드로 그린다 (toMoodMessage 주석 참고).
+  const mood = role === 'ai' ? toMoodMessage(api, decisions) : null;
+  if (mood) {
+    out.push(mood);
+    return out;
+  }
+
   const text = api.content.trim();
   if (text) out.push({ id: api.id, role, kind: 'text', text });
   /* 카드가 있다는 건 이 답변에 추천 id 가 붙어 있다는 뜻이다(카드를 그걸로 받아왔다).
@@ -308,6 +400,38 @@ async function fetchCards(list: ApiChatMessage[]): Promise<Map<string, ApiRecomm
   return byMessage;
 }
 
+/** 스타일리스트 답변은 metadata에 run_id와 recommendation_result_ids 배열을 함께 남긴다. */
+function stylistRunIdOf(message: ApiChatMessage): string | null {
+  if (message.role !== 'ASSISTANT') return null;
+  if (!Array.isArray(message.metadata?.recommendation_result_ids)) return null;
+  const runId = message.metadata?.run_id;
+  return typeof runId === 'string' && runId ? runId : null;
+}
+
+/** 다시 연 대화에서도 스타일리스트 카드를 복원할 수 있도록 메시지가 가리키는 run을 조회한다. */
+async function fetchStylistRuns(list: ApiChatMessage[]): Promise<Map<string, ApiStylistRun>> {
+  const targets = list
+    .map((message) => ({ messageId: message.id, runId: stylistRunIdOf(message) }))
+    .filter((target): target is { messageId: string; runId: string } => target.runId !== null);
+  if (targets.length === 0) return new Map();
+
+  const uniqueRunIds = [...new Set(targets.map((target) => target.runId))];
+  const fetched = await Promise.all(
+    uniqueRunIds.map((runId) =>
+      getStylistRun(runId)
+        .then((run) => [runId, run] as const)
+        .catch(() => [runId, null] as const),
+    ),
+  );
+  const byRunId = new Map(fetched);
+  const byMessage = new Map<string, ApiStylistRun>();
+  for (const target of targets) {
+    const run = byRunId.get(target.runId);
+    if (run) byMessage.set(target.messageId, run);
+  }
+  return byMessage;
+}
+
 function toSession(api: ApiChatSession, previous?: ChatSession): ChatSession {
   return {
     id: api.id,
@@ -315,8 +439,13 @@ function toSession(api: ApiChatSession, previous?: ChatSession): ChatSession {
     title: api.title,
     // 목록 갱신이 이미 받아둔 대화를 지우면 안 된다.
     messages: previous?.messages ?? [],
+    timeline: previous?.timeline ?? [],
     messagesLoaded: previous?.messagesLoaded ?? false,
     olderCursor: previous?.olderCursor ?? null,
+    /* ⚠️ 서버가 이 필드를 **안 줄 수도 있다**(배포 서버가 아직 스타일리스트 이전 버전).
+       없을 때 DEFAULT 로 덮으면 방금 켠 모드가 목록 새로고침 한 번에 꺼진다. */
+    responseMode: api.response_mode ?? previous?.responseMode ?? 'DEFAULT',
+    selectedPersonaIds: api.selected_persona_ids ?? previous?.selectedPersonaIds ?? [],
     updatedAt: new Date(api.last_message_at || api.updated_at).getTime(),
   };
 }
@@ -338,13 +467,14 @@ const SEARCH_PAGE_SIZE = 20;
 function forgetRaw(id: string): void {
   rawMessages.delete(id);
   rawCards.delete(id);
+  overlays.delete(id);
 }
 
 /** 받아둔 원본 → 말풍선. 페이지를 더 받거나 결정이 바뀔 때마다 다시 만든다. */
 function rebuild(id: string): void {
   const list = rawMessages.get(id) ?? [];
   const cards = rawCards.get(id) ?? new Map<string, ApiRecommendationCard[]>();
-  const decisions = decisionsOf(list);
+  const decisions = collectDecisions(list);
   replaceSession(id, (s) => ({
     ...s,
     messages: list.flatMap((m) => toMessages(m, cards.get(m.id), decisions)),
@@ -387,10 +517,372 @@ function canStitch(id: string, incoming: ApiChatMessage[]): boolean {
   return incoming[0].sequence <= held[held.length - 1].sequence + 1;
 }
 
+/* ── 타임라인에 끼워 넣는 것들 ───────────────────────
+   서버 메시지 배열에 직접 들어있지 않은 모드 구분선·스타일리스트 카드를 세션별로 들고 있다가
+   messages 사이에 끼워 넣는다. 붙는 자리는 **바로 앞 말풍선의 id** 로 기억한다 —
+   대화를 다시 받아와도 그 말풍선은 같은 id 로 돌아오므로 자리를 잃지 않는다.
+   스타일리스트 카드는 메시지 metadata의 run_id로 다시 조회해 복원하고, 화면에서만 만든
+   모드 구분선은 현재 실행 동안만 유지한다. */
+
+type Overlay = { id: string; after: string | null; message: ChatMessage };
+
+const overlays = new Map<string, Overlay[]>();
+
+function overlaysOf(sessionId: string): Overlay[] {
+  return overlays.get(sessionId) ?? [];
+}
+
+/** messages 에 끼워 넣어 화면에 그릴 순서를 만든다. */
+function buildTimeline(sessionId: string, messages: ChatMessage[]): ChatMessage[] {
+  const list = overlaysOf(sessionId);
+  if (list.length === 0) return messages;
+
+  const byAnchor = new Map<string, ChatMessage[]>();
+  const head: ChatMessage[] = [];
+  const anchors = new Set(messages.map((m) => m.id));
+  /* 앵커를 못 찾은 것 = 방금 만들어져 아직 서버 대화에 없는 말풍선에 붙은 경우.
+     맨 뒤로 보낸다 — 실제로도 지금 대화의 끝이다. */
+  const orphans: ChatMessage[] = [];
+
+  for (const o of list) {
+    if (o.after === null) head.push(o.message);
+    else if (anchors.has(o.after)) {
+      const bucket = byAnchor.get(o.after) ?? [];
+      bucket.push(o.message);
+      byAnchor.set(o.after, bucket);
+    } else orphans.push(o.message);
+  }
+
+  const out: ChatMessage[] = [...head];
+  for (const m of messages) {
+    out.push(m);
+    const attached = byAnchor.get(m.id);
+    if (attached) out.push(...attached);
+  }
+  return [...out, ...orphans];
+}
+
+/** 끼워 넣은 것이 바뀌었을 때 화면용 순서를 다시 만든다 (replaceSession 이 알아서 계산한다). */
+function rebuildTimeline(sessionId: string) {
+  replaceSession(sessionId, (s) => s);
+}
+
+function addOverlay(sessionId: string, overlay: Overlay) {
+  overlays.set(sessionId, [...overlaysOf(sessionId), overlay]);
+  rebuildTimeline(sessionId);
+}
+
+function updateOverlay(sessionId: string, overlayId: string, message: ChatMessage) {
+  overlays.set(
+    sessionId,
+    overlaysOf(sessionId).map((o) => (o.id === overlayId ? { ...o, message } : o)),
+  );
+  rebuildTimeline(sessionId);
+}
+
+/** 붙는 자리를 옮긴다 — 답변까지 받고 나면 카드는 그 답변 **뒤**에 있어야 한다. */
+function reanchorOverlay(sessionId: string, overlayId: string, after: string | null) {
+  overlays.set(
+    sessionId,
+    overlaysOf(sessionId).map((o) => (o.id === overlayId ? { ...o, after } : o)),
+  );
+  rebuildTimeline(sessionId);
+}
+
+function lastMessageId(sessionId: string): string | null {
+  const session = sessions.find((s) => s.id === sessionId);
+  const list = session?.messages ?? [];
+  return list.length > 0 ? list[list.length - 1].id : null;
+}
+
+/** 스타일리스트 묶음 안의 카드 하나만 손본다. */
+function patchCard(
+  message: ChatMessage,
+  personaId: StylistId,
+  patch: (card: StylistCard) => StylistCard,
+): ChatMessage {
+  if (message.kind !== 'stylist') return message;
+  return {
+    ...message,
+    cards: message.cards.map((c) => (c.personaId === personaId ? patch(c) : c)),
+  };
+}
+
+/* ── 스타일리스트 결과 옮기기 ───────────────────────── */
+
+function toStylistCard(r: ApiPersonaResult): StylistCard {
+  const card = r.card;
+  return {
+    personaId: r.persona_id,
+    name: r.display_name || stylistStore.displayName(r.persona_id),
+    order: r.display_order,
+    status: r.status,
+    message: r.message,
+    reasonCodes: r.validated_reason_codes ?? [],
+    items:
+      card?.items.map((i) => ({
+        id: i.item_id,
+        name: i.display_name,
+        category: i.category,
+        imageUrl: imageUrlOf(i.image_ref),
+        price: i.price_snapshot,
+        fromWardrobe: i.source_type !== 'PRODUCT',
+      })) ?? [],
+    totalPrice: card?.total_product_price ?? null,
+    warnings: card?.warnings ?? [],
+    resultId: r.result_id,
+    cardId: card?.card_id ?? null,
+    errorText: r.error?.message || null,
+    alternating: r.alternative_status === 'PENDING' || r.alternative_status === 'RUNNING',
+    alternativeCount: r.alternative_count,
+    saved: card?.is_saved ?? false,
+    renderStatus: card?.image?.status ?? null,
+    renderImageUrl: card?.image?.image_url ?? null,
+    renderErrorText: card?.image?.error?.message ?? null,
+  };
+}
+
+/** 아직 아무것도 안 받은 자리 — 인원수만큼 먼저 깔아 두는 로딩 카드. */
+function pendingCard(personaId: StylistId): StylistCard {
+  return {
+    personaId,
+    name: stylistStore.displayName(personaId),
+    order: stylistStore.displayOrder(personaId),
+    status: 'PENDING',
+    message: '',
+    reasonCodes: [],
+    items: [],
+    totalPrice: null,
+    warnings: [],
+    resultId: null,
+    cardId: null,
+    errorText: null,
+    alternating: false,
+    alternativeCount: 0,
+    saved: false,
+    renderStatus: null,
+    renderImageUrl: null,
+    renderErrorText: null,
+  };
+}
+
+function toStylistMessage(id: string, runId: string, run: ApiStylistRun): ChatMessage {
+  return {
+    id,
+    role: 'ai',
+    kind: 'stylist',
+    runId,
+    cards: [...run.results].sort((a, b) => a.display_order - b.display_order).map(toStylistCard),
+  };
+}
+
+/** 한 run 의 카드 묶음은 하나뿐이라 id 를 run 에서 바로 만든다 (재시도·다른추천이 다시 찾는다). */
+function stylistOverlayId(runId: string): string {
+  return `sty-${runId}`;
+}
+
+/**
+ * 스타일리스트 답변 한 턴.
+ *
+ * **인원수만큼 빈 카드를 먼저 깔고** 시작한다 — 다 끝난 뒤 한 번에 그리면 먼저 끝난 카드가
+ * 남을 기다리는 동안 화면이 비고, 몇 장이 올지도 알 수 없다. 서버도 run 을 만들 때 자리를
+ * 먼저 만들어 두므로 화면이 그 모양을 그대로 따른다.
+ */
+async function runStylistTurn(
+  sessionId: string,
+  runId: string,
+  personaIds: StylistId[],
+  question: string,
+): Promise<{ run: ApiStylistRun; overlayId: string }> {
+  const overlayId = stylistOverlayId(runId);
+  const ordered = stylistStore.sortIds(personaIds);
+
+  addOverlay(sessionId, {
+    id: overlayId,
+    // 방금 띄운 내 말풍선 뒤. 답변이 들어오면 sendText 가 그 뒤로 옮긴다.
+    after: lastMessageId(sessionId),
+    message: {
+      id: overlayId,
+      role: 'ai',
+      kind: 'stylist',
+      runId,
+      cards: ordered.map(pendingCard),
+    },
+  });
+
+  try {
+    const run = await waitForStylistRun(runId, {
+      hint: { personaIds: ordered, question },
+      onProgress: (r) => {
+        if (r.results.length === 0) return; // 아직 자리가 안 생겼다 — 깔아 둔 카드를 지우지 않는다
+        updateOverlay(sessionId, overlayId, toStylistMessage(overlayId, runId, r));
+      },
+    });
+    if (run.results.length > 0) {
+      updateOverlay(sessionId, overlayId, toStylistMessage(overlayId, runId, run));
+    } else {
+      // 자리조차 안 생기고 run 이 끝났다 = 스타일리스트 실행 자체가 실패
+      failPendingCards(sessionId, overlayId, run.error_message || GENERIC_FAILURE);
+    }
+    return { run, overlayId };
+  } catch (e) {
+    /* 시간 초과 등으로 기다리기를 포기했다. 깔아 둔 카드를 그대로 두면 영영 도는 것처럼
+       보이므로 실패로 바꿔 놓고 예외는 그대로 올린다(화면이 토스트로 알린다). */
+    failPendingCards(sessionId, overlayId, messageOf(e, GENERIC_FAILURE));
+    throw e;
+  }
+}
+
+/** 아직 안 끝난 카드들을 실패로 바꾼다. 이미 받은 카드는 건드리지 않는다. */
+function failPendingCards(sessionId: string, overlayId: string, text: string) {
+  const current = overlaysOf(sessionId).find((o) => o.id === overlayId)?.message;
+  if (!current || current.kind !== 'stylist') return;
+  updateOverlay(sessionId, overlayId, {
+    ...current,
+    cards: current.cards.map((c) =>
+      c.status === 'PENDING' || c.status === 'RUNNING'
+        ? { ...c, status: 'FAILED', errorText: text }
+        : c,
+    ),
+  });
+}
+
+/** 폴링 중간 상태를 카드에 반영한다. 재시도·다른추천이 공유한다. */
+function applyRunProgress(sessionId: string, runId: string, run: ApiStylistRun) {
+  if (run.results.length === 0) return;
+  const overlayId = stylistOverlayId(runId);
+  updateOverlay(sessionId, overlayId, toStylistMessage(overlayId, runId, run));
+}
+
+/** 메시지와 함께 다시 조회한 run을 타임라인 카드로 복원하거나 최신 상태로 교체한다. */
+function mergeStylistOverlays(
+  sessionId: string,
+  runsByMessage: Map<string, ApiStylistRun>,
+): void {
+  if (runsByMessage.size === 0) return;
+  const current = [...overlaysOf(sessionId)];
+  for (const [messageId, run] of runsByMessage) {
+    const overlayId = stylistOverlayId(run.id);
+    const restored: Overlay = {
+      id: overlayId,
+      after: messageId,
+      message: toStylistMessage(overlayId, run.id, run),
+    };
+    const index = current.findIndex((overlay) => overlay.id === overlayId);
+    if (index >= 0) current[index] = restored;
+    else current.push(restored);
+  }
+  overlays.set(sessionId, current);
+}
+
+const STYLIST_RENDER_POLL_MS = 1500;
+const STYLIST_RENDER_TIMEOUT_MS = 2 * 60 * 1000;
+
+function renderPatch(job: ApiRenderJob): Pick<
+  StylistCard,
+  'renderStatus' | 'renderImageUrl' | 'renderErrorText'
+> {
+  return {
+    renderStatus: job.status,
+    renderImageUrl: job.image_url,
+    renderErrorText: job.error?.message ?? null,
+  };
+}
+
+function updateStylistRender(
+  sessionId: string,
+  runId: string,
+  personaId: StylistId,
+  resultId: string,
+  cardId: string,
+  patch: Pick<StylistCard, 'renderStatus' | 'renderImageUrl' | 'renderErrorText'>,
+): boolean {
+  const overlayId = stylistOverlayId(runId);
+  const current = overlaysOf(sessionId).find((o) => o.id === overlayId)?.message;
+  if (!current || current.kind !== 'stylist') return false;
+  const target = current.cards.find((card) => card.personaId === personaId);
+  // 다른 추천으로 카드가 교체된 뒤 옛 이미지 폴링 결과가 새 카드에 붙지 않게 한다.
+  if (target?.resultId !== resultId || target.cardId !== cardId) return false;
+  updateOverlay(
+    sessionId,
+    overlayId,
+    patchCard(current, personaId, (card) => ({ ...card, ...patch })),
+  );
+  return true;
+}
+
+async function watchStylistRender(
+  sessionId: string,
+  runId: string,
+  personaId: StylistId,
+  resultId: string,
+  cardId: string,
+): Promise<void> {
+  const startedAt = Date.now();
+  while (Date.now() - startedAt < STYLIST_RENDER_TIMEOUT_MS) {
+    await new Promise((resolve) => setTimeout(resolve, STYLIST_RENDER_POLL_MS));
+    const job = await apiGetCardRenderStatus(resultId, cardId);
+    if (!job) continue;
+    if (!updateStylistRender(sessionId, runId, personaId, resultId, cardId, renderPatch(job))) {
+      return;
+    }
+    if (job.status === 'SUCCEEDED' || job.status === 'FAILED') return;
+  }
+  updateStylistRender(sessionId, runId, personaId, resultId, cardId, {
+    renderStatus: 'FAILED',
+    renderImageUrl: null,
+    renderErrorText: '이미지 생성 확인 시간이 초과됐어요. 다시 시도해 주세요.',
+  });
+}
+
+async function startStylistRender(
+  sessionId: string,
+  runId: string,
+  personaId: StylistId,
+  resultId: string,
+  cardId: string,
+): Promise<boolean> {
+  updateStylistRender(sessionId, runId, personaId, resultId, cardId, {
+    renderStatus: 'QUEUED',
+    renderImageUrl: null,
+    renderErrorText: null,
+  });
+  try {
+    const job = await apiRenderCard(resultId, cardId);
+    updateStylistRender(sessionId, runId, personaId, resultId, cardId, renderPatch(job));
+    if (job.status !== 'SUCCEEDED' && job.status !== 'FAILED') {
+      void watchStylistRender(sessionId, runId, personaId, resultId, cardId).catch((error) => {
+        updateStylistRender(sessionId, runId, personaId, resultId, cardId, {
+          renderStatus: 'FAILED',
+          renderImageUrl: null,
+          renderErrorText: messageOf(error, '이미지 생성 상태를 확인하지 못했어요.'),
+        });
+      });
+    }
+    return job.status !== 'FAILED';
+  } catch (error) {
+    updateStylistRender(sessionId, runId, personaId, resultId, cardId, {
+      renderStatus: 'FAILED',
+      renderImageUrl: null,
+      renderErrorText: messageOf(error, '코디 이미지를 만들지 못했어요.'),
+    });
+    return false;
+  }
+}
+
+function sameIds(a: StylistId[], b: StylistId[]): boolean {
+  return a.length === b.length && a.every((id, i) => id === b[i]);
+}
+
 /* ── 스토어 ─────────────────────────────────────────── */
 
 let sessions: ChatSession[] = [];
 let loading = false;
+/**
+ * 목록을 **한 번이라도** 받아왔는지. 빈 배열만으로는 "아직 안 불러옴"과 "정말 없음"을
+ * 구분할 수 없어서, 첫 렌더에 "대화가 없어요" 화면이 한 프레임 번쩍이는 문제가 있었다.
+ */
+let loadedOnce = false;
 let error: string | null = null;
 const listeners = new Set<() => void>();
 
@@ -403,8 +895,18 @@ function sortByRecent(list: ChatSession[]): ChatSession[] {
   return [...list].sort((a, b) => b.updatedAt - a.updatedAt);
 }
 
+/**
+ * 세션 하나를 바꾼다.
+ *
+ * 화면용 순서(timeline)는 여기서 **항상** 다시 만든다. 말풍선을 건드리는 자리마다 따로
+ * 챙기게 두면 한 곳만 빠뜨려도 "방금 보낸 말이 안 보이는" 상태가 된다 — 한 곳으로 모은다.
+ */
 function replaceSession(id: string, patch: (s: ChatSession) => ChatSession) {
-  sessions = sessions.map((s) => (s.id === id ? patch(s) : s));
+  sessions = sessions.map((s) => {
+    if (s.id !== id) return s;
+    const next = patch(s);
+    return { ...next, timeline: buildTimeline(id, next.messages) };
+  });
   notify();
 }
 
@@ -450,6 +952,7 @@ export const chatStore = {
       error = messageOf(e, '대화 목록을 불러오지 못했어요');
     } finally {
       loading = false;
+      loadedOnce = true;
       setStatus();
       notify();
     }
@@ -470,7 +973,10 @@ export const chatStore = {
     if (!options.force && current?.messagesLoaded) return;
 
     const page = await apiPageMessages(id, { limit: MESSAGE_PAGE_SIZE });
-    const cards = await fetchCards(page.items);
+    const [cards, stylistRuns] = await Promise.all([
+      fetchCards(page.items),
+      fetchStylistRuns(page.items),
+    ]);
 
     if (canStitch(id, page.items)) {
       /* 이미 갖고 있던 구간과 이어진다. 그때의 커서가 여전히 '그보다 더 오래된' 자리를
@@ -485,6 +991,7 @@ export const chatStore = {
       rawCards.set(id, cards);
       replaceSession(id, (s) => ({ ...s, olderCursor: page.next_cursor ?? null }));
     }
+    mergeStylistOverlays(id, stylistRuns);
     rebuild(id);
   },
 
@@ -496,9 +1003,14 @@ export const chatStore = {
       limit: MESSAGE_PAGE_SIZE,
       cursor,
     });
-    mergeCards(id, await fetchCards(page.items));
+    const [cards, stylistRuns] = await Promise.all([
+      fetchCards(page.items),
+      fetchStylistRuns(page.items),
+    ]);
+    mergeCards(id, cards);
     mergeRaw(id, page.items);
     replaceSession(id, (s) => ({ ...s, olderCursor: page.next_cursor ?? null }));
+    mergeStylistOverlays(id, stylistRuns);
     rebuild(id);
   },
 
@@ -557,6 +1069,10 @@ export const chatStore = {
     const body = text.trim();
     if (!body) throw new Error('보낼 내용이 없어요');
 
+    const session = sessions.find((s) => s.id === id);
+    const stylistMode =
+      session?.responseMode === 'STYLIST' && session.selectedPersonaIds.length > 0;
+
     const draftId = nextMessageId();
     replaceSession(id, (s) => ({
       ...s,
@@ -565,10 +1081,20 @@ export const chatStore = {
     }));
 
     const submitted = await apiSendMessage(id, body, newClientMessageId());
-    const run = await waitForRun(submitted.run.id);
+
+    /* 스타일리스트 모드면 답변을 기다리는 방식이 다르다 — 결과가 여러 개고 끝나는 시각이
+       제각각이라, 다 끝날 때까지 묶어 두지 않고 끝난 카드부터 채운다. */
+    const turn = stylistMode
+      ? await runStylistTurn(id, submitted.run.id, session.selectedPersonaIds, body)
+      : null;
+    const run = turn ? turn.run : await waitForRun(submitted.run.id);
 
     // 답변이 생겼든 실패했든 서버가 가진 대화가 정답이다 — 통째로 다시 맞춘다.
     await this.loadMessages(id, { force: true }).catch(() => {});
+
+    /* 카드는 답변 **뒤**에 와야 한다. 보낼 때는 그 답변 말풍선이 아직 없어서 임시로 끝에
+       놓아 뒀고, 이제 서버 대화가 들어왔으니 마지막 말풍선 뒤로 옮긴다. */
+    if (turn) reanchorOverlay(id, turn.overlayId, lastMessageId(id));
 
     /* 실패 사유는 run 에만 있고 대화에는 남지 않는다. 방금 보낸 질문의 오류 줄에만
        구체적인 사유를 채워 넣는다 — 다시 열면 일반 문구로 돌아간다(서버가 사유를 모르므로). */
@@ -587,54 +1113,195 @@ export const chatStore = {
   },
 
   /**
-   * 사진 보내기. **업로드 → 무드 분석 접수 → 결과 대기** 세 단계다.
-   * 올리기만 하면 서버는 아무것도 하지 않는다(analysis_status 가 NOT_REQUESTED 로 남는다).
+   * 사진 올리고 무드까지 읽어낸다. 올리기 → 분석 시작 → 분석 끝날 때까지 대기, 세 걸음이다.
    *
-   * 답변은 무드 카드로 온다 — 사진에서 읽은 태그를 추천 조건으로 쓸지 되묻는 것이라,
-   * 사용자가 카드에서 고르기 전까지는 추천 조건이 바뀌지 않는다.
+   * 중간에 한 번씩 대화를 다시 받아오는 이유 — 사진 말풍선은 올리자마자 보여야 하고,
+   * 무드 카드는 분석이 끝나야 생긴다. 마지막에 한 번만 받아오면 사진이 늦게 뜬다.
+   *
+   * 분석이 실패해도 사진은 이미 대화에 남는다. 그래서 실패를 예외로 올려 화면이
+   * 알리게 하되, 올린 사진까지 되돌리지는 않는다.
    */
-  async sendPhoto(id: string, uri: string): Promise<ApiChatRun> {
-    const draftId = nextMessageId();
+  async attachPhoto(id: string, uri: string): Promise<void> {
+    const uploaded = await apiUploadAttachment(id, { uri }, newClientMessageId());
+    await this.loadMessages(id, { force: true }).catch(() => {});
+
+    const started = await apiStartMoodAnalysis(id, uploaded.attachment.id);
+    const run = await waitForRun(started.run.id);
+    await this.loadMessages(id, { force: true }).catch(() => {});
+
+    if (run.status === 'FAILED') {
+      throw new Error(run.error_message || '사진에서 무드를 읽지 못했어요');
+    }
+  },
+
+  /* ── 스타일리스트 모드 ───────────────────────────── */
+
+  /**
+   * 응답 모드 전환. 대화방을 옮기지도, 새로 만들지도 않는다 — **다음 질문부터** 달라진다.
+   *
+   * ⚠️ personaIds 를 **생략하면 서버가 복원한다**(세션 이전값 → 회원 마지막값 → minimal).
+   *    빈 배열을 보내는 것과 다르니 "고른 게 없다"는 뜻으로 [] 를 넘기지 말 것.
+   *
+   * 바뀐 자리에는 구분선을 남긴다. 되돌아봤을 때 어디서부터 답하는 방식이 달라졌는지
+   * 알 수 있어야 하기 때문이다. 아무것도 안 바뀌었으면 남기지 않는다.
+   */
+  async setResponseMode(
+    id: string,
+    mode: ApiResponseMode,
+    personaIds?: StylistId[],
+  ): Promise<void> {
+    const before = sessions.find((s) => s.id === id);
+    const updated = await apiUpdateResponseMode(id, mode, personaIds);
+    const nextIds = updated.selected_persona_ids ?? [];
+
+    const changed =
+      before?.responseMode !== updated.response_mode ||
+      (updated.response_mode === 'STYLIST' && !sameIds(before?.selectedPersonaIds ?? [], nextIds));
+
     replaceSession(id, (s) => ({
       ...s,
-      messages: [...s.messages, { id: draftId, role: 'user', kind: 'image', uri }],
-      updatedAt: Date.now(),
+      responseMode: updated.response_mode,
+      // 꺼도 선택값은 지우지 않는다 — 다시 켤 때 복원해야 한다.
+      selectedPersonaIds: nextIds.length > 0 ? nextIds : s.selectedPersonaIds,
     }));
 
-    try {
-      const uploaded = await apiUploadPhoto(id, uri, newClientMessageId());
-      const submitted = await apiRequestMoodAnalysis(id, uploaded.attachment.id);
-      const run = await waitForRun(submitted.run.id);
+    if (!changed) return;
+    const markId = nextMessageId();
+    addOverlay(id, {
+      id: markId,
+      after: lastMessageId(id),
+      message: {
+        id: markId,
+        role: 'ai',
+        kind: 'mode',
+        mode: updated.response_mode,
+        names: updated.response_mode === 'STYLIST' ? stylistStore.displayNames(nextIds) : [],
+      },
+    });
+  },
 
-      // 사진 말풍선의 진짜 주소(presigned)와 무드 카드는 서버가 가진 대화에서 온다.
-      await this.loadMessages(id, { force: true }).catch(() => {});
-
-      if (run.status === 'FAILED' && run.error_message) {
-        const lineId = failureLineId(uploaded.message.id);
-        replaceSession(id, (s) => ({
-          ...s,
-          messages: s.messages.map((m) =>
-            m.id === lineId && m.kind === 'error' ? { ...m, text: run.error_message } : m,
-          ),
-        }));
-      }
-      if (isAnswered(run.status)) await syncSessionList();
-      return run;
-    } catch (e) {
-      /* 사진이 이미 올라갔을 수 있으니 서버 상태로 맞춘다. 그것도 안 되면 방금 띄운 사진
-         말풍선만 걷어낸다 — 올라가지 않은 사진이 보낸 것처럼 남아 있으면 안 된다. */
-      const synced = await this.loadMessages(id, { force: true }).then(
-        () => true,
-        () => false,
+  /**
+   * 실패한 스타일리스트 한 명만 다시 실행한다. 성공한 다른 카드는 그대로 남는다.
+   * 같은 run 을 다시 폴링하되 **그 한 명만** 보고 기다린다 — 나머지는 이미 끝나 있어서
+   * '전원 종료' 조건으로는 첫 폴링에 바로 빠져나온다.
+   */
+  async retryStylist(sessionId: string, runId: string, personaId: StylistId): Promise<void> {
+    const overlayId = stylistOverlayId(runId);
+    const current = overlaysOf(sessionId).find((o) => o.id === overlayId)?.message;
+    if (current) {
+      // 누른 것이 바로 보이게 먼저 대기 상태로 돌린다.
+      updateOverlay(
+        sessionId,
+        overlayId,
+        patchCard(current, personaId, (c) => ({ ...c, status: 'PENDING', errorText: null })),
       );
-      if (!synced) {
-        replaceSession(id, (s) => ({
-          ...s,
-          messages: s.messages.filter((m) => m.id !== draftId),
-        }));
+    }
+
+    const accepted = await apiRetryPersona(runId, personaId);
+    applyRunProgress(sessionId, runId, accepted.run);
+    /* 몇 번째 재실행인지를 기준으로 삼는다. 상태만 보면 접수 직후 아직 안 바뀐 옛 FAILED 를
+       보고 "벌써 끝났다"고 오해할 수 있다. */
+    const target = accepted.run.results.find((r) => r.persona_id === personaId);
+    const expected = target?.retry_count ?? 0;
+
+    await waitForStylistRun(runId, {
+      onProgress: (run) => applyRunProgress(sessionId, runId, run),
+      until: (run) => {
+        const r = run.results.find((x) => x.persona_id === personaId);
+        if (!r) return true;
+        return r.retry_count >= expected && (r.status === 'SUCCEEDED' || r.status === 'FAILED');
+      },
+    });
+  },
+
+  /**
+   * 같은 스타일리스트에게 다른 코디를 받는다.
+   * 기다리는 동안 **지금 카드는 그대로 둔다** — 없애 버리면 마음에 들던 코디를 놓치고,
+   * 새 추천이 실패하면 남는 게 없다.
+   */
+  async alternativeStylist(
+    sessionId: string,
+    runId: string,
+    personaId: StylistId,
+  ): Promise<void> {
+    const overlayId = stylistOverlayId(runId);
+    const current = overlaysOf(sessionId).find((o) => o.id === overlayId)?.message;
+    if (current) {
+      updateOverlay(
+        sessionId,
+        overlayId,
+        patchCard(current, personaId, (c) => ({ ...c, alternating: true })),
+      );
+    }
+
+    const accepted = await apiRequestAlternative(runId, personaId);
+    applyRunProgress(sessionId, runId, accepted.run);
+    const target = accepted.run.results.find((r) => r.persona_id === personaId);
+    const expected = target?.alternative_count ?? 0;
+
+    await waitForStylistRun(runId, {
+      onProgress: (run) => applyRunProgress(sessionId, runId, run),
+      until: (run) => {
+        const r = run.results.find((x) => x.persona_id === personaId);
+        if (!r) return true;
+        return (
+          r.alternative_count >= expected &&
+          r.alternative_status !== 'PENDING' &&
+          r.alternative_status !== 'RUNNING'
+        );
+      },
+    });
+  },
+
+  /** 고른 코디를 저장한 뒤 해당 카드 한 장의 이미지 생성만 접수한다. */
+  async saveStylistCard(
+    sessionId: string,
+    runId: string,
+    personaId: StylistId,
+  ): Promise<{ renderStarted: boolean }> {
+    const overlayId = stylistOverlayId(runId);
+    const current = overlaysOf(sessionId).find((o) => o.id === overlayId)?.message;
+    if (!current || current.kind !== 'stylist') throw new Error('추천 카드를 찾지 못했어요');
+    const card = current.cards.find((c) => c.personaId === personaId);
+    if (!card?.resultId || !card.cardId) throw new Error('아직 저장할 코디가 없어요');
+
+    updateOverlay(sessionId, overlayId, patchCard(current, personaId, (c) => ({ ...c, saved: true })));
+    try {
+      await apiSaveCard(card.resultId, card.cardId);
+    } catch (e) {
+      const reverted = overlaysOf(sessionId).find((o) => o.id === overlayId)?.message;
+      if (reverted) {
+        updateOverlay(
+          sessionId,
+          overlayId,
+          patchCard(reverted, personaId, (c) => ({ ...c, saved: false })),
+        );
       }
       throw e;
     }
+    return {
+      renderStarted: await startStylistRender(
+        sessionId,
+        runId,
+        personaId,
+        card.resultId,
+        card.cardId,
+      ),
+    };
+  },
+
+  /** 추천은 그대로 둔 채 실패한 이미지 작업만 다시 접수한다. */
+  async retryStylistRender(
+    sessionId: string,
+    runId: string,
+    personaId: StylistId,
+  ): Promise<boolean> {
+    const overlayId = stylistOverlayId(runId);
+    const current = overlaysOf(sessionId).find((o) => o.id === overlayId)?.message;
+    if (!current || current.kind !== 'stylist') return false;
+    const card = current.cards.find((row) => row.personaId === personaId);
+    if (!card?.resultId || !card.cardId) throw new Error('이미지를 만들 코디가 없어요');
+    return startStylistRender(sessionId, runId, personaId, card.resultId, card.cardId);
   },
 
   /**
@@ -678,9 +1345,15 @@ export const chatStore = {
 /* useSyncExternalStore 는 getSnapshot 이 매번 같은 참조를 주길 요구한다.
    loading·error 를 객체로 만들어 돌려주면 렌더마다 새 객체라 무한 루프가 된다.
    그래서 바뀔 때만 새로 만들어 둔다. */
-let status: { loading: boolean; error: string | null } = { loading: false, error: null };
+let status: { loading: boolean; loadedOnce: boolean; error: string | null } = {
+  loading: false,
+  loadedOnce: false,
+  error: null,
+};
 function setStatus() {
-  if (status.loading !== loading || status.error !== error) status = { loading, error };
+  if (status.loading !== loading || status.error !== error || status.loadedOnce !== loadedOnce) {
+    status = { loading, loadedOnce, error };
+  }
 }
 
 export function useChatSessions(): ChatSession[] {
@@ -688,7 +1361,7 @@ export function useChatSessions(): ChatSession[] {
 }
 
 /** 목록 로딩·오류 상태. 빈 화면과 '못 불러옴'을 구분해 보여주기 위한 것. */
-export function useChatStatus(): { loading: boolean; error: string | null } {
+export function useChatStatus(): { loading: boolean; loadedOnce: boolean; error: string | null } {
   return useSyncExternalStore(chatStore.subscribe, chatStore.getStatus, chatStore.getStatus);
 }
 
@@ -752,18 +1425,13 @@ export function useSessionSearch(query: string): SessionSearchState {
   useEffect(() => {
     if (!trimmed) {
       requestId.current += 1; // 진행 중인 검색의 응답을 버린다
-      setItems([]);
-      setTotalCount(0);
-      setCursor(null);
-      setLoading(false);
-      setError(null);
       return;
     }
 
     const current = ++requestId.current;
-    setLoading(true);
-    setError(null);
     const timer = setTimeout(() => {
+      setLoading(true);
+      setError(null);
       apiSearchSessions(trimmed, { limit: SEARCH_PAGE_SIZE })
         .then((page) => {
           if (requestId.current !== current) return;
@@ -806,6 +1474,16 @@ export function useSessionSearch(query: string): SessionSearchState {
       });
   }, [cursor, loading, trimmed]);
 
+  if (!trimmed) {
+    return {
+      items: [],
+      totalCount: 0,
+      loading: false,
+      error: null,
+      hasMore: false,
+      loadMore,
+    };
+  }
   return { items, totalCount, loading, error, hasMore: cursor !== null, loadMore };
 }
 
