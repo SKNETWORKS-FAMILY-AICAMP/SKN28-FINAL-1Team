@@ -18,6 +18,7 @@ from vton_server import (
     _configure_offload,
     _garment_color_similarity,
     _lightning_scheduler_config,
+    _output_size,
 )
 
 
@@ -36,6 +37,12 @@ def rotated_jpeg_base64() -> str:
 
 
 class VtonServerInputTests(unittest.TestCase):
+    @patch("vton_server.config.VTON_OUTPUT_MAX_PIXELS", 1024 * 1024)
+    def test_output_size_preserves_target_portrait_ratio(self) -> None:
+        height, width = _output_size(Image.new("RGB", (2252, 4000)))
+
+        self.assertEqual((height, width), (1360, 768))
+
     def test_garment_color_similarity_prefers_same_color(self) -> None:
         navy = Image.new("RGB", (32, 32), (10, 20, 80))
         red = Image.new("RGB", (32, 32), (180, 20, 20))
@@ -142,6 +149,8 @@ class VtonServerInputTests(unittest.TestCase):
         self.assertIs(editor.pipeline.scheduler, editor.base_scheduler)
         self.assertEqual(editor.pipeline.call_args.kwargs["num_inference_steps"], 30)
         self.assertEqual(editor.pipeline.call_args.kwargs["true_cfg_scale"], 4.0)
+        self.assertEqual(editor.pipeline.call_args.kwargs["height"], 64)
+        self.assertEqual(editor.pipeline.call_args.kwargs["width"], 64)
         self.assertEqual(attempts, 1)
 
     @patch("vton_server.config.VTON_MIN_FREE_DISK_GB", 20)

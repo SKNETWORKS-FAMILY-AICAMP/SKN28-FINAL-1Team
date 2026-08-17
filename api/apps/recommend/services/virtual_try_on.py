@@ -90,6 +90,8 @@ MANNEQUIN_DRESS_PROMPT = """Image 1 is the already prepared target retail manneq
 Images 2 onward are garment references. Keep Image 1's exact mannequin body shape,
 pose, camera angle, framing, glossy white exposed surface, and pure white background.
 Dress it only in the complete referenced outfit. Do not change the mannequin body.
+Extract only the garments from the reference images. Never copy any reference
+person's face, hair, skin, body, hands, pose, crop, framing, jewelry, watch, or background.
 Do not add an undershirt, bodysuit, turtleneck, extra sleeves, extra trousers,
 underwear, socks, or any garment absent from the references."""
 

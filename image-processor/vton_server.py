@@ -158,6 +158,17 @@ def _garment_color_similarity(
     )
 
 
+def _output_size(image: Image.Image) -> tuple[int, int]:
+    """첫 입력의 종횡비를 유지하며 Qwen 출력 크기를 16배수로 제한한다."""
+    scale = min(
+        1.0,
+        math.sqrt(config.VTON_OUTPUT_MAX_PIXELS / (image.width * image.height)),
+    )
+    width = max(64, round(image.width * scale / 16) * 16)
+    height = max(64, round(image.height * scale / 16) * 16)
+    return height, width
+
+
 class QwenImageEditor:
     """한 파이프라인에서 기본 Qwen과 LightX2V 4-step을 전환한다."""
 
@@ -238,6 +249,7 @@ class QwenImageEditor:
             else:
                 raise ValueError("profile must be fast or quality")
             initial_seed = config.VTON_SEED if seed is None else seed
+            height, width = _output_size(images[0])
             max_attempts = 1 + (
                 config.VTON_FIDELITY_RETRIES
                 if profile == "quality" and len(images) > 1
@@ -255,6 +267,8 @@ class QwenImageEditor:
                     result = self.pipeline(
                         image=images,
                         prompt=prompt,
+                        height=height,
+                        width=width,
                         negative_prompt=config.VTON_NEGATIVE_PROMPT,
                         num_inference_steps=steps,
                         true_cfg_scale=true_cfg_scale,
