@@ -25,7 +25,7 @@ PNG = b"\x89PNG\r\n\x1a\n" + b"integration-image"
 
 @override_settings(
     CHAT_GOLDENSET_DATASET_VERSION="goldenset-v1",
-    CHAT_GOLDENSET_DATASET_STATUSES=("PUBLISHED",),
+    CHAT_GOLDENSET_DATASET_STATUSES=("ACTIVE",),
     OUTFIT_RENDER_RESULT_BUCKET="render-bucket",
     OUTFIT_RENDER_RESULT_PREFIX="integration-renders",
 )

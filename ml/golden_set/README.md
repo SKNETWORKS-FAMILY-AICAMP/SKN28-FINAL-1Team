@@ -167,6 +167,7 @@ Infisical 또는 배포 시크릿으로 주입한다. 키를 CSV나 명령행에
 | `GOLDEN_S3_OUTPUT_PREFIX` | 아이템 이미지·완료 manifest가 쌓이는 prefix |
 | `GOLDEN_S3_METADATA_KEY` | 선택. 스타일·계절·TPO 메타데이터 CSV 키 |
 | `GOLDEN_DATASET_VERSION` | run 디렉터리와 파생 prefix를 가르는 버전 |
+| `GOLDEN_DATASET_STATUS` | Qdrant payload 상태. 검수 중 `PILOT`, 운영 추천은 `ACTIVE` |
 | `GOLDEN_ITEM_PIPELINE` | 아이템 분리 구현 (image-processor 레지스트리 키) |
 
 `metadata.example.csv`를 복사해 입력 메타데이터를 만들고 `GOLDEN_S3_METADATA_KEY`
@@ -436,6 +437,23 @@ python -m ml.golden_set index `
 ```
 
 계획을 확인한 뒤 `--dry-run`을 제거한다. 컬렉션은 셋이다.
+
+기존 포인트를 재임베딩하지 않고 파일럿에서 운영 상태로 승격할 때는 먼저 대상을
+확인한 뒤 같은 명령에서 `--dry-run`만 제거한다.
+
+```powershell
+python api/manage.py set_goldenset_qdrant_status `
+  --dataset-version v1 --from-status PILOT --status ACTIVE --dry-run
+python api/manage.py set_goldenset_qdrant_status `
+  --dataset-version v1 --from-status PILOT --status ACTIVE
+```
+
+이후 API와 채팅 워커에는 같은 버전과 상태를 설정한다.
+
+```text
+CHAT_GOLDENSET_DATASET_VERSION=v1
+CHAT_GOLDENSET_DATASET_STATUSES=ACTIVE
+```
 
 | 컬렉션 | 포인트 | 벡터 |
 |---|---|---|
