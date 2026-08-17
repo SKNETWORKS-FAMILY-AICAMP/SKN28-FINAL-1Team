@@ -3,14 +3,16 @@ import os
 from datetime import timedelta
 from unittest.mock import patch
 
+from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import TestCase
 from django.urls import reverse
 from django.utils import timezone
+from PIL import Image
 from rest_framework.test import APIClient
 
 from apps.users.models import User
 from . import taxonomy as T
-from .models import WardrobeItemBatch, WardrobeUploadJob
+from .models import WardrobeItem, WardrobeItemBatch, WardrobeUploadJob
 from .services import jobs, storage
 from .views import _merge_metadata
 
@@ -155,3 +157,87 @@ class RemoteImageSecurityTest(TestCase):
 
         with self.assertRaises(storage.RemoteImageError):
             storage._validate_public_url("http://localhost/image.jpg")
+
+
+@patch("apps.wardrobe.views.storage.BUCKET", "test-bucket")
+class WardrobeUploadFlowTest(TestCase):
+    def setUp(self):
+        self.client = APIClient()
+        self.user = User.objects.create(username="upload-flow-test")
+        self.client.force_authenticate(self.user)
+
+    @patch("apps.wardrobe.views.jobs.enqueue")
+    @patch("apps.wardrobe.views.storage.upload_fileobj")
+    def test_upload_preserves_file_name_and_enqueues_pending_job(self, upload, enqueue):
+        image_bytes = io.BytesIO()
+        Image.new("RGB", (2, 2), color="beige").save(image_bytes, format="PNG")
+        image = SimpleUploadedFile(
+            "coat.png",
+            image_bytes.getvalue(),
+            content_type="image/png",
+        )
+
+        response = self.client.post(reverse("wardrobe:upload"), {"image": image})
+
+        self.assertEqual(response.status_code, 202)
+        job = WardrobeUploadJob.objects.get(pk=response.data["job_id"])
+        self.assertEqual((job.original_file_name, job.status), ("coat.png", "PENDING"))
+        upload.assert_called_once()
+        enqueue.assert_called_once_with(job)
+
+        polled = self.client.get(
+            reverse("wardrobe:upload-job", kwargs={"job_id": job.pk})
+        )
+        self.assertEqual(polled.data["file_name"], "coat.png")
+
+    def test_success_callback_creates_item_and_done_job(self):
+        job = WardrobeUploadJob.objects.create(
+            user=self.user,
+            source_s3_key="wardrobe/source.jpg",
+            original_file_name="source.jpg",
+        )
+        payload = {
+            "job_id": str(job.pk),
+            "status": "success",
+            "items": [{
+                "s3_key": "wardrobe/cropped.jpg",
+                "item_name": "코트",
+                "category_large": "아우터",
+            }],
+        }
+
+        with (
+            patch.dict(os.environ, {"WARDROBE_INTERNAL_TOKEN": "test-token"}),
+            patch("apps.wardrobe.views.vectors.upsert_item", return_value=True),
+        ):
+            response = self.client.post(
+                reverse("wardrobe:callback"), payload, format="json",
+                HTTP_X_INTERNAL_TOKEN="test-token",
+            )
+
+        self.assertEqual((response.status_code, response.data["status"]), (201, "DONE"))
+        job.refresh_from_db()
+        item = WardrobeItem.objects.get(job=job)
+        self.assertEqual(job.status, "DONE")
+        self.assertIsNotNone(job.finished_at)
+        self.assertEqual((item.user, item.item_name, item.added_to_closet_at is not None),
+                         (self.user, "코트", True))
+
+    def test_failed_callback_without_error_uses_fallback_message(self):
+        job = WardrobeUploadJob.objects.create(
+            user=self.user,
+            source_s3_key="wardrobe/source.jpg",
+        )
+
+        with patch.dict(os.environ, {"WARDROBE_INTERNAL_TOKEN": "test-token"}):
+            response = self.client.post(
+                reverse("wardrobe:callback"),
+                {"job_id": str(job.pk), "status": "failed", "items": []},
+                format="json",
+                HTTP_X_INTERNAL_TOKEN="test-token",
+            )
+
+        self.assertEqual((response.status_code, response.data["status"]), (200, "FAILED"))
+        job.refresh_from_db()
+        self.assertEqual(job.error_message, "image_processor_failed")
+        self.assertIsNotNone(job.finished_at)

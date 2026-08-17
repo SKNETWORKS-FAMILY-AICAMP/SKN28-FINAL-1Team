@@ -89,7 +89,6 @@ def fetch_remote_image(url: str, max_bytes: int) -> tuple[io.BytesIO, str, str, 
         return io.BytesIO(data), content_type, extension, len(data)
     raise RemoteImageError("이미지 리다이렉트가 너무 많습니다.")
 
-
 @lru_cache(maxsize=1)
 def _client():
     # 자격증명은 표준 AWS 환경변수(AWS_ACCESS_KEY_ID 등) 또는 IAM 역할로 주입
@@ -125,7 +124,6 @@ def presigned_get(key: str, ttl: int = PRESIGNED_GET_TTL) -> str:
 
 def delete_objects(keys: Iterable[str]) -> None:
     """DB 저장 실패 시 명시된 옷장 S3 객체만 정리한다."""
-
     unique_keys = list(dict.fromkeys(key for key in keys if key))
     for offset in range(0, len(unique_keys), 1000):
         batch = unique_keys[offset : offset + 1000]

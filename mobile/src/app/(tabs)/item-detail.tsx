@@ -1,17 +1,17 @@
 import { Icon } from '@/components/icon';
 import { ErrorState, LoadingState, SmartImage, useConfirm, useToast } from '@/components/ui';
-import { router, useLocalSearchParams } from 'expo-router';
+import { router, useFocusEffect, useLocalSearchParams } from 'expo-router';
 import { goBack } from '@/lib/goBack';
-import { useState } from 'react';
+import { useCallback, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { ItemTagSheet } from '@/components/closet/item-tag-sheet';
 import { DetailTwoPane } from '@/components/detail-two-pane';
-import { Editorial, ink, Fonts } from '@/constants/theme';
+import { Editorial, ink, Fonts, Type } from '@/constants/theme';
 import { useBreakpoint } from '@/hooks/use-breakpoint';
 import { confirmWardrobeItem, useWardrobeItem } from '@/hooks/use-wardrobe';
-import { deleteWardrobeItem, itemDisplayName, type WardrobeApiItem } from '@/lib/wardrobeApi';
+import { deleteWardrobeItem, itemDisplayName, type WardrobeApiItem, getMySharedRooms, listSharedRoomItems, registerItemToSharedRoom, unregisterItemFromSharedRoom, type SharedRoom } from '@/lib/wardrobeApi';
 
 const INK = Editorial.ink;
 const BONE = Editorial.bone;
@@ -31,9 +31,10 @@ function specsOf(item: WardrobeApiItem): { label: string; value: string }[] {
 
 // D3 아이템 상세 — 태그 확인·수정·삭제
 export default function ItemDetail() {
-  const { contentStyle, width } = useBreakpoint();
+  const { contentStyle, width, isMobile } = useBreakpoint();
   const maxW = width >= 1280 ? 960 : 720;
-  const { id } = useLocalSearchParams<{ id?: string }>();
+  const { id, readonly } = useLocalSearchParams<{ id?: string; readonly?: string }>();
+  const isReadOnly = readonly === '1';
 
   const { item, loading, error, reload, setItem } = useWardrobeItem(id);
   const [editing, setEditing] = useState(false);
@@ -41,13 +42,112 @@ export default function ItemDetail() {
   const toast = useToast();
   const confirm = useConfirm();
 
+  const [sharedRooms, setSharedRooms] = useState<SharedRoom[]>([]);
+  const [sharedRoomIds, setSharedRoomIds] = useState<string[]>([]);
+  const [shareEnabled, setShareEnabled] = useState(false);
+  const [dropdownOpen, setDropdownOpen] = useState(false);
+
+  /* 공유 상태 동기화.
+   *
+   * useFocusEffect 인 이유: 이 화면은 탭 스택에 얹혀 한 번 뜨면 언마운트되지 않는다.
+   * 마운트 시 1회만 조회하면, 옷장 공유 탭에서 X로 공유를 해제하고 돌아와도
+   * 토글이 계속 켜진 채로 남는다(반대 방향은 이 화면이 직접 바꾸니 맞아 보였다).
+   * 화면에 들어올 때마다 서버 상태로 다시 맞춘다.
+   *
+   * 그리고 스캔 전에 반드시 초기화한다 — 예전엔 "찾으면 true" 만 있고
+   * "못 찾으면 false" 가 없어서, 한 번 켜진 값이 다음 아이템까지 따라왔다. */
+  const syncShareState = useCallback(async () => {
+    if (!id || isReadOnly) return;
+    try {
+      const rooms = (await getMySharedRooms()) || [];
+      setSharedRooms(rooms);
+      if (rooms.length === 0) {
+        setSharedRoomIds([]);
+        setShareEnabled(false);
+        return;
+      }
+
+      // 방별 조회를 모두 기다린 뒤 한 번에 판정한다 — 개별 then 으로 흩어 놓으면
+      // 늦게 온 응답이 먼저 온 결과를 덮어써 상태가 요동친다.
+      const results = await Promise.all(
+        rooms.map(async (room) => ({
+          roomId: room.id,
+          hasItem: (await listSharedRoomItems(room.id)).some((it) => it.wardrobe_item.id === id),
+        })),
+      );
+      const shared = results.filter((r) => r.hasItem).map((r) => r.roomId);
+
+      setSharedRoomIds(shared);
+      setShareEnabled(shared.length > 0);
+
+    } catch {
+      /* 공유 상태는 곁가지다 — 못 읽어도 상세 화면 자체는 그대로 보여준다 */
+    }
+  }, [id, isReadOnly]);
+
+  useFocusEffect(
+    useCallback(() => {
+      void syncShareState();
+    }, [syncShareState]),
+  );
+
+  /* 토글은 '공유 여부'가 아니라 **방 목록을 펼칠지**만 정한다.
+     켤 때 아무 방에도 넣지 않는 이유: 어느 방에 넣을지는 아래 목록에서 고르는 것이고,
+     임의로 첫 방에 밀어 넣으면 사용자가 고르기도 전에 공유가 일어난다.
+     끌 때는 지금 들어가 있는 모든 방에서 뺀다 — "공유 안 함"의 뜻이 그것뿐이다. */
+  const handleToggleShare = async (nextEnabled: boolean) => {
+    if (!item) return;
+    if (nextEnabled) {
+      setShareEnabled(true);
+      setDropdownOpen(true);
+      return;
+    }
+    try {
+      for (const rid of sharedRoomIds) {
+        await unregisterItemFromSharedRoom(rid, item.id);
+      }
+      setSharedRoomIds([]);
+      setShareEnabled(false);
+      setDropdownOpen(false);
+      toast('공유를 취소했어요');
+    } catch (e) {
+      toast(e instanceof Error ? e.message : '공유 처리에 실패했어요', { variant: 'error' });
+    }
+  };
+
+  /* 목록의 방을 누를 때마다 그 방만 켜고 끈다(한 번 더 누르면 해제).
+     한 벌을 여러 방에 걸 수 있어야 하므로 다른 방은 건드리지 않는다 —
+     예전엔 방을 고르면 나머지 방에서 빼버려서, 고르는 게 아니라 '이동'이었다.
+     고르고 나서도 목록을 닫지 않는다: 두 번째 방을 이어서 고를 수 있어야 한다. */
+  const handleToggleRoom = async (roomId: string) => {
+    if (!item) return;
+    const alreadyShared = sharedRoomIds.includes(roomId);
+    try {
+      if (alreadyShared) {
+        await unregisterItemFromSharedRoom(roomId, item.id);
+        setSharedRoomIds((prev) => prev.filter((rid) => rid !== roomId));
+      } else {
+        await registerItemToSharedRoom(roomId, item.id);
+        setSharedRoomIds((prev) => [...prev, roomId]);
+
+      }
+    } catch (e) {
+      toast(e instanceof Error ? e.message : '공유 처리에 실패했어요', { variant: 'error' });
+    }
+  };
+
   /* 태그를 고치지 않고 "맞다"고만 확인하는 경로. 고칠 게 있으면 수정 시트에서 저장하면 된다. */
   const onConfirm = async () => {
     if (!item) return;
     setConfirming(true);
     try {
-      setItem(await confirmWardrobeItem(item.id));
-      toast('옷장에 확정했어요', { variant: 'success' });
+      const { item: confirmed, sharedRoomId } = await confirmWardrobeItem(item.id);
+      setItem(confirmed);
+      /* 등록할 때 공유를 켜 뒀다면 확정과 동시에 공유까지 끝난다 —
+         두 번 알리지 않고 한 줄로 합쳐 말한다. */
+      toast(sharedRoomId ? '옷장에 확정하고 공유했어요' : '옷장에 확정했어요', {
+        variant: 'success',
+      });
     } catch (e) {
       toast(e instanceof Error ? e.message : '확인하지 못했어요', { variant: 'error' });
     } finally {
@@ -79,7 +179,7 @@ export default function ItemDetail() {
         <Pressable hitSlop={12} onPress={() => goBack('/(tabs)/closet')}>
           <Icon name="chevron.left" tintColor={INK} size={20} />
         </Pressable>
-        {item ? (
+        {item && !isReadOnly ? (
           <View style={styles.headerActions}>
             <Pressable hitSlop={10} onPress={() => setEditing(true)} accessibilityLabel="태그 수정">
               <Icon name="square.and.pencil" tintColor={ink(0.6)} size={19} />
@@ -119,6 +219,133 @@ export default function ItemDetail() {
   const specs = specsOf(item);
   const category = [item.category_large, item.category_small].filter(Boolean).join(' · ');
 
+  // 모바일 버전 전용 박스 UI (사진 위, 한 줄 레이아웃)
+  const shareBoxMobile = !isReadOnly && sharedRooms.length > 0 ? (
+    <View style={styles.shareAreaMobile}>
+      <View style={styles.shareRow}>
+        <View style={styles.shareToggleWrap}>
+          <Text style={styles.shareLabel} numberOfLines={1}>공유 옷장</Text>
+          <Pressable
+            style={[styles.switch, shareEnabled && styles.switchOn]}
+            onPress={() => handleToggleShare(!shareEnabled)}>
+            <View style={[styles.switchKnob, shareEnabled && styles.switchKnobOn]} />
+          </Pressable>
+        </View>
+        <View style={styles.roomPickerWrap}>
+          <Pressable
+            style={[styles.roomPicker, !shareEnabled && styles.roomPickerDisabled]}
+            onPress={() => setDropdownOpen((open) => !open)}
+            disabled={!shareEnabled}>
+            <Text style={[styles.roomPickerText, !shareEnabled && styles.roomPickerTextDisabled]} numberOfLines={1}>
+              공유할 옷장 선택
+            </Text>
+            <Icon
+              name={dropdownOpen ? 'chevron.up' : 'chevron.down'}
+              tintColor={shareEnabled ? Editorial.textCaption : ink(0.25)}
+              size={15}
+            />
+          </Pressable>
+          {shareEnabled && dropdownOpen ? (
+            <View style={styles.roomMenu}>
+              <ScrollView
+                nestedScrollEnabled
+                showsVerticalScrollIndicator={sharedRooms.length > 4}
+                style={{ maxHeight: 160 }}>
+                {sharedRooms.map((room) => {
+                  const checked = sharedRoomIds.includes(room.id);
+                  return (
+                    <Pressable
+                      key={room.id}
+                      style={[styles.roomOption, checked && styles.roomOptionSelected]}
+                      onPress={() => handleToggleRoom(room.id)}
+                      accessibilityRole="checkbox"
+                      accessibilityState={{ checked }}>
+                      <Text
+                        style={[styles.roomOptionText, checked && styles.roomOptionTextSelected]}
+                        numberOfLines={1}>
+                        {room.title}
+                      </Text>
+                      {checked ? (
+                        <Icon name="checkmark" tintColor={INK} size={13} />
+                      ) : null}
+                    </Pressable>
+                  );
+                })}
+              </ScrollView>
+            </View>
+          ) : null}
+        </View>
+      </View>
+    </View>
+  ) : null;
+
+  // PC 웹버전 전용 박스 UI (기존 위치, toggle on 시 2행에 드롭박스 생성)
+  const shareBoxDesktop = !isReadOnly && sharedRooms.length > 0 ? (
+    <View style={styles.shareAreaDesktop}>
+      <View style={styles.shareHeader}>
+        <Text style={styles.shareLabel}>공유 옷장</Text>
+        <Pressable
+          style={[styles.switchContainer, shareEnabled && styles.switchContainerActive]}
+          onPress={() => handleToggleShare(!shareEnabled)}
+        >
+          <View style={[styles.switchCircle, shareEnabled && styles.switchCircleActive]} />
+        </Pressable>
+      </View>
+      {shareEnabled && (
+        <View style={styles.dropdownWrapper}>
+          <Pressable
+            style={styles.dropdownHeader}
+            onPress={() => setDropdownOpen(!dropdownOpen)}
+          >
+            <Text style={styles.dropdownSelectedText} numberOfLines={1}>
+              공유할 옷장 선택
+            </Text>
+            <Icon
+              name={dropdownOpen ? 'chevron.up' : 'chevron.down'}
+              tintColor={Editorial.textCaption}
+              size={14}
+            />
+          </Pressable>
+          {dropdownOpen && (
+            <View style={styles.dropdownList}>
+              <ScrollView
+                nestedScrollEnabled
+                showsVerticalScrollIndicator={sharedRooms.length > 4}
+                style={{ maxHeight: 160 }}>
+                {sharedRooms.map((room) => {
+                  const checked = sharedRoomIds.includes(room.id);
+                  return (
+                    <Pressable
+                      key={room.id}
+                      style={[
+                        styles.dropdownItem,
+                        checked && styles.dropdownItemActive,
+                      ]}
+                      onPress={() => handleToggleRoom(room.id)}
+                      accessibilityRole="checkbox"
+                      accessibilityState={{ checked }}>
+                      <Text
+                        style={[
+                          styles.dropdownItemText,
+                          checked && styles.dropdownItemTextActive,
+                        ]}
+                        numberOfLines={1}>
+                        {room.title}
+                      </Text>
+                      {checked ? (
+                        <Icon name="checkmark" tintColor={Editorial.ink} size={13} />
+                      ) : null}
+                    </Pressable>
+                  );
+                })}
+              </ScrollView>
+            </View>
+          )}
+        </View>
+      )}
+    </View>
+  ) : null;
+
   return (
     <View style={styles.container}>
       {header}
@@ -126,6 +353,9 @@ export default function ItemDetail() {
       <ScrollView
         showsVerticalScrollIndicator={false}
         contentContainerStyle={[styles.content, contentStyle(maxW)]}>
+        {/* 모바일: 1. 공유 옷장 토글 박스 -> 2. 옷 사진 -> 3. 아이템 제목 순서 */}
+        {isMobile ? shareBoxMobile : null}
+
         {/* 데스크톱: [사진 | 상세] 2단 / 태블릿·모바일: 세로 */}
         <DetailTwoPane
           image={
@@ -150,8 +380,11 @@ export default function ItemDetail() {
                 <Text style={styles.styleLine}>{item.style.join(' · ')}</Text>
               ) : null}
 
+              {/* PC 웹(데스크톱): 기존 위치에 2행 드롭박스 형태 렌더링 */}
+              {!isMobile ? shareBoxDesktop : null}
+
               {/* 확인 대기 — 확정 전에는 추천에 쓰이지 않는다는 걸 알려준다 */}
-              {!item.confirmed ? (
+              {!isReadOnly && !item.confirmed ? (
                 <View style={styles.pending}>
                   <View style={styles.pendingHead}>
                     <Icon name="exclamationmark.triangle" tintColor={Editorial.wine} size={15} />
@@ -180,18 +413,20 @@ export default function ItemDetail() {
                     </View>
                   ))}
                 </View>
-              ) : (
+              ) : !isReadOnly ? (
                 <Pressable style={styles.noSpec} onPress={() => setEditing(true)}>
                   <Text style={styles.noSpecText}>
                     태그가 아직 비어 있어요. 눌러서 채워 주세요.
                   </Text>
                 </Pressable>
-              )}
+              ) : null}
 
-              <Pressable style={styles.editRow} onPress={() => setEditing(true)}>
-                <Icon name="square.and.pencil" tintColor={ink(0.55)} size={15} />
-                <Text style={styles.editText}>태그 수정</Text>
-              </Pressable>
+              {!isReadOnly ? (
+                <Pressable style={styles.editRow} onPress={() => setEditing(true)}>
+                  <Icon name="square.and.pencil" tintColor={ink(0.55)} size={15} />
+                  <Text style={styles.editText}>태그 수정</Text>
+                </Pressable>
+              ) : null}
             </View>
           }
         />
@@ -205,18 +440,240 @@ export default function ItemDetail() {
         </Pressable>
       </View>
 
-      <ItemTagSheet
-        visible={editing}
-        item={item}
-        onClose={() => setEditing(false)}
-        onSaved={setItem}
-      />
+      {!isReadOnly ? (
+        <ItemTagSheet
+          visible={editing}
+          item={item}
+          onClose={() => setEditing(false)}
+          onSaved={setItem}
+        />
+      ) : null}
     </View>
   );
 }
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: Editorial.page },
+  shareAreaMobile: {
+    position: 'relative',
+    zIndex: 100,
+    elevation: 20,
+    overflow: 'visible',
+    borderWidth: 1,
+    borderColor: Editorial.line,
+    borderRadius: 14,
+    padding: 14,
+    marginHorizontal: 20,
+    marginTop: 10,
+    marginBottom: 16,
+    backgroundColor: Editorial.surface,
+  },
+  shareAreaDesktop: {
+    backgroundColor: Editorial.surfaceSoft,
+    borderRadius: 16,
+    padding: 14,
+    marginTop: 18,
+    borderWidth: 1,
+    borderColor: Editorial.line,
+    position: 'relative',
+    zIndex: 20,
+    elevation: 20,
+  },
+  shareHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  switchContainer: {
+    width: 44,
+    height: 24,
+    borderRadius: 999,
+    backgroundColor: ink(0.12),
+    paddingHorizontal: 2,
+    justifyContent: 'center',
+  },
+  switchContainerActive: {
+    backgroundColor: '#34C759',
+  },
+  switchCircle: {
+    width: 20,
+    height: 20,
+    borderRadius: 10,
+    backgroundColor: '#FFFFFF',
+  },
+  switchCircleActive: {
+    alignSelf: 'flex-end',
+  },
+  dropdownWrapper: {
+    position: 'relative',
+    zIndex: 100,
+    marginTop: 10,
+  },
+  dropdownHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    height: 40,
+    paddingHorizontal: 12,
+    borderRadius: 8,
+    backgroundColor: Editorial.surface,
+    borderWidth: 1,
+    borderColor: Editorial.line,
+  },
+  dropdownSelectedText: {
+    fontSize: 12,
+    color: Editorial.ink,
+    flex: 1,
+  },
+  dropdownList: {
+    position: 'absolute',
+    top: 44,
+    left: 0,
+    right: 0,
+    borderRadius: 8,
+    backgroundColor: Editorial.surface,
+    borderWidth: 1,
+    borderColor: Editorial.line,
+    zIndex: 101,
+    elevation: 24,
+    maxHeight: 160,
+    overflow: 'hidden',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.1,
+    shadowRadius: 6,
+  },
+  dropdownItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 8,
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: Editorial.lineSoft,
+    backgroundColor: Editorial.surface,
+  },
+  dropdownItemActive: {
+    backgroundColor: Editorial.surfaceSoft,
+  },
+  dropdownItemText: {
+    flex: 1,
+    fontSize: 11,
+    color: Editorial.textSoft,
+  },
+  dropdownItemTextActive: {
+    fontWeight: '600',
+    color: Editorial.ink,
+  },
+  shareRow: {
+    position: 'relative',
+    zIndex: 100,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 10,
+  },
+  shareToggleWrap: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  shareLabel: {
+    fontSize: Type.footnote,
+    fontWeight: '600',
+    color: INK,
+  },
+  switch: {
+    width: 42,
+    height: 24,
+    borderRadius: 12,
+    backgroundColor: ink(0.16),
+    padding: 2,
+    justifyContent: 'center',
+  },
+  switchOn: {
+    backgroundColor: '#34C759',
+  },
+  switchKnob: {
+    width: 20,
+    height: 20,
+    borderRadius: 10,
+    backgroundColor: '#fff',
+  },
+  switchKnobOn: {
+    alignSelf: 'flex-end',
+  },
+  roomPickerWrap: {
+    position: 'relative',
+    zIndex: 101,
+    flex: 1,
+  },
+  roomPicker: {
+    height: 38,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 12,
+    borderWidth: 1,
+    borderColor: Editorial.line,
+    borderRadius: 10,
+    backgroundColor: Editorial.surfaceSoft,
+  },
+  roomPickerDisabled: {
+    backgroundColor: ink(0.04),
+    opacity: 0.6,
+  },
+  roomPickerText: {
+    flex: 1,
+    marginRight: 8,
+    fontSize: Type.footnote,
+    color: INK,
+  },
+  roomPickerTextDisabled: {
+    color: ink(0.35),
+  },
+  roomMenu: {
+    position: 'absolute',
+    zIndex: 102,
+    elevation: 40,
+    top: 42,
+    right: 0,
+    left: 0,
+    maxHeight: 160,
+    overflow: 'hidden',
+    borderWidth: 1,
+    borderColor: Editorial.line,
+    borderRadius: 10,
+    backgroundColor: Editorial.surface,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.12,
+    shadowRadius: 6,
+  },
+  roomOption: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 12,
+    paddingVertical: 11,
+    borderBottomWidth: 1,
+    borderBottomColor: Editorial.lineSoft,
+    backgroundColor: Editorial.surface,
+  },
+  roomOptionSelected: {
+    backgroundColor: Editorial.surfaceSoft,
+  },
+  roomOptionText: {
+    flex: 1,
+    marginRight: 8,
+    fontSize: Type.footnote,
+    color: Editorial.textSoft,
+  },
+  roomOptionTextSelected: {
+    fontWeight: '700',
+    color: INK,
+  },
   headerSafe: { backgroundColor: Editorial.page },
   header: {
     flexDirection: 'row',

@@ -38,6 +38,29 @@ export const KAKAO_NATIVE_APP_KEY =
   process.env.EXPO_PUBLIC_KAKAO_NATIVE_APP_KEY ?? '1366adcd2e8c643a4b5471fabd32b6ea';
 
 /**
+ * 카카오 **JavaScript 키** — 웹에서 Kakao JS SDK(Kakao.init) 초기화에 쓴다.
+ * 네이티브 앱 키와 값이 다르며, 네이티브 키로 Kakao.init 을 부르면 공유 창이
+ * 열리지 않고 조용히 실패한다(한 번 겪은 함정이라 상수를 따로 둔다).
+ * 브라우저 번들에 그대로 실리는 준공개값이고, 카카오 개발자 콘솔의
+ * [내 애플리케이션 > 플랫폼 > Web]에 등록된 도메인에서만 동작한다.
+ *
+ * ⚠️ Expo 는 **EXPO_PUBLIC_ 접두사가 붙은 변수만** 번들에 넣는다.
+ *    Infisical/셸에 `KAKAO_JAVASCRIPT_KEY` 로만 넣으면 앱에는 전달되지 않는다.
+ */
+export const KAKAO_JAVASCRIPT_KEY = process.env.EXPO_PUBLIC_KAKAO_JAVASCRIPT_KEY ?? '';
+
+/**
+ * 공유 옷장 초대 링크의 기준 주소.
+ *
+ * 초대 링크는 **남에게 보내는 주소**다. 웹에서 `window.location.origin`을 그대로 쓰면
+ * 개발 중에 `http://localhost:8081/invite?code=...` 같은 링크가 만들어지는데,
+ * 받는 사람에게 localhost 는 **자기 컴퓨터**라 아무것도 열리지 않는다.
+ * 그래서 내 컴퓨터에서만 열리는 주소일 때는 이 값으로 바꿔 링크를 만든다.
+ */
+export const INVITE_BASE_URL =
+  process.env.EXPO_PUBLIC_INVITE_BASE_URL ?? 'https://skn-1st-mobile.expo.app';
+
+/**
  * 네이버 로그인 (네이티브 SDK, @react-native-seoul/naver-login).
  * consumerKey/Secret 은 네이버 개발자센터 발급값. 네이버 모바일 SDK 는 secret 을 앱에
  * 내장하도록 요구하므로(카카오 네이티브 키와 동일한 준공개값) EXPO_PUBLIC_ 로 주입한다 — .env(gitignore).

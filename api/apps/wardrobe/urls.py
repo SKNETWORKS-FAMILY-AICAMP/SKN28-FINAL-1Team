@@ -1,4 +1,5 @@
-from django.urls import path
+from django.urls import path, include
+from rest_framework.routers import DefaultRouter
 
 from apps.wardrobe.views import (
     WardrobeBatchDetailView,
@@ -9,9 +10,13 @@ from apps.wardrobe.views import (
     WardrobeItemListView,
     WardrobeUploadJobView,
     WardrobeUploadView,
+    SharedWardrobeViewSet,
 )
 
 app_name = "wardrobe"
+
+router = DefaultRouter()
+router.register(r"shared-wardrobes", SharedWardrobeViewSet, basename="shared-wardrobes")
 
 urlpatterns = [
     path("wardrobe/batches/", WardrobeBatchView.as_view(), name="batch-list-create"),
@@ -24,6 +29,8 @@ urlpatterns = [
     # 옷장 아이템 조회·수정·삭제
     path("wardrobe/items/", WardrobeItemListView.as_view(), name="items"),
     path("wardrobe/items/<uuid:item_id>/", WardrobeItemDetailView.as_view(), name="item-detail"),
+    # ── 공유 옷장 (Shared Wardrobe) ──
+    path("", include(router.urls)),
     # 룩 사진에서 뽑힌 옷을 옷장에 들이기
     path(
         "wardrobe/items/<uuid:item_id>/add-to-closet/",

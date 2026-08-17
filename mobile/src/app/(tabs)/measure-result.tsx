@@ -13,6 +13,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { MeasureGuideSheet } from '@/components/measure/measure-guide-sheet';
 import { ErrorState, LoadingState, useToast } from '@/components/ui';
+import { useBottomTabInset } from '@/hooks/use-bottom-tab-inset';
 import {
   BODY_MEASURES,
   EDITABLE_MEASURES,
@@ -47,6 +48,7 @@ function isValid(spec: BodyMeasureSpec, raw: string | undefined): boolean {
 // G3 치수 결과·사이즈 매칭 — measureStore 결과를 구독. 완료 시 측정 플로우 닫기
 export default function MeasureResult() {
   const { contentStyle } = useBreakpoint();
+  const tabInset = useBottomTabInset();
   /* guide 파라미터로 '재는 법'을 바로 열 수 있다 (mobile:///measure-result?guide=shoulder).
      화면을 거치지 않고 특정 항목 안내로 보낼 때 쓴다 — 도움말 링크·QA 확인용. */
   const { returnTo, guide } = useLocalSearchParams<{ returnTo?: string; guide?: string }>();

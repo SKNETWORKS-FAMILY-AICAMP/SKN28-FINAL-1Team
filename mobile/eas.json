@@ -11,9 +11,6 @@
       "environment": "preview",
       "android": {
         "buildType": "apk"
-      },
-      "env": {
-        "EXPO_PUBLIC_API_URL": "https://qualifications-database-additional-achieved.trycloudflare.com"
       }
     },
     "simulator": {
@@ -22,9 +19,6 @@
       "environment": "preview",
       "ios": {
         "simulator": true
-      },
-      "env": {
-        "EXPO_PUBLIC_API_URL": "https://qualifications-database-additional-achieved.trycloudflare.com"
       }
     },
     "development": {
@@ -37,10 +31,7 @@
     },
     "production": {
       "channel": "production",
-      "autoIncrement": true,
-      "env": {
-        "EXPO_PUBLIC_API_URL": "https://qualifications-database-additional-achieved.trycloudflare.com"
-      }
+      "autoIncrement": true
     }
   },
   "submit": {

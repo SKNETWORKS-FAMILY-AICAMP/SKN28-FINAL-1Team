@@ -15,6 +15,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { StylistCardGroup } from '@/components/chat/stylist-cards';
 import { StylistPicker } from '@/components/chat/stylist-picker';
+import { ClosetItemSelectSheet } from '@/components/chat/closet-item-select-sheet';
 import { Icon } from '@/components/icon';
 import { SmartImage, useToast } from '@/components/ui';
 import { ContentMax, Editorial, Fonts, ink, Type } from '@/constants/theme';
@@ -107,6 +108,8 @@ export function ChatConversation({
   const [typing, setTyping] = useState(false);
   const [loadingOlder, setLoadingOlder] = useState(false);
   const toast = useToast();
+
+  const [closetSelectOpen, setClosetSelectOpen] = useState(false);
 
   /**
    * 스타일리스트 카드가 채워지는 상황 — 진행이 바뀔 때마다 달라지는 짧은 글자로 만든다.
@@ -262,6 +265,28 @@ export function ChatConversation({
     setPickerOpen(true);
   };
 
+  const handleSelectClosetItems = async (
+    selectedItems: { id: string; image: string; name: string }[],
+  ) => {
+    if (selectedItems.length === 0 || typing) return;
+
+    setTyping(true);
+    try {
+      const itemNames = selectedItems.map((item) => item.name).join(', ');
+      await chatStore.sendText(
+        await ensureSession(),
+        `선택한 옷(${itemNames})을 포함해 코디를 추천해줘.`,
+      );
+    } catch (e) {
+      toast(e instanceof Error ? e.message : '선택한 옷으로 추천을 요청하지 못했어요', {
+        variant: 'error',
+      });
+    } finally {
+      setTyping(false);
+      scrollToEnd();
+    }
+  };
+
   /* 모드 저장이 실패하면 이전 모드와 선택을 그대로 둔다(설계서 19장).
      스토어가 서버 응답을 받은 뒤에만 세션을 바꾸므로 여기서 되돌릴 것은 없다. */
   const enableStylists = async (ids: StylistId[]) => {
@@ -339,7 +364,31 @@ export function ChatConversation({
     <KeyboardAvoidingView
       style={styles.flex}
       behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-      keyboardVerticalOffset={0}>
+      keyboardVerticalOffset={0}
+      {...{
+        // Web HTML5 Drag and drop
+        onDragOver: (e: any) => {
+          if (Platform.OS === 'web') {
+            e.preventDefault();
+          }
+        },
+        onDrop: (e: any) => {
+          if (Platform.OS === 'web') {
+            e.preventDefault();
+            try {
+              const dataStr = e.dataTransfer.getData('text/plain');
+              if (dataStr) {
+                const item = JSON.parse(dataStr);
+                if (item && item.id && item.image) {
+                  handleSelectClosetItems([item]);
+                }
+              }
+            } catch (err) {
+              console.error('Drop parsing error:', err);
+            }
+          }
+        }
+      }}>
       <ScrollView
         ref={scrollRef}
         style={styles.flex}
@@ -370,6 +419,20 @@ export function ChatConversation({
                     ) : (
                       <Icon name="photo" tintColor={ink(0.3)} size={30} />
                     )}
+                  </View>
+                ) : m.kind === 'closet_items' ? (
+                  <View style={styles.attachedItemsContainer}>
+                    <Text style={styles.attachedTitle}>내가 선택한 옷들로 코디 추천해줘 :</Text>
+                    <View style={styles.attachedGrid}>
+                      {m.items.map((it) => (
+                        <View key={it.id} style={styles.attachedCard}>
+                          <SmartImage uri={it.image} width="100%" height={52} contentFit="cover" />
+                          <Text style={styles.attachedCardName} numberOfLines={1}>
+                            {it.name}
+                          </Text>
+                        </View>
+                      ))}
+                    </View>
                   </View>
                 ) : (
                   <View style={styles.userBubble}>
@@ -437,7 +500,6 @@ export function ChatConversation({
                     }>
                     <View style={styles.recBody}>
                       <Text style={styles.recTitle}>{m.title}</Text>
-
                       {/* 아이템 한 줄 — 사진이 있는 것만 그리고, 없으면 이름으로 대신한다 */}
                       <View style={styles.recItems}>
                         {m.items.map((item) => (
@@ -595,6 +657,13 @@ export function ChatConversation({
           <Pressable style={styles.photoBtn} onPress={attachPhoto} disabled={typing} hitSlop={8}>
             <Icon name="photo" tintColor={ink(typing ? 0.25 : 0.55)} size={22} />
           </Pressable>
+          <Pressable
+            style={[styles.photoBtn, { marginLeft: -2 }]}
+            onPress={() => setClosetSelectOpen(true)}
+            disabled={typing}
+            hitSlop={8}>
+            <Icon name="tshirt" tintColor={ink(typing ? 0.25 : 0.55)} size={22} />
+          </Pressable>
           {/* 웹에서 multiline 은 textarea 로 렌더되어 기본 2줄 높이를 갖는다.
               numberOfLines={1} 로 한 줄에서 시작하게 하고, 길어지면 maxHeight 까지 늘어난다. */}
           <TextInput
@@ -617,6 +686,12 @@ export function ChatConversation({
           </Pressable>
         </View>
       </SafeAreaView>
+
+      <ClosetItemSelectSheet
+        visible={closetSelectOpen}
+        onClose={() => setClosetSelectOpen(false)}
+        onSelect={handleSelectClosetItems}
+      />
     </KeyboardAvoidingView>
   );
 }
@@ -833,4 +908,42 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   sendBtnOn: { backgroundColor: Editorial.cta },
+  attachedItemsContainer: {
+    alignSelf: 'flex-end',
+    backgroundColor: Editorial.surfaceSoft,
+    borderWidth: 1,
+    borderColor: Editorial.line,
+    borderRadius: 16,
+    padding: 12,
+    maxWidth: '85%',
+    gap: 8,
+  },
+  attachedTitle: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: ink(0.7),
+  },
+  attachedGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+  },
+  attachedCard: {
+    width: 72,
+    borderRadius: 8,
+    backgroundColor: '#FFFFFF',
+    borderWidth: 1,
+    borderColor: Editorial.line,
+    overflow: 'hidden',
+    alignItems: 'center',
+    paddingBottom: 4,
+  },
+  attachedCardName: {
+    fontSize: 9,
+    fontWeight: '600',
+    color: Editorial.ink,
+    marginTop: 3,
+    paddingHorizontal: 2,
+    textAlign: 'center',
+  },
 });

@@ -115,6 +115,7 @@ export type ChatMessage =
       decision: 'APPROVED' | 'REJECTED' | null;
       //decision: ApiMoodDecision;
     }
+  | { id: string; role: 'user'; kind: 'closet_items'; items: { id: string; image: string; name: string }[] }
   /**
    * 답변을 못 받은 질문 아래에 남기는 줄.
    * 토스트는 사라지므로, 대화를 다시 열었을 때 "질문만 있고 답이 없는" 상태로 보이지 않게 한다.

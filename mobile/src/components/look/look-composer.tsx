@@ -120,7 +120,7 @@ export function LookComposer({ date }: { date?: string }) {
         </Text>
         {item.owner ? (
           <Text style={styles.chipOwner} numberOfLines={1}>
-            {item.owner}님 옷
+            {item.owner} 옷
           </Text>
         ) : null}
       </View>

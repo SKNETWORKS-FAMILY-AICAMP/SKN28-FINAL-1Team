@@ -153,7 +153,7 @@ export function ItemPickerSheet({
                           {item.name}
                         </Text>
                         <Text style={styles.itemMeta} numberOfLines={1}>
-                          {item.owner ? `${item.owner}님` : (item.brand ?? item.category)}
+                          {item.owner ? `${item.owner}` : (item.brand ?? item.category)}
                         </Text>
                       </Pressable>
                     );

@@ -82,7 +82,13 @@ def upsert_item(item, image_vector: list[float] | None,
 
 def update_payload(item) -> None:
     """태깅 수정·확정 시 payload 동기화 (best-effort)."""
+    # 아직 임베딩되지 않은 아이템은 Qdrant point가 없으므로 갱신하지 않는다.
+    # 이후 재색인 시 최신 DB 값을 기반으로 payload가 생성된다.
+    if not item.embedding_version:
+        return
+
     try:
+        ensure_collection()
         _client().set_payload(
             collection_name=COLLECTION,
             payload={

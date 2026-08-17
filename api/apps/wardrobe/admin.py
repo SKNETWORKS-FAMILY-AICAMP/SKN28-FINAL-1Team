@@ -1,6 +1,6 @@
 from django.contrib import admin
 
-from .models import WardrobeItem, WardrobeUploadJob
+from .models import SharedWardrobeCategory, WardrobeItem, WardrobeUploadJob
 
 
 @admin.register(WardrobeUploadJob)
@@ -18,3 +18,10 @@ class WardrobeItemAdmin(admin.ModelAdmin):
     list_filter = ["category_large", "confirmed"]
     search_fields = ["item_name", "user__username"]
     readonly_fields = ["id", "job", "s3_key", "seg_meta", "created_at", "updated_at"]
+
+
+@admin.register(SharedWardrobeCategory)
+class SharedWardrobeCategoryAdmin(admin.ModelAdmin):
+    list_display = ["id", "room", "name", "created_by", "created_at"]
+    search_fields = ["name", "room__title", "created_by__username"]
+    readonly_fields = ["id", "created_at"]

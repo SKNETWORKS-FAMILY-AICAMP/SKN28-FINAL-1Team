@@ -46,6 +46,7 @@ class ItemRetrievalRequest:
         ItemSource.PRODUCT,
     )
     user_id: int | None = None
+    allowed_wardrobe_item_ids: tuple[str, ...] | None = None
     max_price: int | None = None
     category_budgets: dict[str, int] = field(default_factory=dict)
     dataset_version: str = ""
@@ -275,11 +276,15 @@ class ItemCandidateRetriever:
         vector_name: str,
         vector: list[float] | None,
     ) -> list[ItemCandidate]:
-        conditions = [
-            *common_conditions,
-            _match_value("user_id", request.user_id),
-            _match_value("confirmed", True),
-        ]
+        if request.allowed_wardrobe_item_ids == ():
+            return []
+        conditions = [*common_conditions, _match_value("confirmed", True)]
+        if request.allowed_wardrobe_item_ids is None:
+            conditions.append(_match_value("user_id", request.user_id))
+        else:
+            conditions.append(
+                qm.HasIdCondition(has_id=list(request.allowed_wardrobe_item_ids))
+            )
         return self._retrieve_collection(
             collection_name=collection_spec("wardrobe").name,
             source_type=ItemSource.WARDROBE,

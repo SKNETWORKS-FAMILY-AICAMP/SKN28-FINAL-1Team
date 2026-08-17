@@ -189,6 +189,9 @@ USE_TZ = True
 STATIC_URL = "static/"
 STATIC_ROOT = BASE_DIR / "staticfiles"
 
+MEDIA_URL = "media/"
+MEDIA_ROOT = BASE_DIR / "media"
+
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
 # ------------------------------------------------------------
@@ -204,6 +207,41 @@ REST_FRAMEWORK = {
     "DEFAULT_RENDERER_CLASSES": [
         "rest_framework.renderers.JSONRenderer",
     ],
+    # 스로틀 클래스는 각 뷰에서 지정한다 (전역 적용 안 함). 여기엔 요율만 등록.
+    # invite_preview: 초대코드가 곧 열람 권한이라 무차별 대입을 막아야 한다.
+    "DEFAULT_THROTTLE_RATES": {
+        "invite_preview": "20/min",
+    },
+}
+
+# ── 캐시 ───────────────────────────────────────────────
+#
+# throttle 별칭을 따로 둔다. DRF 스로틀 카운터를 기본 LocMemCache에 저장하면
+# gunicorn 워커마다 따로 세기 때문에, 실제 허용량이 (요율 x 워커 수)로 부풀어
+# 오른다 (GUNICORN_WORKERS=3 환경에서 20/min 제한이 사실상 60/min이 됐다).
+# Redis가 있으면 워커 간에 카운터를 공유하고, 없으면 LocMemCache로 폴백한다.
+_REDIS_URL = os.getenv("REDIS_URL", "")
+# requirepass 비밀번호는 URL에 내장하지 않고 별도 주입한다 (services/jobs.py와 동일 규약)
+_REDIS_PASSWORD = os.getenv("REDIS_PASSWORD", "")
+
+CACHES = {
+    "default": {
+        "BACKEND": "django.core.cache.backends.locmem.LocMemCache",
+    },
+    "throttle": (
+        {
+            "BACKEND": "django.core.cache.backends.redis.RedisCache",
+            "LOCATION": _REDIS_URL,
+            **(
+                {"OPTIONS": {"password": _REDIS_PASSWORD}} if _REDIS_PASSWORD else {}
+            ),
+        }
+        if _REDIS_URL
+        else {
+            "BACKEND": "django.core.cache.backends.locmem.LocMemCache",
+            "LOCATION": "throttle-fallback",
+        }
+    ),
 }
 
 SIMPLE_JWT = {
@@ -398,6 +436,7 @@ OUTFIT_ESTIMATED_SECONDS = int(os.getenv("OUTFIT_ESTIMATED_SECONDS", "30"))
 # 하루 한 번, 사용자당 한 번 도는 작업이라 이 비용은 감당할 수 있다.
 RETRIEVER_SCROLL_CAP = int(os.getenv("RETRIEVER_SCROLL_CAP", "2000"))
 RETRIEVER_SCROLL_PAGE = int(os.getenv("RETRIEVER_SCROLL_PAGE", "256"))
+RETRIEVER_WARDROBE_ID_CAP = int(os.getenv("RETRIEVER_WARDROBE_ID_CAP", "1000"))
 
 # 코디 payload의 아이템 요약에는 fit·length·pattern이 없다. 체형 규칙은 정확히
 # 그 축으로 조건을 걸기 때문에, 붙이지 않으면 모든 체형 규칙이 0점이 된다.

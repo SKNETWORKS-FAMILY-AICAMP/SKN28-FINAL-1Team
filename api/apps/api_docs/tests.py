@@ -30,6 +30,72 @@ class SwaggerEndpointTests(SimpleTestCase):
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, reverse("api-schema"))
 
+    def test_wardrobe_swagger_operations_are_executable(self) -> None:
+        response = self.client.get(
+            reverse("api-schema"),
+            headers={"accept": "application/json"},
+        )
+        self.assertEqual(response.status_code, 200)
+        paths = json.loads(response.content)["paths"]
+
+        detail = paths["/api/v1/wardrobe/items/{item_id}/"]["get"]
+        self.assertEqual(detail["operationId"], "wardrobe_item_detail")
+        self.assertIn("$ref", detail["responses"]["200"]["content"]["application/json"]["schema"])
+
+        add_to_closet = paths[
+            "/api/v1/wardrobe/items/{item_id}/add-to-closet/"
+        ]["post"]
+        self.assertEqual(
+            add_to_closet["operationId"], "wardrobe_item_add_to_closet"
+        )
+        self.assertNotIn("requestBody", add_to_closet)
+
+        delete_category = paths[
+            "/api/v1/shared-wardrobes/{id}/categories/"
+        ]["delete"]
+        category_id = next(
+            parameter
+            for parameter in delete_category["parameters"]
+            if parameter["name"] == "category_id"
+        )
+        self.assertEqual((category_id["in"], category_id["required"]), ("query", True))
+
+        required_operations = {
+            ("get", "/api/v1/wardrobe/batches/"),
+            ("post", "/api/v1/wardrobe/batches/"),
+            ("get", "/api/v1/wardrobe/batches/{batch_id}/"),
+            ("post", "/api/v1/wardrobe/uploads/"),
+            ("get", "/api/v1/wardrobe/uploads/{job_id}/"),
+            ("get", "/api/v1/wardrobe/items/"),
+            ("get", "/api/v1/wardrobe/items/{item_id}/"),
+            ("patch", "/api/v1/wardrobe/items/{item_id}/"),
+            ("delete", "/api/v1/wardrobe/items/{item_id}/"),
+            ("post", "/api/v1/wardrobe/items/{item_id}/add-to-closet/"),
+            ("get", "/api/v1/shared-wardrobes/"),
+            ("post", "/api/v1/shared-wardrobes/"),
+            ("get", "/api/v1/shared-wardrobes/{id}/"),
+            ("patch", "/api/v1/shared-wardrobes/{id}/"),
+            ("delete", "/api/v1/shared-wardrobes/{id}/"),
+            ("post", "/api/v1/shared-wardrobes/join/"),
+            ("get", "/api/v1/shared-wardrobes/preview/"),
+            ("post", "/api/v1/shared-wardrobes/{id}/refresh-code/"),
+            ("post", "/api/v1/shared-wardrobes/{id}/leave/"),
+            ("get", "/api/v1/shared-wardrobes/{id}/members/"),
+            ("get", "/api/v1/shared-wardrobes/{id}/items/"),
+            ("post", "/api/v1/shared-wardrobes/{id}/items/"),
+            ("patch", "/api/v1/shared-wardrobes/{id}/items/"),
+            ("delete", "/api/v1/shared-wardrobes/{id}/items/"),
+            ("get", "/api/v1/shared-wardrobes/{id}/categories/"),
+            ("post", "/api/v1/shared-wardrobes/{id}/categories/"),
+            ("delete", "/api/v1/shared-wardrobes/{id}/categories/"),
+        }
+        for method, path in required_operations:
+            with self.subTest(method=method, path=path):
+                operation = paths[path][method]
+                self.assertTrue(operation.get("summary"))
+                self.assertTrue(operation.get("tags"))
+                self.assertTrue(operation.get("responses"))
+
     def test_chat_apis_share_one_executable_swagger_category(self) -> None:
         response = self.client.get(
             reverse("api-schema"),
