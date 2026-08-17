@@ -1,6 +1,9 @@
 from django.urls import path
 
 from apps.lookbook.views import (
+    DiscoveryLookDetailView,
+    DiscoveryLookListView,
+    DiscoveryLookCoverView,
     LookbookDetailView,
     LookbookListView,
     LookbookPhotoCreateView,
@@ -12,6 +15,21 @@ from apps.lookbook.views import (
 app_name = "lookbook"
 
 urlpatterns = [
+    path(
+        "lookbooks/discover/",
+        DiscoveryLookListView.as_view(),
+        name="lookbook-discover",
+    ),
+    path(
+        "lookbooks/discover/<str:look_id>/",
+        DiscoveryLookDetailView.as_view(),
+        name="lookbook-discover-detail",
+    ),
+    path(
+        "lookbooks/discover/<str:external_id>/cover/",
+        DiscoveryLookCoverView.as_view(),
+        name="lookbook-discover-cover",
+    ),
     path(
         "lookbooks/photo/",
         LookbookPhotoCreateView.as_view(),

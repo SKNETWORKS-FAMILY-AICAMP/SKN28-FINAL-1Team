@@ -1,7 +1,10 @@
 import { Editorial, ink } from '@/constants/theme';
 import { Icon, type IconName } from '@/components/icon';
-import { type ReactNode } from 'react';
+import { useBreakpoint } from '@/hooks/use-breakpoint';
+import { type ReactNode, useRef, useState } from 'react';
 import {
+  type NativeScrollEvent,
+  type NativeSyntheticEvent,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -52,6 +55,35 @@ export function SearchFilterBar({
   onEditCategories,
   chipIcons,
 }: SearchFilterBarProps) {
+  const { isMobile } = useBreakpoint();
+  const chipScrollRef = useRef<ScrollView>(null);
+  const [chipViewportWidth, setChipViewportWidth] = useState(0);
+  const [chipContentWidth, setChipContentWidth] = useState(0);
+  const [chipOffset, setChipOffset] = useState(0);
+  const hasMoreCategories =
+    isMobile && chipContentWidth > chipViewportWidth + chipOffset + 8;
+  const hasPreviousCategories = isMobile && chipOffset > 8;
+
+  const handleChipScroll = (event: NativeSyntheticEvent<NativeScrollEvent>) => {
+    setChipOffset(event.nativeEvent.contentOffset.x);
+  };
+
+  const showNextCategories = () => {
+    const nextOffset = Math.min(
+      chipOffset + Math.max(chipViewportWidth * 0.72, 180),
+      Math.max(0, chipContentWidth - chipViewportWidth),
+    );
+    chipScrollRef.current?.scrollTo({ x: nextOffset, animated: true });
+  };
+
+  const showPreviousCategories = () => {
+    const previousOffset = Math.max(
+      0,
+      chipOffset - Math.max(chipViewportWidth * 0.72, 180),
+    );
+    chipScrollRef.current?.scrollTo({ x: previousOffset, animated: true });
+  };
+
   return (
     <>
       <View style={styles.searchRow}>
@@ -77,38 +109,61 @@ export function SearchFilterBar({
       {middle}
 
       {showFilters && showChips ? (
-        <ScrollView
-          horizontal
-          showsHorizontalScrollIndicator={false}
-          style={styles.chipScroll}
-          contentContainerStyle={styles.chipRow}>
-          {onEditCategories ? (
+        <View style={styles.chipViewport}>
+          <ScrollView
+            ref={chipScrollRef}
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            style={styles.chipScroll}
+            contentContainerStyle={styles.chipRow}
+            onLayout={(event) => setChipViewportWidth(event.nativeEvent.layout.width)}
+            onContentSizeChange={(width) => setChipContentWidth(width)}
+            onScroll={handleChipScroll}
+            scrollEventThrottle={16}>
+            {onEditCategories ? (
+              <Pressable
+                style={styles.editChip}
+                onPress={onEditCategories}
+                accessibilityLabel="카테고리 수정">
+                <Icon name="slider.horizontal.3" tintColor={ink(0.45)} size={16} />
+              </Pressable>
+            ) : null}
+            {options.map((c) => {
+              const on = isActive(c);
+              return (
+                <Pressable
+                  key={c}
+                  onPress={() => onToggle(c)}
+                  style={[styles.chip, on && styles.chipOn]}>
+                  {chipIcons?.[c] ? (
+                    <Icon
+                      name={chipIcons[c]!}
+                      tintColor={on ? '#fff' : Editorial.textCaption}
+                      size={13}
+                    />
+                  ) : null}
+                  <Text style={[styles.chipText, on && styles.chipTextOn]}>{c}</Text>
+                </Pressable>
+              );
+            })}
+          </ScrollView>
+          {hasPreviousCategories ? (
             <Pressable
-              style={styles.editChip}
-              onPress={onEditCategories}
-              accessibilityLabel="카테고리 수정">
-              <Icon name="slider.horizontal.3" tintColor={ink(0.45)} size={16} />
+              style={[styles.categoryNavigationButton, styles.previousCategoriesButton]}
+              onPress={showPreviousCategories}
+              accessibilityLabel="이전 카테고리 보기">
+              <Icon name="chevron.left" tintColor={INK} size={18} />
             </Pressable>
           ) : null}
-          {options.map((c) => {
-            const on = isActive(c);
-            return (
-              <Pressable
-                key={c}
-                onPress={() => onToggle(c)}
-                style={[styles.chip, on && styles.chipOn]}>
-                {chipIcons?.[c] ? (
-                  <Icon
-                    name={chipIcons[c]!}
-                    tintColor={on ? '#fff' : Editorial.textCaption}
-                    size={13}
-                  />
-                ) : null}
-                <Text style={[styles.chipText, on && styles.chipTextOn]}>{c}</Text>
-              </Pressable>
-            );
-          })}
-        </ScrollView>
+          {hasMoreCategories ? (
+            <Pressable
+              style={[styles.categoryNavigationButton, styles.nextCategoriesButton]}
+              onPress={showNextCategories}
+              accessibilityLabel="다음 카테고리 보기">
+              <Icon name="chevron.right" tintColor={INK} size={18} />
+            </Pressable>
+          ) : null}
+        </View>
       ) : null}
     </>
   );
@@ -135,6 +190,7 @@ const styles = StyleSheet.create({
     padding: 0,
   },
 
+  chipViewport: { height: 60, position: 'relative' },
   chipScroll: { flexGrow: 0, height: 60 },
   chipRow: { paddingHorizontal: PAD, gap: 8, paddingBottom: 20, alignItems: 'center' },
   chip: {
@@ -162,4 +218,18 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     backgroundColor: Editorial.control,
   },
+  categoryNavigationButton: {
+    position: 'absolute',
+    top: 0,
+    width: 38,
+    height: 38,
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: ink(0.14),
+    backgroundColor: Editorial.surface,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  previousCategoriesButton: { left: 6 },
+  nextCategoriesButton: { right: 6 },
 });
