@@ -14,7 +14,12 @@ import { useDailyLook } from '@/hooks/use-daily-look';
 import { useHome, type HomeData, type HomeWeather } from '@/hooks/use-home';
 import { useRefresh } from '@/hooks/use-refresh';
 import { useWardrobeItems } from '@/hooks/use-wardrobe';
-import { dailyLookPhase, type DailyLook, type DailyLookPhase } from '@/lib/dailyLookApi';
+import {
+  dailyLookPhase,
+  type DailyLook,
+  type DailyLookPhase,
+  type DailyLookResult,
+} from '@/lib/dailyLookApi';
 import { useAuth } from '@/state/auth';
 import { savedLookStore } from '@/state/saved';
 
@@ -205,12 +210,12 @@ type DisplayLook = {
   tags: string[];
   /** 눌렀을 때 열 룩 상세 (constants/today-look.ts LOOK_VARIANTS) */
   variantId: string;
+  /** 이 카드가 어느 골든 코디인지 — 저장·상세로 이 룩을 그대로 이어 준다(데모는 없음) */
+  goldenId?: string;
 };
 
-/** 오늘의 룩 API 응답 → 홈 카드. 완성(SUCCEEDED) 전에는 null — 카드는 스켈레톤으로 간다. */
-function toDisplayLook(look: DailyLook | null): DisplayLook | null {
-  if (look?.status !== 'SUCCEEDED' || !look.result) return null;
-  const r = look.result;
+/** 추천 결과 한 벌 → 홈 카드. 대표 룩과 '다른 룩' 후보가 같은 스키마라 함께 쓴다. */
+function resultToDisplayLook(r: DailyLookResult): DisplayLook {
   /* 대표 이미지 우선순위: 정면 착용 이미지 → 원본 코디 사진(exposable 일 때만 있음)
      → 아이템 카드 첫 장. 전부 presigned URL 이라 캐시하지 않고 받은 그대로 쓴다. */
   const image =
@@ -230,7 +235,21 @@ function toDisplayLook(look: DailyLook | null): DisplayLook | null {
     comment: r.headline || r.rationale_ko,
     tags,
     variantId: 'daily',
+    goldenId: r.golden_id,
   };
+}
+
+/**
+ * 오늘의 룩 API 응답 → 홈 카드 목록. 대표 룩이 먼저, 그 뒤가 '다른 룩' 후보다.
+ *
+ * 완성(SUCCEEDED) 전에는 빈 배열 — 카드는 스켈레톤으로 간다. 후보 이미지는
+ * 서버가 나중에 채우므로, 처음 몇 초는 후보 카드가 아이템 사진으로 그려질 수 있다.
+ * 그래도 목록에서 빼지는 않는다: 눌렀을 때 룩이 나오는 편이 버튼이 사라졌다
+ * 나타나는 것보다 낫다.
+ */
+function toDisplayLooks(look: DailyLook | null): DisplayLook[] {
+  if (look?.status !== 'SUCCEEDED' || !look.result) return [];
+  return [look.result, ...(look.alternatives ?? [])].map(resultToDisplayLook);
 }
 
 /** 홈 본문 — 오늘의 룩.
@@ -259,13 +278,13 @@ function HomeBody({
   const toast = useToast();
   const [idx, setIdx] = useState(0);
 
-  const apiLook = useMemo(() => toDisplayLook(daily), [daily]);
+  const apiLooks = useMemo(() => toDisplayLooks(daily), [daily]);
   /* 데모는 진짜 추천이 없어 목업으로 그린다 — 목업이 인증 사용자 경로로 새지 않게
-     데모 상수(constants/demo.ts)에만 둔다. 인증 사용자는 실제 추천 하나뿐이라
-     '다른 룩'으로 돌릴 대상이 없다(백엔드가 후보를 아직 안 내려준다). */
+     데모 상수(constants/demo.ts)에만 둔다. 인증 사용자는 대표 룩 + 리트리버가 뽑은
+     차순위 후보를 '다른 룩'으로 돌려본다. */
   const looks = useMemo<DisplayLook[]>(
-    () => (isDemo ? DEMO_LOOKS : apiLook ? [apiLook] : []),
-    [isDemo, apiLook],
+    () => (isDemo ? DEMO_LOOKS : apiLooks),
+    [isDemo, apiLooks],
   );
   const look = looks.length ? looks[idx % looks.length] : null;
 
@@ -283,7 +302,9 @@ function HomeBody({
     /* 서버 왕복이라 끝난 뒤에 알린다 — 먼저 토스트를 띄우면 실패해도 담긴 것처럼 보인다. */
     try {
       if (isRealLook) {
-        const { created } = await savedLookStore.saveDailyLook();
+        /* 지금 보고 있는 룩을 담는다 — '다른 룩'으로 돌려본 뒤 저장했는데 대표 룩이
+           담기면 화면과 결과가 어긋난다. 서버가 이 id 를 오늘 후보 안에서 확인한다. */
+        const { created } = await savedLookStore.saveDailyLook(look.goldenId);
         toast(created ? '내 룩북에 담았어요' : '이미 담아둔 룩이에요');
       } else {
         await savedLookStore.addLook({
@@ -364,7 +385,13 @@ function ReadyLook({
 }) {
   return (
     <>
-      <Pressable onPress={() => router.push(`/look-detail?id=${look.variantId}`)}>
+      {/* 상세도 카드가 보여 준 그 룩을 연다 — golden 이 없으면(데모) 대표 룩이다. */}
+      <Pressable
+        onPress={() =>
+          router.push(
+            `/look-detail?id=${look.variantId}${look.goldenId ? `&golden=${encodeURIComponent(look.goldenId)}` : ''}`,
+          )
+        }>
         {/* 사진이 없으면 SmartImage 가 자리만 잡는다 — 다른 룩의 목업 사진을 빌려
             쓰면 문구와 사진이 어긋나 placeholder 보다 나쁜 화면이 된다. */}
         <SmartImage uri={look.image} width="100%" aspectRatio={LOOK_IMAGE_RATIO} radius={0} contentFit="cover" />

@@ -81,6 +81,7 @@ type CardData = {
 const ORIGIN_BADGE: Record<LookOrigin, { icon: IconName; label: string }> = {
   ai: { icon: 'sparkles', label: '앱이 추천한 룩' },
   closet: { icon: 'tshirt', label: '내가 기록한 룩' },
+  daily: { icon: 'sparkles', label: '오늘의 룩에서 담은 룩' },
 };
 
 /** 취향 추천 가로 카드 크기 — 그리드보다 작게 잡아 본 목록을 밀어내지 않는다. */

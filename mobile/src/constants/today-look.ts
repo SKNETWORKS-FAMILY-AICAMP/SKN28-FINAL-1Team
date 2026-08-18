@@ -6,7 +6,7 @@
  * API 응답으로 교체한다(필드명 유지).
  */
 
-import type { DailyLook } from '@/lib/dailyLookApi';
+import type { DailyLook, DailyLookResult } from '@/lib/dailyLookApi';
 import type { MallKey } from '@/lib/mall';
 
 export type LookRelated = {
@@ -243,14 +243,40 @@ function dedupeSlots(pieces: LookPiece[]): LookPiece[] {
  * 완성 전(생성 중·EMPTY·실패)이면 null — 그때 상세는 번들 목업(TODAY_LOOK)으로
  * 물러나, 홈 카드가 기온 템플릿으로 물러나는 것과 짝이 맞는다.
  */
-export function dailyLookToVariant(look: DailyLook | null): LookVariant | null {
-  if (look?.status !== 'SUCCEEDED' || !look.result) return null;
-  const r = look.result;
+/** 대표 룩과 '다른 룩' 후보를 한 목록으로. 카드가 보여 준 순서와 같다. */
+export function dailyLookResults(look: DailyLook | null): DailyLookResult[] {
+  if (look?.status !== 'SUCCEEDED' || !look.result) return [];
+  return [look.result, ...(look.alternatives ?? [])];
+}
+
+/**
+ * `goldenId` 로 지목된 룩. 없거나 못 찾으면 대표 룩이다.
+ *
+ * 못 찾았을 때 null 로 두지 않는 이유: 홈 카드에서 넘어온 golden 이 그새 바뀐
+ * 추천(자정 넘김·재생성)에 없을 수 있는데, 그때 빈 화면을 주는 것보다 오늘의
+ * 대표 룩을 보여주는 편이 낫다.
+ */
+export function pickDailyLookResult(
+  look: DailyLook | null,
+  goldenId?: string,
+): DailyLookResult | null {
+  const results = dailyLookResults(look);
+  if (!results.length) return null;
+  if (!goldenId) return results[0];
+  return results.find((r) => r.golden_id === goldenId) ?? results[0];
+}
+
+export function dailyLookToVariant(
+  look: DailyLook | null,
+  goldenId?: string,
+): LookVariant | null {
+  const r = pickDailyLookResult(look, goldenId);
+  if (!r) return null;
   /* 무드·상황 자리에는 "무엇을 반영했는지"를 쓴다 — 서브텍스트이자 저장 시
      태그(tagsOf)가 되는 값이라, 지어낸 무드보다 실제 개인화 근거가 낫다. */
   const persona = [
-    look.context?.used_body ? '체형 반영' : null,
-    look.context?.used_pursuit ? '취향 반영' : null,
+    look?.context?.used_body ? '체형 반영' : null,
+    look?.context?.used_pursuit ? '취향 반영' : null,
   ].filter((s): s is string => s != null);
   return {
     id: 'daily',

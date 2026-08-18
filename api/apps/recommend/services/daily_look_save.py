@@ -35,6 +35,18 @@ class DailyLookNotSavableError(Exception):
         self.status = status
 
 
+class GoldenLookNotInTodayError(Exception):
+    """오늘 이 사용자에게 나가지 않은 코디를 담으려 한 경우.
+
+    '아직 못 담는다'(DailyLookNotSavableError)와 다르다. 폴링해도 달라지지 않고,
+    대개 어제 화면을 열어 둔 채 저장을 누른 것이다.
+    """
+
+    def __init__(self, golden_id: str) -> None:
+        super().__init__(golden_id)
+        self.golden_id = golden_id
+
+
 def _image_ref(value: Any) -> tuple[str, str]:
     if not isinstance(value, dict):
         return "", ""
@@ -83,14 +95,36 @@ def _items(result: dict[str, Any]) -> list[lookbook_service.GoldenLookItem]:
     return items
 
 
+def _pick_result(look: DailyLook, golden_id: str) -> dict[str, Any]:
+    """담을 룩 하나를 고른다. 대표 룩이거나 '다른 룩' 후보 중 하나다.
+
+    **클라이언트가 고르되 목록은 서버가 정한다.** golden_id를 그대로 믿고 담으면
+    남의 코디도, 어제의 코디도 담긴다. 그래서 이 사용자의 오늘 행에 실제로 실려
+    나간 것들 안에서만 찾는다.
+    """
+    result = look.result or {}
+    if not golden_id or golden_id == str(result.get("golden_id") or ""):
+        return result
+    for alternative in look.alternatives or []:
+        if isinstance(alternative, dict) and str(
+            alternative.get("golden_id") or ""
+        ) == golden_id:
+            return alternative
+    raise GoldenLookNotInTodayError(golden_id)
+
+
 def save_to_lookbook(
-    user, *, look_date: date | None = None
+    user, *, look_date: date | None = None, golden_id: str = ""
 ) -> tuple[LookbookPost, bool]:
     """그날의 오늘의 룩을 룩북에 담는다.
 
+    `golden_id`를 주면 '다른 룩'으로 돌려보던 그 후보를 담는다. 생략하면 대표 룩.
+
     Returns: (룩북, 새로 담았는지). 이미 담아 둔 코디면 (기존 룩북, False).
 
-    Raises: DailyLookNotSavableError — 추천이 없거나 아직 완성되지 않은 경우.
+    Raises:
+        DailyLookNotSavableError — 추천이 없거나 아직 완성되지 않은 경우.
+        GoldenLookNotInTodayError — 오늘 이 사용자에게 나가지 않은 코디.
     """
 
     look_date = look_date or daily_look_service.today(user)
@@ -105,12 +139,14 @@ def save_to_lookbook(
     # 표지가 아이템 사진으로 굳으면 사용자는 이유를 알 수 없다.
     try:
         daily_look_service.refresh_render(look)
+        # '다른 룩'을 담는 경우 표지는 후보 쪽에 있다. 같은 이유로 한 번 더 본다.
+        daily_look_service.refresh_alternatives(look)
     except Exception:  # noqa: BLE001 — 표지 보정 실패가 저장을 막으면 안 된다
         logger.warning("오늘의 룩 %s 표지 보정 실패 (저장은 계속)", look.pk)
 
-    result = look.result or {}
-    golden_id = str(result.get("golden_id") or "")
-    if not golden_id:
+    result = _pick_result(look, golden_id.strip())
+    chosen_golden_id = str(result.get("golden_id") or "")
+    if not chosen_golden_id:
         # SUCCEEDED 인데 golden_id 가 없다면 결과 JSON 이 깨진 것이다. 담아 봐야
         # 어느 코디인지 되짚을 수 없으므로 담지 않는다.
         logger.error("오늘의 룩 %s: SUCCEEDED 인데 golden_id 가 없습니다", look.pk)
@@ -119,7 +155,7 @@ def save_to_lookbook(
     bucket, image_key = _cover_image(result)
     return lookbook_service.create_from_golden_look(
         user=user,
-        golden_id=golden_id,
+        golden_id=chosen_golden_id,
         image_bucket=bucket,
         image_key=image_key,
         # 룩북 카드의 문구. 홈 카드와 룩 상세가 쓰는 값과 같다.

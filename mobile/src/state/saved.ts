@@ -338,10 +338,12 @@ export const savedLookStore = {
    * 있어서, 그 경로로 담으면 같은 사진이 사용자 수만큼 복제되고 이미 끝난 태깅을
    * 다시 돌린다. 서버는 버킷·키를 가리키기만 하므로 왕복 한 번으로 끝난다.
    *
+   * `goldenId` 는 '다른 룩'으로 돌려보던 후보를 담을 때만 준다. 생략하면 대표 룩.
+   *
    * Returns: 담긴 룩과 `created`(이미 담아 둔 코디면 false).
    */
-  async saveDailyLook(): Promise<{ look: SavedLook; created: boolean }> {
-    const { created, lookbook } = await saveTodayLook();
+  async saveDailyLook(goldenId?: string): Promise<{ look: SavedLook; created: boolean }> {
+    const { created, lookbook } = await saveTodayLook(goldenId);
     const look = toLook(lookbook);
     /* 이미 담아 둔 코디면 목록에 이미 서 있다 — 같은 id 를 두 번 넣지 않는다. */
     serverLooks = [look, ...serverLooks.filter((l) => l.id !== look.id)];

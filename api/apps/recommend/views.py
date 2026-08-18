@@ -38,6 +38,7 @@ from apps.lookbook.serializers import LookbookPostSerializer
 
 from .models import OutfitAnalysis, OutfitRenderJob
 from .serializers import (
+    DailyLookSaveRequestSerializer,
     DailyLookSaveResponseSerializer,
     DailyLookSerializer,
     OutfitAnalysisAcceptedSerializer,
@@ -1395,6 +1396,8 @@ class DailyLookTodayView(APIView):
         # 행은 비어 있는 채로 남는다. 조회할 때마다 한 번 더 확인해 붙인다.
         # 생성은 하지 않는다 — 수십 초가 걸려 이 요청을 잡아둘 수 없다.
         daily_look_service.refresh_render(look)
+        # '다른 룩' 후보 이미지도 같은 이유로 한 번 더 본다 (생성은 큐에 맡긴다).
+        daily_look_service.refresh_alternatives(look)
 
         return Response(DailyLookSerializer(look).data)
 
@@ -1407,8 +1410,10 @@ class DailyLookSaveView(APIView):
     스냅샷으로만 남는다. 옷장 파이프라인(GPU)도 타지 않는다 — 이미 태깅이 끝난
     옷을 다시 태깅하는 셈이기 때문이다.
 
-    본문이 없다. 담을 대상은 그날의 추천 하나로 정해져 있고, 클라이언트가
-    golden_id를 보내게 하면 남의 코디도 담을 수 있는 구멍이 된다.
+    본문은 `golden_id` 하나뿐이고 그마저 선택이다('다른 룩'으로 돌려보던 후보를
+    담을 때만 쓴다). 클라이언트가 코디를 **지정**하되 고를 수 있는 목록은 서버가
+    정한다 — 그 사용자의 오늘 후보 안에 없으면 404다. 목록까지 클라이언트에게
+    맡기면 남의 코디도 담을 수 있는 구멍이 된다.
     """
 
     permission_classes = [IsAuthenticated]
@@ -1424,19 +1429,41 @@ class DailyLookSaveView(APIView):
             "- `409`: 아직 담을 수 없다. `status`가 그 이유이며 "
             "`GET /api/v1/looks/today/`의 상태값과 같다 "
             "(`QUEUED`/`PROCESSING`이면 잠시 뒤 다시, `EMPTY`/`FAILED`/`MISSING`이면 "
-            "담을 추천이 없다)\n\n"
+            "담을 추천이 없다)\n"
+            "- `404`: `golden_id`가 오늘 이 사용자에게 나간 룩이 아니다\n\n"
+            "`golden_id`를 주면 '다른 룩'으로 돌려보던 그 후보를 담는다. 생략하면 "
+            "대표 룩이다. 값은 조회 응답의 `result.golden_id` 또는 "
+            "`alternatives[].golden_id` 여야 하며, **서버가 그 사용자의 오늘 후보 "
+            "안에 있는지 확인한다** — 임의의 코디를 담을 수는 없다.\n\n"
             "응답의 `lookbook`은 `GET /api/v1/lookbooks/`의 항목과 같은 스키마다."
         ),
-        request=None,
+        request=DailyLookSaveRequestSerializer,
         responses={
             200: DailyLookSaveResponseSerializer,
             201: DailyLookSaveResponseSerializer,
+            404: OpenApiResponse(description="오늘 나간 룩이 아닌 golden_id"),
             409: OpenApiResponse(description="아직 담을 수 있는 추천이 아니다"),
         },
     )
     def post(self, request: Request) -> Response:
+        payload = DailyLookSaveRequestSerializer(data=request.data)
+        payload.is_valid(raise_exception=True)
+
         try:
-            post, created = daily_look_save.save_to_lookbook(request.user)
+            post, created = daily_look_save.save_to_lookbook(
+                request.user, golden_id=payload.validated_data["golden_id"]
+            )
+        except daily_look_save.GoldenLookNotInTodayError as error:
+            # 400이 아니라 404다. 값의 형식이 아니라 **그 코디가 여기 없다**는 뜻이고,
+            # 어제 룩을 담으려는 오래된 화면에서도 이 응답이 난다.
+            return Response(
+                {
+                    "code": "GOLDEN_LOOK_NOT_IN_TODAY",
+                    "golden_id": error.golden_id,
+                    "detail": "오늘 추천에 없는 룩입니다. 새로고침 후 다시 시도해주세요.",
+                },
+                status=status.HTTP_404_NOT_FOUND,
+            )
         except daily_look_save.DailyLookNotSavableError as error:
             return Response(
                 {

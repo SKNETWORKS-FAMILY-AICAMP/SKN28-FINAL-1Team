@@ -58,6 +58,15 @@ export type DailyLook = {
   status: DailyLookStatus;
   /** 생성이 끝나기 전(QUEUED/PROCESSING/EMPTY/FAILED)에는 null */
   result: DailyLookResult | null;
+  /**
+   * '다른 룩'으로 돌려볼 차순위 후보. `result` 와 **같은 스키마**라 카드 하나를
+   * 그리는 코드를 그대로 쓴다. 없으면 빈 배열(구버전 서버면 undefined).
+   *
+   * 문구는 템플릿이고(generated_by='template') 착용 이미지는 서버가 별도 작업으로
+   * 나중에 채운다 — 그전까지 render_image_url 은 null 이고, 그때는 대표 룩과 같은
+   * 규칙으로 items[].image_url 이 카드를 채운다.
+   */
+  alternatives?: DailyLookResult[];
   context: DailyLookContext;
   /** QUEUED/PROCESSING 일 때만 값이 있다 — 이 간격(ms) 뒤에 다시 조회한다 */
   poll_after_ms: number | null;
@@ -117,6 +126,12 @@ export type DailyLookSaveResponse = {
  * 화면은 이 값으로 '담았어요'와 '이미 담겨 있어요'를 가른다 — 상태코드로만 가르면
  * 재시도·프록시 때문에 흔들린다.
  */
-export function saveTodayLook(): Promise<DailyLookSaveResponse> {
-  return api.post<DailyLookSaveResponse>(DailyLookSaveEndpoint);
+export function saveTodayLook(goldenId?: string): Promise<DailyLookSaveResponse> {
+  /* '다른 룩'으로 돌려보던 후보를 담을 때만 golden_id 를 보낸다. 서버는 이 값이
+     그 사용자의 오늘 후보(result + alternatives) 안에 있는지 확인하므로, 화면이
+     오래돼 어제 룩을 담으려 하면 404 가 온다. */
+  return api.post<DailyLookSaveResponse>(
+    DailyLookSaveEndpoint,
+    goldenId ? { golden_id: goldenId } : undefined,
+  );
 }

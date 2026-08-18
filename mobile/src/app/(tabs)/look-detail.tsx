@@ -8,7 +8,13 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { Editorial, ink, Fonts } from '@/constants/theme';
 import { TODAY_LOOK_IMAGE } from '@/constants/look-images';
-import { dailyLookToVariant, LOOK_VARIANTS, resolveLookVariant } from '@/constants/today-look';
+import {
+  dailyLookResults,
+  dailyLookToVariant,
+  LOOK_VARIANTS,
+  pickDailyLookResult,
+  resolveLookVariant,
+} from '@/constants/today-look';
 import { savedLookStore } from '@/state/saved';
 import { useAuth } from '@/state/auth';
 import { draftItem } from '@/state/draft-item';
@@ -39,7 +45,13 @@ export default function LookDetail() {
   // 2단(≥1280)일 땐 본문을 넓게, 세로로 쌓일 땐 좁게 잡아 사진·카드가 과하게 커지지 않게 한다.
   const maxW = width >= 1280 ? 960 : 720;
   /* 어떤 룩을 볼지는 주소가 정한다. 없으면 오늘의 룩. */
-  const { id, from } = useLocalSearchParams<{ id?: string; from?: string }>();
+  /* golden = 홈 카드가 보여 주던 그 룩('다른 룩'으로 돌려본 후보일 수 있다).
+     없으면 대표 룩이다. */
+  const { id, from, golden } = useLocalSearchParams<{
+    id?: string;
+    from?: string;
+    golden?: string;
+  }>();
   const { isLoggedIn } = useAuth();
   /* 서브텍스트의 날씨는 홈과 같은 출처(useHome)에서 가져와 통일한다. 홈 응답에는
      오늘의 룩 상태도 실려 있어 아래 훅의 시드로 그대로 넘긴다(왕복 0회). */
@@ -56,7 +68,10 @@ export default function LookDetail() {
     reload: reloadDailyLook,
   } = useDailyLook(isLoggedIn, home ? home.daily_look : undefined);
   const discoveryLook = useDiscoveryLook(id);
-  const apiVariant = useMemo(() => dailyLookToVariant(dailyLook), [dailyLook]);
+  const apiVariant = useMemo(
+    () => dailyLookToVariant(dailyLook, golden),
+    [dailyLook, golden],
+  );
   const discoveryVariant = useMemo<LookVariant | null>(() => discoveryLook ? ({
     id: discoveryLook.id,
     title: discoveryLook.title,
@@ -90,14 +105,21 @@ export default function LookDetail() {
      이 룩의 사진은 presigned URL 이라 조회마다 달라진다. */
   const serverGoldenId =
     !discoveryVariant && (!id || id === 'daily') && apiVariant
-      ? (dailyLook?.result?.golden_id ?? '')
+      ? (pickDailyLookResult(dailyLook, golden)?.golden_id ?? '')
       : '';
 
-  const [saved, setSaved] = useState(() =>
-    serverGoldenId
+  /* 북마크는 **보고 있는 룩마다** 따로다. '다른 룩'으로 돌리면 같은 화면에서 대상이
+     바뀌므로, 하나의 boolean 으로 들고 있으면 앞 룩의 상태가 뒷 룩에 그대로 남는다.
+     낙관적 갱신(누르는 즉시 켜기)은 유지하되 룩 단위로 덮어쓴다. */
+  const savedKey = serverGoldenId || (look.image ?? `asset:${TODAY_LOOK_IMAGE}`);
+  const [savedOverrides, setSavedOverrides] = useState<Record<string, boolean>>({});
+  const saved =
+    savedOverrides[savedKey] ??
+    (serverGoldenId
       ? savedLookStore.getByGoldenId(serverGoldenId) != null
-      : savedLookStore.isSaved(lookKey),
-  );
+      : savedLookStore.isSaved(lookKey));
+  const setSaved = (next: boolean) =>
+    setSavedOverrides((prev) => ({ ...prev, [savedKey]: next }));
   const [vote, setVote] = useState<'up' | 'down' | null>(null);
   const [openSlot, setOpenSlot] = useState<string | null>(null);
   const toast = useToast();
@@ -125,11 +147,21 @@ export default function LookDetail() {
   };
 
   /* [다른 룩] = 다음 변형으로. 이름 그대로 다른 룩을 보여준다 —
-     예전엔 룩북으로 나가버려서 버튼 이름과 하는 일이 어긋나 있었다. */
+     예전엔 룩북으로 나가버려서 버튼 이름과 하는 일이 어긋나 있었다.
+
+     오늘의 룩이면 리트리버가 뽑은 **진짜 차순위 후보**를 돌린다. 목업 변형으로
+     넘어가면 로그인 사용자가 자기 추천을 보다가 남의 룩을 보게 된다. */
   const showAnotherLook = () => {
-    const at = LOOK_VARIANTS.findIndex((l) => l.id === look.id);
-    const next = LOOK_VARIANTS[(at + 1) % LOOK_VARIANTS.length];
-    router.setParams({ id: next.id });
+    if (serverGoldenId) {
+      const results = dailyLookResults(dailyLook);
+      const at = results.findIndex((r) => r.golden_id === serverGoldenId);
+      const next = results[(at + 1) % results.length];
+      router.setParams({ id: 'daily', golden: next.golden_id });
+    } else {
+      const at = LOOK_VARIANTS.findIndex((l) => l.id === look.id);
+      const next = LOOK_VARIANTS[(at + 1) % LOOK_VARIANTS.length];
+      router.setParams({ id: next.id });
+    }
     setOpenSlot(null);
     setVote(null);
   };
@@ -172,7 +204,7 @@ export default function LookDetail() {
       if (serverGoldenId) {
         /* 골든 코디는 서버가 이미 가진 자산이다. 표지 사진을 다시 올리면(addLook)
            같은 사진이 사용자 수만큼 복제되고 이미 끝난 옷 추출을 다시 돈다. */
-        await savedLookStore.saveDailyLook();
+        await savedLookStore.saveDailyLook(serverGoldenId);
         return true;
       }
       await savedLookStore.addLook({
