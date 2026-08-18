@@ -7,7 +7,7 @@ import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { ItemTagSheet } from '@/components/closet/item-tag-sheet';
-import { ItemCategoryEditSheet } from '@/components/closet/item-category-edit-sheet';
+import { ItemHashtagEditSheet } from '@/components/closet/item-category-edit-sheet';
 import { DetailTwoPane } from '@/components/detail-two-pane';
 import { Editorial, ink, Fonts, Type } from '@/constants/theme';
 import { useBreakpoint } from '@/hooks/use-breakpoint';
@@ -17,13 +17,13 @@ import {
   getMySharedRooms,
   itemDisplayName,
   listSharedRoomItems,
-  listWardrobeCategories,
+  listWardrobeFilters,
   registerItemToSharedRoom,
-  replaceWardrobeItemCategories,
+  replaceWardrobeItemHashtags,
   unregisterItemFromSharedRoom,
   type SharedRoom,
   type WardrobeApiItem,
-  type WardrobeCustomCategory,
+  type WardrobeHashtag,
 } from '@/lib/wardrobeApi';
 
 const INK = Editorial.ink;
@@ -51,9 +51,9 @@ export default function ItemDetail() {
 
   const { item, loading, error, reload, setItem } = useWardrobeItem(id);
   const [editing, setEditing] = useState(false);
-  const [categoryEditing, setCategoryEditing] = useState(false);
-  const [personalCategories, setPersonalCategories] = useState<WardrobeCustomCategory[]>([]);
-  const [categoriesLoading, setCategoriesLoading] = useState(false);
+  const [hashtagEditing, setHashtagEditing] = useState(false);
+  const [personalHashtags, setPersonalHashtags] = useState<WardrobeHashtag[]>([]);
+  const [hashtagsLoading, setHashtagsLoading] = useState(false);
   const [confirming, setConfirming] = useState(false);
   const toast = useToast();
   const confirm = useConfirm();
@@ -189,31 +189,31 @@ export default function ItemDetail() {
     }
   };
 
-  const openCategoryEditor = async () => {
-    setCategoryEditing(true);
-    setCategoriesLoading(true);
+  const openHashtagEditor = async () => {
+    setHashtagEditing(true);
+    setHashtagsLoading(true);
     try {
-      const response = await listWardrobeCategories();
-      setPersonalCategories(response.custom_categories);
+      const response = await listWardrobeFilters();
+      setPersonalHashtags(response.hashtags);
     } catch (e) {
-      setCategoryEditing(false);
-      toast(e instanceof Error ? e.message : '카테고리를 불러오지 못했어요', {
+      setHashtagEditing(false);
+      toast(e instanceof Error ? e.message : '해시태그를 불러오지 못했어요', {
         variant: 'error',
       });
     } finally {
-      setCategoriesLoading(false);
+      setHashtagsLoading(false);
     }
   };
 
-  const saveItemCategories = async (categoryIds: string[]): Promise<boolean> => {
+  const saveItemHashtags = async (names: string[]): Promise<boolean> => {
     if (!item) return false;
     try {
-      const response = await replaceWardrobeItemCategories(item.id, categoryIds);
-      setItem({ ...item, custom_categories: response.custom_categories });
-      toast('카테고리를 저장했어요', { variant: 'success' });
+      const response = await replaceWardrobeItemHashtags(item.id, names);
+      setItem({ ...item, wardrobe_hashtags: response.wardrobe_hashtags });
+      toast('해시태그를 저장했어요', { variant: 'success' });
       return true;
     } catch (e) {
-      toast(e instanceof Error ? e.message : '카테고리를 저장하지 못했어요', {
+      toast(e instanceof Error ? e.message : '해시태그를 저장하지 못했어요', {
         variant: 'error',
       });
       return false;
@@ -434,29 +434,29 @@ export default function ItemDetail() {
                 <View style={styles.categorySection}>
                   <View style={styles.categoryHeader}>
                     <View style={styles.categoryHeaderCopy}>
-                      <Text style={styles.categoryTitle}>내 카테고리</Text>
+                      <Text style={styles.categoryTitle}>내 해시태그</Text>
                       <Text style={styles.categoryDescription}>
-                        이 옷을 여러 사용자 카테고리에 함께 넣을 수 있어요.
+                        이 옷을 내 방식대로 분류하고 채팅 추천에도 활용할 수 있어요.
                       </Text>
                     </View>
                     <Pressable
                       style={styles.categoryEditButton}
-                      onPress={openCategoryEditor}
-                      accessibilityLabel="내 카테고리 편집">
+                      onPress={openHashtagEditor}
+                      accessibilityLabel="내 해시태그 편집">
                       <Icon name="square.and.pencil" tintColor={ink(0.6)} size={14} />
                       <Text style={styles.categoryEditText}>편집</Text>
                     </Pressable>
                   </View>
-                  {item.custom_categories.length > 0 ? (
+                  {item.wardrobe_hashtags.length > 0 ? (
                     <View style={styles.categoryChips}>
-                      {item.custom_categories.map((customCategory) => (
-                        <View key={customCategory.id} style={styles.categoryChip}>
-                          <Text style={styles.categoryChipText}>{customCategory.name}</Text>
+                      {item.wardrobe_hashtags.map((hashtag) => (
+                        <View key={hashtag.id} style={styles.categoryChip}>
+                          <Text style={styles.categoryChipText}>#{hashtag.name}</Text>
                         </View>
                       ))}
                     </View>
                   ) : (
-                    <Text style={styles.categoryEmpty}>아직 지정된 사용자 카테고리가 없어요.</Text>
+                    <Text style={styles.categoryEmpty}>아직 붙인 해시태그가 없어요.</Text>
                   )}
                 </View>
               ) : null}
@@ -526,13 +526,13 @@ export default function ItemDetail() {
             onClose={() => setEditing(false)}
             onSaved={setItem}
           />
-          <ItemCategoryEditSheet
-            visible={categoryEditing}
-            categories={personalCategories}
-            selectedCategories={item.custom_categories}
-            loading={categoriesLoading}
-            onClose={() => setCategoryEditing(false)}
-            onSave={saveItemCategories}
+          <ItemHashtagEditSheet
+            visible={hashtagEditing}
+            hashtags={personalHashtags}
+            selectedHashtags={item.wardrobe_hashtags}
+            loading={hashtagsLoading}
+            onClose={() => setHashtagEditing(false)}
+            onSave={saveItemHashtags}
           />
         </>
       ) : null}

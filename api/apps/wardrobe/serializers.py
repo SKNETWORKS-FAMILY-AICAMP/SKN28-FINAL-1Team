@@ -12,7 +12,7 @@ from drf_spectacular.utils import extend_schema_field
 from rest_framework import serializers
 
 from . import taxonomy as T
-from .models import WardrobeHashtag, WardrobeItem, WardrobeUploadJob
+from .models import WardrobeHashtag, WardrobeItem, WardrobeUploadJob, WardrobeViewPreference
 from .services import storage
 
 MAX_UPLOAD_MB = 15
@@ -91,6 +91,13 @@ class WardrobeHashtagSerializer(serializers.ModelSerializer):
             wardrobe_item__user_id=obj.user_id,
             wardrobe_item__added_to_closet_at__isnull=False,
         ).count()
+
+
+class WardrobeViewPreferenceSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = WardrobeViewPreference
+        fields = ["group_mode", "item_sort", "updated_at"]
+        read_only_fields = ["updated_at"]
 
 # ── 업로드 ────────────────────────────────────────────────
 class WardrobeUploadSerializer(serializers.Serializer):

@@ -223,6 +223,46 @@ class WardrobeHashtag(models.Model):
         return f"{self.name} ({self.user_id})"
 
 
+class WardrobeViewPreference(models.Model):
+    """기기와 무관하게 복원하는 개인 옷장 묶기·정렬 설정."""
+
+    class GroupMode(models.TextChoices):
+        SYSTEM_CATEGORY = "SYSTEM_CATEGORY", "기본 카테고리별"
+        HASHTAG = "HASHTAG", "해시태그별"
+
+    class ItemSort(models.TextChoices):
+        ADDED_DESC = "ADDED_DESC", "최근 추가순"
+        COLOR_NAME_ASC = "COLOR_NAME_ASC", "색상·이름순"
+
+    user = models.OneToOneField(
+        settings.AUTH_USER_MODEL,
+        primary_key=True,
+        on_delete=models.CASCADE,
+        related_name="wardrobe_view_preference",
+        db_comment="옷장 보기 설정 소유 사용자 FK (users.id, 사용자당 1건)",
+    )
+    group_mode = models.CharField(
+        max_length=20,
+        choices=GroupMode.choices,
+        default=GroupMode.SYSTEM_CATEGORY,
+        db_comment="옷장 섹션 묶기 방식 (SYSTEM_CATEGORY/HASHTAG)",
+    )
+    item_sort = models.CharField(
+        max_length=20,
+        choices=ItemSort.choices,
+        default=ItemSort.ADDED_DESC,
+        db_comment="섹션 내부 아이템 정렬 방식 (ADDED_DESC/COLOR_NAME_ASC)",
+    )
+    updated_at = models.DateTimeField(
+        auto_now=True,
+        db_comment="옷장 보기 설정 수정 시각",
+    )
+
+    class Meta:
+        db_table = "wardrobe_view_preference"
+        db_table_comment = "사용자별 개인 옷장 묶기 및 아이템 정렬 설정"
+
+
 class WardrobeItem(models.Model):
     """분리·태깅된 옷장 아이템 1벌. 태그 스키마는 taxonomy.py를 따른다.
 

@@ -1,7 +1,7 @@
 import { Icon } from '@/components/icon';
 import { SmartImage } from '@/components/ui';
 import { Editorial, GridCard, Type, ink } from '@/constants/theme';
-import { itemDisplayName, type WardrobeApiItem, type WardrobeCustomCategory } from '@/lib/wardrobeApi';
+import { itemDisplayName, type WardrobeApiItem, type WardrobeHashtag } from '@/lib/wardrobeApi';
 import { useEffect, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
@@ -10,18 +10,18 @@ import {
   ScrollView,
   StyleSheet,
   Text,
+  TextInput,
   useWindowDimensions,
   View,
 } from 'react-native';
 
-type CategoryItemManageSheetProps = {
+type HashtagItemManageSheetProps = {
   visible: boolean;
-  category: WardrobeCustomCategory | null;
+  hashtag: WardrobeHashtag | null;
   items: WardrobeApiItem[];
   onClose: () => void;
   onSave: (
-    categoryId: string,
-    changes: { add_item_ids: string[]; remove_item_ids: string[] },
+    payload: { name: string; itemIds: string[]; addItemIds: string[]; removeItemIds: string[] },
   ) => Promise<boolean>;
 };
 
@@ -29,36 +29,38 @@ function sameIds(left: Set<string>, right: Set<string>): boolean {
   return left.size === right.size && [...left].every((id) => right.has(id));
 }
 
-export function CategoryItemManageSheet({
+export function HashtagItemManageSheet({
   visible,
-  category,
+  hashtag,
   items,
   onClose,
   onSave,
-}: CategoryItemManageSheetProps) {
+}: HashtagItemManageSheetProps) {
   const { width } = useWindowDimensions();
   const sheetWidth = Math.min(width, GridCard.maxWidth);
   const cardWidth = (sheetWidth - GridCard.pad * 2 - GridCard.gap) / 2;
   const [initialSelected, setInitialSelected] = useState<Set<string>>(new Set());
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [saving, setSaving] = useState(false);
+  const [name, setName] = useState('');
 
   useEffect(() => {
-    if (!visible || !category) return;
+    if (!visible) return;
     const next = new Set(
       items
-        .filter((item) => item.custom_categories.some((entry) => entry.id === category.id))
+        .filter((item) => hashtag && item.wardrobe_hashtags.some((entry) => entry.id === hashtag.id))
         .map((item) => item.id),
     );
     // 시트를 열 때 서버가 돌려준 현재 소속을 선택 초안의 기준으로 삼는다.
     // eslint-disable-next-line react-hooks/set-state-in-effect
     setInitialSelected(next);
     setSelected(new Set(next));
-  }, [category, items, visible]);
+    setName(hashtag?.name ?? '');
+  }, [hashtag, items, visible]);
 
   const changed = useMemo(
-    () => !sameIds(initialSelected, selected),
-    [initialSelected, selected],
+    () => !sameIds(initialSelected, selected) || (!hashtag && name.trim().length > 0),
+    [hashtag, initialSelected, name, selected],
   );
 
   const toggle = (itemId: string) => {
@@ -72,12 +74,14 @@ export function CategoryItemManageSheet({
   };
 
   const save = async () => {
-    if (!category || !changed) return;
+    if (!changed || selected.size === 0 || (!hashtag && !name.trim())) return;
     setSaving(true);
     try {
-      const saved = await onSave(category.id, {
-        add_item_ids: [...selected].filter((id) => !initialSelected.has(id)),
-        remove_item_ids: [...initialSelected].filter((id) => !selected.has(id)),
+      const saved = await onSave({
+        name: name.trim(),
+        itemIds: [...selected],
+        addItemIds: [...selected].filter((id) => !initialSelected.has(id)),
+        removeItemIds: [...initialSelected].filter((id) => !selected.has(id)),
       });
       if (saved) onClose();
     } finally {
@@ -98,20 +102,32 @@ export function CategoryItemManageSheet({
           <View style={styles.handle} />
           <View style={styles.header}>
             <View style={styles.headerCopy}>
-              <Text style={styles.eyebrow}>카테고리별 옷 관리</Text>
-              <Text style={styles.title} numberOfLines={1}>{category?.name ?? ''}</Text>
+              <Text style={styles.eyebrow}>개인 옷장 해시태그</Text>
+              <Text style={styles.title} numberOfLines={1}>{hashtag ? `#${hashtag.name}` : '새 해시태그'}</Text>
               <Text style={styles.description}>
-                {selected.size}벌 선택 · 다른 카테고리와 함께 담을 수 있어요.
+                {selected.size}벌 선택 · 한 옷에 여러 해시태그를 붙일 수 있어요.
               </Text>
             </View>
             <Pressable
               style={styles.closeButton}
               hitSlop={8}
               onPress={close}
-              accessibilityLabel="옷 관리 닫기">
+              accessibilityLabel="해시태그 옷 관리 닫기">
               <Icon name="xmark" tintColor={Editorial.textCaption} size={16} />
             </Pressable>
           </View>
+
+          {!hashtag ? (
+            <TextInput
+              value={name}
+              onChangeText={setName}
+              placeholder="# 없이 해시태그 입력"
+              placeholderTextColor={Editorial.textMuted}
+              maxLength={30}
+              style={styles.nameInput}
+              autoFocus
+            />
+          ) : null}
 
           <ScrollView
             style={styles.scroll}
@@ -121,7 +137,7 @@ export function CategoryItemManageSheet({
               <View style={styles.empty}>
                 <Icon name="tshirt" tintColor={Editorial.textMuted} size={30} />
                 <Text style={styles.emptyTitle}>아직 옷장에 옷이 없어요</Text>
-                <Text style={styles.emptyBody}>옷을 추가한 뒤 카테고리에 담아보세요.</Text>
+                <Text style={styles.emptyBody}>옷을 추가한 뒤 해시태그를 붙여보세요.</Text>
               </View>
             ) : (
               items.map((item) => {
@@ -164,9 +180,9 @@ export function CategoryItemManageSheet({
               <Text style={styles.cancelText}>취소</Text>
             </Pressable>
             <Pressable
-              style={[styles.saveButton, (!changed || saving) && styles.saveButtonDisabled]}
+              style={[styles.saveButton, (!changed || selected.size === 0 || saving) && styles.saveButtonDisabled]}
               onPress={save}
-              disabled={!changed || saving}>
+              disabled={!changed || selected.size === 0 || saving}>
               {saving ? (
                 <ActivityIndicator color={Editorial.white} size="small" />
               ) : (
@@ -230,6 +246,17 @@ const styles = StyleSheet.create({
     backgroundColor: Editorial.control,
   },
   scroll: { flexGrow: 0 },
+  nameInput: {
+    height: 46,
+    marginBottom: 14,
+    paddingHorizontal: 14,
+    borderWidth: 1,
+    borderColor: Editorial.line,
+    borderRadius: 12,
+    fontSize: Type.body,
+    color: Editorial.ink,
+    backgroundColor: Editorial.control,
+  },
   grid: {
     flexDirection: 'row',
     flexWrap: 'wrap',

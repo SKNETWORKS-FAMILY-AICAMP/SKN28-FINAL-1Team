@@ -7,9 +7,10 @@ import {
 } from '@/components/closet/shared-space-flow';
 import { SharedItemAddSheet } from '@/components/closet/shared-item-add-sheet';
 import { PhotoSourceSheet } from '@/components/closet/photo-source-sheet';
-import { CategoryItemManageSheet } from '@/components/closet/category-item-manage-sheet';
+import { HashtagItemManageSheet } from '@/components/closet/category-item-manage-sheet';
+import { HashtagFilterRow } from '@/components/closet/hashtag-filter-row';
 import { WardrobeViewControls } from '@/components/closet/wardrobe-view-controls';
-import { CategoryEditSheet, EmptyState, ErrorState, LoadingState, LoginGate, SearchFilterBar, SegmentedToggle, SmartImage, useConfirm, useToast } from '@/components/ui';
+import { EmptyState, ErrorState, LoadingState, LoginGate, SearchFilterBar, SegmentedToggle, SmartImage, useConfirm, useToast } from '@/components/ui';
 import { useMultiSelectFilter } from '@/hooks/useMultiSelectFilter';
 import { router, useFocusEffect, useLocalSearchParams } from 'expo-router';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
@@ -33,12 +34,11 @@ import { WARDROBE_FILTER_OPTIONS } from '@/constants/wardrobe-taxonomy';
 import { useBreakpoint } from '@/hooks/use-breakpoint';
 import { useRefresh } from '@/hooks/use-refresh';
 import {
-  createWardrobeCategory,
-  deleteWardrobeCategory,
-  useWardrobeCategories,
+  createWardrobeHashtag,
+  useWardrobeFilters,
   useWardrobeItems,
 } from '@/hooks/use-wardrobe';
-import { itemDisplayName, getMySharedRooms, createSharedRoom, joinSharedRoom, listSharedRoomMembers, listSharedRoomItems, listSharedRoomCategories, createSharedRoomCategory, deleteSharedRoomCategory, renameSharedRoom, deleteSharedRoom, unregisterItemFromSharedRoom, sharedUserDisplayName, updateWardrobeCategoryItems, type SharedRoomCategory } from '@/lib/wardrobeApi';
+import { itemDisplayName, getMySharedRooms, createSharedRoom, joinSharedRoom, listSharedRoomMembers, listSharedRoomItems, renameSharedRoom, deleteSharedRoom, unregisterItemFromSharedRoom, sharedUserDisplayName, updateWardrobeHashtagItems, reorderWardrobeHashtags } from '@/lib/wardrobeApi';
 import {
   buildWardrobeSections,
   uniqueWardrobeItemCount,
@@ -148,11 +148,32 @@ export default function ClosetScreen() {
   const [deleteRoom, setDeleteRoom] = useState<{ id: string; title: string } | null>(null);
   const [createOpen, setCreateOpen] = useState(false);
   const [createDraftTitle, setCreateDraftTitle] = useState('공유 옷장');
-  const [sharedCategories, setSharedCategories] = useState<SharedRoomCategory[]>([]);
-  const [editOpen, setEditOpen] = useState(false);
-  const [managedCategoryId, setManagedCategoryId] = useState<string | null>(null);
+  const [viewSettingsOpen, setViewSettingsOpen] = useState(false);
+  const [hashtagManagerOpen, setHashtagManagerOpen] = useState(false);
+  const [managedHashtagId, setManagedHashtagId] = useState<string | null>(null);
   const [sourceOpen, setSourceOpen] = useState(false);
-  const { selected, toggle, reset, prune, isActive, matches, label } = useMultiSelectFilter();
+  const {
+    selected: selectedSystemCategories,
+    toggle: toggleSystemCategory,
+    reset: resetSystemCategories,
+    prune: pruneSystemCategories,
+    isActive: isSystemCategoryActive,
+    label: systemFilterLabel,
+  } = useMultiSelectFilter();
+  const {
+    selected: selectedHashtagIds,
+    toggle: toggleHashtag,
+    reset: resetHashtags,
+    prune: pruneHashtags,
+  } = useMultiSelectFilter();
+  const {
+    toggle: toggleSharedCategory,
+    reset: resetSharedCategories,
+    prune: pruneSharedCategories,
+    isActive: isSharedCategoryActive,
+    matches: matchesSharedCategory,
+    label: sharedFilterLabel,
+  } = useMultiSelectFilter();
   const [groupMode, setGroupMode] = useState<WardrobeGroupMode>(
     DEFAULT_WARDROBE_VIEW_PREFERENCES.group_mode,
   );
@@ -169,39 +190,22 @@ export default function ClosetScreen() {
      대신 미확인 아이템에는 배지를 달아 구분한다. */
   const { items: apiItems, loading, error, reload: reloadItems } = useWardrobeItems({}, isLoggedIn);
   const {
-    data: personalCategoryData,
-    error: personalCategoryError,
-    reload: reloadPersonalCategories,
-  } = useWardrobeCategories(isLoggedIn);
+    data: personalFilterData,
+    reload: reloadPersonalFilters,
+  } = useWardrobeFilters(isLoggedIn);
 
-  const mineCategories = useMemo(
-    () =>
-      personalCategoryData
-        ? [
-            '전체',
-            ...personalCategoryData.system_categories.map((category) => category.name),
-            ...personalCategoryData.custom_categories.map((category) => category.name),
-          ]
-        : DEFAULT_CATEGORIES,
-    [personalCategoryData],
-  );
-  const sharedCategoryOptions = useMemo(
-    () => [...DEFAULT_CATEGORIES, ...sharedCategories.map((category) => category.name)],
-    [sharedCategories],
-  );
-  const categories = tab === 'mine' ? mineCategories : sharedCategoryOptions;
-  const lockedCategories = tab === 'mine'
-    ? personalCategoryData
-      ? ['전체', ...personalCategoryData.system_categories.map((category) => category.name)]
-      : DEFAULT_CATEGORIES
+  const mineCategories = personalFilterData
+    ? ['전체', ...personalFilterData.system_categories.map((category) => category.name)]
     : DEFAULT_CATEGORIES;
-  const managedCategory = personalCategoryData?.custom_categories.find(
-    (category) => category.id === managedCategoryId,
+  const categories = tab === 'mine' ? mineCategories : DEFAULT_CATEGORIES;
+  const managedHashtag = personalFilterData?.hashtags.find(
+    (hashtag) => hashtag.id === managedHashtagId,
   ) ?? null;
 
   useEffect(() => {
     let active = true;
-    void loadWardrobeViewPreferences().then((preferences) => {
+    if (!me?.id) return;
+    void loadWardrobeViewPreferences(me.id).then((preferences) => {
       if (!active) return;
       setGroupMode(preferences.group_mode);
       setItemSort(preferences.item_sort);
@@ -210,16 +214,17 @@ export default function ClosetScreen() {
     return () => {
       active = false;
     };
-  }, []);
+  }, [me?.id]);
 
   useEffect(() => {
     if (!viewPreferencesReady) return;
-    void saveWardrobeViewPreferences({ group_mode: groupMode, item_sort: itemSort });
-  }, [groupMode, itemSort, viewPreferencesReady]);
+    if (!me?.id) return;
+    void saveWardrobeViewPreferences(me.id, { group_mode: groupMode, item_sort: itemSort });
+  }, [groupMode, itemSort, me?.id, viewPreferencesReady]);
 
   const reloadAll = useCallback(
-    () => Promise.all([reloadItems(), reloadPersonalCategories()]),
-    [reloadItems, reloadPersonalCategories],
+    () => Promise.all([reloadItems(), reloadPersonalFilters()]),
+    [reloadItems, reloadPersonalFilters],
   );
   const { refreshing, onRefresh } = useRefresh(reloadAll);
 
@@ -232,8 +237,8 @@ export default function ClosetScreen() {
         categoryFocusedOnce.current = true;
         return;
       }
-      if (isLoggedIn) void reloadPersonalCategories();
-    }, [isLoggedIn, reloadPersonalCategories]),
+      if (isLoggedIn) void reloadPersonalFilters();
+    }, [isLoggedIn, reloadPersonalFilters]),
   );
 
   /* 등록은 이 화면을 떠나도 계속 돈다(state/upload-jobs.ts). 진행 중인 것을 위에 보여주고,
@@ -293,49 +298,51 @@ export default function ClosetScreen() {
         category: i.category_large,
         filterCategories: [
           i.category_large,
-          ...i.custom_categories.map((category) => category.name),
+          ...i.wardrobe_hashtags.map((hashtag) => hashtag.name),
         ],
         image: i.image_url,
       })),
     [apiItems],
   );
 
-  const customCategoryOrder = useMemo(() => {
-    if (personalCategoryData) return personalCategoryData.custom_categories;
+  const hashtagOrder = useMemo(() => {
+    if (personalFilterData) return personalFilterData.hashtags;
     const byId = new Map(
-      apiItems.flatMap((item) => item.custom_categories).map((category) => [category.id, category]),
+      apiItems.flatMap((item) => item.wardrobe_hashtags).map((hashtag) => [hashtag.id, hashtag]),
     );
     return [...byId.values()].sort(
       (left, right) => left.position - right.position || left.id.localeCompare(right.id),
     );
-  }, [apiItems, personalCategoryData]);
+  }, [apiItems, personalFilterData]);
   const systemCategoryOrder = useMemo(
     () =>
-      personalCategoryData
-        ? personalCategoryData.system_categories.map((category) => category.name)
+      personalFilterData
+        ? personalFilterData.system_categories.map((category) => category.name)
         : DEFAULT_CATEGORIES.slice(1),
-    [personalCategoryData],
+    [personalFilterData],
   );
   const mineSections = useMemo(
     () =>
       buildWardrobeSections(
         apiItems,
         {
-          selectedCategories: selected,
+          selectedSystemCategories,
+          selectedHashtagIds,
           query,
           systemCategoryOrder,
-          customCategoryOrder,
+          hashtagOrder,
         },
         groupMode,
         itemSort,
       ),
     [
       apiItems,
-      customCategoryOrder,
+      hashtagOrder,
       groupMode,
       itemSort,
       query,
-      selected,
+      selectedSystemCategories,
+      selectedHashtagIds,
       systemCategoryOrder,
     ],
   );
@@ -363,24 +370,32 @@ export default function ClosetScreen() {
   const sharedFilteredItems = useMemo(
     () =>
       (sharedSpace ? sharedItems : []).filter(
-        (i) => i.filterCategories.some((category) => matches(category)) && matchesQuery(i, query),
+        (i) => i.filterCategories.some((category) => matchesSharedCategory(category)) && matchesQuery(i, query),
       ),
-    [matches, query, sharedItems, sharedSpace],
+    [matchesSharedCategory, query, sharedItems, sharedSpace],
   );
   const items = tab === 'mine' ? mineFilteredItems : sharedFilteredItems;
+  const selectedHashtagNames = selectedHashtagIds
+    .map((id) => personalFilterData?.hashtags.find((row) => row.id === id)?.name)
+    .filter((name): name is string => !!name);
+  const label = tab === 'shared'
+    ? sharedFilterLabel
+    : selectedHashtagNames.length > 0
+      ? `#${selectedHashtagNames[0]}${selectedHashtagNames.length > 1 ? ` 외 ${selectedHashtagNames.length - 1}` : ''}`
+      : systemFilterLabel;
 
   useEffect(() => {
-    prune(categories.slice(1));
-  }, [categories, prune]);
+    pruneSystemCategories(mineCategories.slice(1));
+    pruneHashtags((personalFilterData?.hashtags ?? []).map((row) => row.id));
+    pruneSharedCategories(DEFAULT_CATEGORIES.slice(1));
+  }, [mineCategories, personalFilterData?.hashtags, pruneHashtags, pruneSharedCategories, pruneSystemCategories]);
 
   const loadRoomData = async (roomId: string, currentRoomsList?: any[]) => {
     try {
-      const [membersList, itemsList, categoryList] = await Promise.all([
+      const [membersList, itemsList] = await Promise.all([
         listSharedRoomMembers(roomId),
         listSharedRoomItems(roomId),
-        listSharedRoomCategories(roomId),
       ]);
-      setSharedCategories(categoryList);
       /* '나' 판정은 내 user id 로 한다. 예전엔 username === 'dev_autologin' 문자열
          비교였는데, 실사용자 username 은 email_<uuid>/kakao_<id> 라 절대 매칭되지 않아
          공유 해제(X) 버튼이 프로덕션에서 아예 안 그려졌다. */
@@ -436,7 +451,6 @@ export default function ClosetScreen() {
           setSharedRooms([]);
           setSharedSpace(null);
           setSharedItems([]);
-          setSharedCategories([]);
         });
     }
   }, [isLoggedIn, tab]);
@@ -524,8 +538,7 @@ export default function ClosetScreen() {
         await loadRoomData(rooms[0].id, rooms);
       } else {
         setSharedSpace(null);
-          setSharedItems([]);
-          setSharedCategories([]);
+        setSharedItems([]);
       }
       toast('공유 옷장을 삭제했어요', { variant: 'success' });
     } catch (err) {
@@ -571,104 +584,38 @@ export default function ClosetScreen() {
 
   const handleTabChange = (key: 'mine' | 'shared') => {
     setTab(key);
-    reset();
+    resetSystemCategories();
+    resetHashtags();
+    resetSharedCategories();
     setQuery('');
   };
 
-  const handleSaveCategories = async (next: string[]) => {
-    if (tab === 'mine') {
-      const current = personalCategoryData ?? (await reloadPersonalCategories());
-      if (!current) {
-        toast(personalCategoryError ?? '카테고리를 불러온 뒤 다시 시도해 주세요', {
-          variant: 'error',
-        });
-        return false;
-      }
-
-      const systemNames = new Set(current.system_categories.map((category) => category.name));
-      const nextCustomNames = next.filter(
-        (name) => name !== '전체' && !systemNames.has(name),
-      );
-      const nextNames = new Set(nextCustomNames);
-      const existingNames = new Set(
-        current.custom_categories.map((category) => category.name),
-      );
-      try {
-        await Promise.all([
-          ...nextCustomNames
-            .filter((name) => !existingNames.has(name))
-            .map((name) => createWardrobeCategory(name)),
-          ...current.custom_categories
-            .filter((category) => !nextNames.has(category.name))
-            .map((category) => deleteWardrobeCategory(category.id)),
-        ]);
-        const saved = await reloadPersonalCategories();
-        if (!saved) throw new Error('저장한 카테고리를 다시 불러오지 못했어요');
-        prune([
-          ...saved.system_categories.map((category) => category.name),
-          ...saved.custom_categories.map((category) => category.name),
-        ]);
-        toast('카테고리를 저장했어요', { variant: 'success' });
-        return true;
-      } catch (saveError) {
-        await reloadPersonalCategories();
-        toast(
-          saveError instanceof Error ? saveError.message : '카테고리를 저장하지 못했어요',
-          { variant: 'error' },
-        );
-        return false;
-      }
-    }
-
-    if (!sharedSpace) return false;
-
-    const customNames = next.filter((name) => !DEFAULT_CATEGORIES.includes(name));
-    const existingNames = new Set(sharedCategories.map((category) => category.name));
-    const nextNames = new Set(customNames);
-    try {
-      await Promise.all([
-        ...customNames
-          .filter((name) => !existingNames.has(name))
-          .map((name) => createSharedRoomCategory(sharedSpace.id, name)),
-        ...sharedCategories
-          .filter((category) => !nextNames.has(category.name))
-          .map((category) => deleteSharedRoomCategory(sharedSpace.id, category.id)),
-      ]);
-      const saved = await listSharedRoomCategories(sharedSpace.id);
-      setSharedCategories(saved);
-      const savedCategories = [...DEFAULT_CATEGORIES, ...saved.map((category) => category.name)];
-      prune(savedCategories.slice(1));
-      toast('카테고리를 저장했어요', { variant: 'success' });
-      return true;
-    } catch (error) {
-      toast(error instanceof Error ? error.message : '카테고리를 저장하지 못했어요', { variant: 'error' });
-      const saved = await listSharedRoomCategories(sharedSpace.id).catch(() => sharedCategories);
-      setSharedCategories(saved);
-      return false;
-    }
+  const openNewHashtag = () => {
+    setManagedHashtagId(null);
+    setHashtagManagerOpen(true);
   };
 
-  const openCategoryItemManager = (categoryName: string) => {
-    const category = personalCategoryData?.custom_categories.find(
-      (entry) => entry.name === categoryName,
-    );
-    if (!category) {
-      toast('카테고리를 다시 불러온 뒤 시도해 주세요', { variant: 'error' });
-      void reloadPersonalCategories();
-      return;
-    }
-    setEditOpen(false);
-    setManagedCategoryId(category.id);
+  const openHashtagManager = (hashtagId: string) => {
+    setManagedHashtagId(hashtagId);
+    setHashtagManagerOpen(true);
   };
 
-  const saveCategoryItems = async (
-    categoryId: string,
-    changes: { add_item_ids: string[]; remove_item_ids: string[] },
-  ) => {
+  const saveHashtagItems = async (payload: {
+    name: string;
+    itemIds: string[];
+    addItemIds: string[];
+    removeItemIds: string[];
+  }) => {
     try {
-      const result = await updateWardrobeCategoryItems(categoryId, changes);
+      const result = managedHashtag
+        ? await updateWardrobeHashtagItems(managedHashtag.id, {
+            add_item_ids: payload.addItemIds,
+            remove_item_ids: payload.removeItemIds,
+          })
+        : await createWardrobeHashtag(payload.name, payload.itemIds);
       await reloadAll();
-      toast(`${result.item_count}벌을 카테고리에 저장했어요`, { variant: 'success' });
+      const count = 'item_count' in result ? result.item_count : payload.itemIds.length;
+      toast(`${count}벌에 해시태그를 저장했어요`, { variant: 'success' });
       return true;
     } catch (saveError) {
       toast(
@@ -677,6 +624,16 @@ export default function ClosetScreen() {
       );
       await reloadAll();
       return false;
+    }
+  };
+
+  const saveHashtagOrder = async (ids: string[]) => {
+    try {
+      await reorderWardrobeHashtags(ids);
+      await reloadPersonalFilters();
+    } catch (orderError) {
+      toast(orderError instanceof Error ? orderError.message : '해시태그 순서를 저장하지 못했어요', { variant: 'error' });
+      await reloadPersonalFilters();
     }
   };
 
@@ -792,24 +749,23 @@ export default function ClosetScreen() {
         <View style={styles.filterArea}>
           <SearchFilterBar
             trailing={wardrobeToggle}
-            middle={
-              tab === 'mine' ? (
-                <WardrobeViewControls
-                  groupMode={groupMode}
-                  itemSort={itemSort}
-                  onGroupModeChange={setGroupMode}
-                  onItemSortChange={setItemSort}
-                />
-              ) : undefined
-            }
+            afterChips={tab === 'mine' ? (
+              <HashtagFilterRow
+                hashtags={personalFilterData?.hashtags ?? []}
+                selectedIds={selectedHashtagIds}
+                onToggle={toggleHashtag}
+                onAdd={openNewHashtag}
+                onManage={openHashtagManager}
+              />
+            ) : undefined}
             showFilters={!(tab === 'shared' && !sharedSpace)}
             query={query}
             onQueryChange={setQuery}
             searchPlaceholder="옷장에서 검색"
             options={categories}
-            onToggle={toggle}
-            isActive={isActive}
-            onEditCategories={() => setEditOpen(true)}
+            onToggle={tab === 'mine' ? toggleSystemCategory : toggleSharedCategory}
+            isActive={tab === 'mine' ? isSystemCategoryActive : isSharedCategoryActive}
+            onEditCategories={tab === 'mine' ? () => setViewSettingsOpen(true) : undefined}
           />
         </View>
 
@@ -993,7 +949,12 @@ export default function ClosetScreen() {
                   {mineUniqueItemCount}벌 · {mineSections.length}개 섹션
                 </Text>
                 {mineSections.map((section) => (
-                  <View key={section.id} style={styles.section}>
+                  <View
+                    key={section.id}
+                    style={[
+                      styles.section,
+                      section.id.startsWith('system:') ? styles.systemSection : styles.hashtagSection,
+                    ]}>
                     <View style={styles.sectionHeader}>
                       <Text style={styles.sectionTitle}>{section.title}</Text>
                       <Text style={styles.sectionCount}>{section.items.length}벌</Text>
@@ -1130,23 +1091,23 @@ export default function ClosetScreen() {
           </Pressable>
         </Modal>
 
-        <CategoryEditSheet
-          visible={editOpen}
-          title="카테고리 관리"
-          categories={categories}
-          lockedCategories={lockedCategories}
-          lockedHint="기본 카테고리는 고정되고, 직접 만든 카테고리만 삭제할 수 있어요."
-          onClose={() => setEditOpen(false)}
-          onSave={handleSaveCategories}
-          onManageCategory={tab === 'mine' ? openCategoryItemManager : undefined}
+        <WardrobeViewControls
+          visible={viewSettingsOpen}
+          groupMode={groupMode}
+          itemSort={itemSort}
+          hashtags={personalFilterData?.hashtags ?? []}
+          onClose={() => setViewSettingsOpen(false)}
+          onGroupModeChange={setGroupMode}
+          onItemSortChange={setItemSort}
+          onHashtagOrderChange={saveHashtagOrder}
         />
 
-        <CategoryItemManageSheet
-          visible={!!managedCategory}
-          category={managedCategory}
+        <HashtagItemManageSheet
+          visible={hashtagManagerOpen}
+          hashtag={managedHashtag}
           items={apiItems}
-          onClose={() => setManagedCategoryId(null)}
-          onSave={saveCategoryItems}
+          onClose={() => setHashtagManagerOpen(false)}
+          onSave={saveHashtagItems}
         />
 
         {showAddFab ? (
@@ -1205,7 +1166,9 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: Editorial.textCaption,
   },
-  section: { width: '100%' },
+  section: { width: '100%', paddingTop: 16, borderTopWidth: 1 },
+  systemSection: { borderTopColor: Editorial.line },
+  hashtagSection: { borderTopColor: ink(0.22), backgroundColor: ink(0.018) },
   sectionHeader: {
     flexDirection: 'row',
     alignItems: 'baseline',

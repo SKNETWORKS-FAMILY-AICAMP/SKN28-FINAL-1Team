@@ -35,6 +35,7 @@ from .models import (
     WardrobeItem,
     WardrobeItemBatch,
     WardrobeUploadJob,
+    WardrobeViewPreference,
 )
 from .permissions import HasInternalToken
 from .serializers import (
@@ -45,6 +46,7 @@ from .serializers import (
     WardrobeHashtagCreateSerializer,
     WardrobeHashtagItemsPatchSerializer,
     WardrobeHashtagOrderSerializer,
+    WardrobeViewPreferenceSerializer,
     WardrobeHashtagSerializer,
     WardrobeHashtagSummarySerializer,
     WardrobeItemHashtagsPutSerializer,
@@ -581,6 +583,25 @@ class WardrobeItemHashtagsView(APIView):
                 ).data,
             }
         )
+
+
+class WardrobeViewPreferenceView(APIView):
+    """GET/PATCH /wardrobe/view-preferences/ — 사용자별 보기 설정 복원."""
+
+    def get(self, request):
+        preference, _ = WardrobeViewPreference.objects.get_or_create(user=request.user)
+        return Response(WardrobeViewPreferenceSerializer(preference).data)
+
+    def patch(self, request):
+        preference, _ = WardrobeViewPreference.objects.get_or_create(user=request.user)
+        serializer = WardrobeViewPreferenceSerializer(
+            preference,
+            data=request.data,
+            partial=True,
+        )
+        serializer.is_valid(raise_exception=True)
+        serializer.save()
+        return Response(serializer.data)
 
 
 class WardrobeItemListView(APIView):

@@ -13,6 +13,7 @@ from apps.wardrobe.views import (
     WardrobeItemHashtagsView,
     WardrobeItemDetailView,
     WardrobeItemListView,
+    WardrobeViewPreferenceView,
     WardrobeUploadJobView,
     WardrobeUploadView,
     SharedWardrobeViewSet,
@@ -51,6 +52,11 @@ urlpatterns = [
         "wardrobe/hashtags/<uuid:hashtag_id>/items/",
         WardrobeHashtagItemsView.as_view(),
         name="hashtag-items",
+    ),
+    path(
+        "wardrobe/view-preferences/",
+        WardrobeViewPreferenceView.as_view(),
+        name="view-preferences",
     ),
     # 옷장 아이템 조회·수정·삭제
     path("wardrobe/items/", WardrobeItemListView.as_view(), name="items"),

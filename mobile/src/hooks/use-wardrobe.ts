@@ -1,14 +1,13 @@
 import { useCallback, useEffect, useState } from 'react';
 
 import {
-  createWardrobeCategory,
+  createWardrobeHashtag,
   deleteWardrobeItem,
-  deleteWardrobeCategory,
   getWardrobeItem,
-  listWardrobeCategories,
+  listWardrobeFilters,
   listWardrobeItems,
   patchWardrobeItem,
-  type WardrobeCategoriesResponse,
+  type WardrobeFiltersResponse,
   type WardrobeApiItem,
   type WardrobeItemPatch,
   type WardrobeItemQuery,
@@ -79,22 +78,22 @@ export function useWardrobeItems(query: WardrobeItemQuery = {}, enabled = true):
 }
 
 type CategoriesResult = {
-  data: WardrobeCategoriesResponse | null;
+  data: WardrobeFiltersResponse | null;
   loading: boolean;
   error: string | null;
-  reload: () => Promise<WardrobeCategoriesResponse | null>;
+  reload: () => Promise<WardrobeFiltersResponse | null>;
 };
 
-/** 개인 옷장 카테고리는 로컬 목록이 아니라 서버 응답으로 매번 복원한다. */
-export function useWardrobeCategories(enabled = true): CategoriesResult {
-  const [data, setData] = useState<WardrobeCategoriesResponse | null>(null);
+/** 기본 카테고리와 개인 옷장 해시태그는 서버 응답으로 매번 복원한다. */
+export function useWardrobeFilters(enabled = true): CategoriesResult {
+  const [data, setData] = useState<WardrobeFiltersResponse | null>(null);
   const [loading, setLoading] = useState(enabled);
   const [error, setError] = useState<string | null>(null);
 
-  const load = useCallback(async (): Promise<WardrobeCategoriesResponse | null> => {
+  const load = useCallback(async (): Promise<WardrobeFiltersResponse | null> => {
     if (!enabled) return null;
     try {
-      const next = await listWardrobeCategories();
+      const next = await listWardrobeFilters();
       setData(next);
       setError(null);
       return next;
@@ -185,8 +184,7 @@ export async function confirmWardrobeItem(
 }
 
 export {
-  createWardrobeCategory,
-  deleteWardrobeCategory,
+  createWardrobeHashtag,
   deleteWardrobeItem,
   patchWardrobeItem,
 };

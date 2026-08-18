@@ -27,6 +27,8 @@ type SearchFilterBarProps = {
   trailing?: ReactNode;
   /** 검색행과 카테고리 칩 사이에 끼우는 영역 (예: 둘러보기/내 룩북 세그먼트) */
   middle?: ReactNode;
+  /** 기본 필터 칩 아래에 놓는 보조 필터 줄(개인 옷장 해시태그 등). */
+  afterChips?: ReactNode;
   /** false면 검색·칩을 숨기고 trailing만 표시 */
   showFilters?: boolean;
   /** 카테고리 칩 줄만 숨긴다(검색·middle은 유지) */
@@ -50,6 +52,7 @@ export function SearchFilterBar({
   isActive,
   trailing,
   middle,
+  afterChips,
   showFilters = true,
   showChips = true,
   onEditCategories,
@@ -165,6 +168,7 @@ export function SearchFilterBar({
           ) : null}
         </View>
       ) : null}
+      {showFilters ? afterChips : null}
     </>
   );
 }

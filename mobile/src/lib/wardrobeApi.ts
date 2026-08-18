@@ -44,44 +44,49 @@ export type WardrobeApiItem = {
    */
   added_to_closet_at: string | null;
   created_at: string;
-  custom_categories: WardrobeCategorySummary[];
+  wardrobe_hashtags: WardrobeHashtagSummary[];
 };
 
-export type WardrobeCategorySummary = {
+export type WardrobeHashtagSummary = {
   id: string;
   name: string;
   position: number;
 };
 
-export type WardrobeSystemCategory = WardrobeCategorySummary & {
+export type WardrobeSystemCategory = WardrobeHashtagSummary & {
   type: 'SYSTEM';
   item_count: number;
   mutable: false;
 };
 
-export type WardrobeCustomCategory = WardrobeCategorySummary & {
-  type: 'CUSTOM';
+export type WardrobeHashtag = WardrobeHashtagSummary & {
   item_count: number;
-  mutable: true;
   created_at: string;
   updated_at: string;
 };
 
-export type WardrobeCategoriesResponse = {
+export type WardrobeFiltersResponse = {
   system_categories: WardrobeSystemCategory[];
-  custom_categories: WardrobeCustomCategory[];
+  hashtags: WardrobeHashtag[];
 };
 
-export type WardrobeCategoryItemsUpdated = {
-  category_id: string;
+export type WardrobeHashtagItemsUpdated = {
+  hashtag_id: string;
   added_item_ids: string[];
   removed_item_ids: string[];
   item_count: number;
+  deleted: boolean;
 };
 
-export type WardrobeItemCategoriesUpdated = {
+export type WardrobeItemHashtagsUpdated = {
   item_id: string;
-  custom_categories: WardrobeCategorySummary[];
+  wardrobe_hashtags: WardrobeHashtagSummary[];
+};
+
+export type WardrobeViewPreferencesResponse = {
+  group_mode: 'SYSTEM_CATEGORY' | 'HASHTAG';
+  item_sort: 'ADDED_DESC' | 'COLOR_NAME_ASC';
+  updated_at: string;
 };
 
 export type UploadJobStatus = 'PENDING' | 'PROCESSING' | 'DONE' | 'FAILED';
@@ -329,37 +334,49 @@ export function listWardrobeItems(query: WardrobeItemQuery = {}): Promise<Wardro
 }
 
 /** 개인 옷장의 기본·사용자 카테고리. 사용자 카테고리는 서버가 영속 상태의 원본이다. */
-export function listWardrobeCategories(): Promise<WardrobeCategoriesResponse> {
-  return api.get<WardrobeCategoriesResponse>(WardrobeEndpoints.categories);
+export function listWardrobeFilters(): Promise<WardrobeFiltersResponse> {
+  return api.get<WardrobeFiltersResponse>(WardrobeEndpoints.categories);
 }
 
-export function createWardrobeCategory(name: string): Promise<WardrobeCustomCategory> {
-  return api.post<WardrobeCustomCategory>(WardrobeEndpoints.categories, { name });
+export function createWardrobeHashtag(name: string, itemIds: string[]): Promise<WardrobeHashtag> {
+  return api.post<WardrobeHashtag>(WardrobeEndpoints.hashtags, { name, item_ids: itemIds });
 }
 
-export function deleteWardrobeCategory(categoryId: string): Promise<unknown> {
-  return api.delete(WardrobeEndpoints.category(categoryId));
-}
-
-export function updateWardrobeCategoryItems(
-  categoryId: string,
+export function updateWardrobeHashtagItems(
+  hashtagId: string,
   changes: { add_item_ids: string[]; remove_item_ids: string[] },
-): Promise<WardrobeCategoryItemsUpdated> {
-  return api.patch<WardrobeCategoryItemsUpdated>(
-    WardrobeEndpoints.categoryItems(categoryId),
+): Promise<WardrobeHashtagItemsUpdated> {
+  return api.patch<WardrobeHashtagItemsUpdated>(
+    WardrobeEndpoints.hashtagItems(hashtagId),
     changes,
   );
 }
 
-/** 아이템 상세에서 선택한 사용자 카테고리 집합으로 전체 교체한다. */
-export function replaceWardrobeItemCategories(
+/** 아이템 상세에서 입력한 개인 옷장 해시태그 이름 집합으로 전체 교체한다. */
+export function replaceWardrobeItemHashtags(
   itemId: string,
-  categoryIds: string[],
-): Promise<WardrobeItemCategoriesUpdated> {
-  return api.put<WardrobeItemCategoriesUpdated>(
-    WardrobeEndpoints.itemCategories(itemId),
-    { category_ids: categoryIds },
+  names: string[],
+): Promise<WardrobeItemHashtagsUpdated> {
+  return api.put<WardrobeItemHashtagsUpdated>(
+    WardrobeEndpoints.itemHashtags(itemId),
+    { names },
   );
+}
+
+export function reorderWardrobeHashtags(hashtagIds: string[]): Promise<{ hashtags: WardrobeHashtag[] }> {
+  return api.put<{ hashtags: WardrobeHashtag[] }>(WardrobeEndpoints.hashtagOrder, {
+    hashtag_ids: hashtagIds,
+  });
+}
+
+export function getWardrobeViewPreferences(): Promise<WardrobeViewPreferencesResponse> {
+  return api.get<WardrobeViewPreferencesResponse>(WardrobeEndpoints.viewPreferences);
+}
+
+export function patchWardrobeViewPreferences(
+  preferences: Partial<Pick<WardrobeViewPreferencesResponse, 'group_mode' | 'item_sort'>>,
+): Promise<WardrobeViewPreferencesResponse> {
+  return api.patch<WardrobeViewPreferencesResponse>(WardrobeEndpoints.viewPreferences, preferences);
 }
 
 /* 백엔드가 단건 조회(GET items/{id}/)를 아직 구현하지 않았다 — allow 는 PATCH·DELETE 뿐이라

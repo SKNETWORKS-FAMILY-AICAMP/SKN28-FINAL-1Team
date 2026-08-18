@@ -44,7 +44,7 @@ function compileWardrobeSections() {
   return require(join(buildDirectory, 'lib', 'wardrobeSections.js'));
 }
 
-function category(id, name, position) {
+function hashtag(id, name, position) {
   return { id, name, position };
 }
 
@@ -57,7 +57,7 @@ function item(id, overrides = {}) {
     color: '블랙',
     added_to_closet_at: '2026-08-01T00:00:00.000Z',
     created_at: '2026-08-01T00:00:00.000Z',
-    custom_categories: [],
+    wardrobe_hashtags: [],
     ...overrides,
   };
 }
@@ -78,13 +78,14 @@ try {
     uniqueWardrobeItemCount,
   } = compileWardrobeSections();
 
-  const work = category('category-work', '출근룩', 0);
-  const weekend = category('category-weekend', '주말 산책', 1);
+  const work = hashtag('hashtag-work', '출근룩', 0);
+  const weekend = hashtag('hashtag-weekend', '주말 산책', 1);
   const baseFilters = {
-    selectedCategories: [],
+    selectedSystemCategories: [],
+    selectedHashtagIds: [],
     query: '',
     systemCategoryOrder: ['상의', '하의', '아우터', '신발'],
-    customCategoryOrder: [work, weekend],
+    hashtagOrder: [work, weekend],
   };
 
   const systemSections = buildWardrobeSections(
@@ -105,38 +106,43 @@ try {
   );
   assert.deepEqual(sectionIds(systemSections)[0], ['top-new', 'top-old']);
 
-  const customSections = buildWardrobeSections(
+  const hashtagSections = buildWardrobeSections(
     [
-      item('both', { custom_categories: [work, weekend] }),
-      item('work-only', { custom_categories: [work] }),
+      item('both', { wardrobe_hashtags: [work, weekend] }),
+      item('work-only', { wardrobe_hashtags: [work] }),
       item('uncategorized'),
     ],
     baseFilters,
-    'CUSTOM_CATEGORY',
+    'HASHTAG',
     'ADDED_DESC',
   );
   assert.deepEqual(
-    customSections.map((section) => section.id),
+    hashtagSections.map((section) => section.id),
     [work.id, weekend.id, UNCATEGORIZED_SECTION_ID],
-    '사용자 카테고리 순서 뒤에 미분류가 와야 한다.',
+    '해시태그 순서 뒤에 미분류가 와야 한다.',
   );
-  assert.deepEqual(sectionIds(customSections), [
+  assert.deepEqual(sectionIds(hashtagSections), [
     ['both', 'work-only'],
     ['both'],
     ['uncategorized'],
   ]);
-  assert.equal(uniqueWardrobeItemCount(customSections), 3);
+  assert.equal(uniqueWardrobeItemCount(hashtagSections), 3);
 
   const filteredSections = buildWardrobeSections(
     [
-      item('system-match', {
+      item('system-only', {
         item_name: '블루 셔츠',
         category_large: '상의',
       }),
-      item('custom-match', {
+      item('hashtag-only', {
         item_name: '화이트 셔츠',
         category_large: '하의',
-        custom_categories: [work],
+        wardrobe_hashtags: [work],
+      }),
+      item('both-match', {
+        item_name: '린넨 셔츠',
+        category_large: '상의',
+        wardrobe_hashtags: [work],
       }),
       item('query-miss', {
         item_name: '블랙 슬랙스',
@@ -149,14 +155,15 @@ try {
     ],
     {
       ...baseFilters,
-      selectedCategories: ['상의', '출근룩'],
+      selectedSystemCategories: ['상의'],
+      selectedHashtagIds: [work.id],
       query: '셔츠',
       systemCategoryOrder: ['상의', '하의'],
     },
     'SYSTEM_CATEGORY',
     'ADDED_DESC',
   );
-  assert.deepEqual(sectionIds(filteredSections), [['system-match'], ['custom-match']]);
+  assert.deepEqual(sectionIds(filteredSections), [['both-match']]);
 
   const addedSections = buildWardrobeSections(
     [
@@ -200,7 +207,7 @@ try {
   ]);
 
   const performanceCategories = Array.from({ length: 20 }, (_, index) =>
-    category(`performance-${index}`, `성능 카테고리 ${index}`, index),
+    hashtag(`performance-${index}`, `성능 해시태그 ${index}`, index),
   );
   const performanceItems = Array.from({ length: 5_000 }, (_, index) => {
     const primary = performanceCategories[index % performanceCategories.length];
@@ -213,19 +220,19 @@ try {
     return item(`performance-item-${index}`, {
       item_name: `성능 아이템 ${String(index).padStart(5, '0')}`,
       color: ['화이트', '블랙', '블루', '멀티'][index % 4],
-      custom_categories: memberships,
+      wardrobe_hashtags: memberships,
     });
   });
   const performanceFilters = {
     ...baseFilters,
-    customCategoryOrder: performanceCategories,
+    hashtagOrder: performanceCategories,
   };
 
   for (let index = 0; index < 3; index += 1) {
     buildWardrobeSections(
       performanceItems,
       performanceFilters,
-      'CUSTOM_CATEGORY',
+      'HASHTAG',
       'COLOR_NAME_ASC',
     );
   }
@@ -236,7 +243,7 @@ try {
     const sections = buildWardrobeSections(
       performanceItems,
       performanceFilters,
-      'CUSTOM_CATEGORY',
+      'HASHTAG',
       'COLOR_NAME_ASC',
     );
     durations.push(performance.now() - startedAt);
@@ -252,7 +259,7 @@ try {
 
   console.log('옷장 섹션 회귀 테스트: 5개 시나리오 통과');
   console.log(
-    `옷장 섹션 성능: 5,000벌 · 사용자 카테고리 20개 · ` +
+    `옷장 섹션 성능: 5,000벌 · 해시태그 20개 · ` +
       `median ${median.toFixed(2)}ms · p95 ${p95.toFixed(2)}ms`,
   );
 } finally {

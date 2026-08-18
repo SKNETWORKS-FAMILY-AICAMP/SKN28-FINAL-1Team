@@ -1,6 +1,6 @@
 import { COLORS } from '../constants/wardrobe-taxonomy';
 
-export type WardrobeSectionCategory = {
+export type WardrobeSectionHashtag = {
   id: string;
   name: string;
   position: number;
@@ -14,17 +14,18 @@ export type WardrobeSectionItem = {
   color: string;
   added_to_closet_at: string | null;
   created_at: string;
-  custom_categories: WardrobeSectionCategory[];
+  wardrobe_hashtags: WardrobeSectionHashtag[];
 };
 
-export type WardrobeGroupMode = 'SYSTEM_CATEGORY' | 'CUSTOM_CATEGORY';
+export type WardrobeGroupMode = 'SYSTEM_CATEGORY' | 'HASHTAG';
 export type WardrobeItemSort = 'ADDED_DESC' | 'COLOR_NAME_ASC';
 
 export type WardrobeSectionFilters = {
-  selectedCategories: string[];
+  selectedSystemCategories: string[];
+  selectedHashtagIds: string[];
   query: string;
   systemCategoryOrder: string[];
-  customCategoryOrder: WardrobeSectionCategory[];
+  hashtagOrder: WardrobeSectionHashtag[];
 };
 
 export type WardrobeSection<T extends WardrobeSectionItem = WardrobeSectionItem> = {
@@ -71,13 +72,13 @@ function sortItems<T extends WardrobeSectionItem>(
 }
 
 function matchesFilters(item: WardrobeSectionItem, filters: WardrobeSectionFilters): boolean {
-  const categoryMatched =
-    filters.selectedCategories.length === 0 ||
-    filters.selectedCategories.includes(item.category_large) ||
-    item.custom_categories.some((category) =>
-      filters.selectedCategories.includes(category.name),
-    );
-  if (!categoryMatched) return false;
+  const systemMatched =
+    filters.selectedSystemCategories.length === 0 ||
+    filters.selectedSystemCategories.includes(item.category_large);
+  const hashtagMatched =
+    filters.selectedHashtagIds.length === 0 ||
+    item.wardrobe_hashtags.some((hashtag) => filters.selectedHashtagIds.includes(hashtag.id));
+  if (!systemMatched || !hashtagMatched) return false;
 
   const query = filters.query.trim();
   if (!query) return true;
@@ -86,7 +87,7 @@ function matchesFilters(item: WardrobeSectionItem, filters: WardrobeSectionFilte
 
 /**
  * 서버 목록 순서와 무관하게 개인 옷장의 섹션과 섹션 내부 순서를 결정한다.
- * 사용자 카테고리 그룹은 다대다 소속을 그대로 보여주므로 같은 옷이 여러 섹션에 나올 수 있다.
+ * 해시태그 그룹은 다대다 소속을 그대로 보여주므로 같은 옷이 여러 섹션에 나올 수 있다.
  */
 export function buildWardrobeSections<T extends WardrobeSectionItem>(
   items: T[],
@@ -105,29 +106,29 @@ export function buildWardrobeSections<T extends WardrobeSectionItem>(
     });
   }
 
-  const categorySections = filters.customCategoryOrder.flatMap((category) => {
+  const hashtagSections = filters.hashtagOrder.flatMap((hashtag) => {
     const sectionItems = filtered.filter((item) =>
-      item.custom_categories.some((entry) => entry.id === category.id),
+      item.wardrobe_hashtags.some((entry) => entry.id === hashtag.id),
     );
     return sectionItems.length > 0
-      ? [{ id: category.id, title: category.name, items: sortItems(sectionItems, itemSort) }]
+      ? [{ id: hashtag.id, title: `#${hashtag.name}`, items: sortItems(sectionItems, itemSort) }]
       : [];
   });
-  const uncategorized = filtered.filter((item) => item.custom_categories.length === 0);
+  const uncategorized = filtered.filter((item) => item.wardrobe_hashtags.length === 0);
 
   return uncategorized.length > 0
     ? [
-        ...categorySections,
+        ...hashtagSections,
         {
           id: UNCATEGORIZED_SECTION_ID,
           title: '미분류',
           items: sortItems(uncategorized, itemSort),
         },
       ]
-    : categorySections;
+    : hashtagSections;
 }
 
-/** 사용자 카테고리 그룹의 중복 카드와 무관한 실제 옷 개수. */
+/** 해시태그 그룹의 중복 카드와 무관한 실제 옷 개수. */
 export function uniqueWardrobeItemCount<T extends WardrobeSectionItem>(
   sections: WardrobeSection<T>[],
 ): number {
