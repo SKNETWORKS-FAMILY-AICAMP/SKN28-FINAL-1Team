@@ -164,6 +164,11 @@
   .q { margin-bottom: 16px; }
   .q > .qlabel { font-size: 13px; color: var(--soft); margin-bottom: 6px; display: flex; gap: 8px; align-items: baseline; }
   .q > .qlabel .colname { color: var(--muted); font-size: 11.5px; }
+  /* 조건부로만 나타나는 칸이라, 왜 지금 필수인지 눈에 보여야 한다. */
+  .q > .qlabel .req {
+    font-size: 11px; color: var(--warn); border: 1px solid var(--warn);
+    border-radius: 4px; padding: 0 4px; line-height: 1.5;
+  }
   .opts { display: flex; gap: 6px; flex-wrap: wrap; }
   .opt {
     border: 1px solid var(--line);
@@ -216,12 +221,12 @@
   <div class="card">
     <h2>1. 검수자</h2>
     <label class="field">
-      <span><code>reviewer_label</code> 열에 들어갈 값</span>
+      <span><code>reviewer_label</code></span>
       <input type="text" id="reviewer" placeholder="reviewer-a" value="reviewer-a" />
     </label>
-    <p class="hint">
-      가이드는 <code>reviewer-a</code> / <code>reviewer-b</code> 로 통일하도록 돼 있습니다.
-      검수자 간 일치도를 이 열로 집계한다면 사람 이름 대신 이 값을 씁니다.
+    <p class="hint" id="reviewerNote">
+      검수표를 넣으면 파일에 적힌 값을 그대로 읽어 옵니다. 판정 기록도 이 이름으로 따로
+      보관해서, 한 브라우저에서 A·B 패키지를 열어도 서로 섞이지 않습니다.
     </p>
   </div>
 
@@ -242,7 +247,6 @@
   </div>
 
   <button class="primary" id="start" disabled>검수 시작</button>
-  <p class="hint" id="resumeNote"></p>
 </div>
 
 <div id="review" class="hidden">
@@ -328,14 +332,6 @@
     { v: '2', ko: '보통' },
     { v: '3', ko: '높음' },
   ];
-  const Q15 = [
-    { v: '1', ko: '방해함' },
-    { v: '2', ko: '약점' },
-    { v: '3', ko: '무난' },
-    { v: '4', ko: '잘 살림' },
-    { v: '5', ko: '핵심 강점' },
-  ];
-
   const TABLES = {
     image_observation: {
       title: '이미지 관찰',
@@ -348,24 +344,22 @@
         ['인식된 아이템', (r.detected_items || '').split(';').join('  ·  ')],
       ],
       fields: [
-        { col: 'image_assessable', ko: '이 사진으로 코디를 판단할 수 있나', opts: YND },
-        { col: 'items_complete', ko: '주요 아이템이 빠짐없이 잡혔나', opts: YND },
-        { col: 'bbox_grounding_1_3', ko: '아이템 영역이 정확한가', opts: [
-          { v: '1', ko: '틀림' }, { v: '2', ko: '오차 있음' }, { v: '3', ko: '정확' },
-        ] },
-        { col: 'unassessable_complete', ko: '보이지 않는 것을 잘 보류했나', opts: YND },
-        { col: 'q_color_1_5', ko: '색 조화', opts: Q15, blankable: true },
-        { col: 'q_silhouette_proportion_1_5', ko: '실루엣·비율', opts: Q15, blankable: true },
-        { col: 'q_material_pattern_1_5', ko: '소재·패턴', opts: Q15, blankable: true },
-        { col: 'q_style_cohesion_1_5', ko: '스타일 통일감', opts: Q15, blankable: true },
-        { col: 'q_completeness_detail_1_5', ko: '마무리·디테일', opts: Q15, blankable: true },
-        { col: 'observation_verdict', ko: '판정', opts: [
-          { v: 'APPROVE', ko: '승인' }, { v: 'EDIT', ko: '수정 필요' },
-          { v: 'REJECT', ko: '사용 불가' }, { v: 'UNSURE', ko: '보류' },
-        ] },
+        { col: 'image_assessable', ko: '이 사진으로 전체 코디를 판단할 수 있나', opts: YND },
+        { col: 'detected_items_correct', ko: '주요 아이템 식별이 맞나', opts: YND },
+        {
+          col: 'corrected_detected_items', ko: '바로잡은 아이템', type: 'text',
+          when: (a) => a.detected_items_correct === 'NO',
+          required: true,
+          ph: 'id:이름;id:이름  (예: belt:벨트;coat:롱 코트)',
+        },
         { col: 'human_confidence_1_3', ko: '확신도', opts: CONF },
-        { col: 'missing_observations', ko: '빠진 항목', type: 'text', ph: '예) belt:벨트 누락' },
-        { col: 'notes', ko: '메모', type: 'text' },
+        {
+          col: 'notes', ko: '메모', type: 'text',
+          /* 아니오·모르겠음일 때 이유가 없으면 나중에 왜 그렇게 봤는지 복원할 수 없다. */
+          required: (a) =>
+            a.image_assessable === 'NO' || a.image_assessable === 'UNSURE' ||
+            a.detected_items_correct === 'NO' || a.detected_items_correct === 'UNSURE',
+        },
       ],
     },
 
@@ -374,35 +368,37 @@
       file: 'claim_reviews',
       key: (r) => `${r.golden_id}/${r.claim_id}`,
       image: (r) => [{ path: r.local_path, cap: r.golden_id }],
+      /* ⚠️ 모델의 판단(기여 방향·관계)은 **일부러 보여주지 않는다.**
+         먼저 보면 검수자가 모델 답에 끌려가 독립적인 판단이 되지 않는다. */
       ctx: (r) => [
         ['golden_id', `${r.golden_id}  ·  ${r.claim_id}`],
         ['축', r.axis],
         ['근거 영역', (r.evidence_region_ids || '').split(';').join('  ·  ')],
-        ['모델 판단', `${r.model_relation_polarity || '-'} / ${r.model_contribution_direction || '-'}`],
       ],
       statement: (r) => r.statement,
       fields: [
-        { col: 'evidence_correct', ko: '이미지에서 근거가 확인되나', opts: YND },
-        { col: 'human_judgment', ko: '이 문장의 성격', opts: [
+        { col: 'evidence_correct', ko: '문장의 시각적 사실이 이미지에서 확인되나', opts: YND },
+        { col: 'human_judgment', ko: '좋은 코디에 어떤 역할을 하나', opts: [
           { v: 'CONTRIBUTES', ko: '좋은 코디에 기여' },
           { v: 'CONTEXT_DEPENDENT', ko: '상황에 따라' },
           { v: 'DESCRIPTIVE_ONLY', ko: '사실 서술일 뿐' },
           { v: 'UNSUPPORTED', ko: '근거 부족' },
           { v: 'INCORRECT', ko: '틀림' },
         ] },
-        { col: 'verdict', ko: '판정', opts: [
-          { v: 'APPROVE', ko: '승인' }, { v: 'EDIT', ko: '수정 후 사용' },
-          { v: 'REJECT', ko: '기각' }, { v: 'UNSURE', ko: '보류' },
-        ] },
-        { col: 'human_confidence_1_3', ko: '확신도', opts: CONF },
-        { col: 'overgeneralization_risk', ko: '한 사진의 특징을 법칙처럼 말했나', opts: YND },
-        { col: 'stereotype_risk', ko: '성별·체형·연령 고정관념이 있나', opts: YND },
         {
-          col: 'edited_statement', ko: '수정한 문장', type: 'text',
-          when: (a) => a.verdict === 'EDIT',
-          ph: '이미지에서 확인되는 범위로 고쳐 씁니다',
+          col: 'condition_tag', ko: '어떤 조건에서 기여하나', type: 'text',
+          when: (a) => a.human_judgment === 'CONTEXT_DEPENDENT',
+          required: true,
+          ph: 'STYLE:미니멀;OCCASION:출근  (SEASON:봄가을 …)',
         },
-        { col: 'notes', ko: '메모', type: 'text' },
+        { col: 'overgeneralization_risk', ko: '한 사례를 보편 법칙처럼 말했나', opts: YND },
+        { col: 'human_confidence_1_3', ko: '확신도', opts: CONF },
+        {
+          col: 'notes', ko: '메모', type: 'text',
+          required: (a) =>
+            a.evidence_correct === 'NO' || a.evidence_correct === 'UNSURE' ||
+            a.human_judgment === 'UNSUPPORTED' || a.human_judgment === 'INCORRECT',
+        },
       ],
     },
 
@@ -410,24 +406,27 @@
       title: '쌍대 비교',
       file: 'pairwise_reviews',
       key: (r) => r.pair_id,
+      /* ⚠️ 좌우를 화면에서 다시 섞거나 뒤집지 않는다. 검수자 A·B 가 같은 pair_id 를
+         반대 배치로 보도록 파일이 이미 짜여 있어서, 여기서 흔들면 그 설계가 깨진다. */
       image: (r) => [
         { path: r.left_local_path, cap: `왼쪽 · ${r.left_style_intent || ''}` },
         { path: r.right_local_path, cap: `오른쪽 · ${r.right_style_intent || ''}` },
       ],
       ctx: (r) => [
         ['pair_id', r.pair_id],
+        ['앵커 그래프', r.anchor_graph === 'men' ? '남성' : r.anchor_graph === 'women' ? '여성' : r.anchor_graph],
         ['비교 축', r.comparison_axis],
         ['맥락', r.context_id],
         ['왼쪽 / 오른쪽', `${r.left_id}  /  ${r.right_id}`],
       ],
       fields: [
-        { col: 'winner', ko: '어느 쪽이 더 나은가', opts: [
+        { col: 'winner', ko: '어느 쪽이 더 완성도 높은가', opts: [
           { v: 'left', ko: '왼쪽' }, { v: 'right', ko: '오른쪽' }, { v: 'tie', ko: '비슷' },
           { v: 'context_dependent', ko: '상황이 달라 비교 불가' },
           { v: 'unassessable', ko: '이미지 문제로 판단 불가' },
         ] },
         { col: 'confidence_1_3', ko: '확신도', opts: CONF },
-        { col: 'reason_axis', ko: '이유가 되는 축', opts: [
+        { col: 'reason_axis', ko: '차이를 가장 크게 만든 축', opts: [
           { v: 'A1_COLOR_HARMONY', ko: '색 조화' },
           { v: 'A2_SILHOUETTE_PROPORTION', ko: '실루엣·비율' },
           { v: 'A5_MATERIAL_PATTERN', ko: '소재·패턴' },
@@ -435,38 +434,17 @@
           { v: 'A7_COMPLETENESS_DETAIL', ko: '마무리·디테일' },
           { v: 'MIXED', ko: '여러 이유' },
         ] },
-        { col: 'notes', ko: '이유 한 문장', type: 'text' },
-      ],
-    },
-
-    minimum_edit: {
-      title: '최소 수정',
-      file: 'minimum_edit_reviews',
-      key: (r) => `${r.golden_id}/${r.target_region_id}/${r.target_attribute}`,
-      image: (r) => [{ path: r.local_path, cap: r.golden_id }],
-      ctx: (r) => [
-        ['golden_id', r.golden_id],
-        ['대상', `${r.target_region_id}  ·  ${r.target_attribute}`],
-        ['변경', r.change],
-        ['축', r.tested_axis],
-      ],
-      statement: (r) => r.expected_effect,
-      fields: [
-        { col: 'single_variable_change', ko: '한 가지 속성만 바뀌었나', opts: YND },
-        { col: 'preserves_style_intent', ko: '기존 스타일 의도를 지키나', opts: YND },
-        { col: 'verdict', ko: '판정', opts: [
-          { v: 'PLAUSIBLE_HYPOTHESIS', ko: '시험할 만함' },
-          { v: 'TASTE_DEPENDENT', ko: '취향에 따라' },
-          { v: 'INCORRECT', ko: '가설이 틀림' },
-          { v: 'UNSURE', ko: '보류' },
-        ] },
-        { col: 'human_confidence_1_3', ko: '확신도', opts: CONF },
-        { col: 'notes', ko: '메모', type: 'text' },
+        {
+          col: 'notes', ko: '이유 한 문장', type: 'text',
+          /* 비교 불가는 그 자체로는 정보가 없다 — 왜 못 골랐는지가 있어야 쓸 수 있다. */
+          required: (a) => a.winner === 'context_dependent' || a.winner === 'unassessable',
+        },
       ],
     },
   };
 
-  const ORDER = ['image_observation', 'claim', 'pairwise', 'minimum_edit'];
+  /* 최소수정 검수표는 이번 배포에서 제외됐다 (WEB_REVIEW_UI_CHANGE_REQUEST.md 2장). */
+  const ORDER = ['image_observation', 'claim', 'pairwise'];
 
   /** 행 배열 → 열 이름으로 읽는 객체 */
   function asObject(header, row) {
@@ -487,7 +465,9 @@
       const next = row.slice();
       while (next.length < cols.length) next.push('');
       cols.forEach((c, i) => {
-        if (c === 'reviewer_label') next[i] = reviewerLabel;
+        /* 검수자별 패키지라 reviewer_label 이 파일에 이미 채워져 있다. 그 값이 있으면
+           그대로 둔다 — 화면에 입력한 이름으로 덮어쓰면 A 파일이 B 로 바뀌어 나간다. */
+        if (c === 'reviewer_label') next[i] = (row[i] || '').trim() || reviewerLabel;
         else if (Object.prototype.hasOwnProperty.call(a, c)) next[i] = a[c] ?? '';
       });
       return next;
@@ -504,6 +484,8 @@
    * ================================================================ */
   const state = {
     reviewer: 'reviewer-a',
+    /** 검수표에서 읽어낸 값. 있으면 화면 입력보다 이것이 우선한다. */
+    reviewerFromFile: '',
     loaded: {},        // table -> { header, rows }
     answers: {},       // table -> { key -> {col: value} }
     images: new Map(), // 파일이름(소문자) -> objectURL
@@ -512,19 +494,26 @@
     focus: 0,
   };
 
-  const LS_KEY = 'goldenset-review-v1';
+  /**
+   * 판정 저장 공간. **검수자마다 따로 둔다.**
+   * A 와 B 패키지는 같은 golden_id·claim_id·pair_id 를 쓰므로 한 공간에 담으면
+   * 나중에 연 쪽이 앞사람 판정을 자기 것으로 물려받는다. 한 브라우저에서 둘 다 볼 수 있어야 해서
+   * 이름을 키에 넣는다.
+   */
+  const LS_PREFIX = 'goldenset-review-v2';
+  const lsKey = (reviewer) => `${LS_PREFIX}:${reviewer || 'unknown'}`;
 
   function save() {
     try {
-      localStorage.setItem(LS_KEY, JSON.stringify({ reviewer: state.reviewer, answers: state.answers }));
+      localStorage.setItem(lsKey(state.reviewer), JSON.stringify({ reviewer: state.reviewer, answers: state.answers }));
     } catch (e) {
       /* 저장 한도를 넘겨도 검수는 계속돼야 한다 — 내보내기로 회수할 수 있다. */
       console.warn('자동 저장 실패', e);
     }
   }
-  function restore() {
+  function restore(reviewer) {
     try {
-      const raw = localStorage.getItem(LS_KEY);
+      const raw = localStorage.getItem(lsKey(reviewer));
       if (!raw) return null;
       return JSON.parse(raw);
     } catch { return null; }
@@ -555,6 +544,30 @@
       const rows = parseCsv(String(reader.result));
       if (rows.length < 2) { alert('행이 없습니다: ' + file.name); return; }
       state.loaded[table] = { header: rows[0], rows: rows.slice(1) };
+
+      /* 검수자별 패키지라 reviewer_label 이 파일에 이미 들어 있다. 사람이 다시 입력하게 두면
+         A 파일에 B 이름을 적어 내보내는 사고가 난다 — 파일 값이 있으면 그것을 쓰고 잠근다. */
+      const cols = rows[0].map((h) => h.replace(/^\uFEFF/, ''));
+      const at = cols.indexOf('reviewer_label');
+      const fromFile = at >= 0 ? (rows.slice(1).map((r) => (r[at] || '').trim()).find(Boolean) || '') : '';
+      if (fromFile) {
+        const input = document.getElementById('reviewer');
+        if (state.reviewerFromFile && state.reviewerFromFile !== fromFile) {
+          alert(
+            `검수자가 다른 파일입니다.\n이미 넣은 파일은 ${state.reviewerFromFile}, 이 파일은 ${fromFile} 입니다.\n` +
+              '한 사람의 패키지만 넣어 주세요.',
+          );
+          input.value = state.reviewerFromFile;
+          delete state.loaded[table];
+          return;
+        }
+        state.reviewerFromFile = fromFile;
+        input.value = fromFile;
+        input.readOnly = true;
+        document.getElementById('reviewerNote').textContent =
+          '검수표에 적힌 값을 그대로 씁니다. 저장할 때도 바뀌지 않습니다.';
+      }
+
       const b = document.getElementById('badge-' + table);
       b.textContent = `${rows.length - 1}건`;
       b.classList.add('on');
@@ -573,17 +586,14 @@
     document.getElementById('imgcount').textContent = `이미지 ${state.images.size}개 인식`;
   });
 
-  const saved = restore();
-  if (saved && saved.answers && Object.keys(saved.answers).length) {
-    const n = Object.values(saved.answers).reduce((s, m) => s + Object.keys(m).length, 0);
-    document.getElementById('resumeNote').textContent =
-      `이전에 판정한 ${n}건이 이 브라우저에 남아 있습니다. 같은 CSV 를 넣으면 이어서 진행합니다.`;
-    document.getElementById('reviewer').value = saved.reviewer || 'reviewer-a';
-  }
-
   document.getElementById('start').addEventListener('click', () => {
-    state.reviewer = document.getElementById('reviewer').value.trim() || 'reviewer-a';
-    const prev = restore();
+    state.reviewer =
+      state.reviewerFromFile || document.getElementById('reviewer').value.trim() || 'reviewer-a';
+    const prev = restore(state.reviewer);
+    if (prev && prev.answers && Object.keys(prev.answers).length) {
+      const n = Object.values(prev.answers).reduce((s, m) => s + Object.keys(m).length, 0);
+      console.info(`[review] ${state.reviewer} 의 이전 판정 ${n}건을 이어서 씁니다.`);
+    }
     state.answers = (prev && prev.answers) || {};
     ORDER.forEach((t) => { if (!state.answers[t]) state.answers[t] = {}; });
     state.tab = ORDER.find((t) => state.loaded[t]);
@@ -606,11 +616,21 @@
   function answerAt(table, i) { return state.answers[table][keyAt(table, i)] || {}; }
 
   /** 필수 칸(선택형 + 지금 보이는 것)이 모두 채워졌으면 완료로 본다. */
+  /** 지금 값에서 이 칸이 필수인지. required 는 true 이거나 답에 따라 정해지는 함수다. */
+  function isRequired(field, answers) {
+    return typeof field.required === 'function' ? field.required(answers) : Boolean(field.required);
+  }
+
+  /**
+   * 이 건이 끝났는가.
+   * 자유 입력이라도 **조건부 필수**면 채워야 끝난 것으로 본다 — CONTEXT_DEPENDENT 의
+   * condition_tag, 비교 불가의 notes 처럼 그 값이 없으면 판정 자체를 쓸 수 없는 것들이다.
+   */
   function isDone(table, i) {
     const a = answerAt(table, i);
     return TABLES[table].fields.every((f) => {
-      if (f.type === 'text') return true;
       if (f.when && !f.when(a)) return true;
+      if (f.type === 'text') return !isRequired(f, a) || Boolean((a[f.col] || '').trim());
       if (f.blankable) return Object.prototype.hasOwnProperty.call(a, f.col);
       return a[f.col] !== undefined && a[f.col] !== '';
     });
@@ -688,7 +708,11 @@
       wrap.className = 'q' + (fi === state.focus ? ' focus' : '');
       const label = document.createElement('div');
       label.className = 'qlabel';
-      label.innerHTML = `<span>${f.ko}</span><span class="colname mono">${f.col}</span>`;
+      const need = f.type === 'text' && isRequired(f, a);
+      label.innerHTML =
+        `<span>${f.ko}</span>` +
+        (need ? '<span class="req">필수</span>' : '') +
+        `<span class="colname mono">${f.col}</span>`;
       wrap.appendChild(label);
 
       if (f.type === 'text') {

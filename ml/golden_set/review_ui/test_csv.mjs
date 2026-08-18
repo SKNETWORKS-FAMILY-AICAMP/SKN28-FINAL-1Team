@@ -67,23 +67,28 @@ const key = TABLES.claim.key(first);
 const answers = {
   [key]: {
     evidence_correct: 'YES',
-    human_judgment: 'CONTRIBUTES',
-    verdict: 'EDIT',
-    human_confidence_1_3: '2',
+    human_judgment: 'CONTEXT_DEPENDENT',
     overgeneralization_risk: 'NO',
-    stereotype_risk: 'NO',
-    edited_statement: '고쳐 쓴 문장, 쉼표 포함',
+    // 쉼표와 세미콜론이 함께 들어가는 값이라 직렬화가 가장 깨지기 쉽다
+    condition_tag: 'STYLE:미니멀;OCCASION:출근, 회식',
+    human_confidence_1_3: '2',
     notes: '메모',
   },
 };
+/* 일부러 다른 이름을 넘긴다 — 파일에 값이 있으면 그것을 지켜야 한다
+   (A 패키지가 B 이름으로 나가면 두 사람 결과가 섞인다). */
 const out = parseCsv(
   toCsv(header, applyAnswers(claim[0], claim.slice(1), answers, 'reviewer-b', TABLES.claim.key)),
 );
 const o1 = asObject(out[0], out[1]);
-ok(o1.verdict === 'EDIT' && o1.human_confidence_1_3 === '2', '판정값이 정확한 열에 들어감');
-ok(o1.edited_statement.includes('쉼표 포함'), '새로 쓴 문장의 쉼표도 안전');
+ok(
+  o1.human_judgment === 'CONTEXT_DEPENDENT' && o1.human_confidence_1_3 === '2',
+  '판정값이 정확한 열에 들어감',
+);
+ok(o1.condition_tag === 'STYLE:미니멀;OCCASION:출근, 회식', '쉼표·세미콜론 섞인 값도 안전');
 ok(o1.statement === first.statement, '미리 채워진 열은 건드리지 않음');
-if (out.length > 2) ok(asObject(out[0], out[2]).verdict === '', '판정 안 한 행은 빈칸 유지');
+ok(o1.reviewer_label === first.reviewer_label, '파일의 reviewer_label 을 덮어쓰지 않음');
+if (out.length > 2) ok(asObject(out[0], out[2]).human_judgment === '', '판정 안 한 행은 빈칸 유지');
 
 /* ── 4. 네 표의 입력 열이 도구 정의와 맞는가 ── */
 for (const def of Object.values(TABLES)) {
