@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
-from pathlib import Path
 
 from rest_framework import serializers
 
@@ -14,27 +13,10 @@ from apps.lookbook.contracts import (
 )
 from apps.lookbook.models import LookbookPost, LookbookWardrobeItem
 from apps.lookbook.services import storage
+from apps.wardrobe.services import storage as wardrobe_storage
 
 MAX_LOOKBOOK_UPLOAD_MB = 15
-ALLOWED_LOOKBOOK_IMAGE_TYPES = {
-    "image/jpeg",
-    "image/jpg",
-    "image/pjpeg",
-    "image/png",
-    "image/x-png",
-    "image/webp",
-    "image/heic",
-    "image/heif",
-}
-ALLOWED_LOOKBOOK_IMAGE_EXTENSIONS = {
-    ".jpg",
-    ".jpeg",
-    ".png",
-    ".webp",
-    ".heic",
-    ".heif",
-}
-GENERIC_UPLOAD_CONTENT_TYPES = {"", "application/octet-stream"}
+ALLOWED_LOOKBOOK_IMAGE_TYPES = {"image/jpeg", "image/png", "image/webp", "image/heic"}
 DEFAULT_PAGE_SIZE = 20
 MAX_PAGE_SIZE = 100
 
@@ -205,7 +187,8 @@ class LookbookPhotoCreateSerializer(
 ):
     """룩 사진을 올려 만드는 룩북 (사진 속 아이템은 비동기 등록)."""
 
-    image = serializers.ImageField()
+    # HEIC는 Pillow 설정에 따라 ImageField 단계에서 거절될 수 있어 실제 헤더를 직접 검사한다.
+    image = serializers.FileField()
     gender = serializers.ChoiceField(
         choices=LookbookPost.Gender.choices,
         required=False,
@@ -257,19 +240,16 @@ class LookbookPhotoCreateSerializer(
             raise serializers.ValidationError(
                 f"이미지는 {MAX_LOOKBOOK_UPLOAD_MB}MB 이하여야 합니다."
             )
-        content_type = (image.content_type or "").split(";", 1)[0].strip().lower()
-        extension = Path(image.name).suffix.lower()
-        # ImageField가 Pillow로 실제 이미지 내용을 먼저 검증한다. 여기서는 브라우저·기기별
-        # MIME 별칭과 MIME을 생략하는 업로더 때문에 정상 이미지가 거절되지 않게 한다.
-        has_supported_type = content_type in ALLOWED_LOOKBOOK_IMAGE_TYPES
-        has_generic_type_with_supported_name = (
-            content_type in GENERIC_UPLOAD_CONTENT_TYPES
-            and extension in ALLOWED_LOOKBOOK_IMAGE_EXTENSIONS
-        )
-        if not (has_supported_type or has_generic_type_with_supported_name):
+        position = image.tell()
+        image.seek(0)
+        detected = wardrobe_storage._image_type(image.read(16))
+        image.seek(position)
+        if detected is None or detected[0] not in ALLOWED_LOOKBOOK_IMAGE_TYPES:
             raise serializers.ValidationError(
-                "지원하지 않는 이미지 형식입니다 (jpeg/png/webp/heic/heif)."
+                "지원하지 않는 이미지 형식입니다 (jpeg/png/webp/heic)."
             )
+        # 브라우저가 image/jpg·application/octet-stream 등으로 보내더라도 실제 바이트 형식을 사용한다.
+        image.content_type = detected[0]
         return image
 
 

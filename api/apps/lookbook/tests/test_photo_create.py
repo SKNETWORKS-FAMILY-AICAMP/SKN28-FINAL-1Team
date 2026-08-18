@@ -247,6 +247,7 @@ class LookbookPhotoCreateApiTests(LookbookApiTestCase):
             ("look.jpeg", "image/pjpeg"),
             ("look.png", "image/x-png"),
             ("look.jpg", "application/octet-stream"),
+            ("look.jpg", "image/avif"),
         ):
             image_format = "PNG" if name.endswith(".png") else "JPEG"
             with self.subTest(content_type=content_type):
