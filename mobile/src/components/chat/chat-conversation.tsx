@@ -15,14 +15,20 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { StylistCardGroup } from '@/components/chat/stylist-cards';
 import { StylistPicker } from '@/components/chat/stylist-picker';
-import { ClosetItemSelectSheet } from '@/components/chat/closet-item-select-sheet';
+import { SharedItemPicker } from '@/components/chat/shared-item-picker';
 import { Icon } from '@/components/icon';
 import { SmartImage, useToast } from '@/components/ui';
 import { ContentMax, Editorial, Fonts, ink, Type } from '@/constants/theme';
 import { useBreakpoint } from '@/hooks/use-breakpoint';
 import { pickOutfitPhoto } from '@/lib/pickItemPhoto';
 import type { StylistId } from '@/lib/stylistApi';
-import { chatStore, useChatSession, type ChatMessage } from '@/state/chat';
+import {
+  chatStore,
+  STYLE_FALLBACK_NOTE,
+  useChatSession,
+  type ChatMessage,
+  type SharedReferencePick,
+} from '@/state/chat';
 import { stylistStore } from '@/state/stylist';
 
 const INK = Editorial.ink;
@@ -109,7 +115,9 @@ export function ChatConversation({
   const [loadingOlder, setLoadingOlder] = useState(false);
   const toast = useToast();
 
-  const [closetSelectOpen, setClosetSelectOpen] = useState(false);
+  const [pickerSheetOpen, setPickerSheetOpen] = useState(false);
+  /** 보내기 전에 골라 둔 참고 옷. 전송에 성공하면 비우고, 실패하면 남겨 다시 시도하게 한다. */
+  const [reference, setReference] = useState<SharedReferencePick | null>(null);
 
   /**
    * 스타일리스트 카드가 채워지는 상황 — 진행이 바뀔 때마다 달라지는 짧은 글자로 만든다.
@@ -190,14 +198,19 @@ export function ChatConversation({
     const t = text.trim();
     if (!t || typing) return;
 
+    const ref = reference;
     setText('');
     setTyping(true);
     scrollToEnd();
     try {
       /* 실패해도 토스트를 띄우지 않는다 — 사유는 대화 안에 한 줄로 남고, 토스트까지 겹치면
-         같은 말을 두 번 하면서 정작 사라지는 쪽(토스트)만 눈에 띈다. */
-      await chatStore.sendText(await ensureSession(), t);
+         같은 말을 두 번 하면서 정작 사라지는 쪽(토스트)만 눈에 띈다.
+         단 참고 옷 실패는 대화에 남지 않아(요청이 접수조차 안 된다) 토스트로 알린다. */
+      await chatStore.sendText(await ensureSession(), t, ref ?? undefined);
+      // 보낸 참고는 다음 질문까지 끌고 가지 않는다.
+      setReference(null);
     } catch (e) {
+      /* 입력 문장과 고른 옷을 그대로 남긴다 — 다른 옷으로 바꾸거나 그대로 다시 보낼 수 있게. */
       setText(t);
       toast(e instanceof Error ? e.message : '메시지를 보내지 못했어요', { variant: 'error' });
     } finally {
@@ -265,27 +278,6 @@ export function ChatConversation({
     setPickerOpen(true);
   };
 
-  const handleSelectClosetItems = async (
-    selectedItems: { id: string; image: string; name: string }[],
-  ) => {
-    if (selectedItems.length === 0 || typing) return;
-
-    setTyping(true);
-    try {
-      const itemNames = selectedItems.map((item) => item.name).join(', ');
-      await chatStore.sendText(
-        await ensureSession(),
-        `선택한 옷(${itemNames})을 포함해 코디를 추천해줘.`,
-      );
-    } catch (e) {
-      toast(e instanceof Error ? e.message : '선택한 옷으로 추천을 요청하지 못했어요', {
-        variant: 'error',
-      });
-    } finally {
-      setTyping(false);
-      scrollToEnd();
-    }
-  };
 
   /* 모드 저장이 실패하면 이전 모드와 선택을 그대로 둔다(설계서 19장).
      스토어가 서버 응답을 받은 뒤에만 세션을 바꾸므로 여기서 되돌릴 것은 없다. */
@@ -377,12 +369,21 @@ export function ChatConversation({
             e.preventDefault();
             try {
               const dataStr = e.dataTransfer.getData('text/plain');
-              if (dataStr) {
-                const item = JSON.parse(dataStr);
-                if (item && item.id && item.image) {
-                  handleSelectClosetItems([item]);
-                }
+              if (!dataStr) return;
+              const item = JSON.parse(dataStr);
+              if (!item?.id) return;
+              /* 서버는 공유 아이템만 참고로 받는다. 내 옷을 끌어오면 id 종류가 달라
+                 조용히 404 가 나므로, 넣지 말고 왜 안 되는지 알린다. */
+              if (!item.shared) {
+                toast('참고는 공유 옷장의 옷만 할 수 있어요', { variant: 'error' });
+                return;
               }
+              setReference({
+                sharedItemId: item.id,
+                imageUrl: item.image ?? null,
+                itemName: item.name || '옷',
+                ownerName: item.owner || '멤버',
+              });
             } catch (err) {
               console.error('Drop parsing error:', err);
             }
@@ -420,19 +421,25 @@ export function ChatConversation({
                       <Icon name="photo" tintColor={ink(0.3)} size={30} />
                     )}
                   </View>
-                ) : m.kind === 'closet_items' ? (
-                  <View style={styles.attachedItemsContainer}>
-                    <Text style={styles.attachedTitle}>내가 선택한 옷들로 코디 추천해줘 :</Text>
-                    <View style={styles.attachedGrid}>
-                      {m.items.map((it) => (
-                        <View key={it.id} style={styles.attachedCard}>
-                          <SmartImage uri={it.image} width="100%" height={52} contentFit="cover" />
-                          <Text style={styles.attachedCardName} numberOfLines={1}>
-                            {it.name}
+                ) : m.kind === 'reference' ? (
+                  /* 참고한 공유 옷 + 요청 문장. 친구 옷은 참고 대상이지 코디 구성 아이템이
+                     아니므로 '포함'이라는 말을 쓰지 않는다. */
+                  <View style={styles.refBubble}>
+                    <View style={styles.refHead}>
+                      <SmartImage uri={m.imageUrl} width={44} height={44} radius={8} />
+                      <View style={styles.refHeadText}>
+                        <Text style={styles.refLabel}>공유 옷 참고</Text>
+                        <Text style={styles.refName} numberOfLines={1}>
+                          {m.ownerName}님의 {m.itemName}
+                        </Text>
+                        {m.roomName ? (
+                          <Text style={styles.refRoom} numberOfLines={1}>
+                            {m.roomName}
                           </Text>
-                        </View>
-                      ))}
+                        ) : null}
+                      </View>
                     </View>
+                    {m.text ? <Text style={styles.refText}>{m.text}</Text> : null}
                   </View>
                 ) : (
                   <View style={styles.userBubble}>
@@ -500,6 +507,19 @@ export function ChatConversation({
                     }>
                     <View style={styles.recBody}>
                       <Text style={styles.recTitle}>{m.title}</Text>
+                      {/* 공유 옷을 참고했으면 무엇과 비슷한 것인지 먼저 말한다.
+                          참고 안 한 추천은 배지가 null 이라 아무것도 안 그린다. */}
+                      {m.referenceBadge ? (
+                        <View style={styles.refMatch}>
+                          <View style={styles.refBadge}>
+                            <Text style={styles.refBadgeText}>{m.referenceBadge.label}</Text>
+                          </View>
+                          {/* fallback 은 실패가 아니라 정상 결과다 — 경고색·경고아이콘을 쓰지 않는다. */}
+                          {m.referenceBadge.isStyleFallback ? (
+                            <Text style={styles.refFallback}>{STYLE_FALLBACK_NOTE}</Text>
+                          ) : null}
+                        </View>
+                      ) : null}
                       {/* 아이템 한 줄 — 사진이 있는 것만 그리고, 없으면 이름으로 대신한다 */}
                       <View style={styles.recItems}>
                         {m.items.map((item) => (
@@ -653,14 +673,41 @@ export function ChatConversation({
 
       {/* 입력 바 */}
       <SafeAreaView edges={isPanel ? [] : ['bottom']} style={styles.inputSafe}>
+        {/* 고른 참고 옷. 보내기 전에 무엇을 참고하는지 보이고, 여기서 바로 바꾸거나 뺄 수 있다. */}
+        {reference ? (
+          <View style={[styles.refPreview, widthStyle]}>
+            <SmartImage uri={reference.imageUrl} width={34} height={34} radius={8} />
+            <View style={styles.refPreviewText}>
+              <Text style={styles.refPreviewLabel}>공유 옷 참고</Text>
+              <Text style={styles.refPreviewName} numberOfLines={1}>
+                {reference.ownerName}님의 {reference.itemName}
+              </Text>
+            </View>
+            <Pressable
+              hitSlop={10}
+              disabled={typing}
+              onPress={() => setPickerSheetOpen(true)}
+              accessibilityLabel="참고할 옷 바꾸기">
+              <Text style={styles.refPreviewAction}>바꾸기</Text>
+            </Pressable>
+            <Pressable
+              hitSlop={10}
+              disabled={typing}
+              onPress={() => setReference(null)}
+              accessibilityLabel="참고 취소">
+              <Icon name="xmark" tintColor={ink(0.45)} size={13} />
+            </Pressable>
+          </View>
+        ) : null}
         <View style={[styles.inputBar, widthStyle]}>
           <Pressable style={styles.photoBtn} onPress={attachPhoto} disabled={typing} hitSlop={8}>
             <Icon name="photo" tintColor={ink(typing ? 0.25 : 0.55)} size={22} />
           </Pressable>
           <Pressable
             style={[styles.photoBtn, { marginLeft: -2 }]}
-            onPress={() => setClosetSelectOpen(true)}
+            onPress={() => setPickerSheetOpen(true)}
             disabled={typing}
+            accessibilityLabel="공유 옷 참고하기"
             hitSlop={8}>
             <Icon name="tshirt" tintColor={ink(typing ? 0.25 : 0.55)} size={22} />
           </Pressable>
@@ -688,10 +735,10 @@ export function ChatConversation({
         </View>
       </SafeAreaView>
 
-      <ClosetItemSelectSheet
-        visible={closetSelectOpen}
-        onClose={() => setClosetSelectOpen(false)}
-        onSelect={handleSelectClosetItems}
+      <SharedItemPicker
+        visible={pickerSheetOpen}
+        onClose={() => setPickerSheetOpen(false)}
+        onPick={setReference}
       />
     </KeyboardAvoidingView>
   );
@@ -772,6 +819,18 @@ const styles = StyleSheet.create({
   },
   recBody: { padding: 14, gap: 10 },
   recTitle: { fontSize: 14, fontWeight: '600', color: INK },
+  refMatch: { gap: 6 },
+  /* 배지는 면이 아니라 테두리로 — 이 앱에서 채워지는 자리는 CTA 하나뿐이다. */
+  refBadge: {
+    alignSelf: 'flex-start',
+    paddingHorizontal: 9,
+    paddingVertical: 4,
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: Editorial.line,
+  },
+  refBadgeText: { fontSize: Type.micro, color: Editorial.textCaption, fontWeight: '500' },
+  refFallback: { fontSize: Type.caption, color: Editorial.textSoft, lineHeight: 19 },
 
   /* 아이템을 가로로 늘어놓는다. 개수가 적어(보통 3~5) 가로 스크롤 없이 줄바꿈으로 받는다. */
   recItems: { flexDirection: 'row', flexWrap: 'wrap', gap: 12 },
@@ -909,42 +968,36 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   sendBtnOn: { backgroundColor: Editorial.cta },
-  attachedItemsContainer: {
+  /* 참고 말풍선 — 사용자 말풍선이지만 검은 면을 쓰지 않는다. 사진과 이름을 읽어야 하고,
+     '내가 한 말'보다 '무엇을 참고했는지'가 먼저 눈에 들어와야 한다. */
+  refBubble: {
     alignSelf: 'flex-end',
-    backgroundColor: Editorial.surfaceSoft,
-    borderWidth: 1,
-    borderColor: Editorial.line,
+    maxWidth: '84%',
+    gap: 8,
+    padding: 10,
     borderRadius: 16,
-    padding: 12,
-    maxWidth: '85%',
-    gap: 8,
-  },
-  attachedTitle: {
-    fontSize: 12,
-    fontWeight: '600',
-    color: ink(0.7),
-  },
-  attachedGrid: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 8,
-  },
-  attachedCard: {
-    width: 72,
-    borderRadius: 8,
-    backgroundColor: '#FFFFFF',
+    borderTopRightRadius: 6,
     borderWidth: 1,
     borderColor: Editorial.line,
-    overflow: 'hidden',
+    backgroundColor: Editorial.surface,
+  },
+  refHead: { flexDirection: 'row', alignItems: 'center', gap: 9 },
+  refHeadText: { flex: 1, gap: 1 },
+  refLabel: { fontSize: Type.micro, color: Editorial.textMuted, fontWeight: '600' },
+  refName: { fontSize: Type.caption, color: INK, fontWeight: '500' },
+  refRoom: { fontSize: Type.micro, color: Editorial.textCaption },
+  refText: { fontSize: Type.footnote, color: INK, lineHeight: 21 },
+
+  /* 입력창 위 미리보기 — 보내기 전 마지막 확인 자리라 조용하게 둔다. */
+  refPreview: {
+    flexDirection: 'row',
     alignItems: 'center',
-    paddingBottom: 4,
+    gap: 9,
+    paddingHorizontal: 14,
+    paddingTop: 10,
   },
-  attachedCardName: {
-    fontSize: 9,
-    fontWeight: '600',
-    color: Editorial.ink,
-    marginTop: 3,
-    paddingHorizontal: 2,
-    textAlign: 'center',
-  },
+  refPreviewText: { flex: 1, gap: 1 },
+  refPreviewLabel: { fontSize: Type.micro, color: Editorial.textMuted, fontWeight: '600' },
+  refPreviewName: { fontSize: Type.caption, color: INK },
+  refPreviewAction: { fontSize: Type.caption, color: Editorial.textCaption, fontWeight: '500' },
 });

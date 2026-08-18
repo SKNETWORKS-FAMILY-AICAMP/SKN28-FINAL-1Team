@@ -74,6 +74,23 @@ export type ApiChatAttachment = {
   created_at: string;
 };
 
+/**
+ * 이 질문이 참고한 공유 옷. 서버가 보여주기용으로만 추린 값이다.
+ *
+ * `image_url` 은 **조회할 때마다 새로 서명된다** — 저장해 두면 만료된다.
+ * 서명에 실패하면 null 로 오고 나머지는 그대로 온다(이미지만 빠지고 말풍선은 살아난다).
+ */
+export type ApiReferenceSummary = {
+  schema_version: string;
+  type: string;
+  shared_item_id: string;
+  item_name: string;
+  category_large: string;
+  owner_name: string;
+  room_name: string;
+  image_url: string | null;
+};
+
 export type ApiChatMessage = {
   id: string;
   sequence: number;
@@ -84,6 +101,8 @@ export type ApiChatMessage = {
   /** 추천이 붙은 답변이면 recommendation_result_id 가 여기 들어온다. */
   metadata: Record<string, unknown>;
   attachments: ApiChatAttachment[];
+  /** 공유 옷을 참고한 질문에만 붙는다. 사용자 메시지가 아니면 null. */
+  reference_summary?: ApiReferenceSummary | null;
   created_at: string;
   updated_at: string;
 };

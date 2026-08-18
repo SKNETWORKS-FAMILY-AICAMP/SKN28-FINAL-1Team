@@ -23,14 +23,13 @@ import {
   type ApiMoodAnalysis,
   referenceErrorCode,
   type ApiReferenceErrorCode,
-  type ApiSharedItemReference,
 } from '@/lib/chatApi';
 import { isAnswered, waitForRun, waitForStylistRun } from '@/lib/chatStream';
-import type { ApiReferenceMatch } from '@/lib/recommendApi';
 import {
   getRecommendationResult,
   imageUrlOf,
   type ApiRecommendationCard,
+  type ApiReferenceMatch,
   type ApiRenderJob,
   type ApiRenderStatus,
 } from '@/lib/recommendApi';
@@ -124,9 +123,8 @@ export type ChatMessage =
    *
    * 친구 옷은 **참고 대상이지 최종 코디 아이템이 아니다** — 문구에 '포함'을 쓰지 않는다.
    *
-   * ⚠️ 서버가 이 정보를 돌려주지 않아(요청은 write-only, 스냅샷은 ChatRun 에만 있고
-   *    어떤 응답에도 안 나온다) 앱이 타임라인에 끼워 넣는다. 그래서 **앱을 새로 켜면 사라진다.**
-   *    백엔드가 run 응답에 reference_snapshot 을 실어 주면 그때 복원으로 바꾼다.
+   * 서버가 메시지에 `reference_summary` 로 돌려주므로 대화를 다시 열어도 그대로 복원된다.
+   * 보내는 순간에만 앱이 임시로 만들고(기다리는 동안), 곧 서버판으로 갈아 끼워진다.
    */
   | {
       id: string;
@@ -446,7 +444,26 @@ function toMessages(
   }
 
   const text = api.content.trim();
-  if (text) out.push({ id: api.id, role, kind: 'text', text });
+  /* 참고한 공유 옷이 있으면 글 말풍선 대신 참고 말풍선을 그린다 — 카드가 요청 문장까지
+     담고 있어서 둘 다 그리면 같은 말이 두 번 나온다(무드 카드와 같은 이유). */
+  const ref = role === 'user' ? api.reference_summary : null;
+  if (ref) {
+    out.push({
+      id: api.id,
+      role: 'user',
+      kind: 'reference',
+      text,
+      sharedItemId: ref.shared_item_id,
+      /* 서명이 실패하면 null 로 온다 — 이미지 자리만 비고 나머지는 그대로 보여준다. */
+      imageUrl: ref.image_url,
+      /* 이름이 비어 있으면 대분류로 대신한다(요구사항 4.2). */
+      itemName: ref.item_name || ref.category_large || '옷',
+      ownerName: ref.owner_name,
+      roomName: ref.room_name || undefined,
+    });
+  } else if (text) {
+    out.push({ id: api.id, role, kind: 'text', text });
+  }
   /* 카드가 있다는 건 이 답변에 추천 id 가 붙어 있다는 뜻이다(카드를 그걸로 받아왔다).
      상세·피드백 API 가 result 와 card 둘 다 요구해서 카드에 함께 실어 둔다. */
   const resultId = recommendationIdOf(api);
@@ -1228,30 +1245,27 @@ export const chatStore = {
       throw e;
     }
 
-    /* 무엇을 참고했는지는 사용자 말풍선에 남겨야 한다. 서버가 돌려주지 않으므로
-       (ChatMessage.reference 는 write-only) 앱이 타임라인에 끼워 넣는다. */
+    /* 기다리는 동안 보여줄 참고 말풍선. 곧 loadMessages 가 서버판(reference_summary)으로
+       갈아 끼우므로 여기서는 방금 띄운 글 말풍선을 참고 말풍선으로 바꾸기만 한다 —
+       둘 다 두면 같은 요청 문장이 두 번 나온다. */
     if (reference) {
-      const refId = `${submitted.message.id}-ref`;
-      addOverlay(id, {
-        id: refId,
-        after: lastMessageId(id),
-        message: {
-          id: refId,
-          role: 'user',
-          kind: 'reference',
-          text: body,
-          sharedItemId: reference.sharedItemId,
-          imageUrl: reference.imageUrl,
-          itemName: reference.itemName,
-          ownerName: reference.ownerName,
-          roomName: reference.roomName,
-        },
-      });
-      /* 참고 말풍선이 요청 문장까지 담으므로 방금 띄운 글 말풍선은 치운다 — 두 개면 같은
-         말이 두 번 나온다. */
       replaceSession(id, (s) => ({
         ...s,
-        messages: s.messages.filter((m) => m.id !== draftId),
+        messages: s.messages.map((m) =>
+          m.id === draftId
+            ? {
+                id: draftId,
+                role: 'user',
+                kind: 'reference',
+                text: body,
+                sharedItemId: reference.sharedItemId,
+                imageUrl: reference.imageUrl,
+                itemName: reference.itemName,
+                ownerName: reference.ownerName,
+                roomName: reference.roomName,
+              }
+            : m,
+        ),
       }));
     }
 
