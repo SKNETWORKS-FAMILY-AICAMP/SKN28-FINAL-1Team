@@ -24,6 +24,7 @@ class LookbookPhotoCreateApiTests(LookbookApiTestCase):
     def _payload(self, *, image=None, **overrides):
         payload = {
             "image": image or make_image_file(),
+            "gender": "WOMAN",
             "schedule": "주말 나들이",
             "tpo": ["데이트"],
             "hashtags": ["나들이", "캐주얼"],
@@ -46,6 +47,7 @@ class LookbookPhotoCreateApiTests(LookbookApiTestCase):
         post = LookbookPost.objects.get(pk=response.data["id"])
         self.assertEqual(post.user, self.user)
         self.assertEqual(post.source_type, LookbookSourceType.PHOTO_UPLOAD.value)
+        self.assertEqual(post.gender, LookbookPost.Gender.WOMAN)
         self.assertEqual(post.status, LookbookStatus.REGISTERED.value)
         self.assertIsNone(post.calendar_entry_id)
         self.assertIsNotNone(post.wardrobe_upload_job_id)

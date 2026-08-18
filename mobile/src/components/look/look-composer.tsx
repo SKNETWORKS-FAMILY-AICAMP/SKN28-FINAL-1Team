@@ -18,6 +18,7 @@ import { ModalShell, SmartImage, useConfirm, useToast } from '@/components/ui';
 import { ContentMax, Editorial, ink, Type } from '@/constants/theme';
 import { useBreakpoint } from '@/hooks/use-breakpoint';
 import { goBack } from '@/lib/goBack';
+import type { LookGender } from '@/lib/discoveryLookApi';
 import { pickFromAlbum, pickFromCamera } from '@/lib/pickItemPhoto';
 import {
   calendarErrorMessage,
@@ -61,7 +62,7 @@ const LOOKBOOK_VISIBILITY_OPTIONS: { value: LookbookVisibility; label: string; d
  * - date 가 있으면 캘린더 기록 모드: 그 날짜에 저장하고, '룩북에도 올리기'를 고를 수 있다.
  * - date 가 없으면 룩북 모드: 내 룩북에 올리고, '캘린더에도 기록하기'를 켜면 날짜를 고른다.
  */
-export function LookComposer({ date }: { date?: string }) {
+export function LookComposer({ date, initialGender }: { date?: string; initialGender?: LookGender }) {
   const mode = date ? 'calendar' : 'lookbook';
   const existing = useCalendarEntry(date ?? '');
   const savedLooks = useSavedLooks();
@@ -88,6 +89,7 @@ export function LookComposer({ date }: { date?: string }) {
   );
   const [note, setNote] = useState(existing?.note ?? '');
   const [tags, setTags] = useState<string[]>(existing?.tags ?? []);
+  const [lookGender, setLookGender] = useState<LookGender | undefined>(initialGender);
   const [tagInputOpen, setTagInputOpen] = useState(false);
   const [customTag, setCustomTag] = useState('');
   const [shared, setShared] = useState(existing?.shared ?? false);
@@ -156,17 +158,38 @@ export function LookComposer({ date }: { date?: string }) {
   const tagOptions = useMemo(
     () => [
       ...ALLOWED_HASHTAGS,
-      ...savedLooks.flatMap((look) => look.tags ?? []),
+      ...savedLooks
+        .filter((look) => look.gender === lookGender)
+        .flatMap((look) => look.tags ?? []),
       ...tags.filter((tag) => !(ALLOWED_HASHTAGS as readonly string[]).includes(tag)),
     ].filter((tag, index, options) => options.indexOf(tag) === index),
-    [savedLooks, tags],
+    [lookGender, savedLooks, tags],
   );
+
+  const selectLookGender = (gender: LookGender) => {
+    const genderTags = new Set(
+      savedLooks
+        .filter((look) => look.gender === gender)
+        .flatMap((look) => look.tags ?? []),
+    );
+    setLookGender(gender);
+    setTags((current) =>
+      current.filter(
+        (tag) =>
+          (ALLOWED_HASHTAGS as readonly string[]).includes(tag) || genderTags.has(tag),
+      ),
+    );
+  };
 
   const toggleTag = (tag: string) => {
     setTags((prev) => (prev.includes(tag) ? prev.filter((t) => t !== tag) : [...prev, tag]));
   };
 
   const addCustomTag = () => {
+    if (!lookGender) {
+      toast('해시태그를 추가하기 전에 WOMAN 또는 MAN을 선택해 주세요.', { variant: 'error' });
+      return;
+    }
     const tag = customTag.trim().replace(/^#+/, '');
     if (!tag) return;
     if (/\s/.test(tag)) {
@@ -196,10 +219,12 @@ export function LookComposer({ date }: { date?: string }) {
    * - 룩북: 그리드에 보여 줄 그림이 있어야 룩이 성립한다. 사진이거나, 고른 옷의 첫 장이거나.
    *   일정만 적힌 룩은 카드가 빈칸으로 남아 목록에서 아무것도 가리키지 못한다.
    */
+  const hasRequiredGender =
+    mode === 'lookbook' || lookbookVisibility !== 'none' ? Boolean(lookGender) : true;
   const canSave =
     mode === 'lookbook'
-      ? Boolean(photo) || items.length > 0
-      : Boolean(photo) || items.length > 0 || note.trim().length > 0;
+      ? hasRequiredGender && (Boolean(photo) || items.length > 0)
+      : hasRequiredGender && (Boolean(photo) || items.length > 0 || note.trim().length > 0);
 
   /* 룩북에 올릴 실체가 있는가 — 룩 사진이거나 내 옷장에서 고른 옷.
      일정만 적은 날은 룩으로 성립하지 않아 캘린더에만 남는다. */
@@ -216,6 +241,7 @@ export function LookComposer({ date }: { date?: string }) {
   }) =>
     savedLookStore.addLook({
       image: photo,
+      gender: lookGender,
       comment: note.trim() || undefined,
       origin: 'closet',
       items,
@@ -495,6 +521,28 @@ export function LookComposer({ date }: { date?: string }) {
               maxLength={60}
               returnKeyType="done"
             />
+
+            <Text style={[styles.sectionTitle, styles.tagSection]}>Gender</Text>
+            <Text style={styles.genderHint}>
+              룩북에 올릴 룩은 WOMAN 또는 MAN을 선택해야 해요.
+            </Text>
+            <View style={styles.genderPill} accessibilityRole="tablist">
+              {(['WOMAN', 'MAN'] as const).map((gender) => {
+                const selected = lookGender === gender;
+                return (
+                  <Pressable
+                    key={gender}
+                    onPress={() => selectLookGender(gender)}
+                    style={[styles.genderOption, selected && styles.genderOptionSelected]}
+                    accessibilityRole="tab"
+                    accessibilityState={{ selected }}>
+                    <Text style={[styles.genderText, selected && styles.genderTextSelected]}>
+                      {gender}
+                    </Text>
+                  </Pressable>
+                );
+              })}
+            </View>
 
             {/* 해시태그 */}
             <Text style={[styles.sectionTitle, styles.tagSection]}>해시태그</Text>
@@ -856,6 +904,28 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
+  genderHint: { marginTop: 5, fontSize: Type.micro, color: Editorial.textCaption },
+  genderPill: {
+    alignSelf: 'flex-start',
+    marginTop: 10,
+    padding: 4,
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: Editorial.line,
+    flexDirection: 'row',
+    gap: 4,
+  },
+  genderOption: {
+    minWidth: 104,
+    height: 40,
+    paddingHorizontal: 18,
+    borderRadius: 999,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  genderOptionSelected: { backgroundColor: Editorial.selected },
+  genderText: { fontSize: Type.footnote, fontWeight: '600', color: INK },
+  genderTextSelected: { color: '#fff' },
 
   optionRow: {
     flexDirection: 'row',

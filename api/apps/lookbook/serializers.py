@@ -147,6 +147,12 @@ class LookbookWardrobeCreateSerializer(
         allow_empty=False,
         help_text="입은 옷. 룩 사진이 없으면 첫 아이템 이미지가 표지가 됩니다.",
     )
+    gender = serializers.ChoiceField(
+        choices=LookbookPost.Gender.choices,
+        required=False,
+        allow_null=True,
+        default=None,
+    )
     schedule = serializers.CharField(required=False, allow_blank=True, default="")
     tpo = StringListField(
         child=serializers.CharField(allow_blank=False),
@@ -186,6 +192,12 @@ class LookbookPhotoCreateSerializer(
     """룩 사진을 올려 만드는 룩북 (사진 속 아이템은 비동기 등록)."""
 
     image = serializers.ImageField()
+    gender = serializers.ChoiceField(
+        choices=LookbookPost.Gender.choices,
+        required=False,
+        allow_null=True,
+        default=None,
+    )
     wardrobe_item_ids = OptionalUUIDListField(
         child=serializers.UUIDField(),
         required=False,
@@ -267,6 +279,12 @@ class LookbookListQuerySerializer(serializers.Serializer):
     """목록 조회 쿼리. 피드는 계속 자라므로 기본 페이지 크기를 강제한다."""
 
     hashtag = serializers.CharField(required=False, allow_blank=True, default="")
+    gender = serializers.ChoiceField(
+        choices=LookbookPost.Gender.choices,
+        required=False,
+        allow_blank=True,
+        default="",
+    )
     status = serializers.ChoiceField(
         choices=[s.value for s in LookbookStatus],
         required=False,
@@ -323,6 +341,7 @@ class LookbookPostSerializer(serializers.ModelSerializer):
         fields = (
             "id",
             "source_type",
+            "gender",
             "image_s3_key",
             "image_url",
             "schedule",

@@ -108,7 +108,10 @@ export default function LookbookScreen() {
   const [gender, setGender] = useState<LookGenderFilter>('ALL');
   const [filterOpen, setFilterOpen] = useState(false);
   const [categoryEditOpen, setCategoryEditOpen] = useState(false);
-  const [tags, setTags] = useState<string[]>([...LOOKBOOK_FILTER_OPTIONS]);
+  const [manualTags, setManualTags] = useState<Record<'WOMAN' | 'MAN', string[]>>({
+    WOMAN: [...LOOKBOOK_FILTER_OPTIONS],
+    MAN: [...LOOKBOOK_FILTER_OPTIONS],
+  });
   const { toggle, isActive, selected, label, prune } = useMultiSelectFilter();
 
   /* 둘 다 서버에서 온다 — 내 룩북은 내 목록, 둘러보기는 공개 피드.
@@ -126,9 +129,18 @@ export default function LookbookScreen() {
   /* 서버에 저장된 사용자 해시태그도 기본 카테고리 뒤에 자동으로 붙인다.
      공개 룩뿐 아니라 내 룩의 태그도 합쳐, 비공개로 저장한 직후에도 필터에서 확인할 수 있다. */
   const availableTags = useMemo(() => {
-    const discovered = [...allLooks, ...savedLooks].flatMap((look) => look.tags ?? []);
-    return Array.from(new Set([...LOOKBOOK_FILTER_OPTIONS, ...tags, ...discovered]));
-  }, [allLooks, savedLooks, tags]);
+    const matchingLooks = [...allLooks, ...savedLooks].filter(
+      (look) => gender === 'ALL' || look.gender === gender,
+    );
+    const discovered = matchingLooks.flatMap((look) => look.tags ?? []);
+    const manuallyAdded =
+      gender === 'ALL' ? [...manualTags.WOMAN, ...manualTags.MAN] : manualTags[gender];
+    return Array.from(new Set([...LOOKBOOK_FILTER_OPTIONS, ...manuallyAdded, ...discovered]));
+  }, [allLooks, gender, manualTags, savedLooks]);
+
+  useEffect(() => {
+    prune(availableTags.slice(1));
+  }, [availableTags, prune]);
 
   /* 모드도 내 룩북 안 갈래도 URL 파라미터에서 파생한다(useState+useEffect 동기화는
      불필요한 리렌더를 만들어 지양). 갈래까지 URL 에 두는 이유는 상세에서 뒤로 왔을 때
@@ -176,9 +188,14 @@ export default function LookbookScreen() {
   const uploadedCards: CardData[] = useMemo(
     () =>
       savedLooks
-        .filter((l) => l.origin !== 'ai' && matchesQuery(l, query))
+        .filter(
+          (l) =>
+            l.origin !== 'ai' &&
+            (gender === 'ALL' || l.gender === gender) &&
+            matchesQuery(l, query),
+        )
         .map((l) => ({ id: l.id, uri: l.image, asset: l.asset, kind: 'saved' as const })),
-    [savedLooks, query],
+    [gender, savedLooks, query],
   );
 
   const selectGender = (next: LookGenderFilter) => {
@@ -229,9 +246,17 @@ export default function LookbookScreen() {
   }, [isMine, mineTab, selected, query, label]);
 
   const handleSaveTags = (next: string[]) => {
-    setTags(next);
+    if (gender === 'ALL') return;
+    setManualTags((current) => ({ ...current, [gender]: next }));
     /* 지운 태그가 선택에 남아 있으면 아무것도 안 걸리는 필터가 된다 — '전체'는 선택값이 아니라 뺀다. */
     prune(next.slice(1));
+  };
+  const startUpload = () => {
+    if (gender === 'ALL') {
+      setFilterOpen(true);
+      return;
+    }
+    router.push({ pathname: '/look-add', params: { gender } });
   };
   return (
     <View style={styles.container}>
@@ -280,11 +305,11 @@ export default function LookbookScreen() {
                   <Text style={styles.emptyBtnText}>둘러보며 마음에 드는 룩 찾기</Text>
                 </Pressable>
               ) : isMine ? (
-                <Pressable style={styles.emptyBtn} onPress={() => router.push('/look-add')}>
+                <Pressable style={styles.emptyBtn} onPress={startUpload}>
                   <Text style={styles.emptyBtnText}>첫 룩 올리기</Text>
                 </Pressable>
               ) : (
-                <Pressable style={styles.emptyBtn} onPress={() => router.push('/look-add')}>
+                <Pressable style={styles.emptyBtn} onPress={startUpload}>
                   <Text style={styles.emptyBtnText}>내 룩 올리기</Text>
                 </Pressable>
               )}
@@ -351,10 +376,14 @@ export default function LookbookScreen() {
           gender={gender}
           onClose={() => setFilterOpen(false)}
           onApply={selectGender}
-          onManageCategories={() => {
-            setFilterOpen(false);
-            setCategoryEditOpen(true);
-          }}
+          onManageCategories={
+            gender === 'ALL'
+              ? undefined
+              : () => {
+                  setFilterOpen(false);
+                  setCategoryEditOpen(true);
+                }
+          }
         />
         <CategoryEditSheet
           visible={categoryEditOpen}
@@ -368,7 +397,7 @@ export default function LookbookScreen() {
         {/* 올리기는 어느 갈래에서든 같은 자리에 있다 — 결과는 늘 내 룩북에 쌓인다. */}
         <Pressable
           style={[styles.addFab, { bottom: 12 }]}
-          onPress={() => router.push('/look-add')}
+          onPress={startUpload}
           accessibilityLabel="룩 올리기">
           <Icon name="plus" tintColor={INK} size={22} />
         </Pressable>

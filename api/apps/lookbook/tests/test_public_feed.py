@@ -15,10 +15,18 @@ from apps.lookbook.tests.base import LookbookApiTestCase
 
 
 class PublicFeedTests(LookbookApiTestCase):
-    def _make_post(self, *, user, is_public: bool, status: str) -> LookbookPost:
+    def _make_post(
+        self,
+        *,
+        user,
+        is_public: bool,
+        status: str,
+        gender: str | None = None,
+    ) -> LookbookPost:
         return LookbookPost.objects.create(
             user=user,
             source_type=LookbookSourceType.WARDROBE_SELECTED.value,
+            gender=gender,
             image_s3_key=f"lookbook/{user.pk}/{is_public}-{status}.jpg",
             is_public=is_public,
             status=status,
@@ -63,6 +71,29 @@ class PublicFeedTests(LookbookApiTestCase):
         )
 
         self.assertIn(str(mine.pk), self._feed_ids())
+
+    def test_public_feed_filters_by_gender(self):
+        woman = self._make_post(
+            user=self.other_user,
+            is_public=True,
+            status=LookbookStatus.COMPLETED.value,
+            gender=LookbookPost.Gender.WOMAN,
+        )
+        man = self._make_post(
+            user=self.other_user,
+            is_public=True,
+            status=LookbookStatus.COMPLETED.value,
+            gender=LookbookPost.Gender.MAN,
+        )
+
+        response = self.client.get(
+            reverse("lookbook:lookbook-public"),
+            {"gender": "WOMAN"},
+        )
+
+        ids = [row["id"] for row in response.json()["results"]]
+        self.assertIn(str(woman.pk), ids)
+        self.assertNotIn(str(man.pk), ids)
 
     def test_guests_can_read_the_feed(self):
         public = self._make_post(
