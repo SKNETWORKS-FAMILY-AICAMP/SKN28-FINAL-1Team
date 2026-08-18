@@ -215,6 +215,11 @@ export default function ClosetScreen() {
     reload();
   }, [revision, reload]);
 
+  /* 별은 서버 값이 원본이다 — 목록을 받을 때마다 화면 쪽 표시를 거기에 맞춘다. */
+  useEffect(() => {
+    favoritesStore.hydrate(apiItems);
+  }, [apiItems]);
+
   const myItems = useMemo<Card[]>(
     () =>
       apiItems.map((i) => ({

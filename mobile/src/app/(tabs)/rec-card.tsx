@@ -9,7 +9,7 @@ import { ContentMax, Editorial, Fonts, ink, Type } from '@/constants/theme';
 import { useBreakpoint } from '@/hooks/use-breakpoint';
 import { backTo, goBack } from '@/lib/goBack';
 import { mallLabel, openExternal } from '@/lib/mall';
-import { likesStore, useWishlist, wishKey, type WishItem } from '@/state/likes';
+import { likesStore, useWishlist, type WishItem } from '@/state/likes';
 import {
   deleteCardFeedback,
   FEEDBACK_REASONS,
@@ -22,6 +22,7 @@ import {
   type ApiCardFeedback,
   type ApiFeedbackReaction,
   type ApiRecommendationCard,
+  type ApiRecommendationItem,
   type ApiRenderJob,
 } from '@/lib/recommendApi';
 
@@ -70,10 +71,21 @@ export default function RecCard() {
   }>();
   const toast = useToast();
   const wishlist = useWishlist();
-  const wishedIds = useMemo(() => new Set(wishlist.map((w) => w.id)), [wishlist]);
+  /* 켜짐 판단은 카탈로그 식별자로 한다 — 이름은 카드마다 달라질 수 있다. */
+  const wishedSources = useMemo(
+    () => new Set(wishlist.map((w) => w.sourceId).filter((id): id is string => !!id)),
+    [wishlist],
+  );
 
-  const toggleWish = (wish: Omit<WishItem, 'id' | 'addedAt'>) => {
-    const added = likesStore.toggleWish(wish);
+  const toggleWish = async (
+    item: ApiRecommendationItem,
+    wish: Omit<WishItem, 'id' | 'addedAt'>,
+  ) => {
+    if (!resultId || !cardId) return;
+    const added = await likesStore.toggleRecWish(
+      { resultId, cardId, itemId: item.item_id, sourceId: item.source_id },
+      wish,
+    );
     toast(added ? '찜했어요 · 옷장 > 찜에서 볼 수 있어요' : '찜에서 뺐어요');
   };
 
@@ -244,7 +256,7 @@ export default function RecCard() {
               const fromWardrobe = item.source_type !== 'PRODUCT';
               const buyUrl = item.purchase_url;
               const wish = fromWardrobe ? null : toWish(item, image);
-              const wished = wish != null && wishedIds.has(wishKey(wish));
+              const wished = wish != null && wishedSources.has(item.source_id);
               return (
                 <View key={item.item_id} style={styles.item}>
                   <SmartImage uri={image} width={72} height={72} radius={12} />
@@ -257,7 +269,7 @@ export default function RecCard() {
                       {wish ? (
                         <Pressable
                           hitSlop={8}
-                          onPress={() => toggleWish(wish)}
+                          onPress={() => toggleWish(item, wish)}
                           accessibilityLabel={wished ? '찜에서 빼기' : '찜하기'}>
                           <Icon
                             name={wished ? 'heart.fill' : 'heart'}

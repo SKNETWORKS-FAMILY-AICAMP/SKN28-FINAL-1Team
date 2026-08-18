@@ -1,6 +1,8 @@
 import { useSyncExternalStore } from 'react';
 
 import { getClosetFavorites, saveClosetFavorites } from '@/lib/secureStore';
+import { patchWardrobeItem } from '@/lib/wardrobeApi';
+import { authStore } from '@/state/auth';
 
 /**
  * 옷장 즐겨찾기(별).
@@ -9,10 +11,12 @@ import { getClosetFavorites, saveClosetFavorites } from '@/lib/secureStore';
  * 그래서 아이콘도 가른다 — 상품은 하트, 옷장 옷은 별. 한 아이콘이 화면마다 다른 뜻이면
  * 누르기 전에 무슨 일이 생길지 알 수 없다.
  *
- * ⚠️ **서버에 자리가 없다.** `WardrobeItem` 에 favorite 류 필드가 없어(2026-08-18 확인)
- *    기기에만 남는다 → **추천에는 반영되지 않는다.** 추천을 고르는 것은 백엔드다.
- *    여기서 하는 일은 하나뿐이다: 내 옷장에서 자주 입는 옷을 위로 모아 보는 것.
- *    서버 필드가 생기면 toggle 을 API 호출로 바꾸고 이 파일의 저장부를 지운다.
+ * **서버가 들고 있다** — `WardrobeItem.is_favorite`, 아이템 PATCH 로 켜고 끈다.
+ * 이 스토어는 그 값을 화면 쪽에 얹어 두는 자리다: 목록을 다시 받아오기 전에도 별이 즉시 켜지고,
+ * 비로그인·데모 세션에서는 기기 저장(secureStore)만으로 동작한다.
+ *
+ * ⚠️ 즐겨찾기는 **추천에 반영되지 않는다.** 추천을 고르는 것은 백엔드이고, 지금은 이 값을
+ *    읽지 않는다. 하는 일은 하나다: 내 옷장에서 자주 입는 옷만 모아 보는 것.
  */
 
 let ids = new Set<string>();
@@ -60,13 +64,49 @@ export const favoritesStore = {
   getIds: () => snapshot,
   isFavorite: (id: string) => ids.has(id),
 
-  /** 켜면 true, 끄면 false 를 돌려준다 — 호출부가 토스트 문구를 고를 수 있게. */
+  /**
+   * 옷장 목록을 받아올 때마다 서버 값으로 맞춘다.
+   * 서버가 원본이라 목록에 없는 옷의 별은 지우지 않는다(공유 옷장 등 다른 목록에서 온 id).
+   */
+  hydrate(items: { id: string; is_favorite?: boolean }[]): void {
+    let changed = false;
+    for (const item of items) {
+      const on = !!item.is_favorite;
+      if (on && !ids.has(item.id)) {
+        ids.add(item.id);
+        changed = true;
+      } else if (!on && ids.has(item.id)) {
+        ids.delete(item.id);
+        changed = true;
+      }
+    }
+    if (changed) {
+      refresh();
+      void persist();
+    }
+  },
+
+  /**
+   * 켜면 true, 끄면 false 를 돌려준다 — 호출부가 토스트 문구를 고를 수 있게.
+   * 별은 누른 즉시 켜지고 서버에는 뒤따라 알린다. 서버가 거절하면 되돌린다 —
+   * 안 켜진 것이 켜진 척 남아 있으면 다음 목록 갱신에서 이유 없이 꺼진다.
+   */
   toggle(id: string): boolean {
     const on = !ids.has(id);
     if (on) ids.add(id);
     else ids.delete(id);
     refresh();
     void persist();
+
+    const { status, isDemo } = authStore.getState();
+    if (status === 'authed' && !isDemo) {
+      void patchWardrobeItem(id, { is_favorite: on }).catch(() => {
+        if (on) ids.delete(id);
+        else ids.add(id);
+        refresh();
+        void persist();
+      });
+    }
     return on;
   },
 

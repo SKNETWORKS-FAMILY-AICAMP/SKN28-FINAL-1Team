@@ -96,19 +96,25 @@ export function ChatConversation({
   const widthStyle = isPanel ? null : contentStyle(ContentMax.narrow);
 
   /* 카드 안에서 바로 담을 수 있게 — 상세로 들어가야만 담을 수 있으면 대화 흐름이 끊긴다.
-     추천 API 는 상품 id 를 안 주므로 이름으로 켜짐을 판단한다(찜 키도 브랜드+이름이다). */
+     켜짐 판단은 카탈로그 식별자(sourceId)로 한다. 이름은 카드마다 달라질 수 있다. */
   const wishlist = useWishlist();
-  const wishedNames = useMemo(() => new Set(wishlist.map((w) => w.name)), [wishlist]);
+  const wishedSources = useMemo(
+    () => new Set(wishlist.map((w) => w.sourceId).filter((id): id is string => !!id)),
+    [wishlist],
+  );
 
-  const toggleWish = (item: RecItem) => {
-    const added = likesStore.toggleWish({
-      name: item.name,
-      brand: '',
-      price: item.price != null ? item.price.toLocaleString('ko-KR') : '',
-      tone: 0.06,
-      image: item.imageUrl ?? undefined,
-      slot: item.category ?? undefined,
-    });
+  const toggleWish = async (item: RecItem, resultId: string, cardId: string) => {
+    const added = await likesStore.toggleRecWish(
+      { resultId, cardId, itemId: item.id, sourceId: item.sourceId },
+      {
+        name: item.name,
+        brand: '',
+        price: item.price != null ? item.price.toLocaleString('ko-KR') : '',
+        tone: 0.06,
+        image: item.imageUrl ?? undefined,
+        slot: item.category ?? undefined,
+      },
+    );
     toast(added ? '찜했어요 · 옷장 > 찜에서 볼 수 있어요' : '찜에서 뺐어요');
   };
 
@@ -538,14 +544,20 @@ export function ChatConversation({
                                   hitSlop={6}
                                   onPress={(e) => {
                                     e.stopPropagation();
-                                    toggleWish(item);
+                                    void toggleWish(item, m.resultId, m.cardId);
                                   }}
                                   accessibilityLabel={
-                                    wishedNames.has(item.name) ? '찜에서 빼기' : '찜하기'
+                                    wishedSources.has(item.sourceId ?? '') ? '찜에서 빼기' : '찜하기'
                                   }>
                                   <Icon
-                                    name={wishedNames.has(item.name) ? 'heart.fill' : 'heart'}
-                                    tintColor={wishedNames.has(item.name) ? Editorial.wine : '#FFFFFF'}
+                                    name={
+                                      wishedSources.has(item.sourceId ?? '') ? 'heart.fill' : 'heart'
+                                    }
+                                    tintColor={
+                                      wishedSources.has(item.sourceId ?? '')
+                                        ? Editorial.wine
+                                        : '#FFFFFF'
+                                    }
                                     size={12}
                                   />
                                 </Pressable>
