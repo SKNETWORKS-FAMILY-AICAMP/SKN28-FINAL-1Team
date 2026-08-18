@@ -343,22 +343,29 @@ export default function ClosetScreen() {
     () => uniqueWardrobeItemCount(mineSections),
     [mineSections],
   );
+  const myCardById = useMemo(
+    () => new Map(myItems.map((item) => [item.id, item])),
+    [myItems],
+  );
   const mineFilteredItems = useMemo(() => {
-    const byId = new Map(myItems.map((item) => [item.id, item]));
+    const seen = new Set<string>();
     return mineSections
       .flatMap((section) => section.items)
-      .map((item) => byId.get(item.id))
-      .filter((item): item is Card => !!item)
-      .filter((item, index, all) => all.findIndex((entry) => entry.id === item.id) === index);
-  }, [mineSections, myItems]);
+      .filter((item) => {
+        if (seen.has(item.id)) return false;
+        seen.add(item.id);
+        return true;
+      })
+      .map((item) => myCardById.get(item.id))
+      .filter((item): item is Card => !!item);
+  }, [mineSections, myCardById]);
 
-  const sharedSource = sharedSpace ? sharedItems : [];
   const sharedFilteredItems = useMemo(
     () =>
-      sharedSource.filter(
+      (sharedSpace ? sharedItems : []).filter(
         (i) => i.filterCategories.some((category) => matches(category)) && matchesQuery(i, query),
       ),
-    [sharedSource, matches, query],
+    [matches, query, sharedItems, sharedSpace],
   );
   const items = tab === 'mine' ? mineFilteredItems : sharedFilteredItems;
 
@@ -993,7 +1000,7 @@ export default function ClosetScreen() {
                     </View>
                     <View style={styles.grid}>
                       {section.items.map((item) => {
-                        const card = myItems.find((entry) => entry.id === item.id);
+                        const card = myCardById.get(item.id);
                         return card ? renderCard(card) : null;
                       })}
                     </View>
