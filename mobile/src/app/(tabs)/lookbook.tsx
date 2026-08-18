@@ -129,12 +129,12 @@ export default function LookbookScreen() {
   /* 서버에 저장된 사용자 해시태그도 기본 카테고리 뒤에 자동으로 붙인다.
      공개 룩뿐 아니라 내 룩의 태그도 합쳐, 비공개로 저장한 직후에도 필터에서 확인할 수 있다. */
   const availableTags = useMemo(() => {
+    if (gender === 'ALL') return [...LOOKBOOK_FILTER_OPTIONS];
     const matchingLooks = [...allLooks, ...savedLooks].filter(
-      (look) => gender === 'ALL' || look.gender === gender,
+      (look) => look.gender === gender,
     );
     const discovered = matchingLooks.flatMap((look) => look.tags ?? []);
-    const manuallyAdded =
-      gender === 'ALL' ? [...manualTags.WOMAN, ...manualTags.MAN] : manualTags[gender];
+    const manuallyAdded = manualTags[gender];
     return Array.from(new Set([...LOOKBOOK_FILTER_OPTIONS, ...manuallyAdded, ...discovered]));
   }, [allLooks, gender, manualTags, savedLooks]);
 
@@ -253,7 +253,7 @@ export default function LookbookScreen() {
   };
   const startUpload = () => {
     if (gender === 'ALL') {
-      setFilterOpen(true);
+      router.push('/look-add');
       return;
     }
     router.push({ pathname: '/look-add', params: { gender } });
