@@ -176,7 +176,9 @@ function toLook(dto: LookbookPostDto): SavedLook {
     reason: overlay.reason,
     /* 오버레이가 비었으면(다른 기기·재시작) 담긴 옷으로 짐작한다 — 옷이 걸려 있으면
        내가 고른 룩, 사진뿐이면 추천 룩 쪽에 가깝다. 정확한 구분은 서버 필드가 필요하다. */
-    origin: overlay.origin ?? (items.length > 0 ? 'closet' : 'ai'),
+    origin:
+      overlay.origin ??
+      (dto.source_type === 'PHOTO_UPLOAD' || items.length > 0 ? 'closet' : 'ai'),
     items: items.length ? items : undefined,
     note: dto.schedule || undefined,
     entryDate: dto.calendar?.date ?? overlay.entryDate,

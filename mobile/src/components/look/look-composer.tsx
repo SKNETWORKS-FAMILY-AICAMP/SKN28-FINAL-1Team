@@ -1,5 +1,5 @@
 import { router } from 'expo-router';
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
   Pressable,
@@ -29,7 +29,7 @@ import {
   type EntryItem,
 } from '@/state/calendar';
 import { ALLOWED_HASHTAGS } from '@/state/lookbook';
-import { savedLookStore } from '@/state/saved';
+import { savedLookStore, useSavedLooks } from '@/state/saved';
 
 /** 'YYYY-MM-DD' 가 든 달의 첫날·끝날. 캘린더 스토어는 기간 단위로만 받아 온다. */
 function monthBounds(dateKey: string): [string, string] {
@@ -44,6 +44,13 @@ const PAD = 20;
 const CHIP = 76;
 const DESKTOP_CHIP = 68;
 
+type LookbookVisibility = 'none' | 'public' | 'private';
+const LOOKBOOK_VISIBILITY_OPTIONS: { value: LookbookVisibility; label: string; description: string }[] = [
+  { value: 'none', label: '공개 안 함', description: '캘린더에만 기록해요' },
+  { value: 'public', label: '전체 공개', description: '둘러보기와 내 룩북에 보여요' },
+  { value: 'private', label: '나만 보기', description: '내 룩북에서만 보여요' },
+];
+
 /**
  * 룩 하나를 짓는 폼 — 룩북과 캘린더가 같은 화면을 쓴다.
  *
@@ -57,6 +64,11 @@ const DESKTOP_CHIP = 68;
 export function LookComposer({ date }: { date?: string }) {
   const mode = date ? 'calendar' : 'lookbook';
   const existing = useCalendarEntry(date ?? '');
+  const savedLooks = useSavedLooks();
+
+  useEffect(() => {
+    void savedLookStore.load();
+  }, []);
 
   const { contentStyle } = useBreakpoint();
   const toast = useToast();
@@ -90,6 +102,8 @@ export function LookComposer({ date }: { date?: string }) {
      이미 이어져 있는 기록(existing.lookId)은 토글이 아니라 사실 표시로 그린다. */
   const alreadyLinked = Boolean(existing?.lookId && savedLookStore.getLook(existing.lookId));
   const [linkOn, setLinkOn] = useState(false);
+  const [lookbookVisibility, setLookbookVisibility] = useState<LookbookVisibility>('none');
+  const [visibilityOpen, setVisibilityOpen] = useState(false);
   const [linkDate, setLinkDate] = useState(todayKey());
   const [dateOpen, setDateOpen] = useState(false);
 
@@ -142,9 +156,10 @@ export function LookComposer({ date }: { date?: string }) {
   const tagOptions = useMemo(
     () => [
       ...ALLOWED_HASHTAGS,
+      ...savedLooks.flatMap((look) => look.tags ?? []),
       ...tags.filter((tag) => !(ALLOWED_HASHTAGS as readonly string[]).includes(tag)),
-    ],
-    [tags],
+    ].filter((tag, index, options) => options.indexOf(tag) === index),
+    [savedLooks, tags],
   );
 
   const toggleTag = (tag: string) => {
@@ -193,7 +208,12 @@ export function LookComposer({ date }: { date?: string }) {
   /* 룩 사진 자리에는 **사진만** 넘긴다. 옷만 고른 룩의 표지는 서버가 첫 아이템으로 정한다
      (createLookbookFromWardrobe). 여기서 아이템 사진을 룩 사진인 척 넘기면 그 사진이
      새 착장으로 다시 분석돼, 같은 옷이 다른 옷 한 벌로 옷장에 또 등록된다. */
-  const makeLook = (opts?: { entryDate?: string; createCalendar?: boolean; overwrite?: boolean }) =>
+  const makeLook = (opts?: {
+    entryDate?: string;
+    createCalendar?: boolean;
+    overwrite?: boolean;
+    isPublic?: boolean;
+  }) =>
     savedLookStore.addLook({
       image: photo,
       comment: note.trim() || undefined,
@@ -203,7 +223,7 @@ export function LookComposer({ date }: { date?: string }) {
       entryDate: opts?.entryDate,
       createCalendar: opts?.createCalendar,
       overwriteCalendar: opts?.overwrite,
-      isPublic,
+      isPublic: opts?.isPublic ?? isPublic,
       tags,
     });
 
@@ -220,7 +240,8 @@ export function LookComposer({ date }: { date?: string }) {
   const runSave = async () => {
 
     if (mode === 'calendar' && date) {
-      const linkToLookbook = linkOn && !alreadyLinked;
+      const linkToLookbook = lookbookVisibility !== 'none' && canPostLook && !alreadyLinked;
+      const publishToEveryone = lookbookVisibility === 'public';
 
       /* '룩북에도 올리기' — 룩과 캘린더 기록을 서버가 **한 번의 등록으로** 함께 만든다
          (calendar_date). 룩북 모드에서 '캘린더에도 기록'을 켠 경우와 같은 길이다.
@@ -237,7 +258,11 @@ export function LookComposer({ date }: { date?: string }) {
 
       if (linkToLookbook && canPostLook && !prev) {
         try {
-          const look = await makeLook({ entryDate: date, createCalendar: true });
+          const look = await makeLook({
+            entryDate: date,
+            createCalendar: true,
+            isPublic: publishToEveryone,
+          });
           const entry = await calendarStore.adoptLinkedEntry({
             date,
             items,
@@ -264,7 +289,7 @@ export function LookComposer({ date }: { date?: string }) {
       let lookId: string | undefined;
       if (linkToLookbook) {
         try {
-          lookId = (await makeLook({ entryDate: date })).id;
+          lookId = (await makeLook({ entryDate: date, isPublic: publishToEveryone })).id;
         } catch (error) {
           toast(`룩북에 올리지 못했어요 — ${calendarErrorMessage(error)}`, { variant: 'error' });
           return;
@@ -533,24 +558,63 @@ export function LookComposer({ date }: { date?: string }) {
               <>
                 <Pressable
                   style={[styles.optionRow, styles.firstOption]}
-                  onPress={mode === 'lookbook' ? toggleCalendarLink : () => setLinkOn((v) => !v)}>
+                  onPress={
+                    mode === 'lookbook'
+                      ? toggleCalendarLink
+                      : () => setVisibilityOpen((open) => !open)
+                  }>
                   <View style={styles.optionIcon}>
                     <Icon name={mode === 'calendar' ? 'book' : 'calendar'} tintColor={INK} size={17} />
                   </View>
                   <View style={styles.optionBody}>
                     <Text style={styles.optionTitle}>
-                      {mode === 'calendar' ? '룩북에도 올리기' : '캘린더에도 기록하기'}
+                      {mode === 'calendar' ? '공개 여부' : '캘린더에도 기록하기'}
                     </Text>
                     <Text style={styles.optionDesc}>
                       {mode === 'calendar'
-                        ? '내 룩북에 같은 룩으로 남겨요'
+                        ? LOOKBOOK_VISIBILITY_OPTIONS.find(
+                            (option) => option.value === lookbookVisibility,
+                          )?.label
                         : '어느 날 입은 착장인지 남겨요'}
                     </Text>
                   </View>
-                  <View style={[styles.switch, linkOn && styles.switchOn]}>
-                    <View style={[styles.knob, linkOn && styles.knobOn]} />
-                  </View>
+                  {mode === 'calendar' ? (
+                    <Icon
+                      name={visibilityOpen ? 'chevron.up' : 'chevron.down'}
+                      tintColor={ink(0.45)}
+                      size={16}
+                    />
+                  ) : (
+                    <View style={[styles.switch, linkOn && styles.switchOn]}>
+                      <View style={[styles.knob, linkOn && styles.knobOn]} />
+                    </View>
+                  )}
                 </Pressable>
+
+                {mode === 'calendar' && visibilityOpen ? (
+                  <View style={styles.visibilityMenu}>
+                    {LOOKBOOK_VISIBILITY_OPTIONS.map((option) => {
+                      const selected = option.value === lookbookVisibility;
+                      return (
+                        <Pressable
+                          key={option.value}
+                          style={[styles.visibilityOption, selected && styles.visibilityOptionSelected]}
+                          onPress={() => {
+                            setLookbookVisibility(option.value);
+                            setVisibilityOpen(false);
+                          }}>
+                          <View style={styles.optionBody}>
+                            <Text style={[styles.optionTitle, selected && styles.visibilityTextSelected]}>
+                              {option.label}
+                            </Text>
+                            <Text style={styles.optionDesc}>{option.description}</Text>
+                          </View>
+                          {selected ? <Icon name="checkmark" tintColor="#fff" size={15} /> : null}
+                        </Pressable>
+                      );
+                    })}
+                  </View>
+                ) : null}
 
                 {/* 고른 날짜는 폼에 남겨 둔다 — 토글을 켤 때 시트가 바로 뜨지만, 거기서 그냥 닫으면
                     기본값(오늘)이 조용히 저장된다. 어느 날에 저장되는지는 늘 보여야 하고,
@@ -832,6 +896,26 @@ const styles = StyleSheet.create({
   switchOn: { backgroundColor: Editorial.selected, borderColor: Editorial.selected },
   knob: { width: 20, height: 20, borderRadius: 10, backgroundColor: ink(0.2) },
   knobOn: { backgroundColor: '#fff', alignSelf: 'flex-end' },
+  visibilityMenu: {
+    marginTop: 8,
+    padding: 6,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: Editorial.line,
+    backgroundColor: '#fff',
+    gap: 4,
+  },
+  visibilityOption: {
+    minHeight: 52,
+    paddingHorizontal: 14,
+    paddingVertical: 9,
+    borderRadius: 12,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+  },
+  visibilityOptionSelected: { backgroundColor: Editorial.selected },
+  visibilityTextSelected: { color: '#fff' },
 
   /* 토글 바로 아래 붙는 날짜 줄 — 토글의 딸린 항목이라 간격을 좁게 둔다 */
   dateRow: {
