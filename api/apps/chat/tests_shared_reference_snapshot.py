@@ -24,7 +24,10 @@ User = get_user_model()
 class SharedReferenceSnapshotApiTests(APITestCase):
     def setUp(self) -> None:
         self.user = User.objects.create_user(username="reference-member")
-        self.friend = User.objects.create_user(username="reference-friend")
+        self.friend = User.objects.create_user(
+            username="reference-friend",
+            nickname="하영",
+        )
         self.identity = identity_service.get_or_create_member_identity(self.user)
         self.session = session_service.create_session(
             identity=self.identity,
@@ -106,7 +109,71 @@ class SharedReferenceSnapshotApiTests(APITestCase):
         )
         self.assertEqual(snapshot["item"]["category_large"], "아우터")
         self.assertEqual(snapshot["item"]["style"], ["미니멀"])
+        self.assertEqual(snapshot["owner_name"], "하영")
+        self.assertEqual(snapshot["room_name"], "친구 옷장")
         self.assertNotIn("vector", snapshot)
+
+    @patch(
+        "apps.chat.serializers.wardrobe_storage.presigned_get",
+        return_value="https://images.example/reference-jacket.webp",
+    )
+    @patch("apps.chat.views.ChatEventStore.publish")
+    @patch("apps.chat.views.chat_queue.enqueue")
+    def test_message_history_returns_safe_reference_summary(
+        self,
+        _enqueue_mock,
+        _publish_mock,
+        _presigned_get_mock,
+    ) -> None:
+        created = self.client.post(
+            self.url,
+            self._payload("shared-reference-history"),
+            format="json",
+        )
+        self.assertEqual(created.status_code, status.HTTP_202_ACCEPTED)
+        shared_item_id = str(self.shared_item.pk)
+        self.shared_item.delete()
+
+        response = self.client.get(self.url)
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        summary = response.data[0]["reference_summary"]
+        self.assertEqual(
+            summary,
+            {
+                "schema_version": "1.0",
+                "type": "SHARED_WARDROBE_ITEM",
+                "shared_item_id": shared_item_id,
+                "item_name": "친구의 검정 재킷",
+                "category_large": "아우터",
+                "owner_name": "하영",
+                "room_name": "친구 옷장",
+                "image_url": "https://images.example/reference-jacket.webp",
+            },
+        )
+        self.assertNotIn("qdrant_collection", summary)
+        self.assertNotIn("qdrant_point_id", summary)
+        self.assertNotIn("image_s3_key", summary)
+        self.assertNotIn("wardrobe_item_id", summary)
+
+    @patch("apps.chat.views.ChatEventStore.publish")
+    @patch("apps.chat.views.chat_queue.enqueue")
+    def test_message_without_reference_returns_null_summary(
+        self,
+        _enqueue_mock,
+        _publish_mock,
+    ) -> None:
+        response = self.client.post(
+            self.url,
+            {
+                "content": "일반 추천",
+                "client_message_id": "without-shared-reference",
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_202_ACCEPTED)
+        self.assertIsNone(response.data["message"]["reference_summary"])
 
     @patch("apps.chat.views.ChatEventStore.publish")
     @patch("apps.chat.views.chat_queue.enqueue")

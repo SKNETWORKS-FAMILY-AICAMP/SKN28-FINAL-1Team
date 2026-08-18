@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import re
+
 from django.conf import settings
 from django.utils import timezone
 
@@ -10,6 +12,7 @@ from apps.wardrobe.models import SharedWardrobeItem, SharedWardrobeMember
 
 REFERENCE_SCHEMA_VERSION = "1.0"
 REFERENCE_TYPE_SHARED_WARDROBE_ITEM = "SHARED_WARDROBE_ITEM"
+AUTO_USERNAME_RE = re.compile(r"^(email|naver|kakao|google|apple)_")
 
 
 class SharedReferenceError(RuntimeError):
@@ -26,6 +29,23 @@ class SharedReferenceForbidden(SharedReferenceError):
 
 class SharedReferenceUnavailable(SharedReferenceError):
     code = "REFERENCE_ITEM_NOT_READY"
+
+
+def _owner_display_name(user) -> str:
+    """공유 옷 등록자의 실행 시점 표시명을 내부 로그인 ID 없이 고정한다."""
+
+    if user is None:
+        return "멤버"
+    nickname = (user.nickname or "").strip()
+    if nickname and not AUTO_USERNAME_RE.match(nickname):
+        return nickname
+    email = (user.email or "").strip()
+    if email:
+        return email.split("@", 1)[0]
+    username = (user.username or "").strip()
+    if username and not AUTO_USERNAME_RE.match(username):
+        return username
+    return "멤버"
 
 
 def build_reference_snapshot(
@@ -53,7 +73,11 @@ def build_reference_snapshot(
 
     shared_item_id = reference.get("shared_item_id")
     shared_item = (
-        SharedWardrobeItem.objects.select_related("room", "wardrobe_item")
+        SharedWardrobeItem.objects.select_related(
+            "room",
+            "wardrobe_item",
+            "registered_by",
+        )
         .filter(pk=shared_item_id)
         .first()
     )
@@ -86,6 +110,8 @@ def build_reference_snapshot(
         "qdrant_point_id": str(item.pk),
         "embedding_version": item.embedding_version,
         "image_s3_key": item.s3_key,
+        "owner_name": _owner_display_name(shared_item.registered_by),
+        "room_name": shared_item.room.title,
         "captured_at": timezone.now().isoformat(),
         "item": {
             "item_name": item.item_name,

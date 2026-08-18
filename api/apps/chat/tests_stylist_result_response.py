@@ -91,6 +91,18 @@ class StylistResultResponseTests(APITestCase):
             composition_fingerprint="a" * 64,
             total_product_price=59_000,
             validation_reasons=[{"code": "VALID", "message": "검증 통과"}],
+            reference_match={
+                "schema_version": "1.0",
+                "match_type": "VISUAL_SIMILAR",
+                "selection_role": "PINNED_REFERENCE_ANCHOR",
+                "source_type": "PRODUCT",
+                "source_id": "product-1",
+                "source_collection": "products-v1",
+                "source_point_id": "point-1",
+                "template_item_point_id": "template-1",
+                "score": 0.91,
+                "reasons": ["공유 옷 이미지와 유사함"],
+            },
             warnings=[],
         )
         OutfitCompositionItem.objects.create(
@@ -129,6 +141,14 @@ class StylistResultResponseTests(APITestCase):
         self.assertEqual(str(rows[0]["result_id"]), str(result.pk))
         self.assertEqual(str(rows[0]["card"]["card_id"]), str(card.pk))
         self.assertEqual(rows[0]["card"]["items"][0]["display_name"], "크루넥 니트")
+        self.assertEqual(
+            rows[0]["card"]["reference_match"]["match_type"],
+            "VISUAL_SIMILAR",
+        )
+        self.assertEqual(
+            rows[0]["card"]["reference_match"]["source_id"],
+            "product-1",
+        )
         self.assertEqual(rows[0]["card"]["image"]["status"], "QUEUED")
         self.assertEqual(str(rows[0]["card"]["image"]["job_id"]), str(job.pk))
         self.assertTrue(rows[0]["card"]["is_saved"])
