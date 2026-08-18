@@ -64,7 +64,10 @@ export default function OutfitReviewScreen() {
   };
 
   return (
-    <ModalShell maxWidth={ContentMax.narrow}>
+    /* 같은 착장 분석 흐름의 기록 상세·목록이 ContentMax.card 를 쓴다. 여기만 narrow(720)
+       였어서 데스크톱에서 글줄이 160px 더 길게 흘렀다 — 같은 사진·같은 평가문인데 화면마다
+       다르게 읽힌다. 사진이 주인공인 카드라는 점에서도 card(560)가 맞다. */
+    <ModalShell maxWidth={ContentMax.card}>
       <View style={styles.container}>
         <SafeAreaView edges={['top']}>
           <View style={styles.header}>

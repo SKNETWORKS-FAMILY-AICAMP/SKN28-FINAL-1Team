@@ -307,13 +307,6 @@ export default function Calendar() {
               </View>
               <Text style={styles.emptyText}>이 날은 기록된 착장이 없어요</Text>
 
-              {/* 지난 날은 채워 넣는 게 먼저고, 오늘·앞으로는 무엇을 입을지가 먼저다.
-                  같은 두 버튼이라도 순서만 바꾸면 그 날짜에 맞는 행동이 앞에 온다.
-                  지난 날은 자주 입은 옷으로 바로 채울 수 있게 지름길을 먼저 준다. */}
-              {isPast && showFrequent ? (
-                <FrequentShortcut items={frequentItems} onPick={fillWith} />
-              ) : null}
-
               {/* 이 카드가 뜬 이유는 '이 날 기록이 없어서'다. 그러니 지난 날이든 앞날이든
                   기록하기가 먼저고, 추천은 그다음이다. */}
               <View style={styles.actions}>
@@ -326,6 +319,12 @@ export default function Calendar() {
                   <Text style={styles.secondaryText}>코디 추천받기</Text>
                 </Pressable>
               </View>
+
+              {/* 지름길은 두 버튼 아래에 둔다 — 이 카드가 먼저 시키는 일(기록·추천)을
+                  밀어내지 않으면서, 지난 날을 채울 때는 바로 손이 닿는 자리다. */}
+              {isPast && showFrequent ? (
+                <FrequentShortcut items={frequentItems} onPick={fillWith} />
+              ) : null}
             </View>
           )}
         </View>
