@@ -677,6 +677,7 @@ export function ChatConversation({
           />
           <Pressable
             style={[styles.sendBtn, text.trim().length > 0 && styles.sendBtnOn]}
+            accessibilityLabel="보내기"
             onPress={send}>
             <Icon
               name="arrow.up"
