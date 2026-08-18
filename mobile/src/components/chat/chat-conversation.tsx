@@ -1,3 +1,4 @@
+import { router } from 'expo-router';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   Animated,
@@ -14,14 +15,14 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { StylistCardGroup } from '@/components/chat/stylist-cards';
 import { StylistPicker } from '@/components/chat/stylist-picker';
+import { ClosetItemSelectSheet } from '@/components/chat/closet-item-select-sheet';
 import { Icon } from '@/components/icon';
 import { SmartImage, useToast } from '@/components/ui';
 import { ContentMax, Editorial, Fonts, ink, Type } from '@/constants/theme';
 import { useBreakpoint } from '@/hooks/use-breakpoint';
-import { ClosetItemSelectSheet } from './closet-item-select-sheet';
 import { pickOutfitPhoto } from '@/lib/pickItemPhoto';
 import type { StylistId } from '@/lib/stylistApi';
-import { chatStore, useChatSession, type ChatMessage, type RecItem } from '@/state/chat';
+import { chatStore, useChatSession, type ChatMessage } from '@/state/chat';
 import { stylistStore } from '@/state/stylist';
 
 const INK = Editorial.ink;
@@ -105,8 +106,9 @@ export function ChatConversation({
   const messages = session?.timeline ?? PANEL_SEED;
   /* 타이핑 표시는 답변을 기다리는 '지금'만의 상태라 저장하지 않는다 (state/chat.ts 참고). */
   const [typing, setTyping] = useState(false);
+  const [loadingOlder, setLoadingOlder] = useState(false);
   const toast = useToast();
-  
+
   const [closetSelectOpen, setClosetSelectOpen] = useState(false);
 
   /**
@@ -147,6 +149,35 @@ export function ChatConversation({
   }, [activeId, toast]);
 
   /**
+   * 이전 대화 더 보기.
+   *
+   * 대화를 열 때는 최근 50개만 받는다(state/chat.ts 의 loadMessages). 스크롤이 위에 닿을
+   * 때 자동으로 받아오는 방법도 있지만, 붙인 만큼 화면이 밀려 읽던 자리를 잃는다.
+   * 눌러서 받으면 사용자가 그 이동을 예상한다.
+   */
+  const loadOlder = async () => {
+    if (!activeId || loadingOlder) return;
+    setLoadingOlder(true);
+    try {
+      await chatStore.loadOlderMessages(activeId);
+    } catch (e) {
+      toast(e instanceof Error ? e.message : '이전 대화를 불러오지 못했어요', {
+        variant: 'error',
+      });
+    } finally {
+      setLoadingOlder(false);
+    }
+  };
+
+  /* 패널은 대화 없이 열리므로 첫 입력에서 하나 만든다. 옷장을 보며 묻는 자리라 옷장 기반. */
+  const ensureSession = async (): Promise<string> => {
+    if (activeId) return activeId;
+    const created = await chatStore.createSession('closet');
+    setPanelSessionId(created.id);
+    return created.id;
+  };
+
+  /**
    * 질문 보내기.
    *
    * 답변은 서버가 바로 주지 않는다 — 질문이 접수되면 실행(run)이 하나 생기고, 별도 워커가
@@ -163,16 +194,9 @@ export function ChatConversation({
     setTyping(true);
     scrollToEnd();
     try {
-      /* 패널은 대화 없이 열리므로 첫 질문에서 하나 만든다. 옷장을 보며 묻는 자리라 옷장 기반. */
-      let id = activeId;
-      if (!id) {
-        const created = await chatStore.createSession('closet');
-        id = created.id;
-        setPanelSessionId(id);
-      }
       /* 실패해도 토스트를 띄우지 않는다 — 사유는 대화 안에 한 줄로 남고, 토스트까지 겹치면
          같은 말을 두 번 하면서 정작 사라지는 쪽(토스트)만 눈에 띈다. */
-      await chatStore.sendText(id, t);
+      await chatStore.sendText(await ensureSession(), t);
     } catch (e) {
       setText(t);
       toast(e instanceof Error ? e.message : '메시지를 보내지 못했어요', { variant: 'error' });
@@ -203,13 +227,7 @@ export function ChatConversation({
     setTyping(true);
     scrollToEnd();
     try {
-      let id = activeId;
-      if (!id) {
-        const created = await chatStore.createSession('closet');
-        id = created.id;
-        setPanelSessionId(id);
-      }
-      await chatStore.attachPhoto(id, uri);
+      await chatStore.attachPhoto(await ensureSession(), uri);
     } catch (e) {
       toast(e instanceof Error ? e.message : '사진을 올리지 못했어요', { variant: 'error' });
     } finally {
@@ -250,34 +268,23 @@ export function ChatConversation({
   const handleSelectClosetItems = async (
     selectedItems: { id: string; image: string; name: string }[],
   ) => {
-    if (selectedItems.length === 0) return;
+    if (selectedItems.length === 0 || typing) return;
 
     setTyping(true);
     try {
       const itemNames = selectedItems.map((item) => item.name).join(', ');
-      let targetId = activeId;
-      if (!targetId) {
-        const created = await chatStore.createSession('closet');
-        targetId = created.id;
-        setPanelSessionId(targetId);
-      }
-      await chatStore.sendText(targetId, `선택한 옷(${itemNames})을 포함해 코디를 추천해줘.`);
+      await chatStore.sendText(
+        await ensureSession(),
+        `선택한 옷(${itemNames})을 포함해 코디를 추천해줘.`,
+      );
+    } catch (e) {
+      toast(e instanceof Error ? e.message : '선택한 옷으로 추천을 요청하지 못했어요', {
+        variant: 'error',
+      });
     } finally {
       setTyping(false);
       scrollToEnd();
     }
-  };
-
-  /**
-   * 대화가 없으면 하나 만든다 — 패널은 대화 없이 열리는데, 스타일리스트를 골랐다는 건
-   * 이미 '이 사람들에게 추천받겠다'는 뜻이라 물어볼 것이 남아 있지 않다.
-   * (첫 질문·첫 사진에서 만드는 것과 같은 이유·같은 모드다.)
-   */
-  const ensureSession = async (): Promise<string> => {
-    if (activeId) return activeId;
-    const created = await chatStore.createSession('closet');
-    setPanelSessionId(created.id);
-    return created.id;
   };
 
   /* 모드 저장이 실패하면 이전 모드와 선택을 그대로 둔다(설계서 19장).
@@ -307,10 +314,29 @@ export function ChatConversation({
   const selectCard = async (runId: string, personaId: StylistId) => {
     if (!activeId) return;
     try {
-      await chatStore.saveStylistCard(activeId, runId, personaId);
-      toast('내 룩에 저장했어요', { variant: 'success' });
+      const result = await chatStore.saveStylistCard(activeId, runId, personaId);
+      toast(
+        result.renderStarted
+          ? '내 룩에 저장했고 코디 이미지를 만들고 있어요'
+          : '내 룩에는 저장했지만 이미지는 만들지 못했어요',
+        { variant: result.renderStarted ? 'success' : 'error' },
+      );
     } catch (e) {
       toast(e instanceof Error ? e.message : '저장하지 못했어요', { variant: 'error' });
+    }
+  };
+
+  const retryCardRender = async (runId: string, personaId: StylistId) => {
+    if (!activeId) return;
+    try {
+      const started = await chatStore.retryStylistRender(activeId, runId, personaId);
+      if (!started) {
+        toast('이미지 작업을 접수하지 못했어요', { variant: 'error' });
+      }
+    } catch (e) {
+      toast(e instanceof Error ? e.message : '이미지 작업을 접수하지 못했어요', {
+        variant: 'error',
+      });
     }
   };
 
@@ -368,7 +394,15 @@ export function ChatConversation({
         style={styles.flex}
         contentContainerStyle={[styles.messages, widthStyle]}
         keyboardShouldPersistTaps="handled">
-        {messages.map((m: any) => {
+        {session?.olderCursor ? (
+          <Pressable style={styles.older} onPress={loadOlder} disabled={loadingOlder}>
+            <Text style={styles.olderText}>
+              {loadingOlder ? '불러오는 중…' : '이전 대화 더 보기'}
+            </Text>
+          </Pressable>
+        ) : null}
+
+        {messages.map((m) => {
           if (m.role === 'user') {
             return (
               <View key={m.id} style={styles.userRow}>
@@ -390,10 +424,12 @@ export function ChatConversation({
                   <View style={styles.attachedItemsContainer}>
                     <Text style={styles.attachedTitle}>내가 선택한 옷들로 코디 추천해줘 :</Text>
                     <View style={styles.attachedGrid}>
-                      {m.items?.map((it: any) => (
+                      {m.items.map((it) => (
                         <View key={it.id} style={styles.attachedCard}>
                           <SmartImage uri={it.image} width="100%" height={52} contentFit="cover" />
-                          <Text style={styles.attachedCardName} numberOfLines={1}>{it.name}</Text>
+                          <Text style={styles.attachedCardName} numberOfLines={1}>
+                            {it.name}
+                          </Text>
                         </View>
                       ))}
                     </View>
@@ -441,6 +477,7 @@ export function ChatConversation({
                 onSelect={(personaId) => selectCard(m.runId, personaId)}
                 onAlternative={(personaId) => alternativeCard(m.runId, personaId)}
                 onRetry={(personaId) => retryCard(m.runId, personaId)}
+                onRenderRetry={(personaId) => retryCardRender(m.runId, personaId)}
               />
             );
           }
@@ -451,14 +488,21 @@ export function ChatConversation({
               </View>
               <View style={styles.aiCol}>
                 {m.kind === 'rec' ? (
-                  /* 카드를 눌러 들어갈 자리는 아직 없다 — /look-detail 은 목업이라 여기서
-                     연결하면 방금 받은 추천과 상관없는 룩이 열린다. 카드 안에서 다 보여준다. */
-                  <View style={styles.recCard}>
+                  /* 눌러서 상세로 — 구매 링크·선택 근거·코디 이미지·피드백은 그쪽에 있다.
+                     (/look-detail 은 목업이라 쓰지 않는다. 방금 받은 추천과 상관없는 룩이 열린다.) */
+                  <Pressable
+                    style={styles.recCard}
+                    onPress={() =>
+                      router.push({
+                        pathname: '/rec-card',
+                        params: { resultId: m.resultId, cardId: m.cardId },
+                      })
+                    }>
                     <View style={styles.recBody}>
                       <Text style={styles.recTitle}>{m.title}</Text>
                       {/* 아이템 한 줄 — 사진이 있는 것만 그리고, 없으면 이름으로 대신한다 */}
                       <View style={styles.recItems}>
-                        {m.items.map((item: RecItem) => (
+                        {m.items.map((item) => (
                           <View key={item.id} style={styles.recItem}>
                             <SmartImage
                               uri={item.imageUrl}
@@ -488,19 +532,24 @@ export function ChatConversation({
                         </Text>
                       ) : null}
 
-                      {m.warnings.map((w: string) => (
+                      {m.warnings.map((w) => (
                         <Text key={w} style={styles.recWarning}>
                           {w}
                         </Text>
                       ))}
+
+                      <View style={styles.recCta}>
+                        <Text style={styles.recCtaText}>코디 자세히 보기</Text>
+                        <Icon name="chevron.right" tintColor={INK} size={12} />
+                      </View>
                     </View>
-                  </View>
+                  </Pressable>
                 ) : m.kind === 'mood' ? (
                   <View style={styles.moodCard}>
                     <Text style={styles.moodLead}>사진에서 이런 무드가 보여요</Text>
                     {m.summary ? <Text style={styles.moodSummary}>{m.summary}</Text> : null}
                     <View style={styles.recTags}>
-                      {m.tags.map((t: any) => (
+                      {m.tags.map((t) => (
                         <View key={t} style={styles.recTag}>
                           <Text style={styles.recTagText}>{t}</Text>
                         </View>
@@ -605,11 +654,15 @@ export function ChatConversation({
       {/* 입력 바 */}
       <SafeAreaView edges={isPanel ? [] : ['bottom']} style={styles.inputSafe}>
         <View style={[styles.inputBar, widthStyle]}>
-          <Pressable style={styles.photoBtn} onPress={attachPhoto} hitSlop={8}>
-            <Icon name="photo" tintColor={ink(0.55)} size={22} />
+          <Pressable style={styles.photoBtn} onPress={attachPhoto} disabled={typing} hitSlop={8}>
+            <Icon name="photo" tintColor={ink(typing ? 0.25 : 0.55)} size={22} />
           </Pressable>
-          <Pressable style={[styles.photoBtn, { marginLeft: -2 }]} onPress={() => setClosetSelectOpen(true)} hitSlop={8}>
-            <Icon name="tshirt" tintColor={ink(0.55)} size={22} />
+          <Pressable
+            style={[styles.photoBtn, { marginLeft: -2 }]}
+            onPress={() => setClosetSelectOpen(true)}
+            disabled={typing}
+            hitSlop={8}>
+            <Icon name="tshirt" tintColor={ink(typing ? 0.25 : 0.55)} size={22} />
           </Pressable>
           {/* 웹에서 multiline 은 textarea 로 렌더되어 기본 2줄 높이를 갖는다.
               numberOfLines={1} 로 한 줄에서 시작하게 하고, 길어지면 maxHeight 까지 늘어난다. */}
@@ -647,6 +700,8 @@ const styles = StyleSheet.create({
   flex: { flex: 1 },
 
   messages: { padding: 16, gap: 16 },
+  older: { alignSelf: 'center', paddingVertical: 8, paddingHorizontal: 16 },
+  olderText: { fontSize: 12.5, fontWeight: '500', color: Editorial.textCaption },
   aiRow: { flexDirection: 'row', gap: 8, alignItems: 'flex-start', maxWidth: '90%' },
   aiCol: { flex: 1, gap: 10 },
 
@@ -727,7 +782,8 @@ const styles = StyleSheet.create({
   recTotal: { fontSize: Type.caption, fontWeight: '600', color: INK },
   /* 서버가 붙이는 주의 문구(예: 예산 초과). 경고색은 쓰되 문장은 서버 말을 그대로 보여준다. */
   recWarning: { fontSize: Type.caption, color: Editorial.wine },
-  recTags: { flexDirection: 'row', gap: 6 },
+  /* 무드 태그는 최대 5개라 한 줄을 넘길 수 있다 — 넘치면 잘리지 않고 줄바꿈으로 받는다. */
+  recTags: { flexDirection: 'row', flexWrap: 'wrap', gap: 6 },
   recTag: {
     backgroundColor: Editorial.control,
     borderRadius: 999,
@@ -769,6 +825,9 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   moodGhostText: { fontSize: 12.5, color: Editorial.textCaption },
+  moodBusy: { opacity: 0.5 },
+  /* 고른 뒤 남는 한 줄. 버튼이 사라진 자리에 결과가 보여야 무엇을 골랐는지 알 수 있다. */
+  moodDone: { fontSize: Type.caption, color: Editorial.textCaption, marginTop: 2 },
   recCtaText: { fontSize: 13, fontWeight: '600', color: INK },
 
   /* 모드 구분선 — 실패 줄과 같은 결(작고 조용하게). 가로선을 양옆에 둬서

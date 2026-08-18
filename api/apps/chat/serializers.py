@@ -1,16 +1,28 @@
 import logging
 
 from django.conf import settings
+from drf_spectacular.utils import extend_schema_field
 from rest_framework import serializers
 
 from apps.chat.models import (
     ChatAttachment,
     ChatMessage,
     ChatRun,
+    ChatRunPersona,
     ChatSession,
     PersonaProfile,
 )
 from apps.chat.services import attachment_storage
+from apps.chat.services.stylist_personas import load_stylist_personas
+from apps.recommend.models import (
+    OutfitComposition,
+    OutfitRenderJob,
+    RecommendationResult,
+)
+from apps.recommend.serializers import (
+    OutfitRenderJobSerializer,
+    RecommendationCardItemSerializer,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -138,9 +150,7 @@ class ChatAttachmentUploadSerializer(serializers.Serializer):
     def validate_image(self, image):
         if image.size > settings.CHAT_ATTACHMENT_MAX_BYTES:
             max_mb = settings.CHAT_ATTACHMENT_MAX_BYTES // (1024 * 1024)
-            raise serializers.ValidationError(
-                f"이미지는 {max_mb}MB 이하여야 합니다."
-            )
+            raise serializers.ValidationError(f"이미지는 {max_mb}MB 이하여야 합니다.")
         if image.content_type not in settings.CHAT_ATTACHMENT_ALLOWED_CONTENT_TYPES:
             raise serializers.ValidationError(
                 "지원하지 않는 이미지 형식입니다 (jpeg/png/webp/heic)."
@@ -166,7 +176,157 @@ class ChatAttachmentUploadResponseSerializer(serializers.Serializer):
     created = serializers.BooleanField(read_only=True)
 
 
+class ChatRunPersonaErrorSerializer(serializers.Serializer):
+    code = serializers.CharField(read_only=True)
+    message = serializers.CharField(read_only=True)
+
+
+class ChatRunPersonaCardSerializer(serializers.Serializer):
+    card_id = serializers.UUIDField(source="id", read_only=True)
+    rank = serializers.IntegerField(read_only=True)
+    total_product_price = serializers.IntegerField(read_only=True)
+    validation_reasons = serializers.JSONField(read_only=True)
+    warnings = serializers.JSONField(read_only=True)
+    items = RecommendationCardItemSerializer(many=True, read_only=True)
+    image = serializers.SerializerMethodField()
+    is_saved = serializers.SerializerMethodField()
+
+    @extend_schema_field(OutfitRenderJobSerializer(allow_null=True))
+    def get_image(self, obj):
+        try:
+            render_job = obj.render_job
+        except OutfitRenderJob.DoesNotExist:
+            return None
+        return OutfitRenderJobSerializer(render_job, context=self.context).data
+
+    @extend_schema_field(serializers.BooleanField())
+    def get_is_saved(self, obj: OutfitComposition) -> bool:
+        return bool(obj.saved_records.all())
+
+
+class ChatRunPersonaResultSerializer(serializers.ModelSerializer):
+    display_name = serializers.SerializerMethodField()
+    result_id = serializers.SerializerMethodField()
+    message = serializers.SerializerMethodField()
+    validated_reason_codes = serializers.SerializerMethodField()
+    card = serializers.SerializerMethodField()
+    error = serializers.SerializerMethodField()
+    result_type = serializers.SerializerMethodField()
+    generation = serializers.SerializerMethodField()
+    previous_result_ids = serializers.SerializerMethodField()
+
+    class Meta:
+        model = ChatRunPersona
+        fields = (
+            "persona_id",
+            "display_name",
+            "display_order",
+            "status",
+            "result_id",
+            "result_type",
+            "generation",
+            "previous_result_ids",
+            "message",
+            "validated_reason_codes",
+            "card",
+            "error",
+            "retry_count",
+            "alternative_status",
+            "alternative_count",
+            "alternative_error_code",
+            "alternative_error_message",
+            "latency_ms",
+            "started_at",
+            "completed_at",
+        )
+        read_only_fields = fields
+
+    def get_display_name(self, obj: ChatRunPersona) -> str:
+        return load_stylist_personas().get(obj.persona_id).display_name
+
+    @extend_schema_field(serializers.UUIDField(allow_null=True))
+    def get_result_id(self, obj: ChatRunPersona):
+        result = self._result(obj)
+        return result.pk if result is not None else None
+
+    def get_message(self, obj: ChatRunPersona) -> str:
+        result = self._result(obj)
+        return result.persona_explanation if result is not None else ""
+
+    def get_result_type(self, obj: ChatRunPersona) -> str | None:
+        result = self._result(obj)
+        return (
+            getattr(result, "result_type", RecommendationResult.ResultType.INITIAL)
+            if result is not None
+            else None
+        )
+
+    def get_generation(self, obj: ChatRunPersona) -> int | None:
+        result = self._result(obj)
+        return getattr(result, "generation", 1) if result is not None else None
+
+    @extend_schema_field(serializers.ListField(child=serializers.UUIDField()))
+    def get_previous_result_ids(self, obj: ChatRunPersona) -> list:
+        result = self._result(obj)
+        if result is None:
+            return []
+        prefetched = getattr(obj, "historical_recommendation_results", None)
+        if prefetched is not None:
+            return [row.pk for row in prefetched]
+        manager = getattr(obj, "recommendation_results", None)
+        if manager is None:
+            return []
+        return list(
+            manager.filter(is_current=False)
+            .order_by("generation")
+            .values_list("id", flat=True)
+        )
+
+    @extend_schema_field(serializers.ListField(child=serializers.CharField()))
+    def get_validated_reason_codes(self, obj: ChatRunPersona) -> list[str]:
+        result = self._result(obj)
+        return list(result.validated_reason_codes) if result is not None else []
+
+    @extend_schema_field(ChatRunPersonaCardSerializer(allow_null=True))
+    def get_card(self, obj: ChatRunPersona) -> dict | None:
+        result = self._result(obj)
+        if result is None:
+            return None
+        cards = (
+            result.public_compositions
+            if hasattr(result, "public_compositions")
+            else result.compositions.filter(
+                status="VALIDATED",
+            )
+            .prefetch_related("items", "saved_records")
+            .order_by("rank", "created_at")
+        )
+        card = next(iter(cards), None)
+        if card is None:
+            return None
+        return ChatRunPersonaCardSerializer(card, context=self.context).data
+
+    @extend_schema_field(ChatRunPersonaErrorSerializer(allow_null=True))
+    def get_error(self, obj: ChatRunPersona) -> dict[str, str] | None:
+        if obj.status != ChatRunPersona.Status.FAILED:
+            return None
+        return {"code": obj.error_code, "message": obj.error_message}
+
+    @staticmethod
+    def _result(obj: ChatRunPersona) -> RecommendationResult | None:
+        try:
+            return obj.recommendation_result
+        except RecommendationResult.DoesNotExist:
+            return None
+
+
 class ChatRunSerializer(serializers.ModelSerializer):
+    results = ChatRunPersonaResultSerializer(
+        source="persona_executions",
+        many=True,
+        read_only=True,
+    )
+
     class Meta:
         model = ChatRun
         fields = [
@@ -175,6 +335,9 @@ class ChatRunSerializer(serializers.ModelSerializer):
             "request_message_id",
             "response_message_id",
             "status",
+            "response_mode",
+            "persona_ids",
+            "results",
             "enqueued_at",
             "error_code",
             "error_message",
@@ -184,6 +347,44 @@ class ChatRunSerializer(serializers.ModelSerializer):
             "updated_at",
         ]
         read_only_fields = fields
+
+
+class StylistListItemSerializer(serializers.Serializer):
+    id = serializers.CharField(read_only=True)
+    display_name = serializers.CharField(read_only=True)
+    description = serializers.CharField(read_only=True)
+    display_order = serializers.IntegerField(read_only=True)
+
+
+class StylistListResponseSerializer(serializers.Serializer):
+    schema_version = serializers.CharField(read_only=True)
+    min_select = serializers.IntegerField(read_only=True)
+    max_select = serializers.IntegerField(read_only=True)
+    default_persona_ids = serializers.ListField(
+        child=serializers.CharField(),
+        read_only=True,
+    )
+    last_selected_persona_ids = serializers.ListField(
+        child=serializers.CharField(),
+        read_only=True,
+    )
+    stylists = StylistListItemSerializer(many=True, read_only=True)
+
+
+class ChatSessionResponseModeUpdateSerializer(serializers.Serializer):
+    response_mode = serializers.ChoiceField(
+        choices=ChatSession.ResponseMode.choices,
+        help_text="응답 구성 모드 (DEFAULT/STYLIST)",
+    )
+    selected_persona_ids = serializers.ListField(
+        child=serializers.CharField(allow_blank=False, max_length=32),
+        required=False,
+        max_length=3,
+        help_text=(
+            "STYLIST 전환 시 선택할 스타일리스트 ID 배열. 생략하면 현재 세션 "
+            "선택값, 회원 마지막 선택값, minimal 순서로 복원합니다."
+        ),
+    )
 
 
 class GuestIdentityResponseSerializer(serializers.Serializer):
@@ -232,6 +433,9 @@ class ChatSessionSerializer(serializers.ModelSerializer):
         fields = [
             "id",
             "mode",
+            "response_mode",
+            "selected_persona_ids",
+            "persona_selection_updated_at",
             "title",
             "persona_profile_id",
             "parent_session_id",
@@ -255,7 +459,9 @@ class ChatHistoryCursorSerializer(serializers.Serializer):
 
 
 class ChatMessagePageQuerySerializer(ChatHistoryCursorSerializer):
-    limit = serializers.IntegerField(required=False, min_value=1, max_value=100, default=50)
+    limit = serializers.IntegerField(
+        required=False, min_value=1, max_value=100, default=50
+    )
 
 
 class ChatMessagePageResponseSerializer(serializers.Serializer):
@@ -271,7 +477,9 @@ class ChatSessionSearchQuerySerializer(ChatHistoryCursorSerializer):
         trim_whitespace=True,
         max_length=100,
     )
-    limit = serializers.IntegerField(required=False, min_value=1, max_value=50, default=20)
+    limit = serializers.IntegerField(
+        required=False, min_value=1, max_value=50, default=20
+    )
 
 
 class ChatSessionSearchMatchSerializer(serializers.Serializer):
@@ -287,6 +495,17 @@ class ChatSessionSearchItemSerializer(ChatSessionSerializer):
     class Meta(ChatSessionSerializer.Meta):
         fields = [*ChatSessionSerializer.Meta.fields, "search_match"]
         read_only_fields = fields
+
+
+class ChatRunPersonaRetryResponseSerializer(serializers.Serializer):
+    run = ChatRunSerializer(read_only=True)
+    events_url = serializers.URLField(read_only=True)
+
+
+class ChatRunPersonaAlternativeResponseSerializer(serializers.Serializer):
+    run = ChatRunSerializer(read_only=True)
+    events_url = serializers.URLField(read_only=True)
+
 
 class ChatSessionSearchResponseSerializer(serializers.Serializer):
     query = serializers.CharField(read_only=True)

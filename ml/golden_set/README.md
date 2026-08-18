@@ -167,6 +167,7 @@ Infisical 또는 배포 시크릿으로 주입한다. 키를 CSV나 명령행에
 | `GOLDEN_S3_OUTPUT_PREFIX` | 아이템 이미지·완료 manifest가 쌓이는 prefix |
 | `GOLDEN_S3_METADATA_KEY` | 선택. 스타일·계절·TPO 메타데이터 CSV 키 |
 | `GOLDEN_DATASET_VERSION` | run 디렉터리와 파생 prefix를 가르는 버전 |
+| `GOLDEN_DATASET_STATUS` | Qdrant payload 상태. 검수 중 `PILOT`, 운영 추천은 `ACTIVE` |
 | `GOLDEN_ITEM_PIPELINE` | 아이템 분리 구현 (image-processor 레지스트리 키) |
 
 `metadata.example.csv`를 복사해 입력 메타데이터를 만들고 `GOLDEN_S3_METADATA_KEY`
@@ -182,6 +183,91 @@ Infisical 또는 배포 시크릿으로 주입한다. 키를 CSV나 명령행에
 
 10장 파일럿은 성별 표현 그룹 5장씩, 스타일 3종 이상, 유사 비교 쌍 2개 이상,
 평가가 갈릴 수 있는 경계 사례 2개 이상을 권장한다.
+
+## 0. 본 검수 입력 준비 (팀 드라이브 원본 → metadata.csv)
+
+파일럿 10장은 `local/golden-pilot/metadata.csv`를 손으로 적었다. 본 검수는 수집자
+4명이 각자 다른 규칙으로 모은 수백 장이라 같은 방법이 통하지 않는다.
+
+```powershell
+# 팀 드라이브의 수집자 폴더를 한 루트 아래로 내려받은 뒤
+python -m ml.golden_set review-manifest `
+  --root "E:\골든셋" `
+  --out-dir local/golden-review `
+  --batch-size 100 `
+  --apply
+```
+
+기대하는 루트 구조. 신혜지 폴더만 성별이 루트에 바로 풀려 있어 수집자 폴더가 없고,
+성별 이름이 아닌 하위 폴더는 스캔에서 빠지므로 한 루트에 섞어 두어도 된다.
+
+```text
+E:\골든셋\
+├── 남자\[1] 캐주얼룩 Casual Look\...   # 신혜지 (스타일 폴더 20종)
+├── 여자\[1] 캐주얼룩 Casual Look\...
+├── 김민욱\men\  · women\               # 평면 (스타일 라벨 없음)
+├── 전하영\men\  · women\
+└── 이건우\남성\ · 여성\
+```
+
+산출물은 `--out-dir` 아래에 쌓인다.
+
+| 파일 | 내용 |
+|---|---|
+| `metadata.csv` | 전체 인벤토리. 위 표의 입력 메타데이터 스키마 + 추적용 열 |
+| `metadata.batch1.csv` | 이번 검수 배치만 (`--batch-size`) |
+| `rename_map.csv` | 원본 상대경로 ↔ 정규화 파일명 ↔ sha256 |
+| `inventory_summary.md` | 수집자·성별·스타일 집계와 제외된 파일 목록 |
+| `images/`, `images-batch1/` | `--apply`일 때 정규화 이름으로 복사한 평면 폴더 (원본은 그대로) |
+
+이어서 배치만 파이프라인에 태운다.
+
+```powershell
+python -m ml.golden_set prepare `
+  --input-dir local/golden-review/images-batch1 `
+  --metadata-csv local/golden-review/metadata.batch1.csv
+```
+
+알아둘 것 세 가지.
+
+- **파일명은 정규화해야 한다.** 수집자마다 이름 규칙이 다르고(`001.jpg` 연번,
+  핀터레스트 원본명, 해시 이름) 성별 폴더 사이에서도 겹친다. 검수 화면은 경로가
+  아니라 파일 이름으로 이미지를 찾으므로, 겹친 이름을 그대로 두면 다른 사진 위에
+  판정이 쌓인다. `{수집자}-{성별}-{스타일}-{연번}` 형태가 그 대책이다.
+- **`style`은 신혜지 폴더에서만 채워진다.** 나머지 셋은 평면 구조라 비어 있고,
+  README 규칙대로 확실하지 않은 값은 비워 둔다. 폴더명 → taxonomy 매핑은
+  `review_manifest.STYLE_MAP`에 모여 있고 원본 폴더명은 `style_source_label`에
+  남으므로, 매핑이 어색하면 그 열을 보고 고치면 된다.
+- **배치는 무작위 표집이 아니다.** 수집자 → 성별 → 스타일 순으로 라운드로빈해
+  결정적으로 고른다. 배치를 늘릴 때 앞 배치와 겹치지 않게 이어붙이려면 순서가
+  재현돼야 한다.
+
+### 0-1. 사람이 채울 검수표 (모델 호출 없음)
+
+검수표를 만드는 길은 둘이고 목적이 다르다. 헷갈리면 필요 없는 분석 비용을 쓴다.
+
+| | `review-sheets` | `templates` (3장) |
+|---|---|---|
+| 사람이 하는 일 | 이미지를 보고 처음부터 적는다 | 모델이 적어 온 관찰·claim이 맞는지 판정한다 |
+| 선행 단계 | 없음 (metadata CSV만) | `prepare` → `analyze` |
+| 모델 호출 | 0건 | 이미지 1장당 1건 |
+| 만드는 표 | 관찰, 쌍대 비교 | 관찰, claim, 최소 수정, 쌍대 비교 |
+
+```powershell
+python -m ml.golden_set review-sheets `
+  --metadata-csv local/golden-review/metadata.batch1.csv `
+  --images-dir local/golden-review/images-batch1 `
+  --out-dir local/golden-review/sheets `
+  --pair-count 120 --reviewer-label reviewer-a
+```
+
+claim 검수표와 최소 수정 검수표는 여기서 만들지 않는다. 둘 다 "모델이 낸 문장"을
+판정하는 표라서 판정 대상이 없으면 빈 껍데기가 된다.
+
+쌍대 비교 쌍은 임베딩 없이 metadata만으로 고른다. 스타일 의도가 겹치는 쌍을 먼저
+쓰되(의도가 다르면 검수자는 `context_dependent`를 고를 수밖에 없고 그 표는 점수에서
+빠진다), 스타일 묶음끼리는 겹치는 쌍이 아예 없으므로 묶음을 잇는 `VISUAL_BRIDGE` 쌍을
+반드시 남긴다 — 비교 그래프가 끊기면 Bradley-Terry 상대 점수가 나오지 않는다.
 
 ## 1. manifest·임베딩·클러스터 생성
 
@@ -351,6 +437,23 @@ python -m ml.golden_set index `
 ```
 
 계획을 확인한 뒤 `--dry-run`을 제거한다. 컬렉션은 셋이다.
+
+기존 포인트를 재임베딩하지 않고 파일럿에서 운영 상태로 승격할 때는 먼저 대상을
+확인한 뒤 같은 명령에서 `--dry-run`만 제거한다.
+
+```powershell
+python api/manage.py set_goldenset_qdrant_status `
+  --dataset-version v1 --from-status PILOT --status ACTIVE --dry-run
+python api/manage.py set_goldenset_qdrant_status `
+  --dataset-version v1 --from-status PILOT --status ACTIVE
+```
+
+이후 API와 채팅 워커에는 같은 버전과 상태를 설정한다.
+
+```text
+CHAT_GOLDENSET_DATASET_VERSION=v1
+CHAT_GOLDENSET_DATASET_STATUSES=ACTIVE
+```
 
 | 컬렉션 | 포인트 | 벡터 |
 |---|---|---|

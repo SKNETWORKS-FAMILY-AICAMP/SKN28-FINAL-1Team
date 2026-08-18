@@ -12,8 +12,10 @@ from .models import (
     OutfitComposition,
     OutfitCompositionItem,
     OutfitRenderJob,
+    ProductClickEvent,
     RecommendationFeedback,
     RecommendationResult,
+    SavedOutfit,
 )
 from .services import storage, wardrobe_link
 
@@ -219,7 +221,9 @@ class WardrobeLinkSerializer(serializers.Serializer):
     """save_to_wardrobe로 연계된 옷장 등록 job의 진행 상황과 결과."""
 
     job_id = serializers.UUIDField(help_text="옷장 등록 job UUID")
-    status = serializers.CharField(help_text="등록 상태 (PENDING/PROCESSING/DONE/FAILED)")
+    status = serializers.CharField(
+        help_text="등록 상태 (PENDING/PROCESSING/DONE/FAILED)"
+    )
     error_message = serializers.CharField(
         allow_blank=True, help_text="등록 실패 사유 (FAILED가 아니면 빈 문자열)"
     )
@@ -530,6 +534,63 @@ class RecommendationFeedbackSerializer(serializers.ModelSerializer):
         ]
 
 
+class SavedOutfitSerializer(serializers.ModelSerializer):
+    saved_outfit_id = serializers.UUIDField(source="id", read_only=True)
+    card_id = serializers.UUIDField(source="composition_id", read_only=True)
+    is_saved = serializers.BooleanField(default=True, read_only=True)
+    saved_at = serializers.DateTimeField(source="created_at", read_only=True)
+
+    class Meta:
+        model = SavedOutfit
+        fields = [
+            "saved_outfit_id",
+            "card_id",
+            "is_saved",
+            "saved_at",
+        ]
+
+
+class ProductClickEventSerializer(serializers.ModelSerializer):
+    product_click_id = serializers.UUIDField(source="id", read_only=True)
+    result_id = serializers.UUIDField(source="result_id_snapshot", read_only=True)
+    card_id = serializers.UUIDField(
+        source="composition_id_snapshot",
+        read_only=True,
+    )
+    item_id = serializers.UUIDField(read_only=True)
+    persona_id = serializers.SerializerMethodField()
+    deduplicated = serializers.BooleanField(default=False, read_only=True)
+    clicked_at = serializers.DateTimeField(source="created_at", read_only=True)
+
+    class Meta:
+        model = ProductClickEvent
+        fields = [
+            "product_click_id",
+            "result_id",
+            "card_id",
+            "item_id",
+            "persona_id",
+            "source_collection",
+            "source_id",
+            "deduplicated",
+            "clicked_at",
+            "engagement_duration_ms",
+            "engagement_recorded_at",
+        ]
+
+    @extend_schema_field(serializers.CharField(allow_null=True))
+    def get_persona_id(self, obj: ProductClickEvent) -> str | None:
+        return obj.persona_id or None
+
+
+class ProductClickEngagementRequestSerializer(serializers.Serializer):
+    duration_ms = serializers.IntegerField(
+        min_value=0,
+        max_value=86_400_000,
+        help_text="외부 판매처 이동 후 앱 복귀까지 측정한 근사 체류 시간(ms, 최대 24시간)",
+    )
+
+
 def _snapshot_text(snapshot: object, *keys: str) -> str | None:
     if not isinstance(snapshot, dict):
         return None
@@ -605,6 +666,7 @@ class RecommendationCardSerializer(serializers.ModelSerializer):
     card_id = serializers.UUIDField(source="id", read_only=True)
     items = RecommendationCardItemSerializer(many=True, read_only=True)
     feedback = serializers.SerializerMethodField()
+    is_saved = serializers.SerializerMethodField()
 
     class Meta:
         model = OutfitComposition
@@ -616,6 +678,7 @@ class RecommendationCardSerializer(serializers.ModelSerializer):
             "warnings",
             "items",
             "feedback",
+            "is_saved",
         ]
 
     @extend_schema_field(RecommendationFeedbackSerializer(allow_null=True))
@@ -625,6 +688,10 @@ class RecommendationCardSerializer(serializers.ModelSerializer):
         except RecommendationFeedback.DoesNotExist:
             return None
         return RecommendationFeedbackSerializer(feedback).data
+
+    @extend_schema_field(serializers.BooleanField())
+    def get_is_saved(self, obj: OutfitComposition) -> bool:
+        return bool(obj.saved_records.all())
 
 
 class OutfitRenderJobSerializer(serializers.ModelSerializer):
@@ -684,6 +751,7 @@ class OutfitRenderJobSerializer(serializers.ModelSerializer):
 
 class RecommendationHistoryItemSerializer(serializers.ModelSerializer):
     result_id = serializers.UUIDField(source="id", read_only=True)
+    replaces_result_id = serializers.UUIDField(source="replaces_id", read_only=True)
     card_count = serializers.SerializerMethodField()
     top_card = serializers.SerializerMethodField()
 
@@ -693,6 +761,14 @@ class RecommendationHistoryItemSerializer(serializers.ModelSerializer):
             "result_id",
             "session_id",
             "mode",
+            "response_mode",
+            "persona_id",
+            "persona_version",
+            "persona_explanation",
+            "result_type",
+            "generation",
+            "is_current",
+            "replaces_result_id",
             "created_at",
             "card_count",
             "top_card",
@@ -716,6 +792,7 @@ class RecommendationHistoryResponseSerializer(serializers.Serializer):
 
 class RecommendationResultDetailSerializer(serializers.ModelSerializer):
     result_id = serializers.UUIDField(source="id", read_only=True)
+    replaces_result_id = serializers.UUIDField(source="replaces_id", read_only=True)
     cards = serializers.SerializerMethodField()
 
     class Meta:
@@ -725,6 +802,15 @@ class RecommendationResultDetailSerializer(serializers.ModelSerializer):
             "session_id",
             "run_id",
             "mode",
+            "response_mode",
+            "persona_id",
+            "persona_version",
+            "persona_explanation",
+            "validated_reason_codes",
+            "result_type",
+            "generation",
+            "is_current",
+            "replaces_result_id",
             "dataset_version",
             "created_at",
             "cards",

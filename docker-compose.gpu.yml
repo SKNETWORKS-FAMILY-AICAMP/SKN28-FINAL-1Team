@@ -78,6 +78,57 @@ services:
               count: all
               capabilities: [gpu]
 
+  # 질의 텍스트 → BGE-M3 벡터 HTTP API (:8081).
+  # 채팅 추천이 사용자 문장으로 골든 코디를 찾을 때 API 서버가 호출한다.
+  # 이 서비스가 없으면 추천이 죽지는 않고 의미 검색 없이 필터 검색으로 내려간다
+  # (api/apps/chat/services/recommendation_pipeline.py 의 _retrieve_golden 참고).
+  #
+  # product-indexer와 **같은 이미지**를 쓴다 — bge-m3 의존성과 HF 캐시가 이미
+  # 그쪽에 있어 새 이미지를 만들 이유가 없다. 대신 프로세스는 나눈다: drain이
+  # GPU를 길게 잡는 동안 질의 임베딩까지 밀리면 채팅 전체가 느려진다.
+  # (같은 태그를 공유하므로 한 번 빌드하면 두 서비스에 함께 적용된다.)
+  text-embedding-api:
+    build:
+      context: ./indexer
+      dockerfile: product_indexer/Dockerfile.product-indexer
+    image: skn28-product-indexer
+    container_name: skn28-text-embedding-api
+    restart: unless-stopped
+    env_file:
+      - .env                  # TEXT_EMBEDDING_*, HF_* 등
+    environment:
+      TZ: Asia/Seoul
+      HF_HOME: /app/.cache/huggingface
+      TEXT_EMBEDDING_API_HOST: 0.0.0.0
+      TEXT_EMBEDDING_API_PORT: "8081"
+    command: python -m product_indexer.text_embedding_api
+    ports:
+      # 운영에서는 HTTPS reverse proxy 뒤에 두고 API 서버에서만 접근시킨다.
+      - "${TEXT_EMBEDDING_API_HOST_PORT:-8081}:8081"
+    volumes:
+      # bge-m3(~2.3GB)를 product-indexer와 공유한다.
+      - hf_cache:/app/.cache/huggingface
+    healthcheck:
+      # 모델을 다 올리기 전에는 /health가 503이라 그대로 unhealthy로 잡힌다.
+      test:
+        - CMD-SHELL
+        - >-
+          python -c "import urllib.request,sys;
+          sys.exit(0 if urllib.request.urlopen(
+          'http://127.0.0.1:8081/health', timeout=5).status == 200 else 1)"
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      # 모델 로드가 끝나야 준비된다. 캐시가 비어 있으면 내려받는 시간도 든다.
+      start_period: 180s
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+
   # 옷장 이미지 프로세서 워커.
   # Redis 큐(BLMOVE)를 상시 폴링하므로 포트를 열지 않는다.
   # REDIS_URL / WARDROBE_CALLBACK_URL은 AWS 쪽 원격 주소를 .env에 넣는다

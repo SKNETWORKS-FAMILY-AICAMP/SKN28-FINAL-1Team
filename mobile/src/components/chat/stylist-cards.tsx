@@ -39,11 +39,13 @@ export function StylistCardGroup({
   onSelect,
   onAlternative,
   onRetry,
+  onRenderRetry,
 }: {
   cards: StylistCard[];
   onSelect: (personaId: StylistId) => void;
   onAlternative: (personaId: StylistId) => void;
   onRetry: (personaId: StylistId) => void;
+  onRenderRetry: (personaId: StylistId) => void;
 }) {
   /* 목업으로 그리는 중이면 숨기지 않고 말한다. 지어낸 코디를 진짜 추천으로 읽고
      스크린샷이 돌아다니면 그게 더 큰 문제가 된다. (판정은 첫 목록 조회에서 이미 끝나 있어
@@ -67,6 +69,7 @@ export function StylistCardGroup({
           onSelect={() => onSelect(card.personaId)}
           onAlternative={() => onAlternative(card.personaId)}
           onRetry={() => onRetry(card.personaId)}
+          onRenderRetry={() => onRenderRetry(card.personaId)}
         />
       ))}
     </View>
@@ -78,11 +81,13 @@ function StylistOutfitCard({
   onSelect,
   onAlternative,
   onRetry,
+  onRenderRetry,
 }: {
   card: StylistCard;
   onSelect: () => void;
   onAlternative: () => void;
   onRetry: () => void;
+  onRenderRetry: () => void;
 }) {
   const [openReasons, setOpenReasons] = useState(false);
   const waiting = card.status === 'PENDING' || card.status === 'RUNNING';
@@ -164,6 +169,38 @@ function StylistOutfitCard({
               {w}
             </Text>
           ))}
+
+          {card.renderStatus === 'SUCCEEDED' && card.renderImageUrl ? (
+            <SmartImage
+              uri={card.renderImageUrl}
+              width="100%"
+              aspectRatio={3 / 4}
+              radius={14}
+            />
+          ) : card.renderStatus === 'QUEUED' || card.renderStatus === 'PROCESSING' ? (
+            <View style={styles.renderState}>
+              <ActivityIndicator size="small" color={ink(0.4)} />
+              <Text style={styles.renderText}>선택한 코디 이미지를 만드는 중이에요…</Text>
+            </View>
+          ) : card.renderStatus === 'FAILED' ? (
+            <View style={styles.renderFailed}>
+              <Text style={styles.renderError}>
+                {card.renderErrorText ?? '코디 이미지를 만들지 못했어요.'}
+              </Text>
+              <Pressable style={styles.ghostBtn} onPress={onRenderRetry}>
+                <Icon name="arrow.clockwise" tintColor={INK} size={13} />
+                <Text style={styles.ghostText}>이미지만 다시 만들기</Text>
+              </Pressable>
+            </View>
+          ) : card.saved ? (
+            <View style={styles.renderFailed}>
+              <Text style={styles.renderText}>저장된 코디의 이미지는 아직 만들지 않았어요.</Text>
+              <Pressable style={styles.ghostBtn} onPress={onRenderRetry}>
+                <Icon name="sparkles" tintColor={INK} size={13} />
+                <Text style={styles.ghostText}>코디 이미지 만들기</Text>
+              </Pressable>
+            </View>
+          ) : null}
 
           {/* 점수에 반영된 항목들 — 접어 둔다. 펼치기 전에는 몇 개인지만 알려 준다.
               '충족한 조건'이 아니라 '따져본 것'이다. 감점된 항목도 섞여 들어오기 때문에
@@ -271,6 +308,10 @@ const styles = StyleSheet.create({
 
   total: { fontSize: Type.caption, fontWeight: '600', color: INK },
   warning: { fontSize: Type.caption, color: Editorial.wine, lineHeight: 18 },
+  renderState: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingVertical: 8 },
+  renderText: { flex: 1, fontSize: Type.caption, color: Editorial.textCaption },
+  renderFailed: { gap: 8, paddingVertical: 4 },
+  renderError: { fontSize: Type.caption, color: Editorial.wine, lineHeight: 18 },
 
   reasons: { borderTopWidth: 1, borderTopColor: Editorial.lineSoft, paddingTop: 10, gap: 8 },
   reasonToggle: { flexDirection: 'row', alignItems: 'center', gap: 5 },

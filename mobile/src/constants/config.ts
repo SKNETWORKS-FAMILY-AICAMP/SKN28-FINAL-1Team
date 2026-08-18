@@ -266,12 +266,15 @@ export const WardrobeEndpoints = {
  *   GET    /api/v1/calendars/{id}/                    → CalendarEntry
  *   PATCH  /api/v1/calendars/{id}/                    → CalendarEntry
  *   DELETE /api/v1/calendars/{id}/                    → 204
+ *   POST   /api/v1/calendars/{id}/items/              → CalendarEntry (옷 연결 추가, 멱등)
  *   DELETE /api/v1/calendars/{id}/items/{itemId}/     → CalendarEntry (옷 연결만 해제)
  *   GET    /api/v1/calendars/{id}/processing-status/  사진 처리 폴링
  *
  * ⚠️ **날짜당 1건이고 서버에 upsert 가 없다.** 이미 있는 날짜로 등록하면 409 다.
- *    사진을 바꾸거나 옷을 **더하려면** DELETE 후 다시 등록해야 한다(PATCH 로는 못 바꾼다).
- *    옷을 **빼는 건** items DELETE 로 연결만 끊는다 — 기록과 옷장 아이템은 남는다.
+ *    **사진을 바꿀 때만** DELETE 후 다시 등록한다(PATCH 로는 못 바꾼다).
+ *    옷을 더하고 빼는 것은 items POST/DELETE 로 연결만 손댄다 — 기록 id 도 사진도 그대로다.
+ *    사진 기록을 지우고 다시 만들면 같은 사진을 서버가 다시 분석해, 같은 옷이 서로 다른
+ *    두 벌로 옷장에 쌓인다. 옷 구성 변경에 재등록을 쓰면 안 되는 이유다.
  * ⚠️ **PATCH 는 schedule·tpo·hashtags 만 받는다.** 서버가 미선언 필드를 400 으로 거절하므로
  *    프론트에만 있는 개념(shared·lookId)을 실어 보내면 요청 전체가 실패한다.
  * ⚠️ 업로드 제한: 15MB 이하, jpeg/png/webp/heic.
@@ -282,6 +285,8 @@ export const CalendarEndpoints = {
   photo: '/api/v1/calendars/photo/',
   wardrobe: '/api/v1/calendars/wardrobe/',
   detail: (calendarId: string) => `/api/v1/calendars/${calendarId}/`,
+  /** 입은 옷 연결 추가 — 이미 걸린 옷은 서버가 건너뛴다(멱등). */
+  items: (calendarId: string) => `/api/v1/calendars/${calendarId}/items/`,
   /** 입은 옷 연결 해제 — itemId 는 옷장 아이템 id(wardrobe_item_id)다. */
   item: (calendarId: string, wardrobeItemId: string) =>
     `/api/v1/calendars/${calendarId}/items/${wardrobeItemId}/`,
@@ -334,10 +339,19 @@ export const LookbookEndpoints = {
  *   GET    /api/v1/chat/sessions/                                             → 세션 배열
  *   PATCH  /api/v1/chat/sessions/{id}/                 { title }              → 200
  *   DELETE /api/v1/chat/sessions/{id}/                                        → 204
+ *   GET    /api/v1/chat/sessions/search/?query=&limit=&cursor=                → 제목·본문 검색
  *   GET    /api/v1/chat/sessions/{id}/messages/                               → 메시지 배열(시간순)
+ *   GET    /api/v1/chat/sessions/{id}/messages/page/?limit=&cursor=           → 최신부터 커서 페이지
  *   POST   /api/v1/chat/sessions/{id}/messages/  { content, client_message_id } → 202 { message, run, events_url }
+ *   POST   /api/v1/chat/sessions/{id}/attachments/  multipart{ image, client_message_id } → 201 { message, attachment }
+ *   POST   .../attachments/{attachmentId}/analysis/                           → 202 { attachment, run }
+ *   POST   .../attachments/{attachmentId}/mood-decision/  { decision }        → 200 { attachment, applied }
  *   GET    /api/v1/chat/runs/{runId}/                                         → run 상태(폴링용)
  *   GET    /api/v1/chat/runs/{runId}/events/                                  → SSE 진행 이벤트
+ *
+ * 사진은 **세 단계**다. 올리기만 해서는 아무 일도 일어나지 않는다 —
+ * 업로드(첨부 전용 사용자 메시지가 생김) → 무드 분석 요청(run 이 생김) →
+ * 사용자가 그 무드를 쓸지 정하기(승인해야 세션 추천 조건에 들어간다).
  *
  * 답변은 **동기 응답이 아니다.** 메시지를 POST 하면 202 와 함께 run 이 생기고,
  * 실제 답변은 별도 워커가 만들어 SSE(또는 run 폴링)로 전달된다. lib/chatStream.ts 참고.
@@ -367,13 +381,17 @@ export const ChatEndpoints = {
   sessions: '/api/v1/chat/sessions/',
   session: (sessionId: string) => `/api/v1/chat/sessions/${sessionId}/`,
   messages: (sessionId: string) => `/api/v1/chat/sessions/${sessionId}/messages/`,
-  run: (runId: string) => `/api/v1/chat/runs/${runId}/`,
-  runEvents: (runId: string) => `/api/v1/chat/runs/${runId}/events/`,
+  /** 최근 메시지부터 커서로 끊어 받는다. 대화가 길어지면 messages 대신 이쪽을 쓴다. */
+  messagePage: (sessionId: string) => `/api/v1/chat/sessions/${sessionId}/messages/page/`,
+  /** 제목과 **저장된 메시지 본문**까지 서버가 찾아준다. */
+  sessionSearch: '/api/v1/chat/sessions/search/',
   attachments: (sessionId: string) => `/api/v1/chat/sessions/${sessionId}/attachments/`,
   attachmentAnalysis: (sessionId: string, attachmentId: string) =>
     `/api/v1/chat/sessions/${sessionId}/attachments/${attachmentId}/analysis/`,
   attachmentMoodDecision: (sessionId: string, attachmentId: string) =>
     `/api/v1/chat/sessions/${sessionId}/attachments/${attachmentId}/mood-decision/`,
+  run: (runId: string) => `/api/v1/chat/runs/${runId}/`,
+  runEvents: (runId: string) => `/api/v1/chat/runs/${runId}/events/`,
 
   /* ── 스타일리스트 모드 ──
      ⚠️ 아래 네 자리는 아직 **배포 서버에 없다**(origin/feature/chat-main-integration 전용).
@@ -393,6 +411,15 @@ export const ChatEndpoints = {
  *
  * 채팅 답변이 추천까지 만들면 그 메시지의 metadata.recommendation_result_id 로 여기를 부른다.
  * 카드 하나가 코디 한 벌이고, 그 안의 items 가 착장 아이템이다.
+ *
+ *   GET    /api/v1/recommendations/{resultId}/cards/{cardId}/           → 카드 상세
+ *   PUT    .../cards/{cardId}/feedback/  { reaction, reason_codes }     → 최신 피드백 교체
+ *   DELETE .../cards/{cardId}/feedback/                                 → 피드백 삭제
+ *   GET    .../cards/{cardId}/render/                                   → 코디 이미지 생성 상태
+ *   POST   .../cards/{cardId}/render/                                   → 이미지 생성 접수
+ *
+ * 이미지 생성은 추천이 저장될 때 서버가 미리 걸어둔다. 그래서 보통은 GET 만으로 결과가
+ * 나오고, 없거나(404) 실패했을 때만 POST 로 다시 건다.
  */
 /**
  * 스타일리스트 API 가 없을 때 목업으로 대신 그려도 되는지 (lib/stylistApi.ts).
@@ -409,6 +436,12 @@ export const ALLOW_STYLIST_MOCK =
 
 export const RecommendEndpoints = {
   result: (resultId: string) => `/api/v1/recommendations/${resultId}/`,
+  card: (resultId: string, cardId: string) =>
+    `/api/v1/recommendations/${resultId}/cards/${cardId}/`,
+  cardFeedback: (resultId: string, cardId: string) =>
+    `/api/v1/recommendations/${resultId}/cards/${cardId}/feedback/`,
+  cardRender: (resultId: string, cardId: string) =>
+    `/api/v1/recommendations/${resultId}/cards/${cardId}/render/`,
   /** 카드 한 장을 내 룩으로 저장 — 스타일리스트 카드의 '이 코디로 할래요'가 부른다.
       ⚠️ 이 자리도 아직 배포 서버에 없다(위 stylists 주석과 같은 브랜치). */
   saveCard: (resultId: string, cardId: string) =>

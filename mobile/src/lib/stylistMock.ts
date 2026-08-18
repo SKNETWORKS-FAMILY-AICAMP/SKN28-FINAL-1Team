@@ -1,4 +1,4 @@
-import type { ApiRecommendationItem } from '@/lib/recommendApi';
+import type { ApiRecommendationItem, ApiRenderJob } from '@/lib/recommendApi';
 import type {
   ApiPersonaAction,
   ApiPersonaResult,
@@ -411,5 +411,26 @@ export const stylistMock = {
       }
     }
     return { saved: true };
+  },
+
+  async renderCard(_resultId: string, cardId: string): Promise<ApiRenderJob> {
+    const now = new Date().toISOString();
+    return {
+      job_id: `mock-render-${cardId}`,
+      card_id: cardId,
+      status: 'FAILED',
+      cache_hit: false,
+      image_url: null,
+      error: {
+        code: 'STYLIST_MOCK_RENDER_UNAVAILABLE',
+        message: '예시 카드에서는 코디 이미지를 생성하지 않아요.',
+      },
+      created_at: now,
+      updated_at: now,
+    };
+  },
+
+  async getCardRender(resultId: string, cardId: string): Promise<ApiRenderJob> {
+    return this.renderCard(resultId, cardId);
   },
 };

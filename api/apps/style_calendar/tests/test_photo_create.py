@@ -183,6 +183,35 @@ class CalendarPhotoCreateApiTests(TestCase):
             self.assertIn(f"calendar/{self.user.pk}/{entry.pk}/selected/", link.snapshot["s3_key"])
             self.assertNotEqual(entry.image_s3_key, link.snapshot["s3_key"])
 
+    def test_selected_categories_are_excluded_from_photo_extraction(self) -> None:
+        """입은 옷으로 지정한 부위는 사진에서 다시 뽑지 않는다.
+
+        뽑으면 사용자가 이미 고른 그 옷이 옷장에 한 벌 더 생긴다 — 크롭·태깅이
+        달라 다른 옷처럼 보이기까지 한다. 워커가 열거 직후에 걸러 내도록
+        큐 페이로드로 넘긴다(룩북 등록과 같은 규칙).
+        """
+
+        payload = self._payload()
+        payload["wardrobe_item_ids"] = [str(self.bottom.pk), str(self.top.pk)]
+
+        response = self.client.post(self.url, payload, format="multipart")
+
+        self.assertEqual(response.status_code, 202)
+        entry = CalendarEntry.objects.get(pk=response.data["id"])
+        self.assertEqual(entry.skipped_categories, ["상의", "하의"])
+        self.assertEqual(
+            self.mock_enqueue.call_args.kwargs["exclude_categories"],
+            ["상의", "하의"],
+        )
+
+    def test_photo_upload_without_selection_excludes_nothing(self) -> None:
+        response = self.client.post(self.url, self._payload(), format="multipart")
+
+        self.assertEqual(response.status_code, 202)
+        entry = CalendarEntry.objects.get(pk=response.data["id"])
+        self.assertEqual(entry.skipped_categories, [])
+        self.assertEqual(self.mock_enqueue.call_args.kwargs["exclude_categories"], [])
+
     def test_photo_upload_accepts_blank_swagger_wardrobe_item_input(self) -> None:
         payload = self._payload()
         payload["wardrobe_item_ids"] = ""

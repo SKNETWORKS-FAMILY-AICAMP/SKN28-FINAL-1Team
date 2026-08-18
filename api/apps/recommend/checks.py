@@ -38,6 +38,27 @@ def chat_recommend_deployment_checks(_app_configs, **_kwargs):
                 )
             )
 
+    from apps.goldenset.models import GoldenDataset
+
+    configured_statuses = {
+        str(value).strip().upper()
+        for value in settings.CHAT_GOLDENSET_DATASET_STATUSES
+        if str(value).strip()
+    }
+    invalid_statuses = configured_statuses - set(GoldenDataset.Status.values)
+    if invalid_statuses:
+        errors.append(
+            Error(
+                "CHAT_GOLDENSET_DATASET_STATUSES에 지원하지 않는 상태가 있습니다: "
+                f"{', '.join(sorted(invalid_statuses))}",
+                hint=(
+                    "GoldenDataset 상태와 같은 PILOT/DRAFT/ACTIVE/ARCHIVED 중에서 "
+                    "지정하세요. 운영 추천은 ACTIVE를 사용합니다."
+                ),
+                id="recommend.E008",
+            )
+        )
+
     if settings.OUTFIT_RENDER_ENABLED:
         render_required = (
             ("OPENROUTER_API_KEY", settings.OPENROUTER_API_KEY, "recommend.E006"),

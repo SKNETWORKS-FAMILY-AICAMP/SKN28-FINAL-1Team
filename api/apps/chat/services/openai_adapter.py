@@ -14,6 +14,13 @@ from django.utils.crypto import salted_hmac
 from openai import OpenAI
 from pydantic import BaseModel, Field
 
+from apps.chat.services.experimental_hypotheses import (
+    ExperimentalHypothesisCandidateBatch,
+)
+from apps.chat.services.experimental_hypothesis_generation import (
+    EXPERIMENTAL_HYPOTHESIS_INSTRUCTIONS,
+    build_experimental_hypothesis_payload,
+)
 from apps.wardrobe import taxonomy as wardrobe_taxonomy
 
 logger = logging.getLogger(__name__)
@@ -32,9 +39,7 @@ class ChatLLMConfigurationError(ChatLLMError):
 class RecommendationConditions(BaseModel):
     occasion: str
     season: str
-    presentation_groups: list[
-        Literal["women", "men", "woman", "man", "unisex"]
-    ]
+    presentation_groups: list[Literal["women", "men", "woman", "man", "unisex"]]
     styles: list[str]
     colors: list[str]
     fits: list[str]
@@ -204,6 +209,21 @@ class OpenAIChatAdapter:
                 "previous_summary": previous_summary,
                 "messages": messages,
             },
+        )
+
+    def generate_experimental_hypotheses(
+        self,
+        *,
+        identity_id: str,
+        context: dict,
+    ) -> LLMResult[ExperimentalHypothesisCandidateBatch]:
+        """ID 없는 개인화 요약으로 실험형 검색 가설 두 개를 생성한다."""
+
+        return self._parse(
+            schema=ExperimentalHypothesisCandidateBatch,
+            instructions=EXPERIMENTAL_HYPOTHESIS_INSTRUCTIONS,
+            identity_id=identity_id,
+            payload=build_experimental_hypothesis_payload(context),
         )
 
     def explain_recommendation(

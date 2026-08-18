@@ -1,14 +1,15 @@
-import { useSyncExternalStore } from 'react';
+import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react';
 
 import { Editorial } from '@/constants/theme';
 import {
   createSession as apiCreateSession,
   decideMood as apiDecideMood,
   deleteSession as apiDeleteSession,
-  listMessages as apiListMessages,
   listSessions as apiListSessions,
   newClientMessageId,
+  pageMessages as apiPageMessages,
   renameSession as apiRenameSession,
+  searchSessions as apiSearchSessions,
   sendMessage as apiSendMessage,
   startMoodAnalysis as apiStartMoodAnalysis,
   uploadAttachment as apiUploadAttachment,
@@ -16,17 +17,24 @@ import {
   type ApiChatMode,
   type ApiChatRun,
   type ApiChatSession,
-  type ApiMoodAnalysis,
+  type ApiChatSessionSearchItem,
   type ApiMoodDecision,
+  type ApiMoodDecisionInput,
+  type ApiMoodAnalysis,
 } from '@/lib/chatApi';
 import { isAnswered, waitForRun, waitForStylistRun } from '@/lib/chatStream';
 import {
   getRecommendationResult,
   imageUrlOf,
   type ApiRecommendationCard,
+  type ApiRenderJob,
+  type ApiRenderStatus,
 } from '@/lib/recommendApi';
 import {
+  getStylistRun,
+  getCardRenderStatus as apiGetCardRenderStatus,
   requestAlternative as apiRequestAlternative,
+  renderCard as apiRenderCard,
   retryPersona as apiRetryPersona,
   saveCard as apiSaveCard,
   updateResponseMode as apiUpdateResponseMode,
@@ -91,7 +99,10 @@ export type ChatMessage =
   | { id: string; role: 'ai' | 'user'; kind: 'text'; text: string }
   /** 사용자가 올린 사진. uri 가 없던 시절(목업)에도 말풍선은 떠서 optional 로 둔다. */
   | { id: string; role: 'user'; kind: 'image'; uri?: string }
-  /** 첨부한 사진에서 읽어낸 무드 — 추구미로 삼을지 묻는 카드 */
+  /**
+   * 첨부한 사진에서 읽어낸 무드 — 추구미로 삼을지 묻는 카드.
+   * `decision` 이 UNDECIDED 일 때만 고를 수 있다. 서버가 첫 결정만 받으므로 번복은 없다.
+   */
   | {
       id: string;
       role: 'ai';
@@ -102,6 +113,7 @@ export type ChatMessage =
       summary: string;
       /** null 이면 아직 안 고른 상태 — 그때만 버튼을 보여준다. */
       decision: 'APPROVED' | 'REJECTED' | null;
+      //decision: ApiMoodDecision;
     }
   | { id: string; role: 'user'; kind: 'closet_items'; items: { id: string; image: string; name: string }[] }
   /**
@@ -114,6 +126,9 @@ export type ChatMessage =
       id: string;
       role: 'ai';
       kind: 'rec';
+      /** 카드 상세·피드백·이미지 API 를 부를 때 쓰는 두 값 (/rec-card 로 넘긴다). */
+      resultId: string;
+      cardId: string;
       title: string;
       tags: string[];
       items: RecItem[];
@@ -167,6 +182,10 @@ export type StylistCard = {
   alternating: boolean;
   alternativeCount: number;
   saved: boolean;
+  /** 선택한 카드에만 생기는 코디 이미지 작업 상태. */
+  renderStatus: ApiRenderStatus | null;
+  renderImageUrl: string | null;
+  renderErrorText: string | null;
 };
 
 export type ChatSession = {
@@ -185,6 +204,11 @@ export type ChatSession = {
   timeline: ChatMessage[];
   /** 대화를 한 번이라도 열어 메시지를 받아왔는지. 목록만 받은 세션은 false 다. */
   messagesLoaded: boolean;
+  /**
+   * 더 오래된 메시지를 받아올 커서. null 이면 처음까지 다 받았다는 뜻이다.
+   * 화면은 이 값으로 '이전 대화 더 보기'를 그릴지 정한다.
+   */
+  olderCursor: string | null;
   /** 다음 질문을 어떻게 답할지. 대화방을 옮기지 않고 이 값만 바뀐다. */
   responseMode: ApiResponseMode;
   /** STYLIST 일 때 답할 스타일리스트들 (1~3명). 끄더라도 지우지 않는다 — 다시 켜면 복원한다. */
@@ -209,61 +233,22 @@ export function formatRelativeTime(ts: number, now: number = Date.now()): string
   return `${d.getMonth() + 1}월 ${d.getDate()}일`;
 }
 
-/** 목록에 한 줄로 보여줄 마지막 대화. 추천 카드·사진은 문구가 없으니 대신할 말을 준다. */
-export function sessionPreview(session: ChatSession): string {
-  const last = session.messages[session.messages.length - 1];
-  if (!last) return session.messagesLoaded ? '아직 대화가 없어요' : '';
-  if (last.kind === 'text') return last.text.replace(/\n/g, ' ');
-  if (last.kind === 'rec') return `추천 · ${last.title}`;
-  if (last.kind === 'mood') return `추구미 · ${last.tags.join(' ')}`;
-  if (last.kind === 'error') return '답변을 받지 못했어요';
-  return '사진을 보냈어요';
-}
-
-/** 검색이 훑을 글자. 사진 말풍선은 글자가 없어 검색되지 않는다. */
-function searchableText(m: ChatMessage): string {
-  if (m.kind === 'text') return m.text;
-  if (m.kind === 'rec') return `${m.title} ${m.tags.join(' ')}`;
-  if (m.kind === 'mood') return m.tags.join(' ');
-  /* 오류 줄은 검색 대상이 아니다 — 대화 내용이 아니라 상태 표시라, 검색어에 걸리면
-     엉뚱한 대화가 결과로 올라온다. */
-  return '';
-}
-
-/**
- * 제목과 대화 내용으로 찾는다. 대소문자 구분 없는 부분 일치.
- *
- * ⚠️ 아직 연 적 없는 세션은 메시지가 비어 있어 **제목으로만** 걸린다.
- *    서버에 /chat/sessions/search/ 가 있으니 그걸로 옮기면 본문까지 찾을 수 있다.
- */
-export function sessionMatches(session: ChatSession, query: string): boolean {
-  const q = query.trim().toLowerCase();
-  if (!q) return true;
-  if (session.title.toLowerCase().includes(q)) return true;
-  return session.messages.some((m) => searchableText(m).toLowerCase().includes(q));
-}
-
-/**
- * 검색 결과의 미리보기 — 검색어가 걸린 말풍선을 보여준다.
- * 마지막 대화를 그대로 두면 '왜 이게 결과인지' 알 수 없다.
- */
-export function searchPreview(session: ChatSession, query: string): string {
-  const q = query.trim().toLowerCase();
-  if (!q) return sessionPreview(session);
-  const hit = session.messages.find((m) => searchableText(m).toLowerCase().includes(q));
-  if (!hit) return sessionPreview(session);
-  if (hit.kind === 'rec') return `추천 · ${hit.title}`;
-  if (hit.kind === 'mood') return `추구미 · ${hit.tags.join(' ')}`;
-  return searchableText(hit).replace(/\n/g, ' ');
-}
+/* 검색은 서버가 한다 (useSessionSearch). 앱이 받아둔 대화만 훑으면 한 번도 열지 않은
+   대화가 제목으로만 걸려, 사용자에게는 "분명 그 말을 했는데 안 찾아진다"로 보인다. */
 
 /* ── 서버 응답 옮기기 ───────────────────────────────── */
 
-function toRecMessage(messageId: string, card: ApiRecommendationCard): ChatMessage {
+function toRecMessage(
+  messageId: string,
+  resultId: string,
+  card: ApiRecommendationCard,
+): ChatMessage {
   return {
     id: `${messageId}-r${card.card_id}`,
     role: 'ai',
     kind: 'rec',
+    resultId,
+    cardId: card.card_id,
     /* 서버가 코디에 이름을 붙이지 않는다. 없는 이름을 지어내면 추천마다 다른 작명 규칙이
        생기므로 순위를 그대로 쓴다. */
     title: `추천 코디 ${card.rank}`,
@@ -338,6 +323,13 @@ function toMessages(
   const role = api.role === 'USER' ? 'user' : 'ai';
   const out: ChatMessage[] = [];
 
+  /* 무드 카드는 말풍선을 대신한다 — 서버 문장("…무드가 보여요. 반영할까요?")과 카드가
+     같은 말을 하므로 둘 다 그리면 같은 질문이 두 번 나온다. */
+  if (role === 'ai') {
+    const mood = toMoodMessage(api, decisions);
+    if (mood) return [mood];
+  }
+
   if (role === 'user') {
     for (const a of api.attachments) {
       out.push({ id: `${api.id}-a${a.id}`, role: 'user', kind: 'image', uri: a.image_url ?? undefined });
@@ -353,7 +345,12 @@ function toMessages(
 
   const text = api.content.trim();
   if (text) out.push({ id: api.id, role, kind: 'text', text });
-  for (const card of cards) out.push(toRecMessage(api.id, card));
+  /* 카드가 있다는 건 이 답변에 추천 id 가 붙어 있다는 뜻이다(카드를 그걸로 받아왔다).
+     상세·피드백 API 가 result 와 card 둘 다 요구해서 카드에 함께 실어 둔다. */
+  const resultId = recommendationIdOf(api);
+  if (resultId) {
+    for (const card of cards) out.push(toRecMessage(api.id, resultId, card));
+  }
 
   /* 답변 생성이 실패하면 서버가 **질문 메시지**를 FAILED 로 표시한다(답변 메시지는 아예 없다).
      그 표시를 읽어 오류 줄을 만들면 대화를 다시 열어도 남는다.
@@ -404,6 +401,38 @@ async function fetchCards(list: ApiChatMessage[]): Promise<Map<string, ApiRecomm
   return byMessage;
 }
 
+/** 스타일리스트 답변은 metadata에 run_id와 recommendation_result_ids 배열을 함께 남긴다. */
+function stylistRunIdOf(message: ApiChatMessage): string | null {
+  if (message.role !== 'ASSISTANT') return null;
+  if (!Array.isArray(message.metadata?.recommendation_result_ids)) return null;
+  const runId = message.metadata?.run_id;
+  return typeof runId === 'string' && runId ? runId : null;
+}
+
+/** 다시 연 대화에서도 스타일리스트 카드를 복원할 수 있도록 메시지가 가리키는 run을 조회한다. */
+async function fetchStylistRuns(list: ApiChatMessage[]): Promise<Map<string, ApiStylistRun>> {
+  const targets = list
+    .map((message) => ({ messageId: message.id, runId: stylistRunIdOf(message) }))
+    .filter((target): target is { messageId: string; runId: string } => target.runId !== null);
+  if (targets.length === 0) return new Map();
+
+  const uniqueRunIds = [...new Set(targets.map((target) => target.runId))];
+  const fetched = await Promise.all(
+    uniqueRunIds.map((runId) =>
+      getStylistRun(runId)
+        .then((run) => [runId, run] as const)
+        .catch(() => [runId, null] as const),
+    ),
+  );
+  const byRunId = new Map(fetched);
+  const byMessage = new Map<string, ApiStylistRun>();
+  for (const target of targets) {
+    const run = byRunId.get(target.runId);
+    if (run) byMessage.set(target.messageId, run);
+  }
+  return byMessage;
+}
+
 function toSession(api: ApiChatSession, previous?: ChatSession): ChatSession {
   return {
     id: api.id,
@@ -413,6 +442,7 @@ function toSession(api: ApiChatSession, previous?: ChatSession): ChatSession {
     messages: previous?.messages ?? [],
     timeline: previous?.timeline ?? [],
     messagesLoaded: previous?.messagesLoaded ?? false,
+    olderCursor: previous?.olderCursor ?? null,
     /* ⚠️ 서버가 이 필드를 **안 줄 수도 있다**(배포 서버가 아직 스타일리스트 이전 버전).
        없을 때 DEFAULT 로 덮으면 방금 켠 모드가 목록 새로고침 한 번에 꺼진다. */
     responseMode: api.response_mode ?? previous?.responseMode ?? 'DEFAULT',
@@ -421,11 +451,79 @@ function toSession(api: ApiChatSession, previous?: ChatSession): ChatSession {
   };
 }
 
+/* ── 받아둔 원본 ─────────────────────────────────────
+   말풍선(ChatMessage)만 들고 있으면 페이지를 이어 붙일 수 없다 — 말풍선에는 sequence 가
+   없어서 "어디까지 이미 갖고 있는지"를 알 수 없고, 서버 메시지 하나가 말풍선 여러 개로
+   갈라지기도 한다. 그래서 서버가 준 모양 그대로 세션별로 보관하고, 화면용 말풍선은
+   여기서 매번 다시 만든다(rebuild). */
+const rawMessages = new Map<string, ApiChatMessage[]>();
+const rawCards = new Map<string, Map<string, ApiRecommendationCard[]>>();
+
+/** 한 번에 받아올 메시지 수. 서버 상한은 100이다. */
+const MESSAGE_PAGE_SIZE = 50;
+/** 검색 한 페이지. 서버 상한은 50이다. */
+const SEARCH_PAGE_SIZE = 20;
+
+/** 한 세션의 원본을 지운다. 대화를 지웠을 때 남겨두면 같은 id 가 다시 생겨도 옛 내용이 붙는다. */
+function forgetRaw(id: string): void {
+  rawMessages.delete(id);
+  rawCards.delete(id);
+  overlays.delete(id);
+}
+
+/** 받아둔 원본 → 말풍선. 페이지를 더 받거나 결정이 바뀔 때마다 다시 만든다. */
+function rebuild(id: string): void {
+  const list = rawMessages.get(id) ?? [];
+  const cards = rawCards.get(id) ?? new Map<string, ApiRecommendationCard[]>();
+  const decisions = collectDecisions(list);
+  replaceSession(id, (s) => ({
+    ...s,
+    messages: list.flatMap((m) => toMessages(m, cards.get(m.id), decisions)),
+    messagesLoaded: true,
+  }));
+}
+
+/**
+ * 새로 받은 페이지를 이미 갖고 있던 원본에 합친다.
+ *
+ * sequence 로 겹치는 구간을 걷어내고 순서대로 다시 세운다. 재전송·재조회로 같은 메시지가
+ * 두 번 오는 일이 있고(질문을 보낸 뒤 최신 페이지를 다시 받는다), 그때 말풍선이 두 벌
+ * 생기면 대화가 반복된 것처럼 보인다.
+ */
+function mergeRaw(id: string, incoming: ApiChatMessage[]): void {
+  const arrived = new Set(incoming.map((m) => m.sequence));
+  const merged = [
+    ...(rawMessages.get(id) ?? []).filter((m) => !arrived.has(m.sequence)),
+    ...incoming,
+  ].sort((a, b) => a.sequence - b.sequence);
+  rawMessages.set(id, merged);
+}
+
+function mergeCards(id: string, incoming: Map<string, ApiRecommendationCard[]>): void {
+  const current = rawCards.get(id) ?? new Map<string, ApiRecommendationCard[]>();
+  for (const [messageId, cards] of incoming) current.set(messageId, cards);
+  rawCards.set(id, current);
+}
+
+/**
+ * 새로 받은 최근 묶음이 이미 갖고 있는 구간과 이어지는지.
+ *
+ * 대화를 열어 최근 50개를 받아둔 뒤 다른 기기에서 50개 넘게 오갔다면, 다시 받은 최근
+ * 50개는 갖고 있던 것보다 **한참 뒤**라 사이에 못 받은 메시지가 생긴다. 그걸 그냥 이어
+ * 붙이면 대화 중간이 조용히 비어버린다 — 사용자에게는 안 한 말을 한 것처럼 보인다.
+ */
+function canStitch(id: string, incoming: ApiChatMessage[]): boolean {
+  const held = rawMessages.get(id) ?? [];
+  if (held.length === 0 || incoming.length === 0) return false;
+  return incoming[0].sequence <= held[held.length - 1].sequence + 1;
+}
+
 /* ── 타임라인에 끼워 넣는 것들 ───────────────────────
-   서버 대화에 없는 두 가지(모드 구분선·스타일리스트 카드)를 세션별로 따로 들고 있다가
+   서버 메시지 배열에 직접 들어있지 않은 모드 구분선·스타일리스트 카드를 세션별로 들고 있다가
    messages 사이에 끼워 넣는다. 붙는 자리는 **바로 앞 말풍선의 id** 로 기억한다 —
    대화를 다시 받아와도 그 말풍선은 같은 id 로 돌아오므로 자리를 잃지 않는다.
-   (앱을 껐다 켜면 사라진다. 서버에 남는 값이 아니라 이번 실행에서만 유효한 표시다.) */
+   스타일리스트 카드는 메시지 metadata의 run_id로 다시 조회해 복원하고, 화면에서만 만든
+   모드 구분선은 현재 실행 동안만 유지한다. */
 
 type Overlay = { id: string; after: string | null; message: ChatMessage };
 
@@ -539,6 +637,9 @@ function toStylistCard(r: ApiPersonaResult): StylistCard {
     alternating: r.alternative_status === 'PENDING' || r.alternative_status === 'RUNNING',
     alternativeCount: r.alternative_count,
     saved: card?.is_saved ?? false,
+    renderStatus: card?.image?.status ?? null,
+    renderImageUrl: card?.image?.image_url ?? null,
+    renderErrorText: card?.image?.error?.message ?? null,
   };
 }
 
@@ -560,6 +661,9 @@ function pendingCard(personaId: StylistId): StylistCard {
     alternating: false,
     alternativeCount: 0,
     saved: false,
+    renderStatus: null,
+    renderImageUrl: null,
+    renderErrorText: null,
   };
 }
 
@@ -651,6 +755,122 @@ function applyRunProgress(sessionId: string, runId: string, run: ApiStylistRun) 
   updateOverlay(sessionId, overlayId, toStylistMessage(overlayId, runId, run));
 }
 
+/** 메시지와 함께 다시 조회한 run을 타임라인 카드로 복원하거나 최신 상태로 교체한다. */
+function mergeStylistOverlays(
+  sessionId: string,
+  runsByMessage: Map<string, ApiStylistRun>,
+): void {
+  if (runsByMessage.size === 0) return;
+  const current = [...overlaysOf(sessionId)];
+  for (const [messageId, run] of runsByMessage) {
+    const overlayId = stylistOverlayId(run.id);
+    const restored: Overlay = {
+      id: overlayId,
+      after: messageId,
+      message: toStylistMessage(overlayId, run.id, run),
+    };
+    const index = current.findIndex((overlay) => overlay.id === overlayId);
+    if (index >= 0) current[index] = restored;
+    else current.push(restored);
+  }
+  overlays.set(sessionId, current);
+}
+
+const STYLIST_RENDER_POLL_MS = 1500;
+const STYLIST_RENDER_TIMEOUT_MS = 2 * 60 * 1000;
+
+function renderPatch(job: ApiRenderJob): Pick<
+  StylistCard,
+  'renderStatus' | 'renderImageUrl' | 'renderErrorText'
+> {
+  return {
+    renderStatus: job.status,
+    renderImageUrl: job.image_url,
+    renderErrorText: job.error?.message ?? null,
+  };
+}
+
+function updateStylistRender(
+  sessionId: string,
+  runId: string,
+  personaId: StylistId,
+  resultId: string,
+  cardId: string,
+  patch: Pick<StylistCard, 'renderStatus' | 'renderImageUrl' | 'renderErrorText'>,
+): boolean {
+  const overlayId = stylistOverlayId(runId);
+  const current = overlaysOf(sessionId).find((o) => o.id === overlayId)?.message;
+  if (!current || current.kind !== 'stylist') return false;
+  const target = current.cards.find((card) => card.personaId === personaId);
+  // 다른 추천으로 카드가 교체된 뒤 옛 이미지 폴링 결과가 새 카드에 붙지 않게 한다.
+  if (target?.resultId !== resultId || target.cardId !== cardId) return false;
+  updateOverlay(
+    sessionId,
+    overlayId,
+    patchCard(current, personaId, (card) => ({ ...card, ...patch })),
+  );
+  return true;
+}
+
+async function watchStylistRender(
+  sessionId: string,
+  runId: string,
+  personaId: StylistId,
+  resultId: string,
+  cardId: string,
+): Promise<void> {
+  const startedAt = Date.now();
+  while (Date.now() - startedAt < STYLIST_RENDER_TIMEOUT_MS) {
+    await new Promise((resolve) => setTimeout(resolve, STYLIST_RENDER_POLL_MS));
+    const job = await apiGetCardRenderStatus(resultId, cardId);
+    if (!job) continue;
+    if (!updateStylistRender(sessionId, runId, personaId, resultId, cardId, renderPatch(job))) {
+      return;
+    }
+    if (job.status === 'SUCCEEDED' || job.status === 'FAILED') return;
+  }
+  updateStylistRender(sessionId, runId, personaId, resultId, cardId, {
+    renderStatus: 'FAILED',
+    renderImageUrl: null,
+    renderErrorText: '이미지 생성 확인 시간이 초과됐어요. 다시 시도해 주세요.',
+  });
+}
+
+async function startStylistRender(
+  sessionId: string,
+  runId: string,
+  personaId: StylistId,
+  resultId: string,
+  cardId: string,
+): Promise<boolean> {
+  updateStylistRender(sessionId, runId, personaId, resultId, cardId, {
+    renderStatus: 'QUEUED',
+    renderImageUrl: null,
+    renderErrorText: null,
+  });
+  try {
+    const job = await apiRenderCard(resultId, cardId);
+    updateStylistRender(sessionId, runId, personaId, resultId, cardId, renderPatch(job));
+    if (job.status !== 'SUCCEEDED' && job.status !== 'FAILED') {
+      void watchStylistRender(sessionId, runId, personaId, resultId, cardId).catch((error) => {
+        updateStylistRender(sessionId, runId, personaId, resultId, cardId, {
+          renderStatus: 'FAILED',
+          renderImageUrl: null,
+          renderErrorText: messageOf(error, '이미지 생성 상태를 확인하지 못했어요.'),
+        });
+      });
+    }
+    return job.status !== 'FAILED';
+  } catch (error) {
+    updateStylistRender(sessionId, runId, personaId, resultId, cardId, {
+      renderStatus: 'FAILED',
+      renderImageUrl: null,
+      renderErrorText: messageOf(error, '코디 이미지를 만들지 못했어요.'),
+    });
+    return false;
+  }
+}
+
 function sameIds(a: StylistId[], b: StylistId[]): boolean {
   return a.length === b.length && a.every((id, i) => id === b[i]);
 }
@@ -702,6 +922,18 @@ function messageOf(e: unknown, fallback: string): string {
   return e instanceof Error && e.message ? e.message : fallback;
 }
 
+/**
+ * 목록을 다시 받아 서버가 정한 제목·순서에 맞춘다.
+ * 실패해도 대화는 이미 화면에 있으니 조용히 넘어간다.
+ */
+async function syncSessionList(): Promise<void> {
+  const fresh = await apiListSessions().catch(() => null);
+  if (!fresh) return;
+  const before = new Map(sessions.map((s) => [s.id, s]));
+  sessions = sortByRecent(fresh.map((s) => toSession(s, before.get(s.id))));
+  notify();
+}
+
 export const chatStore = {
   getSessions: () => sessions,
   getSession: (id: string | undefined) =>
@@ -727,18 +959,60 @@ export const chatStore = {
     }
   },
 
-  /** 대화 내용 받아오기. 이미 받아둔 세션은 다시 부르지 않는다(force 로 강제). */
+  /**
+   * 대화 내용 받아오기 — **최근 한 묶음**만 받는다. 이미 받아둔 세션은 건너뛴다(force 로 강제).
+   *
+   * 전체를 한 번에 받던 때는 대화가 길어질수록 열 때마다 느려졌고, 첨부·추천이 붙은
+   * 메시지는 카드 조회까지 그만큼 늘어났다. 더 예전 대화는 화면에서 눌러 받아온다
+   * (loadOlderMessages).
+   *
+   * force 로 다시 받아도 이미 받아둔 예전 페이지는 지우지 않는다 — 질문 하나 보낼 때마다
+   * 스크롤이 최근 묶음으로 잘려나가면 방금 읽던 자리를 잃는다.
+   */
   async loadMessages(id: string, options: { force?: boolean } = {}): Promise<void> {
     const current = sessions.find((s) => s.id === id);
     if (!options.force && current?.messagesLoaded) return;
-    const list = await apiListMessages(id);
-    const cards = await fetchCards(list);
-    const decisions = collectDecisions(list);
-    replaceSession(id, (s) => ({
-      ...s,
-      messages: list.flatMap((m) => toMessages(m, cards.get(m.id), decisions)),
-      messagesLoaded: true,
-    }));
+
+    const page = await apiPageMessages(id, { limit: MESSAGE_PAGE_SIZE });
+    const [cards, stylistRuns] = await Promise.all([
+      fetchCards(page.items),
+      fetchStylistRuns(page.items),
+    ]);
+
+    if (canStitch(id, page.items)) {
+      /* 이미 갖고 있던 구간과 이어진다. 그때의 커서가 여전히 '그보다 더 오래된' 자리를
+         가리키므로 그대로 둔다 — 이번 응답의 커서는 최근 묶음 기준이라 덮어쓰면 중간이 빈다. */
+      mergeCards(id, cards);
+      mergeRaw(id, page.items);
+    } else {
+      /* 이어지지 않는다 = 갖고 있던 구간과 이번 묶음 사이에 못 받은 메시지가 있다
+         (다른 기기에서 한참 대화했을 때). 중간이 빈 대화를 보여주느니 최근 묶음만
+         남기고 '이전 대화 더 보기'로 되돌린다. */
+      rawMessages.set(id, page.items);
+      rawCards.set(id, cards);
+      replaceSession(id, (s) => ({ ...s, olderCursor: page.next_cursor ?? null }));
+    }
+    mergeStylistOverlays(id, stylistRuns);
+    rebuild(id);
+  },
+
+  /** '이전 대화 더 보기'. 커서가 없으면(처음까지 다 받았으면) 아무 일도 하지 않는다. */
+  async loadOlderMessages(id: string): Promise<void> {
+    const cursor = sessions.find((s) => s.id === id)?.olderCursor;
+    if (!cursor) return;
+    const page = await apiPageMessages(id, {
+      limit: MESSAGE_PAGE_SIZE,
+      cursor,
+    });
+    const [cards, stylistRuns] = await Promise.all([
+      fetchCards(page.items),
+      fetchStylistRuns(page.items),
+    ]);
+    mergeCards(id, cards);
+    mergeRaw(id, page.items);
+    replaceSession(id, (s) => ({ ...s, olderCursor: page.next_cursor ?? null }));
+    mergeStylistOverlays(id, stylistRuns);
+    rebuild(id);
   },
 
   /**
@@ -776,6 +1050,7 @@ export const chatStore = {
     notify();
     try {
       await apiDeleteSession(id);
+      forgetRaw(id);
     } catch (e) {
       sessions = previous;
       notify();
@@ -834,14 +1109,7 @@ export const chatStore = {
       }));
     }
 
-    if (isAnswered(run.status)) {
-      const fresh = await apiListSessions().catch(() => null);
-      if (fresh) {
-        const before = new Map(sessions.map((s) => [s.id, s]));
-        sessions = sortByRecent(fresh.map((s) => toSession(s, before.get(s.id))));
-        notify();
-      }
-    }
+    if (isAnswered(run.status)) await syncSessionList();
     return run;
   },
 
@@ -865,17 +1133,6 @@ export const chatStore = {
     if (run.status === 'FAILED') {
       throw new Error(run.error_message || '사진에서 무드를 읽지 못했어요');
     }
-  },
-
-  /**
-   * 읽어낸 무드를 추천 조건에 반영할지 정한다.
-   *
-   * ⚠️ 승인해도 **추천이 바로 만들어지지 않는다.** 세션 조건에만 반영되고, 다음 질문부터
-   *    그 무드가 쓰인다. 그래서 화면은 승인 뒤에 무엇을 하면 되는지 알려줘야 한다.
-   */
-  async decideMood(id: string, attachmentId: string, decision: 'APPROVE' | 'REJECT'): Promise<void> {
-    await apiDecideMood(id, attachmentId, decision);
-    await this.loadMessages(id, { force: true });
   },
 
   /* ── 스타일리스트 모드 ───────────────────────────── */
@@ -997,11 +1254,15 @@ export const chatStore = {
     });
   },
 
-  /** 고른 코디를 내 룩으로 저장한다. 화면을 먼저 바꾸고, 실패하면 되돌린다. */
-  async saveStylistCard(sessionId: string, runId: string, personaId: StylistId): Promise<void> {
+  /** 고른 코디를 저장한 뒤 해당 카드 한 장의 이미지 생성만 접수한다. */
+  async saveStylistCard(
+    sessionId: string,
+    runId: string,
+    personaId: StylistId,
+  ): Promise<{ renderStarted: boolean }> {
     const overlayId = stylistOverlayId(runId);
     const current = overlaysOf(sessionId).find((o) => o.id === overlayId)?.message;
-    if (!current || current.kind !== 'stylist') return;
+    if (!current || current.kind !== 'stylist') throw new Error('추천 카드를 찾지 못했어요');
     const card = current.cards.find((c) => c.personaId === personaId);
     if (!card?.resultId || !card.cardId) throw new Error('아직 저장할 코디가 없어요');
 
@@ -1019,6 +1280,61 @@ export const chatStore = {
       }
       throw e;
     }
+    return {
+      renderStarted: await startStylistRender(
+        sessionId,
+        runId,
+        personaId,
+        card.resultId,
+        card.cardId,
+      ),
+    };
+  },
+
+  /** 추천은 그대로 둔 채 실패한 이미지 작업만 다시 접수한다. */
+  async retryStylistRender(
+    sessionId: string,
+    runId: string,
+    personaId: StylistId,
+  ): Promise<boolean> {
+    const overlayId = stylistOverlayId(runId);
+    const current = overlaysOf(sessionId).find((o) => o.id === overlayId)?.message;
+    if (!current || current.kind !== 'stylist') return false;
+    const card = current.cards.find((row) => row.personaId === personaId);
+    if (!card?.resultId || !card.cardId) throw new Error('이미지를 만들 코디가 없어요');
+    return startStylistRender(sessionId, runId, personaId, card.resultId, card.cardId);
+  },
+
+  /**
+   * 무드 카드의 두 버튼.
+   * APPROVE 면 사진에서 읽은 표준 태그가 세션 추천 조건에 들어가고, REJECT 면 분석 기록만
+   * 남는다. 서버가 **첫 결정만** 받으므로(번복하면 409) 카드도 한 번만 바뀐다.
+   */
+  async decideMood(
+    sessionId: string,
+    attachmentId: string,
+    decision: ApiMoodDecisionInput,
+  ): Promise<void> {
+    const result = await apiDecideMood(sessionId, attachmentId, decision);
+    const decided: ApiMoodDecision =
+      result.attachment.mood_decision ?? (decision === 'APPROVE' ? 'APPROVED' : 'REJECTED');
+    /* 결정은 첨부에 달려 있다. 말풍선만 고치면 페이지를 더 받아 다시 그릴 때(rebuild)
+       서버에서 온 옛 값으로 되돌아가 버튼이 되살아난다. */
+    const list = rawMessages.get(sessionId);
+    if (list) {
+      rawMessages.set(
+        sessionId,
+        list.map((message) => ({
+          ...message,
+          attachments: message.attachments.map((attachment) =>
+            attachment.id === attachmentId
+              ? { ...attachment, mood_decision: decided }
+              : attachment,
+          ),
+        })),
+      );
+    }
+    rebuild(sessionId);
   },
 
   subscribe(listener: () => void) {
@@ -1062,13 +1378,114 @@ export function useLatestSession(): ChatSession | undefined {
   return sortByRecent(all)[0];
 }
 
+/** 검색 결과 한 줄. preview 는 검색어가 걸린 메시지이고, 제목만 걸렸으면 비어 있다. */
+export type SearchedSession = {
+  session: ChatSession;
+  preview: string;
+};
+
+export type SessionSearchState = {
+  items: SearchedSession[];
+  /** 서버가 센 전체 건수. 지금 받아온 items 보다 클 수 있다. */
+  totalCount: number;
+  loading: boolean;
+  error: string | null;
+  hasMore: boolean;
+  loadMore: () => void;
+};
+
+/** 사용자가 글자를 칠 때마다 서버를 부르지 않도록 잠깐 기다린다. */
+const SEARCH_DEBOUNCE_MS = 300;
+
+function toSearched(item: ApiChatSessionSearchItem): SearchedSession {
+  return {
+    // 이미 받아둔 세션이 있으면 그 대화 내용을 유지한 채 제목·시각만 새로 맞춘다.
+    session: toSession(item, sessions.find((s) => s.id === item.id)),
+    preview: item.search_match?.preview ?? '',
+  };
+}
+
 /**
- * 검색 결과 — 모드로 묶지 않고 최근 순 한 줄로 준다.
- * 찾는 사람은 '어느 모드였는지'가 아니라 '어느 대화였는지'를 좇는다.
+ * 서버에서 대화를 찾는다 — 제목뿐 아니라 **저장된 메시지 본문**까지 걸린다.
+ *
+ * 검색어가 바뀌면 첫 페이지부터 다시 받는다. 서버가 커서에 검색어를 함께 서명해 두기
+ * 때문이기도 하고, 이전 검색 결과가 남아 있으면 새 검색어의 결과처럼 읽히기 때문이다.
+ *
+ * 응답이 늦게 도착해 순서가 뒤집히는 일이 있어(짧은 검색어일수록 결과가 많아 느리다)
+ * 요청마다 번호를 매기고 **마지막 요청의 응답만** 반영한다.
  */
-export function useSearchedSessions(query: string): ChatSession[] {
-  const all = useChatSessions();
-  return sortByRecent(all.filter((s) => sessionMatches(s, query)));
+export function useSessionSearch(query: string): SessionSearchState {
+  const trimmed = query.trim();
+  const [items, setItems] = useState<SearchedSession[]>([]);
+  const [totalCount, setTotalCount] = useState(0);
+  const [cursor, setCursor] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const requestId = useRef(0);
+
+  useEffect(() => {
+    if (!trimmed) {
+      requestId.current += 1; // 진행 중인 검색의 응답을 버린다
+      return;
+    }
+
+    const current = ++requestId.current;
+    const timer = setTimeout(() => {
+      setLoading(true);
+      setError(null);
+      apiSearchSessions(trimmed, { limit: SEARCH_PAGE_SIZE })
+        .then((page) => {
+          if (requestId.current !== current) return;
+          setItems(page.items.map(toSearched));
+          setTotalCount(page.total_count);
+          setCursor(page.next_cursor ?? null);
+        })
+        .catch((e) => {
+          if (requestId.current !== current) return;
+          setError(messageOf(e, '검색하지 못했어요'));
+          setItems([]);
+          setTotalCount(0);
+          setCursor(null);
+        })
+        .finally(() => {
+          if (requestId.current === current) setLoading(false);
+        });
+    }, SEARCH_DEBOUNCE_MS);
+
+    return () => clearTimeout(timer);
+  }, [trimmed]);
+
+  const loadMore = useCallback(() => {
+    if (!cursor || loading || !trimmed) return;
+    const current = ++requestId.current;
+    setLoading(true);
+    apiSearchSessions(trimmed, { limit: SEARCH_PAGE_SIZE, cursor })
+      .then((page) => {
+        if (requestId.current !== current) return;
+        setItems((previous) => [...previous, ...page.items.map(toSearched)]);
+        setTotalCount(page.total_count);
+        setCursor(page.next_cursor ?? null);
+      })
+      .catch((e) => {
+        // 이미 보여준 결과는 남긴다 — 다음 페이지를 못 받았다고 앞 페이지까지 지우지 않는다.
+        if (requestId.current === current) setError(messageOf(e, '더 불러오지 못했어요'));
+      })
+      .finally(() => {
+        if (requestId.current === current) setLoading(false);
+      });
+  }, [cursor, loading, trimmed]);
+
+  if (!trimmed) {
+    return {
+      items: [],
+      totalCount: 0,
+      loading: false,
+      error: null,
+      hasMore: false,
+      loadMore,
+    };
+  }
+  return { items, totalCount, loading, error, hasMore: cursor !== null, loadMore };
 }
 
 /** 모드별로 묶은 목록 — 각 모드 안에서는 최근 대화가 위로 온다. */

@@ -11,14 +11,23 @@ from decimal import Decimal
 from typing import Any
 
 from django.conf import settings
-from django.db.models import Count, Max
+from django.utils import timezone
 
-from apps.chat.models import ChatIdentity, ChatMessage, ChatSession, PersonaProfile
+from apps.chat.models import (
+    ChatIdentity,
+    ChatMessage,
+    ChatRun,
+    ChatSession,
+    PersonaProfile,
+)
+from apps.chat.services.behavior_signals import load_user_behavior_signals
 from apps.chat.services.context_cache import JsonCache, RedisJsonCache
+from apps.chat.services.personalization_snapshot import (
+    load_personalization_source_versions,
+)
 from apps.users.constants import effective_category_budgets
-from apps.users.models import BodyMeasurement, Pursuit
+from apps.users.models import BodyMeasurement
 from apps.users.services.pursuit import get_pursuit
-from apps.wardrobe.models import WardrobeItem
 from apps.weather.services import get_current_weather, resolve_coordinates
 
 _SPACE_RE = re.compile(r"\s+")
@@ -124,18 +133,25 @@ class ChatContextService:
         *,
         session: ChatSession,
         request_message: ChatMessage,
+        current_run: ChatRun,
     ) -> ChatContext:
         if request_message.session_id != session.id:
             raise ValueError("요청 메시지가 채팅 세션에 속하지 않습니다.")
+        if current_run.session_id != session.id:
+            raise ValueError("현재 실행이 채팅 세션에 속하지 않습니다.")
+        if current_run.request_message_id != request_message.id:
+            raise ValueError("현재 실행의 요청 메시지가 일치하지 않습니다.")
 
         persona = get_active_persona(session)
         location = request_message.metadata.get("location") or {}
         lat, lon = resolve_coordinates(location.get("lat"), location.get("lon"))
         weather = _json_safe(get_current_weather(lat, lon))
+        as_of = timezone.localdate()
         source_versions = self._source_versions(
             identity=session.identity,
             persona=persona,
             weather=weather,
+            as_of=as_of,
         )
         base_fingerprint = fingerprint(source_versions)
         cache_key = (
@@ -157,9 +173,17 @@ class ChatContextService:
                 settings.CHAT_CONTEXT_CACHE_TTL_SECONDS,
             )
 
+        behavior_signals = None
+        if session.identity.user_id is not None:
+            behavior_signals = load_user_behavior_signals(
+                identity=session.identity,
+                current_run=current_run,
+                as_of=as_of,
+            )
         recent_messages = self._recent_messages(session, request_message)
         payload = {
             **base_context,
+            "behavior_signals": behavior_signals,
             "session": {
                 "id": str(session.id),
                 "mode": session.mode,
@@ -176,6 +200,8 @@ class ChatContextService:
                 "base_fingerprint": base_fingerprint,
                 "session_conditions": session.context_state or {},
                 "persona_version": persona.version,
+                "behavior_signals": behavior_signals,
+                "personalization_reference": current_run.personalization_snapshot,
             }
         )
         return ChatContext(
@@ -191,42 +217,16 @@ class ChatContextService:
         identity: ChatIdentity,
         persona: PersonaProfile,
         weather: dict[str, Any],
+        as_of: date,
     ) -> dict[str, Any]:
-        profile_version: dict[str, Any] = {
-            "identity_type": identity.identity_type,
-            "category_budgets": effective_category_budgets(None),
-        }
-        wardrobe_version: dict[str, Any] = {"count": 0, "updated_at": None}
-        if identity.user_id is not None:
-            pursuit_updated = (
-                Pursuit.objects.filter(user_id=identity.user_id)
-                .values_list("updated_at", flat=True)
-                .first()
-            )
-            body_updated = (
-                BodyMeasurement.objects.filter(user_id=identity.user_id)
-                .values_list("updated_at", flat=True)
-                .first()
-            )
-            profile_version.update(
-                {
-                    "user_id": identity.user_id,
-                    "pursuit_updated_at": pursuit_updated,
-                    "body_updated_at": body_updated,
-                    "category_budgets": effective_category_budgets(
-                        identity.user.category_budgets
-                    ),
-                }
-            )
-            wardrobe_version = WardrobeItem.objects.filter(
-                user_id=identity.user_id,
-                confirmed=True,
-            ).aggregate(count=Count("id"), updated_at=Max("updated_at"))
+        personalization = load_personalization_source_versions(
+            identity=identity,
+            as_of=as_of,
+        )
 
         return _json_safe(
             {
-                "profile": profile_version,
-                "wardrobe": wardrobe_version,
+                **personalization,
                 "weather": {
                     "region": weather.get("region"),
                     "observed_at": weather.get("observed_at"),

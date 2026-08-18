@@ -34,6 +34,7 @@ const CALENDAR_TAB = { name: 'calendar', href: '/calendar', icon: 'calendar', la
 const HIDDEN_ROUTES = [
   { name: 'chat-room', href: '/chat-room', icon: 'bubble.left', label: '대화' },
   { name: 'look-detail', href: '/look-detail', icon: 'book', label: '추천 룩' },
+  { name: 'rec-card', href: '/rec-card', icon: 'sparkles', label: '추천 코디' },
   { name: 'fitting', href: '/fitting', icon: 'sparkles', label: '가상 피팅' },
   { name: 'item-detail', href: '/item-detail', icon: 'tshirt', label: '아이템' },
   { name: 'saved-look', href: '/saved-look', icon: 'book', label: '저장 룩' },
@@ -74,9 +75,17 @@ export default function AppTabs() {
        날짜 칸이 세로로 길쭉해진다. 코디 추천은 화면 안의 '코디 추천받기'로 간다. */
   const showChatPanel =
     isWide &&
-    !['/chat', '/chat-room', '/chat-mode', '/calendar', '/look-detail', '/fitting', '/item-detail'].includes(
-      pathname,
-    );
+    ![
+      '/chat',
+      '/chat-room',
+      '/chat-mode',
+      '/calendar',
+      '/look-detail',
+      '/fitting',
+      '/item-detail',
+      // 추천 코디 상세도 그 자리를 아이템 목록에 쓴다.
+      '/rec-card',
+    ].includes(pathname);
 
   return (
     <Tabs style={[styles.root, isDesktop && styles.rootDesktop]}>

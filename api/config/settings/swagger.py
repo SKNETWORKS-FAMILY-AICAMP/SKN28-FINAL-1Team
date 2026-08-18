@@ -54,6 +54,22 @@ Swagger의 **채팅** 카테고리에 채팅 세션, 메시지, 사진 무드, �
 현재 Swagger 세션에서 앞선 API가 반환한 실제 UUID로 교체하세요. Redis worker,
 S3, OpenAI·이미지 모델이 필요한 비동기 API는 로컬 인프라와 환경변수가 준비돼야
 완료되며 실제 외부 모델 API 비용이 발생할 수 있습니다.
+
+## 선택형 스타일리스트 API를 Swagger에서 테스트하는 순서
+
+이 기능은 로그인 회원 전용입니다. 우측 상단 **Authorize**에 회원 access JWT를
+입력한 뒤 **선택형 스타일리스트** 카테고리에서 다음 순서로 테스트합니다.
+
+1. `GET /api/v1/chat/stylists/`로 선택 가능한 스타일리스트와 회원의 마지막 선택을
+   확인합니다.
+2. 아직 세션이 없다면 **채팅** 카테고리의 `POST /api/v1/chat/sessions/`를 호출하고
+   응답의 `id`를 복사합니다.
+3. `PATCH /api/v1/chat/sessions/{session_id}/response-mode/`의 `session_id`에 복사한
+   값을 넣고 `STYLIST` 요청 예시를 실행합니다.
+4. **채팅** 카테고리의 `POST .../messages/`로 메시지를 보내면 접수 시점의 모드와
+   선택값이 `ChatRun`에 고정됩니다.
+5. 다시 `PATCH .../response-mode/`에서 `DEFAULT` 예시를 실행해도 저장된 선택값과
+   이미 접수된 실행 스냅샷은 유지됩니다.
 """
 
 SPECTACULAR_SETTINGS = {
@@ -69,6 +85,13 @@ SPECTACULAR_SETTINGS = {
                 "회원·비회원 채팅, 세션·메시지, 사진 무드, 추천 카드·피드백, "
                 "최종 코디 이미지 생성 API"
             ),
-        }
+        },
+        {
+            "name": "선택형 스타일리스트",
+            "description": (
+                "회원 전용 스타일리스트 목록 조회와 채팅 세션의 "
+                "DEFAULT/STYLIST 응답 모드 변경 API"
+            ),
+        },
     ],
 }

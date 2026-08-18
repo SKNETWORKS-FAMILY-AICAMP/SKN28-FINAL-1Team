@@ -155,7 +155,7 @@ def build_points(
         payload={
             "source": "team_golden_set",
             "dataset_version": version,
-            "status": "PILOT",
+            "status": settings.dataset_status,
             "split": manifest.get("split", "KNOWLEDGE"),
             "golden_id": golden_id,
             # ── 리트리버가 필터·점수에 쓰는 축 ──

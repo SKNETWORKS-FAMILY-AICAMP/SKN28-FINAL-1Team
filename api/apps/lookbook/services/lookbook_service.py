@@ -36,6 +36,7 @@ from apps.style_calendar.services import calendar_service
 from apps.style_calendar.services import storage as calendar_storage
 from apps.wardrobe.models import WardrobeItem, WardrobeUploadJob
 from apps.wardrobe.services import storage as wardrobe_storage
+from apps.wardrobe.services.items import skipped_categories_for
 
 if TYPE_CHECKING:
     from django.core.files.uploadedfile import UploadedFile
@@ -175,17 +176,6 @@ def _owned_wardrobe_items(
     if len(item_by_id) != len(wardrobe_item_ids):
         raise WardrobeItemsNotFoundError
     return [item_by_id[item_id] for item_id in wardrobe_item_ids]
-
-
-def skipped_categories_for(items: Sequence[WardrobeItem]) -> list[str]:
-    """입은 옷이 이미 덮고 있는 대분류 — 사진 등록에서 제외할 부위.
-
-    판정 단위를 대분류(상의/하의/아우터…)로 둔 것은 사용자가 말한 "겹치는
-    부위"가 소분류(티셔츠/셔츠)가 아니라 부위이기 때문이다. 상의를 하나 골라
-    뒀으면 사진 속 다른 상의도 등록하지 않는다.
-    """
-
-    return sorted({item.category_large for item in items if item.category_large})
 
 
 def _wardrobe_snapshot(

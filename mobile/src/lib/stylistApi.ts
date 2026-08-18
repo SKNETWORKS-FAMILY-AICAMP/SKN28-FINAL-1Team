@@ -1,7 +1,12 @@
 import { ALLOW_STYLIST_MOCK, ChatEndpoints, RecommendEndpoints } from '@/constants/config';
 import { api, ApiError } from '@/lib/apiClient';
 import type { ApiChatRun } from '@/lib/chatApi';
-import type { ApiRecommendationItem } from '@/lib/recommendApi';
+import {
+  getCardRender,
+  requestCardRender,
+  type ApiRecommendationItem,
+  type ApiRenderJob,
+} from '@/lib/recommendApi';
 import { stylistMock } from '@/lib/stylistMock';
 
 /**
@@ -75,7 +80,7 @@ export type ApiPersonaCard = {
   warnings: string[];
   items: ApiRecommendationItem[];
   /** 코디 이미지 렌더 작업. 아직 안 만들어졌으면 null. */
-  image: { status?: string; image_url?: string | null } | null;
+  image: ApiRenderJob | null;
   is_saved: boolean;
 };
 
@@ -283,7 +288,26 @@ export function requestAlternative(
 /** 고른 코디를 내 룩으로 저장한다. */
 export function saveCard(resultId: string, cardId: string): Promise<unknown> {
   return orMock(
-    () => api.post<unknown>(RecommendEndpoints.saveCard(resultId, cardId)),
+    () => api.put<unknown>(RecommendEndpoints.saveCard(resultId, cardId)),
     () => stylistMock.saveCard(resultId, cardId),
+  );
+}
+
+/** 선택한 스타일리스트 카드 한 장의 이미지 생성 작업을 접수한다. */
+export function renderCard(resultId: string, cardId: string): Promise<ApiRenderJob> {
+  return orMock(
+    () => requestCardRender(resultId, cardId),
+    () => stylistMock.renderCard(resultId, cardId),
+  );
+}
+
+/** 선택한 카드의 이미지 생성 상태를 폴링한다. */
+export function getCardRenderStatus(
+  resultId: string,
+  cardId: string,
+): Promise<ApiRenderJob | null> {
+  return orMock(
+    () => getCardRender(resultId, cardId),
+    () => stylistMock.getCardRender(resultId, cardId),
   );
 }

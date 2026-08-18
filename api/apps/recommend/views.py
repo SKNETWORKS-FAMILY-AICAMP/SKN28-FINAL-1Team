@@ -47,6 +47,8 @@ from .serializers import (
     OutfitAnalysisPublicSerializer,
     OutfitAnalysisRequestSerializer,
     OutfitRenderJobSerializer,
+    ProductClickEngagementRequestSerializer,
+    ProductClickEventSerializer,
     RecommendationCardSerializer,
     RecommendationFeedbackRequestSerializer,
     RecommendationFeedbackSerializer,
@@ -54,6 +56,7 @@ from .serializers import (
     RecommendationHistoryQuerySerializer,
     RecommendationHistoryResponseSerializer,
     RecommendationResultDetailSerializer,
+    SavedOutfitSerializer,
 )
 from .services import analysis as analysis_service
 from .services import claim as claim_service
@@ -82,6 +85,19 @@ _CARD_ID_PARAMETER = path_uuid_parameter(
     name="card_id",
     source="GET /api/v1/recommendations/{result_id}/ 응답의 cards[].card_id를 입력합니다.",
     example="55555555-5555-4555-8555-555555555555",
+)
+_ITEM_ID_PARAMETER = path_uuid_parameter(
+    name="item_id",
+    source=(
+        "GET /api/v1/recommendations/{result_id}/ 응답의 "
+        "cards[].items[].item_id를 입력합니다."
+    ),
+    example="77777777-7777-4777-8777-777777777777",
+)
+_PRODUCT_CLICK_ID_PARAMETER = path_uuid_parameter(
+    name="product_click_id",
+    source="POST .../items/{item_id}/click/ 응답의 product_click_id를 입력합니다.",
+    example="88888888-8888-4888-8888-888888888888",
 )
 _JOB_ID_PARAMETER = path_uuid_parameter(
     name="job_id",
@@ -791,6 +807,188 @@ class RecommendationFeedbackView(APIView):
             card_id=card_id,
         )
         return Response(status=status.HTTP_204_NO_CONTENT)
+
+
+class SavedOutfitView(APIView):
+    """회원이 소유한 추천 카드의 저장 상태를 멱등 변경한다."""
+
+    permission_classes = [IsAuthenticated]
+
+    @extend_schema(
+        operation_id="recommendation_saved_outfit_put",
+        tags=[CHAT_TAG],
+        summary="추천 코디 저장",
+        description=(
+            "로그인 회원이 소유한 검증 완료 추천 코디를 저장합니다. 같은 카드를 "
+            "다시 요청하면 기존 저장 행과 최초 저장 시각을 그대로 반환합니다."
+        ),
+        parameters=[_RESULT_ID_PARAMETER, _CARD_ID_PARAMETER],
+        request=None,
+        responses={
+            200: SavedOutfitSerializer,
+            201: SavedOutfitSerializer,
+            401: OpenApiResponse(description="로그인 회원 필요"),
+            404: OpenApiResponse(
+                description="카드가 없거나 요청 회원의 소유가 아니거나 검증 미통과"
+            ),
+        },
+    )
+    def put(self, request: Request, result_id, card_id) -> Response:
+        identity = _recommendation_identity(request)
+        saved_outfit, created = recommendation_service.save_outfit(
+            identity=identity,
+            result_id=result_id,
+            card_id=card_id,
+        )
+        if saved_outfit is None:
+            raise NotFound("추천 카드를 찾을 수 없습니다.")
+        return Response(
+            SavedOutfitSerializer(saved_outfit).data,
+            status=status.HTTP_201_CREATED if created else status.HTTP_200_OK,
+        )
+
+    @extend_schema(
+        operation_id="recommendation_saved_outfit_delete",
+        tags=[CHAT_TAG],
+        summary="추천 코디 저장 해제",
+        description=(
+            "로그인 회원이 소유한 추천 코디의 저장 상태를 해제합니다. 이미 저장이 "
+            "해제된 카드에 다시 요청해도 204를 반환합니다."
+        ),
+        parameters=[_RESULT_ID_PARAMETER, _CARD_ID_PARAMETER],
+        responses={
+            204: None,
+            401: OpenApiResponse(description="로그인 회원 필요"),
+            404: OpenApiResponse(
+                description="카드가 없거나 요청 회원의 소유가 아니거나 검증 미통과"
+            ),
+        },
+    )
+    def delete(self, request: Request, result_id, card_id) -> Response:
+        identity = _recommendation_identity(request)
+        card_exists = recommendation_service.delete_saved_outfit(
+            identity=identity,
+            result_id=result_id,
+            card_id=card_id,
+        )
+        if not card_exists:
+            raise NotFound("추천 카드를 찾을 수 없습니다.")
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+
+class ProductClickEventView(APIView):
+    """회원이 실제로 누른 추천 판매 상품을 참고 행동으로 수집한다."""
+
+    permission_classes = [IsAuthenticated]
+
+    @extend_schema(
+        operation_id="recommendation_product_click_create",
+        tags=[CHAT_TAG],
+        summary="추천 상품 클릭 수집",
+        description=(
+            "로그인 회원이 소유한 검증 완료 추천 카드의 판매 상품 클릭을 참고 "
+            "신호로 저장합니다. 같은 상품을 5분 안에 다시 호출하면 새 행을 만들지 "
+            "않고 기존 이벤트를 반환하며 `deduplicated=true`로 표시합니다. 클릭 "
+            "수집 실패가 판매처 이동을 막지 않도록 클라이언트는 이 요청과 링크 "
+            "열기를 독립적으로 처리해야 합니다."
+        ),
+        parameters=[
+            _RESULT_ID_PARAMETER,
+            _CARD_ID_PARAMETER,
+            _ITEM_ID_PARAMETER,
+        ],
+        request=None,
+        responses={
+            200: ProductClickEventSerializer,
+            201: ProductClickEventSerializer,
+            401: OpenApiResponse(description="로그인 회원 필요"),
+            404: OpenApiResponse(
+                description=(
+                    "상품이 없거나 요청 회원의 소유가 아니거나 "
+                    "검증 카드의 판매 상품이 아님"
+                )
+            ),
+        },
+    )
+    def post(self, request: Request, result_id, card_id, item_id) -> Response:
+        identity = _recommendation_identity(request)
+        event, created = recommendation_service.record_product_click(
+            identity=identity,
+            result_id=result_id,
+            card_id=card_id,
+            item_id=item_id,
+        )
+        if event is None:
+            raise NotFound("추천 상품을 찾을 수 없습니다.")
+        event.deduplicated = not created
+        return Response(
+            ProductClickEventSerializer(event).data,
+            status=status.HTTP_201_CREATED if created else status.HTTP_200_OK,
+        )
+
+
+class ProductClickEngagementView(APIView):
+    """외부 판매처에서 앱으로 돌아온 시점의 근사 체류 시간을 기록한다."""
+
+    permission_classes = [IsAuthenticated]
+
+    @extend_schema(
+        operation_id="recommendation_product_click_engagement_update",
+        tags=[CHAT_TAG],
+        summary="추천 상품 클릭 체류 시간 기록",
+        description=(
+            "상품 클릭 수집 응답의 product_click_id를 사용해 외부 판매처 이동 후 "
+            "앱 복귀까지 측정한 근사 시간을 기록합니다. 재시도 시 더 큰 값만 "
+            "보존합니다. 체류 시간만으로 선호로 판정하지 않으며 클릭은 중립 참고 "
+            "신호로 유지됩니다."
+        ),
+        parameters=[_PRODUCT_CLICK_ID_PARAMETER],
+        request=ProductClickEngagementRequestSerializer,
+        examples=[
+            OpenApiExample(
+                name="42초 체류 기록",
+                value={"duration_ms": 42_000},
+                request_only=True,
+            ),
+            OpenApiExample(
+                name="체류 기록 응답",
+                value={
+                    "product_click_id": "88888888-8888-4888-8888-888888888888",
+                    "result_id": "44444444-4444-4444-8444-444444444444",
+                    "card_id": "55555555-5555-4555-8555-555555555555",
+                    "item_id": "77777777-7777-4777-8777-777777777777",
+                    "persona_id": "minimal",
+                    "source_collection": "naver_products",
+                    "source_id": "naver-101",
+                    "deduplicated": False,
+                    "clicked_at": "2026-08-16T10:00:00+09:00",
+                    "engagement_duration_ms": 42_000,
+                    "engagement_recorded_at": "2026-08-16T10:00:42+09:00",
+                },
+                response_only=True,
+                status_codes=["200"],
+            ),
+        ],
+        responses={
+            200: ProductClickEventSerializer,
+            400: OpenApiResponse(description="duration_ms 범위 오류 (0~86400000)"),
+            401: OpenApiResponse(description="로그인 회원 필요"),
+            404: OpenApiResponse(description="클릭 이벤트가 없거나 요청 회원의 소유가 아님"),
+        },
+    )
+    def patch(self, request: Request, product_click_id) -> Response:
+        serializer = ProductClickEngagementRequestSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        identity = _recommendation_identity(request)
+        event = recommendation_service.update_product_click_engagement(
+            identity=identity,
+            product_click_id=product_click_id,
+            duration_ms=serializer.validated_data["duration_ms"],
+        )
+        if event is None:
+            raise NotFound("상품 클릭 이벤트를 찾을 수 없습니다.")
+        event.deduplicated = False
+        return Response(ProductClickEventSerializer(event).data)
 
 
 class RecommendationCardRenderView(APIView):

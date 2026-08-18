@@ -28,6 +28,7 @@ const HIDDEN_ROUTES = [
   { name: 'calendar', href: '/calendar' },
   { name: 'item-detail', href: '/item-detail' },
   { name: 'look-detail', href: '/look-detail' },
+  { name: 'rec-card', href: '/rec-card' },
   { name: 'fitting', href: '/fitting' },
   { name: 'saved-look', href: '/saved-look' },
   { name: 'wishlist', href: '/wishlist' },
