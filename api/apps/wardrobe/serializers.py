@@ -11,13 +11,52 @@ import re
 from rest_framework import serializers
 
 from . import taxonomy as T
-from .models import WardrobeItem, WardrobeUploadJob
+from .models import WardrobeCategory, WardrobeItem, WardrobeUploadJob
 from .services import storage
 
 MAX_UPLOAD_MB = 15
 ALLOWED_CONTENT_TYPES = {"image/jpeg", "image/png", "image/webp", "image/heic"}
 MAX_BATCH_ITEMS = int(os.getenv("WARDROBE_BATCH_MAX_ITEMS", "30"))
 MAX_BATCH_TOTAL_MB = int(os.getenv("WARDROBE_BATCH_MAX_TOTAL_MB", "100"))
+
+
+class WardrobeCategoryWriteSerializer(serializers.Serializer):
+    name = serializers.CharField(max_length=30, trim_whitespace=False)
+
+
+class WardrobeCategorySerializer(serializers.ModelSerializer):
+    type = serializers.SerializerMethodField()
+    item_count = serializers.SerializerMethodField()
+    mutable = serializers.SerializerMethodField()
+
+    class Meta:
+        model = WardrobeCategory
+        fields = [
+            "id",
+            "type",
+            "name",
+            "position",
+            "item_count",
+            "mutable",
+            "created_at",
+            "updated_at",
+        ]
+        read_only_fields = fields
+
+    def get_type(self, obj) -> str:
+        return "CUSTOM"
+
+    def get_item_count(self, obj) -> int:
+        annotated = getattr(obj, "item_count", None)
+        if annotated is not None:
+            return annotated
+        return obj.item_links.filter(
+            wardrobe_item__user_id=obj.user_id,
+            wardrobe_item__added_to_closet_at__isnull=False,
+        ).count()
+
+    def get_mutable(self, obj) -> bool:
+        return True
 
 
 # ── 업로드 ────────────────────────────────────────────────

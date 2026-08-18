@@ -5,6 +5,8 @@ from apps.wardrobe.views import (
     WardrobeBatchDetailView,
     WardrobeBatchView,
     WardrobeCallbackView,
+    WardrobeCategoryDetailView,
+    WardrobeCategoryListCreateView,
     WardrobeItemAddToClosetView,
     WardrobeItemDetailView,
     WardrobeItemListView,
@@ -26,6 +28,17 @@ urlpatterns = [
     path("wardrobe/uploads/<uuid:job_id>/", WardrobeUploadJobView.as_view(), name="upload-job"),
     # 이미지 프로세서 콜백 (내부 토큰 인증)
     path("internal/wardrobe/callback/", WardrobeCallbackView.as_view(), name="callback"),
+    # 개인 옷장 사용자 카테고리 조회·생성·수정·삭제
+    path(
+        "wardrobe/categories/",
+        WardrobeCategoryListCreateView.as_view(),
+        name="category-list-create",
+    ),
+    path(
+        "wardrobe/categories/<uuid:category_id>/",
+        WardrobeCategoryDetailView.as_view(),
+        name="category-detail",
+    ),
     # 옷장 아이템 조회·수정·삭제
     path("wardrobe/items/", WardrobeItemListView.as_view(), name="items"),
     path("wardrobe/items/<uuid:item_id>/", WardrobeItemDetailView.as_view(), name="item-detail"),

@@ -30,18 +30,26 @@ from rest_framework.views import APIView
 from apps.lookbook.services import lookbook_service
 from apps.style_calendar.services import calendar_service
 
-from .models import WardrobeItem, WardrobeItemBatch, WardrobeUploadJob
+from .models import (
+    WardrobeCategory,
+    WardrobeItem,
+    WardrobeItemBatch,
+    WardrobeUploadJob,
+)
 from .permissions import HasInternalToken
 from .serializers import (
     CallbackSerializer,
     MAX_BATCH_TOTAL_MB,
     MAX_UPLOAD_MB,
     WardrobeBatchCreateSerializer,
+    WardrobeCategorySerializer,
+    WardrobeCategoryWriteSerializer,
     WardrobeItemSerializer,
     WardrobeItemUpdateSerializer,
     WardrobeJobSerializer,
     WardrobeUploadSerializer,
 )
+from .services import categories as category_service
 from .services import jobs, storage, vectors
 from . import taxonomy as T
 
@@ -104,6 +112,40 @@ def _batch_data(batch: WardrobeItemBatch) -> dict:
         "created_at": batch.created_at, "finished_at": batch.finished_at,
         "jobs": WardrobeJobSerializer(batch.jobs.all(), many=True).data,
     }
+
+
+def _category_write_error(serializer) -> Response:
+    error = serializer.errors.get("name", ["카테고리 이름을 입력해 주세요."])[0]
+    serializer_code = getattr(error, "code", "invalid")
+    code = {
+        "required": "CATEGORY_NAME_REQUIRED",
+        "blank": "CATEGORY_NAME_REQUIRED",
+        "null": "CATEGORY_NAME_REQUIRED",
+        "max_length": "CATEGORY_NAME_TOO_LONG",
+    }.get(serializer_code, "CATEGORY_NAME_INVALID")
+    return Response({"code": code, "detail": str(error)}, status=status.HTTP_400_BAD_REQUEST)
+
+
+def _category_service_error(exc: category_service.CategoryServiceError) -> Response:
+    return Response(
+        {"code": exc.code, "detail": exc.detail},
+        status=status.HTTP_400_BAD_REQUEST,
+    )
+
+
+def _owned_category_or_error(user, category_id):
+    category = WardrobeCategory.objects.filter(pk=category_id).first()
+    if category is None:
+        return None, Response(
+            {"code": "CATEGORY_NOT_FOUND", "detail": "카테고리를 찾을 수 없습니다."},
+            status=status.HTTP_404_NOT_FOUND,
+        )
+    if category.user_id != user.pk:
+        return None, Response(
+            {"code": "CATEGORY_FORBIDDEN", "detail": "이 카테고리에 접근할 수 없습니다."},
+            status=status.HTTP_403_FORBIDDEN,
+        )
+    return category, None
 
 
 class WardrobeBatchView(APIView):
@@ -425,6 +467,71 @@ class WardrobeCallbackView(APIView):
             {"job_id": str(job.pk), "status": job.status, "num_items": len(created)},
             status=status.HTTP_201_CREATED,
         )
+
+
+class WardrobeCategoryListCreateView(APIView):
+    """GET/POST /api/v1/wardrobe/categories/ — 개인 옷장 카테고리 조회·생성."""
+
+    def get(self, request):
+        payloads = category_service.category_payloads(request.user)
+        return Response(
+            {
+                "system_categories": payloads["system_categories"],
+                "custom_categories": WardrobeCategorySerializer(
+                    payloads["custom_categories"],
+                    many=True,
+                ).data,
+            }
+        )
+
+    def post(self, request):
+        serializer = WardrobeCategoryWriteSerializer(data=request.data)
+        if not serializer.is_valid():
+            return _category_write_error(serializer)
+        try:
+            category = category_service.create_category(
+                user=request.user,
+                name=serializer.validated_data["name"],
+            )
+        except category_service.CategoryServiceError as exc:
+            return _category_service_error(exc)
+        return Response(
+            WardrobeCategorySerializer(category).data,
+            status=status.HTTP_201_CREATED,
+        )
+
+
+class WardrobeCategoryDetailView(APIView):
+    """PATCH/DELETE /api/v1/wardrobe/categories/{id}/ — 이름 변경·삭제."""
+
+    def patch(self, request, category_id):
+        category, error_response = _owned_category_or_error(
+            request.user,
+            category_id,
+        )
+        if error_response is not None:
+            return error_response
+        serializer = WardrobeCategoryWriteSerializer(data=request.data)
+        if not serializer.is_valid():
+            return _category_write_error(serializer)
+        try:
+            category = category_service.rename_category(
+                category=category,
+                name=serializer.validated_data["name"],
+            )
+        except category_service.CategoryServiceError as exc:
+            return _category_service_error(exc)
+        return Response(WardrobeCategorySerializer(category).data)
+
+    def delete(self, request, category_id):
+        category, error_response = _owned_category_or_error(
+            request.user,
+            category_id,
+        )
+        if error_response is not None:
+            return error_response
+        category.delete()
+        return Response(status=status.HTTP_204_NO_CONTENT)
 
 
 class WardrobeItemListView(APIView):
