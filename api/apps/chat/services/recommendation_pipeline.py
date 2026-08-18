@@ -5,7 +5,7 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, replace
 from typing import Any
 
@@ -41,12 +41,21 @@ from apps.recommend.services.new_item_composer import (
 from apps.recommend.services.outfit_types import (
     OutfitComposition as DomainOutfitComposition,
 )
+from apps.recommend.services.outfit_types import (
+    RecommendationMode,
+)
 from apps.recommend.services.retriever import (
     GoldenOutfitRetriever,
     OutfitCandidate,
     RetrievalRequest,
     RetrievalResult,
     normalize_presentation_groups,
+)
+from apps.recommend.services.shared_reference_anchor import (
+    PinnedReferenceAnchor,
+    SharedReferenceAnchorResolver,
+    composition_contains_anchor,
+    pin_reference_anchor,
 )
 from apps.recommend.services.text_embedding import TextEmbeddingConfigurationError
 from apps.recommend.services.validator import (
@@ -118,12 +127,16 @@ class ChatRecommendationPipeline:
         wardrobe_composer: WardrobeOutfitComposer | None = None,
         new_item_composer: NewItemOutfitComposer | None = None,
         validator: OutfitValidator | None = None,
+        reference_anchor_resolver: SharedReferenceAnchorResolver | None = None,
     ) -> None:
         self.golden_retriever = golden_retriever or GoldenOutfitRetriever()
         self.item_retriever = item_retriever or ItemCandidateRetriever()
         self.wardrobe_composer = wardrobe_composer or WardrobeOutfitComposer()
         self.new_item_composer = new_item_composer or NewItemOutfitComposer()
         self.validator = validator or OutfitValidator()
+        self.reference_anchor_resolver = (
+            reference_anchor_resolver or SharedReferenceAnchorResolver()
+        )
 
     def _retrieve_golden(self, request: RetrievalRequest) -> RetrievalResult:
         """골든 코디를 찾는다. 질의 임베딩을 못 쓰면 필터 검색으로 내려간다.
@@ -226,6 +239,13 @@ class ChatRecommendationPipeline:
             pursuit = self._apply_strategy_preferences(pursuit, strategy_plan)
         candidate_limit = strategy_plan.candidate_limit if strategy_plan else 5
         body = build_profile(context.get("profile", {}).get("body"))
+        category_budgets = context.get("profile", {}).get("category_budgets", {})
+        reference_anchor = self._resolve_reference_anchor(
+            run=run,
+            user_id=user_id,
+            total_budget=analysis.conditions.budget,
+            category_budgets=category_budgets,
+        )
         retrieval = self._retrieve_golden(
             RetrievalRequest(
                 body=body,
@@ -242,6 +262,16 @@ class ChatRecommendationPipeline:
                 presentation_groups=self._presentation_groups(
                     context=context,
                     analysis=analysis,
+                ),
+                required_item_categories=(
+                    (reference_anchor.reference.tags.category_large,)
+                    if reference_anchor is not None
+                    else ()
+                ),
+                required_item_layer_roles=(
+                    (reference_anchor.reference.tags.layer_role,)
+                    if reference_anchor is not None
+                    else ()
                 ),
                 dataset_version=settings.CHAT_GOLDENSET_DATASET_VERSION,
                 dataset_statuses=settings.CHAT_GOLDENSET_DATASET_STATUSES,
@@ -262,9 +292,6 @@ class ChatRecommendationPipeline:
             if not template_ids:
                 continue
             try:
-                category_budgets = context.get("profile", {}).get(
-                    "category_budgets", {}
-                )
                 slot_results = tuple(
                     self.item_retriever.retrieve(
                         ItemRetrievalRequest(
@@ -281,6 +308,11 @@ class ChatRecommendationPipeline:
                     )
                     for point_id in template_ids
                 )
+                if reference_anchor is not None:
+                    slot_results = pin_reference_anchor(
+                        reference_anchor,
+                        slot_results,
+                    )
                 batch = self._compose(
                     session.mode,
                     slot_results,
@@ -297,6 +329,11 @@ class ChatRecommendationPipeline:
             ):
                 if len(generated) + len(template_candidates) >= candidate_limit:
                     break
+                if reference_anchor is not None and not composition_contains_anchor(
+                    composition,
+                    reference_anchor,
+                ):
+                    continue
                 validation = self.validator.validate(
                     composition,
                     context=self._validation_context(
@@ -341,6 +378,30 @@ class ChatRecommendationPipeline:
             search_mode=retrieval.search_mode,
             candidates=tuple(generated),
         )
+
+    def _resolve_reference_anchor(
+        self,
+        *,
+        run: ChatRun,
+        user_id: int | None,
+        total_budget: int | None,
+        category_budgets: Mapping[str, int],
+    ) -> PinnedReferenceAnchor | None:
+        snapshot = getattr(run, "reference_snapshot", None)
+        if not snapshot:
+            return None
+        try:
+            return self.reference_anchor_resolver.resolve(
+                snapshot=snapshot,
+                mode=RecommendationMode(run.session.mode),
+                user_id=user_id,
+                total_budget=total_budget,
+                category_budgets=category_budgets,
+            )
+        except (TypeError, ValueError, RuntimeError) as exc:
+            raise OutfitCompositionFailed(
+                "공유 옷을 최종 코디의 고정 아이템으로 연결하지 못했습니다."
+            ) from exc
 
     @transaction.atomic
     def persist_candidates(

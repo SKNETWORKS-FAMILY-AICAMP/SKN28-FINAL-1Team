@@ -167,7 +167,7 @@ class CompositionEngine:
                 )
                 if additions:
                     expanded.extend(additions)
-                else:
+                elif slot_result.pinned_candidate is None:
                     expanded.append(
                         _PartialComposition(
                             items=state.items,
@@ -260,6 +260,14 @@ class CompositionEngine:
         source_rank: dict[ItemSource, int],
         limit: int,
     ) -> list[ItemCandidate]:
+        if slot_result.pinned_candidate is not None:
+            pinned = slot_result.pinned_candidate
+            if pinned.source_type not in source_rank:
+                raise CompositionError(
+                    "고정 아이템의 출처가 현재 추천 모드에서 허용되지 않습니다."
+                )
+            return [pinned]
+
         unique: dict[tuple[str, str, str], ItemCandidate] = {}
         for candidate in (
             *slot_result.candidates,
@@ -306,9 +314,7 @@ class CompositionEngine:
                 continue
             next_price = state.total_product_price
             if candidate.source_type is ItemSource.PRODUCT:
-                category = _payload_text(
-                    slot_result.template.payload, "category_large"
-                )
+                category = _payload_text(slot_result.template.payload, "category_large")
                 category_budget = (policy.category_budgets or {}).get(category)
                 price = candidate.price
                 if (

@@ -101,6 +101,7 @@ class ItemRetrievalResult:
     template: TemplateItem
     candidates: tuple[ItemCandidate, ...]
     vector_name: str
+    pinned_candidate: ItemCandidate | None = None
 
     def for_source(self, source_type: ItemSource) -> tuple[ItemCandidate, ...]:
         return tuple(

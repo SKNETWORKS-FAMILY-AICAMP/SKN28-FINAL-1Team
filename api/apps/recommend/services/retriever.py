@@ -96,6 +96,10 @@ class RetrievalRequest:
     #: 코디를 찍은 이미지 벡터로 검색할 때 (옷장 기반 추천의 '비슷한 코디')
     image_vector: list[float] | None = None
     presentation_groups: tuple[str, ...] = ()
+    #: 공유 옷 레퍼런스를 쓸 때 해당 아이템을 꽂을 수 있는 골든 슬롯이
+    #: 반드시 포함되도록 하는 코디 단위 하드 필터다.
+    required_item_categories: tuple[str, ...] = ()
+    required_item_layer_roles: tuple[str, ...] = ()
     dataset_version: str = ""
     dataset_statuses: tuple[str, ...] = ()
     limit: int = 10
@@ -227,6 +231,10 @@ def build_filter(
         )
     if request.dataset_statuses:
         must.append(_status_condition(request.dataset_statuses))
+    if request.required_item_categories:
+        must.append(_any_of("item_categories", request.required_item_categories))
+    if request.required_item_layer_roles:
+        must.append(_any_of("item_layer_roles", request.required_item_layer_roles))
 
     # 성별은 하드 필터다. 남성 사용자에게 여성 코디를 "순위만 낮춰" 보여주는 건
     # 추천이 아니라 오작동으로 읽힌다. 계절과 달리 감점으로 둘 수 없는 축이다.
