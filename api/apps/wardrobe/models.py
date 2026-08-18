@@ -221,6 +221,11 @@ class WardrobeItem(models.Model):
         blank=True,
         db_comment="세그멘테이션 메타 JSON (raw_label/score/bbox 등)",
     )
+    is_favorite = models.BooleanField(
+        "즐겨찾기",
+        default=False,
+        db_comment="사용자가 별로 표시한 옷 (자주 입는 옷 모아보기용)",
+    )
     confirmed = models.BooleanField(
         "사용자 확정 여부",
         default=False,

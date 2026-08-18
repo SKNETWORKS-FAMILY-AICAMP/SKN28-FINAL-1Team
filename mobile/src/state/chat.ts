@@ -93,6 +93,8 @@ export type RecItem = {
   /** 새로 사야 하는 상품만 가격이 있다. 옷장에 있는 옷은 null. */
   price: number | null;
   fromWardrobe: boolean;
+  /** 상품 카탈로그 식별자 — 찜이 이 값으로 같은 상품을 알아본다. */
+  sourceId: string | null;
 };
 
 export type ChatMessage =
@@ -259,6 +261,7 @@ function toRecMessage(
       category: i.category,
       imageUrl: imageUrlOf(i.image_ref),
       price: i.price_snapshot,
+      sourceId: i.source_id || null,
       fromWardrobe: i.source_type !== 'PRODUCT',
     })),
     totalPrice: card.total_product_price,
@@ -636,6 +639,7 @@ function toStylistCard(r: ApiPersonaResult): StylistCard {
         category: i.category,
         imageUrl: imageUrlOf(i.image_ref),
         price: i.price_snapshot,
+        sourceId: i.source_id || null,
         fromWardrobe: i.source_type !== 'PRODUCT',
       })) ?? [],
     totalPrice: card?.total_product_price ?? null,
