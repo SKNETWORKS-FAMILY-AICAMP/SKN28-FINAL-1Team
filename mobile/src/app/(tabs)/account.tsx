@@ -23,7 +23,7 @@ const PROVIDER_LABEL: Record<string, string> = {
 const DELETED_ON_WITHDRAW = [
   '옷장에 등록한 옷과 사진',
   '체형 치수와 촬영 사진',
-  '추구미·퍼스널컬러·예산 설정',
+  '추구미·예산 설정',
   '저장한 룩과 착장 기록',
 ];
 
