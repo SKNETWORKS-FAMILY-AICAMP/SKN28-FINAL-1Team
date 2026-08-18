@@ -581,6 +581,15 @@ function updateOverlay(sessionId: string, overlayId: string, message: ChatMessag
   rebuildTimeline(sessionId);
 }
 
+/** 끼워 넣은 것을 걷어낸다 (되묻기로 카드가 필요 없어졌을 때). */
+function removeOverlay(sessionId: string, overlayId: string) {
+  overlays.set(
+    sessionId,
+    overlaysOf(sessionId).filter((o) => o.id !== overlayId),
+  );
+  rebuildTimeline(sessionId);
+}
+
 /** 붙는 자리를 옮긴다 — 답변까지 받고 나면 카드는 그 답변 **뒤**에 있어야 한다. */
 function reanchorOverlay(sessionId: string, overlayId: string, after: string | null) {
   overlays.set(
@@ -721,9 +730,17 @@ async function runStylistTurn(
     });
     if (run.results.length > 0) {
       updateOverlay(sessionId, overlayId, toStylistMessage(overlayId, runId, run));
-    } else {
-      // 자리조차 안 생기고 run 이 끝났다 = 스타일리스트 실행 자체가 실패
+    } else if (run.status === 'FAILED') {
+      // 자리조차 안 생기고 run 이 죽었다 = 스타일리스트 실행 자체가 실패
       failPendingCards(sessionId, overlayId, run.error_message || GENERIC_FAILURE);
+    } else {
+      /* 결과 자리가 사라졌는데 run 은 정상으로 끝났다 = **되물은 것**이다.
+         서버가 되묻기로 방향을 틀 때 아직 시작 안 한 스타일리스트 실행을 지운다
+         (orchestrator 의 _discard_unstarted_persona_executions). 그러면 답할 사람이
+         없으니 깔아 둔 카드도 치운다 — 실패로 남겨 두면 "답변을 만들지 못했어요" 가
+         뜨는데, 실제로는 되묻는 말풍선이 정상으로 와 있어 두 말이 서로 어긋난다.
+         사용자가 되물음에 답하면 그때 새 run 이 생기고 카드도 다시 깔린다. */
+      removeOverlay(sessionId, overlayId);
     }
     return { run, overlayId };
   } catch (e) {
