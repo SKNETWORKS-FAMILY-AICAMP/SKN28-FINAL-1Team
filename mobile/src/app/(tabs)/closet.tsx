@@ -7,6 +7,8 @@ import {
 } from '@/components/closet/shared-space-flow';
 import { SharedItemAddSheet } from '@/components/closet/shared-item-add-sheet';
 import { PhotoSourceSheet } from '@/components/closet/photo-source-sheet';
+import { CategoryItemManageSheet } from '@/components/closet/category-item-manage-sheet';
+import { WardrobeViewControls } from '@/components/closet/wardrobe-view-controls';
 import { CategoryEditSheet, EmptyState, ErrorState, LoadingState, LoginGate, SearchFilterBar, SegmentedToggle, SmartImage, useConfirm, useToast } from '@/components/ui';
 import { useMultiSelectFilter } from '@/hooks/useMultiSelectFilter';
 import { router, useFocusEffect, useLocalSearchParams } from 'expo-router';
@@ -25,7 +27,7 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-import { Editorial, ink, GridCard, gridCardImageHeight, gridCardWidth , ContentMax} from '@/constants/theme';
+import { ContentMax, Editorial, GridCard, gridCardImageHeight, gridCardWidth, ink } from '@/constants/theme';
 import { SHARED_CLOSET_ITEMS } from '@/constants/wardrobe';
 import { WARDROBE_FILTER_OPTIONS } from '@/constants/wardrobe-taxonomy';
 import { useBreakpoint } from '@/hooks/use-breakpoint';
@@ -36,7 +38,18 @@ import {
   useWardrobeCategories,
   useWardrobeItems,
 } from '@/hooks/use-wardrobe';
-import { itemDisplayName, getMySharedRooms, createSharedRoom, joinSharedRoom, listSharedRoomMembers, listSharedRoomItems, listSharedRoomCategories, createSharedRoomCategory, deleteSharedRoomCategory, renameSharedRoom, deleteSharedRoom, unregisterItemFromSharedRoom, sharedUserDisplayName, type SharedRoomCategory } from '@/lib/wardrobeApi';
+import { itemDisplayName, getMySharedRooms, createSharedRoom, joinSharedRoom, listSharedRoomMembers, listSharedRoomItems, listSharedRoomCategories, createSharedRoomCategory, deleteSharedRoomCategory, renameSharedRoom, deleteSharedRoom, unregisterItemFromSharedRoom, sharedUserDisplayName, updateWardrobeCategoryItems, type SharedRoomCategory } from '@/lib/wardrobeApi';
+import {
+  buildWardrobeSections,
+  uniqueWardrobeItemCount,
+  type WardrobeGroupMode,
+  type WardrobeItemSort,
+} from '@/lib/wardrobeSections';
+import {
+  DEFAULT_WARDROBE_VIEW_PREFERENCES,
+  loadWardrobeViewPreferences,
+  saveWardrobeViewPreferences,
+} from '@/lib/wardrobeViewPreferences';
 import { Icon } from '@/components/icon';
 import { useAuth } from '@/state/auth';
 import {
@@ -137,8 +150,16 @@ export default function ClosetScreen() {
   const [createDraftTitle, setCreateDraftTitle] = useState('공유 옷장');
   const [sharedCategories, setSharedCategories] = useState<SharedRoomCategory[]>([]);
   const [editOpen, setEditOpen] = useState(false);
+  const [managedCategoryId, setManagedCategoryId] = useState<string | null>(null);
   const [sourceOpen, setSourceOpen] = useState(false);
-  const { toggle, reset, prune, isActive, matches, label } = useMultiSelectFilter();
+  const { selected, toggle, reset, prune, isActive, matches, label } = useMultiSelectFilter();
+  const [groupMode, setGroupMode] = useState<WardrobeGroupMode>(
+    DEFAULT_WARDROBE_VIEW_PREFERENCES.group_mode,
+  );
+  const [itemSort, setItemSort] = useState<WardrobeItemSort>(
+    DEFAULT_WARDROBE_VIEW_PREFERENCES.item_sort,
+  );
+  const [viewPreferencesReady, setViewPreferencesReady] = useState(false);
 
   /* 내 옷장은 서버가 출처. 카테고리 필터는 여러 개를 고를 수 있어(멀티) 서버 파라미터로
      넘기지 않고 전체를 받아 프론트에서 걸러낸다 — 서버는 단일 category_large 만 받는다.
@@ -174,6 +195,27 @@ export default function ClosetScreen() {
       ? ['전체', ...personalCategoryData.system_categories.map((category) => category.name)]
       : DEFAULT_CATEGORIES
     : DEFAULT_CATEGORIES;
+  const managedCategory = personalCategoryData?.custom_categories.find(
+    (category) => category.id === managedCategoryId,
+  ) ?? null;
+
+  useEffect(() => {
+    let active = true;
+    void loadWardrobeViewPreferences().then((preferences) => {
+      if (!active) return;
+      setGroupMode(preferences.group_mode);
+      setItemSort(preferences.item_sort);
+      setViewPreferencesReady(true);
+    });
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!viewPreferencesReady) return;
+    void saveWardrobeViewPreferences({ group_mode: groupMode, item_sort: itemSort });
+  }, [groupMode, itemSort, viewPreferencesReady]);
 
   const reloadAll = useCallback(
     () => Promise.all([reloadItems(), reloadPersonalCategories()]),
@@ -258,15 +300,67 @@ export default function ClosetScreen() {
     [apiItems],
   );
 
-  const sharedSource = sharedSpace ? sharedItems : [];
-  const source = tab === 'mine' ? myItems : sharedSource;
-  const items = useMemo(
+  const customCategoryOrder = useMemo(() => {
+    if (personalCategoryData) return personalCategoryData.custom_categories;
+    const byId = new Map(
+      apiItems.flatMap((item) => item.custom_categories).map((category) => [category.id, category]),
+    );
+    return [...byId.values()].sort(
+      (left, right) => left.position - right.position || left.id.localeCompare(right.id),
+    );
+  }, [apiItems, personalCategoryData]);
+  const systemCategoryOrder = useMemo(
     () =>
-      source.filter(
+      personalCategoryData
+        ? personalCategoryData.system_categories.map((category) => category.name)
+        : DEFAULT_CATEGORIES.slice(1),
+    [personalCategoryData],
+  );
+  const mineSections = useMemo(
+    () =>
+      buildWardrobeSections(
+        apiItems,
+        {
+          selectedCategories: selected,
+          query,
+          systemCategoryOrder,
+          customCategoryOrder,
+        },
+        groupMode,
+        itemSort,
+      ),
+    [
+      apiItems,
+      customCategoryOrder,
+      groupMode,
+      itemSort,
+      query,
+      selected,
+      systemCategoryOrder,
+    ],
+  );
+  const mineUniqueItemCount = useMemo(
+    () => uniqueWardrobeItemCount(mineSections),
+    [mineSections],
+  );
+  const mineFilteredItems = useMemo(() => {
+    const byId = new Map(myItems.map((item) => [item.id, item]));
+    return mineSections
+      .flatMap((section) => section.items)
+      .map((item) => byId.get(item.id))
+      .filter((item): item is Card => !!item)
+      .filter((item, index, all) => all.findIndex((entry) => entry.id === item.id) === index);
+  }, [mineSections, myItems]);
+
+  const sharedSource = sharedSpace ? sharedItems : [];
+  const sharedFilteredItems = useMemo(
+    () =>
+      sharedSource.filter(
         (i) => i.filterCategories.some((category) => matches(category)) && matchesQuery(i, query),
       ),
-    [source, matches, query],
+    [sharedSource, matches, query],
   );
+  const items = tab === 'mine' ? mineFilteredItems : sharedFilteredItems;
 
   useEffect(() => {
     prune(categories.slice(1));
@@ -543,6 +637,38 @@ export default function ClosetScreen() {
       toast(error instanceof Error ? error.message : '카테고리를 저장하지 못했어요', { variant: 'error' });
       const saved = await listSharedRoomCategories(sharedSpace.id).catch(() => sharedCategories);
       setSharedCategories(saved);
+      return false;
+    }
+  };
+
+  const openCategoryItemManager = (categoryName: string) => {
+    const category = personalCategoryData?.custom_categories.find(
+      (entry) => entry.name === categoryName,
+    );
+    if (!category) {
+      toast('카테고리를 다시 불러온 뒤 시도해 주세요', { variant: 'error' });
+      void reloadPersonalCategories();
+      return;
+    }
+    setEditOpen(false);
+    setManagedCategoryId(category.id);
+  };
+
+  const saveCategoryItems = async (
+    categoryId: string,
+    changes: { add_item_ids: string[]; remove_item_ids: string[] },
+  ) => {
+    try {
+      const result = await updateWardrobeCategoryItems(categoryId, changes);
+      await reloadAll();
+      toast(`${result.item_count}벌을 카테고리에 저장했어요`, { variant: 'success' });
+      return true;
+    } catch (saveError) {
+      toast(
+        saveError instanceof Error ? saveError.message : '옷 구성을 저장하지 못했어요',
+        { variant: 'error' },
+      );
+      await reloadAll();
       return false;
     }
   };
@@ -967,6 +1093,15 @@ export default function ClosetScreen() {
           lockedHint="기본 카테고리는 고정되고, 직접 만든 카테고리만 삭제할 수 있어요."
           onClose={() => setEditOpen(false)}
           onSave={handleSaveCategories}
+          onManageCategory={tab === 'mine' ? openCategoryItemManager : undefined}
+        />
+
+        <CategoryItemManageSheet
+          visible={!!managedCategory}
+          category={managedCategory}
+          items={apiItems}
+          onClose={() => setManagedCategoryId(null)}
+          onSave={saveCategoryItems}
         />
 
         {showAddFab ? (

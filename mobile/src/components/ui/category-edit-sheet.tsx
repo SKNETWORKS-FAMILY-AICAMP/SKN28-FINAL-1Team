@@ -23,6 +23,8 @@ type CategoryEditSheetProps = {
   lockedCategories?: string[];
   onClose: () => void;
   onSave: (categories: string[]) => boolean | void | Promise<boolean | void>;
+  /** 사용자 카테고리 행에서 해당 카테고리의 옷 선택 화면을 연다. */
+  onManageCategory?: (categoryName: string) => void;
   addPlaceholder?: string;
   lockedHint?: string;
 };
@@ -34,6 +36,7 @@ export function CategoryEditSheet({
   lockedCategories = ['전체'],
   onClose,
   onSave,
+  onManageCategory,
   addPlaceholder = '새 카테고리',
   lockedHint = "'전체'는 항상 맨 앞에 유지돼요.",
 }: CategoryEditSheetProps) {
@@ -88,12 +91,25 @@ export function CategoryEditSheet({
                   {locked ? (
                     <Text style={styles.fixedBadge}>고정</Text>
                   ) : (
-                    <Pressable
-                      hitSlop={8}
-                      onPress={() => removeCategory(name)}
-                      style={styles.removeBtn}>
-                      <Icon name="trash" tintColor={ink(0.4)} size={16} />
-                    </Pressable>
+                    <View style={styles.rowActions}>
+                      {onManageCategory ? (
+                        <Pressable
+                          hitSlop={6}
+                          onPress={() => onManageCategory(name)}
+                          style={styles.manageBtn}
+                          accessibilityLabel={`${name} 옷 관리`}>
+                          <Text style={styles.manageText}>옷 관리</Text>
+                          <Icon name="chevron.right" tintColor={ink(0.45)} size={12} />
+                        </Pressable>
+                      ) : null}
+                      <Pressable
+                        hitSlop={8}
+                        onPress={() => removeCategory(name)}
+                        style={styles.removeBtn}
+                        accessibilityLabel={`${name} 삭제`}>
+                        <Icon name="trash" tintColor={ink(0.4)} size={16} />
+                      </Pressable>
+                    </View>
                   )}
                 </View>
               );
@@ -189,6 +205,17 @@ const styles = StyleSheet.create({
     borderBottomColor: ink(0.06),
   },
   rowLabel: { fontSize: 15, color: INK },
+  rowActions: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  manageBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 3,
+    paddingHorizontal: 9,
+    paddingVertical: 6,
+    borderRadius: 8,
+    backgroundColor: Editorial.control,
+  },
+  manageText: { fontSize: 12, fontWeight: '600', color: Editorial.textCaption },
   removeBtn: { padding: 4 },
   addRow: { flexDirection: 'row', gap: 10, marginTop: 16 },
   addInput: {

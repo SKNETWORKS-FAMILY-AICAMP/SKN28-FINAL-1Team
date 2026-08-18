@@ -72,6 +72,18 @@ export type WardrobeCategoriesResponse = {
   custom_categories: WardrobeCustomCategory[];
 };
 
+export type WardrobeCategoryItemsUpdated = {
+  category_id: string;
+  added_item_ids: string[];
+  removed_item_ids: string[];
+  item_count: number;
+};
+
+export type WardrobeItemCategoriesUpdated = {
+  item_id: string;
+  custom_categories: WardrobeCategorySummary[];
+};
+
 export type UploadJobStatus = 'PENDING' | 'PROCESSING' | 'DONE' | 'FAILED';
 
 export type UploadJob = {
@@ -327,6 +339,27 @@ export function createWardrobeCategory(name: string): Promise<WardrobeCustomCate
 
 export function deleteWardrobeCategory(categoryId: string): Promise<unknown> {
   return api.delete(WardrobeEndpoints.category(categoryId));
+}
+
+export function updateWardrobeCategoryItems(
+  categoryId: string,
+  changes: { add_item_ids: string[]; remove_item_ids: string[] },
+): Promise<WardrobeCategoryItemsUpdated> {
+  return api.patch<WardrobeCategoryItemsUpdated>(
+    WardrobeEndpoints.categoryItems(categoryId),
+    changes,
+  );
+}
+
+/** 아이템 상세에서 선택한 사용자 카테고리 집합으로 전체 교체한다. */
+export function replaceWardrobeItemCategories(
+  itemId: string,
+  categoryIds: string[],
+): Promise<WardrobeItemCategoriesUpdated> {
+  return api.put<WardrobeItemCategoriesUpdated>(
+    WardrobeEndpoints.itemCategories(itemId),
+    { category_ids: categoryIds },
+  );
 }
 
 /* 백엔드가 단건 조회(GET items/{id}/)를 아직 구현하지 않았다 — allow 는 PATCH·DELETE 뿐이라

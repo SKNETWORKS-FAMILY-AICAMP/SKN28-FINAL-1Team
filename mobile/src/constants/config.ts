@@ -253,8 +253,12 @@ export const WardrobeEndpoints = {
   uploadJob: (jobId: string) => `/api/v1/wardrobe/uploads/${jobId}/`,
   categories: '/api/v1/wardrobe/categories/',
   category: (categoryId: string) => `/api/v1/wardrobe/categories/${categoryId}/`,
+  categoryItems: (categoryId: string) =>
+    `/api/v1/wardrobe/categories/${categoryId}/items/`,
   items: '/api/v1/wardrobe/items/',
   item: (itemId: string) => `/api/v1/wardrobe/items/${itemId}/`,
+  itemCategories: (itemId: string) =>
+    `/api/v1/wardrobe/items/${itemId}/categories/`,
   /* 룩 사진에서 뽑혀 아직 옷장 밖에 있는 옷을 옷장에 들인다(멱등). */
   addToCloset: (itemId: string) => `/api/v1/wardrobe/items/${itemId}/add-to-closet/`,
   batches: '/api/v1/wardrobe/batches/',
