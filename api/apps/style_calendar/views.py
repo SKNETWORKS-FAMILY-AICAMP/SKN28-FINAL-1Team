@@ -56,6 +56,16 @@ class CalendarPhotoCreateView(APIView):
                 },
                 status=status.HTTP_400_BAD_REQUEST,
             )
+        except calendar_service.DuplicateCategorySlotError as exc:
+            return Response(
+                {
+                    "wardrobe_item_ids": [
+                        f"'{exc.slot_key}' 카테고리 항목은 캘린더 착장당 1개만 선택할 수 있습니다."
+                    ]
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
         except calendar_service.CalendarDateConflictError:
             return Response(
                 {"date": ["해당 날짜의 캘린더가 이미 존재합니다."]},
@@ -122,6 +132,16 @@ class CalendarWardrobeCreateView(APIView):
                 },
                 status=status.HTTP_400_BAD_REQUEST,
             )
+        except calendar_service.DuplicateCategorySlotError as exc:
+            return Response(
+                {
+                    "wardrobe_item_ids": [
+                        f"'{exc.slot_key}' 카테고리 항목은 캘린더 착장당 1개만 선택할 수 있습니다."
+                    ]
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
         except calendar_service.CalendarDateConflictError:
             return Response(
                 {"date": ["해당 날짜의 캘린더가 이미 존재합니다."]},
@@ -249,6 +269,16 @@ class CalendarWardrobeItemLinkView(APIView):
                 },
                 status=status.HTTP_400_BAD_REQUEST,
             )
+        except calendar_service.DuplicateCategorySlotError as exc:
+            return Response(
+                {
+                    "wardrobe_item_ids": [
+                        f"'{exc.slot_key}' 카테고리 항목은 캘린더 착장당 1개만 선택할 수 있습니다."
+                    ]
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
         except calendar_service.CalendarDeletionConflictError as exc:
             return Response(
                 {
