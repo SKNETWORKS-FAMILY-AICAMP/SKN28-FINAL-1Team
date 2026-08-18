@@ -622,7 +622,13 @@ class WardrobeItemListView(APIView):
         confirmed = request.query_params.get("confirmed")
         if confirmed is not None:
             qs = qs.filter(confirmed=confirmed.lower() == "true")
-        return Response(WardrobeItemSerializer(qs, many=True).data)
+        return Response(
+            WardrobeItemSerializer(
+                qs,
+                many=True,
+                context={"request": request},
+            ).data
+        )
 
 
 class WardrobeItemAddToClosetView(APIView):
@@ -638,7 +644,9 @@ class WardrobeItemAddToClosetView(APIView):
         if item.added_to_closet_at is None:
             item.added_to_closet_at = timezone.now()
             item.save(update_fields=["added_to_closet_at", "updated_at"])
-        return Response(WardrobeItemSerializer(item).data)
+        return Response(
+            WardrobeItemSerializer(item, context={"request": request}).data
+        )
 
 
 class WardrobeItemDetailView(APIView):
@@ -647,18 +655,24 @@ class WardrobeItemDetailView(APIView):
     """
 
     def get(self, request, item_id):
-        queryset = WardrobeItem.objects.filter(
-            Q(user=request.user)
-            | Q(
-                shared_instances__room__members__user=request.user,
-                shared_instances__status__in=[
-                    SharedWardrobeItem.Status.AVAILABLE,
-                    SharedWardrobeItem.Status.BORROWED,
-                ],
+        queryset = (
+            WardrobeItem.objects.filter(
+                Q(user=request.user)
+                | Q(
+                    shared_instances__room__members__user=request.user,
+                    shared_instances__status__in=[
+                        SharedWardrobeItem.Status.AVAILABLE,
+                        SharedWardrobeItem.Status.BORROWED,
+                    ],
+                )
             )
-        ).distinct()
+            .prefetch_related("custom_categories")
+            .distinct()
+        )
         item = get_object_or_404(queryset, pk=item_id)
-        return Response(WardrobeItemSerializer(item).data)
+        return Response(
+            WardrobeItemSerializer(item, context={"request": request}).data
+        )
 
     def patch(self, request, item_id):
         item = get_object_or_404(WardrobeItem, pk=item_id, user=request.user)
@@ -675,7 +689,15 @@ class WardrobeItemDetailView(APIView):
                 shared_room_id = str(shared_item.room_id)
 
         vectors.update_payload(item)  # Qdrant payload 동기화 (best-effort)
-        return Response({**WardrobeItemSerializer(item).data, "shared_room_id": shared_room_id})
+        return Response(
+            {
+                **WardrobeItemSerializer(
+                    item,
+                    context={"request": request},
+                ).data,
+                "shared_room_id": shared_room_id,
+            }
+        )
 
     def delete(self, request, item_id):
         item = get_object_or_404(WardrobeItem, pk=item_id, user=request.user)

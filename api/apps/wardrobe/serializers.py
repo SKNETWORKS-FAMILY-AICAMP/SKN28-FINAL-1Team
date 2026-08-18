@@ -8,6 +8,7 @@ from __future__ import annotations
 import os
 import re
 
+from drf_spectacular.utils import extend_schema_field
 from rest_framework import serializers
 
 from . import taxonomy as T
@@ -159,7 +160,7 @@ class WardrobeBatchCreateSerializer(serializers.Serializer):
 # ── 아이템 조회/수정 ──────────────────────────────────────
 class WardrobeItemSerializer(serializers.ModelSerializer):
     image_url = serializers.SerializerMethodField()
-    custom_categories = WardrobeCategorySummarySerializer(many=True, read_only=True)
+    custom_categories = serializers.SerializerMethodField()
 
     class Meta:
         model = WardrobeItem
@@ -182,6 +183,18 @@ class WardrobeItemSerializer(serializers.ModelSerializer):
 
     def get_image_url(self, obj) -> str:
         return storage.presigned_get(obj.s3_key)
+
+    @extend_schema_field(WardrobeCategorySummarySerializer(many=True))
+    def get_custom_categories(self, obj) -> list[dict]:
+        """개인 정리 정보는 요청 사용자 본인의 아이템 응답에만 포함한다."""
+
+        request = self.context.get("request")
+        if request is None or obj.user_id != getattr(request.user, "pk", None):
+            return []
+        return WardrobeCategorySummarySerializer(
+            obj.custom_categories.all(),
+            many=True,
+        ).data
 
 
 class WardrobeItemUpdateSerializer(serializers.ModelSerializer):
