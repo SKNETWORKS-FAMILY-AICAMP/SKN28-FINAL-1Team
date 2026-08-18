@@ -21,8 +21,12 @@ import {
   type ApiMoodDecision,
   type ApiMoodDecisionInput,
   type ApiMoodAnalysis,
+  referenceErrorCode,
+  type ApiReferenceErrorCode,
+  type ApiSharedItemReference,
 } from '@/lib/chatApi';
 import { isAnswered, waitForRun, waitForStylistRun } from '@/lib/chatStream';
+import type { ApiReferenceMatch } from '@/lib/recommendApi';
 import {
   getRecommendationResult,
   imageUrlOf,
@@ -115,7 +119,26 @@ export type ChatMessage =
       decision: 'APPROVED' | 'REJECTED' | null;
       //decision: ApiMoodDecision;
     }
-  | { id: string; role: 'user'; kind: 'closet_items'; items: { id: string; image: string; name: string }[] }
+  /**
+   * 참고할 공유 옷을 함께 보낸 질문.
+   *
+   * 친구 옷은 **참고 대상이지 최종 코디 아이템이 아니다** — 문구에 '포함'을 쓰지 않는다.
+   *
+   * ⚠️ 서버가 이 정보를 돌려주지 않아(요청은 write-only, 스냅샷은 ChatRun 에만 있고
+   *    어떤 응답에도 안 나온다) 앱이 타임라인에 끼워 넣는다. 그래서 **앱을 새로 켜면 사라진다.**
+   *    백엔드가 run 응답에 reference_snapshot 을 실어 주면 그때 복원으로 바꾼다.
+   */
+  | {
+      id: string;
+      role: 'user';
+      kind: 'reference';
+      text: string;
+      sharedItemId: string;
+      imageUrl: string | null;
+      itemName: string;
+      ownerName: string;
+      roomName?: string;
+    }
   /**
    * 답변을 못 받은 질문 아래에 남기는 줄.
    * 토스트는 사라지므로, 대화를 다시 열었을 때 "질문만 있고 답이 없는" 상태로 보이지 않게 한다.
@@ -135,6 +158,8 @@ export type ChatMessage =
       /** 새로 사야 하는 상품 합계. 옷장 옷만으로 짠 코디면 0 이라 표시하지 않는다. */
       totalPrice: number | null;
       warnings: string[];
+      /** 공유 옷을 참고한 추천일 때만. 아니면 null 이라 배지를 안 그린다. */
+      referenceBadge: ReferenceBadge | null;
     }
   /**
    * 응답 모드가 바뀐 자리에 남기는 줄. **말풍선이 아니다** — 오간 말이 아니라 상태 표시라,
@@ -186,6 +211,8 @@ export type StylistCard = {
   renderStatus: ApiRenderStatus | null;
   renderImageUrl: string | null;
   renderErrorText: string | null;
+  /** 공유 옷 참고 배지. 서버가 아직 이 필드를 안 줘서 대개 null 이다(lib/stylistApi.ts 주석). */
+  referenceBadge: ReferenceBadge | null;
 };
 
 export type ChatSession = {
@@ -236,6 +263,80 @@ export function formatRelativeTime(ts: number, now: number = Date.now()): string
 /* 검색은 서버가 한다 (useSessionSearch). 앱이 받아둔 대화만 훑으면 한 번도 열지 않은
    대화가 제목으로만 걸려, 사용자에게는 "분명 그 말을 했는데 안 찾아진다"로 보인다. */
 
+/**
+ * 사용자가 고른 참고용 공유 옷. 선택 시트 → 입력창 미리보기 → 전송까지 이 모양으로 들고 다닌다.
+ *
+ * ⚠️ `sharedItemId` 는 `SharedWardrobeItem.id` 다. 내 옷장 아이템 id 를 넣으면 서버가 못 찾는다.
+ *    나머지 필드는 **화면에 보여주기 위한 것**이고 서버 식별에는 쓰지 않는다(이름으로 찾지 않는다).
+ */
+export type SharedReferencePick = {
+  sharedItemId: string;
+  imageUrl: string | null;
+  itemName: string;
+  ownerName: string;
+  roomId?: string;
+  roomName?: string;
+};
+
+/**
+ * 카드에 붙일 '무엇과 비슷한지' 배지.
+ *
+ * 공유 옷을 참고하지 않은 추천은 서버가 빈 객체를 주므로 여기서 null 이 된다.
+ * **모르는 값이 오면 배지를 만들지 않는다** — 지어내느니 생략하는 쪽이 맞고,
+ * 카드 자체는 그대로 그린다(요구사항 7장).
+ */
+export type ReferenceBadge = {
+  label: string;
+  /** 시각 유사 기준에 못 미쳐 스타일로 대신 찾은 경우. 실패가 아니라 정상 결과다. */
+  isStyleFallback: boolean;
+  /** 상세 화면에서만 보여줄 근거 문장 */
+  reasons: string[];
+};
+
+const REFERENCE_LABELS: Record<string, string> = {
+  'WARDROBE:VISUAL_SIMILAR': '친구 옷과 비슷한 내 옷',
+  'WARDROBE:STYLE_SIMILAR': '친구 옷과 스타일이 비슷한 내 옷',
+  'PRODUCT:VISUAL_SIMILAR': '친구 옷과 비슷한 새 상품',
+  /* 정상 경로에서는 안 나오지만 받으면 안전하게 표시한다. */
+  'PRODUCT:STYLE_SIMILAR': '친구 옷과 스타일이 비슷한 새 상품',
+};
+
+/** 스타일 fallback 안내 — 오류가 아니라는 게 문장에서 읽혀야 한다. */
+export const STYLE_FALLBACK_NOTE =
+  '겉모습이 충분히 비슷한 내 옷이 없어 스타일·색상·핏·소재가 가까운 옷을 골랐어요.';
+
+export function toReferenceBadge(match: ApiReferenceMatch | undefined): ReferenceBadge | null {
+  const label = REFERENCE_LABELS[`${match?.source_type}:${match?.match_type}`];
+  if (!label) return null;
+  return {
+    label,
+    isStyleFallback: match?.match_type === 'STYLE_SIMILAR',
+    /* 점수(score)는 넘기지 않는다 — 사용자에게 뜻이 없는 숫자다. */
+    reasons: match?.reasons ?? [],
+  };
+}
+
+/**
+ * 공유 옷 참고가 실패한 이유를 사용자 말로 옮긴다.
+ *
+ * ⚠️ 실패했다고 **이름 기반 일반 추천으로 조용히 넘어가지 않는다.** 그러면 사용자는
+ *    참고가 반영된 추천을 받았다고 오해한다. 원인을 말하고 다시 고르게 한다.
+ */
+export function referenceErrorText(code: ApiReferenceErrorCode | null, fallback: string): string {
+  switch (code) {
+    case 'REFERENCE_ITEM_NOT_FOUND':
+      return '선택한 공유 옷을 찾을 수 없어요. 다른 옷을 선택해 주세요.';
+    case 'REFERENCE_ITEM_FORBIDDEN':
+      return '이 공유 옷을 더 이상 참고할 수 없어요.';
+    case 'REFERENCE_ITEM_NOT_READY':
+      return '옷 이미지 처리가 끝난 뒤 다시 시도해 주세요.';
+    case 'REFERENCE_ITEM_INVALID':
+      return '이 옷은 참고할 수 없어요. 다른 옷을 선택해 주세요.';
+    default:
+      return fallback;
+  }
+}
+
 /* ── 서버 응답 옮기기 ───────────────────────────────── */
 
 function toRecMessage(
@@ -263,6 +364,7 @@ function toRecMessage(
     })),
     totalPrice: card.total_product_price,
     warnings: card.warnings ?? [],
+    referenceBadge: toReferenceBadge(card.reference_match),
   };
 }
 
@@ -649,6 +751,7 @@ function toStylistCard(r: ApiPersonaResult): StylistCard {
     renderStatus: card?.image?.status ?? null,
     renderImageUrl: card?.image?.image_url ?? null,
     renderErrorText: card?.image?.error?.message ?? null,
+    referenceBadge: toReferenceBadge(card?.reference_match),
   };
 }
 
@@ -673,6 +776,8 @@ function pendingCard(personaId: StylistId): StylistCard {
     renderStatus: null,
     renderImageUrl: null,
     renderErrorText: null,
+    /* 아직 결과가 없으니 배지도 없다. */
+    referenceBadge: null,
   };
 }
 
@@ -1083,7 +1188,11 @@ export const chatStore = {
    *
    * 되묻는 답변(NEEDS_CLARIFICATION)도 정상 답변이라 실패로 취급하지 않는다.
    */
-  async sendText(id: string, text: string): Promise<ApiChatRun> {
+  async sendText(
+    id: string,
+    text: string,
+    reference?: SharedReferencePick,
+  ): Promise<ApiChatRun> {
     const body = text.trim();
     if (!body) throw new Error('보낼 내용이 없어요');
 
@@ -1098,7 +1207,53 @@ export const chatStore = {
       updatedAt: Date.now(),
     }));
 
-    const submitted = await apiSendMessage(id, body, newClientMessageId());
+    let submitted;
+    try {
+      submitted = await apiSendMessage(
+        id,
+        body,
+        newClientMessageId(),
+        reference ? { type: 'SHARED_WARDROBE_ITEM', shared_item_id: reference.sharedItemId } : undefined,
+      );
+    } catch (e) {
+      /* 참고 옷이 사라졌거나 권한이 없거나 아직 벡터 처리 전이다. 낙관적으로 띄운 말풍선을
+         걷어내고 원인을 올린다 — 여기서 참고를 빼고 다시 보내면 사용자는 참고가 반영된
+         추천을 받았다고 오해한다(요구사항 5장). */
+      const code = referenceErrorCode(e);
+      replaceSession(id, (s) => ({
+        ...s,
+        messages: s.messages.filter((m) => m.id !== draftId),
+      }));
+      if (code) throw new Error(referenceErrorText(code, messageOf(e, GENERIC_FAILURE)));
+      throw e;
+    }
+
+    /* 무엇을 참고했는지는 사용자 말풍선에 남겨야 한다. 서버가 돌려주지 않으므로
+       (ChatMessage.reference 는 write-only) 앱이 타임라인에 끼워 넣는다. */
+    if (reference) {
+      const refId = `${submitted.message.id}-ref`;
+      addOverlay(id, {
+        id: refId,
+        after: lastMessageId(id),
+        message: {
+          id: refId,
+          role: 'user',
+          kind: 'reference',
+          text: body,
+          sharedItemId: reference.sharedItemId,
+          imageUrl: reference.imageUrl,
+          itemName: reference.itemName,
+          ownerName: reference.ownerName,
+          roomName: reference.roomName,
+        },
+      });
+      /* 참고 말풍선이 요청 문장까지 담으므로 방금 띄운 글 말풍선은 치운다 — 두 개면 같은
+         말이 두 번 나온다. */
+      replaceSession(id, (s) => ({
+        ...s,
+        messages: s.messages.filter((m) => m.id !== draftId),
+      }));
+    }
 
     /* 스타일리스트 모드면 답변을 기다리는 방식이 다르다 — 결과가 여러 개고 끝나는 시각이
        제각각이라, 다 끝날 때까지 묶어 두지 않고 끝난 카드부터 채운다. */
