@@ -5,17 +5,16 @@ import { api } from '@/lib/apiClient';
 import { authStore } from '@/state/auth';
 
 /**
- * 개인화 설정(예산·퍼스널컬러) 경량 스토어.
+ * 개인화 설정(예산) 경량 스토어.
  * draft-item.ts / auth.ts 와 동일한 "모듈 스토어 + useSyncExternalStore" 패턴.
  *
- * **예산만 서버에 남는다**(`/api/v1/users/me/budget/`). 별명·퍼스널컬러는 아직 서버에
- * 자리가 없어 메모리 보관이라 앱을 껐다 켜면 사라진다.
+ * **예산은 서버에 남는다**(`/api/v1/users/me/budget/`). 별명은 아직 서버에 자리가 없어
+ * 메모리 보관이라 앱을 껐다 켜면 사라진다.
  */
 export type Prefs = {
   nickname: string | null; // 프로필 편집에서 정한 표시 이름 (미설정이면 계정 별명으로 폴백)
   categoryBudgets: CategoryBudgets;
   effectiveCategoryBudgets: CategoryBudgets;
-  personalColor: string | null; // 예: '가을 웜'
 };
 
 export const BUDGET_CATEGORIES = [
@@ -71,7 +70,6 @@ let state: Prefs = {
   nickname: null,
   categoryBudgets: {},
   effectiveCategoryBudgets: DEFAULT_CATEGORY_BUDGETS,
-  personalColor: null,
 };
 const listeners = new Set<() => void>();
 const emit = () => listeners.forEach((l) => l());
@@ -109,10 +107,6 @@ export const prefsStore = {
           effective_category_budgets: { ...DEFAULT_CATEGORY_BUDGETS, ...normalized },
         };
     state = { ...state, ...fromBudgetResponse(response) };
-    emit();
-  },
-  setPersonalColor(c: string | null) {
-    state = { ...state, personalColor: c };
     emit();
   },
   subscribe(listener: () => void) {
@@ -167,7 +161,7 @@ export function categoryBudget(
   return category ? values[category] ?? null : null;
 }
 
-/** 개인화 설정 구독 (예산·퍼스널컬러) */
+/** 개인화 설정 구독 (예산) */
 export function usePrefs() {
   return useSyncExternalStore(prefsStore.subscribe, prefsStore.get, prefsStore.get);
 }
