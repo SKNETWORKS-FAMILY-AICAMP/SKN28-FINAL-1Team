@@ -11,7 +11,7 @@ export type AllowedHashtag = (typeof ALLOWED_HASHTAGS)[number];
 export type LookPost = {
   id: string;
   image: string;
-  tags: AllowedHashtag[];
+  tags: string[];
   price?: string;
   variantId?: string;
   gender?: LookGender;
@@ -39,7 +39,7 @@ function toPublicLook(dto: LookbookPostDto): LookPost {
   return {
     id: dto.id,
     image: dto.image_url,
-    tags: (dto.hashtags ?? []).filter(isAllowedHashtag),
+    tags: dto.hashtags ?? [],
     createdAt: Date.parse(dto.created_at) || 0,
   };
 }
@@ -63,7 +63,7 @@ export const lookbookStore = {
         id: look.id,
         variantId: look.id,
         image: look.image,
-        tags: look.tags.filter(isAllowedHashtag),
+        tags: look.tags,
         price: `₩${look.total_price.toLocaleString('ko-KR')}`,
         gender: look.gender,
         createdAt: 0,

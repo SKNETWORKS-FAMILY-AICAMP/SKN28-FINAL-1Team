@@ -1,5 +1,5 @@
 import { router } from 'expo-router';
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import {
   ActivityIndicator,
   Pressable,
@@ -28,7 +28,7 @@ import {
   useCalendarEntry,
   type EntryItem,
 } from '@/state/calendar';
-import { ALLOWED_HASHTAGS, type AllowedHashtag } from '@/state/lookbook';
+import { ALLOWED_HASHTAGS } from '@/state/lookbook';
 import { savedLookStore } from '@/state/saved';
 
 /** 'YYYY-MM-DD' 가 든 달의 첫날·끝날. 캘린더 스토어는 기간 단위로만 받아 온다. */
@@ -75,7 +75,9 @@ export function LookComposer({ date }: { date?: string }) {
     () => existing?.items ?? calendarStore.takeSeededItems() ?? [],
   );
   const [note, setNote] = useState(existing?.note ?? '');
-  const [tags, setTags] = useState<AllowedHashtag[]>(existing?.tags ?? []);
+  const [tags, setTags] = useState<string[]>(existing?.tags ?? []);
+  const [tagInputOpen, setTagInputOpen] = useState(false);
+  const [customTag, setCustomTag] = useState('');
   const [shared, setShared] = useState(existing?.shared ?? false);
   /* 룩북 전용 — 켜면 앱 사용자 전체가 둘러보기에서 본다. 친구 단위 공유는 룩북에 없다. */
   const [isPublic, setIsPublic] = useState(false);
@@ -137,8 +139,36 @@ export function LookComposer({ date }: { date?: string }) {
     }
   };
 
-  const toggleTag = (tag: AllowedHashtag) => {
+  const tagOptions = useMemo(
+    () => [
+      ...ALLOWED_HASHTAGS,
+      ...tags.filter((tag) => !(ALLOWED_HASHTAGS as readonly string[]).includes(tag)),
+    ],
+    [tags],
+  );
+
+  const toggleTag = (tag: string) => {
     setTags((prev) => (prev.includes(tag) ? prev.filter((t) => t !== tag) : [...prev, tag]));
+  };
+
+  const addCustomTag = () => {
+    const tag = customTag.trim().replace(/^#+/, '');
+    if (!tag) return;
+    if (/\s/.test(tag)) {
+      toast('해시태그에는 공백을 넣을 수 없어요.', { variant: 'error' });
+      return;
+    }
+    if (tag.length > 20) {
+      toast('해시태그는 20자 이하로 입력해 주세요.', { variant: 'error' });
+      return;
+    }
+    if (!tags.includes(tag) && tags.length >= 10) {
+      toast('해시태그는 최대 10개까지 선택할 수 있어요.', { variant: 'error' });
+      return;
+    }
+    setTags((prev) => (prev.includes(tag) ? prev : [...prev, tag]));
+    setCustomTag('');
+    setTagInputOpen(false);
   };
 
   const removeItem = (key: string) => {
@@ -444,7 +474,7 @@ export function LookComposer({ date }: { date?: string }) {
             {/* 해시태그 */}
             <Text style={[styles.sectionTitle, styles.tagSection]}>해시태그</Text>
             <View style={styles.tagRow}>
-              {ALLOWED_HASHTAGS.map((tag) => {
+              {tagOptions.map((tag) => {
                 const on = tags.includes(tag);
                 return (
                   <Pressable
@@ -455,6 +485,36 @@ export function LookComposer({ date }: { date?: string }) {
                   </Pressable>
                 );
               })}
+              {tagInputOpen ? (
+                <View style={styles.tagInputWrap}>
+                  <Text style={styles.tagInputPrefix}>#</Text>
+                  <TextInput
+                    autoFocus
+                    value={customTag}
+                    onChangeText={setCustomTag}
+                    onSubmitEditing={addCustomTag}
+                    placeholder="해시태그 입력"
+                    placeholderTextColor={Editorial.textMuted}
+                    returnKeyType="done"
+                    maxLength={21}
+                    style={styles.tagInput}
+                  />
+                  <Pressable
+                    onPress={addCustomTag}
+                    disabled={!customTag.trim()}
+                    style={styles.tagInputAdd}
+                    accessibilityLabel="해시태그 추가">
+                    <Icon name="checkmark" tintColor={customTag.trim() ? '#fff' : ink(0.35)} size={14} />
+                  </Pressable>
+                </View>
+              ) : (
+                <Pressable
+                  onPress={() => setTagInputOpen(true)}
+                  style={[styles.tag, styles.tagAdd]}
+                  accessibilityLabel="새 해시태그 입력">
+                  <Icon name="plus" tintColor={Editorial.textCaption} size={14} />
+                </Pressable>
+              )}
             </View>
 
             {/* 반대편에도 남기기 */}
@@ -710,6 +770,28 @@ const styles = StyleSheet.create({
   tagOn: { backgroundColor: Editorial.selected, borderColor: Editorial.selected },
   tagText: { fontSize: Type.caption, fontWeight: '500', color: Editorial.textCaption },
   tagTextOn: { color: '#fff' },
+  tagAdd: { minWidth: 38, alignItems: 'center', justifyContent: 'center' },
+  tagInputWrap: {
+    minWidth: 178,
+    height: 36,
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: Editorial.line,
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingLeft: 12,
+    overflow: 'hidden',
+  },
+  tagInputPrefix: { fontSize: Type.caption, color: Editorial.textCaption },
+  tagInput: { flex: 1, paddingHorizontal: 3, fontSize: Type.caption, color: INK },
+  tagInputAdd: {
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    backgroundColor: Editorial.selected,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
 
   optionRow: {
     flexDirection: 'row',

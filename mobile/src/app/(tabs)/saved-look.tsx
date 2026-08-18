@@ -21,7 +21,7 @@ import { useBreakpoint } from '@/hooks/use-breakpoint';
 import { useAuth } from '@/state/auth';
 import { draftItem } from '@/state/draft-item';
 import { formatDateLabel, type EntryItem } from '@/state/calendar';
-import { ALLOWED_HASHTAGS, type AllowedHashtag } from '@/state/lookbook';
+import { ALLOWED_HASHTAGS } from '@/state/lookbook';
 import { savedLookStore, useSavedLooks } from '@/state/saved';
 
 const INK = Editorial.ink;
@@ -64,14 +64,12 @@ export default function SavedLook() {
 
   const [editing, setEditing] = useState(false);
   const [memo, setMemo] = useState('');
-  const [tags, setTags] = useState<AllowedHashtag[]>([]);
+  const [tags, setTags] = useState<string[]>([]);
 
   const startEdit = () => {
     if (!look) return;
     setMemo(look.memo ?? '');
-    setTags(look.tags.filter((t): t is AllowedHashtag =>
-      (ALLOWED_HASHTAGS as readonly string[]).includes(t),
-    ));
+    setTags(look.tags);
     setEditing(true);
   };
 
@@ -87,7 +85,7 @@ export default function SavedLook() {
     toast('저장했어요', { variant: 'success' });
   };
 
-  const toggleTag = (tag: AllowedHashtag) => {
+  const toggleTag = (tag: string) => {
     setTags((prev) => (prev.includes(tag) ? prev.filter((t) => t !== tag) : [...prev, tag]));
   };
 

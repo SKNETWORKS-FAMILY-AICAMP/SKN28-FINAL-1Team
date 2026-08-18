@@ -99,6 +99,26 @@ class LookbookReadApiTests(LookbookApiTestCase):
         self.assertEqual(self.first.hashtags, ["여행"])
         self.assertEqual(self.first.tpo, ["출근"])
 
+    def test_patch_normalizes_custom_hashtags(self) -> None:
+        response = self.client.patch(
+            reverse("lookbook:lookbook-detail", args=[self.first.pk]),
+            {"hashtags": ["#고프코어", "고프코어", "레이어드"]},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.first.refresh_from_db()
+        self.assertEqual(self.first.hashtags, ["고프코어", "레이어드"])
+
+    def test_patch_rejects_hashtag_with_whitespace(self) -> None:
+        response = self.client.patch(
+            reverse("lookbook:lookbook-detail", args=[self.first.pk]),
+            {"hashtags": ["봄 코디"]},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 400)
+
     def test_patch_rejects_unknown_fields(self) -> None:
         response = self.client.patch(
             reverse("lookbook:lookbook-detail", args=[self.first.pk]),

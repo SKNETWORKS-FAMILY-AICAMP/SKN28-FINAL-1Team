@@ -123,6 +123,13 @@ export default function LookbookScreen() {
     void loadAll();
   }, [loadAll]);
 
+  /* 서버에 저장된 사용자 해시태그도 기본 카테고리 뒤에 자동으로 붙인다.
+     공개 룩뿐 아니라 내 룩의 태그도 합쳐, 비공개로 저장한 직후에도 필터에서 확인할 수 있다. */
+  const availableTags = useMemo(() => {
+    const discovered = [...allLooks, ...savedLooks].flatMap((look) => look.tags ?? []);
+    return Array.from(new Set([...LOOKBOOK_FILTER_OPTIONS, ...tags, ...discovered]));
+  }, [allLooks, savedLooks, tags]);
+
   /* 모드도 내 룩북 안 갈래도 URL 파라미터에서 파생한다(useState+useEffect 동기화는
      불필요한 리렌더를 만들어 지양). 갈래까지 URL 에 두는 이유는 상세에서 뒤로 왔을 때
      보던 자리로 정확히 돌아오게 하기 위해서다.
@@ -136,7 +143,7 @@ export default function LookbookScreen() {
   /* 칩 줄은 모드마다 성격이 다르다 — 둘러보기는 해시태그(여러 개 켜짐, 편집 가능),
      내 룩북은 갈래(하나만 켜짐, 고정). 같은 자리를 쓰되 배선만 갈아 끼운다. */
   const isMine = mode === 'mine';
-  const chipOptions = isMine ? MINE_CHIPS : tags;
+  const chipOptions = isMine ? MINE_CHIPS : availableTags;
   const chipActive = (c: string) => (isMine ? c === (mineTab === 'wish' ? WISH : UPLOADED) : isActive(c));
   const chipToggle = (c: string) =>
     isMine ? setMineTab(c === WISH ? 'wish' : 'uploaded') : toggle(c);
@@ -352,7 +359,7 @@ export default function LookbookScreen() {
         <CategoryEditSheet
           visible={categoryEditOpen}
           title="카테고리 관리"
-          categories={tags}
+          categories={availableTags}
           onClose={() => setCategoryEditOpen(false)}
           onSave={handleSaveTags}
           addPlaceholder="새 카테고리"

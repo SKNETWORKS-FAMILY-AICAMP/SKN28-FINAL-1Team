@@ -70,6 +70,33 @@ class StringListField(serializers.ListField):
         return super().to_internal_value(data)
 
 
+class HashtagListField(StringListField):
+    """사용자 해시태그를 `#` 없는 고유 문자열 목록으로 정규화한다."""
+
+    default_error_messages = {
+        "too_many": "해시태그는 최대 10개까지 입력할 수 있습니다.",
+        "too_long": "해시태그는 20자 이하여야 합니다.",
+        "whitespace": "해시태그에는 공백을 넣을 수 없습니다.",
+    }
+
+    def to_internal_value(self, data):
+        values = super().to_internal_value(data)
+        normalized = []
+        for value in values:
+            tag = value.strip().lstrip("#")
+            if not tag:
+                continue
+            if any(character.isspace() for character in tag):
+                self.fail("whitespace")
+            if len(tag) > 20:
+                self.fail("too_long")
+            if tag not in normalized:
+                normalized.append(tag)
+        if len(normalized) > 10:
+            self.fail("too_many")
+        return normalized
+
+
 class OptionalUUIDListField(serializers.ListField):
     """Swagger multipart가 만드는 빈 문자열 항목을 선택 없음으로 정규화한다."""
 
@@ -127,7 +154,7 @@ class LookbookWardrobeCreateSerializer(
         allow_empty=True,
         default=list,
     )
-    hashtags = StringListField(
+    hashtags = HashtagListField(
         child=serializers.CharField(allow_blank=False),
         required=False,
         allow_empty=True,
@@ -176,7 +203,7 @@ class LookbookPhotoCreateSerializer(
         allow_empty=True,
         default=list,
     )
-    hashtags = StringListField(
+    hashtags = HashtagListField(
         child=serializers.CharField(allow_blank=False),
         required=False,
         allow_empty=True,
@@ -223,7 +250,7 @@ class LookbookMetadataUpdateSerializer(
         required=False,
         allow_empty=True,
     )
-    hashtags = StringListField(
+    hashtags = HashtagListField(
         child=serializers.CharField(allow_blank=False),
         required=False,
         allow_empty=True,
