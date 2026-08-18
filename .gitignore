@@ -207,6 +207,10 @@ output
 docs/*
 !docs/wardrobe-product-import-investigation.md
 !docs/lookbook-admin-csv-guide.md
+!docs/wardrobe-custom-category-contract.md
+!docs/wardrobe-custom-category-chat-followup.md
+!docs/wardrobe-category-order-preference-chat-contract.md
+!docs/wardrobe-hashtag-contract.md
 main
 input
 nohup.out
