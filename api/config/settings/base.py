@@ -394,6 +394,10 @@ QDRANT_KNOWLEDGE_COLLECTION = os.getenv(
 SHARED_REFERENCE_VISUAL_MIN_SCORE = float(
     os.getenv("SHARED_REFERENCE_VISUAL_MIN_SCORE", "0.75")
 )
+# 스타일 fallback은 단일 색상 일치만으로 통과하지 않도록 0.30을 기본값으로 둔다.
+SHARED_REFERENCE_STYLE_MIN_SCORE = float(
+    os.getenv("SHARED_REFERENCE_STYLE_MIN_SCORE", "0.30")
+)
 
 # BGE-M3 질의 임베딩은 골든셋 적재와 같은 벡터 공간을 사용한다.
 TEXT_EMBEDDING_API_URL = os.getenv("TEXT_EMBEDDING_API_URL", "").strip()
