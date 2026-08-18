@@ -675,6 +675,7 @@ class RecommendationCardSerializer(serializers.ModelSerializer):
             "rank",
             "total_product_price",
             "validation_reasons",
+            "reference_match",
             "warnings",
             "items",
             "feedback",

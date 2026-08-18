@@ -61,6 +61,7 @@ from apps.recommend.services.text_embedding import TextEmbeddingConfigurationErr
 from apps.recommend.services.validator import (
     OutfitValidationResult,
     OutfitValidator,
+    ReferenceValidationContract,
     ValidationContext,
 )
 from apps.recommend.services.wardrobe_composer import (
@@ -341,6 +342,7 @@ class ChatRecommendationPipeline:
                         context=context,
                         analysis=analysis,
                         body=body,
+                        reference_anchor=reference_anchor,
                     ),
                 )
                 if validation.valid:
@@ -764,6 +766,7 @@ class ChatRecommendationPipeline:
         context: dict,
         analysis: TurnAnalysis,
         body: BodyProfile,
+        reference_anchor: PinnedReferenceAnchor | None,
     ) -> ValidationContext:
         return ValidationContext(
             user_id=user_id,
@@ -784,6 +787,19 @@ class ChatRecommendationPipeline:
                 "color": tuple(analysis.conditions.avoided_colors),
             },
             require_image=True,
+            reference=(
+                ReferenceValidationContract(
+                    original_wardrobe_item_ids=(
+                        reference_anchor.reference.exclusions.wardrobe_item_ids
+                    ),
+                    original_qdrant_point_ids=(
+                        reference_anchor.reference.exclusions.qdrant_point_ids
+                    ),
+                    anchor_identity=reference_anchor.identity,
+                )
+                if reference_anchor is not None
+                else None
+            ),
         )
 
     @staticmethod
@@ -812,6 +828,10 @@ class ChatRecommendationPipeline:
     ) -> None:
         composition = candidate.composition
         validation = candidate.validation
+        self._validate_composition_for_persistence(
+            result=result,
+            composition=composition,
+        )
         row = OutfitCompositionModel.objects.create(
             result=result,
             rank=rank,
@@ -827,6 +847,7 @@ class ChatRecommendationPipeline:
                 }
                 for issue in validation.issues
             ],
+            reference_match=self._reference_match(composition),
             warnings=list(composition.warnings),
         )
         for position, item in enumerate(composition.items, start=1):
@@ -847,6 +868,90 @@ class ChatRecommendationPipeline:
             )
 
     @staticmethod
+    def _validate_composition_for_persistence(
+        *,
+        result: RecommendationResult,
+        composition: DomainOutfitComposition,
+    ) -> None:
+        allowed = {
+            RecommendationResult.Mode.WARDROBE_BASED: {ItemSource.WARDROBE},
+            RecommendationResult.Mode.NEW_ITEM: {
+                ItemSource.WARDROBE,
+                ItemSource.PRODUCT,
+            },
+        }.get(result.mode, set())
+        if any(item.source_type not in allowed for item in composition.items):
+            raise OutfitCompositionFailed(
+                "추천 모드에서 허용되지 않는 최종 아이템 출처는 저장할 수 없습니다."
+            )
+        if result.mode == RecommendationResult.Mode.NEW_ITEM and not any(
+            item.source_type is ItemSource.PRODUCT for item in composition.items
+        ):
+            raise OutfitCompositionFailed(
+                "신규 상품 추천에는 판매 상품이 최소 한 개 필요합니다."
+            )
+
+        run = getattr(result, "run", None)
+        snapshot = getattr(run, "reference_snapshot", None) or {}
+        if not snapshot:
+            return
+        original_item_id = str(snapshot.get("wardrobe_item_id") or "")
+        original_point_id = str(snapshot.get("qdrant_point_id") or "")
+        for item in composition.items:
+            if (
+                (original_item_id and item.source_id == original_item_id)
+                or (original_point_id and item.point_id == original_point_id)
+                or (
+                    original_item_id
+                    and str(item.payload.get("item_id") or "") == original_item_id
+                )
+            ):
+                raise OutfitCompositionFailed(
+                    "참고용 친구 옷 원본은 최종 코디에 저장할 수 없습니다."
+                )
+        anchors = [
+            item
+            for item in composition.items
+            if item.payload.get("selection_role") == "PINNED_REFERENCE_ANCHOR"
+        ]
+        if len(anchors) != 1:
+            raise OutfitCompositionFailed(
+                "공유 옷 추천 결과에는 고정 anchor가 정확히 하나 필요합니다."
+            )
+
+    @staticmethod
+    def _reference_match(composition: DomainOutfitComposition) -> dict[str, Any]:
+        anchors = [
+            item
+            for item in composition.items
+            if item.payload.get("selection_role") == "PINNED_REFERENCE_ANCHOR"
+        ]
+        if not anchors:
+            return {}
+        if len(anchors) != 1:
+            raise OutfitCompositionFailed(
+                "최종 코디에는 공유 옷 고정 anchor가 정확히 하나여야 합니다."
+            )
+        item = anchors[0]
+        match_type = str(item.payload.get("match_type") or "").strip()
+        if match_type not in {"VISUAL_SIMILAR", "STYLE_SIMILAR"}:
+            raise OutfitCompositionFailed(
+                "공유 옷 고정 anchor의 매칭 유형이 올바르지 않습니다."
+            )
+        return {
+            "schema_version": "1.0",
+            "match_type": match_type,
+            "selection_role": "PINNED_REFERENCE_ANCHOR",
+            "source_type": item.source_type.value,
+            "source_id": item.source_id,
+            "source_collection": item.source_collection,
+            "source_point_id": item.point_id,
+            "template_item_point_id": item.template_point_id,
+            "score": item.score,
+            "reasons": list(item.reasons),
+        }
+
+    @staticmethod
     def _approved_payload(result: RecommendationResult) -> dict[str, Any]:
         compositions = []
         for composition in result.compositions.prefetch_related("items").all():
@@ -854,6 +959,7 @@ class ChatRecommendationPipeline:
                 {
                     "rank": composition.rank,
                     "total_product_price": composition.total_product_price,
+                    "reference_match": composition.reference_match,
                     "warnings": composition.warnings,
                     "items": [
                         {

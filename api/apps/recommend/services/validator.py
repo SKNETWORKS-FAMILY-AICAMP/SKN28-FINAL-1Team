@@ -13,7 +13,11 @@ from typing import Any, Protocol
 from apps.catalog.models import ElevenProduct, NaverProduct
 from apps.recommend.services.body_profile import BodyProfile
 from apps.recommend.services.item_retriever import ItemSource
-from apps.recommend.services.outfit_types import OutfitComposition, OutfitItem
+from apps.recommend.services.outfit_types import (
+    OutfitComposition,
+    OutfitItem,
+    RecommendationMode,
+)
 from apps.recommend.services.qdrant import collection_spec
 from apps.recommend.services.style_rules import load_body_rules, load_weather_rules
 from apps.wardrobe.models import WardrobeItem
@@ -54,6 +58,15 @@ class EligibilityGateway(Protocol):
 
 
 @dataclass(frozen=True)
+class ReferenceValidationContract:
+    """공유 원본은 배제하고 선택된 대체 anchor는 포함시키는 최종 검증 계약."""
+
+    original_wardrobe_item_ids: tuple[str, ...]
+    original_qdrant_point_ids: tuple[str, ...]
+    anchor_identity: tuple[str, str, str]
+
+
+@dataclass(frozen=True)
 class ValidationContext:
     user_id: int | None = None
     body: BodyProfile | None = None
@@ -69,6 +82,7 @@ class ValidationContext:
     contextual_avoided_tags: Mapping[str, tuple[str, ...]] = field(default_factory=dict)
     incompatible_color_pairs: tuple[tuple[str, str], ...] = ()
     require_image: bool = True
+    reference: ReferenceValidationContract | None = None
 
 
 @dataclass(frozen=True)
@@ -361,6 +375,7 @@ class OutfitValidator:
 
         self._validate_slots(composition, context, issues)
         self._validate_duplicates(composition.items, issues)
+        self._validate_sources(composition, context, issues)
         self._validate_items(composition.items, context, issues)
         self._validate_categories(composition.items, issues)
         self._validate_layer_order(composition.items, issues)
@@ -398,6 +413,16 @@ class OutfitValidator:
             for category, amount in context.category_budgets.items()
         ):
             raise ValueError("category_budgets는 대분류별 0 이상의 정수여야 합니다.")
+        reference = context.reference
+        if reference is not None and (
+            not reference.original_wardrobe_item_ids
+            or not reference.original_qdrant_point_ids
+            or len(reference.anchor_identity) != 3
+            or any(not str(value).strip() for value in reference.anchor_identity)
+        ):
+            raise ValueError(
+                "공유 레퍼런스 검증에는 원본 제외 ID와 anchor identity가 필요합니다."
+            )
 
     @staticmethod
     def _validate_slots(
@@ -448,6 +473,79 @@ class OutfitValidator:
                     f"같은 아이템 '{source_id}'이 {count}개 슬롯에 중복 배치됐습니다.",
                     source_type=ItemSource(source_type),
                     source_id=source_id,
+                )
+            )
+
+    @staticmethod
+    def _validate_sources(
+        composition: OutfitComposition,
+        context: ValidationContext,
+        issues: list[ValidationIssue],
+    ) -> None:
+        allowed = {
+            RecommendationMode.WARDROBE_BASED: {ItemSource.WARDROBE},
+            RecommendationMode.NEW_ITEM: {ItemSource.WARDROBE, ItemSource.PRODUCT},
+        }.get(composition.mode, set())
+        for item in composition.items:
+            issue_kwargs = {
+                "slot_id": item.slot_id,
+                "source_type": item.source_type,
+                "source_id": item.source_id,
+            }
+            if item.source_type not in allowed:
+                issues.append(
+                    ValidationIssue(
+                        ValidationSeverity.ERROR,
+                        "MODE_SOURCE_INVALID",
+                        (
+                            f"{composition.mode.value} 모드에서 허용되지 않는 "
+                            "최종 아이템 출처입니다."
+                        ),
+                        **issue_kwargs,
+                    )
+                )
+
+        if composition.mode is RecommendationMode.NEW_ITEM and not any(
+            item.source_type is ItemSource.PRODUCT for item in composition.items
+        ):
+            issues.append(
+                ValidationIssue(
+                    ValidationSeverity.ERROR,
+                    "NEW_ITEM_PRODUCT_REQUIRED",
+                    "신규 상품 추천에는 판매 상품이 최소 한 개 필요합니다.",
+                )
+            )
+
+        reference = context.reference
+        if reference is None:
+            return
+        original_ids = set(reference.original_wardrobe_item_ids)
+        original_points = set(reference.original_qdrant_point_ids)
+        for item in composition.items:
+            payload_item_id = str(item.payload.get("item_id") or "")
+            if (
+                item.source_id in original_ids
+                or payload_item_id in original_ids
+                or item.point_id in original_points
+            ):
+                issues.append(
+                    ValidationIssue(
+                        ValidationSeverity.ERROR,
+                        "SHARED_REFERENCE_SOURCE_LEAKED",
+                        "참고용 친구 옷 원본은 최종 코디에 포함될 수 없습니다.",
+                        slot_id=item.slot_id,
+                        source_type=item.source_type,
+                        source_id=item.source_id,
+                    )
+                )
+        if not any(
+            item.identity == reference.anchor_identity for item in composition.items
+        ):
+            issues.append(
+                ValidationIssue(
+                    ValidationSeverity.ERROR,
+                    "REFERENCE_ANCHOR_MISSING",
+                    "공유 옷을 참고해 선택한 고정 아이템이 최종 코디에 없습니다.",
                 )
             )
 

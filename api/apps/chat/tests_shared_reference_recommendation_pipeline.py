@@ -130,6 +130,7 @@ class SharedReferenceRecommendationPipelineTests(SimpleTestCase):
             score=0.91,
         )
         pinned_product.payload["selection_role"] = "PINNED_REFERENCE_ANCHOR"
+        pinned_product.payload["match_type"] = "VISUAL_SIMILAR"
         anchor = PinnedReferenceAnchor(
             reference=reference,
             candidate=pinned_product,
@@ -262,6 +263,31 @@ class SharedReferenceRecommendationPipelineTests(SimpleTestCase):
                     source_ids = [item.source_id for item in row.composition.items]
                     self.assertIn("pinned-product", source_ids)
                     self.assertNotIn("higher-score-product", source_ids)
+                    reference_match = pipeline._reference_match(row.composition)
+                    self.assertEqual(
+                        reference_match["selection_role"],
+                        "PINNED_REFERENCE_ANCHOR",
+                    )
+                    self.assertEqual(
+                        reference_match["source_id"],
+                        "pinned-product",
+                    )
+                    self.assertTrue(reference_match["reasons"])
+                validation_context = pipeline.validator.validate.call_args.kwargs[
+                    "context"
+                ]
+                self.assertEqual(
+                    validation_context.reference.anchor_identity,
+                    (
+                        "PRODUCT",
+                        "products_naver_v1",
+                        "pinned-product",
+                    ),
+                )
+                self.assertNotIn(
+                    "pinned-product",
+                    validation_context.reference.original_wardrobe_item_ids,
+                )
                 retrieval_request = golden.retrieve.call_args.args[0]
                 self.assertEqual(
                     retrieval_request.required_item_categories,

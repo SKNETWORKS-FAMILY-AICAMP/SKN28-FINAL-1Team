@@ -632,6 +632,14 @@ class OutfitComposition(models.Model):
         default=list,
         db_comment="Validator의 통과·실패 근거 JSON 배열",
     )
+    reference_match = models.JSONField(
+        default=dict,
+        blank=True,
+        db_comment=(
+            "공유 옷 참고 매칭 근거 JSON "
+            "(match_type/source_type/source_id/score/reasons, 미사용 시 빈 객체)"
+        ),
+    )
     warnings = models.JSONField(
         default=list,
         db_comment="추천은 가능하지만 사용자에게 안내할 검증 경고 JSON 배열",
@@ -673,6 +681,48 @@ class OutfitComposition(models.Model):
 
     def clean(self) -> None:
         super().clean()
+        if not isinstance(self.reference_match, dict):
+            raise ValidationError(
+                {"reference_match": "공유 옷 매칭 근거는 JSON 객체여야 합니다."}
+            )
+        if self.reference_match:
+            required = {
+                "schema_version",
+                "match_type",
+                "selection_role",
+                "source_type",
+                "source_id",
+                "source_collection",
+                "source_point_id",
+                "template_item_point_id",
+                "score",
+                "reasons",
+            }
+            if set(self.reference_match) != required:
+                raise ValidationError(
+                    {
+                        "reference_match": (
+                            "공유 옷 매칭 근거의 필드 계약이 올바르지 않습니다."
+                        )
+                    }
+                )
+            if self.reference_match.get("selection_role") != (
+                "PINNED_REFERENCE_ANCHOR"
+            ):
+                raise ValidationError(
+                    {"reference_match": "고정 anchor 매칭 근거만 저장할 수 있습니다."}
+                )
+            if self.reference_match.get("match_type") not in {
+                "VISUAL_SIMILAR",
+                "STYLE_SIMILAR",
+            }:
+                raise ValidationError(
+                    {"reference_match": "지원하지 않는 공유 옷 매칭 유형입니다."}
+                )
+            if not isinstance(self.reference_match.get("reasons"), list):
+                raise ValidationError(
+                    {"reference_match": "매칭 근거 reasons는 JSON 배열이어야 합니다."}
+                )
         if (
             self.result_id
             and self.result.response_mode

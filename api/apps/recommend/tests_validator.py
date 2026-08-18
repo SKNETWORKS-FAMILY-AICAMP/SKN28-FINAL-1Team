@@ -15,6 +15,7 @@ from apps.recommend.services.outfit_types import (
 from apps.recommend.services.validator import (
     DjangoEligibilityGateway,
     OutfitValidator,
+    ReferenceValidationContract,
     SourceEligibility,
     ValidationContext,
     ValidationSeverity,
@@ -65,13 +66,21 @@ def _composition(
     missing: tuple[str, ...] = (),
     total_price: int | None = None,
     slots: tuple[OutfitSlot, ...] = (),
+    mode: RecommendationMode | None = None,
 ) -> OutfitComposition:
     if total_price is None:
         total_price = sum(
             item.price or 0 for item in items if item.source_type is ItemSource.PRODUCT
         )
     return OutfitComposition(
-        mode=RecommendationMode.WARDROBE_BASED,
+        mode=(
+            mode
+            or (
+                RecommendationMode.NEW_ITEM
+                if any(item.source_type is ItemSource.PRODUCT for item in items)
+                else RecommendationMode.WARDROBE_BASED
+            )
+        ),
         items=tuple(items),
         missing_slot_ids=missing,
         total_product_price=total_price,
@@ -123,8 +132,8 @@ class OutfitValidatorTests(SimpleTestCase):
         )
         bottom = _item(
             "bottom",
-            ItemSource.GOLDENSET_ITEM,
-            "golden-bottom",
+            ItemSource.WARDROBE,
+            "owned-bottom",
             category_large="하의",
             payload={"season": ["봄", "가을"], "usage": ["출근"]},
         )
@@ -151,8 +160,8 @@ class OutfitValidatorTests(SimpleTestCase):
     def test_missing_slot_and_image_are_hard_errors(self) -> None:
         item = _item(
             "top",
-            ItemSource.GOLDENSET_ITEM,
-            "golden-top",
+            ItemSource.WARDROBE,
+            "owned-top",
             image_ref="",
         )
         slots = (
@@ -192,13 +201,13 @@ class OutfitValidatorTests(SimpleTestCase):
         )
         bottom_a = _item(
             "bottom-a",
-            ItemSource.GOLDENSET_ITEM,
+            ItemSource.WARDROBE,
             "bottom-a",
             category_large="하의",
         )
         bottom_b = _item(
             "bottom-b",
-            ItemSource.GOLDENSET_ITEM,
+            ItemSource.WARDROBE,
             "bottom-b",
             category_large="하의",
         )
@@ -218,8 +227,8 @@ class OutfitValidatorTests(SimpleTestCase):
     def test_explicit_avoidance_is_error_but_context_mismatch_is_warning(self) -> None:
         item = _item(
             "top",
-            ItemSource.GOLDENSET_ITEM,
-            "golden-top",
+            ItemSource.WARDROBE,
+            "owned-top",
             payload={
                 "color": ["블랙"],
                 "season": ["겨울"],
@@ -271,8 +280,8 @@ class OutfitValidatorTests(SimpleTestCase):
     def test_hard_body_rule_rejects_final_composition(self) -> None:
         item = _item(
             "top",
-            ItemSource.GOLDENSET_ITEM,
-            "golden-crop",
+            ItemSource.WARDROBE,
+            "owned-crop",
             payload={"fit": "레귤러핏", "length": "크롭"},
         )
 
@@ -290,8 +299,8 @@ class OutfitValidatorTests(SimpleTestCase):
     def test_soft_body_and_weather_rules_are_warnings(self) -> None:
         item = _item(
             "top",
-            ItemSource.GOLDENSET_ITEM,
-            "golden-knit",
+            ItemSource.WARDROBE,
+            "owned-knit",
             payload={"fit": "슬림핏", "material": "니트"},
         )
 
@@ -359,6 +368,100 @@ class OutfitValidatorTests(SimpleTestCase):
         self.assertIn(
             "CATEGORY_BUDGET_EXCEEDED",
             _codes(result, ValidationSeverity.ERROR),
+        )
+
+    def test_shared_friend_original_is_rejected_by_source_and_point_id(self) -> None:
+        friend_id = "friend-original"
+        leaked = _item(
+            "outer",
+            ItemSource.WARDROBE,
+            friend_id,
+            category_large="아우터",
+        )
+        contract = ReferenceValidationContract(
+            original_wardrobe_item_ids=(friend_id,),
+            original_qdrant_point_ids=(leaked.point_id,),
+            anchor_identity=leaked.identity,
+        )
+
+        result = OutfitValidator(eligibility_gateway=FakeEligibilityGateway()).validate(
+            _composition(leaked),
+            context=ValidationContext(user_id=7, reference=contract),
+        )
+
+        self.assertIn(
+            "SHARED_REFERENCE_SOURCE_LEAKED",
+            _codes(result, ValidationSeverity.ERROR),
+        )
+
+    def test_reference_anchor_must_be_present(self) -> None:
+        selected = _item("top", ItemSource.WARDROBE, "another-owned-item")
+        contract = ReferenceValidationContract(
+            original_wardrobe_item_ids=("friend-original",),
+            original_qdrant_point_ids=("friend-point",),
+            anchor_identity=("WARDROBE", "wardrobe_items", "expected-anchor"),
+        )
+
+        result = OutfitValidator(eligibility_gateway=FakeEligibilityGateway()).validate(
+            _composition(selected),
+            context=ValidationContext(user_id=7, reference=contract),
+        )
+
+        self.assertIn(
+            "REFERENCE_ANCHOR_MISSING",
+            _codes(result, ValidationSeverity.ERROR),
+        )
+
+    def test_reference_validation_requires_original_exclusion_ids(self) -> None:
+        item = _item("top", ItemSource.WARDROBE, "owned-top")
+        invalid_contract = ReferenceValidationContract(
+            original_wardrobe_item_ids=(),
+            original_qdrant_point_ids=(),
+            anchor_identity=item.identity,
+        )
+
+        with self.assertRaises(ValueError):
+            OutfitValidator(eligibility_gateway=FakeEligibilityGateway()).validate(
+                _composition(item),
+                context=ValidationContext(reference=invalid_contract),
+            )
+
+    def test_mode_rejects_wrong_final_sources(self) -> None:
+        product = _item(
+            "top",
+            ItemSource.PRODUCT,
+            "naver-1",
+            price=30_000,
+        )
+        wardrobe_only = _item("top", ItemSource.WARDROBE, "owned-top")
+        golden = _item("top", ItemSource.GOLDENSET_ITEM, "golden-top")
+        validator = OutfitValidator(eligibility_gateway=FakeEligibilityGateway())
+
+        wardrobe_result = validator.validate(
+            _composition(
+                product,
+                mode=RecommendationMode.WARDROBE_BASED,
+            )
+        )
+        new_item_result = validator.validate(
+            _composition(
+                wardrobe_only,
+                mode=RecommendationMode.NEW_ITEM,
+            )
+        )
+        golden_result = validator.validate(_composition(golden))
+
+        self.assertIn(
+            "MODE_SOURCE_INVALID",
+            _codes(wardrobe_result, ValidationSeverity.ERROR),
+        )
+        self.assertIn(
+            "NEW_ITEM_PRODUCT_REQUIRED",
+            _codes(new_item_result, ValidationSeverity.ERROR),
+        )
+        self.assertIn(
+            "MODE_SOURCE_INVALID",
+            _codes(golden_result, ValidationSeverity.ERROR),
         )
 
 
