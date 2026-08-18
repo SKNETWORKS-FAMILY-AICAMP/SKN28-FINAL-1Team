@@ -1,6 +1,6 @@
 import { Icon } from '@/components/icon';
 import { router, useLocalSearchParams } from 'expo-router';
-import { backTo, goBack } from '@/lib/goBack';
+import { backTo, goBack, withReturn } from '@/lib/goBack';
 import { useState } from 'react';
 import {
   ActivityIndicator,
@@ -53,10 +53,14 @@ export default function SavedLook() {
   /* 어떤 룩인지는 목록에서 id 로 받는다. id 없이 들어오면(아직 id 를 안 넘기는 경로가 있다)
      첫 저장 룩을 보여준다 — 고정 목업을 그리던 자리다. */
   const { id, from } = useLocalSearchParams<{ id?: string; from?: string }>();
-  /* 룩북에서도 캘린더에서도 들어온다 — 들어온 자리로 돌려보낸다. */
-  const back = () => goBack(backTo(from, '/(tabs)/lookbook?tab=saved'));
   const looks = useSavedLooks();
   const look = (id ? looks.find((l) => l.id === id) : looks[0]) ?? null;
+  /** 이 룩이 내 룩북의 어느 갈래에 서 있는지 — 추천에서 담은 룩(✨)은 위시, 나머지는 올린 룩. */
+  const inWish = look?.origin === 'ai';
+  /* 룩북에서도 캘린더에서도 들어온다 — 들어온 자리로 돌려보낸다.
+     from 이 없으면 이 룩이 실제로 서 있는 갈래로 보낸다(없는 목록에 떨어뜨리지 않는다). */
+  const back = () =>
+    goBack(backTo(from, `/(tabs)/lookbook?tab=${inWish ? 'wish' : 'mine'}`));
 
   const [editing, setEditing] = useState(false);
   const [memo, setMemo] = useState('');
@@ -90,7 +94,7 @@ export default function SavedLook() {
   const remove = async () => {
     if (!look) return;
     const ok = await confirm({
-      title: '이 룩을 저장됨에서 뺄까요?',
+      title: inWish ? '이 룩을 위시에서 뺄까요?' : '이 룩을 내 룩북에서 뺄까요?',
       message: '메모와 태그도 함께 사라져요.',
       confirmLabel: '삭제',
       destructive: true,
@@ -103,7 +107,7 @@ export default function SavedLook() {
       toast(error instanceof Error ? error.message : '빼지 못했어요', { variant: 'error' });
       return;
     }
-    toast('저장됨에서 뺐어요');
+    toast(inWish ? '위시에서 뺐어요' : '내 룩북에서 뺐어요');
     back();
   };
 
@@ -361,7 +365,14 @@ export default function SavedLook() {
 
       <View style={styles.bottomDivider} />
       <View style={[styles.bottomBar, { paddingBottom: 12 }, contentStyle(ContentMax.card)]}>
-        <Pressable style={styles.cta} onPress={() => router.push('/chat-room')}>
+        {/* 채팅에서 뒤로 나오면 보던 룩으로 돌아오게 자리를 알려 준다 (룩북·캘린더와 같은 방식). */}
+        <Pressable
+          style={styles.cta}
+          onPress={() =>
+            router.push(
+              withReturn('/chat-room', look ? `/saved-look?id=${look.id}` : '/saved-look'),
+            )
+          }>
           <Icon name="sparkles" tintColor="#fff" size={15} />
           <Text style={styles.ctaText}>비슷하게 추천받기</Text>
         </Pressable>
