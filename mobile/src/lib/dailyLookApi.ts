@@ -64,6 +64,23 @@ export function isDailyLookPending(look: DailyLook | null): boolean {
 }
 
 /**
+ * 화면이 그려야 할 단계. 홈 카드와 룩 상세가 같은 규칙을 쓰도록 여기 한 곳에 둔다.
+ *
+ * - `pending`: 아직 모르거나 만드는 중 → **스켈레톤**. 목업으로 채우지 않는다.
+ *   완성된 추천처럼 보이는 자리채움은 몇 초 뒤 통째로 바뀌어 "가짜를 봤다"는 인상을 준다.
+ * - `ready`: 실제 추천이 있다.
+ * - `unavailable`: 후보 없음(EMPTY)·실패(FAILED)·폴링 포기(stalled) → 무엇을 하면
+ *   되는지 안내한다. EMPTY 와 FAILED 는 안내가 달라야 해서 status 를 함께 본다.
+ */
+export type DailyLookPhase = 'pending' | 'ready' | 'unavailable';
+
+export function dailyLookPhase(look: DailyLook | null, stalled = false): DailyLookPhase {
+  if (look?.status === 'SUCCEEDED') return look.result ? 'ready' : 'unavailable';
+  if (look == null || isDailyLookPending(look)) return stalled ? 'unavailable' : 'pending';
+  return 'unavailable';
+}
+
+/**
  * 오늘의 룩 조회. 그날 첫 호출이면 백엔드가 생성을 걸고 QUEUED 로 응답한다
  * (홈 API 가 진입 시점에 선반영을 걸어 두므로 보통은 이미 만들어져 있다).
  * lat/lon 을 주면 그 위치의 날씨로 만든다 — 단, 생성은 하루 한 번이라

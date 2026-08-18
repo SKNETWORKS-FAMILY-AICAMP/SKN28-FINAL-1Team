@@ -233,7 +233,7 @@ class SocialLoginView(APIView):
         # 토큰 발급은 _token_response로 일원화됐다(이메일 로그인과 같은 응답 모양).
         # 오늘의 룩 선반영은 여기가 아니라 홈 API(GET /api/v1/home/)가 건다 —
         # 홈 요청에는 위경도가 실려 와 사용자 위치의 날씨로 만들 수 있다
-        # (apps/home/views.py의 _kick_off_daily_look).
+        # (apps/home/views.py의 _daily_look_payload).
         # request는 같은 브라우저의 게스트 채팅을 로그인 회원에게 이전하는 데 쓴다.
         return _token_response(user, created=created, request=request)
 

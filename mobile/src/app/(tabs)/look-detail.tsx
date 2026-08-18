@@ -1,5 +1,5 @@
 import { Icon } from '@/components/icon';
-import { SmartImage, useToast } from '@/components/ui';
+import { ErrorState, LoadingState, SmartImage, useToast } from '@/components/ui';
 import { categoryBudget, formatBudget, parsePrice, usePrefs } from '@/state/prefs';
 import { router, useLocalSearchParams } from 'expo-router';
 import { useMemo, useState } from 'react';
@@ -19,6 +19,7 @@ import type { LookRelated } from '@/constants/today-look';
 import { useBreakpoint } from '@/hooks/use-breakpoint';
 import { useDailyLook } from '@/hooks/use-daily-look';
 import { useHome } from '@/hooks/use-home';
+import { dailyLookPhase } from '@/lib/dailyLookApi';
 import { DetailTwoPane } from '@/components/detail-two-pane';
 import { useDiscoveryLook } from '@/hooks/use-discovery-look';
 import type { LookVariant } from '@/constants/today-look';
@@ -40,11 +41,20 @@ export default function LookDetail() {
   /* 어떤 룩을 볼지는 주소가 정한다. 없으면 오늘의 룩. */
   const { id, from } = useLocalSearchParams<{ id?: string; from?: string }>();
   const { isLoggedIn } = useAuth();
+  /* 서브텍스트의 날씨는 홈과 같은 출처(useHome)에서 가져와 통일한다. 홈 응답에는
+     오늘의 룩 상태도 실려 있어 아래 훅의 시드로 그대로 넘긴다(왕복 0회). */
+  const { data: home } = useHome();
   /* 오늘의 룩(id 없음/'daily')은 추천 API 실데이터로 그린다. 홈이 이미 만들어 둔
      것을 다시 조회하는 것뿐이라(하루 1건 멱등) 재생성은 없고, 생성 중이면 훅이
-     폴링해 보는 사이 완성되면 화면이 실제 추천으로 바뀐다. 완성 전·비회원이면
-     번들 목업으로 물러난다 — 홈 카드의 템플릿 폴백과 같은 규칙. */
-  const { look: dailyLook } = useDailyLook(isLoggedIn);
+     폴링해 보는 사이 완성되면 화면이 실제 추천으로 바뀐다.
+     **완성 전에는 목업으로 물러나지 않는다** — 로그인 사용자에게 남의 룩 목업을
+     보여주면 몇 초 뒤 통째로 바뀌어 방금 본 것이 가짜였다는 인상만 남는다.
+     번들 목업은 비회원 둘러보기(LOOK_VARIANTS) 몫으로만 남긴다. */
+  const {
+    look: dailyLook,
+    stalled: dailyStalled,
+    reload: reloadDailyLook,
+  } = useDailyLook(isLoggedIn, home ? home.daily_look : undefined);
   const discoveryLook = useDiscoveryLook(id);
   const apiVariant = useMemo(() => dailyLookToVariant(dailyLook), [dailyLook]);
   const discoveryVariant = useMemo<LookVariant | null>(() => discoveryLook ? ({
@@ -186,12 +196,49 @@ export default function LookDetail() {
     if (await saveLook()) router.push('/(tabs)/lookbook?tab=wish');
   };
 
-  /* 서브텍스트의 날씨는 홈과 같은 출처(useHome)에서 실시간 값을 가져와 통일한다.
-     아직 안 불러왔거나 API 실패 시엔 날씨를 생략하고 무드·상황만 보여준다. */
-  const { data: home } = useHome();
+  /* 아직 안 불러왔거나 API 실패 시엔 날씨를 생략하고 무드·상황만 보여준다. */
   const w = home?.weather;
   const weatherPart = w && w.temperature != null ? `${w.region ?? '서울'} ${w.temperature}°` : null;
   const subtitle = [weatherPart, look.subtitle].filter(Boolean).join(' · ');
+
+  /* 로그인 사용자가 '오늘의 룩'을 열었는데 아직 완성 전이면, 목업 룩을 그리는 대신
+     지금 무슨 일이 벌어지는지 보여준다. 홈 카드와 같은 판정(dailyLookPhase)을 써서
+     두 화면이 같은 순간에 같은 말을 하게 한다. */
+  const isDailyRoute = !discoveryVariant && (!id || id === 'daily');
+  const dailyPhase = dailyLookPhase(dailyLook, dailyStalled);
+  if (isLoggedIn && isDailyRoute && dailyPhase !== 'ready') {
+    return (
+      <View style={styles.container}>
+        <SafeAreaView edges={['top']} style={styles.headerSafe}>
+          <View style={[styles.header, contentStyle(maxW)]}>
+            <Pressable hitSlop={12} onPress={() => goBack(backTo(from, '/(tabs)/home'))}>
+              <Icon name="chevron.left" tintColor={INK} size={20} />
+            </Pressable>
+            <Text style={styles.headerTitle}>추천 룩</Text>
+            <View style={styles.headerRight} />
+          </View>
+        </SafeAreaView>
+        {dailyPhase === 'pending' ? (
+          <LoadingState message={dailyLook?.detail ?? '오늘의 룩을 만들고 있어요…'} />
+        ) : dailyLook?.status === 'EMPTY' ? (
+          /* 후보가 없는 것은 오류가 아니다 — 다시 시도해도 같으니 프로필로 보낸다. */
+          <ErrorState
+            title="오늘 추천할 룩을 찾지 못했어요"
+            description={dailyLook?.detail ?? '체형·추구미를 채우면 그에 맞는 코디를 찾아드릴 수 있어요.'}
+            onRetry={() => router.push('/edit-profile')}
+            retryLabel="프로필 채우기"
+            retryIcon="person"
+          />
+        ) : (
+          <ErrorState
+            title="오늘의 룩을 준비하지 못했어요"
+            description={dailyLook?.detail ?? '잠시 뒤 다시 시도해 주세요.'}
+            onRetry={reloadDailyLook}
+          />
+        )}
+      </View>
+    );
+  }
 
   return (
     <View style={styles.container}>

@@ -79,7 +79,8 @@ export function Skeleton({
   style,
 }: {
   width?: DimensionValue;
-  height?: number;
+  /** 숫자 외에 '100%' 도 받는다 — 사진 자리처럼 비율(aspectRatio)로 잡힌 칸을 채울 때 필요하다. */
+  height?: DimensionValue;
   radius?: number;
   style?: ViewStyle;
 }) {
