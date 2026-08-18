@@ -93,6 +93,43 @@ class WardrobeListCategoryResponseTests(TestCase):
                 ],
             )
 
+    def test_list_query_count_stays_constant_with_fifty_items(
+        self,
+        _presigned_get,
+    ):
+        extra_items = [self._create_item(index) for index in range(3, 50)]
+        WardrobeItemCategory.objects.bulk_create(
+            [
+                WardrobeItemCategory(
+                    wardrobe_item=item,
+                    category=category,
+                )
+                for item in extra_items
+                for category in (self.first_category, self.second_category)
+            ]
+        )
+
+        with self.assertNumQueries(2):
+            response = self.client.get("/api/v1/wardrobe/items/")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(len(response.data), 50)
+        self.assertEqual(
+            response.data[-1]["custom_categories"],
+            [
+                {
+                    "id": str(self.first_category.pk),
+                    "name": "출근룩",
+                    "position": 0,
+                },
+                {
+                    "id": str(self.second_category.pk),
+                    "name": "여행룩",
+                    "position": 1,
+                },
+            ],
+        )
+
     def test_detail_uses_the_same_custom_category_contract(self, _presigned_get):
         response = self.client.get(
             f"/api/v1/wardrobe/items/{self.items[0].pk}/"
