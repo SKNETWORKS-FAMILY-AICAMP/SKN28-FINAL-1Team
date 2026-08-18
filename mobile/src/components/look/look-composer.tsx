@@ -244,7 +244,7 @@ export function LookComposer({ date }: { date?: string }) {
     toast(linkOn ? '룩북에 올리고 캘린더에도 기록했어요' : '룩북에 올렸어요', {
       variant: 'success',
     });
-    router.navigate('/(tabs)/lookbook?tab=saved');
+    router.navigate('/(tabs)/lookbook?tab=mine');
   };
 
   const handleDelete = async () => {
@@ -422,7 +422,7 @@ export function LookComposer({ date }: { date?: string }) {
                 </View>
                 <View style={styles.optionBody}>
                   <Text style={styles.optionTitle}>룩북에 올려 둔 기록이에요</Text>
-                  <Text style={styles.optionDesc}>내 룩북 · 저장됨에서 볼 수 있어요</Text>
+                  <Text style={styles.optionDesc}>내 룩북 · 올린 룩에서 볼 수 있어요</Text>
                 </View>
                 <Icon name="checkmark" tintColor={ink(0.45)} size={16} />
               </View>
