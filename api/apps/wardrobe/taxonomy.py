@@ -43,3 +43,17 @@ ALL_SMALL = [s for smalls in CATEGORY_SMALL.values() for s in smalls]
 def is_valid_pair(category_large: str, category_small: str) -> bool:
     """대분류-소분류 짝 정합성 검사."""
     return category_small in CATEGORY_SMALL.get(category_large, [])
+
+
+SINGLE_SLOT_LARGE: set[str] = {"하의", "신발", "원피스/세트"}
+SINGLE_SLOT_SMALL: set[str] = {"모자"}
+
+
+def get_slot_key(category_large: str, category_small: str = "") -> str | None:
+    """아이템이 단일 슬롯(착장당 1개 제한) 대상인 경우 슬롯 키를 반환한다."""
+    if category_small in SINGLE_SLOT_SMALL:
+        return category_small
+    if category_large in SINGLE_SLOT_LARGE:
+        return category_large
+    return None
+

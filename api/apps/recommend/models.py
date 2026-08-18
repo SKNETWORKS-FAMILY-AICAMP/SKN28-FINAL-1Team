@@ -1424,3 +1424,148 @@ class ProductClickEvent(models.Model):
     def save(self, *args, **kwargs) -> None:
         self.clean()
         super().save(*args, **kwargs)
+
+
+class WishlistItem(models.Model):
+    """회원이 담아 둔 판매 상품(찜).
+
+    ProductClickEvent 와 같은 방식으로 상품을 가리킨다 — 이름이 아니라
+    ``source_collection``/``source_id``(카탈로그 원본 식별자)다. 이름으로 묶으면
+    같은 상품이 추천마다 다른 이름으로 와서 두 번 담기고, 카탈로그의 브랜드·링크와
+    이어 붙일 수도 없다.
+
+    추천 카드가 지워져도 담아 둔 것은 남아야 하므로 ``item`` 은 끊어질 수 있고
+    (SET_NULL), 화면에 필요한 값은 담는 순간의 스냅샷으로 이 행에 복사한다.
+    """
+
+    id = models.UUIDField(
+        primary_key=True,
+        default=uuid.uuid4,
+        editable=False,
+        db_comment="찜 UUID",
+    )
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name="wishlist_items",
+        db_comment="찜한 회원 FK (users.id)",
+    )
+    item = models.ForeignKey(
+        OutfitCompositionItem,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="wishlist_entries",
+        db_comment="담은 시점의 코디 구성 아이템 FK (추천 삭제 시 NULL)",
+    )
+    result_id_snapshot = models.UUIDField(
+        null=True,
+        blank=True,
+        db_comment="담은 추천 결과 UUID 스냅샷",
+    )
+    composition_id_snapshot = models.UUIDField(
+        null=True,
+        blank=True,
+        db_comment="담은 추천 카드 UUID 스냅샷",
+    )
+    source_collection = models.CharField(
+        max_length=128,
+        blank=True,
+        default="",
+        db_comment="상품 후보를 조회한 Qdrant 컬렉션명",
+    )
+    source_id = models.CharField(
+        max_length=128,
+        blank=True,
+        default="",
+        db_comment="상품 카탈로그 원본 식별자 (naver_product_id / eleven_product_id)",
+    )
+    display_name = models.CharField(
+        max_length=500,
+        db_comment="목록에 보여줄 상품명 (담은 시점 스냅샷)",
+    )
+    brand = models.CharField(
+        max_length=200,
+        blank=True,
+        default="",
+        db_comment="브랜드명 (카탈로그에 있으면 채우고, 없으면 빈 문자열)",
+    )
+    price_snapshot = models.PositiveBigIntegerField(
+        null=True,
+        blank=True,
+        db_comment="담은 시점 가격 (원, 미상이면 NULL)",
+    )
+    image_ref = models.CharField(
+        max_length=1024,
+        blank=True,
+        default="",
+        db_comment="상품 이미지 S3 키 또는 검증된 URL",
+    )
+    purchase_url = models.TextField(
+        blank=True,
+        default="",
+        db_comment="판매처 상품 주소 (없으면 앱이 검색 주소를 만든다)",
+    )
+    slot = models.CharField(
+        max_length=64,
+        blank=True,
+        default="",
+        db_comment="담을 때의 코디 슬롯 (상의/하의 등, 예산 비교에 쓴다)",
+    )
+    created_at = models.DateTimeField(
+        auto_now_add=True,
+        db_comment="찜한 시각",
+    )
+
+    class Meta:
+        db_table = "wishlist_item"
+        db_table_comment = "회원이 담아 둔 추천 판매 상품과 담은 시점 스냅샷"
+        ordering = ["-created_at"]
+        constraints = [
+            # 같은 상품을 두 카드에서 담아도 목록에는 하나만 선다.
+            # 카탈로그 식별자가 없는 행(과거 목업 등)은 이 규칙에서 뺀다.
+            models.UniqueConstraint(
+                fields=["user", "source_collection", "source_id"],
+                condition=~Q(source_id=""),
+                name="uq_wishlist_user_source",
+            ),
+        ]
+        indexes = [
+            models.Index(
+                fields=["user", "-created_at"],
+                name="ix_wishlist_user_created",
+            ),
+        ]
+
+    def __str__(self) -> str:
+        return f"wishlist {self.user_id}:{self.source_collection}:{self.source_id}"
+
+    def clean(self) -> None:
+        """추천에서 담은 행이면 그 상품·회원 귀속과 스냅샷의 일치를 검증한다."""
+
+        super().clean()
+        if not self.item_id:
+            return
+        errors: dict[str, str] = {}
+        composition = self.item.composition
+        result = composition.result
+        if self.item.source_type != OutfitCompositionItem.SourceType.PRODUCT:
+            errors["item"] = "판매 상품만 찜할 수 있습니다."
+        if result.identity.user_id is None or result.identity.user_id != self.user_id:
+            errors["user"] = "추천 상품의 소유 회원만 찜할 수 있습니다."
+        if self.result_id_snapshot != result.id:
+            errors["result_id_snapshot"] = "추천 결과 스냅샷이 상품 귀속과 다릅니다."
+        if self.composition_id_snapshot != composition.id:
+            errors["composition_id_snapshot"] = (
+                "추천 카드 스냅샷이 상품 귀속과 다릅니다."
+            )
+        if self.source_collection != self.item.source_collection:
+            errors["source_collection"] = "상품 컬렉션 스냅샷이 원본과 다릅니다."
+        if self.source_id != self.item.source_id:
+            errors["source_id"] = "상품 식별자 스냅샷이 원본과 다릅니다."
+        if errors:
+            raise ValidationError(errors)
+
+    def save(self, *args, **kwargs) -> None:
+        self.clean()
+        super().save(*args, **kwargs)

@@ -241,3 +241,63 @@ class WardrobeUploadFlowTest(TestCase):
         job.refresh_from_db()
         self.assertEqual(job.error_message, "image_processor_failed")
         self.assertIsNotNone(job.finished_at)
+
+
+@patch("apps.wardrobe.serializers.storage.presigned_get", return_value="https://img.example/x.jpg")
+@patch("apps.wardrobe.views.vectors.update_payload", return_value=True)
+class WardrobeFavoriteTest(TestCase):
+    """즐겨찾기(별)는 아이템 수정과 같은 문으로 드나든다 — 새 엔드포인트를 만들지 않았다.
+
+    (S3 프리사인·벡터 동기화는 이 기능과 무관해 막아 둔다)
+    """
+
+    def setUp(self):
+        self.client = APIClient()
+        self.user = User.objects.create(username="favorite-test")
+        self.other = User.objects.create(username="favorite-other")
+        self.job = WardrobeUploadJob.objects.create(
+            user=self.user,
+            source_s3_key="wardrobe/source.jpg",
+        )
+        self.item = WardrobeItem.objects.create(
+            user=self.user,
+            job=self.job,
+            s3_key="wardrobe/cropped.jpg",
+            item_name="코트",
+            category_large="아우터",
+            confirmed=True,
+            # 목록은 옷장에 들어온 옷만 준다 — 이 값이 없으면 목록에서 빠진다.
+            added_to_closet_at=timezone.now(),
+        )
+
+    def _item_url(self, item=None):
+        return reverse(
+            "wardrobe:item-detail",
+            kwargs={"item_id": (item or self.item).pk},
+        )
+
+    def test_favorite_toggles_and_is_visible_in_list(self, vectors_mock, url_mock):
+        self.client.force_authenticate(self.user)
+
+        turned_on = self.client.patch(self._item_url(), {"is_favorite": True}, format="json")
+        listed = self.client.get(reverse("wardrobe:items"))
+        turned_off = self.client.patch(
+            self._item_url(), {"is_favorite": False}, format="json"
+        )
+
+        self.assertEqual(turned_on.status_code, 200)
+        self.assertTrue(turned_on.data["is_favorite"])
+        self.assertTrue(listed.data[0]["is_favorite"])
+        self.assertFalse(turned_off.data["is_favorite"])
+        self.item.refresh_from_db()
+        self.assertFalse(self.item.is_favorite)
+
+    def test_default_is_off_and_other_user_cannot_toggle(self, vectors_mock, url_mock):
+        self.assertFalse(self.item.is_favorite)
+
+        self.client.force_authenticate(self.other)
+        response = self.client.patch(self._item_url(), {"is_favorite": True}, format="json")
+
+        self.assertEqual(response.status_code, 404)
+        self.item.refresh_from_db()
+        self.assertFalse(self.item.is_favorite)

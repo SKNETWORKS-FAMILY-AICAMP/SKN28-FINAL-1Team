@@ -75,12 +75,6 @@ export default function MyScreen() {
           onPress: () => router.push({ pathname: '/style-onboarding', params: { returnTo: 'my' } }),
         },
         {
-          icon: 'paintpalette',
-          label: '퍼스널컬러',
-          hint: prefs.personalColor ?? '설정하기',
-          onPress: () => router.push('/personal-color'),
-        },
-        {
           icon: 'wallet',
           label: '예산',
           hint: Object.keys(prefs.categoryBudgets).length > 0

@@ -10,6 +10,8 @@ import { useKakaoInviteLink } from '@/hooks/use-kakao-link';
 import { clearLegacyPendingShare } from '@/lib/secureStore';
 import { initSocialSDKs } from '@/lib/socialLogin';
 import { authStore } from '@/state/auth';
+import { favoritesStore } from '@/state/favorites';
+import { likesStore } from '@/state/likes';
 import { outfitAnalysisStore } from '@/state/outfit-analysis';
 import { outfitClaimStore } from '@/state/outfit-claim';
 import { prefsStore } from '@/state/prefs';
@@ -30,6 +32,10 @@ export default function RootLayout() {
        그 화면에 들어가기 전에 채워져 있어야 한다. */
     void authStore.bootstrap().then(() => prefsStore.loadBudget());
     outfitAnalysisStore.bootstrap();
+    /* 찜(상품)·옷장 즐겨찾기는 서버에 자리가 없어 기기에 적어 둔다 — 켤 때 되살린다.
+       세션과 무관한 값이라 로그인을 기다리지 않는다. */
+    void likesStore.bootstrap();
+    void favoritesStore.bootstrap();
     /* 두 스토어를 구독하므로 뒤에 둔다 — 비로그인 분석의 claim 토큰을 모았다가 로그인 때 넘긴다. */
     outfitClaimStore.bootstrap();
     /* 공유 예약이 서버로 옮겨가기 전(secureStore) 남은 값을 치운다. 아무도 읽지 않지만

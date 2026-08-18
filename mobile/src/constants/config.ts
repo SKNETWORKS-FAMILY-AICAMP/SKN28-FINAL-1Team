@@ -447,3 +447,16 @@ export const RecommendEndpoints = {
   saveCard: (resultId: string, cardId: string) =>
     `/api/v1/recommendations/${resultId}/cards/${cardId}/save/`,
 } as const;
+
+/**
+ * 찜(판매 상품). 담기는 추천 아이템 자리에서, 목록·빼기는 상품 자체를 다루므로 평평한 자리에서.
+ *
+ * 담을 때 상품을 이름이 아니라 추천 아이템으로 가리킨다 — 서버가 그것으로 카탈로그를 찾아
+ * 브랜드·판매처를 채운다(추천 응답에는 브랜드가 없다).
+ */
+export const WishlistEndpoints = {
+  list: '/api/v1/wishlist/',
+  add: (resultId: string, cardId: string, itemId: string) =>
+    `/api/v1/recommendations/${resultId}/cards/${cardId}/items/${itemId}/wish/`,
+  remove: (wishId: string) => `/api/v1/wishlist/${wishId}/`,
+} as const;
