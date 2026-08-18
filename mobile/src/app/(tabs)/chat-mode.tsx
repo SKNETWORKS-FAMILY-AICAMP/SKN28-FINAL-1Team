@@ -1,5 +1,5 @@
 import { Icon, type IconName } from '@/components/icon';
-import { router } from 'expo-router';
+import { router, useLocalSearchParams } from 'expo-router';
 import { useState } from 'react';
 import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -41,6 +41,9 @@ const MODES: ModeCard[] = [
 
 // C3 모드 선택 — 새 대화의 추천 방식 고르기
 export default function ChatMode() {
+  /* 이 화면은 대화로 가는 경유지다. 들어온 자리를 그대로 대화방에 넘긴다 —
+     여기를 돌아갈 자리로 삼으면 뒤로가기가 '다시 모드 고르기'가 돼 빈 대화가 하나 더 생긴다. */
+  const { from } = useLocalSearchParams<{ from?: string }>();
   const { contentStyle } = useBreakpoint();
   const { isLoggedIn } = useAuth();
   const toast = useToast();
@@ -71,7 +74,10 @@ export default function ChatMode() {
     setStarting(mode);
     try {
       const session = await chatStore.createSession(mode);
-      router.replace({ pathname: '/chat-room', params: { id: session.id } });
+      router.replace({
+        pathname: '/chat-room',
+        params: { id: session.id, ...(from ? { from } : {}) },
+      });
     } catch {
       toast('대화를 시작하지 못했어요', { variant: 'error' });
       setStarting(null);

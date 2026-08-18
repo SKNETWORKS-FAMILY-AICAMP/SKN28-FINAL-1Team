@@ -150,13 +150,16 @@ export default function AppTabs() {
  * 옷장·룩북을 보면서 바로 물어볼 수 있게 한다. 폭은 고정 — 대화는 한 줄이 길면 읽기 어렵다.
  */
 function ChatPanel() {
+  // 이 패널이 어느 화면 옆에 붙어 있는지 — 대화를 넓혀 봤다가 돌아올 자리다.
+  const pathname = usePathname();
   return (
     <View style={styles.chatPanel}>
       <View style={styles.chatPanelHeader}>
         <Text style={styles.chatPanelTitle}>코지에게 물어보기</Text>
         <Pressable
           hitSlop={8}
-          onPress={() => router.push('/chat-room')}
+          /* 이 패널은 다른 화면 옆에 붙어 있다 — 넓혀 보고 나면 보던 화면으로 돌아와야 한다. */
+          onPress={() => router.push({ pathname: '/chat-room', params: { from: pathname } })}
           accessibilityLabel="대화 전체 보기">
           <Icon name="arrow.right" tintColor={ink(0.45)} size={16} />
         </Pressable>
