@@ -94,7 +94,6 @@ export function LookComposer({ date, initialGender }: { date?: string; initialGe
   const [customTag, setCustomTag] = useState('');
   const [shared, setShared] = useState(existing?.shared ?? false);
   /* 룩북 전용 — 켜면 앱 사용자 전체가 둘러보기에서 본다. 친구 단위 공유는 룩북에 없다. */
-  const [isPublic, setIsPublic] = useState(false);
   const [pickerOpen, setPickerOpen] = useState(false);
   const [loading, setLoading] = useState(false);
   /* 사진 업로드는 몇 초 걸린다 — 버튼이 아무 반응 없어 보이면 사용자가 다시 누른다. */
@@ -104,7 +103,9 @@ export function LookComposer({ date, initialGender }: { date?: string; initialGe
      이미 이어져 있는 기록(existing.lookId)은 토글이 아니라 사실 표시로 그린다. */
   const alreadyLinked = Boolean(existing?.lookId && savedLookStore.getLook(existing.lookId));
   const [linkOn, setLinkOn] = useState(false);
-  const [lookbookVisibility, setLookbookVisibility] = useState<LookbookVisibility>('none');
+  const [lookbookVisibility, setLookbookVisibility] = useState<LookbookVisibility>(
+    mode === 'lookbook' ? 'private' : 'none',
+  );
   const [visibilityOpen, setVisibilityOpen] = useState(false);
   const [linkDate, setLinkDate] = useState(todayKey());
   const [dateOpen, setDateOpen] = useState(false);
@@ -223,7 +224,9 @@ export function LookComposer({ date, initialGender }: { date?: string; initialGe
     mode === 'lookbook' || lookbookVisibility !== 'none' ? Boolean(lookGender) : true;
   const canSave =
     mode === 'lookbook'
-      ? hasRequiredGender && (Boolean(photo) || items.length > 0)
+      ? hasRequiredGender &&
+        (lookbookVisibility !== 'none' || linkOn) &&
+        (Boolean(photo) || items.length > 0)
       : hasRequiredGender && (Boolean(photo) || items.length > 0 || note.trim().length > 0);
 
   /* 룩북에 올릴 실체가 있는가 — 룩 사진이거나 내 옷장에서 고른 옷.
@@ -249,7 +252,7 @@ export function LookComposer({ date, initialGender }: { date?: string; initialGe
       entryDate: opts?.entryDate,
       createCalendar: opts?.createCalendar,
       overwriteCalendar: opts?.overwrite,
-      isPublic: opts?.isPublic ?? isPublic,
+      isPublic: opts?.isPublic ?? lookbookVisibility === 'public',
       tags,
     });
 
@@ -351,6 +354,25 @@ export function LookComposer({ date, initialGender }: { date?: string; initialGe
       });
       if (!ok) return;
       overwrite = true;
+    }
+
+    if (lookbookVisibility === 'none') {
+      try {
+        await calendarStore.saveEntry({
+          date: linkDate,
+          photo,
+          items,
+          note,
+          tags,
+          shared: false,
+        });
+      } catch (error) {
+        toast(calendarErrorMessage(error), { variant: 'error' });
+        return;
+      }
+      toast('캘린더에만 기록했어요', { variant: 'success' });
+      router.navigate('/(tabs)/calendar');
+      return;
     }
 
     /* 캘린더 기록은 서버가 룩 등록과 **한 번에** 만든다(calendar_date). 따로 부르지 않는다 —
@@ -694,20 +716,64 @@ export function LookComposer({ date, initialGender }: { date?: string; initialGe
                 </View>
               </Pressable>
             ) : (
-              <Pressable style={styles.optionRow} onPress={() => setIsPublic((v) => !v)}>
+              <>
+              <Pressable
+                style={styles.optionRow}
+                onPress={() => setVisibilityOpen((open) => !open)}>
                 <View style={styles.optionIcon}>
                   <Icon name="globe" tintColor={INK} size={17} />
                 </View>
                 <View style={styles.optionBody}>
-                  <Text style={styles.optionTitle}>전체 공개</Text>
+                  <Text style={styles.optionTitle}>공개 여부</Text>
                   <Text style={styles.optionDesc}>
-                    다른 사용자가 둘러보기에서 이 룩을 볼 수 있어요
+                    {LOOKBOOK_VISIBILITY_OPTIONS.find(
+                      (option) => option.value === lookbookVisibility,
+                    )?.label}
                   </Text>
                 </View>
-                <View style={[styles.switch, isPublic && styles.switchOn]}>
-                  <View style={[styles.knob, isPublic && styles.knobOn]} />
-                </View>
+                <Icon
+                  name={visibilityOpen ? 'chevron.up' : 'chevron.down'}
+                  tintColor={ink(0.45)}
+                  size={16}
+                />
               </Pressable>
+
+              {visibilityOpen ? (
+                <View style={styles.visibilityMenu}>
+                  {LOOKBOOK_VISIBILITY_OPTIONS.map((option) => {
+                    const selected = option.value === lookbookVisibility;
+                    return (
+                      <Pressable
+                        key={option.value}
+                        style={[
+                          styles.visibilityOption,
+                          selected && styles.visibilityOptionSelected,
+                        ]}
+                        onPress={() => {
+                          setLookbookVisibility(option.value);
+                          setVisibilityOpen(false);
+                          if (option.value === 'none' && !linkOn) {
+                            setLinkOn(true);
+                            setDateOpen(true);
+                          }
+                        }}>
+                        <View style={styles.optionBody}>
+                          <Text
+                            style={[
+                              styles.optionTitle,
+                              selected && styles.visibilityTextSelected,
+                            ]}>
+                            {option.label}
+                          </Text>
+                          <Text style={styles.optionDesc}>{option.description}</Text>
+                        </View>
+                        {selected ? <Icon name="checkmark" tintColor="#fff" size={15} /> : null}
+                      </Pressable>
+                    );
+                  })}
+                </View>
+              ) : null}
+              </>
             )}
           </ScrollView>
 
