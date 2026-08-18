@@ -56,4 +56,8 @@ class GoldenDatasetStatusTests(unittest.TestCase):
             text_model="text-test",
         )
 
+        # 승격 커맨드(set_goldenset_qdrant_status)가 두 키를 함께 쓰므로 적재도
+        # 두 키를 함께 써야 한다. status만 쓰면 승격 뒤 재적재에서 dataset_status가
+        # 사라져, 두 키를 각각 보는 도구가 서로 다른 답을 준다.
         self.assertEqual(outfit.payload["status"], "ACTIVE")
+        self.assertEqual(outfit.payload["dataset_status"], "ACTIVE")

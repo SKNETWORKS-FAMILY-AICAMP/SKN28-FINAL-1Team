@@ -147,7 +147,13 @@ def index_run(
             "dataset_version": version,
             # 실행 단계(PREPARED/EMBEDDED)와 별개인 데이터셋 공개 상태다.
             # manifest에 없던 구형 run은 현재 GOLDEN_DATASET_STATUS를 따른다.
+            #
+            # 두 키에 같은 값을 쓴다. 리트리버의 상태 필터는 둘 중 하나만 맞아도
+            # 통과시키지만(should), 승격 커맨드(set_goldenset_qdrant_status)는 둘
+            # 다 쓴다. 여기서 status만 쓰면 승격 뒤 재적재할 때 dataset_status가
+            # 통째로 사라져, 두 키를 각각 보는 도구가 서로 다른 답을 준다.
             "status": dataset_status,
+            "dataset_status": dataset_status,
             "split": image.get("split", "KNOWLEDGE"),
             "presentation_group": image.get("presentation_group", ""),
             "style": look_tags.get("style")
