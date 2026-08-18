@@ -27,10 +27,8 @@ import {
   STYLE_FALLBACK_NOTE,
   useChatSession,
   type ChatMessage,
-  type RecItem,
   type SharedReferencePick,
 } from '@/state/chat';
-import { likesStore, useWishlist } from '@/state/likes';
 import { stylistStore } from '@/state/stylist';
 
 const INK = Editorial.ink;
@@ -101,29 +99,6 @@ export function ChatConversation({
   const { contentStyle } = useBreakpoint();
   // 패널은 자체 폭이 고정이라 최대 폭 제한이 필요 없다.
   const widthStyle = isPanel ? null : contentStyle(ContentMax.narrow);
-
-  /* 카드 안에서 바로 담을 수 있게 — 상세로 들어가야만 담을 수 있으면 대화 흐름이 끊긴다.
-     켜짐 판단은 카탈로그 식별자(sourceId)로 한다. 이름은 카드마다 달라질 수 있다. */
-  const wishlist = useWishlist();
-  const wishedSources = useMemo(
-    () => new Set(wishlist.map((w) => w.sourceId).filter((id): id is string => !!id)),
-    [wishlist],
-  );
-
-  const toggleWish = async (item: RecItem, resultId: string, cardId: string) => {
-    const added = await likesStore.toggleRecWish(
-      { resultId, cardId, itemId: item.id, sourceId: item.sourceId },
-      {
-        name: item.name,
-        brand: '',
-        price: item.price != null ? item.price.toLocaleString('ko-KR') : '',
-        tone: 0.06,
-        image: item.imageUrl ?? undefined,
-        slot: item.category ?? undefined,
-      },
-    );
-    toast(added ? '찜했어요 · 옷장 > 찜에서 볼 수 있어요' : '찜에서 뺐어요');
-  };
 
   const [text, setText] = useState('');
   /* 패널이 첫 질문에서 만들어 낸 대화. 화면 변형은 항상 sessionId 를 받으므로 쓰이지 않는다. */
@@ -549,41 +524,13 @@ export function ChatConversation({
                       <View style={styles.recItems}>
                         {m.items.map((item) => (
                           <View key={item.id} style={styles.recItem}>
-                            <View>
-                              <SmartImage
-                                uri={item.imageUrl}
-                                width={64}
-                                height={64}
-                                radius={10}
-                                style={styles.recItemImage}
-                              />
-                              {/* 새로 살 상품만 담을 수 있다. 카드 자체는 상세로 가는 버튼이라
-                                  하트가 그 탭을 가져가지 않게 이벤트를 여기서 끊는다. */}
-                              {item.fromWardrobe ? null : (
-                                <Pressable
-                                  style={styles.recItemWish}
-                                  hitSlop={6}
-                                  onPress={(e) => {
-                                    e.stopPropagation();
-                                    void toggleWish(item, m.resultId, m.cardId);
-                                  }}
-                                  accessibilityLabel={
-                                    wishedSources.has(item.sourceId ?? '') ? '찜에서 빼기' : '찜하기'
-                                  }>
-                                  <Icon
-                                    name={
-                                      wishedSources.has(item.sourceId ?? '') ? 'heart.fill' : 'heart'
-                                    }
-                                    tintColor={
-                                      wishedSources.has(item.sourceId ?? '')
-                                        ? Editorial.wine
-                                        : '#FFFFFF'
-                                    }
-                                    size={12}
-                                  />
-                                </Pressable>
-                              )}
-                            </View>
+                            <SmartImage
+                              uri={item.imageUrl}
+                              width={64}
+                              height={64}
+                              radius={10}
+                              style={styles.recItemImage}
+                            />
                             <Text style={styles.recItemName} numberOfLines={2}>
                               {item.name}
                             </Text>
@@ -888,18 +835,6 @@ const styles = StyleSheet.create({
   /* 아이템을 가로로 늘어놓는다. 개수가 적어(보통 3~5) 가로 스크롤 없이 줄바꿈으로 받는다. */
   recItems: { flexDirection: 'row', flexWrap: 'wrap', gap: 12 },
   recItem: { width: 64, gap: 4 },
-  /* 64px 썸네일 위라 자리가 좁다 — 사진 오른쪽 아래 모서리에 작게 앉히고 먹판을 깐다. */
-  recItemWish: {
-    position: 'absolute',
-    right: 2,
-    bottom: 2,
-    width: 20,
-    height: 20,
-    borderRadius: 10,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: 'rgba(0,0,0,0.45)',
-  },
   recItemImage: { backgroundColor: BONE },
   recItemName: { fontSize: Type.micro, color: INK, lineHeight: 15 },
   recItemMeta: { fontSize: Type.micro, color: Editorial.textCaption },

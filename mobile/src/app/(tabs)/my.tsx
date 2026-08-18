@@ -9,7 +9,6 @@ import { ink, ContentMax, Editorial } from '@/constants/theme';
 import { useBreakpoint } from '@/hooks/use-breakpoint';
 import { useProfileSummary } from '@/hooks/use-profile-summary';
 import { useAuth } from '@/state/auth';
-import { useWishlist } from '@/state/likes';
 import { usePrefs } from '@/state/prefs';
 
 const INK = Editorial.ink;
@@ -37,7 +36,6 @@ export default function MyScreen() {
   const { contentStyle } = useBreakpoint();
   const prefs = usePrefs();
   const { user, isLoggedIn, signOut } = useAuth();
-  const wishlist = useWishlist();
   const profile = useProfileSummary();
 
   /* 힌트는 "설정했나"를 한눈에 알리는 자리다. 불러오는 중에 '측정하기'라고 단정하면
@@ -81,12 +79,6 @@ export default function MyScreen() {
             ? `${Object.keys(prefs.categoryBudgets).length}개 카테고리`
             : '기본값 적용 중',
           onPress: () => router.push('/budget'),
-        },
-        {
-          icon: 'heart',
-          label: '찜한 상품',
-          hint: wishlist.length > 0 ? `${wishlist.length}개` : '담은 상품 없음',
-          onPress: () => router.push('/wishlist'),
         },
       ],
     },

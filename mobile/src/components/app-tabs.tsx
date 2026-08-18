@@ -31,7 +31,6 @@ const HIDDEN_ROUTES = [
   { name: 'rec-card', href: '/rec-card' },
   { name: 'fitting', href: '/fitting' },
   { name: 'saved-look', href: '/saved-look' },
-  { name: 'wishlist', href: '/wishlist' },
   { name: 'budget', href: '/budget' },
   { name: 'style-onboarding', href: '/style-onboarding' },
   { name: 'notifications', href: '/notifications' },

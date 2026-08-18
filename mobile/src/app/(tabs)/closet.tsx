@@ -9,8 +9,6 @@ import { SharedItemAddSheet } from '@/components/closet/shared-item-add-sheet';
 import { PhotoSourceSheet } from '@/components/closet/photo-source-sheet';
 import { CategoryEditSheet, EmptyState, ErrorState, LoadingState, LoginGate, SearchFilterBar, SegmentedToggle, SmartImage, useConfirm, useToast } from '@/components/ui';
 import { useMultiSelectFilter } from '@/hooks/useMultiSelectFilter';
-import { WishPanel } from '@/components/wish-panel';
-import { favoritesStore, useFavorites } from '@/state/favorites';
 import { router, useLocalSearchParams } from 'expo-router';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import {
@@ -75,22 +73,12 @@ const PAD = GridCard.pad;
 /* 카테고리는 백엔드 taxonomy(대분류 8종)를 따른다 — 프론트가 임의 목록을 쓰면 필터가 서버와 어긋난다. */
 const DEFAULT_CATEGORIES = WARDROBE_FILTER_OPTIONS;
 
-/**
- * 옷장의 세 갈래.
- * 앞의 둘은 **가진 옷**(내 것 / 함께 쓰는 것), [찜]은 **아직 없는 옷**이다.
- * 룩북이 [둘러보기][내 룩북]으로 갈리듯, 물건도 한 화면에서 갈라 둔다 —
- * 마이 안쪽에 두면 담아 둔 상품을 다시 찾아가는 길이 세 걸음이 된다.
- */
-type ClosetTab = 'mine' | 'shared' | 'wish';
+/** 옷장의 두 갈래 — 내 것과 함께 쓰는 것. */
+type ClosetTab = 'mine' | 'shared';
 const CLOSET_TABS: { value: ClosetTab; label: string }[] = [
   { value: 'mine', label: '내 옷장' },
   { value: 'shared', label: '공유 옷장' },
-  { value: 'wish', label: '찜' },
 ];
-
-/** 카테고리 칩과 같은 줄에 서지만 성격이 다른 칩 — 표식(별)으로 가른다. */
-const FAVORITE_CHIP = '즐겨찾기';
-const CHIP_ICONS = { [FAVORITE_CHIP]: 'star.fill' } as const;
 
 /** 그리드 카드가 쓰는 최소 형태 — 내 옷장(API)과 공유 옷장(목업)을 한 모양으로 맞춘다. */
 type Card = {
@@ -151,11 +139,6 @@ export default function ClosetScreen() {
   const [editOpen, setEditOpen] = useState(false);
   const [sourceOpen, setSourceOpen] = useState(false);
   const { toggle, reset, prune, isActive, matches, label } = useMultiSelectFilter();
-  /* 즐겨찾기는 카테고리가 아니다 — 같은 칩 줄에 서지만 다른 축이라 따로 켠다.
-     (useMultiSelectFilter 에 넣으면 matches(category) 가 '즐겨찾기'라는 카테고리를 찾게 된다) */
-  const [favOnly, setFavOnly] = useState(false);
-  const favorites = useFavorites();
-  const favoriteIds = useMemo(() => new Set(favorites), [favorites]);
 
   /* 내 옷장은 서버가 출처. 카테고리 필터는 여러 개를 고를 수 있어(멀티) 서버 파라미터로
      넘기지 않고 전체를 받아 프론트에서 걸러낸다 — 서버는 단일 category_large 만 받는다.
@@ -215,11 +198,6 @@ export default function ClosetScreen() {
     reload();
   }, [revision, reload]);
 
-  /* 별은 서버 값이 원본이다 — 목록을 받을 때마다 화면 쪽 표시를 거기에 맞춘다. */
-  useEffect(() => {
-    favoritesStore.hydrate(apiItems);
-  }, [apiItems]);
-
   const myItems = useMemo<Card[]>(
     () =>
       apiItems.map((i) => ({
@@ -234,14 +212,8 @@ export default function ClosetScreen() {
   const sharedSource = sharedSpace ? sharedItems : [];
   const source = tab === 'mine' ? myItems : sharedSource;
   const items = useMemo(
-    () =>
-      source.filter(
-        (i) =>
-          matches(i.category) &&
-          matchesQuery(i, query) &&
-          (!favOnly || favoriteIds.has(i.wardrobeItemId ?? i.id)),
-      ),
-    [source, matches, query, favOnly, favoriteIds],
+    () => source.filter((i) => matches(i.category) && matchesQuery(i, query)),
+    [source, matches, query],
   );
 
   const loadRoomData = async (roomId: string, currentRoomsList?: any[]) => {
@@ -429,44 +401,24 @@ export default function ClosetScreen() {
 
   const emptyTitle = useMemo(() => {
     if (query.trim()) return `'${query.trim()}' 검색 결과가 없어요`;
-    if (favOnly) return '즐겨찾기한 옷이 없어요';
     if (label !== '전체') return `'${label}' 결과가 없어요`;
     return tab === 'shared' ? '공유 옷장이 비어있어요' : '옷장이 비어있어요';
-  }, [query, label, tab, favOnly]);
+  }, [query, label, tab]);
 
   const emptyDescription = useMemo(() => {
-    if (favOnly && !query.trim()) return '옷 사진의 별을 누르면 여기 모여요.';
     if (query.trim() || label !== '전체') {
       return '다른 검색어나 카테고리를 선택해 보세요.';
     }
     return tab === 'shared'
       ? '내 옷을 공유하거나, 친구를 초대해 보세요.'
       : '첫 아이템을 추가해 옷장을 채워보세요.';
-  }, [query, label, tab, favOnly]);
+  }, [query, label, tab]);
 
   const handleTabChange = (key: ClosetTab) => {
     setTab(key);
     if (key === 'mine') setCategories(DEFAULT_CATEGORIES);
     reset();
     setQuery('');
-    setFavOnly(false);
-  };
-
-  /* 칩 줄의 첫 칸은 즐겨찾기, 나머지는 카테고리 — 두 축을 한 줄에 세우되
-     누를 때는 각자의 상태를 건드린다. (룩북의 '위시' 칩과 같은 방식) */
-  /* 즐겨찾기 칩은 내 옷장에서만 — 공유 옷장 옷에는 별을 달지 않으니 켜 봐야 빈 화면이 된다. */
-  const chipOptions = useMemo(
-    () => (tab === 'mine' ? [FAVORITE_CHIP, ...categories] : categories),
-    [tab, categories],
-  );
-  const chipToggle = (option: string) =>
-    option === FAVORITE_CHIP ? setFavOnly((on) => !on) : toggle(option);
-  const chipActive = (option: string) =>
-    option === FAVORITE_CHIP ? favOnly : isActive(option);
-
-  const toggleFavorite = (id: string) => {
-    const on = favoritesStore.toggle(id);
-    toast(on ? '즐겨찾기에 담았어요' : '즐겨찾기에서 뺐어요');
   };
 
   const handleSaveCategories = async (next: string[]) => {
@@ -539,15 +491,13 @@ export default function ClosetScreen() {
         <View style={styles.filterArea}>
           <SearchFilterBar
             trailing={wardrobeToggle}
-            /* 찜은 내 옷이 아니라 살 상품이라 옷장 카테고리·검색이 걸리지 않는다. */
-            showFilters={!(tab === 'shared' && !sharedSpace) && tab !== 'wish'}
+            showFilters={!(tab === 'shared' && !sharedSpace)}
             query={query}
             onQueryChange={setQuery}
             searchPlaceholder="옷장에서 검색"
-            options={chipOptions}
-            chipIcons={CHIP_ICONS}
-            onToggle={chipToggle}
-            isActive={chipActive}
+            options={categories}
+            onToggle={toggle}
+            isActive={isActive}
             onEditCategories={() => setEditOpen(true)}
           />
         </View>
@@ -670,16 +620,7 @@ export default function ClosetScreen() {
           />
         ) : null}
 
-        {tab === 'wish' ? (
-          /* 찜은 서버가 아니라 기기에 있는 목록이라 당겨서 새로고침할 것이 없다.
-             본문은 마이의 '찜한 상품' 화면과 같은 컴포넌트를 쓴다. */
-          <ScrollView
-            style={styles.gridScroll}
-            showsVerticalScrollIndicator={false}
-            contentContainerStyle={[styles.wishContent, contentStyle(ContentMax.narrow)]}>
-            <WishPanel />
-          </ScrollView>
-        ) : tab === 'shared' && !sharedSpace ? (
+        {tab === 'shared' && !sharedSpace ? (
           <View style={styles.onboardingWrap}>
             <SharedSpaceOnboarding
               onCreate={handleCreateSpace}
@@ -771,30 +712,6 @@ export default function ClosetScreen() {
                       radius={GridCard.radius}
                       contentFit="cover"
                     />
-                    {tab === 'mine' ? (
-                      <Pressable
-                        style={styles.favBtn}
-                        hitSlop={8}
-                        onPress={(e) => {
-                          e.stopPropagation();
-                          toggleFavorite(it.wardrobeItemId ?? it.id);
-                        }}
-                        accessibilityLabel={
-                          favoriteIds.has(it.wardrobeItemId ?? it.id)
-                            ? '즐겨찾기에서 빼기'
-                            : '즐겨찾기에 담기'
-                        }>
-                        <Icon
-                          name={
-                            favoriteIds.has(it.wardrobeItemId ?? it.id) ? 'star.fill' : 'star'
-                          }
-                          tintColor={
-                            favoriteIds.has(it.wardrobeItemId ?? it.id) ? '#C8A34A' : '#FFFFFF'
-                          }
-                          size={15}
-                        />
-                      </Pressable>
-                    ) : null}
                      {it.owner ? (
                       <View style={[
                         styles.ownerBadge,
@@ -1034,21 +951,6 @@ const styles = StyleSheet.create({
     borderRadius: 999,
   },
   ownerText: { fontSize: 11, fontWeight: '600', color: '#fff' },
-  /* 사진 위에 앉는 별. 사진이 밝든 어둡든 보이도록 반투명 먹판을 깐다
-     (공유 해제 버튼과 같은 방식·같은 크기로 둬서 카드 위 표식이 한 종류로 보이게). */
-  favBtn: {
-    position: 'absolute',
-    top: 10,
-    right: 10,
-    width: 24,
-    height: 24,
-    borderRadius: 12,
-    backgroundColor: 'rgba(0,0,0,0.45)',
-    alignItems: 'center',
-    justifyContent: 'center',
-    zIndex: 10,
-  },
-  wishContent: { paddingHorizontal: 20, paddingTop: 8, paddingBottom: 24 },
   unshareBtn: {
     position: 'absolute',
     top: 10,

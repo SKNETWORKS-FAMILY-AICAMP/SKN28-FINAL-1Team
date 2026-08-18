@@ -258,7 +258,7 @@ function toItems(sample: Sample, cardId: string): ApiRecommendationItem[] {
     position: i,
     slot: it.slot,
     source_type: it.price === null ? 'WARDROBE' : 'PRODUCT',
-    // 목업엔 카탈로그가 없다 — 빈 값이면 찜은 이름으로 떨어진다(서버엔 안 올라간다).
+    // 목업엔 카탈로그가 없다 — 실제 응답에는 카탈로그 식별자가 온다.
     source_id: '',
     display_name: it.name,
     category: it.category,

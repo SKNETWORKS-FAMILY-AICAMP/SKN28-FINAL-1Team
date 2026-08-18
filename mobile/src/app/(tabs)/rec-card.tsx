@@ -1,5 +1,5 @@
 import { useLocalSearchParams } from 'expo-router';
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
@@ -10,7 +10,6 @@ import { useBreakpoint } from '@/hooks/use-breakpoint';
 import { STYLE_FALLBACK_NOTE, toReferenceBadge } from '@/state/chat';
 import { backTo, goBack } from '@/lib/goBack';
 import { mallLabel, openExternal } from '@/lib/mall';
-import { likesStore, useWishlist, type WishItem } from '@/state/likes';
 import {
   deleteCardFeedback,
   FEEDBACK_REASONS,
@@ -23,7 +22,6 @@ import {
   type ApiCardFeedback,
   type ApiFeedbackReaction,
   type ApiRecommendationCard,
-  type ApiRecommendationItem,
   type ApiRenderJob,
 } from '@/lib/recommendApi';
 
@@ -32,27 +30,6 @@ const INK = Editorial.ink;
 /** 이미지 생성 상태를 다시 물어보는 간격. 완성까지 보통 수십 초 걸린다. */
 const RENDER_POLL_MS = 3000;
 
-/**
- * 추천 상품 → 찜 항목.
- *
- * 추천 API 는 브랜드를 안 내려줘 빈 칸으로 둔다(찜 목록은 대신 담은 자리를 보여준다).
- * 판매처 주소도 없을 수 있는데, 그때는 상품명 검색으로 나간다(lib/mall.ts) —
- * 담아 두고 나중에 못 사는 것보다는 낫다.
- */
-function toWish(
-  item: { display_name: string; price_snapshot: number | null; purchase_url: string | null; slot: string },
-  image: string | null,
-): Omit<WishItem, 'id' | 'addedAt'> {
-  return {
-    name: item.display_name,
-    brand: '',
-    price: item.price_snapshot != null ? item.price_snapshot.toLocaleString('ko-KR') : '',
-    tone: 0.06,
-    image: image ?? undefined,
-    link: item.purchase_url ?? undefined,
-    slot: item.slot,
-  };
-}
 
 /**
  * 추천 코디 상세.
@@ -71,25 +48,6 @@ export default function RecCard() {
     from?: string;
   }>();
   const toast = useToast();
-  const wishlist = useWishlist();
-  /* 켜짐 판단은 카탈로그 식별자로 한다 — 이름은 카드마다 달라질 수 있다. */
-  const wishedSources = useMemo(
-    () => new Set(wishlist.map((w) => w.sourceId).filter((id): id is string => !!id)),
-    [wishlist],
-  );
-
-  const toggleWish = async (
-    item: ApiRecommendationItem,
-    wish: Omit<WishItem, 'id' | 'addedAt'>,
-  ) => {
-    if (!resultId || !cardId) return;
-    const added = await likesStore.toggleRecWish(
-      { resultId, cardId, itemId: item.item_id, sourceId: item.source_id },
-      wish,
-    );
-    toast(added ? '찜했어요 · 옷장 > 찜에서 볼 수 있어요' : '찜에서 뺐어요');
-  };
-
   const [card, setCard] = useState<ApiRecommendationCard | null>(null);
   /** 공유 옷 참고 배지. 참고 안 한 추천이면 null 이라 블록 자체를 그리지 않는다. */
   const referenceBadge = toReferenceBadge(card?.reference_match);
@@ -277,30 +235,13 @@ export default function RecCard() {
               const image = imageUrlOf(item.image_ref);
               const fromWardrobe = item.source_type !== 'PRODUCT';
               const buyUrl = item.purchase_url;
-              const wish = fromWardrobe ? null : toWish(item, image);
-              const wished = wish != null && wishedSources.has(item.source_id);
               return (
                 <View key={item.item_id} style={styles.item}>
                   <SmartImage uri={image} width={72} height={72} radius={12} />
                   <View style={styles.itemBody}>
-                    <View style={styles.itemHead}>
-                      <Text style={styles.itemName} numberOfLines={2}>
-                        {item.display_name}
-                      </Text>
-                      {/* 옷장 옷에는 하트를 달지 않는다 — 이미 가진 옷이라 담을 이유가 없다. */}
-                      {wish ? (
-                        <Pressable
-                          hitSlop={8}
-                          onPress={() => toggleWish(item, wish)}
-                          accessibilityLabel={wished ? '찜에서 빼기' : '찜하기'}>
-                          <Icon
-                            name={wished ? 'heart.fill' : 'heart'}
-                            tintColor={wished ? Editorial.wine : ink(0.35)}
-                            size={17}
-                          />
-                        </Pressable>
-                      ) : null}
-                    </View>
+                    <Text style={styles.itemName} numberOfLines={2}>
+                      {item.display_name}
+                    </Text>
                     <Text style={styles.itemMeta}>
                       {[item.slot, item.category, item.color].filter(Boolean).join(' · ')}
                     </Text>
@@ -527,8 +468,7 @@ const styles = StyleSheet.create({
     borderColor: Editorial.line,
   },
   itemBody: { flex: 1, gap: 3 },
-  itemHead: { flexDirection: 'row', alignItems: 'flex-start', gap: 8 },
-  itemName: { flex: 1, fontSize: 14, fontWeight: '500', color: INK },
+  itemName: { fontSize: 14, fontWeight: '500', color: INK },
   itemMeta: { fontSize: Type.caption, color: Editorial.textCaption },
   itemPrice: { fontSize: Type.caption, fontWeight: '600', color: INK },
   itemReason: { fontSize: Type.caption, color: Editorial.textSoft, lineHeight: 18 },
