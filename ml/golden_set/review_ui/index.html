@@ -1,0 +1,821 @@
+<title>골든셋 검수</title>
+<style>
+  :root {
+    --bg: #ffffff;
+    --fg: #1c1917;
+    --soft: rgba(28, 25, 23, 0.62);
+    --muted: rgba(28, 25, 23, 0.4);
+    --line: rgba(28, 25, 23, 0.12);
+    --line-soft: rgba(28, 25, 23, 0.06);
+    --sel: #1d211d;
+    --sel-fg: #ffffff;
+    --warn: #5e2b2f;
+    --ok: #2f5e3a;
+    --panel: #fafaf9;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme='light']) {
+      --bg: #16150f;
+      --fg: #f2efe9;
+      --soft: rgba(242, 239, 233, 0.66);
+      --muted: rgba(242, 239, 233, 0.42);
+      --line: rgba(242, 239, 233, 0.16);
+      --line-soft: rgba(242, 239, 233, 0.08);
+      --sel: #f2efe9;
+      --sel-fg: #16150f;
+      --warn: #e8a0a0;
+      --ok: #9ed0ac;
+      --panel: #1f1e17;
+    }
+  }
+  :root[data-theme='dark'] {
+    --bg: #16150f;
+    --fg: #f2efe9;
+    --soft: rgba(242, 239, 233, 0.66);
+    --muted: rgba(242, 239, 233, 0.42);
+    --line: rgba(242, 239, 233, 0.16);
+    --line-soft: rgba(242, 239, 233, 0.08);
+    --sel: #f2efe9;
+    --sel-fg: #16150f;
+    --warn: #e8a0a0;
+    --ok: #9ed0ac;
+    --panel: #1f1e17;
+  }
+
+  * { box-sizing: border-box; }
+  /* 키보드로만 쓰는 도구라 포커스가 어디 있는지 항상 보여야 한다. */
+  :focus-visible { outline: 2px solid var(--fg); outline-offset: 2px; border-radius: 6px; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--fg);
+    font: 15px/1.55 -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Apple SD Gothic Neo',
+      'Malgun Gothic', sans-serif;
+  }
+  button { font: inherit; color: inherit; cursor: pointer; }
+  code, .mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0.92em; }
+
+  /* ── 준비 화면 ── */
+  .wrap { max-width: 980px; margin: 0 auto; padding: 32px 20px 80px; }
+  h1 { font-size: 22px; margin: 0 0 4px; letter-spacing: -0.01em; }
+  .lead { color: var(--soft); margin: 0 0 28px; }
+  .card {
+    border: 1px solid var(--line);
+    border-radius: 14px;
+    padding: 18px;
+    margin-bottom: 14px;
+    background: var(--bg);
+  }
+  .card h2 { font-size: 15px; margin: 0 0 10px; }
+  .hint { color: var(--muted); font-size: 13px; margin: 6px 0 0; }
+  label.field { display: block; margin-bottom: 10px; }
+  label.field > span { display: block; font-size: 13px; color: var(--soft); margin-bottom: 4px; }
+  input[type='text'], textarea, select {
+    width: 100%;
+    padding: 9px 11px;
+    border: 1px solid var(--line);
+    border-radius: 9px;
+    background: var(--bg);
+    color: var(--fg);
+    font: inherit;
+  }
+  textarea { resize: vertical; min-height: 62px; }
+  input[type='file'] { font-size: 13px; color: var(--soft); }
+  .filerow {
+    display: grid;
+    grid-template-columns: 150px 1fr auto;
+    gap: 10px;
+    align-items: center;
+    padding: 8px 0;
+    border-bottom: 1px solid var(--line-soft);
+  }
+  .filerow:last-child { border-bottom: 0; }
+  .filerow .name { font-size: 13px; }
+  .badge { font-size: 12px; color: var(--muted); white-space: nowrap; }
+  .badge.on { color: var(--ok); }
+  .primary {
+    background: var(--sel);
+    color: var(--sel-fg);
+    border: 0;
+    border-radius: 999px;
+    padding: 11px 22px;
+    font-weight: 600;
+  }
+  .primary[disabled] { opacity: 0.35; cursor: not-allowed; }
+  .ghost {
+    background: transparent;
+    border: 1px solid var(--line);
+    border-radius: 999px;
+    padding: 8px 16px;
+  }
+
+  /* ── 검수 화면 ── */
+  .top {
+    position: sticky;
+    top: 0;
+    z-index: 5;
+    background: var(--bg);
+    border-bottom: 1px solid var(--line);
+    padding: 10px 16px;
+    display: flex;
+    gap: 12px;
+    align-items: center;
+    flex-wrap: wrap;
+  }
+  .tabs { display: flex; gap: 6px; }
+  .tab {
+    border: 1px solid var(--line);
+    background: transparent;
+    border-radius: 999px;
+    padding: 5px 13px;
+    font-size: 13px;
+  }
+  .tab[aria-selected='true'] { background: var(--sel); color: var(--sel-fg); border-color: var(--sel); }
+  .tab .n { color: var(--muted); margin-left: 5px; font-size: 12px; }
+  .tab[aria-selected='true'] .n { color: var(--sel-fg); opacity: 0.75; }
+  .spacer { flex: 1; }
+  .prog { font-size: 13px; color: var(--soft); white-space: nowrap; font-variant-numeric: tabular-nums; }
+  .tab .n { font-variant-numeric: tabular-nums; }
+  .bar { height: 3px; background: var(--line-soft); border-radius: 2px; overflow: hidden; width: 130px; }
+  .bar > i { display: block; height: 100%; background: var(--sel); }
+
+  .stage { display: grid; grid-template-columns: minmax(280px, 44%) 1fr; gap: 22px; padding: 20px 16px 120px; align-items: start; }
+  @media (max-width: 860px) { .stage { grid-template-columns: 1fr; } }
+  .imgbox { position: sticky; top: 62px; }
+  .imgbox img { width: 100%; border-radius: 12px; border: 1px solid var(--line); display: block; background: var(--panel); }
+  .imgpair { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+  .imgpair figure { margin: 0; }
+  .imgpair figcaption { font-size: 12px; color: var(--soft); margin-top: 5px; text-align: center; }
+  .noimg {
+    border: 1px dashed var(--line);
+    border-radius: 12px;
+    padding: 34px 12px;
+    text-align: center;
+    color: var(--muted);
+    font-size: 13px;
+  }
+
+  .ctx { background: var(--panel); border: 1px solid var(--line-soft); border-radius: 12px; padding: 13px 15px; margin-bottom: 18px; }
+  .ctx dl { margin: 0; display: grid; grid-template-columns: auto 1fr; gap: 4px 14px; font-size: 13px; }
+  .ctx dt { color: var(--muted); white-space: nowrap; }
+  .ctx dd { margin: 0; }
+  .stmt { font-size: 16px; line-height: 1.6; margin: 0 0 16px; }
+
+  .q { margin-bottom: 16px; }
+  .q > .qlabel { font-size: 13px; color: var(--soft); margin-bottom: 6px; display: flex; gap: 8px; align-items: baseline; }
+  .q > .qlabel .colname { color: var(--muted); font-size: 11.5px; }
+  .opts { display: flex; gap: 6px; flex-wrap: wrap; }
+  .opt {
+    border: 1px solid var(--line);
+    background: transparent;
+    border-radius: 9px;
+    padding: 7px 12px;
+    font-size: 13.5px;
+    display: flex;
+    gap: 7px;
+    align-items: center;
+  }
+  .opt .k {
+    font-family: ui-monospace, Menlo, monospace;
+    font-size: 11px;
+    color: var(--muted);
+    border: 1px solid var(--line);
+    border-radius: 4px;
+    padding: 0 4px;
+  }
+  .opt[aria-pressed='true'] { background: var(--sel); color: var(--sel-fg); border-color: var(--sel); }
+  .opt[aria-pressed='true'] .k { color: var(--sel-fg); border-color: currentColor; opacity: 0.8; }
+  .q.focus > .qlabel { color: var(--fg); font-weight: 600; }
+  .q.focus .opts { outline: 2px solid var(--line); outline-offset: 4px; border-radius: 6px; }
+
+  .foot {
+    position: fixed;
+    left: 0; right: 0; bottom: 0;
+    background: var(--bg);
+    border-top: 1px solid var(--line);
+    padding: 10px 16px;
+    display: flex;
+    gap: 10px;
+    align-items: center;
+    flex-wrap: wrap;
+  }
+  .keys { font-size: 12px; color: var(--muted); }
+  .keys b { color: var(--soft); font-weight: 600; }
+  .done { color: var(--ok); font-size: 13px; }
+  .todo { color: var(--warn); font-size: 13px; }
+  .hidden { display: none !important; }
+</style>
+
+<div id="setup" class="wrap">
+  <h1>골든셋 검수</h1>
+  <p class="lead">
+    <code>templates</code> 로 만든 검수표 CSV 를 넣고 화면에서 판정하면, 같은 스키마로 다시 내보냅니다.
+    파일은 브라우저 밖으로 나가지 않습니다.
+  </p>
+
+  <div class="card">
+    <h2>1. 검수자</h2>
+    <label class="field">
+      <span><code>reviewer_label</code> 열에 들어갈 값</span>
+      <input type="text" id="reviewer" placeholder="reviewer-a" value="reviewer-a" />
+    </label>
+    <p class="hint">
+      가이드는 <code>reviewer-a</code> / <code>reviewer-b</code> 로 통일하도록 돼 있습니다.
+      검수자 간 일치도를 이 열로 집계한다면 사람 이름 대신 이 값을 씁니다.
+    </p>
+  </div>
+
+  <div class="card">
+    <h2>2. 검수표 CSV</h2>
+    <p class="hint" style="margin-top: 0">필요한 표만 넣어도 됩니다. 넣은 표만 화면에 나옵니다.</p>
+    <div id="filerows"></div>
+  </div>
+
+  <div class="card">
+    <h2>3. 이미지 폴더</h2>
+    <input type="file" id="images" webkitdirectory directory multiple />
+    <p class="hint">
+      CSV 의 <code>local_path</code> 는 <code>E:\images\…</code> 같은 다른 PC 경로라 그대로 못 엽니다.
+      그래서 <b>파일 이름만</b> 떼어 이 폴더에서 찾습니다. 폴더를 안 넣으면 이미지 없이 판정합니다.
+      <span id="imgcount" class="badge"></span>
+    </p>
+  </div>
+
+  <button class="primary" id="start" disabled>검수 시작</button>
+  <p class="hint" id="resumeNote"></p>
+</div>
+
+<div id="review" class="hidden">
+  <div class="top">
+    <div class="tabs" id="tabs"></div>
+    <div class="spacer"></div>
+    <div class="prog" id="prog"></div>
+    <div class="bar"><i id="progbar" style="width: 0%"></i></div>
+    <button class="ghost" id="exportBtn">CSV 내보내기</button>
+  </div>
+  <div class="stage">
+    <div class="imgbox" id="imgbox"></div>
+    <div>
+      <div class="ctx" id="ctx"></div>
+      <div id="form"></div>
+    </div>
+  </div>
+  <div class="foot">
+    <button class="ghost" id="prevBtn">← 이전</button>
+    <button class="primary" id="nextBtn">다음 →</button>
+    <span id="status"></span>
+    <div class="spacer"></div>
+    <span class="keys">
+      <b>1~9</b> 선택 · <b>0</b> 비움 · <b>Enter</b> 다음 · <b>Shift+Enter</b> 이전 · <b>Esc</b> 입력창 빠져나오기
+    </span>
+  </div>
+</div>
+
+<script>
+  /* ================================================================
+   * CSV — 따옴표 안의 쉼표·줄바꿈을 지켜야 한다.
+   * 파일럿 데이터에 "코트의 다크 브라운과 슬랙스의 베이지, …" 처럼
+   * 쉼표를 품은 문장이 실제로 들어 있어서, 단순 split 으로는 열이 밀린다.
+   * ================================================================ */
+  function parseCsv(text) {
+    const s = text.replace(/^\uFEFF/, '');
+    const rows = [];
+    let row = [];
+    let cell = '';
+    let quoted = false;
+    for (let i = 0; i < s.length; i += 1) {
+      const c = s[i];
+      if (quoted) {
+        if (c === '"') {
+          if (s[i + 1] === '"') { cell += '"'; i += 1; }
+          else quoted = false;
+        } else cell += c;
+        continue;
+      }
+      if (c === '"') { quoted = true; continue; }
+      if (c === ',') { row.push(cell); cell = ''; continue; }
+      if (c === '\r') continue;
+      if (c === '\n') { row.push(cell); rows.push(row); row = []; cell = ''; continue; }
+      cell += c;
+    }
+    if (cell !== '' || row.length) { row.push(cell); rows.push(row); }
+    // 끝의 빈 줄 제거
+    while (rows.length && rows[rows.length - 1].every((v) => v === '')) rows.pop();
+    return rows;
+  }
+
+  function csvCell(value) {
+    const v = value == null ? '' : String(value);
+    return /[",\n\r]/.test(v) ? `"${v.replace(/"/g, '""')}"` : v;
+  }
+
+  /** 원본과 같은 열 순서·개수로 되돌린다. BOM 은 파이썬 쪽 호환을 위해 유지한다. */
+  function toCsv(header, rows) {
+    const lines = [header, ...rows].map((r) => r.map(csvCell).join(','));
+    return '\uFEFF' + lines.join('\r\n') + '\r\n';
+  }
+
+  /* ================================================================
+   * 표 정의 — 열 이름은 review.py 의 *_REVIEW_FIELDS 와 같아야 한다.
+   * ================================================================ */
+  const YND = [
+    { v: 'YES', ko: '예' },
+    { v: 'NO', ko: '아니오' },
+    { v: 'UNSURE', ko: '모르겠음' },
+  ];
+  const CONF = [
+    { v: '1', ko: '낮음' },
+    { v: '2', ko: '보통' },
+    { v: '3', ko: '높음' },
+  ];
+  const Q15 = [
+    { v: '1', ko: '방해함' },
+    { v: '2', ko: '약점' },
+    { v: '3', ko: '무난' },
+    { v: '4', ko: '잘 살림' },
+    { v: '5', ko: '핵심 강점' },
+  ];
+
+  const TABLES = {
+    image_observation: {
+      title: '이미지 관찰',
+      file: 'image_observation_reviews',
+      key: (r) => r.golden_id,
+      image: (r) => [{ path: r.local_path, cap: r.golden_id }],
+      ctx: (r) => [
+        ['golden_id', r.golden_id],
+        ['스타일 의도', r.style_intent],
+        ['인식된 아이템', (r.detected_items || '').split(';').join('  ·  ')],
+      ],
+      fields: [
+        { col: 'image_assessable', ko: '이 사진으로 코디를 판단할 수 있나', opts: YND },
+        { col: 'items_complete', ko: '주요 아이템이 빠짐없이 잡혔나', opts: YND },
+        { col: 'bbox_grounding_1_3', ko: '아이템 영역이 정확한가', opts: [
+          { v: '1', ko: '틀림' }, { v: '2', ko: '오차 있음' }, { v: '3', ko: '정확' },
+        ] },
+        { col: 'unassessable_complete', ko: '보이지 않는 것을 잘 보류했나', opts: YND },
+        { col: 'q_color_1_5', ko: '색 조화', opts: Q15, blankable: true },
+        { col: 'q_silhouette_proportion_1_5', ko: '실루엣·비율', opts: Q15, blankable: true },
+        { col: 'q_material_pattern_1_5', ko: '소재·패턴', opts: Q15, blankable: true },
+        { col: 'q_style_cohesion_1_5', ko: '스타일 통일감', opts: Q15, blankable: true },
+        { col: 'q_completeness_detail_1_5', ko: '마무리·디테일', opts: Q15, blankable: true },
+        { col: 'observation_verdict', ko: '판정', opts: [
+          { v: 'APPROVE', ko: '승인' }, { v: 'EDIT', ko: '수정 필요' },
+          { v: 'REJECT', ko: '사용 불가' }, { v: 'UNSURE', ko: '보류' },
+        ] },
+        { col: 'human_confidence_1_3', ko: '확신도', opts: CONF },
+        { col: 'missing_observations', ko: '빠진 항목', type: 'text', ph: '예) belt:벨트 누락' },
+        { col: 'notes', ko: '메모', type: 'text' },
+      ],
+    },
+
+    claim: {
+      title: 'claim',
+      file: 'claim_reviews',
+      key: (r) => `${r.golden_id}/${r.claim_id}`,
+      image: (r) => [{ path: r.local_path, cap: r.golden_id }],
+      ctx: (r) => [
+        ['golden_id', `${r.golden_id}  ·  ${r.claim_id}`],
+        ['축', r.axis],
+        ['근거 영역', (r.evidence_region_ids || '').split(';').join('  ·  ')],
+        ['모델 판단', `${r.model_relation_polarity || '-'} / ${r.model_contribution_direction || '-'}`],
+      ],
+      statement: (r) => r.statement,
+      fields: [
+        { col: 'evidence_correct', ko: '이미지에서 근거가 확인되나', opts: YND },
+        { col: 'human_judgment', ko: '이 문장의 성격', opts: [
+          { v: 'CONTRIBUTES', ko: '좋은 코디에 기여' },
+          { v: 'CONTEXT_DEPENDENT', ko: '상황에 따라' },
+          { v: 'DESCRIPTIVE_ONLY', ko: '사실 서술일 뿐' },
+          { v: 'UNSUPPORTED', ko: '근거 부족' },
+          { v: 'INCORRECT', ko: '틀림' },
+        ] },
+        { col: 'verdict', ko: '판정', opts: [
+          { v: 'APPROVE', ko: '승인' }, { v: 'EDIT', ko: '수정 후 사용' },
+          { v: 'REJECT', ko: '기각' }, { v: 'UNSURE', ko: '보류' },
+        ] },
+        { col: 'human_confidence_1_3', ko: '확신도', opts: CONF },
+        { col: 'overgeneralization_risk', ko: '한 사진의 특징을 법칙처럼 말했나', opts: YND },
+        { col: 'stereotype_risk', ko: '성별·체형·연령 고정관념이 있나', opts: YND },
+        {
+          col: 'edited_statement', ko: '수정한 문장', type: 'text',
+          when: (a) => a.verdict === 'EDIT',
+          ph: '이미지에서 확인되는 범위로 고쳐 씁니다',
+        },
+        { col: 'notes', ko: '메모', type: 'text' },
+      ],
+    },
+
+    pairwise: {
+      title: '쌍대 비교',
+      file: 'pairwise_reviews',
+      key: (r) => r.pair_id,
+      image: (r) => [
+        { path: r.left_local_path, cap: `왼쪽 · ${r.left_style_intent || ''}` },
+        { path: r.right_local_path, cap: `오른쪽 · ${r.right_style_intent || ''}` },
+      ],
+      ctx: (r) => [
+        ['pair_id', r.pair_id],
+        ['비교 축', r.comparison_axis],
+        ['맥락', r.context_id],
+        ['왼쪽 / 오른쪽', `${r.left_id}  /  ${r.right_id}`],
+      ],
+      fields: [
+        { col: 'winner', ko: '어느 쪽이 더 나은가', opts: [
+          { v: 'left', ko: '왼쪽' }, { v: 'right', ko: '오른쪽' }, { v: 'tie', ko: '비슷' },
+          { v: 'context_dependent', ko: '상황이 달라 비교 불가' },
+          { v: 'unassessable', ko: '이미지 문제로 판단 불가' },
+        ] },
+        { col: 'confidence_1_3', ko: '확신도', opts: CONF },
+        { col: 'reason_axis', ko: '이유가 되는 축', opts: [
+          { v: 'A1_COLOR_HARMONY', ko: '색 조화' },
+          { v: 'A2_SILHOUETTE_PROPORTION', ko: '실루엣·비율' },
+          { v: 'A5_MATERIAL_PATTERN', ko: '소재·패턴' },
+          { v: 'A6_STYLE_COHESION', ko: '스타일 통일감' },
+          { v: 'A7_COMPLETENESS_DETAIL', ko: '마무리·디테일' },
+          { v: 'MIXED', ko: '여러 이유' },
+        ] },
+        { col: 'notes', ko: '이유 한 문장', type: 'text' },
+      ],
+    },
+
+    minimum_edit: {
+      title: '최소 수정',
+      file: 'minimum_edit_reviews',
+      key: (r) => `${r.golden_id}/${r.target_region_id}/${r.target_attribute}`,
+      image: (r) => [{ path: r.local_path, cap: r.golden_id }],
+      ctx: (r) => [
+        ['golden_id', r.golden_id],
+        ['대상', `${r.target_region_id}  ·  ${r.target_attribute}`],
+        ['변경', r.change],
+        ['축', r.tested_axis],
+      ],
+      statement: (r) => r.expected_effect,
+      fields: [
+        { col: 'single_variable_change', ko: '한 가지 속성만 바뀌었나', opts: YND },
+        { col: 'preserves_style_intent', ko: '기존 스타일 의도를 지키나', opts: YND },
+        { col: 'verdict', ko: '판정', opts: [
+          { v: 'PLAUSIBLE_HYPOTHESIS', ko: '시험할 만함' },
+          { v: 'TASTE_DEPENDENT', ko: '취향에 따라' },
+          { v: 'INCORRECT', ko: '가설이 틀림' },
+          { v: 'UNSURE', ko: '보류' },
+        ] },
+        { col: 'human_confidence_1_3', ko: '확신도', opts: CONF },
+        { col: 'notes', ko: '메모', type: 'text' },
+      ],
+    },
+  };
+
+  const ORDER = ['image_observation', 'claim', 'pairwise', 'minimum_edit'];
+
+  /** 행 배열 → 열 이름으로 읽는 객체 */
+  function asObject(header, row) {
+    const o = {};
+    header.forEach((h, i) => { o[h.replace(/^\uFEFF/, '')] = row[i] ?? ''; });
+    return o;
+  }
+
+  /**
+   * 판정값을 원본 행에 얹는다. **미리 채워진 열은 절대 건드리지 않는다** —
+   * 검수자가 고칠 대상이 아니고, 뒤쪽 집계가 이 값으로 원본을 찾는다.
+   */
+  function applyAnswers(header, rows, answers, reviewerLabel, keyOf) {
+    const cols = header.map((h) => h.replace(/^\uFEFF/, ''));
+    return rows.map((row) => {
+      const obj = asObject(header, row);
+      const a = answers[keyOf(obj)] || {};
+      const next = row.slice();
+      while (next.length < cols.length) next.push('');
+      cols.forEach((c, i) => {
+        if (c === 'reviewer_label') next[i] = reviewerLabel;
+        else if (Object.prototype.hasOwnProperty.call(a, c)) next[i] = a[c] ?? '';
+      });
+      return next;
+    });
+  }
+
+  // 노드에서 순수 함수만 떼어 검증할 수 있게 노출한다 (테스트 하네스가 참조).
+  if (typeof window !== 'undefined') {
+    window.__gsreview = { parseCsv, toCsv, applyAnswers, asObject, TABLES, ORDER };
+  }
+
+  /* ================================================================
+   * 상태
+   * ================================================================ */
+  const state = {
+    reviewer: 'reviewer-a',
+    loaded: {},        // table -> { header, rows }
+    answers: {},       // table -> { key -> {col: value} }
+    images: new Map(), // 파일이름(소문자) -> objectURL
+    tab: null,
+    index: 0,
+    focus: 0,
+  };
+
+  const LS_KEY = 'goldenset-review-v1';
+
+  function save() {
+    try {
+      localStorage.setItem(LS_KEY, JSON.stringify({ reviewer: state.reviewer, answers: state.answers }));
+    } catch (e) {
+      /* 저장 한도를 넘겨도 검수는 계속돼야 한다 — 내보내기로 회수할 수 있다. */
+      console.warn('자동 저장 실패', e);
+    }
+  }
+  function restore() {
+    try {
+      const raw = localStorage.getItem(LS_KEY);
+      if (!raw) return null;
+      return JSON.parse(raw);
+    } catch { return null; }
+  }
+
+  /* ================================================================
+   * 준비 화면
+   * ================================================================ */
+  const filerows = document.getElementById('filerows');
+  ORDER.forEach((t) => {
+    const def = TABLES[t];
+    const div = document.createElement('div');
+    div.className = 'filerow';
+    div.innerHTML = `<div class="name">${def.title}</div>
+      <input type="file" accept=".csv" data-table="${t}" />
+      <div class="badge" id="badge-${t}">없음</div>`;
+    filerows.appendChild(div);
+  });
+
+  filerows.addEventListener('change', (e) => {
+    const input = e.target;
+    if (!input.dataset || !input.dataset.table) return;
+    const table = input.dataset.table;
+    const file = input.files && input.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+      const rows = parseCsv(String(reader.result));
+      if (rows.length < 2) { alert('행이 없습니다: ' + file.name); return; }
+      state.loaded[table] = { header: rows[0], rows: rows.slice(1) };
+      const b = document.getElementById('badge-' + table);
+      b.textContent = `${rows.length - 1}건`;
+      b.classList.add('on');
+      document.getElementById('start').disabled = Object.keys(state.loaded).length === 0;
+    };
+    reader.readAsText(file, 'utf-8');
+  });
+
+  document.getElementById('images').addEventListener('change', (e) => {
+    state.images.forEach((url) => URL.revokeObjectURL(url));
+    state.images = new Map();
+    for (const f of e.target.files) {
+      if (!/\.(jpe?g|png|webp|gif)$/i.test(f.name)) continue;
+      state.images.set(f.name.toLowerCase(), URL.createObjectURL(f));
+    }
+    document.getElementById('imgcount').textContent = `이미지 ${state.images.size}개 인식`;
+  });
+
+  const saved = restore();
+  if (saved && saved.answers && Object.keys(saved.answers).length) {
+    const n = Object.values(saved.answers).reduce((s, m) => s + Object.keys(m).length, 0);
+    document.getElementById('resumeNote').textContent =
+      `이전에 판정한 ${n}건이 이 브라우저에 남아 있습니다. 같은 CSV 를 넣으면 이어서 진행합니다.`;
+    document.getElementById('reviewer').value = saved.reviewer || 'reviewer-a';
+  }
+
+  document.getElementById('start').addEventListener('click', () => {
+    state.reviewer = document.getElementById('reviewer').value.trim() || 'reviewer-a';
+    const prev = restore();
+    state.answers = (prev && prev.answers) || {};
+    ORDER.forEach((t) => { if (!state.answers[t]) state.answers[t] = {}; });
+    state.tab = ORDER.find((t) => state.loaded[t]);
+    state.index = firstUnanswered(state.tab);
+    document.getElementById('setup').classList.add('hidden');
+    document.getElementById('review').classList.remove('hidden');
+    renderTabs();
+    render();
+  });
+
+  /* ================================================================
+   * 검수 화면
+   * ================================================================ */
+  function rowsOf(table) { return state.loaded[table] ? state.loaded[table].rows : []; }
+  function objAt(table, i) {
+    const L = state.loaded[table];
+    return asObject(L.header, L.rows[i]);
+  }
+  function keyAt(table, i) { return TABLES[table].key(objAt(table, i)); }
+  function answerAt(table, i) { return state.answers[table][keyAt(table, i)] || {}; }
+
+  /** 필수 칸(선택형 + 지금 보이는 것)이 모두 채워졌으면 완료로 본다. */
+  function isDone(table, i) {
+    const a = answerAt(table, i);
+    return TABLES[table].fields.every((f) => {
+      if (f.type === 'text') return true;
+      if (f.when && !f.when(a)) return true;
+      if (f.blankable) return Object.prototype.hasOwnProperty.call(a, f.col);
+      return a[f.col] !== undefined && a[f.col] !== '';
+    });
+  }
+  function doneCount(table) {
+    let n = 0;
+    for (let i = 0; i < rowsOf(table).length; i += 1) if (isDone(table, i)) n += 1;
+    return n;
+  }
+  function firstUnanswered(table) {
+    const rows = rowsOf(table);
+    for (let i = 0; i < rows.length; i += 1) if (!isDone(table, i)) return i;
+    return 0;
+  }
+
+  function renderTabs() {
+    const tabs = document.getElementById('tabs');
+    tabs.innerHTML = '';
+    ORDER.filter((t) => state.loaded[t]).forEach((t) => {
+      const b = document.createElement('button');
+      b.className = 'tab';
+      b.setAttribute('aria-selected', String(t === state.tab));
+      b.innerHTML = `${TABLES[t].title}<span class="n">${doneCount(t)}/${rowsOf(t).length}</span>`;
+      b.onclick = () => { state.tab = t; state.index = firstUnanswered(t); state.focus = 0; render(); };
+      tabs.appendChild(b);
+    });
+  }
+
+  function imageFor(path) {
+    if (!path) return null;
+    const base = String(path).split(/[\\/]/).pop().toLowerCase();
+    return state.images.get(base) || null;
+  }
+
+  function render() {
+    const table = state.tab;
+    const def = TABLES[table];
+    const rows = rowsOf(table);
+    if (state.index >= rows.length) state.index = rows.length - 1;
+    if (state.index < 0) state.index = 0;
+    const row = objAt(table, state.index);
+    const a = answerAt(table, state.index);
+
+    // 이미지
+    const imgs = def.image(row);
+    const box = document.getElementById('imgbox');
+    const parts = imgs.map((im) => {
+      const url = imageFor(im.path);
+      const body = url
+        ? `<img src="${url}" alt="" />`
+        : `<div class="noimg">이미지 없음<br /><span class="mono">${String(im.path || '').split(/[\\/]/).pop() || '-'}</span></div>`;
+      return imgs.length > 1 ? `<figure>${body}<figcaption>${im.cap}</figcaption></figure>` : body;
+    });
+    box.innerHTML = imgs.length > 1 ? `<div class="imgpair">${parts.join('')}</div>` : parts.join('');
+
+    // 맥락
+    const ctx = document.getElementById('ctx');
+    ctx.innerHTML = '<dl>' + def.ctx(row).map(([k, v]) => `<dt>${k}</dt><dd>${escapeHtml(v || '-')}</dd>`).join('') + '</dl>';
+
+    // 판정 폼
+    const form = document.getElementById('form');
+    form.innerHTML = '';
+    if (def.statement) {
+      const p = document.createElement('p');
+      p.className = 'stmt';
+      p.textContent = def.statement(row) || '';
+      form.appendChild(p);
+    }
+
+    const visible = def.fields.filter((f) => !f.when || f.when(a));
+    if (state.focus >= visible.length) state.focus = Math.max(0, visible.length - 1);
+
+    visible.forEach((f, fi) => {
+      const wrap = document.createElement('div');
+      wrap.className = 'q' + (fi === state.focus ? ' focus' : '');
+      const label = document.createElement('div');
+      label.className = 'qlabel';
+      label.innerHTML = `<span>${f.ko}</span><span class="colname mono">${f.col}</span>`;
+      wrap.appendChild(label);
+
+      if (f.type === 'text') {
+        const input = document.createElement('input');
+        input.type = 'text';
+        input.value = a[f.col] || '';
+        input.placeholder = f.ph || '';
+        input.oninput = () => { setAnswer(f.col, input.value); };
+        input.onfocus = () => { state.focus = fi; markFocus(); };
+        wrap.appendChild(input);
+      } else {
+        const opts = document.createElement('div');
+        opts.className = 'opts';
+        f.opts.forEach((o, oi) => {
+          const b = document.createElement('button');
+          b.className = 'opt';
+          b.setAttribute('aria-pressed', String(a[f.col] === o.v));
+          b.innerHTML = `<span class="k">${oi + 1}</span>${o.ko}`;
+          b.onclick = () => { choose(f, o.v, fi); };
+          opts.appendChild(b);
+        });
+        if (f.blankable) {
+          const b = document.createElement('button');
+          b.className = 'opt';
+          b.setAttribute('aria-pressed', String(a[f.col] === ''));
+          b.innerHTML = `<span class="k">0</span>판단 불가`;
+          b.onclick = () => { choose(f, '', fi); };
+          opts.appendChild(b);
+        }
+        wrap.appendChild(opts);
+      }
+      form.appendChild(wrap);
+    });
+
+    // 진행 표시
+    const done = doneCount(table);
+    document.getElementById('prog').textContent =
+      `${TABLES[table].title}  ${state.index + 1} / ${rows.length}   (완료 ${done})`;
+    document.getElementById('progbar').style.width = `${(done / Math.max(1, rows.length)) * 100}%`;
+    document.getElementById('status').innerHTML = isDone(table, state.index)
+      ? '<span class="done">이 건 완료</span>'
+      : '<span class="todo">미완료</span>';
+    renderTabs();
+  }
+
+  function markFocus() {
+    document.querySelectorAll('#form .q').forEach((el, i) => {
+      el.classList.toggle('focus', i === state.focus);
+    });
+  }
+
+  function escapeHtml(s) {
+    return String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+  }
+
+  function setAnswer(col, value) {
+    const key = keyAt(state.tab, state.index);
+    const bag = state.answers[state.tab][key] || (state.answers[state.tab][key] = {});
+    bag[col] = value;
+    save();
+  }
+
+  /** 고르면 다음 칸으로 자동 이동한다 — 이게 검수 속도의 대부분을 만든다. */
+  function choose(field, value, fieldIndex) {
+    setAnswer(field.col, value);
+    const a = answerAt(state.tab, state.index);
+    const visible = TABLES[state.tab].fields.filter((f) => !f.when || f.when(a));
+    state.focus = Math.min(fieldIndex + 1, visible.length - 1);
+    render();
+  }
+
+  function move(delta) {
+    const rows = rowsOf(state.tab);
+    state.index = Math.max(0, Math.min(rows.length - 1, state.index + delta));
+    state.focus = 0;
+    render();
+  }
+
+  document.getElementById('nextBtn').onclick = () => move(1);
+  document.getElementById('prevBtn').onclick = () => move(-1);
+
+  document.addEventListener('keydown', (e) => {
+    if (document.getElementById('review').classList.contains('hidden')) return;
+    const typing = /^(INPUT|TEXTAREA)$/.test(document.activeElement.tagName);
+    if (e.key === 'Escape') { document.activeElement.blur(); return; }
+    if (typing && e.key !== 'Enter') return;
+
+    if (e.key === 'Enter') { e.preventDefault(); move(e.shiftKey ? -1 : 1); return; }
+    if (e.key === 'ArrowRight') { e.preventDefault(); move(1); return; }
+    if (e.key === 'ArrowLeft') { e.preventDefault(); move(-1); return; }
+    if (e.key === 'ArrowDown') {
+      e.preventDefault();
+      const a = answerAt(state.tab, state.index);
+      const visible = TABLES[state.tab].fields.filter((f) => !f.when || f.when(a));
+      state.focus = Math.min(state.focus + 1, visible.length - 1);
+      markFocus();
+      return;
+    }
+    if (e.key === 'ArrowUp') { e.preventDefault(); state.focus = Math.max(0, state.focus - 1); markFocus(); return; }
+
+    if (/^[0-9]$/.test(e.key)) {
+      const a = answerAt(state.tab, state.index);
+      const visible = TABLES[state.tab].fields.filter((f) => !f.when || f.when(a));
+      const field = visible[state.focus];
+      if (!field || field.type === 'text') return;
+      e.preventDefault();
+      if (e.key === '0') { if (field.blankable) choose(field, '', state.focus); return; }
+      const opt = field.opts[Number(e.key) - 1];
+      if (opt) choose(field, opt.v, state.focus);
+    }
+  });
+
+  /* ================================================================
+   * 내보내기 — 넣은 표를 각각 같은 스키마로 되돌린다.
+   * ================================================================ */
+  document.getElementById('exportBtn').onclick = () => {
+    const stamp = new Date().toISOString().slice(0, 10);
+    ORDER.filter((t) => state.loaded[t]).forEach((t) => {
+      const L = state.loaded[t];
+      const rows = applyAnswers(L.header, L.rows, state.answers[t] || {}, state.reviewer, TABLES[t].key);
+      const csv = toCsv(L.header.map((h) => h.replace(/^\uFEFF/, '')), rows);
+      const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = `${TABLES[t].file}.${state.reviewer}.csv`;
+      a.click();
+      setTimeout(() => URL.revokeObjectURL(a.href), 4000);
+    });
+  };
+</script>
