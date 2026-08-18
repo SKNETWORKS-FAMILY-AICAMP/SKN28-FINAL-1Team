@@ -1,5 +1,5 @@
 import { useLocalSearchParams } from 'expo-router';
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
@@ -9,6 +9,7 @@ import { ContentMax, Editorial, Fonts, ink, Type } from '@/constants/theme';
 import { useBreakpoint } from '@/hooks/use-breakpoint';
 import { backTo, goBack } from '@/lib/goBack';
 import { mallLabel, openExternal } from '@/lib/mall';
+import { likesStore, useWishlist, wishKey, type WishItem } from '@/state/likes';
 import {
   deleteCardFeedback,
   FEEDBACK_REASONS,
@@ -30,6 +31,28 @@ const INK = Editorial.ink;
 const RENDER_POLL_MS = 3000;
 
 /**
+ * 추천 상품 → 찜 항목.
+ *
+ * 추천 API 는 브랜드를 안 내려줘 빈 칸으로 둔다(찜 목록은 대신 담은 자리를 보여준다).
+ * 판매처 주소도 없을 수 있는데, 그때는 상품명 검색으로 나간다(lib/mall.ts) —
+ * 담아 두고 나중에 못 사는 것보다는 낫다.
+ */
+function toWish(
+  item: { display_name: string; price_snapshot: number | null; purchase_url: string | null; slot: string },
+  image: string | null,
+): Omit<WishItem, 'id' | 'addedAt'> {
+  return {
+    name: item.display_name,
+    brand: '',
+    price: item.price_snapshot != null ? item.price_snapshot.toLocaleString('ko-KR') : '',
+    tone: 0.06,
+    image: image ?? undefined,
+    link: item.purchase_url ?? undefined,
+    slot: item.slot,
+  };
+}
+
+/**
  * 추천 코디 상세.
  *
  * 채팅 답변에 붙은 카드를 눌러 들어온다. 채팅 카드에는 이름·가격·썸네일만 있고,
@@ -46,6 +69,13 @@ export default function RecCard() {
     from?: string;
   }>();
   const toast = useToast();
+  const wishlist = useWishlist();
+  const wishedIds = useMemo(() => new Set(wishlist.map((w) => w.id)), [wishlist]);
+
+  const toggleWish = (wish: Omit<WishItem, 'id' | 'addedAt'>) => {
+    const added = likesStore.toggleWish(wish);
+    toast(added ? '찜했어요 · 옷장 > 찜에서 볼 수 있어요' : '찜에서 뺐어요');
+  };
 
   const [card, setCard] = useState<ApiRecommendationCard | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -213,13 +243,30 @@ export default function RecCard() {
               const image = imageUrlOf(item.image_ref);
               const fromWardrobe = item.source_type !== 'PRODUCT';
               const buyUrl = item.purchase_url;
+              const wish = fromWardrobe ? null : toWish(item, image);
+              const wished = wish != null && wishedIds.has(wishKey(wish));
               return (
                 <View key={item.item_id} style={styles.item}>
                   <SmartImage uri={image} width={72} height={72} radius={12} />
                   <View style={styles.itemBody}>
-                    <Text style={styles.itemName} numberOfLines={2}>
-                      {item.display_name}
-                    </Text>
+                    <View style={styles.itemHead}>
+                      <Text style={styles.itemName} numberOfLines={2}>
+                        {item.display_name}
+                      </Text>
+                      {/* 옷장 옷에는 하트를 달지 않는다 — 이미 가진 옷이라 담을 이유가 없다. */}
+                      {wish ? (
+                        <Pressable
+                          hitSlop={8}
+                          onPress={() => toggleWish(wish)}
+                          accessibilityLabel={wished ? '찜에서 빼기' : '찜하기'}>
+                          <Icon
+                            name={wished ? 'heart.fill' : 'heart'}
+                            tintColor={wished ? Editorial.wine : ink(0.35)}
+                            size={17}
+                          />
+                        </Pressable>
+                      ) : null}
+                    </View>
                     <Text style={styles.itemMeta}>
                       {[item.slot, item.category, item.color].filter(Boolean).join(' · ')}
                     </Text>
@@ -434,7 +481,8 @@ const styles = StyleSheet.create({
     borderColor: Editorial.line,
   },
   itemBody: { flex: 1, gap: 3 },
-  itemName: { fontSize: 14, fontWeight: '500', color: INK },
+  itemHead: { flexDirection: 'row', alignItems: 'flex-start', gap: 8 },
+  itemName: { flex: 1, fontSize: 14, fontWeight: '500', color: INK },
   itemMeta: { fontSize: Type.caption, color: Editorial.textCaption },
   itemPrice: { fontSize: Type.caption, fontWeight: '600', color: INK },
   itemReason: { fontSize: Type.caption, color: Editorial.textSoft, lineHeight: 18 },
