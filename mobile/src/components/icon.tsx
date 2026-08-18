@@ -25,6 +25,8 @@ const MAP = {
   'lock': 'lock-closed-outline',
   'heart': 'heart-outline',
   'heart.fill': 'heart',
+  'star': 'star-outline',
+  'star.fill': 'star',
   'hand.thumbsup': 'thumbs-up-outline',
   'hand.thumbsdown': 'thumbs-down-outline',
   'figure.stand': 'body-outline',

@@ -9,6 +9,9 @@ from .views import (
     OutfitRenderEventStreamView,
     ProductClickEngagementView,
     ProductClickEventView,
+    WishlistAddView,
+    WishlistItemView,
+    WishlistView,
     RecommendationCardDetailView,
     RecommendationCardRenderView,
     RecommendationFeedbackView,
@@ -72,6 +75,18 @@ urlpatterns = [
         ProductClickEventView.as_view(),
         name="recommendation-product-click",
     ),
+    # 찜(판매 상품). 담기는 추천 아이템 경로에서(클릭 수집과 같은 자리),
+    # 목록·빼기는 상품 자체를 다루므로 평평한 경로에 둔다.
+    path(
+        (
+            "recommendations/<uuid:result_id>/cards/<uuid:card_id>/"
+            "items/<uuid:item_id>/wish/"
+        ),
+        WishlistAddView.as_view(),
+        name="wishlist-add",
+    ),
+    path("wishlist/", WishlistView.as_view(), name="wishlist"),
+    path("wishlist/<uuid:wish_id>/", WishlistItemView.as_view(), name="wishlist-item"),
     path(
         "recommendations/product-clicks/<uuid:product_click_id>/engagement/",
         ProductClickEngagementView.as_view(),

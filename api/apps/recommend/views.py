@@ -49,6 +49,7 @@ from .serializers import (
     OutfitRenderJobSerializer,
     ProductClickEngagementRequestSerializer,
     ProductClickEventSerializer,
+    WishlistItemSerializer,
     RecommendationCardSerializer,
     RecommendationFeedbackRequestSerializer,
     RecommendationFeedbackSerializer,
@@ -93,6 +94,11 @@ _ITEM_ID_PARAMETER = path_uuid_parameter(
         "cards[].items[].item_id를 입력합니다."
     ),
     example="77777777-7777-4777-8777-777777777777",
+)
+_WISH_ID_PARAMETER = path_uuid_parameter(
+    name="wish_id",
+    source="GET /api/v1/wishlist/ 응답의 wish_id를 입력합니다.",
+    example="99999999-9999-4999-8999-999999999999",
 )
 _PRODUCT_CLICK_ID_PARAMETER = path_uuid_parameter(
     name="product_click_id",
@@ -925,6 +931,107 @@ class ProductClickEventView(APIView):
             ProductClickEventSerializer(event).data,
             status=status.HTTP_201_CREATED if created else status.HTTP_200_OK,
         )
+
+
+class WishlistView(APIView):
+    """GET /api/v1/wishlist/ — 담아 둔 상품 목록."""
+
+    permission_classes = [IsAuthenticated]
+
+    @extend_schema(
+        operation_id="wishlist_list",
+        tags=[CHAT_TAG],
+        summary="찜한 상품 목록",
+        description=(
+            "회원이 담아 둔 판매 상품을 최근 담은 순서로 반환합니다. 값은 담은 "
+            "시점의 스냅샷이며, 상품은 카탈로그 원본 식별자"
+            "(source_collection·source_id)로 구분합니다."
+        ),
+        responses={
+            200: WishlistItemSerializer(many=True),
+            401: OpenApiResponse(description="로그인 회원 필요"),
+        },
+    )
+    def get(self, request: Request) -> Response:
+        identity = _recommendation_identity(request)
+        items = recommendation_service.wishlist_items(identity)
+        return Response(WishlistItemSerializer(items, many=True).data)
+
+
+class WishlistAddView(APIView):
+    """POST .../items/{item_id}/wish/ — 추천 카드의 판매 상품을 찜에 담는다."""
+
+    permission_classes = [IsAuthenticated]
+
+    @extend_schema(
+        operation_id="wishlist_add",
+        tags=[CHAT_TAG],
+        summary="추천 상품 찜하기",
+        description=(
+            "로그인 회원이 소유한 검증 완료 추천 카드의 판매 상품을 찜에 담습니다. "
+            "같은 상품을 다시 담으면 새 행을 만들지 않고 기존 찜을 200으로 "
+            "반환합니다. 브랜드·판매처 주소는 담는 순간 상품 카탈로그에서 채웁니다."
+        ),
+        parameters=[
+            _RESULT_ID_PARAMETER,
+            _CARD_ID_PARAMETER,
+            _ITEM_ID_PARAMETER,
+        ],
+        request=None,
+        responses={
+            200: WishlistItemSerializer,
+            201: WishlistItemSerializer,
+            401: OpenApiResponse(description="로그인 회원 필요"),
+            404: OpenApiResponse(
+                description=(
+                    "상품이 없거나 요청 회원의 소유가 아니거나 "
+                    "검증 카드의 판매 상품이 아님"
+                )
+            ),
+        },
+    )
+    def post(self, request: Request, result_id, card_id, item_id) -> Response:
+        identity = _recommendation_identity(request)
+        wish, created = recommendation_service.add_wishlist_item(
+            identity=identity,
+            result_id=result_id,
+            card_id=card_id,
+            item_id=item_id,
+        )
+        if wish is None:
+            raise NotFound("추천 상품을 찾을 수 없습니다.")
+        return Response(
+            WishlistItemSerializer(wish).data,
+            status=status.HTTP_201_CREATED if created else status.HTTP_200_OK,
+        )
+
+
+class WishlistItemView(APIView):
+    """DELETE /api/v1/wishlist/{wish_id}/ — 찜에서 뺀다."""
+
+    permission_classes = [IsAuthenticated]
+
+    @extend_schema(
+        operation_id="wishlist_delete",
+        tags=[CHAT_TAG],
+        summary="찜 빼기",
+        description="회원이 담아 둔 상품 하나를 뺍니다. 남의 찜은 404입니다.",
+        parameters=[_WISH_ID_PARAMETER],
+        request=None,
+        responses={
+            204: OpenApiResponse(description="삭제됨"),
+            401: OpenApiResponse(description="로그인 회원 필요"),
+            404: OpenApiResponse(description="찜을 찾을 수 없음"),
+        },
+    )
+    def delete(self, request: Request, wish_id) -> Response:
+        identity = _recommendation_identity(request)
+        if not recommendation_service.remove_wishlist_item(
+            identity=identity,
+            wish_id=wish_id,
+        ):
+            raise NotFound("찜을 찾을 수 없습니다.")
+        return Response(status=status.HTTP_204_NO_CONTENT)
 
 
 class ProductClickEngagementView(APIView):
