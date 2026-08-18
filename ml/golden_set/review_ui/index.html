@@ -208,6 +208,18 @@
   .keys b { color: var(--soft); font-weight: 600; }
   .done { color: var(--ok); font-size: 13px; }
   .todo { color: var(--warn); font-size: 13px; }
+  /* 내려받기가 막힌 환경을 위한 회수 창구 — 본문에 그대로 내어 둔다. */
+  .exportOut {
+    position: fixed; right: 16px; bottom: 62px; z-index: 6;
+    width: min(460px, calc(100vw - 32px)); max-height: 46vh; overflow: auto;
+    background: var(--bg); border: 1px solid var(--line); border-radius: 12px;
+    padding: 12px; display: flex; flex-direction: column; gap: 8px;
+  }
+  .exportItem > summary { cursor: pointer; font-size: 13px; }
+  .exportItem textarea {
+    width: 100%; height: 150px; margin-top: 8px;
+    font-family: ui-monospace, Menlo, monospace; font-size: 11px;
+  }
   .hidden { display: none !important; }
 </style>
 
@@ -264,6 +276,7 @@
       <div id="form"></div>
     </div>
   </div>
+  <div id="exportOut" class="exportOut hidden"></div>
   <div class="foot">
     <button class="ghost" id="prevBtn">← 이전</button>
     <button class="primary" id="nextBtn">다음 →</button>
@@ -828,18 +841,42 @@
   /* ================================================================
    * 내보내기 — 넣은 표를 각각 같은 스키마로 되돌린다.
    * ================================================================ */
+  /**
+   * 내보내기 — 내려받기와 **본문 표시를 함께** 한다.
+   *
+   * 내려받기가 막히는 환경이 있다(권한이 제한된 미리보기 화면 등). 그때 아무 일도 일어나지
+   * 않으면 검수자는 다 끝낸 판정을 회수할 길이 없다. 그래서 화면에도 늘 같이 내어 둔다 —
+   * 파일이 잘 받아졌으면 그냥 닫으면 되고, 안 받아졌으면 여기서 복사하면 된다.
+   */
   document.getElementById('exportBtn').onclick = () => {
-    const stamp = new Date().toISOString().slice(0, 10);
+    const box = document.getElementById('exportOut');
+    box.innerHTML = '';
     ORDER.filter((t) => state.loaded[t]).forEach((t) => {
       const L = state.loaded[t];
       const rows = applyAnswers(L.header, L.rows, state.answers[t] || {}, state.reviewer, TABLES[t].key);
       const csv = toCsv(L.header.map((h) => h.replace(/^\uFEFF/, '')), rows);
+      const name = `${TABLES[t].file}.${state.reviewer}.csv`;
+
       const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
       const a = document.createElement('a');
       a.href = URL.createObjectURL(blob);
-      a.download = `${TABLES[t].file}.${state.reviewer}.csv`;
+      a.download = name;
       a.click();
       setTimeout(() => URL.revokeObjectURL(a.href), 4000);
+
+      const wrap = document.createElement('details');
+      wrap.className = 'exportItem';
+      const done = doneCount(t);
+      wrap.innerHTML =
+        `<summary>${name} <span class="badge">${rows.length}행 · 완료 ${done}</span></summary>`;
+      const ta = document.createElement('textarea');
+      ta.readOnly = true;
+      ta.value = csv;
+      ta.onclick = () => ta.select();
+      wrap.appendChild(ta);
+      box.appendChild(wrap);
     });
+    box.classList.remove('hidden');
+    box.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
   };
 </script>
