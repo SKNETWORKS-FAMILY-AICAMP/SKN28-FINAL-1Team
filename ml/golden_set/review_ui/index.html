@@ -252,8 +252,9 @@
     <h2>3. 이미지 폴더</h2>
     <input type="file" id="images" webkitdirectory directory multiple />
     <p class="hint">
-      CSV 의 <code>local_path</code> 는 <code>E:\images\…</code> 같은 다른 PC 경로라 그대로 못 엽니다.
-      그래서 <b>파일 이름만</b> 떼어 이 폴더에서 찾습니다. 폴더를 안 넣으면 이미지 없이 판정합니다.
+      CSV 의 <code>local_path</code>(<code>images/…</code> 또는 <code>E:\images\…</code>)는
+      ZIP 을 푼 위치 기준이라 브라우저가 그대로 열지 못합니다. 그래서 <b>파일 이름만</b> 떼어
+      이 폴더에서 찾습니다. 폴더를 안 넣으면 이미지 없이 판정합니다.
       <span id="imgcount" class="badge"></span>
     </p>
   </div>
