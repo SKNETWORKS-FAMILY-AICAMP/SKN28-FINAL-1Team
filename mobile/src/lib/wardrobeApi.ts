@@ -44,6 +44,32 @@ export type WardrobeApiItem = {
    */
   added_to_closet_at: string | null;
   created_at: string;
+  custom_categories: WardrobeCategorySummary[];
+};
+
+export type WardrobeCategorySummary = {
+  id: string;
+  name: string;
+  position: number;
+};
+
+export type WardrobeSystemCategory = WardrobeCategorySummary & {
+  type: 'SYSTEM';
+  item_count: number;
+  mutable: false;
+};
+
+export type WardrobeCustomCategory = WardrobeCategorySummary & {
+  type: 'CUSTOM';
+  item_count: number;
+  mutable: true;
+  created_at: string;
+  updated_at: string;
+};
+
+export type WardrobeCategoriesResponse = {
+  system_categories: WardrobeSystemCategory[];
+  custom_categories: WardrobeCustomCategory[];
 };
 
 export type UploadJobStatus = 'PENDING' | 'PROCESSING' | 'DONE' | 'FAILED';
@@ -288,6 +314,19 @@ export function listWardrobeItems(query: WardrobeItemQuery = {}): Promise<Wardro
   return api.get<WardrobeApiItem[]>(
     qs ? `${WardrobeEndpoints.items}?${qs}` : WardrobeEndpoints.items,
   );
+}
+
+/** 개인 옷장의 기본·사용자 카테고리. 사용자 카테고리는 서버가 영속 상태의 원본이다. */
+export function listWardrobeCategories(): Promise<WardrobeCategoriesResponse> {
+  return api.get<WardrobeCategoriesResponse>(WardrobeEndpoints.categories);
+}
+
+export function createWardrobeCategory(name: string): Promise<WardrobeCustomCategory> {
+  return api.post<WardrobeCustomCategory>(WardrobeEndpoints.categories, { name });
+}
+
+export function deleteWardrobeCategory(categoryId: string): Promise<unknown> {
+  return api.delete(WardrobeEndpoints.category(categoryId));
 }
 
 /* 백엔드가 단건 조회(GET items/{id}/)를 아직 구현하지 않았다 — allow 는 PATCH·DELETE 뿐이라

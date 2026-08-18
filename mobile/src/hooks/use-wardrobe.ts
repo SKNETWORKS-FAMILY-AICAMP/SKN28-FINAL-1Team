@@ -1,10 +1,14 @@
 import { useCallback, useEffect, useState } from 'react';
 
 import {
+  createWardrobeCategory,
   deleteWardrobeItem,
+  deleteWardrobeCategory,
   getWardrobeItem,
+  listWardrobeCategories,
   listWardrobeItems,
   patchWardrobeItem,
+  type WardrobeCategoriesResponse,
   type WardrobeApiItem,
   type WardrobeItemPatch,
   type WardrobeItemQuery,
@@ -74,6 +78,48 @@ export function useWardrobeItems(query: WardrobeItemQuery = {}, enabled = true):
   return { items, loading, error, reload, removeLocal, replaceLocal };
 }
 
+type CategoriesResult = {
+  data: WardrobeCategoriesResponse | null;
+  loading: boolean;
+  error: string | null;
+  reload: () => Promise<WardrobeCategoriesResponse | null>;
+};
+
+/** 개인 옷장 카테고리는 로컬 목록이 아니라 서버 응답으로 매번 복원한다. */
+export function useWardrobeCategories(enabled = true): CategoriesResult {
+  const [data, setData] = useState<WardrobeCategoriesResponse | null>(null);
+  const [loading, setLoading] = useState(enabled);
+  const [error, setError] = useState<string | null>(null);
+
+  const load = useCallback(async (): Promise<WardrobeCategoriesResponse | null> => {
+    if (!enabled) return null;
+    try {
+      const next = await listWardrobeCategories();
+      setData(next);
+      setError(null);
+      return next;
+    } catch (e) {
+      setError(e instanceof Error ? e.message : '카테고리를 불러오지 못했어요');
+      return null;
+    } finally {
+      setLoading(false);
+    }
+  }, [enabled]);
+
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    void load();
+  }, [load]);
+
+  const reload = useCallback(async () => {
+    setLoading(true);
+    setError(null);
+    return load();
+  }, [load]);
+
+  return { data, loading, error, reload };
+}
+
 type ItemResult = {
   item: WardrobeApiItem | null;
   loading: boolean;
@@ -138,4 +184,9 @@ export async function confirmWardrobeItem(
   return { item, sharedRoomId: item.shared_room_id ?? null };
 }
 
-export { deleteWardrobeItem, patchWardrobeItem };
+export {
+  createWardrobeCategory,
+  deleteWardrobeCategory,
+  deleteWardrobeItem,
+  patchWardrobeItem,
+};

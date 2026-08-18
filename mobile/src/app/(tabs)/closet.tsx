@@ -9,8 +9,8 @@ import { SharedItemAddSheet } from '@/components/closet/shared-item-add-sheet';
 import { PhotoSourceSheet } from '@/components/closet/photo-source-sheet';
 import { CategoryEditSheet, EmptyState, ErrorState, LoadingState, LoginGate, SearchFilterBar, SegmentedToggle, SmartImage, useConfirm, useToast } from '@/components/ui';
 import { useMultiSelectFilter } from '@/hooks/useMultiSelectFilter';
-import { router, useLocalSearchParams } from 'expo-router';
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { router, useFocusEffect, useLocalSearchParams } from 'expo-router';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Modal,
@@ -30,7 +30,12 @@ import { SHARED_CLOSET_ITEMS } from '@/constants/wardrobe';
 import { WARDROBE_FILTER_OPTIONS } from '@/constants/wardrobe-taxonomy';
 import { useBreakpoint } from '@/hooks/use-breakpoint';
 import { useRefresh } from '@/hooks/use-refresh';
-import { useWardrobeItems } from '@/hooks/use-wardrobe';
+import {
+  createWardrobeCategory,
+  deleteWardrobeCategory,
+  useWardrobeCategories,
+  useWardrobeItems,
+} from '@/hooks/use-wardrobe';
 import { itemDisplayName, getMySharedRooms, createSharedRoom, joinSharedRoom, listSharedRoomMembers, listSharedRoomItems, listSharedRoomCategories, createSharedRoomCategory, deleteSharedRoomCategory, renameSharedRoom, deleteSharedRoom, unregisterItemFromSharedRoom, sharedUserDisplayName, type SharedRoomCategory } from '@/lib/wardrobeApi';
 import { Icon } from '@/components/icon';
 import { useAuth } from '@/state/auth';
@@ -79,6 +84,7 @@ type Card = {
   wardrobeItemId?: string;
   name: string;
   category: string;
+  filterCategories: string[];
   image?: string;
   owner?: string;
 };
@@ -88,6 +94,7 @@ const SHARED_ITEMS: Card[] = SHARED_CLOSET_ITEMS.map((i) => ({
   id: i.id,
   name: i.name,
   category: i.category,
+  filterCategories: [i.category],
   image: i.image,
   owner: i.owner,
 }));
@@ -112,6 +119,7 @@ export default function ClosetScreen() {
   // URL 탭 파라미터 감지 및 자동 전환
   useEffect(() => {
     if (params.tab && (params.tab === 'mine' || params.tab === 'shared')) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setTab(params.tab);
     }
   }, [params.tab]);
@@ -127,7 +135,6 @@ export default function ClosetScreen() {
   const [deleteRoom, setDeleteRoom] = useState<{ id: string; title: string } | null>(null);
   const [createOpen, setCreateOpen] = useState(false);
   const [createDraftTitle, setCreateDraftTitle] = useState('공유 옷장');
-  const [categories, setCategories] = useState<string[]>(DEFAULT_CATEGORIES);
   const [sharedCategories, setSharedCategories] = useState<SharedRoomCategory[]>([]);
   const [editOpen, setEditOpen] = useState(false);
   const [sourceOpen, setSourceOpen] = useState(false);
@@ -139,8 +146,53 @@ export default function ClosetScreen() {
      확정 여부로 거르지 않는다. 예전엔 confirmed=true 만 받았는데, 그러면 백엔드에서
      직접 넣은 옷처럼 확인 단계를 거치지 않은 아이템이 옷장에 영영 안 보인다.
      대신 미확인 아이템에는 배지를 달아 구분한다. */
-  const { items: apiItems, loading, error, reload } = useWardrobeItems({}, isLoggedIn);
-  const { refreshing, onRefresh } = useRefresh(reload);
+  const { items: apiItems, loading, error, reload: reloadItems } = useWardrobeItems({}, isLoggedIn);
+  const {
+    data: personalCategoryData,
+    error: personalCategoryError,
+    reload: reloadPersonalCategories,
+  } = useWardrobeCategories(isLoggedIn);
+
+  const mineCategories = useMemo(
+    () =>
+      personalCategoryData
+        ? [
+            '전체',
+            ...personalCategoryData.system_categories.map((category) => category.name),
+            ...personalCategoryData.custom_categories.map((category) => category.name),
+          ]
+        : DEFAULT_CATEGORIES,
+    [personalCategoryData],
+  );
+  const sharedCategoryOptions = useMemo(
+    () => [...DEFAULT_CATEGORIES, ...sharedCategories.map((category) => category.name)],
+    [sharedCategories],
+  );
+  const categories = tab === 'mine' ? mineCategories : sharedCategoryOptions;
+  const lockedCategories = tab === 'mine'
+    ? personalCategoryData
+      ? ['전체', ...personalCategoryData.system_categories.map((category) => category.name)]
+      : DEFAULT_CATEGORIES
+    : DEFAULT_CATEGORIES;
+
+  const reloadAll = useCallback(
+    () => Promise.all([reloadItems(), reloadPersonalCategories()]),
+    [reloadItems, reloadPersonalCategories],
+  );
+  const { refreshing, onRefresh } = useRefresh(reloadAll);
+
+  /* 탭 화면은 스택에 남아 있어 다른 화면에서 돌아와도 다시 마운트되지 않는다.
+     첫 진입은 훅의 초기 조회가 담당하고, 이후 포커스 복귀 때 서버 카테고리로 재복원한다. */
+  const categoryFocusedOnce = useRef(false);
+  useFocusEffect(
+    useCallback(() => {
+      if (!categoryFocusedOnce.current) {
+        categoryFocusedOnce.current = true;
+        return;
+      }
+      if (isLoggedIn) void reloadPersonalCategories();
+    }, [isLoggedIn, reloadPersonalCategories]),
+  );
 
   /* 등록은 이 화면을 떠나도 계속 돈다(state/upload-jobs.ts). 진행 중인 것을 위에 보여주고,
      하나 끝날 때마다 목록을 다시 불러와 새 옷이 바로 보이게 한다. */
@@ -153,9 +205,9 @@ export default function ClosetScreen() {
   useEffect(() => {
     if (completed === seenCompleted.current) return;
     seenCompleted.current = completed;
-    reload();
+    reloadItems();
     toast('옷장에 추가됐어요', { variant: 'success' });
-  }, [completed, reload, toast]);
+  }, [completed, reloadItems, toast]);
 
   const handleUnshareItem = async (itemId: string) => {
     /* 옷 이름을 문구에 넣지 않는다 — 이름이 길거나 비어 있으면 문장이 깨진다.
@@ -188,8 +240,8 @@ export default function ClosetScreen() {
   useEffect(() => {
     if (revision === seenRevision.current) return;
     seenRevision.current = revision;
-    reload();
-  }, [revision, reload]);
+    reloadItems();
+  }, [revision, reloadItems]);
 
   const myItems = useMemo<Card[]>(
     () =>
@@ -197,6 +249,10 @@ export default function ClosetScreen() {
         id: i.id,
         name: itemDisplayName(i),
         category: i.category_large,
+        filterCategories: [
+          i.category_large,
+          ...i.custom_categories.map((category) => category.name),
+        ],
         image: i.image_url,
       })),
     [apiItems],
@@ -205,9 +261,16 @@ export default function ClosetScreen() {
   const sharedSource = sharedSpace ? sharedItems : [];
   const source = tab === 'mine' ? myItems : sharedSource;
   const items = useMemo(
-    () => source.filter((i) => matches(i.category) && matchesQuery(i, query)),
+    () =>
+      source.filter(
+        (i) => i.filterCategories.some((category) => matches(category)) && matchesQuery(i, query),
+      ),
     [source, matches, query],
   );
+
+  useEffect(() => {
+    prune(categories.slice(1));
+  }, [categories, prune]);
 
   const loadRoomData = async (roomId: string, currentRoomsList?: any[]) => {
     try {
@@ -217,7 +280,6 @@ export default function ClosetScreen() {
         listSharedRoomCategories(roomId),
       ]);
       setSharedCategories(categoryList);
-      setCategories([...DEFAULT_CATEGORIES, ...categoryList.map((category) => category.name)]);
       /* '나' 판정은 내 user id 로 한다. 예전엔 username === 'dev_autologin' 문자열
          비교였는데, 실사용자 username 은 email_<uuid>/kakao_<id> 라 절대 매칭되지 않아
          공유 해제(X) 버튼이 프로덕션에서 아예 안 그려졌다. */
@@ -237,6 +299,7 @@ export default function ClosetScreen() {
           wardrobeItemId: si.wardrobe_item.id,
           name: si.wardrobe_item.item_name || '옷',
           category: si.wardrobe_item.category_large,
+          filterCategories: [si.wardrobe_item.category_large],
           image: si.wardrobe_item.image_url,
           owner:
             si.registered_by?.id === me?.id
@@ -273,7 +336,6 @@ export default function ClosetScreen() {
           setSharedSpace(null);
           setSharedItems([]);
           setSharedCategories([]);
-          setCategories(DEFAULT_CATEGORIES);
         });
     }
   }, [isLoggedIn, tab]);
@@ -363,7 +425,6 @@ export default function ClosetScreen() {
         setSharedSpace(null);
           setSharedItems([]);
           setSharedCategories([]);
-          setCategories(DEFAULT_CATEGORIES);
       }
       toast('공유 옷장을 삭제했어요', { variant: 'success' });
     } catch (err) {
@@ -409,17 +470,56 @@ export default function ClosetScreen() {
 
   const handleTabChange = (key: 'mine' | 'shared') => {
     setTab(key);
-    if (key === 'mine') setCategories(DEFAULT_CATEGORIES);
     reset();
     setQuery('');
   };
 
   const handleSaveCategories = async (next: string[]) => {
-    if (tab !== 'shared' || !sharedSpace) {
-      setCategories(next);
-      prune(next.slice(1));
-      return;
+    if (tab === 'mine') {
+      const current = personalCategoryData ?? (await reloadPersonalCategories());
+      if (!current) {
+        toast(personalCategoryError ?? '카테고리를 불러온 뒤 다시 시도해 주세요', {
+          variant: 'error',
+        });
+        return false;
+      }
+
+      const systemNames = new Set(current.system_categories.map((category) => category.name));
+      const nextCustomNames = next.filter(
+        (name) => name !== '전체' && !systemNames.has(name),
+      );
+      const nextNames = new Set(nextCustomNames);
+      const existingNames = new Set(
+        current.custom_categories.map((category) => category.name),
+      );
+      try {
+        await Promise.all([
+          ...nextCustomNames
+            .filter((name) => !existingNames.has(name))
+            .map((name) => createWardrobeCategory(name)),
+          ...current.custom_categories
+            .filter((category) => !nextNames.has(category.name))
+            .map((category) => deleteWardrobeCategory(category.id)),
+        ]);
+        const saved = await reloadPersonalCategories();
+        if (!saved) throw new Error('저장한 카테고리를 다시 불러오지 못했어요');
+        prune([
+          ...saved.system_categories.map((category) => category.name),
+          ...saved.custom_categories.map((category) => category.name),
+        ]);
+        toast('카테고리를 저장했어요', { variant: 'success' });
+        return true;
+      } catch (saveError) {
+        await reloadPersonalCategories();
+        toast(
+          saveError instanceof Error ? saveError.message : '카테고리를 저장하지 못했어요',
+          { variant: 'error' },
+        );
+        return false;
+      }
     }
+
+    if (!sharedSpace) return false;
 
     const customNames = next.filter((name) => !DEFAULT_CATEGORIES.includes(name));
     const existingNames = new Set(sharedCategories.map((category) => category.name));
@@ -436,14 +536,14 @@ export default function ClosetScreen() {
       const saved = await listSharedRoomCategories(sharedSpace.id);
       setSharedCategories(saved);
       const savedCategories = [...DEFAULT_CATEGORIES, ...saved.map((category) => category.name)];
-      setCategories(savedCategories);
       prune(savedCategories.slice(1));
       toast('카테고리를 저장했어요', { variant: 'success' });
+      return true;
     } catch (error) {
       toast(error instanceof Error ? error.message : '카테고리를 저장하지 못했어요', { variant: 'error' });
       const saved = await listSharedRoomCategories(sharedSpace.id).catch(() => sharedCategories);
       setSharedCategories(saved);
-      setCategories([...DEFAULT_CATEGORIES, ...saved.map((category) => category.name)]);
+      return false;
     }
   };
 
@@ -641,7 +741,7 @@ export default function ClosetScreen() {
               <ErrorState
                 title="옷장을 불러오지 못했어요"
                 description={error}
-                onRetry={reload}
+                onRetry={reloadAll}
                 style={styles.empty}
               />
             ) : items.length === 0 ? (
@@ -863,6 +963,8 @@ export default function ClosetScreen() {
           visible={editOpen}
           title="카테고리 관리"
           categories={categories}
+          lockedCategories={lockedCategories}
+          lockedHint="기본 카테고리는 고정되고, 직접 만든 카테고리만 삭제할 수 있어요."
           onClose={() => setEditOpen(false)}
           onSave={handleSaveCategories}
         />

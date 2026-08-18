@@ -221,6 +221,9 @@ export const PursuitEndpoint = '/api/v1/users/me/pursuit/';
  *   POST  /api/v1/wardrobe/uploads/           multipart { image } → 202 { job_id, status }
  *   GET   /api/v1/wardrobe/uploads/{job_id}/  → { id, status, error_message, created_at, finished_at, items[] }
  *         status: PENDING | PROCESSING | DONE | FAILED
+ *   GET   /api/v1/wardrobe/categories/        → 기본 카테고리 + 서버에 저장된 사용자 카테고리
+ *   POST  /api/v1/wardrobe/categories/        { name } → 사용자 카테고리 생성
+ *   DELETE /api/v1/wardrobe/categories/{id}/  → 사용자 카테고리 삭제(옷은 유지)
  *   GET   /api/v1/wardrobe/items/             → WardrobeApiItem[]  (?category_large=&confirmed=true|false)
  *   PATCH /api/v1/wardrobe/items/{id}/        태그 수정 + confirmed → 수정된 아이템
  *   DELETE /api/v1/wardrobe/items/{id}/       → 204
@@ -248,6 +251,8 @@ export const PursuitEndpoint = '/api/v1/users/me/pursuit/';
 export const WardrobeEndpoints = {
   uploads: '/api/v1/wardrobe/uploads/',
   uploadJob: (jobId: string) => `/api/v1/wardrobe/uploads/${jobId}/`,
+  categories: '/api/v1/wardrobe/categories/',
+  category: (categoryId: string) => `/api/v1/wardrobe/categories/${categoryId}/`,
   items: '/api/v1/wardrobe/items/',
   item: (itemId: string) => `/api/v1/wardrobe/items/${itemId}/`,
   /* 룩 사진에서 뽑혀 아직 옷장 밖에 있는 옷을 옷장에 들인다(멱등). */
