@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
+from pathlib import Path
 
 from rest_framework import serializers
 
@@ -17,10 +18,23 @@ from apps.lookbook.services import storage
 MAX_LOOKBOOK_UPLOAD_MB = 15
 ALLOWED_LOOKBOOK_IMAGE_TYPES = {
     "image/jpeg",
+    "image/jpg",
+    "image/pjpeg",
     "image/png",
+    "image/x-png",
     "image/webp",
     "image/heic",
+    "image/heif",
 }
+ALLOWED_LOOKBOOK_IMAGE_EXTENSIONS = {
+    ".jpg",
+    ".jpeg",
+    ".png",
+    ".webp",
+    ".heic",
+    ".heif",
+}
+GENERIC_UPLOAD_CONTENT_TYPES = {"", "application/octet-stream"}
 DEFAULT_PAGE_SIZE = 20
 MAX_PAGE_SIZE = 100
 
@@ -243,9 +257,18 @@ class LookbookPhotoCreateSerializer(
             raise serializers.ValidationError(
                 f"이미지는 {MAX_LOOKBOOK_UPLOAD_MB}MB 이하여야 합니다."
             )
-        if image.content_type not in ALLOWED_LOOKBOOK_IMAGE_TYPES:
+        content_type = (image.content_type or "").split(";", 1)[0].strip().lower()
+        extension = Path(image.name).suffix.lower()
+        # ImageField가 Pillow로 실제 이미지 내용을 먼저 검증한다. 여기서는 브라우저·기기별
+        # MIME 별칭과 MIME을 생략하는 업로더 때문에 정상 이미지가 거절되지 않게 한다.
+        has_supported_type = content_type in ALLOWED_LOOKBOOK_IMAGE_TYPES
+        has_generic_type_with_supported_name = (
+            content_type in GENERIC_UPLOAD_CONTENT_TYPES
+            and extension in ALLOWED_LOOKBOOK_IMAGE_EXTENSIONS
+        )
+        if not (has_supported_type or has_generic_type_with_supported_name):
             raise serializers.ValidationError(
-                "지원하지 않는 이미지 형식입니다 (jpeg/png/webp/heic)."
+                "지원하지 않는 이미지 형식입니다 (jpeg/png/webp/heic/heif)."
             )
         return image
 

@@ -241,6 +241,29 @@ class LookbookPhotoCreateApiTests(LookbookApiTestCase):
             self.assertEqual(response.status_code, 400)
         self.mocks["upload_fileobj"].assert_not_called()
 
+    def test_accepts_browser_image_mime_aliases(self) -> None:
+        for name, content_type in (
+            ("look.jpg", "image/jpg"),
+            ("look.jpeg", "image/pjpeg"),
+            ("look.png", "image/x-png"),
+            ("look.jpg", "application/octet-stream"),
+        ):
+            image_format = "PNG" if name.endswith(".png") else "JPEG"
+            with self.subTest(content_type=content_type):
+                response = self.client.post(
+                    self.url,
+                    self._payload(
+                        image=make_image_file(
+                            name=name,
+                            content_type=content_type,
+                            image_format=image_format,
+                        )
+                    ),
+                    format="multipart",
+                )
+
+                self.assertEqual(response.status_code, 202)
+
     def test_overwrite_without_date_is_rejected(self) -> None:
         response = self.client.post(
             self.url,
