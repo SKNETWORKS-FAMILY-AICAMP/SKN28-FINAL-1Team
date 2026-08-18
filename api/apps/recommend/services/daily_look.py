@@ -26,6 +26,7 @@ from django.conf import settings
 from django.db import IntegrityError, transaction
 from django.utils import timezone
 
+from apps.lookbook.contracts import LOOKBOOK_STYLE_TAGS, LOOKBOOK_TPO_TAGS
 from apps.recommend.models import DailyLook
 from apps.recommend.services import gemini, outfit_render, render_artifacts
 from apps.recommend.services import queue as queue_service
@@ -39,6 +40,7 @@ from apps.recommend.services.mixed_outfit_render import (
 from apps.recommend.services.outfit_context import build_analysis_context
 from apps.recommend.services.retriever import RetrievalRequest, retrieve_outfits
 from apps.recommend.services.style_rules import load_body_rules
+from apps.recommend.services import vocabulary
 
 logger = logging.getLogger(__name__)
 
@@ -48,6 +50,10 @@ CANDIDATE_LIMIT = 5
 #: 최근 며칠간 나간 코디를 다시 추천하지 않을지. 하루 1건이므로 최대 5개
 #: 골든 코디가 제외 대상이 된다.
 RECENT_EXCLUDE_DAYS = 5
+
+#: 홈 카드에 다는 태그 최대 개수. 카드 한 줄에 들어가는 한도이고, 넘치면 가로
+#: 스크롤이 생겨 "더 있나?"를 만든다 — 태그는 부가 정보라 그럴 값어치가 없다.
+MAX_TAGS = 4
 
 
 def today(user=None) -> date:
@@ -574,6 +580,53 @@ def run_render_only(look_id: str) -> bool:
     return True
 
 
+def _build_tags(payload: dict[str, Any], snapshot: dict[str, Any]) -> list[str]:
+    """룩북과 **같은 어휘**로 카드 태그를 만든다 (apps/lookbook/contracts.py).
+
+    예전에는 프론트가 아이템 이름을 `#`만 붙여 태그처럼 보이게 했다. 그러면
+    `#블랙스트레이트데님팬츠` 같은 덩어리가 나오고, 룩북 필터 칩과 어휘가 달라
+    같은 서비스 안에서 태그라는 말이 두 가지를 뜻하게 된다.
+
+    출처는 두 단계다.
+
+    1. **골든 코디 자신의 라벨** — Qdrant `outfit_goldenset` payload 의
+       `occasion`(TPO) / `style`(스타일). 무엇을 추천했는지 그대로 말하는 값이라
+       가장 정확하다. 축이 다르므로 어휘도 갈라서 검사한다: occasion 에서 온
+       "미니멀"이나 style 에서 온 "출근"은 라벨링 사고이므로 통과시키지 않는다.
+    2. **사용자 추구미** — `pursuit.preferred.styles`(영문 코드)를
+       `vocabulary.STYLE` 로 한글화. 1번이 비었을 때만 쓴다.
+
+    2번이 필요한 이유: 골든 코디의 season/style/occasion 은 analyses.jsonl 에서
+    오는데 그 분석이 유료라 기본으로 꺼져 있어, 적재된 포인트가 전부 빈 배열인
+    시기가 있었다(retriever.py 의 하드 필터 주석과 같은 사정). 추구미는 프로필
+    입력이라 골든셋 태깅 상태와 무관하게 채워져 있어 화면이 성립한다.
+    다만 2번으로 내려가면 **같은 사용자에게 매일 같은 태그**가 붙는다 — 태그가
+    늘 똑같다면 그건 골든셋 태깅이 비었다는 신호로 읽으면 된다.
+
+    하나도 못 만들면 빈 배열을 돌려준다. 프론트는 이때 태그 줄을 통째로 숨긴다 —
+    어색한 태그를 지어내는 것보다 없는 편이 낫다.
+    """
+    tags: list[str] = []
+
+    def add(values: Any, allowed: frozenset[str]) -> None:
+        for raw in values or []:
+            label = str(raw).strip()
+            if label in allowed and label not in tags:
+                tags.append(label)
+
+    add(payload.get("occasion"), LOOKBOOK_TPO_TAGS)
+    add(payload.get("style"), LOOKBOOK_STYLE_TAGS)
+
+    if not tags:
+        preferred = (snapshot.get("pursuit") or {}).get("preferred") or {}
+        # translate()는 카테고리 전체를 받지만 여기서는 스타일 축만 쓴다.
+        # 색·핏까지 넣으면 룩북 어휘에 없는 라벨만 잔뜩 만들고 전부 버리게 된다.
+        translated = vocabulary.translate({"styles": preferred.get("styles") or []})
+        add(sorted(translated.tags.get("style") or ()), LOOKBOOK_STYLE_TAGS)
+
+    return tags[:MAX_TAGS]
+
+
 def _build_result(candidate, snapshot: dict[str, Any]) -> dict[str, Any]:
     """LLM 없이도 화면을 그릴 수 있는 결과를 만든다.
 
@@ -590,6 +643,7 @@ def _build_result(candidate, snapshot: dict[str, Any]) -> dict[str, Any]:
 
     return {
         "golden_id": candidate.golden_id,
+        "tags": _build_tags(payload, snapshot),
         "headline": _template_headline(snapshot),
         "rationale_ko": _template_rationale(rule_notes, snapshot),
         "styling_tips": [],

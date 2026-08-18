@@ -380,6 +380,16 @@ class DailyLookResultSerializer(serializers.Serializer):
     golden_id = serializers.CharField()
     rationale_ko = serializers.CharField()
     styling_tips = serializers.ListField(child=serializers.CharField(), required=False)
+    tags = serializers.ListField(
+        child=serializers.CharField(),
+        required=False,
+        help_text=(
+            "룩북 필터와 **같은 어휘**의 태그 (apps/lookbook/contracts.py LOOKBOOK_TAGS). "
+            "골든 코디의 occasion·style, 그것이 비면 사용자 추구미에서 뽑는다. "
+            "하나도 못 만들면 빈 배열이며, 그때 프론트는 태그 줄을 숨긴다 — "
+            "아이템 이름을 태그처럼 보여주면 룩북과 어휘가 갈린다."
+        ),
+    )
     generated_by = serializers.CharField(
         required=False,
         help_text="문장을 누가 썼는지: llm | template. template이면 담백한 톤이다.",

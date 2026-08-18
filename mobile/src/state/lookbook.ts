@@ -3,6 +3,14 @@ import { useSyncExternalStore } from 'react';
 import { getDiscoveryLooks, type LookGender, type LookGenderFilter } from '@/lib/discoveryLookApi';
 import { listPublicLookbooks, type LookbookPostDto } from '@/lib/lookbookApi';
 
+/**
+ * 룩북 필터 태그 어휘.
+ *
+ * ⚠️ **단일 정의는 백엔드에 있다** — api/apps/lookbook/contracts.py 의 LOOKBOOK_TAGS.
+ * 오늘의 룩이 같은 어휘로 태그를 만들려면 서버 쪽에 기준이 있어야 해서 옮겼다.
+ * 여기는 필터 칩을 그리기 위한 사본이므로, 어휘를 바꿀 때는 **양쪽을 같이** 고친다
+ * (순서도 맞춘다 — 두 화면의 나열이 달라지면 같은 어휘인데 다른 목록처럼 보인다).
+ */
 export const ALLOWED_HASHTAGS = [
   '출근', '데이트', '나들이', '여행', '미니멀', '캐주얼', '빈티지', '스트릿', '하객룩',
 ] as const;

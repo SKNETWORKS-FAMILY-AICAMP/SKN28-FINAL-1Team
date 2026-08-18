@@ -218,17 +218,17 @@ function toDisplayLook(look: DailyLook | null): DisplayLook | null {
     r.outfit_image_url ??
     r.items?.find((i) => i.image_url)?.image_url ??
     null;
-  const tags = (r.items ?? [])
-    .map((i) => (i.name || i.category || '').trim())
-    .filter(Boolean)
-    .slice(0, 4)
-    .map((t) => `#${t.replace(/\s+/g, '')}`);
+  /* 태그는 백엔드가 **룩북과 같은 어휘**로 만들어 내려준다(result.tags).
+     예전에는 여기서 아이템 이름에 `#`만 붙였는데, 그러면 `#블랙스트레이트데님팬츠`
+     같은 덩어리가 나오고 룩북 필터 칩과 어휘가 갈렸다. 비어 있으면 지어내지 않고
+     태그 줄을 통째로 숨긴다(ReadyLook) — 어색한 태그보다 없는 편이 낫다. */
+  const tags = (r.tags ?? []).map((t) => `#${t}`);
   return {
     image,
     /* 카드 문구는 headline — 룩 상세의 제목과 같은 값이라, 카드에서 본 문장이
        눌러서 들어간 화면의 제목으로 그대로 이어진다. 비어 있으면 근거 문장으로. */
     comment: r.headline || r.rationale_ko,
-    tags: tags.length ? tags : ['#오늘의룩'],
+    tags,
     variantId: 'daily',
   };
 }
@@ -358,13 +358,16 @@ function ReadyLook({
         <Text style={styles.lookText} numberOfLines={2}>
           {look.comment}
         </Text>
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.tagRow}>
-          {look.tags.map((t) => (
-            <View key={t} style={styles.tag}>
-              <Text style={styles.tagText}>{t}</Text>
-            </View>
-          ))}
-        </ScrollView>
+        {/* 태그가 없으면 줄 자체를 없앤다 — 빈 ScrollView 를 두면 gap 만큼 허공이 남는다. */}
+        {look.tags.length ? (
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.tagRow}>
+            {look.tags.map((t) => (
+              <View key={t} style={styles.tag}>
+                <Text style={styles.tagText}>{t}</Text>
+              </View>
+            ))}
+          </ScrollView>
+        ) : null}
         <View style={styles.lookButtons}>
           <Pressable style={styles.saveBtn} onPress={onSave}>
             <Text style={styles.saveBtnText}>저장</Text>

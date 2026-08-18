@@ -1258,6 +1258,9 @@ DAILY_LOOK_READY_EXAMPLE = OpenApiExample(
         "result": {
             "headline": "더위엔 가볍게, 어깨는 부드럽게",
             "golden_id": "095",
+            # 룩북 필터와 같은 어휘. 골든 코디 라벨(occasion/style)이 비면
+            # 사용자 추구미에서 뽑고, 그것도 없으면 빈 배열이다.
+            "tags": ["나들이", "미니멀"],
             "rationale_ko": "어깨가 넓은 편이라 상의는 어깨선을 키우지 않는 레귤러핏으로 두고, 하의에 여유를 줘 전체 균형을 맞췄어요. 28도라 겉옷은 생략했습니다.",
             "styling_tips": ["소매를 한 번 접으면 팔 라인이 가벼워 보여요."],
             "generated_by": "llm",

@@ -23,6 +23,14 @@ export type DailyLookResult = {
   headline: string;
   golden_id: string;
   rationale_ko: string;
+  /**
+   * 카드 태그. **룩북 필터와 같은 어휘**다 (백엔드 apps/lookbook/contracts.py 의
+   * LOOKBOOK_TAGS 가 단일 정의이고, state/lookbook.ts 의 ALLOWED_HASHTAGS 와 같은 목록).
+   * 골든 코디의 occasion·style 에서, 그것이 비면 사용자 추구미에서 뽑는다.
+   * 하나도 못 만들면 빈 배열이며 그때는 태그 줄을 숨긴다 — 아이템 이름을 태그처럼
+   * 보여주면(예전 방식) 같은 서비스 안에서 '태그'가 두 가지를 뜻하게 된다.
+   */
+  tags?: string[];
   styling_tips?: string[];
   /** 문장을 누가 썼는지: 'llm' | 'template' (template 이면 담백한 톤) */
   generated_by?: string;

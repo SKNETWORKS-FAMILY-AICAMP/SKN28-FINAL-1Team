@@ -43,3 +43,25 @@ class LookbookProcessingErrorCode(StrEnum):
     QUEUE_ENQUEUE_FAILED = "QUEUE_ENQUEUE_FAILED"
     NO_ITEM_EXTRACTED = "NO_ITEM_EXTRACTED"
     IMAGE_PROCESSING_FAILED = "IMAGE_PROCESSING_FAILED"
+
+
+#: 룩북 필터 태그 어휘. 둘러보기의 필터 칩이자, 오늘의 룩 카드가 다는 태그다.
+#:
+#: **여기가 단일 정의다.** 지금까지는 mobile/src/state/lookbook.ts 의
+#: ALLOWED_HASHTAGS 에만 있어서, 백엔드는 어떤 문자열이 룩북 태그인지 판정할
+#: 방법이 없었다(해시태그 시리얼라이저도 CharField 검사만 한다). 오늘의 룩이
+#: 같은 어휘로 태그를 만들려면 서버 쪽에 기준이 있어야 한다.
+#:
+#: 순서는 프론트 칩 배열과 같게 유지한다 — 두 화면의 나열 순서가 달라지면
+#: 같은 어휘인데 다른 목록처럼 보인다.
+LOOKBOOK_TAGS: tuple[str, ...] = (
+    "출근", "데이트", "나들이", "여행",
+    "미니멀", "캐주얼", "빈티지", "스트릿",
+    "하객룩",
+)
+
+#: 어휘를 두 갈래로 나눠 둔다. 골든 코디 payload 에서 **TPO 는 occasion,
+#: 스타일은 style** 이라는 서로 다른 축에서 오기 때문에, 한 덩어리로 두면
+#: occasion 에서 온 "미니멀" 같은 잘못된 값도 통과시킨다.
+LOOKBOOK_TPO_TAGS: frozenset[str] = frozenset({"출근", "데이트", "나들이", "여행", "하객룩"})
+LOOKBOOK_STYLE_TAGS: frozenset[str] = frozenset({"미니멀", "캐주얼", "빈티지", "스트릿"})
