@@ -60,7 +60,19 @@ const rt = parseCsv(
 );
 ok(rt.length === claim.length, `행 수 보존 (${rt.length - 1}건)`);
 ok(asObject(rt[0], rt[1]).statement === first.statement, '왕복 후 statement 동일');
-ok(asObject(rt[0], rt[1]).reviewer_label === 'reviewer-a', 'reviewer_label 채워짐');
+/* 배포 패키지는 reviewer_label 이 이미 채워져 있다 — 그 값이 이겨야 한다.
+   비어 있을 때만 넘긴 이름으로 채운다. 두 갈래를 모두 본다. */
+const fileLabel = (first.reviewer_label || '').trim();
+ok(
+  asObject(rt[0], rt[1]).reviewer_label === (fileLabel || 'reviewer-a'),
+  fileLabel ? `reviewer_label 파일 값 유지 (${fileLabel})` : 'reviewer_label 빈칸이면 채워짐',
+);
+{
+  const at = header.indexOf('reviewer_label');
+  const blank = claim.slice(1, 2).map((r) => { const c = r.slice(); c[at] = ''; return c; });
+  const filled = parseCsv(toCsv(header, applyAnswers(claim[0], blank, {}, 'reviewer-a', TABLES.claim.key)));
+  ok(asObject(filled[0], filled[1]).reviewer_label === 'reviewer-a', 'reviewer_label 빈칸은 넘긴 이름으로 채움');
+}
 
 /* ── 3. 판정값이 올바른 열에 들어가는가 ── */
 const key = TABLES.claim.key(first);
