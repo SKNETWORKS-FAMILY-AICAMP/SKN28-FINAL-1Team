@@ -697,6 +697,78 @@ export default function ClosetScreen() {
     [sharedItems],
   );
 
+  const renderCard = (it: Card) => (
+    <Pressable
+      key={it.id}
+      style={[styles.card, { width: cardW }]}
+      onPress={() =>
+        router.push({
+          pathname: '/item-detail',
+          params: {
+            id: it.wardrobeItemId ?? it.id,
+            ...(tab === 'shared' ? { readonly: '1' } : {}),
+          },
+        })
+      }
+      {...{
+        draggable: true,
+        onDragStart: (event: any) => {
+          if (Platform.OS === 'web') {
+            event.dataTransfer.setData(
+              'text/plain',
+              JSON.stringify({ id: it.id, name: it.name || it.category, image: it.image }),
+            );
+          }
+        },
+      }}>
+      <View style={[styles.cardImage, { height: cardH }]}>
+        <SmartImage
+          uri={it.image}
+          width="100%"
+          height={cardH}
+          radius={GridCard.radius}
+          contentFit="cover"
+        />
+        {it.owner ? (
+          <View
+            style={[
+              styles.ownerBadge,
+              {
+                backgroundColor: sharedSpace
+                  ? MEMBER_COLORS[sharedSpace.members.indexOf(it.owner) % MEMBER_COLORS.length] ||
+                    Editorial.ink
+                  : Editorial.ink,
+              },
+            ]}>
+            <Text
+              style={[
+                styles.ownerText,
+                sharedSpace &&
+                  sharedSpace.members.indexOf(it.owner) === 0 && { color: '#1C1917' },
+              ]}>
+              {it.owner}
+            </Text>
+          </View>
+        ) : null}
+        {tab === 'shared' && it.owner === '나' ? (
+          <Pressable
+            style={styles.unshareBtn}
+            onPress={(event) => {
+              event.stopPropagation();
+              handleUnshareItem(it.id);
+            }}
+            hitSlop={8}>
+            <Icon name="xmark" tintColor="#FFFFFF" size={10} />
+          </Pressable>
+        ) : null}
+      </View>
+      <View style={styles.cardMeta}>
+        <Text style={styles.cardName} numberOfLines={1}>{it.name}</Text>
+        <Text style={styles.cardCat}>{it.category}</Text>
+      </View>
+    </Pressable>
+  );
+
   // 옷장은 내 데이터라 비회원에게 보여줄 것이 없다. (훅 순서 유지를 위해 전부 호출한 뒤 분기)
   if (!isLoggedIn) {
     return (
@@ -713,6 +785,16 @@ export default function ClosetScreen() {
         <View style={styles.filterArea}>
           <SearchFilterBar
             trailing={wardrobeToggle}
+            middle={
+              tab === 'mine' ? (
+                <WardrobeViewControls
+                  groupMode={groupMode}
+                  itemSort={itemSort}
+                  onGroupModeChange={setGroupMode}
+                  onItemSortChange={setItemSort}
+                />
+              ) : undefined
+            }
             showFilters={!(tab === 'shared' && !sharedSpace)}
             query={query}
             onQueryChange={setQuery}
@@ -859,7 +941,11 @@ export default function ClosetScreen() {
                 <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={INK} />
               ) : undefined
             }
-            contentContainerStyle={[styles.grid, { paddingBottom: 24 }, contentStyle(ContentMax.wide)]}>
+            contentContainerStyle={[
+              styles.gridContent,
+              { paddingBottom: 24 },
+              contentStyle(ContentMax.wide),
+            ]}>
             {/* 내 옷장만 서버에서 온다 — 공유 옷장은 아직 목업이라 로딩·에러가 없다. */}
             {tab === 'mine' && loading ? (
               <LoadingState message="옷장을 불러오는 중…" style={styles.empty} />
@@ -894,76 +980,28 @@ export default function ClosetScreen() {
                 }
                 style={styles.empty}
               />
+            ) : tab === 'mine' ? (
+              <View style={styles.sectionList}>
+                <Text style={styles.resultSummary}>
+                  {mineUniqueItemCount}벌 · {mineSections.length}개 섹션
+                </Text>
+                {mineSections.map((section) => (
+                  <View key={section.id} style={styles.section}>
+                    <View style={styles.sectionHeader}>
+                      <Text style={styles.sectionTitle}>{section.title}</Text>
+                      <Text style={styles.sectionCount}>{section.items.length}벌</Text>
+                    </View>
+                    <View style={styles.grid}>
+                      {section.items.map((item) => {
+                        const card = myItems.find((entry) => entry.id === item.id);
+                        return card ? renderCard(card) : null;
+                      })}
+                    </View>
+                  </View>
+                ))}
+              </View>
             ) : (
-              items.map((it) => (
-                <Pressable
-                  key={it.id}
-                  style={[styles.card, { width: cardW }]}
-                  onPress={() =>
-                    router.push({
-                      pathname: '/item-detail',
-                      params: {
-                        id: it.wardrobeItemId ?? it.id,
-                        ...(tab === 'shared' ? { readonly: '1' } : {}),
-                      },
-                    })
-                  }
-                  {...{
-                    // Web HTML5 Drag and drop
-                    draggable: true,
-                    onDragStart: (e: any) => {
-                      if (Platform.OS === 'web') {
-                        e.dataTransfer.setData('text/plain', JSON.stringify({
-                          id: it.id,
-                          name: it.name || it.category,
-                          image: it.image
-                        }));
-                      }
-                    }
-                  }}>
-                  <View style={[styles.cardImage, { height: cardH }]}>
-                    <SmartImage
-                      uri={it.image}
-                      width="100%"
-                      height={cardH}
-                      radius={GridCard.radius}
-                      contentFit="cover"
-                    />
-                     {it.owner ? (
-                      <View style={[
-                        styles.ownerBadge,
-                        {
-                          backgroundColor:
-                            sharedSpace
-                              ? MEMBER_COLORS[sharedSpace.members.indexOf(it.owner) % MEMBER_COLORS.length] || Editorial.ink
-                              : Editorial.ink
-                        }
-                      ]}>
-                        <Text style={[
-                          styles.ownerText,
-                          sharedSpace && sharedSpace.members.indexOf(it.owner) === 0 && { color: '#1C1917' }
-                        ]}>{it.owner}</Text>
-                      </View>
-                    ) : null}
-                    {tab === 'shared' && it.owner === '나' && (
-                      <Pressable
-                        style={styles.unshareBtn}
-                        onPress={(e) => {
-                          e.stopPropagation();
-                          handleUnshareItem(it.id);
-                        }}
-                        hitSlop={8}
-                      >
-                        <Icon name="xmark" tintColor="#FFFFFF" size={10} />
-                      </Pressable>
-                    )}
-                  </View>
-                  <View style={styles.cardMeta}>
-                    <Text style={styles.cardName} numberOfLines={1}>{it.name}</Text>
-                    <Text style={styles.cardCat}>{it.category}</Text>
-                  </View>
-                </Pressable>
-              ))
+              <View style={styles.grid}>{items.map(renderCard)}</View>
             )}
           </ScrollView>
         )}
@@ -1153,6 +1191,23 @@ const styles = StyleSheet.create({
 
   gridScroll: { flex: 1, marginTop: 8 },
   onboardingWrap: { flex: 1, paddingHorizontal: PAD, paddingTop: 8 },
+  gridContent: { flexGrow: 1 },
+  sectionList: { width: '100%', gap: 28 },
+  resultSummary: {
+    paddingHorizontal: PAD,
+    fontSize: 12,
+    color: Editorial.textCaption,
+  },
+  section: { width: '100%' },
+  sectionHeader: {
+    flexDirection: 'row',
+    alignItems: 'baseline',
+    gap: 7,
+    paddingHorizontal: PAD,
+    marginBottom: 12,
+  },
+  sectionTitle: { fontSize: 17, fontWeight: '700', color: Editorial.ink },
+  sectionCount: { fontSize: 12, fontWeight: '500', color: Editorial.textCaption },
   grid: {
     flexDirection: 'row',
     flexWrap: 'wrap',

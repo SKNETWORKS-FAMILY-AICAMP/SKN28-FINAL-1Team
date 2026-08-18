@@ -7,11 +7,24 @@ import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { ItemTagSheet } from '@/components/closet/item-tag-sheet';
+import { ItemCategoryEditSheet } from '@/components/closet/item-category-edit-sheet';
 import { DetailTwoPane } from '@/components/detail-two-pane';
 import { Editorial, ink, Fonts, Type } from '@/constants/theme';
 import { useBreakpoint } from '@/hooks/use-breakpoint';
 import { confirmWardrobeItem, useWardrobeItem } from '@/hooks/use-wardrobe';
-import { deleteWardrobeItem, itemDisplayName, type WardrobeApiItem, getMySharedRooms, listSharedRoomItems, registerItemToSharedRoom, unregisterItemFromSharedRoom, type SharedRoom } from '@/lib/wardrobeApi';
+import {
+  deleteWardrobeItem,
+  getMySharedRooms,
+  itemDisplayName,
+  listSharedRoomItems,
+  listWardrobeCategories,
+  registerItemToSharedRoom,
+  replaceWardrobeItemCategories,
+  unregisterItemFromSharedRoom,
+  type SharedRoom,
+  type WardrobeApiItem,
+  type WardrobeCustomCategory,
+} from '@/lib/wardrobeApi';
 
 const INK = Editorial.ink;
 const BONE = Editorial.bone;
@@ -38,6 +51,9 @@ export default function ItemDetail() {
 
   const { item, loading, error, reload, setItem } = useWardrobeItem(id);
   const [editing, setEditing] = useState(false);
+  const [categoryEditing, setCategoryEditing] = useState(false);
+  const [personalCategories, setPersonalCategories] = useState<WardrobeCustomCategory[]>([]);
+  const [categoriesLoading, setCategoriesLoading] = useState(false);
   const [confirming, setConfirming] = useState(false);
   const toast = useToast();
   const confirm = useConfirm();
@@ -170,6 +186,37 @@ export default function ItemDetail() {
       goBack('/(tabs)/closet');
     } catch (e) {
       toast(e instanceof Error ? e.message : '삭제하지 못했어요', { variant: 'error' });
+    }
+  };
+
+  const openCategoryEditor = async () => {
+    setCategoryEditing(true);
+    setCategoriesLoading(true);
+    try {
+      const response = await listWardrobeCategories();
+      setPersonalCategories(response.custom_categories);
+    } catch (e) {
+      setCategoryEditing(false);
+      toast(e instanceof Error ? e.message : '카테고리를 불러오지 못했어요', {
+        variant: 'error',
+      });
+    } finally {
+      setCategoriesLoading(false);
+    }
+  };
+
+  const saveItemCategories = async (categoryIds: string[]): Promise<boolean> => {
+    if (!item) return false;
+    try {
+      const response = await replaceWardrobeItemCategories(item.id, categoryIds);
+      setItem({ ...item, custom_categories: response.custom_categories });
+      toast('카테고리를 저장했어요', { variant: 'success' });
+      return true;
+    } catch (e) {
+      toast(e instanceof Error ? e.message : '카테고리를 저장하지 못했어요', {
+        variant: 'error',
+      });
+      return false;
     }
   };
 
@@ -383,6 +430,37 @@ export default function ItemDetail() {
               {/* PC 웹(데스크톱): 기존 위치에 2행 드롭박스 형태 렌더링 */}
               {!isMobile ? shareBoxDesktop : null}
 
+              {!isReadOnly ? (
+                <View style={styles.categorySection}>
+                  <View style={styles.categoryHeader}>
+                    <View style={styles.categoryHeaderCopy}>
+                      <Text style={styles.categoryTitle}>내 카테고리</Text>
+                      <Text style={styles.categoryDescription}>
+                        이 옷을 여러 사용자 카테고리에 함께 넣을 수 있어요.
+                      </Text>
+                    </View>
+                    <Pressable
+                      style={styles.categoryEditButton}
+                      onPress={openCategoryEditor}
+                      accessibilityLabel="내 카테고리 편집">
+                      <Icon name="square.and.pencil" tintColor={ink(0.6)} size={14} />
+                      <Text style={styles.categoryEditText}>편집</Text>
+                    </Pressable>
+                  </View>
+                  {item.custom_categories.length > 0 ? (
+                    <View style={styles.categoryChips}>
+                      {item.custom_categories.map((customCategory) => (
+                        <View key={customCategory.id} style={styles.categoryChip}>
+                          <Text style={styles.categoryChipText}>{customCategory.name}</Text>
+                        </View>
+                      ))}
+                    </View>
+                  ) : (
+                    <Text style={styles.categoryEmpty}>아직 지정된 사용자 카테고리가 없어요.</Text>
+                  )}
+                </View>
+              ) : null}
+
               {/* 확인 대기 — 확정 전에는 추천에 쓰이지 않는다는 걸 알려준다 */}
               {!isReadOnly && !item.confirmed ? (
                 <View style={styles.pending}>
@@ -441,12 +519,22 @@ export default function ItemDetail() {
       </View>
 
       {!isReadOnly ? (
-        <ItemTagSheet
-          visible={editing}
-          item={item}
-          onClose={() => setEditing(false)}
-          onSaved={setItem}
-        />
+        <>
+          <ItemTagSheet
+            visible={editing}
+            item={item}
+            onClose={() => setEditing(false)}
+            onSaved={setItem}
+          />
+          <ItemCategoryEditSheet
+            visible={categoryEditing}
+            categories={personalCategories}
+            selectedCategories={item.custom_categories}
+            loading={categoriesLoading}
+            onClose={() => setCategoryEditing(false)}
+            onSave={saveItemCategories}
+          />
+        </>
       ) : null}
     </View>
   );
@@ -711,6 +799,55 @@ const styles = StyleSheet.create({
   body: { paddingHorizontal: 20, paddingTop: 22 },
   name: { fontFamily: Fonts.serif, fontSize: 26, color: INK },
   styleLine: { fontSize: 14, color: Editorial.textCaption, marginTop: 5 },
+
+  categorySection: {
+    marginTop: 18,
+    padding: 14,
+    borderWidth: 1,
+    borderColor: Editorial.line,
+    borderRadius: 16,
+    backgroundColor: Editorial.surface,
+  },
+  categoryHeader: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 12,
+  },
+  categoryHeaderCopy: { flex: 1 },
+  categoryTitle: { fontSize: Type.footnote, fontWeight: '600', color: Editorial.ink },
+  categoryDescription: {
+    marginTop: 4,
+    fontSize: Type.micro,
+    lineHeight: 18,
+    color: Editorial.textCaption,
+  },
+  categoryEditButton: {
+    height: 34,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    paddingHorizontal: 11,
+    borderWidth: 1,
+    borderColor: Editorial.line,
+    borderRadius: 999,
+  },
+  categoryEditText: { fontSize: Type.micro, fontWeight: '600', color: Editorial.textSoft },
+  categoryChips: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 7,
+    marginTop: 13,
+  },
+  categoryChip: {
+    paddingHorizontal: 11,
+    paddingVertical: 6,
+    borderWidth: 1,
+    borderColor: Editorial.lineStrong,
+    borderRadius: 999,
+    backgroundColor: Editorial.control,
+  },
+  categoryChipText: { fontSize: Type.micro, fontWeight: '600', color: Editorial.ink },
+  categoryEmpty: { marginTop: 12, fontSize: Type.caption, color: Editorial.textCaption },
 
   pending: {
     gap: 12,
