@@ -25,7 +25,7 @@ type SearchFilterBarProps = {
   isActive: (option: string) => boolean;
   /** 검색행 오른쪽에 붙는 컨트롤 (예: 내 옷/공유 드롭다운) */
   trailing?: ReactNode;
-  /** 검색행과 카테고리 칩 사이에 끼우는 영역 (예: 둘러보기/저장됨 세그먼트) */
+  /** 검색행과 카테고리 칩 사이에 끼우는 영역 (예: 둘러보기/내 룩북 세그먼트) */
   middle?: ReactNode;
   /** false면 검색·칩을 숨기고 trailing만 표시 */
   showFilters?: boolean;
@@ -35,7 +35,7 @@ type SearchFilterBarProps = {
   onEditCategories?: () => void;
   /**
    * 칩에 아이콘을 달고 싶을 때 (옵션 이름 → 아이콘).
-   * 해시태그 칩들 사이에서 성격이 다른 칩(예: '위시')을 글자만으로 가르기 어려워,
+   * 같은 줄에 선 다른 칩과 성격이 다른 칩(예: '위시')은 글자만으로 가르기 어려워,
    * 그 칩에만 표식을 준다.
    */
   chipIcons?: Partial<Record<string, IconName>>;

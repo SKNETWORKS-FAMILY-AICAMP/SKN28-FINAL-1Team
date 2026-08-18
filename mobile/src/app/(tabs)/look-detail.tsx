@@ -140,7 +140,7 @@ export default function LookDetail() {
     toast(added ? '찜했어요' : '찜에서 뺐어요');
   };
 
-  /* 북마크 = 저장 토글. 켜면 '저장됨'에 담고, 끄면 뺀다.
+  /* 북마크 = 저장 토글. 켜면 내 룩북의 '위시'에 담고, 끄면 뺀다.
      하트를 안 쓰는 이유 — 하트는 룩북 피드의 '좋아요'가 가져갔다. 한 아이콘이 화면마다
      다른 뜻이면 누르기 전에 무슨 일이 생길지 알 수 없다. */
   /* 서버 왕복이라 먼저 켜 두고 실패하면 되돌린다 — 저장은 한 번 누르면 끝나야 하는 동작이라
@@ -178,12 +178,12 @@ export default function LookDetail() {
       }
       return;
     }
-    if (await saveLook()) toast('저장됨에 담았어요');
+    if (await saveLook()) toast('위시에 담았어요');
   };
 
-  // 하단 '룩북에 저장' = 담고 룩북 저장됨 탭으로 이동.
+  // 하단 '룩북에 저장' = 담고 내 룩북의 위시 갈래로 이동 — 담아둔 룩은 거기 선다.
   const saveAndGoLookbook = async () => {
-    if (await saveLook()) router.push('/(tabs)/lookbook?tab=saved');
+    if (await saveLook()) router.push('/(tabs)/lookbook?tab=wish');
   };
 
   /* 서브텍스트의 날씨는 홈과 같은 출처(useHome)에서 실시간 값을 가져와 통일한다.
