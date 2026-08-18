@@ -13,6 +13,7 @@ import uuid
 
 from django.conf import settings
 from django.contrib.postgres.fields import ArrayField
+from django.core.exceptions import ValidationError
 from django.db import models
 from django.db.models import Count, Q
 from django.utils import timezone
@@ -146,6 +147,80 @@ class WardrobeUploadJob(models.Model):
         return f"job {self.id} ({self.status})"
 
 
+class WardrobeCategory(models.Model):
+    """사용자가 개인 옷장 정리를 위해 만드는 사용자 정의 카테고리."""
+
+    id = models.UUIDField(
+        primary_key=True,
+        default=uuid.uuid4,
+        editable=False,
+        db_comment="개인 옷장 사용자 카테고리 UUID",
+    )
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name="wardrobe_categories",
+        db_comment="카테고리 소유 사용자 FK (users.id)",
+    )
+    name = models.CharField(
+        max_length=30,
+        db_comment="사용자에게 표시할 개인 옷장 카테고리명",
+    )
+    normalized_name = models.CharField(
+        max_length=30,
+        editable=False,
+        db_comment="중복 검사용 정규화 카테고리명 (공백 정리 및 대소문자 통합)",
+    )
+    position = models.PositiveIntegerField(
+        default=0,
+        db_comment="사용자 카테고리 표시 순서 (0부터 오름차순)",
+    )
+    created_at = models.DateTimeField(
+        auto_now_add=True,
+        db_comment="카테고리 생성 시각",
+    )
+    updated_at = models.DateTimeField(
+        auto_now=True,
+        db_comment="카테고리 수정 시각",
+    )
+
+    class Meta:
+        db_table = "wardrobe_category"
+        db_table_comment = "개인 옷장의 사용자 정의 정리 카테고리"
+        ordering = ["position", "created_at", "id"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["user", "normalized_name"],
+                name="uq_wardrobe_category_user_normalized_name",
+            ),
+        ]
+        indexes = [
+            models.Index(
+                fields=["user", "position"],
+                name="idx_wd_cat_user_pos",
+            ),
+        ]
+
+    @staticmethod
+    def normalize_name(value: str) -> tuple[str, str]:
+        display_name = " ".join(value.split())
+        return display_name, display_name.casefold()
+
+    def clean(self) -> None:
+        super().clean()
+        self.name, self.normalized_name = self.normalize_name(self.name)
+        if not self.name:
+            raise ValidationError({"name": "카테고리 이름을 입력해 주세요."})
+
+    def save(self, *args, **kwargs) -> None:
+        # API 서비스 밖에서 생성해도 정규화 이름이 비어 저장되지 않게 한다.
+        self.clean()
+        return super().save(*args, **kwargs)
+
+    def __str__(self) -> str:
+        return f"{self.name} ({self.user_id})"
+
+
 class WardrobeItem(models.Model):
     """분리·태깅된 옷장 아이템 1벌. 태그 스키마는 taxonomy.py를 따른다.
 
@@ -259,6 +334,11 @@ class WardrobeItem(models.Model):
     embedding_version = models.CharField(
         max_length=40, blank=True, default="", db_comment="Qdrant 임베딩 버전 (재임베딩 판단 기준)"
     )
+    custom_categories = models.ManyToManyField(
+        WardrobeCategory,
+        through="WardrobeItemCategory",
+        related_name="wardrobe_items",
+    )
     created_at = models.DateTimeField(auto_now_add=True, db_comment="행 생성 시각")
     updated_at = models.DateTimeField(auto_now=True, db_comment="행 수정 시각")
 
@@ -275,6 +355,66 @@ class WardrobeItem(models.Model):
 
     def __str__(self) -> str:
         return f"{self.item_name or self.category_large} ({self.user_id})"
+
+
+class WardrobeItemCategory(models.Model):
+    """개인 옷장 아이템과 사용자 카테고리의 다대다 연결."""
+
+    id = models.UUIDField(
+        primary_key=True,
+        default=uuid.uuid4,
+        editable=False,
+        db_comment="개인 옷장 아이템 카테고리 연결 UUID",
+    )
+    wardrobe_item = models.ForeignKey(
+        WardrobeItem,
+        on_delete=models.CASCADE,
+        related_name="custom_category_links",
+        db_comment="분류할 개인 옷장 아이템 FK",
+    )
+    category = models.ForeignKey(
+        WardrobeCategory,
+        on_delete=models.CASCADE,
+        related_name="item_links",
+        db_comment="아이템에 지정한 사용자 카테고리 FK",
+    )
+    created_at = models.DateTimeField(
+        auto_now_add=True,
+        db_comment="아이템 카테고리 연결 시각",
+    )
+
+    class Meta:
+        db_table = "wardrobe_item_category"
+        db_table_comment = "개인 옷장 아이템과 사용자 카테고리 연결"
+        constraints = [
+            models.UniqueConstraint(
+                fields=["wardrobe_item", "category"],
+                name="uq_wardrobe_item_category_pair",
+            ),
+        ]
+        indexes = [
+            models.Index(
+                fields=["category", "wardrobe_item"],
+                name="idx_wd_item_cat_lookup",
+            ),
+        ]
+
+    def clean(self) -> None:
+        super().clean()
+        if not self.wardrobe_item_id or not self.category_id:
+            return
+        if self.wardrobe_item.user_id != self.category.user_id:
+            raise ValidationError(
+                "옷장 아이템과 사용자 카테고리의 소유자가 같아야 합니다."
+            )
+
+    def save(self, *args, **kwargs) -> None:
+        # DB 제약은 FK가 가리키는 두 행의 user_id를 비교할 수 없어 모델에서도 방어한다.
+        self.clean()
+        return super().save(*args, **kwargs)
+
+    def __str__(self) -> str:
+        return f"{self.wardrobe_item_id} - {self.category_id}"
 
 
 class SharedWardrobeRoom(models.Model):
