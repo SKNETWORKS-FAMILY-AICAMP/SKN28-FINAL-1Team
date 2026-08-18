@@ -750,10 +750,15 @@ export default function ClosetScreen() {
                     draggable: true,
                     onDragStart: (e: any) => {
                       if (Platform.OS === 'web') {
+                        /* 채팅으로 끌어다 놓으면 '참고할 공유 옷'이 된다. 그런데 서버는
+                           공유 아이템만 받으므로(내 옷 id 를 넣으면 못 찾는다) 어느 탭에서
+                           끌었는지 함께 실어 보낸다 — 받는 쪽이 판단할 수 있게. */
                         e.dataTransfer.setData('text/plain', JSON.stringify({
                           id: it.id,
                           name: it.name || it.category,
-                          image: it.image
+                          image: it.image,
+                          shared: tab === 'shared',
+                          owner: it.owner,
                         }));
                       }
                     }

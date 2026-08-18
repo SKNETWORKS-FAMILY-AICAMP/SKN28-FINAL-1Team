@@ -5,6 +5,7 @@ import {
   getCardRender,
   requestCardRender,
   type ApiRecommendationItem,
+  type ApiReferenceMatch,
   type ApiRenderJob,
 } from '@/lib/recommendApi';
 import { stylistMock } from '@/lib/stylistMock';
@@ -79,6 +80,14 @@ export type ApiPersonaCard = {
   validation_reasons: { severity: string; code: string; message: string; slot: string }[];
   warnings: string[];
   items: ApiRecommendationItem[];
+  /**
+   * 공유 옷 참고 결과.
+   *
+   * ⚠️ **아직 서버가 안 준다.** 기본 추천 카드(RecommendationCardSerializer)에는 있는데
+   *    ChatRunPersonaCardSerializer 에는 빠져 있다. 붙으면 배지가 저절로 뜨도록
+   *    optional 로 열어 두고, 없으면 화면이 배지를 생략한다.
+   */
+  reference_match?: ApiReferenceMatch;
   /** 코디 이미지 렌더 작업. 아직 안 만들어졌으면 null. */
   image: ApiRenderJob | null;
   is_saved: boolean;

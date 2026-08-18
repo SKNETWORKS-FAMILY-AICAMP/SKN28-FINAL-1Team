@@ -41,12 +41,39 @@ export type ApiValidationReason = {
   slot: string | null;
 };
 
+/**
+ * 공유 옷을 참고해 만든 카드에 붙는 매칭 근거.
+ *
+ * 참고하지 않은 추천은 **빈 객체 `{}`** 로 온다(null 이 아니다) — 그래서 `match_type` 유무로 가른다.
+ *
+ * ⚠️ 값이 늘 수 있으므로 `match_type`·`source_type` 을 좁은 유니온으로 못 박지 않는다.
+ *    모르는 값이 오면 배지를 **생략**하고 카드 자체는 그대로 그린다(요구사항 7장).
+ * ⚠️ `score` 는 화면에 그대로 노출하지 않는다. 사용자에게는 뜻이 없는 숫자다.
+ */
+export type ApiReferenceMatch = {
+  schema_version?: string;
+  /** 'VISUAL_SIMILAR' | 'STYLE_SIMILAR' — 그 밖의 값이 오면 배지를 생략한다 */
+  match_type?: string;
+  selection_role?: string;
+  /** 'WARDROBE' | 'PRODUCT' */
+  source_type?: string;
+  source_id?: string;
+  source_collection?: string;
+  source_point_id?: string;
+  template_item_point_id?: string;
+  score?: number;
+  /** 상세 화면에서만 보여줄 근거 문장 */
+  reasons?: string[];
+};
+
 export type ApiRecommendationCard = {
   card_id: string;
   rank: number;
   /** 새로 사야 하는 상품들의 합. 옷장 옷만으로 짠 코디면 0 이다. */
   total_product_price: number | null;
   warnings: string[];
+  /** 공유 옷 참고 결과. 참고 안 했으면 빈 객체다. 서버가 이 필드를 아예 안 줄 수도 있다. */
+  reference_match?: ApiReferenceMatch;
   items: ApiRecommendationItem[];
   validation_reasons: ApiValidationReason[];
   /** 아직 반응을 남기지 않았으면 null. 카드 목록·상세가 같은 모양으로 준다. */
