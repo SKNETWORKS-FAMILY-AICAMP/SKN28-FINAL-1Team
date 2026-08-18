@@ -17,9 +17,8 @@ const DEMO_KEY = 'auth_demo_session';
 const OUTFIT_ANALYSIS_KEY = 'outfit_analysis_job';
 const OUTFIT_CLAIM_KEY = 'outfit_claim_tokens';
 const PENDING_SHARE_KEY = 'wardrobe_pending_share';
-/* 찜(상품)·옷장 즐겨찾기 — 서버에 자리가 없어 기기에 둔다(아래 저장 함수 주석 참고). */
+/* 룩북 위시(하트로 담은 룩) — 서버에 자리가 없어 기기에 둔다(아래 저장 함수 주석 참고). */
 const WISHLIST_KEY = 'wishlist_v1';
-const CLOSET_FAVORITES_KEY = 'closet_favorites_v1';
 
 const isWeb = Platform.OS === 'web';
 
@@ -146,15 +145,13 @@ export function clearLegacyPendingShare(): Promise<void> {
 }
 
 /**
- * 찜(상품)·옷장 즐겨찾기 보관함.
+ * 룩북 위시 보관함.
  *
- * ⚠️ **토큰과 달리 비밀이 아니다.** 여기 두는 이유는 하나 —
- *    백엔드에 찜/즐겨찾기 API 가 없어서(`/api/v1/likes`·`/wishlist` 부재) 기기 말고는 둘 데가 없다.
+ * ⚠️ **토큰과 달리 비밀이 아니다.** 여기 두는 이유는 하나 — 둘러보기 피드의 하트를
+ *    받아 줄 서버 자리가 없어서(`/api/v1/likes` 부재) 기기 말고는 둘 데가 없다.
  *    이미 붙어 있는 저장소를 쓰는 편이 새 의존성(AsyncStorage)을 더하는 것보다 낫다.
  *
- * 계정이 아니라 **기기에 붙는다.** 즐겨찾기는 옷 id(UUID)라 다른 계정으로 로그인하면
- * 맞는 옷이 없어 저절로 비어 보이고, 찜은 비회원도 담을 수 있어야 해서 로그아웃 때 지우지 않는다.
- * 서버 API 가 생기면 이 두 쌍을 지우고 스토어 본문만 바꾸면 된다.
+ * 계정이 아니라 **기기에 붙는다.** 서버 API 가 생기면 이 쌍을 지우고 스토어 본문만 바꾸면 된다.
  */
 export function saveWishlist(value: string): Promise<void> {
   return setItem(WISHLIST_KEY, value);
@@ -164,10 +161,3 @@ export function getWishlist(): Promise<string | null> {
   return getItem(WISHLIST_KEY);
 }
 
-export function saveClosetFavorites(value: string): Promise<void> {
-  return setItem(CLOSET_FAVORITES_KEY, value);
-}
-
-export function getClosetFavorites(): Promise<string | null> {
-  return getItem(CLOSET_FAVORITES_KEY);
-}

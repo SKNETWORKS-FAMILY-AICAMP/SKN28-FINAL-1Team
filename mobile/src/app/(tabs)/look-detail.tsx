@@ -12,7 +12,6 @@ import { dailyLookToVariant, LOOK_VARIANTS, resolveLookVariant } from '@/constan
 import { savedLookStore } from '@/state/saved';
 import { useAuth } from '@/state/auth';
 import { draftItem } from '@/state/draft-item';
-import { brandScores, likesStore, useWishlist, wishKey } from '@/state/likes';
 import { backTo, goBack } from '@/lib/goBack';
 import { mallLabel, openExternal, productUrl } from '@/lib/mall';
 import type { LookRelated } from '@/constants/today-look';
@@ -81,25 +80,17 @@ export default function LookDetail() {
   const [openSlot, setOpenSlot] = useState<string | null>(null);
   const toast = useToast();
   const { effectiveCategoryBudgets } = usePrefs();
-  const wishlist = useWishlist();
-
-  /* 찜한 브랜드 = 취향. 예산 다음 순위로 써서 관련 상품 순서를 정한다(아래 sortRelated). */
-  const brands = useMemo(() => brandScores(wishlist), [wishlist]);
-  const wishedIds = useMemo(() => new Set(wishlist.map((w) => w.id)), [wishlist]);
-
-  /** 관련 상품은 실제 적용 예산 안에서만 보여주고 찜한 브랜드를 먼저 둔다. */
-  const filterRelated = (items: LookRelated[], category: string) => {
-    const budget = categoryBudget(effectiveCategoryBudgets, category);
-    return items
-      .filter((item) => budget == null || parsePrice(item.price) <= budget)
-      .sort((a, b) => (brands[b.brand] ?? 0) - (brands[a.brand] ?? 0));
-  };
+  /** 관련 상품은 실제 적용 예산 안에서만 보여준다. */
+  const filterRelated = (items: LookRelated[], category: string) =>
+    items.filter((item) => {
+      const budget = categoryBudget(effectiveCategoryBudgets, category);
+      return budget == null || parsePrice(item.price) <= budget;
+    });
 
   const relatedHead = (category: string) => {
     const parts: string[] = [];
     const budget = categoryBudget(effectiveCategoryBudgets, category);
     if (budget != null) parts.push(`${formatBudget(budget)} 예산 내 우선`);
-    if (Object.keys(brands).length > 0) parts.push('찜한 브랜드 우선');
     return parts.length ? `비슷한 상품 · ${parts.join(' · ')}` : '비슷한 상품';
   };
 
@@ -125,19 +116,6 @@ export default function LookDetail() {
     }
     draftItem.setPhoto(photo);
     router.push('/item-add');
-  };
-
-  const toggleWish = (r: LookRelated, slot: string) => {
-    const added = likesStore.toggleWish({
-      name: r.name,
-      brand: r.brand,
-      price: r.price,
-      tone: r.tone,
-      link: r.link,
-      mall: r.mall,
-      slot,
-    });
-    toast(added ? '찜했어요' : '찜에서 뺐어요');
   };
 
   /* 북마크 = 저장 토글. 켜면 내 룩북의 '위시'에 담고, 끄면 뺀다.
@@ -306,7 +284,6 @@ export default function LookDetail() {
                       {related.map((r) => {
                         const budget = categoryBudget(effectiveCategoryBudgets, p.slot);
                         const inBudget = budget != null && parsePrice(r.price) <= budget;
-                        const wished = wishedIds.has(wishKey(r));
                         const url = productUrl(r, r.mall);
                         return (
                           <View key={r.name} style={styles.relatedItem}>
@@ -343,17 +320,6 @@ export default function LookDetail() {
                                 ) : null}
                               </View>
                             </Pressable>
-                            <Pressable
-                              style={styles.wishBtn}
-                              hitSlop={6}
-                              onPress={() => toggleWish(r, p.slot)}
-                              accessibilityLabel={wished ? '찜에서 빼기' : '찜하기'}>
-                              <Icon
-                                name={wished ? 'heart.fill' : 'heart'}
-                                tintColor={wished ? WINE : ink(0.35)}
-                                size={17}
-                              />
-                            </Pressable>
                           </View>
                         );
                       })}
@@ -376,15 +342,6 @@ export default function LookDetail() {
               );
             })}
           </View>
-
-          {/* 담아 둔 상품으로 가는 길 — 아코디언을 닫으면 찜한 게 어디 갔는지 알 수 없어서 둔다. */}
-          {wishlist.length > 0 ? (
-            <Pressable style={styles.wishLink} onPress={() => router.push('/wishlist')}>
-              <Icon name="heart.fill" tintColor={WINE} size={14} />
-              <Text style={styles.wishLinkText}>찜한 상품 {wishlist.length}개 보기</Text>
-              <Icon name="chevron.right" tintColor={ink(0.3)} size={14} />
-            </Pressable>
-          ) : null}
 
           {/* 추천 이유 */}
           <Text style={styles.sectionTitle}>왜 이 룩일까요?</Text>
@@ -557,7 +514,6 @@ const styles = StyleSheet.create({
   relatedHead: { fontSize: 11, color: Editorial.textCaption, fontWeight: '600' },
   relatedEmpty: { fontSize: 12, color: Editorial.textCaption, paddingVertical: 10 },
   relatedItem: { flexDirection: 'row', alignItems: 'center', gap: 4 },
-  // 상품 본문(→판매처)과 찜 버튼을 갈라 놓는다. 한 행에서 두 동작이 갈리므로 영역도 나눈다.
   relatedMain: { flex: 1, flexDirection: 'row', alignItems: 'center', gap: 10 },
   relatedThumb: { width: 44, height: 44, borderRadius: 10, backgroundColor: BONE },
   relatedBody: { flex: 1, gap: 2 },
@@ -565,19 +521,6 @@ const styles = StyleSheet.create({
   relatedMeta: { flexDirection: 'row', alignItems: 'center', gap: 4 },
   relatedBrand: { fontSize: 11.5, color: Editorial.textCaption },
   relatedMall: { fontSize: 11, color: Editorial.textMuted },
-  wishBtn: { width: 32, height: 32, alignItems: 'center', justifyContent: 'center' },
-  wishLink: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-    marginTop: 12,
-    paddingVertical: 12,
-    paddingHorizontal: 14,
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: Editorial.line,
-  },
-  wishLinkText: { flex: 1, fontSize: 13, color: Editorial.textSoft, fontWeight: '500' },
   relatedRight: { alignItems: 'flex-end', gap: 4 },
   relatedPrice: { fontSize: 13, fontWeight: '600', color: INK },
   budgetTag: {

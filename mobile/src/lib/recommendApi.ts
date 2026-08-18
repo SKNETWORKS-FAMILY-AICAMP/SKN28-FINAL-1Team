@@ -16,7 +16,7 @@ export type ApiRecommendationItem = {
   source_type: string;
   /**
    * 상품 카탈로그의 원본 식별자. 상품을 이름이 아니라 이 값으로 구분한다 —
-   * 같은 상품이 카드마다 다른 이름(스냅샷)으로 오기 때문이다. 찜의 켜짐 판단이 이걸 쓴다.
+   * 같은 상품이 카드마다 다른 이름(스냅샷)으로 오기 때문이다. 지금 화면에서 쓰지는 않는다.
    */
   source_id: string;
   display_name: string;

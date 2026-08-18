@@ -38,8 +38,6 @@ export type WardrobeApiItem = {
   seg_meta: Record<string, unknown>;
   /** false = 사용자 확인 대기. 추천 검색에서 제외된다. */
   confirmed: boolean;
-  /** 즐겨찾기(별). 서버가 계정에 들고 있다 — 기기를 바꿔도 따라온다. */
-  is_favorite: boolean;
   /**
    * 옷장에 들인 시각. null 이면 룩 사진에서 뽑혔지만 아직 옷장 밖이라
    * 옷장 목록에도 안 나온다 — 룩 상세에서 '옷장에 추가'를 눌러야 들어간다.
@@ -77,7 +75,6 @@ export type WardrobeItemPatch = Partial<{
   layer_role: string;
   layer_order: number | null;
   confirmed: boolean;
-  is_favorite: boolean;
 }>;
 
 export type WardrobeItemQuery = {
