@@ -389,6 +389,11 @@ PRODUCT_ELEVEN_QDRANT_COLLECTION = os.getenv(
 QDRANT_KNOWLEDGE_COLLECTION = os.getenv(
     "QDRANT_KNOWLEDGE_COLLECTION", "knowledge"
 ).strip()
+# 공유 옷을 기준으로 내 옷을 찾을 때 적용하는 FashionSigLIP cosine 최소 점수.
+# 실제 사용자 평가 데이터가 쌓이면 환경별로 조정하며 코드에 임계값을 박지 않는다.
+SHARED_REFERENCE_VISUAL_MIN_SCORE = float(
+    os.getenv("SHARED_REFERENCE_VISUAL_MIN_SCORE", "0.75")
+)
 
 # BGE-M3 질의 임베딩은 골든셋 적재와 같은 벡터 공간을 사용한다.
 TEXT_EMBEDDING_API_URL = os.getenv("TEXT_EMBEDDING_API_URL", "").strip()
