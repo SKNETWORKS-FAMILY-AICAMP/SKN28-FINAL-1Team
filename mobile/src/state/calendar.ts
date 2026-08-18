@@ -15,7 +15,6 @@ import {
   type CalendarEntryDto,
 } from '@/lib/calendarApi';
 import type { WardrobeItem, WardrobeSource } from '@/constants/wardrobe';
-import type { AllowedHashtag } from '@/state/lookbook';
 
 /**
  * 착장 캘린더 기록 — 날짜 하나에 기록 하나.
@@ -57,7 +56,7 @@ export type CalendarEntry = {
    * 일정은 그날에만 있는 사실이라 남의 태그 체계에 끼워 맞출 수 없다.
    */
   note?: string;
-  tags: AllowedHashtag[];
+  tags: string[];
   /** 사진 등록은 옷 추출이 끝나야 COMPLETED 다. 옷만 고른 기록은 처음부터 완료. */
   status: CalendarEntryDto['status'];
   /** 함께 쓰는 옷장 친구에게 공개 여부 — 서버에 자리가 없어 로컬 전용 */
@@ -250,7 +249,7 @@ function toEntry(dto: CalendarEntryDto): CalendarEntry {
     photo: dto.image_url || undefined,
     items: [...serverItems, ...overlay.localItems],
     note: dto.schedule || undefined,
-    tags: dto.hashtags as AllowedHashtag[],
+    tags: dto.hashtags,
     status: dto.status,
     shared: overlay.shared,
     lookId: overlay.lookId,
@@ -291,7 +290,7 @@ export const calendarStore = {
     photo?: string;
     items: EntryItem[];
     note?: string;
-    tags: AllowedHashtag[];
+    tags: string[];
     shared: boolean;
     lookId?: string;
   }): Promise<CalendarEntry> {

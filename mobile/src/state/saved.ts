@@ -14,6 +14,7 @@ import {
 import { addWardrobeItemToCloset } from '@/lib/wardrobeApi';
 import { authStore } from '@/state/auth';
 import { CLOSET_ITEMS } from '@/constants/wardrobe';
+import type { LookGender } from '@/lib/discoveryLookApi';
 import type { EntryItem } from '@/state/calendar';
 
 /**
@@ -57,6 +58,7 @@ export type SavedLook = {
   /** 이어져 있는 착장 기록의 날짜 'YYYY-MM-DD'. 룩북↔캘린더를 잇는 한쪽 끈이다. */
   entryDate?: string;
   tags: string[];
+  gender?: LookGender;
   /**
    * 사진으로 올린 룩은 옷 추출이 끝나야 COMPLETED 다. 로컬에만 있는 룩은 없다.
    * 처리 중에는 카드에 '옷 정리 중'을 띄우고 삭제를 막는 데 쓴다.
@@ -176,11 +178,14 @@ function toLook(dto: LookbookPostDto): SavedLook {
     reason: overlay.reason,
     /* 오버레이가 비었으면(다른 기기·재시작) 담긴 옷으로 짐작한다 — 옷이 걸려 있으면
        내가 고른 룩, 사진뿐이면 추천 룩 쪽에 가깝다. 정확한 구분은 서버 필드가 필요하다. */
-    origin: overlay.origin ?? (items.length > 0 ? 'closet' : 'ai'),
+    origin:
+      overlay.origin ??
+      (dto.source_type === 'PHOTO_UPLOAD' || items.length > 0 ? 'closet' : 'ai'),
     items: items.length ? items : undefined,
     note: dto.schedule || undefined,
     entryDate: dto.calendar?.date ?? overlay.entryDate,
     tags: dto.hashtags ?? [],
+    gender: dto.gender ?? undefined,
     status: dto.status,
     isPublic: dto.is_public,
     savedAt: Date.parse(dto.created_at) || 0,
@@ -238,6 +243,7 @@ export const savedLookStore = {
     asset?: number;
     comment?: string;
     tags?: string[];
+    gender?: LookGender;
     reason?: string;
     origin?: LookOrigin;
     items?: EntryItem[];
@@ -275,6 +281,7 @@ export const savedLookStore = {
     if (!canUpload) return addLocalLook(input, origin);
 
     const meta = {
+      gender: input.gender,
       schedule: (input.note ?? input.comment ?? '').trim(),
       hashtags: input.tags ?? [],
       isPublic: input.isPublic ?? false,

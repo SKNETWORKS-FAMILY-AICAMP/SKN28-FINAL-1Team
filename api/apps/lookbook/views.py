@@ -135,6 +135,7 @@ class LookbookPhotoCreateView(APIView):
             post = lookbook_service.create_from_photo(
                 user=request.user,
                 image=data["image"],
+                gender=data["gender"],
                 wardrobe_item_ids=data["wardrobe_item_ids"],
                 schedule=data["schedule"],
                 tpo=data["tpo"],
@@ -189,6 +190,7 @@ class LookbookWardrobeCreateView(APIView):
             post = lookbook_service.create_from_wardrobe(
                 user=request.user,
                 wardrobe_item_ids=data["wardrobe_item_ids"],
+                gender=data["gender"],
                 schedule=data["schedule"],
                 tpo=data["tpo"],
                 hashtags=data["hashtags"],
@@ -220,6 +222,7 @@ class LookbookListView(APIView):
             user=request.user,
             hashtag=params["hashtag"],
             status=params["status"],
+            gender=params["gender"],
         )
         # 피드는 계속 자란다. 전체를 내려 주면 앱이 스크롤 한 번에 수백 건을
         # 받아 presigned URL도 그만큼 만들게 되므로 항상 잘라서 준다.
@@ -252,7 +255,10 @@ class LookbookPublicFeedView(APIView):
         query.is_valid(raise_exception=True)
         params = query.validated_data
 
-        queryset = lookbook_service.public_posts(hashtag=params["hashtag"])
+        queryset = lookbook_service.public_posts(
+            hashtag=params["hashtag"],
+            gender=params["gender"],
+        )
         total = queryset.count()
         offset = params["offset"]
         limit = params["limit"]

@@ -11,7 +11,7 @@ export type AllowedHashtag = (typeof ALLOWED_HASHTAGS)[number];
 export type LookPost = {
   id: string;
   image: string;
-  tags: AllowedHashtag[];
+  tags: string[];
   price?: string;
   variantId?: string;
   gender?: LookGender;
@@ -39,7 +39,8 @@ function toPublicLook(dto: LookbookPostDto): LookPost {
   return {
     id: dto.id,
     image: dto.image_url,
-    tags: (dto.hashtags ?? []).filter(isAllowedHashtag),
+    tags: dto.hashtags ?? [],
+    gender: dto.gender ?? undefined,
     createdAt: Date.parse(dto.created_at) || 0,
   };
 }
@@ -54,7 +55,7 @@ export const lookbookStore = {
     notify();
     const [curatedResult, publicResult] = await Promise.allSettled([
       getDiscoveryLooks('', '', gender),
-      listPublicLookbooks({ limit: 60 }),
+      listPublicLookbooks({ limit: 60, gender: gender === 'ALL' ? undefined : gender }),
     ]);
     if (sequence !== loadSequence) return;
 
@@ -63,14 +64,14 @@ export const lookbookStore = {
         id: look.id,
         variantId: look.id,
         image: look.image,
-        tags: look.tags.filter(isAllowedHashtag),
+        tags: look.tags,
         price: `₩${look.total_price.toLocaleString('ko-KR')}`,
         gender: look.gender,
         createdAt: 0,
       }));
     }
     if (publicResult.status === 'fulfilled') {
-      publicLooks = gender === 'ALL' ? publicResult.value.results.map(toPublicLook) : [];
+      publicLooks = publicResult.value.results.map(toPublicLook);
     }
     const failureCount = [curatedResult, publicResult].filter((result) => result.status === 'rejected').length;
     loadState = {

@@ -105,6 +105,7 @@ def posts_filtered(
     user,
     hashtag: str = "",
     status: str = "",
+    gender: str = "",
 ) -> QuerySet[LookbookPost]:
     """해시태그·상태로 좁힌 룩북 목록.
 
@@ -117,10 +118,12 @@ def posts_filtered(
         queryset = queryset.filter(hashtags__contains=[hashtag])
     if status:
         queryset = queryset.filter(status=status)
+    if gender:
+        queryset = queryset.filter(gender=gender)
     return queryset
 
 
-def public_posts(*, hashtag: str = "") -> QuerySet[LookbookPost]:
+def public_posts(*, hashtag: str = "", gender: str = "") -> QuerySet[LookbookPost]:
     """전체 공개된 룩 피드 — 로그인 여부와 무관하게 누구나 보는 목록.
 
     처리 중이거나 실패한 룩은 내보내지 않는다. 사진에서 옷을 뽑는 도중인 룩은
@@ -144,6 +147,8 @@ def public_posts(*, hashtag: str = "") -> QuerySet[LookbookPost]:
     )
     if hashtag:
         queryset = queryset.filter(hashtags__contains=[hashtag])
+    if gender:
+        queryset = queryset.filter(gender=gender)
     return queryset
 
 
@@ -381,6 +386,7 @@ def create_from_wardrobe(
     *,
     user: User,
     wardrobe_item_ids: Sequence[UUID],
+    gender: str | None,
     schedule: str,
     tpo: list[str],
     hashtags: list[str],
@@ -403,6 +409,7 @@ def create_from_wardrobe(
     post = LookbookPost(
         user=user,
         source_type=LookbookSourceType.WARDROBE_SELECTED.value,
+        gender=gender,
         image_s3_key="",
         schedule=schedule,
         tpo=tpo,
@@ -456,6 +463,7 @@ def create_from_photo(
     user: User,
     image: UploadedFile,
     wardrobe_item_ids: Sequence[UUID],
+    gender: str | None,
     schedule: str,
     tpo: list[str],
     hashtags: list[str],
@@ -480,6 +488,7 @@ def create_from_photo(
         user=user,
         wardrobe_upload_job=upload_job,
         source_type=LookbookSourceType.PHOTO_UPLOAD.value,
+        gender=gender,
         image_s3_key="",
         schedule=schedule,
         tpo=tpo,

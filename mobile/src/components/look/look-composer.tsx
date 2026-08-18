@@ -1,5 +1,5 @@
 import { router } from 'expo-router';
-import { useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
   Pressable,
@@ -18,6 +18,7 @@ import { ModalShell, SmartImage, useConfirm, useToast } from '@/components/ui';
 import { ContentMax, Editorial, ink, Type } from '@/constants/theme';
 import { useBreakpoint } from '@/hooks/use-breakpoint';
 import { goBack } from '@/lib/goBack';
+import type { LookGender } from '@/lib/discoveryLookApi';
 import { pickFromAlbum, pickFromCamera } from '@/lib/pickItemPhoto';
 import {
   calendarErrorMessage,
@@ -28,8 +29,8 @@ import {
   useCalendarEntry,
   type EntryItem,
 } from '@/state/calendar';
-import { ALLOWED_HASHTAGS, type AllowedHashtag } from '@/state/lookbook';
-import { savedLookStore } from '@/state/saved';
+import { ALLOWED_HASHTAGS } from '@/state/lookbook';
+import { savedLookStore, useSavedLooks } from '@/state/saved';
 
 /** 'YYYY-MM-DD' 가 든 달의 첫날·끝날. 캘린더 스토어는 기간 단위로만 받아 온다. */
 function monthBounds(dateKey: string): [string, string] {
@@ -44,6 +45,13 @@ const PAD = 20;
 const CHIP = 76;
 const DESKTOP_CHIP = 68;
 
+type LookbookVisibility = 'none' | 'public' | 'private';
+const LOOKBOOK_VISIBILITY_OPTIONS: { value: LookbookVisibility; label: string; description: string }[] = [
+  { value: 'none', label: '공개 안 함', description: '캘린더에만 기록해요' },
+  { value: 'public', label: '전체 공개', description: '둘러보기와 내 룩북에 보여요' },
+  { value: 'private', label: '나만 보기', description: '내 룩북에서만 보여요' },
+];
+
 /**
  * 룩 하나를 짓는 폼 — 룩북과 캘린더가 같은 화면을 쓴다.
  *
@@ -54,9 +62,14 @@ const DESKTOP_CHIP = 68;
  * - date 가 있으면 캘린더 기록 모드: 그 날짜에 저장하고, '룩북에도 올리기'를 고를 수 있다.
  * - date 가 없으면 룩북 모드: 내 룩북에 올리고, '캘린더에도 기록하기'를 켜면 날짜를 고른다.
  */
-export function LookComposer({ date }: { date?: string }) {
+export function LookComposer({ date, initialGender }: { date?: string; initialGender?: LookGender }) {
   const mode = date ? 'calendar' : 'lookbook';
   const existing = useCalendarEntry(date ?? '');
+  const savedLooks = useSavedLooks();
+
+  useEffect(() => {
+    void savedLookStore.load();
+  }, []);
 
   const { contentStyle } = useBreakpoint();
   const toast = useToast();
@@ -75,7 +88,10 @@ export function LookComposer({ date }: { date?: string }) {
     () => existing?.items ?? calendarStore.takeSeededItems() ?? [],
   );
   const [note, setNote] = useState(existing?.note ?? '');
-  const [tags, setTags] = useState<AllowedHashtag[]>(existing?.tags ?? []);
+  const [tags, setTags] = useState<string[]>(existing?.tags ?? []);
+  const [lookGender, setLookGender] = useState<LookGender | undefined>(initialGender);
+  const [tagInputOpen, setTagInputOpen] = useState(false);
+  const [customTag, setCustomTag] = useState('');
   const [shared, setShared] = useState(existing?.shared ?? false);
   /* 룩북 전용 — 켜면 앱 사용자 전체가 둘러보기에서 본다. 친구 단위 공유는 룩북에 없다. */
   const [isPublic, setIsPublic] = useState(false);
@@ -88,6 +104,8 @@ export function LookComposer({ date }: { date?: string }) {
      이미 이어져 있는 기록(existing.lookId)은 토글이 아니라 사실 표시로 그린다. */
   const alreadyLinked = Boolean(existing?.lookId && savedLookStore.getLook(existing.lookId));
   const [linkOn, setLinkOn] = useState(false);
+  const [lookbookVisibility, setLookbookVisibility] = useState<LookbookVisibility>('none');
+  const [visibilityOpen, setVisibilityOpen] = useState(false);
   const [linkDate, setLinkDate] = useState(todayKey());
   const [dateOpen, setDateOpen] = useState(false);
 
@@ -137,8 +155,58 @@ export function LookComposer({ date }: { date?: string }) {
     }
   };
 
-  const toggleTag = (tag: AllowedHashtag) => {
+  const tagOptions = useMemo(
+    () => [
+      ...ALLOWED_HASHTAGS,
+      ...savedLooks
+        .filter((look) => look.gender === lookGender)
+        .flatMap((look) => look.tags ?? []),
+      ...tags.filter((tag) => !(ALLOWED_HASHTAGS as readonly string[]).includes(tag)),
+    ].filter((tag, index, options) => options.indexOf(tag) === index),
+    [lookGender, savedLooks, tags],
+  );
+
+  const selectLookGender = (gender: LookGender) => {
+    const genderTags = new Set(
+      savedLooks
+        .filter((look) => look.gender === gender)
+        .flatMap((look) => look.tags ?? []),
+    );
+    setLookGender(gender);
+    setTags((current) =>
+      current.filter(
+        (tag) =>
+          (ALLOWED_HASHTAGS as readonly string[]).includes(tag) || genderTags.has(tag),
+      ),
+    );
+  };
+
+  const toggleTag = (tag: string) => {
     setTags((prev) => (prev.includes(tag) ? prev.filter((t) => t !== tag) : [...prev, tag]));
+  };
+
+  const addCustomTag = () => {
+    if (!lookGender) {
+      toast('해시태그를 추가하기 전에 WOMAN 또는 MAN을 선택해 주세요.', { variant: 'error' });
+      return;
+    }
+    const tag = customTag.trim().replace(/^#+/, '');
+    if (!tag) return;
+    if (/\s/.test(tag)) {
+      toast('해시태그에는 공백을 넣을 수 없어요.', { variant: 'error' });
+      return;
+    }
+    if (tag.length > 20) {
+      toast('해시태그는 20자 이하로 입력해 주세요.', { variant: 'error' });
+      return;
+    }
+    if (!tags.includes(tag) && tags.length >= 10) {
+      toast('해시태그는 최대 10개까지 선택할 수 있어요.', { variant: 'error' });
+      return;
+    }
+    setTags((prev) => (prev.includes(tag) ? prev : [...prev, tag]));
+    setCustomTag('');
+    setTagInputOpen(false);
   };
 
   const removeItem = (key: string) => {
@@ -151,10 +219,12 @@ export function LookComposer({ date }: { date?: string }) {
    * - 룩북: 그리드에 보여 줄 그림이 있어야 룩이 성립한다. 사진이거나, 고른 옷의 첫 장이거나.
    *   일정만 적힌 룩은 카드가 빈칸으로 남아 목록에서 아무것도 가리키지 못한다.
    */
+  const hasRequiredGender =
+    mode === 'lookbook' || lookbookVisibility !== 'none' ? Boolean(lookGender) : true;
   const canSave =
     mode === 'lookbook'
-      ? Boolean(photo) || items.length > 0
-      : Boolean(photo) || items.length > 0 || note.trim().length > 0;
+      ? hasRequiredGender && (Boolean(photo) || items.length > 0)
+      : hasRequiredGender && (Boolean(photo) || items.length > 0 || note.trim().length > 0);
 
   /* 룩북에 올릴 실체가 있는가 — 룩 사진이거나 내 옷장에서 고른 옷.
      일정만 적은 날은 룩으로 성립하지 않아 캘린더에만 남는다. */
@@ -163,9 +233,15 @@ export function LookComposer({ date }: { date?: string }) {
   /* 룩 사진 자리에는 **사진만** 넘긴다. 옷만 고른 룩의 표지는 서버가 첫 아이템으로 정한다
      (createLookbookFromWardrobe). 여기서 아이템 사진을 룩 사진인 척 넘기면 그 사진이
      새 착장으로 다시 분석돼, 같은 옷이 다른 옷 한 벌로 옷장에 또 등록된다. */
-  const makeLook = (opts?: { entryDate?: string; createCalendar?: boolean; overwrite?: boolean }) =>
+  const makeLook = (opts?: {
+    entryDate?: string;
+    createCalendar?: boolean;
+    overwrite?: boolean;
+    isPublic?: boolean;
+  }) =>
     savedLookStore.addLook({
       image: photo,
+      gender: lookGender,
       comment: note.trim() || undefined,
       origin: 'closet',
       items,
@@ -173,7 +249,7 @@ export function LookComposer({ date }: { date?: string }) {
       entryDate: opts?.entryDate,
       createCalendar: opts?.createCalendar,
       overwriteCalendar: opts?.overwrite,
-      isPublic,
+      isPublic: opts?.isPublic ?? isPublic,
       tags,
     });
 
@@ -190,7 +266,8 @@ export function LookComposer({ date }: { date?: string }) {
   const runSave = async () => {
 
     if (mode === 'calendar' && date) {
-      const linkToLookbook = linkOn && !alreadyLinked;
+      const linkToLookbook = lookbookVisibility !== 'none' && canPostLook && !alreadyLinked;
+      const publishToEveryone = lookbookVisibility === 'public';
 
       /* '룩북에도 올리기' — 룩과 캘린더 기록을 서버가 **한 번의 등록으로** 함께 만든다
          (calendar_date). 룩북 모드에서 '캘린더에도 기록'을 켠 경우와 같은 길이다.
@@ -207,7 +284,11 @@ export function LookComposer({ date }: { date?: string }) {
 
       if (linkToLookbook && canPostLook && !prev) {
         try {
-          const look = await makeLook({ entryDate: date, createCalendar: true });
+          const look = await makeLook({
+            entryDate: date,
+            createCalendar: true,
+            isPublic: publishToEveryone,
+          });
           const entry = await calendarStore.adoptLinkedEntry({
             date,
             items,
@@ -234,7 +315,7 @@ export function LookComposer({ date }: { date?: string }) {
       let lookId: string | undefined;
       if (linkToLookbook) {
         try {
-          lookId = (await makeLook({ entryDate: date })).id;
+          lookId = (await makeLook({ entryDate: date, isPublic: publishToEveryone })).id;
         } catch (error) {
           toast(`룩북에 올리지 못했어요 — ${calendarErrorMessage(error)}`, { variant: 'error' });
           return;
@@ -441,10 +522,32 @@ export function LookComposer({ date }: { date?: string }) {
               returnKeyType="done"
             />
 
+            <Text style={[styles.sectionTitle, styles.tagSection]}>Gender</Text>
+            <Text style={styles.genderHint}>
+              룩북에 올릴 룩은 WOMAN 또는 MAN을 선택해야 해요.
+            </Text>
+            <View style={styles.genderPill} accessibilityRole="tablist">
+              {(['WOMAN', 'MAN'] as const).map((gender) => {
+                const selected = lookGender === gender;
+                return (
+                  <Pressable
+                    key={gender}
+                    onPress={() => selectLookGender(gender)}
+                    style={[styles.genderOption, selected && styles.genderOptionSelected]}
+                    accessibilityRole="tab"
+                    accessibilityState={{ selected }}>
+                    <Text style={[styles.genderText, selected && styles.genderTextSelected]}>
+                      {gender}
+                    </Text>
+                  </Pressable>
+                );
+              })}
+            </View>
+
             {/* 해시태그 */}
             <Text style={[styles.sectionTitle, styles.tagSection]}>해시태그</Text>
             <View style={styles.tagRow}>
-              {ALLOWED_HASHTAGS.map((tag) => {
+              {tagOptions.map((tag) => {
                 const on = tags.includes(tag);
                 return (
                   <Pressable
@@ -455,6 +558,36 @@ export function LookComposer({ date }: { date?: string }) {
                   </Pressable>
                 );
               })}
+              {tagInputOpen ? (
+                <View style={styles.tagInputWrap}>
+                  <Text style={styles.tagInputPrefix}>#</Text>
+                  <TextInput
+                    autoFocus
+                    value={customTag}
+                    onChangeText={setCustomTag}
+                    onSubmitEditing={addCustomTag}
+                    placeholder="해시태그 입력"
+                    placeholderTextColor={Editorial.textMuted}
+                    returnKeyType="done"
+                    maxLength={21}
+                    style={styles.tagInput}
+                  />
+                  <Pressable
+                    onPress={addCustomTag}
+                    disabled={!customTag.trim()}
+                    style={styles.tagInputAdd}
+                    accessibilityLabel="해시태그 추가">
+                    <Icon name="checkmark" tintColor={customTag.trim() ? '#fff' : ink(0.35)} size={14} />
+                  </Pressable>
+                </View>
+              ) : (
+                <Pressable
+                  onPress={() => setTagInputOpen(true)}
+                  style={[styles.tag, styles.tagAdd]}
+                  accessibilityLabel="새 해시태그 입력">
+                  <Icon name="plus" tintColor={Editorial.textCaption} size={14} />
+                </Pressable>
+              )}
             </View>
 
             {/* 반대편에도 남기기 */}
@@ -473,24 +606,63 @@ export function LookComposer({ date }: { date?: string }) {
               <>
                 <Pressable
                   style={[styles.optionRow, styles.firstOption]}
-                  onPress={mode === 'lookbook' ? toggleCalendarLink : () => setLinkOn((v) => !v)}>
+                  onPress={
+                    mode === 'lookbook'
+                      ? toggleCalendarLink
+                      : () => setVisibilityOpen((open) => !open)
+                  }>
                   <View style={styles.optionIcon}>
                     <Icon name={mode === 'calendar' ? 'book' : 'calendar'} tintColor={INK} size={17} />
                   </View>
                   <View style={styles.optionBody}>
                     <Text style={styles.optionTitle}>
-                      {mode === 'calendar' ? '룩북에도 올리기' : '캘린더에도 기록하기'}
+                      {mode === 'calendar' ? '공개 여부' : '캘린더에도 기록하기'}
                     </Text>
                     <Text style={styles.optionDesc}>
                       {mode === 'calendar'
-                        ? '내 룩북에 같은 룩으로 남겨요'
+                        ? LOOKBOOK_VISIBILITY_OPTIONS.find(
+                            (option) => option.value === lookbookVisibility,
+                          )?.label
                         : '어느 날 입은 착장인지 남겨요'}
                     </Text>
                   </View>
-                  <View style={[styles.switch, linkOn && styles.switchOn]}>
-                    <View style={[styles.knob, linkOn && styles.knobOn]} />
-                  </View>
+                  {mode === 'calendar' ? (
+                    <Icon
+                      name={visibilityOpen ? 'chevron.up' : 'chevron.down'}
+                      tintColor={ink(0.45)}
+                      size={16}
+                    />
+                  ) : (
+                    <View style={[styles.switch, linkOn && styles.switchOn]}>
+                      <View style={[styles.knob, linkOn && styles.knobOn]} />
+                    </View>
+                  )}
                 </Pressable>
+
+                {mode === 'calendar' && visibilityOpen ? (
+                  <View style={styles.visibilityMenu}>
+                    {LOOKBOOK_VISIBILITY_OPTIONS.map((option) => {
+                      const selected = option.value === lookbookVisibility;
+                      return (
+                        <Pressable
+                          key={option.value}
+                          style={[styles.visibilityOption, selected && styles.visibilityOptionSelected]}
+                          onPress={() => {
+                            setLookbookVisibility(option.value);
+                            setVisibilityOpen(false);
+                          }}>
+                          <View style={styles.optionBody}>
+                            <Text style={[styles.optionTitle, selected && styles.visibilityTextSelected]}>
+                              {option.label}
+                            </Text>
+                            <Text style={styles.optionDesc}>{option.description}</Text>
+                          </View>
+                          {selected ? <Icon name="checkmark" tintColor="#fff" size={15} /> : null}
+                        </Pressable>
+                      );
+                    })}
+                  </View>
+                ) : null}
 
                 {/* 고른 날짜는 폼에 남겨 둔다 — 토글을 켤 때 시트가 바로 뜨지만, 거기서 그냥 닫으면
                     기본값(오늘)이 조용히 저장된다. 어느 날에 저장되는지는 늘 보여야 하고,
@@ -710,6 +882,50 @@ const styles = StyleSheet.create({
   tagOn: { backgroundColor: Editorial.selected, borderColor: Editorial.selected },
   tagText: { fontSize: Type.caption, fontWeight: '500', color: Editorial.textCaption },
   tagTextOn: { color: '#fff' },
+  tagAdd: { minWidth: 38, alignItems: 'center', justifyContent: 'center' },
+  tagInputWrap: {
+    minWidth: 178,
+    height: 36,
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: Editorial.line,
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingLeft: 12,
+    overflow: 'hidden',
+  },
+  tagInputPrefix: { fontSize: Type.caption, color: Editorial.textCaption },
+  tagInput: { flex: 1, paddingHorizontal: 3, fontSize: Type.caption, color: INK },
+  tagInputAdd: {
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    backgroundColor: Editorial.selected,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  genderHint: { marginTop: 5, fontSize: Type.micro, color: Editorial.textCaption },
+  genderPill: {
+    alignSelf: 'flex-start',
+    marginTop: 10,
+    padding: 4,
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: Editorial.line,
+    flexDirection: 'row',
+    gap: 4,
+  },
+  genderOption: {
+    minWidth: 104,
+    height: 40,
+    paddingHorizontal: 18,
+    borderRadius: 999,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  genderOptionSelected: { backgroundColor: Editorial.selected },
+  genderText: { fontSize: Type.footnote, fontWeight: '600', color: INK },
+  genderTextSelected: { color: '#fff' },
 
   optionRow: {
     flexDirection: 'row',
@@ -750,6 +966,26 @@ const styles = StyleSheet.create({
   switchOn: { backgroundColor: Editorial.selected, borderColor: Editorial.selected },
   knob: { width: 20, height: 20, borderRadius: 10, backgroundColor: ink(0.2) },
   knobOn: { backgroundColor: '#fff', alignSelf: 'flex-end' },
+  visibilityMenu: {
+    marginTop: 8,
+    padding: 6,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: Editorial.line,
+    backgroundColor: '#fff',
+    gap: 4,
+  },
+  visibilityOption: {
+    minHeight: 52,
+    paddingHorizontal: 14,
+    paddingVertical: 9,
+    borderRadius: 12,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+  },
+  visibilityOptionSelected: { backgroundColor: Editorial.selected },
+  visibilityTextSelected: { color: '#fff' },
 
   /* 토글 바로 아래 붙는 날짜 줄 — 토글의 딸린 항목이라 간격을 좁게 둔다 */
   dateRow: {

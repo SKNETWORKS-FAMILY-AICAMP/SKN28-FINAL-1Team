@@ -16,6 +16,7 @@ class LookbookWardrobeCreateApiTests(LookbookApiTestCase):
     def _payload(self, **overrides):
         payload = {
             "wardrobe_item_ids": [str(self.top.pk), str(self.bottom.pk)],
+            "gender": "WOMAN",
             "schedule": "팀 회의",
             "tpo": ["출근"],
             "hashtags": ["출근", "미니멀"],
@@ -29,6 +30,7 @@ class LookbookWardrobeCreateApiTests(LookbookApiTestCase):
         self.assertEqual(response.status_code, 201)
         post = LookbookPost.objects.get(pk=response.data["id"])
         self.assertEqual(post.source_type, LookbookSourceType.WARDROBE_SELECTED.value)
+        self.assertEqual(post.gender, LookbookPost.Gender.WOMAN)
         self.assertEqual(post.status, LookbookStatus.COMPLETED.value)
         self.assertIsNone(post.wardrobe_upload_job_id)
         self.assertEqual(post.skipped_categories, [])

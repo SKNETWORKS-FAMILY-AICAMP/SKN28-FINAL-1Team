@@ -1,5 +1,7 @@
 import { Platform } from 'react-native';
 
+import type { LookGender } from '@/lib/discoveryLookApi';
+
 import { API_BASE_URL, LookbookEndpoints } from '@/constants/config';
 import { api, apiFetch, ApiError } from '@/lib/apiClient';
 import { getAccessToken } from '@/lib/secureStore';
@@ -45,6 +47,7 @@ export type LookbookWardrobeItem = {
 export type LookbookPostDto = {
   id: string;
   source_type: LookbookSourceType;
+  gender: LookGender | null;
   image_s3_key: string;
   /** presigned URL. 옷만 고른 룩이면 첫 아이템 이미지가 표지가 된다. */
   image_url: string;
@@ -88,6 +91,7 @@ export type LookbookProcessingStatus = {
 
 /** 등록·수정에 함께 보내는 메타데이터. 서버가 받는 건 이 셋뿐이다. */
 export type LookbookMetadata = {
+  gender?: LookGender;
   schedule?: string;
   tpo?: string[];
   hashtags?: string[];
@@ -109,12 +113,14 @@ export type LookbookCalendarLink = {
 
 export function listLookbooks(params?: {
   hashtag?: string;
+  gender?: LookGender;
   status?: LookbookStatus;
   limit?: number;
   offset?: number;
 }): Promise<LookbookListResponse> {
   const query = new URLSearchParams();
   if (params?.hashtag) query.set('hashtag', params.hashtag);
+  if (params?.gender) query.set('gender', params.gender);
   if (params?.status) query.set('status', params.status);
   if (params?.limit != null) query.set('limit', String(params.limit));
   if (params?.offset != null) query.set('offset', String(params.offset));
@@ -141,6 +147,7 @@ export function createLookbookFromWardrobe(
 ): Promise<LookbookPostDto> {
   return api.post<LookbookPostDto>(LookbookEndpoints.wardrobe, {
     wardrobe_item_ids: input.wardrobeItemIds,
+    gender: input.gender,
     schedule: input.schedule ?? '',
     tpo: input.tpo ?? [],
     hashtags: input.hashtags ?? [],
@@ -157,11 +164,13 @@ export function createLookbookFromWardrobe(
  */
 export function listPublicLookbooks(params?: {
   hashtag?: string;
+  gender?: LookGender;
   limit?: number;
   offset?: number;
 }): Promise<LookbookListResponse> {
   const query = new URLSearchParams();
   if (params?.hashtag) query.set('hashtag', params.hashtag);
+  if (params?.gender) query.set('gender', params.gender);
   if (params?.limit !== undefined) query.set('limit', String(params.limit));
   if (params?.offset !== undefined) query.set('offset', String(params.offset));
   const qs = query.toString();
@@ -263,6 +272,7 @@ function appendPhotoFields(
   input: { wardrobeItemIds?: string[] } & LookbookMetadata & LookbookCalendarLink,
 ) {
   form.append('schedule', input.schedule ?? '');
+  if (input.gender) form.append('gender', input.gender);
   input.wardrobeItemIds?.forEach((id) => form.append('wardrobe_item_ids', id));
   input.tpo?.forEach((value) => form.append('tpo', value));
   input.hashtags?.forEach((value) => form.append('hashtags', value));

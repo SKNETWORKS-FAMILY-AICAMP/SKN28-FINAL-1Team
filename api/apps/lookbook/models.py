@@ -28,6 +28,10 @@ from apps.lookbook.contracts import (
 class LookbookPost(models.Model):
     """사용자가 올린 룩 한 벌."""
 
+    class Gender(models.TextChoices):
+        WOMAN = "WOMAN", "여성"
+        MAN = "MAN", "남성"
+
     id = models.UUIDField(
         primary_key=True,
         default=uuid.uuid4,
@@ -76,6 +80,13 @@ class LookbookPost(models.Model):
             (LookbookSourceType.WARDROBE_SELECTED.value, "옷장 직접 선택"),
         ],
         db_comment="룩북 등록 경로 (PHOTO_UPLOAD/WARDROBE_SELECTED)",
+    )
+    gender = models.CharField(
+        max_length=8,
+        choices=Gender.choices,
+        null=True,
+        blank=True,
+        db_comment="룩 성별 구분 (WOMAN/MAN, 기존 미분류 데이터는 NULL)",
     )
     image_s3_key = models.CharField(
         max_length=512,
