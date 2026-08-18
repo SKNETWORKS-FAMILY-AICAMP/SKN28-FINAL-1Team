@@ -1,6 +1,6 @@
 import { Icon } from '@/components/icon';
 import { router, useLocalSearchParams } from 'expo-router';
-import { backTo, goBack } from '@/lib/goBack';
+import { backTo, goBack, withReturn } from '@/lib/goBack';
 import { useState } from 'react';
 import {
   ActivityIndicator,
@@ -365,7 +365,14 @@ export default function SavedLook() {
 
       <View style={styles.bottomDivider} />
       <View style={[styles.bottomBar, { paddingBottom: 12 }, contentStyle(ContentMax.card)]}>
-        <Pressable style={styles.cta} onPress={() => router.push('/chat-room')}>
+        {/* 채팅에서 뒤로 나오면 보던 룩으로 돌아오게 자리를 알려 준다 (룩북·캘린더와 같은 방식). */}
+        <Pressable
+          style={styles.cta}
+          onPress={() =>
+            router.push(
+              withReturn('/chat-room', look ? `/saved-look?id=${look.id}` : '/saved-look'),
+            )
+          }>
           <Icon name="sparkles" tintColor="#fff" size={15} />
           <Text style={styles.ctaText}>비슷하게 추천받기</Text>
         </Pressable>
