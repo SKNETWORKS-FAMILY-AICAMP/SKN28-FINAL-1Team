@@ -20,10 +20,16 @@ class LookbookStatus(StrEnum):
 
 
 class LookbookSourceType(StrEnum):
-    """룩북 등록 경로."""
+    """룩북 등록 경로.
+
+    GOLDEN_LOOK — 오늘의 룩 카드에서 '저장'으로 담은 골든 코디. 사용자가 올린
+    사진도, 사용자 옷장의 옷도 아니라서 옷장 업로드 파이프라인을 타지 않는다.
+    이미지는 골든셋 버킷에 이미 있는 것을 **가리키기만** 한다(복사하지 않는다).
+    """
 
     PHOTO_UPLOAD = "PHOTO_UPLOAD"
     WARDROBE_SELECTED = "WARDROBE_SELECTED"
+    GOLDEN_LOOK = "GOLDEN_LOOK"
 
 
 class LookbookLinkType(StrEnum):
@@ -31,10 +37,13 @@ class LookbookLinkType(StrEnum):
 
     SELECTED  — 사용자가 '입은 옷'으로 직접 고른 아이템
     EXTRACTED — 룩 사진에서 이미지 프로세서가 새로 뽑아 등록한 아이템
+    GOLDEN    — 오늘의 룩에서 담은 골든 코디의 구성 아이템. 사용자 옷장의 옷이
+                아니므로 wardrobe_item은 NULL이고 snapshot만 남는다
     """
 
     SELECTED = "SELECTED"
     EXTRACTED = "EXTRACTED"
+    GOLDEN = "GOLDEN"
 
 
 class LookbookProcessingErrorCode(StrEnum):

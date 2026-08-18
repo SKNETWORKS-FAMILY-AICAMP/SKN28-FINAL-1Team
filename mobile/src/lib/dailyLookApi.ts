@@ -1,5 +1,6 @@
-import { DailyLookEndpoint } from '@/constants/config';
+import { DailyLookEndpoint, DailyLookSaveEndpoint } from '@/constants/config';
 import { api } from '@/lib/apiClient';
+import type { LookbookPostDto } from '@/lib/lookbookApi';
 
 /**
  * 오늘의 룩 API 타입 — 백엔드 DailyLookSerializer(api/apps/recommend/serializers.py)와
@@ -97,4 +98,25 @@ export function dailyLookPhase(look: DailyLook | null, stalled = false): DailyLo
 export function getTodayLook(coords?: { lat: number; lon: number }): Promise<DailyLook> {
   const qs = coords ? `?lat=${coords.lat}&lon=${coords.lon}` : '';
   return api.get<DailyLook>(`${DailyLookEndpoint}${qs}`);
+}
+
+export type DailyLookSaveResponse = {
+  /** 새로 담았으면 true, 이미 담아 둔 코디면 false */
+  created: boolean;
+  /** 룩북 목록(GET /api/v1/lookbooks/)의 항목과 같은 스키마 */
+  lookbook: LookbookPostDto;
+};
+
+/**
+ * 오늘의 룩을 내 룩북에 담는다.
+ *
+ * 본문을 보내지 않는다 — 담을 대상은 서버가 그날의 추천으로 정한다.
+ * 사진 룩북과 달리 업로드도 옷 추출도 없어 응답이 곧 완료다(폴링 없음).
+ *
+ * 같은 코디를 두 번 담으면 서버가 기존 룩북을 그대로 돌려주고 `created=false` 다.
+ * 화면은 이 값으로 '담았어요'와 '이미 담겨 있어요'를 가른다 — 상태코드로만 가르면
+ * 재시도·프록시 때문에 흔들린다.
+ */
+export function saveTodayLook(): Promise<DailyLookSaveResponse> {
+  return api.post<DailyLookSaveResponse>(DailyLookSaveEndpoint);
 }

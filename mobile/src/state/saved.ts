@@ -11,6 +11,7 @@ import {
   type LookbookPostDto,
   type LookbookStatus,
 } from '@/lib/lookbookApi';
+import { saveTodayLook } from '@/lib/dailyLookApi';
 import { addWardrobeItemToCloset } from '@/lib/wardrobeApi';
 import { authStore } from '@/state/auth';
 import { CLOSET_ITEMS } from '@/constants/wardrobe';
@@ -30,10 +31,13 @@ import type { EntryItem } from '@/state/calendar';
 
 /**
  * 룩이 어디서 왔는지. 목록에서 한 그리드에 섞이므로 카드 배지로 이걸 구분한다.
- * - 'ai': 앱이 추천해 준 룩을 저장한 것
+ * - 'ai': 앱이 추천해 준 룩을 저장한 것 (서버에 올릴 수 없는 목업 포함 → 위시 갈래)
  * - 'closet': 내 옷장(·친구 옷장) 옷으로 내가 직접 기록한 것
+ * - 'daily': 오늘의 룩 카드에서 담은 골든 코디. 서버에 진짜 룩북 글로 남으므로
+ *   위시가 아니라 내 룩북 목록에 선다. 유일하게 **서버가 알려주는** 출처다
+ *   (source_type=GOLDEN_LOOK) — 나머지는 로컬 오버레이의 추측이다.
  */
-export type LookOrigin = 'ai' | 'closet';
+export type LookOrigin = 'ai' | 'closet' | 'daily';
 
 export type SavedLook = {
   id: string;
@@ -50,6 +54,14 @@ export type SavedLook = {
    */
   reason?: string;
   origin: LookOrigin;
+  /**
+   * 오늘의 룩에서 담은 골든 코디 id (origin 'daily' 에만 있다).
+   *
+   * 이 룩의 사진은 presigned URL 이라 **조회마다 달라진다.** 사진으로 같은 룩인지
+   * 판정하는 keyOf 는 여기서 무력하다 — 담아 뒀는데도 상세의 북마크가 꺼져 보이고,
+   * 뺄 때 그 룩을 못 찾는다. 골든 id 는 그 코디를 가리키는 유일하게 안정된 값이다.
+   */
+  goldenId?: string;
   /** 이 룩을 이룬 옷 — 직접 기록한 룩(origin 'closet')에만 있다 */
   items?: EntryItem[];
   /** 그날의 일정 — '팀 회의', '친구 결혼식' */
@@ -161,7 +173,9 @@ function notify() {
 function toLook(dto: LookbookPostDto): SavedLook {
   const overlay = (overlays[dto.id] ??= {});
   const items: EntryItem[] = dto.wardrobe_items.map((link) => ({
-    id: link.wardrobe_item_id,
+    /* 골든 코디 구성 아이템은 옷장 아이템이 아니라 wardrobe_item_id 가 null 이다.
+       연결 행 id 로 대신 채운다 — 화면에서 key 로 쓰이므로 비면 리스트가 깨진다. */
+    id: link.wardrobe_item_id ?? link.link_id,
     source: 'closet',
     name: (link.snapshot.item_name as string) || '이름 없는 아이템',
     image: link.image_url || undefined,
@@ -174,9 +188,15 @@ function toLook(dto: LookbookPostDto): SavedLook {
     comment: overlay.comment ?? dto.schedule ?? undefined,
     memo: overlay.memo,
     reason: overlay.reason,
-    /* 오버레이가 비었으면(다른 기기·재시작) 담긴 옷으로 짐작한다 — 옷이 걸려 있으면
-       내가 고른 룩, 사진뿐이면 추천 룩 쪽에 가깝다. 정확한 구분은 서버 필드가 필요하다. */
-    origin: overlay.origin ?? (items.length > 0 ? 'closet' : 'ai'),
+    /* 오늘의 룩에서 담은 룩은 서버가 정확히 알려준다 — 짐작보다 이걸 먼저 본다.
+       (골든 코디는 구성 아이템이 있어서, 짐작에 맡기면 '내가 고른 룩'으로 뭉친다)
+       나머지는 오버레이가 비었으면(다른 기기·재시작) 담긴 옷으로 짐작한다 — 옷이
+       걸려 있으면 내가 고른 룩, 사진뿐이면 추천 룩 쪽에 가깝다. */
+    origin:
+      dto.source_type === 'GOLDEN_LOOK'
+        ? 'daily'
+        : (overlay.origin ?? (items.length > 0 ? 'closet' : 'ai')),
+    goldenId: dto.golden_id || undefined,
     items: items.length ? items : undefined,
     note: dto.schedule || undefined,
     entryDate: dto.calendar?.date ?? overlay.entryDate,
@@ -194,6 +214,9 @@ export const savedLookStore = {
     const key = keyOf(look);
     return key != null && savedLooks.some((l) => keyOf(l) === key);
   },
+  /** 이 골든 코디를 이미 담아 뒀는가. 사진(presigned)이 아니라 코디 id 로 본다. */
+  getByGoldenId: (goldenId: string) =>
+    goldenId ? savedLooks.find((l) => l.goldenId === goldenId) : undefined,
   /**
    * 저장. 사진이 같은 룩이 이미 있으면 중복 추가하지 않고 기존 것을 돌려준다.
    * origin 기본값이 'ai' 인 이유: 이 함수를 부르는 기존 자리(홈·룩 상세)가 전부 추천 룩 저장이다.
@@ -305,6 +328,25 @@ export const savedLookStore = {
     notify();
     if (isProcessing(dto.status)) watchProcessing(dto.id);
     return look;
+  },
+
+  /**
+   * 오늘의 룩 카드의 '저장' — 골든 코디를 내 룩북에 담는다.
+   *
+   * addLook 을 쓰지 않는 이유: addLook 은 표지 사진을 **다시 업로드**해 옷장
+   * 파이프라인(GPU)을 태운다. 골든 코디는 서버가 이미 가진 자산이고 태깅도 끝나
+   * 있어서, 그 경로로 담으면 같은 사진이 사용자 수만큼 복제되고 이미 끝난 태깅을
+   * 다시 돌린다. 서버는 버킷·키를 가리키기만 하므로 왕복 한 번으로 끝난다.
+   *
+   * Returns: 담긴 룩과 `created`(이미 담아 둔 코디면 false).
+   */
+  async saveDailyLook(): Promise<{ look: SavedLook; created: boolean }> {
+    const { created, lookbook } = await saveTodayLook();
+    const look = toLook(lookbook);
+    /* 이미 담아 둔 코디면 목록에 이미 서 있다 — 같은 id 를 두 번 넣지 않는다. */
+    serverLooks = [look, ...serverLooks.filter((l) => l.id !== look.id)];
+    notify();
+    return { look, created };
   },
 
   async removeLook(id: string) {

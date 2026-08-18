@@ -85,8 +85,19 @@ export default function LookDetail() {
   const lookTags = tagsOf(look.subtitle);
   /* 사진은 원격 URL 이 있으면 그것, 없으면 번들 목업(오늘의 룩) */
   const lookKey = look.image ? { image: look.image } : { asset: TODAY_LOOK_IMAGE };
+  /* 지금 그리는 것이 서버가 만든 오늘의 룩인가. 저장이 골든 코디 경로를 타야 하는
+     조건이자, '이미 담았는지'를 사진이 아니라 골든 id 로 봐야 하는 조건이다 —
+     이 룩의 사진은 presigned URL 이라 조회마다 달라진다. */
+  const serverGoldenId =
+    !discoveryVariant && (!id || id === 'daily') && apiVariant
+      ? (dailyLook?.result?.golden_id ?? '')
+      : '';
 
-  const [saved, setSaved] = useState(() => savedLookStore.isSaved(lookKey));
+  const [saved, setSaved] = useState(() =>
+    serverGoldenId
+      ? savedLookStore.getByGoldenId(serverGoldenId) != null
+      : savedLookStore.isSaved(lookKey),
+  );
   const [vote, setVote] = useState<'up' | 'down' | null>(null);
   const [openSlot, setOpenSlot] = useState<string | null>(null);
   const toast = useToast();
@@ -158,6 +169,12 @@ export default function LookDetail() {
   const saveLook = async (): Promise<boolean> => {
     setSaved(true);
     try {
+      if (serverGoldenId) {
+        /* 골든 코디는 서버가 이미 가진 자산이다. 표지 사진을 다시 올리면(addLook)
+           같은 사진이 사용자 수만큼 복제되고 이미 끝난 옷 추출을 다시 돈다. */
+        await savedLookStore.saveDailyLook();
+        return true;
+      }
       await savedLookStore.addLook({
         ...lookKey,
         comment: look.title,
@@ -174,9 +191,11 @@ export default function LookDetail() {
 
   const toggleSave = async () => {
     if (saved) {
-      const found = savedLookStore
-        .getLooks()
-        .find((l) => (look.image ? l.image === look.image : l.asset === TODAY_LOOK_IMAGE));
+      const found = serverGoldenId
+        ? savedLookStore.getByGoldenId(serverGoldenId)
+        : savedLookStore
+            .getLooks()
+            .find((l) => (look.image ? l.image === look.image : l.asset === TODAY_LOOK_IMAGE));
       setSaved(false);
       if (found) {
         try {
@@ -188,12 +207,16 @@ export default function LookDetail() {
       }
       return;
     }
-    if (await saveLook()) toast('위시에 담았어요');
+    if (await saveLook()) toast(serverGoldenId ? '내 룩북에 담았어요' : '위시에 담았어요');
   };
 
-  // 하단 '룩북에 저장' = 담고 내 룩북의 위시 갈래로 이동 — 담아둔 룩은 거기 선다.
+  /* 하단 '룩북에 저장' = 담고 그 룩이 선 갈래로 이동 — 담았다고 해 놓고 그 룩이 없는
+     목록을 열면 실패로 읽힌다. 오늘의 룩은 서버에 진짜 룩북 글로 남아 내 룩북에,
+     목업·피드 룩은 예전처럼 위시에 선다. */
   const saveAndGoLookbook = async () => {
-    if (await saveLook()) router.push('/(tabs)/lookbook?tab=wish');
+    if (await saveLook()) {
+      router.push(serverGoldenId ? '/(tabs)/lookbook?tab=mine' : '/(tabs)/lookbook?tab=wish');
+    }
   };
 
   /* 아직 안 불러왔거나 API 실패 시엔 날씨를 생략하고 무드·상황만 보여준다. */

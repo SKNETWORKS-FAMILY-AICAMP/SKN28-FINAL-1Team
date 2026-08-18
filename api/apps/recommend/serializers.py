@@ -6,6 +6,8 @@ from django.urls import reverse
 from drf_spectacular.utils import extend_schema_field
 from rest_framework import serializers
 
+from apps.lookbook.serializers import LookbookPostSerializer
+
 from .models import (
     DailyLook,
     OutfitAnalysis,
@@ -484,6 +486,24 @@ class DailyLookSerializer(serializers.ModelSerializer):
         if obj.status == DailyLook.Status.FAILED:
             return "오늘의 룩을 만들지 못했어요. 잠시 후 다시 확인해주세요."
         return None
+
+
+class DailyLookSaveResponseSerializer(serializers.Serializer):
+    """오늘의 룩 저장 응답.
+
+    `created`가 false면 이미 담아 둔 코디라는 뜻이고 `lookbook`은 그때 만든
+    행이다. 프론트는 이 값으로 "담았어요"와 "이미 담겨 있어요"를 가른다 —
+    상태코드(201/200)만으로 가르게 하면 재시도·프록시 때문에 흔들린다.
+
+    `lookbook`은 룩북 목록(GET /api/v1/lookbooks/)의 항목과 같은 스키마다.
+    저장 직후 룩북 화면으로 이동하는 흐름이라, 프론트가 목록을 다시 부르지 않고
+    이 응답만으로 카드를 그릴 수 있어야 한다.
+    """
+
+    created = serializers.BooleanField(
+        help_text="새로 담았으면 true, 이미 담아 둔 코디면 false"
+    )
+    lookbook = LookbookPostSerializer(read_only=True)
 
 
 class RecommendationHistoryQuerySerializer(serializers.Serializer):

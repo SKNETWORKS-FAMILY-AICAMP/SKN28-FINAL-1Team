@@ -1,6 +1,7 @@
 from django.urls import path
 
 from .views import (
+    DailyLookSaveView,
     DailyLookTodayView,
     OutfitAnalysisClaimView,
     OutfitAnalysisDetailView,
@@ -39,6 +40,13 @@ urlpatterns = [
     ),
     # 오늘의 룩 — 조회가 곧 생성 트리거다 (사용자 입력이 없는 기능).
     path("looks/today/", DailyLookTodayView.as_view(), name="daily-look-today"),
+    # 저장은 본문이 없다. 담을 대상은 그날의 추천 하나로 정해져 있고, golden_id를
+    # 클라이언트가 보내게 하면 남의 코디도 담을 수 있는 구멍이 된다.
+    path(
+        "looks/today/save/",
+        DailyLookSaveView.as_view(),
+        name="daily-look-save",
+    ),
     path(
         "recommendations/",
         RecommendationHistoryView.as_view(),

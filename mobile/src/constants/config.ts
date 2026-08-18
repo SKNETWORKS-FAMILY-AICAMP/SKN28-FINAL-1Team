@@ -154,6 +154,17 @@ export const HomeEndpoint = '/api/v1/home/';
 export const DailyLookEndpoint = '/api/v1/looks/today/';
 
 /**
+ * 오늘의 룩 저장 (홈 카드의 '저장'). POST, **본문 없음**.
+ *
+ * 담을 대상은 그날의 추천 하나로 정해져 있어서 클라이언트가 golden_id 를 보내지
+ * 않는다 — 보내게 하면 남의 코디도 담을 수 있는 구멍이 된다.
+ *
+ * 201 새로 담음 / 200 이미 담아 둔 코디(같은 룩북을 돌려준다) /
+ * 409 아직 담을 수 없음(응답 status 가 이유: QUEUED·PROCESSING·EMPTY·FAILED·MISSING)
+ */
+export const DailyLookSaveEndpoint = '/api/v1/looks/today/save/';
+
+/**
  * 착장 사진 분석. 인증 없이 호출할 수 있고, JWT가 있으면 개인화 정보를 반영한다.
  * POST multipart { image, lat?, lon? } → { status, evaluation, context }
  */

@@ -269,22 +269,37 @@ function HomeBody({
   );
   const look = looks.length ? looks[idx % looks.length] : null;
 
-  // 지금 보고 있는 룩을 위시에 담고 내 룩북의 위시 갈래로 이동한다.
+  /**
+   * 지금 보고 있는 룩을 내 룩북에 담고 그 목록으로 이동한다.
+   *
+   * 진짜 추천(daily)과 데모 목업은 담는 길이 다르다.
+   * - 추천: 서버가 골든 코디를 가리키기만 한다(왕복 한 번). 표지 사진을 다시
+   *   올리면 이미 가진 자산이 사용자 수만큼 복제되고 옷 추출까지 다시 돈다.
+   * - 데모: 번들 목업이라 서버에 올릴 실체가 없다 — 예전처럼 이 기기에만 담는다.
+   */
   const saveCurrentLook = async () => {
     if (!look) return;
+    const isRealLook = !isDemo && phase === 'ready';
     /* 서버 왕복이라 끝난 뒤에 알린다 — 먼저 토스트를 띄우면 실패해도 담긴 것처럼 보인다. */
     try {
-      await savedLookStore.addLook({
-        image: look.image ?? undefined,
-        comment: look.comment,
-        tags: look.tags,
-      });
+      if (isRealLook) {
+        const { created } = await savedLookStore.saveDailyLook();
+        toast(created ? '내 룩북에 담았어요' : '이미 담아둔 룩이에요');
+      } else {
+        await savedLookStore.addLook({
+          image: look.image ?? undefined,
+          comment: look.comment,
+          tags: look.tags,
+        });
+        toast('위시에 담았어요');
+      }
     } catch (error) {
       toast(error instanceof Error ? error.message : '저장하지 못했어요', { variant: 'error' });
       return;
     }
-    toast('위시에 담았어요');
-    router.push('/(tabs)/lookbook?tab=wish');
+    /* 담긴 갈래로 보낸다 — 담았다고 해 놓고 그 룩이 없는 목록을 열면 실패로 읽힌다.
+       데모 목업은 예전처럼 위시(origin 'ai')에, 진짜 추천은 내 룩북에 선다. */
+    router.push(isRealLook ? '/(tabs)/lookbook?tab=mine' : '/(tabs)/lookbook?tab=wish');
   };
 
   return (

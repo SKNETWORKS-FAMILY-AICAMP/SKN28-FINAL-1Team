@@ -34,9 +34,11 @@ from apps.chat.openapi import (
 )
 from apps.chat.renderers import ServerSentEventRenderer
 from apps.chat.services import identity as identity_service
+from apps.lookbook.serializers import LookbookPostSerializer
 
 from .models import OutfitAnalysis, OutfitRenderJob
 from .serializers import (
+    DailyLookSaveResponseSerializer,
     DailyLookSerializer,
     OutfitAnalysisAcceptedSerializer,
     OutfitAnalysisClaimRequestSerializer,
@@ -61,6 +63,7 @@ from .serializers import (
 from .services import analysis as analysis_service
 from .services import claim as claim_service
 from .services import daily_look as daily_look_service
+from .services import daily_look_save
 from .services import recommendation_results as recommendation_service
 from .services import render_jobs
 from .services.render_events import (
@@ -1394,6 +1397,65 @@ class DailyLookTodayView(APIView):
         daily_look_service.refresh_render(look)
 
         return Response(DailyLookSerializer(look).data)
+
+
+class DailyLookSaveView(APIView):
+    """오늘의 룩을 내 룩북에 담는다 (홈 카드의 '저장' 버튼).
+
+    사진 룩북과 달리 **아무것도 업로드하지 않는다.** 담는 대상은 이미 골든셋
+    버킷에 있는 코디라, 이미지는 버킷·키로 가리키기만 하고 구성 아이템은
+    스냅샷으로만 남는다. 옷장 파이프라인(GPU)도 타지 않는다 — 이미 태깅이 끝난
+    옷을 다시 태깅하는 셈이기 때문이다.
+
+    본문이 없다. 담을 대상은 그날의 추천 하나로 정해져 있고, 클라이언트가
+    golden_id를 보내게 하면 남의 코디도 담을 수 있는 구멍이 된다.
+    """
+
+    permission_classes = [IsAuthenticated]
+
+    @extend_schema(
+        operation_id="daily_look_save",
+        summary="오늘의 룩 저장",
+        description=(
+            "그날의 오늘의 룩을 내 룩북에 담는다. 본문은 없다.\n\n"
+            "- `201`: 새로 담았다\n"
+            "- `200`: 이미 담아 둔 코디다 (같은 룩북을 돌려준다). "
+            "같은 골든 코디는 사용자당 한 번만 담긴다\n"
+            "- `409`: 아직 담을 수 없다. `status`가 그 이유이며 "
+            "`GET /api/v1/looks/today/`의 상태값과 같다 "
+            "(`QUEUED`/`PROCESSING`이면 잠시 뒤 다시, `EMPTY`/`FAILED`/`MISSING`이면 "
+            "담을 추천이 없다)\n\n"
+            "응답의 `lookbook`은 `GET /api/v1/lookbooks/`의 항목과 같은 스키마다."
+        ),
+        request=None,
+        responses={
+            200: DailyLookSaveResponseSerializer,
+            201: DailyLookSaveResponseSerializer,
+            409: OpenApiResponse(description="아직 담을 수 있는 추천이 아니다"),
+        },
+    )
+    def post(self, request: Request) -> Response:
+        try:
+            post, created = daily_look_save.save_to_lookbook(request.user)
+        except daily_look_save.DailyLookNotSavableError as error:
+            return Response(
+                {
+                    "code": "DAILY_LOOK_NOT_READY",
+                    "status": error.status,
+                    "detail": "아직 담을 수 있는 오늘의 룩이 없습니다.",
+                },
+                status=status.HTTP_409_CONFLICT,
+            )
+
+        if created:
+            logger.info(
+                "오늘의 룩 저장: user=%s lookbook=%s golden=%s",
+                request.user.pk, post.pk, post.golden_id,
+            )
+        return Response(
+            {"created": created, "lookbook": LookbookPostSerializer(post).data},
+            status=status.HTTP_201_CREATED if created else status.HTTP_200_OK,
+        )
 
 
 def _float_or_none(raw: str | None) -> float | None:

@@ -74,12 +74,31 @@ class LookbookPost(models.Model):
         choices=[
             (LookbookSourceType.PHOTO_UPLOAD.value, "룩 사진 업로드"),
             (LookbookSourceType.WARDROBE_SELECTED.value, "옷장 직접 선택"),
+            (LookbookSourceType.GOLDEN_LOOK.value, "오늘의 룩 저장"),
         ],
-        db_comment="룩북 등록 경로 (PHOTO_UPLOAD/WARDROBE_SELECTED)",
+        db_comment="룩북 등록 경로 (PHOTO_UPLOAD/WARDROBE_SELECTED/GOLDEN_LOOK)",
     )
     image_s3_key = models.CharField(
         max_length=512,
         db_comment="룩북 대표 이미지 S3 키 (룩북 소유 경로)",
+    )
+    image_s3_bucket = models.CharField(
+        max_length=255,
+        blank=True,
+        default="",
+        db_comment=(
+            "대표 이미지가 있는 S3 버킷. 빈 값이면 룩북 버킷(LOOKBOOK_S3_BUCKET). "
+            "오늘의 룩에서 담은 골든 코디는 골든셋 버킷을 그대로 가리킨다"
+        ),
+    )
+    golden_id = models.CharField(
+        max_length=100,
+        blank=True,
+        default="",
+        db_comment=(
+            "오늘의 룩에서 담은 골든 코디 id (source_type=GOLDEN_LOOK 일 때만). "
+            "사용자당 한 번만 담기도록 유니크 제약의 근거가 된다"
+        ),
     )
     schedule = models.TextField(
         blank=True,
@@ -158,6 +177,17 @@ class LookbookPost(models.Model):
             "사용자가 올린 룩 한 벌 (대표 사진·입은 옷·일정·해시태그와 이미지 처리 상태)"
         )
         ordering = ["-created_at"]  # noqa: RUF012 - Django Meta option
+        constraints = [  # noqa: RUF012 - Django Meta option
+            # 같은 골든 코디를 두 번 담지 않는다. 오늘의 룩은 하루 한 벌이라
+            # 두 번째 '저장'은 사용자의 의도가 아니라 눌린 것에 가깝다.
+            # 골든 코디가 아닌 룩(golden_id="")은 제약에서 빠진다 — 사진 룩은
+            # 같은 사진을 여러 번 올릴 수 있어야 한다.
+            models.UniqueConstraint(
+                fields=["user", "golden_id"],
+                condition=~models.Q(golden_id=""),
+                name="uq_lookbook_user_golden",
+            )
+        ]
         indexes = [  # noqa: RUF012 - Django Meta option
             models.Index(
                 fields=["user", "-created_at"],
@@ -196,17 +226,26 @@ class LookbookWardrobeItem(models.Model):
     wardrobe_item = models.ForeignKey(
         "wardrobe.WardrobeItem",
         on_delete=models.CASCADE,
+        null=True,
+        blank=True,
         related_name="lookbook_links",
-        db_comment="연결 대상 옷장 아이템 FK (wardrobe_item.id)",
+        db_comment=(
+            "연결 대상 옷장 아이템 FK (wardrobe_item.id). "
+            "골든 코디 구성 아이템은 사용자 옷장의 옷이 아니라 NULL이고 snapshot만 남는다"
+        ),
     )
     link_type = models.CharField(
         max_length=16,
         choices=[
             (LookbookLinkType.SELECTED.value, "사용자 직접 선택"),
             (LookbookLinkType.EXTRACTED.value, "룩 사진에서 추출"),
+            (LookbookLinkType.GOLDEN.value, "골든 코디 구성"),
         ],
         default=LookbookLinkType.SELECTED.value,
-        db_comment="아이템이 붙은 경로 (SELECTED: 직접 선택 / EXTRACTED: 사진 추출)",
+        db_comment=(
+            "아이템이 붙은 경로 "
+            "(SELECTED: 직접 선택 / EXTRACTED: 사진 추출 / GOLDEN: 골든 코디 구성)"
+        ),
     )
     sort_order = models.PositiveIntegerField(
         default=0,
