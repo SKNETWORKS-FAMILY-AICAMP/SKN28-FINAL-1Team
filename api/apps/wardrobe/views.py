@@ -42,8 +42,11 @@ from .serializers import (
     MAX_BATCH_TOTAL_MB,
     MAX_UPLOAD_MB,
     WardrobeBatchCreateSerializer,
+    WardrobeCategoryItemsPatchSerializer,
     WardrobeCategorySerializer,
+    WardrobeCategorySummarySerializer,
     WardrobeCategoryWriteSerializer,
+    WardrobeItemCategoriesPutSerializer,
     WardrobeItemSerializer,
     WardrobeItemUpdateSerializer,
     WardrobeJobSerializer,
@@ -129,6 +132,17 @@ def _category_write_error(serializer) -> Response:
 def _category_service_error(exc: category_service.CategoryServiceError) -> Response:
     return Response(
         {"code": exc.code, "detail": exc.detail},
+        status=exc.status_code,
+    )
+
+
+def _category_assignment_write_error(serializer) -> Response:
+    return Response(
+        {
+            "code": "CATEGORY_ASSIGNMENT_INVALID",
+            "detail": "옷 카테고리 배정 요청이 올바르지 않습니다.",
+            "errors": serializer.errors,
+        },
         status=status.HTTP_400_BAD_REQUEST,
     )
 
@@ -534,6 +548,57 @@ class WardrobeCategoryDetailView(APIView):
         return Response(status=status.HTTP_204_NO_CONTENT)
 
 
+class WardrobeCategoryItemsView(APIView):
+    """PATCH /categories/{id}/items/ — 카테고리에서 옷을 일괄 추가·제거."""
+
+    def patch(self, request, category_id):
+        category, error_response = _owned_category_or_error(
+            request.user,
+            category_id,
+        )
+        if error_response is not None:
+            return error_response
+        serializer = WardrobeCategoryItemsPatchSerializer(data=request.data)
+        if not serializer.is_valid():
+            return _category_assignment_write_error(serializer)
+        try:
+            result = category_service.update_category_items(
+                user=request.user,
+                category=category,
+                add_item_ids=serializer.validated_data["add_item_ids"],
+                remove_item_ids=serializer.validated_data["remove_item_ids"],
+            )
+        except category_service.CategoryServiceError as exc:
+            return _category_service_error(exc)
+        return Response(result)
+
+
+class WardrobeItemCategoriesView(APIView):
+    """PUT /items/{id}/categories/ — 아이템의 사용자 카테고리 전체 교체."""
+
+    def put(self, request, item_id):
+        serializer = WardrobeItemCategoriesPutSerializer(data=request.data)
+        if not serializer.is_valid():
+            return _category_assignment_write_error(serializer)
+        try:
+            item, categories = category_service.replace_item_categories(
+                user=request.user,
+                item_id=item_id,
+                category_ids=serializer.validated_data["category_ids"],
+            )
+        except category_service.CategoryServiceError as exc:
+            return _category_service_error(exc)
+        return Response(
+            {
+                "item_id": str(item.pk),
+                "custom_categories": WardrobeCategorySummarySerializer(
+                    categories,
+                    many=True,
+                ).data,
+            }
+        )
+
+
 class WardrobeItemListView(APIView):
     """GET /api/v1/wardrobe/items/ — 내 옷장 아이템 목록.
 
@@ -546,7 +611,9 @@ class WardrobeItemListView(APIView):
     """
 
     def get(self, request):
-        qs = WardrobeItem.objects.filter(user=request.user)
+        qs = WardrobeItem.objects.filter(user=request.user).prefetch_related(
+            "custom_categories"
+        )
         if request.query_params.get("include_unadded", "").lower() != "true":
             qs = qs.filter(added_to_closet_at__isnull=False)
         category = request.query_params.get("category_large")

@@ -6,8 +6,10 @@ from apps.wardrobe.views import (
     WardrobeBatchView,
     WardrobeCallbackView,
     WardrobeCategoryDetailView,
+    WardrobeCategoryItemsView,
     WardrobeCategoryListCreateView,
     WardrobeItemAddToClosetView,
+    WardrobeItemCategoriesView,
     WardrobeItemDetailView,
     WardrobeItemListView,
     WardrobeUploadJobView,
@@ -39,9 +41,19 @@ urlpatterns = [
         WardrobeCategoryDetailView.as_view(),
         name="category-detail",
     ),
+    path(
+        "wardrobe/categories/<uuid:category_id>/items/",
+        WardrobeCategoryItemsView.as_view(),
+        name="category-items",
+    ),
     # 옷장 아이템 조회·수정·삭제
     path("wardrobe/items/", WardrobeItemListView.as_view(), name="items"),
     path("wardrobe/items/<uuid:item_id>/", WardrobeItemDetailView.as_view(), name="item-detail"),
+    path(
+        "wardrobe/items/<uuid:item_id>/categories/",
+        WardrobeItemCategoriesView.as_view(),
+        name="item-categories",
+    ),
     # ── 공유 옷장 (Shared Wardrobe) ──
     path("", include(router.urls)),
     # 룩 사진에서 뽑힌 옷을 옷장에 들이기

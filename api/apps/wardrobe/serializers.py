@@ -24,6 +24,36 @@ class WardrobeCategoryWriteSerializer(serializers.Serializer):
     name = serializers.CharField(max_length=30, trim_whitespace=False)
 
 
+class WardrobeCategoryItemsPatchSerializer(serializers.Serializer):
+    add_item_ids = serializers.ListField(
+        child=serializers.UUIDField(),
+        required=False,
+        default=list,
+        max_length=500,
+    )
+    remove_item_ids = serializers.ListField(
+        child=serializers.UUIDField(),
+        required=False,
+        default=list,
+        max_length=500,
+    )
+
+
+class WardrobeItemCategoriesPutSerializer(serializers.Serializer):
+    category_ids = serializers.ListField(
+        child=serializers.UUIDField(),
+        allow_empty=True,
+        max_length=100,
+    )
+
+
+class WardrobeCategorySummarySerializer(serializers.ModelSerializer):
+    class Meta:
+        model = WardrobeCategory
+        fields = ["id", "name", "position"]
+        read_only_fields = fields
+
+
 class WardrobeCategorySerializer(serializers.ModelSerializer):
     type = serializers.SerializerMethodField()
     item_count = serializers.SerializerMethodField()
@@ -129,6 +159,7 @@ class WardrobeBatchCreateSerializer(serializers.Serializer):
 # ── 아이템 조회/수정 ──────────────────────────────────────
 class WardrobeItemSerializer(serializers.ModelSerializer):
     image_url = serializers.SerializerMethodField()
+    custom_categories = WardrobeCategorySummarySerializer(many=True, read_only=True)
 
     class Meta:
         model = WardrobeItem
@@ -142,6 +173,7 @@ class WardrobeItemSerializer(serializers.ModelSerializer):
             # 확정하면 이 방에 공유된다는 예약. 상세 화면이 "확정 시 OO방에 공유" 안내를
             # 그릴 수 있어야 사용자가 등록할 때 켠 토글을 확정 직전에 다시 확인할 수 있다.
             "pending_share_room", "pending_share_status",
+            "custom_categories",
         ]
         read_only_fields = [
             "id", "job", "s3_key", "seg_meta", "created_at", "added_to_closet_at",
