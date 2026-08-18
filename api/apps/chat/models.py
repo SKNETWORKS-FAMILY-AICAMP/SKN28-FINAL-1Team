@@ -122,6 +122,13 @@ def validate_reference_snapshot(value: object) -> None:
 
     if not isinstance(value, dict):
         raise ValidationError("공유 옷장 참조 스냅샷은 JSON 객체여야 합니다.")
+
+
+def validate_wardrobe_scope_snapshot(value: object) -> None:
+    if not isinstance(value, dict):
+        raise ValidationError("옷장 추천 범위 스냅샷은 JSON 객체여야 합니다.")
+    if value and not isinstance(value.get("candidate_item_ids"), list):
+        raise ValidationError("옷장 추천 범위 후보 ID는 배열이어야 합니다.")
     if not value:
         return
 
@@ -849,6 +856,15 @@ class ChatRun(models.Model):
         db_comment=(
             "실행 접수 당시 공유 옷장 참조 아이템·이미지·태그·벡터 위치 JSON "
             "(참조가 없거나 기존 실행이면 빈 객체, 원본 벡터는 저장하지 않음)"
+        ),
+    )
+    wardrobe_scope_snapshot = models.JSONField(
+        default=dict,
+        blank=True,
+        validators=[validate_wardrobe_scope_snapshot],
+        db_comment=(
+            "실행 접수 당시 개인 옷장 기본 카테고리·해시태그 범위와 후보 아이템 JSON "
+            "(범위가 없거나 기존 실행이면 빈 객체)"
         ),
     )
     enqueued_at = models.DateTimeField(

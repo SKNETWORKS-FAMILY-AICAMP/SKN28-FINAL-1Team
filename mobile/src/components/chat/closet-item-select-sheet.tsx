@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { Modal, Pressable, ScrollView, StyleSheet, Text, View, ActivityIndicator } from 'react-native';
 import { Image } from 'expo-image';
 import { Icon } from '@/components/icon';
-import { listWardrobeItems, getMySharedRooms, listSharedRoomItems, sharedUserDisplayName } from '@/lib/wardrobeApi';
+import { listWardrobeItems, listWardrobeFilters, getMySharedRooms, listSharedRoomItems, sharedUserDisplayName } from '@/lib/wardrobeApi';
 import { Editorial, ink } from '@/constants/theme';
 
 export function ClosetItemSelectSheet({
@@ -12,13 +12,19 @@ export function ClosetItemSelectSheet({
 }: {
   visible: boolean;
   onClose: () => void;
-  onSelect: (selected: { id: string; image: string; name: string }[]) => void;
+  onSelect: (selected: {
+    kind: 'items' | 'hashtags';
+    items: { id: string; image: string; name: string }[];
+    hashtagIds: string[];
+    hashtagNames: string[];
+  }) => void;
 }) {
   const [items, setItems] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
-  const [activeTab, setActiveTab] = useState<'mine' | 'shared'>('mine');
+  const [activeTab, setActiveTab] = useState<'hashtags' | 'mine' | 'shared'>('hashtags');
   const [sharedItems, setSharedItems] = useState<any[]>([]);
+  const [hashtags, setHashtags] = useState<any[]>([]);
 
   useEffect(() => {
     if (visible) {
@@ -27,6 +33,7 @@ export function ClosetItemSelectSheet({
       
       Promise.all([
         listWardrobeItems().catch(() => []),
+        listWardrobeFilters().then((result) => result.hashtags).catch(() => []),
         getMySharedRooms()
           .then(async (rooms) => {
             const allShared: any[] = [];
@@ -49,7 +56,7 @@ export function ClosetItemSelectSheet({
           })
           .catch(() => []),
       ])
-        .then(([mine, shared]) => {
+        .then(([mine, hashtagRows, shared]) => {
           setItems(
             mine.map((it: any) => ({
               id: it.id,
@@ -58,6 +65,7 @@ export function ClosetItemSelectSheet({
             }))
           );
           setSharedItems(shared);
+          setHashtags(hashtagRows);
         })
         .finally(() => setLoading(false));
     }
@@ -70,6 +78,17 @@ export function ClosetItemSelectSheet({
   };
 
   const handleConfirm = () => {
+    if (activeTab === 'hashtags') {
+      const selectedHashtags = hashtags.filter((row) => selectedIds.includes(row.id));
+      onSelect({
+        kind: 'hashtags',
+        items: [],
+        hashtagIds: selectedHashtags.map((row) => row.id),
+        hashtagNames: selectedHashtags.map((row) => row.name),
+      });
+      onClose();
+      return;
+    }
     const list = activeTab === 'mine' ? items : sharedItems;
     const selected = list
       .filter((it) => selectedIds.includes(it.id))
@@ -78,11 +97,11 @@ export function ClosetItemSelectSheet({
         image: it.image,
         name: it.name,
       }));
-    onSelect(selected);
+    onSelect({ kind: 'items', items: selected, hashtagIds: [], hashtagNames: [] });
     onClose();
   };
 
-  const displayList = activeTab === 'mine' ? items : sharedItems;
+  const displayList = activeTab === 'hashtags' ? hashtags : activeTab === 'mine' ? items : sharedItems;
 
   return (
     <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
@@ -99,6 +118,16 @@ export function ClosetItemSelectSheet({
 
           {/* 탭 전환 */}
           <View style={styles.tabRow}>
+            <Pressable
+              style={[styles.tab, activeTab === 'hashtags' && styles.tabActive]}
+              onPress={() => {
+                setActiveTab('hashtags');
+                setSelectedIds([]);
+              }}>
+              <Text style={[styles.tabText, activeTab === 'hashtags' && styles.tabTextActive]}>
+                해시태그 ({hashtags.length})
+              </Text>
+            </Pressable>
             <Pressable
               style={[styles.tab, activeTab === 'mine' && styles.tabActive]}
               onPress={() => {
@@ -137,7 +166,13 @@ export function ClosetItemSelectSheet({
                     style={[styles.card, isSelected && styles.cardSelected]}
                     onPress={() => toggleSelect(it.id)}
                   >
-                    <Image source={{ uri: it.image }} style={styles.thumb} contentFit="cover" />
+                    {activeTab === 'hashtags' ? (
+                      <View style={[styles.thumb, styles.hashtagThumb]}>
+                        <Text style={styles.hashtagSymbol}>#</Text>
+                      </View>
+                    ) : (
+                      <Image source={{ uri: it.image }} style={styles.thumb} contentFit="cover" />
+                    )}
                     {isSelected && (
                       <View style={styles.checkedBadge}>
                         <Icon name="checkmark" tintColor="#FFFFFF" size={10} />
@@ -145,7 +180,7 @@ export function ClosetItemSelectSheet({
                     )}
                     <View style={styles.meta}>
                       <Text style={styles.cardName} numberOfLines={1}>
-                        {it.name}
+                        {activeTab === 'hashtags' ? `#${it.name}` : it.name}
                       </Text>
                       {it.owner && (
                         <Text style={styles.cardOwner} numberOfLines={1}>
@@ -166,7 +201,9 @@ export function ClosetItemSelectSheet({
               onPress={handleConfirm}
             >
               <Text style={styles.confirmText}>
-                {selectedIds.length > 0 ? `${selectedIds.length}개 옷 선택 완료` : '선택 완료'}
+                {selectedIds.length > 0
+                  ? `${selectedIds.length}개 ${activeTab === 'hashtags' ? '해시태그' : '옷'} 선택 완료`
+                  : '선택 완료'}
               </Text>
             </Pressable>
           </View>
@@ -270,6 +307,8 @@ const styles = StyleSheet.create({
     height: '70%',
     backgroundColor: '#fff',
   },
+  hashtagThumb: { alignItems: 'center', justifyContent: 'center' },
+  hashtagSymbol: { fontSize: 34, fontWeight: '700', color: Editorial.textCaption },
   checkedBadge: {
     position: 'absolute',
     top: 6,

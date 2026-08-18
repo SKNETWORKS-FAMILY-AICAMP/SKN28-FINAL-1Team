@@ -266,17 +266,36 @@ export function ChatConversation({
   };
 
   const handleSelectClosetItems = async (
-    selectedItems: { id: string; image: string; name: string }[],
+    selection: {
+      kind: 'items' | 'hashtags';
+      items: { id: string; image: string; name: string }[];
+      hashtagIds: string[];
+      hashtagNames: string[];
+    },
   ) => {
-    if (selectedItems.length === 0 || typing) return;
+    if ((selection.items.length === 0 && selection.hashtagIds.length === 0) || typing) return;
 
     setTyping(true);
     try {
-      const itemNames = selectedItems.map((item) => item.name).join(', ');
-      await chatStore.sendText(
-        await ensureSession(),
-        `선택한 옷(${itemNames})을 포함해 코디를 추천해줘.`,
-      );
+      if (selection.kind === 'hashtags') {
+        const names = selection.hashtagNames.map((name) => `#${name}`).join(', ');
+        await chatStore.sendText(
+          await ensureSession(),
+          `${names} 해시태그에 있는 옷을 기준으로 코디를 추천해줘.`,
+          {
+            wardrobeScope: {
+              hashtag_ids: selection.hashtagIds,
+              match_mode: 'REQUIRED',
+            },
+          },
+        );
+      } else {
+        const itemNames = selection.items.map((item) => item.name).join(', ');
+        await chatStore.sendText(
+          await ensureSession(),
+          `선택한 옷(${itemNames})을 포함해 코디를 추천해줘.`,
+        );
+      }
     } catch (e) {
       toast(e instanceof Error ? e.message : '선택한 옷으로 추천을 요청하지 못했어요', {
         variant: 'error',
@@ -380,7 +399,12 @@ export function ChatConversation({
               if (dataStr) {
                 const item = JSON.parse(dataStr);
                 if (item && item.id && item.image) {
-                  handleSelectClosetItems([item]);
+                  handleSelectClosetItems({
+                    kind: 'items',
+                    items: [item],
+                    hashtagIds: [],
+                    hashtagNames: [],
+                  });
                 }
               }
             } catch (err) {

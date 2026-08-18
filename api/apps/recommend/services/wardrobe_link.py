@@ -188,3 +188,23 @@ def accessible_item_ids(user) -> list[str]:
 
     return combined
 
+
+def owned_closet_item_ids(user) -> list[str]:
+    """개인 해시태그 추천용 소유·확정·옷장 편입 아이템 UUID만 반환한다."""
+    from django.conf import settings
+    from apps.wardrobe.models import WardrobeItem
+
+    if user is None or not user.is_authenticated:
+        return []
+    values = (
+        WardrobeItem.objects.filter(
+            user=user,
+            confirmed=True,
+            added_to_closet_at__isnull=False,
+        )
+        .order_by("-added_to_closet_at", "-created_at")
+        .values_list("id", flat=True)
+    )
+    cap = getattr(settings, "RETRIEVER_WARDROBE_ID_CAP", 1000)
+    return [str(value) for value in values[:cap]]
+

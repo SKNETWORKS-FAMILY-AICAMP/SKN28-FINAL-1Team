@@ -58,7 +58,7 @@ from apps.recommend.services.wardrobe_composer import (
     WardrobeCompositionRequest,
     WardrobeOutfitComposer,
 )
-from apps.recommend.services.wardrobe_link import accessible_item_ids
+from apps.recommend.services.wardrobe_link import accessible_item_ids, owned_closet_item_ids
 
 
 class ChatRecommendationError(RuntimeError):
@@ -215,8 +215,14 @@ class ChatRecommendationPipeline:
             raise OutfitCompositionFailed(
                 "옷장 기반 추천은 회원의 확정된 옷장 아이템이 필요합니다."
             )
+        scope_snapshot = run.wardrobe_scope_snapshot or {}
+        scoped_item_ids = tuple(scope_snapshot.get("candidate_item_ids") or ())
         allowed_wardrobe_item_ids = (
-            tuple(accessible_item_ids(session.identity.user))
+            tuple(
+                owned_closet_item_ids(session.identity.user)
+                if scoped_item_ids
+                else accessible_item_ids(session.identity.user)
+            )
             if user_id is not None
             else None
         )
@@ -265,22 +271,34 @@ class ChatRecommendationPipeline:
                 category_budgets = context.get("profile", {}).get(
                     "category_budgets", {}
                 )
-                slot_results = tuple(
-                    self.item_retriever.retrieve(
-                        ItemRetrievalRequest(
+                def retrieve_slot(point_id):
+                    request_kwargs = dict(
                             template_item_point_id=point_id,
                             sources=self._sources(session.mode, user_id),
                             user_id=user_id,
-                            allowed_wardrobe_item_ids=allowed_wardrobe_item_ids,
                             max_price=analysis.conditions.budget,
                             category_budgets=category_budgets,
                             dataset_version=settings.CHAT_GOLDENSET_DATASET_VERSION,
                             dataset_statuses=settings.CHAT_GOLDENSET_DATASET_STATUSES,
                             limit_per_source=10,
+                    )
+                    if scoped_item_ids and session.mode == ChatSession.Mode.WARDROBE_BASED:
+                        scoped = self.item_retriever.retrieve(
+                            ItemRetrievalRequest(
+                                **request_kwargs,
+                                allowed_wardrobe_item_ids=scoped_item_ids,
+                            )
+                        )
+                        if scoped.candidates:
+                            return scoped
+                    return self.item_retriever.retrieve(
+                        ItemRetrievalRequest(
+                            **request_kwargs,
+                            allowed_wardrobe_item_ids=allowed_wardrobe_item_ids,
                         )
                     )
-                    for point_id in template_ids
-                )
+
+                slot_results = tuple(retrieve_slot(point_id) for point_id in template_ids)
                 batch = self._compose(
                     session.mode,
                     slot_results,
@@ -297,6 +315,13 @@ class ChatRecommendationPipeline:
             ):
                 if len(generated) + len(template_candidates) >= candidate_limit:
                     break
+                if (
+                    scoped_item_ids
+                    and scope_snapshot.get("match_mode") == "REQUIRED"
+                    and session.mode == ChatSession.Mode.WARDROBE_BASED
+                    and not any(item.source_id in scoped_item_ids for item in composition.items)
+                ):
+                    continue
                 validation = self.validator.validate(
                     composition,
                     context=self._validation_context(

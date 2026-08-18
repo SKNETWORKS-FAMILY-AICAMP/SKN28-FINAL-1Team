@@ -47,6 +47,7 @@ from apps.chat.services.recommendation_pipeline import (
 )
 from apps.chat.services.sessions import ChatSessionForbidden, append_message
 from apps.chat.services.shared_reference import build_reference_snapshot
+from apps.chat.services.wardrobe_scope import build_wardrobe_scope_snapshot
 from apps.chat.services.stylist_execution import (
     StylistExecutionCoordinator,
     StylistExecutionError,
@@ -155,6 +156,7 @@ def submit_message_and_create_run(
     client_message_id: str,
     metadata: dict | None = None,
     reference: dict[str, object] | None = None,
+    wardrobe_scope: dict[str, object] | None = None,
 ) -> tuple[ChatMessage, bool, ChatRun, bool]:
     """메시지와 실행 스냅샷을 한 트랜잭션에서 멱등 생성한다."""
 
@@ -172,6 +174,7 @@ def submit_message_and_create_run(
         session_id=session_id,
         request_message_id=message.id,
         reference=reference,
+        wardrobe_scope=wardrobe_scope,
     )
     return message, message_created, run, run_created
 
@@ -183,6 +186,7 @@ def create_run(
     session_id,
     request_message_id,
     reference: dict[str, object] | None = None,
+    wardrobe_scope: dict[str, object] | None = None,
 ) -> tuple[ChatRun, bool]:
     """사용자 메시지당 실행을 하나만 만들고 큐 재전송을 멱등 처리한다."""
     session = (
@@ -217,6 +221,10 @@ def create_run(
     snapshot["reference_snapshot"] = build_reference_snapshot(
         identity=identity,
         reference=reference,
+    )
+    snapshot["wardrobe_scope_snapshot"] = build_wardrobe_scope_snapshot(
+        identity=identity,
+        scope=wardrobe_scope,
     )
 
     try:

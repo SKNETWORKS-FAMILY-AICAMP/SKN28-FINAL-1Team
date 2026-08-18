@@ -117,6 +117,18 @@ export type ApiChatRun = {
   error_message: string;
   created_at: string;
   updated_at: string;
+  wardrobe_scope_snapshot?: {
+    system_categories: string[];
+    hashtags: { id: string; name: string; position: number }[];
+    match_mode: 'REQUIRED' | 'PREFERRED';
+    candidate_item_ids: string[];
+  };
+};
+
+export type ApiWardrobeScope = {
+  system_categories?: string[];
+  hashtag_ids?: string[];
+  match_mode?: 'REQUIRED' | 'PREFERRED';
 };
 
 /** 메시지 전송의 202 응답. events_url 은 신뢰하지 않는다(config.ts 주석 참고). */
@@ -229,10 +241,12 @@ export function sendMessage(
   sessionId: string,
   content: string,
   clientMessageId: string,
+  wardrobeScope?: ApiWardrobeScope,
 ): Promise<ApiMessageSubmit> {
   return api.post<ApiMessageSubmit>(ChatEndpoints.messages(sessionId), {
     content,
     client_message_id: clientMessageId,
+    ...(wardrobeScope ? { wardrobe_scope: wardrobeScope } : {}),
   });
 }
 

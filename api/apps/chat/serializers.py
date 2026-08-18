@@ -91,6 +91,33 @@ class SharedWardrobeItemReferenceSerializer(serializers.Serializer):
     shared_item_id = serializers.UUIDField()
 
 
+class WardrobeScopeSerializer(serializers.Serializer):
+    system_categories = serializers.ListField(
+        child=serializers.CharField(max_length=30),
+        required=False,
+        default=list,
+        max_length=20,
+    )
+    hashtag_ids = serializers.ListField(
+        child=serializers.UUIDField(),
+        required=False,
+        default=list,
+        max_length=100,
+    )
+    match_mode = serializers.ChoiceField(
+        choices=["REQUIRED", "PREFERRED"],
+        required=False,
+        default="REQUIRED",
+    )
+
+    def validate(self, attrs):
+        if not attrs.get("system_categories") and not attrs.get("hashtag_ids"):
+            raise serializers.ValidationError(
+                "기본 카테고리 또는 해시태그를 하나 이상 선택해 주세요."
+            )
+        return attrs
+
+
 class ChatMessageCreateSerializer(serializers.Serializer):
     content = serializers.CharField(
         allow_blank=False,
@@ -118,6 +145,11 @@ class ChatMessageCreateSerializer(serializers.Serializer):
             "선택 입력. 공유 옷장 아이템을 추천 결과가 아닌 참고 이미지로 사용할 때 "
             "type=SHARED_WARDROBE_ITEM, shared_item_id=공유 아이템 UUID를 전달합니다."
         ),
+    )
+    wardrobe_scope = WardrobeScopeSerializer(
+        required=False,
+        write_only=True,
+        help_text="개인 옷장 기본 카테고리·해시태그 추천 범위",
     )
 
     def validate_metadata(self, value):
@@ -351,6 +383,8 @@ class ChatRunSerializer(serializers.ModelSerializer):
             "response_mode",
             "persona_ids",
             "results",
+            "reference_snapshot",
+            "wardrobe_scope_snapshot",
             "enqueued_at",
             "error_code",
             "error_message",

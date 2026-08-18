@@ -74,6 +74,7 @@ from apps.chat.services import (
     shared_reference,
     stylist_catalog,
     stylist_results,
+    wardrobe_scope,
 )
 from apps.chat.services import queue as chat_queue
 from apps.chat.services import sessions as session_service
@@ -953,6 +954,7 @@ class ChatSessionMessageListView(APIView):
                 client_message_id=serializer.validated_data["client_message_id"],
                 metadata=serializer.validated_data.get("metadata", {}),
                 reference=serializer.validated_data.get("reference"),
+                wardrobe_scope=serializer.validated_data.get("wardrobe_scope"),
             )
         except shared_reference.SharedReferenceNotFound as exc:
             return Response(
@@ -973,6 +975,11 @@ class ChatSessionMessageListView(APIView):
             return Response(
                 {"code": exc.code, "detail": str(exc)},
                 status=status.HTTP_400_BAD_REQUEST,
+            )
+        except wardrobe_scope.WardrobeScopeError as exc:
+            return Response(
+                {"code": exc.code, "detail": str(exc)},
+                status=exc.status_code,
             )
 
         if run.status == ChatRun.Status.PENDING:

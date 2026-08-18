@@ -17,6 +17,7 @@ import {
   type ApiChatMode,
   type ApiChatRun,
   type ApiChatSession,
+  type ApiWardrobeScope,
   type ApiChatSessionSearchItem,
   type ApiMoodDecision,
   type ApiMoodDecisionInput,
@@ -1083,7 +1084,11 @@ export const chatStore = {
    *
    * 되묻는 답변(NEEDS_CLARIFICATION)도 정상 답변이라 실패로 취급하지 않는다.
    */
-  async sendText(id: string, text: string): Promise<ApiChatRun> {
+  async sendText(
+    id: string,
+    text: string,
+    options: { wardrobeScope?: ApiWardrobeScope } = {},
+  ): Promise<ApiChatRun> {
     const body = text.trim();
     if (!body) throw new Error('보낼 내용이 없어요');
 
@@ -1098,7 +1103,12 @@ export const chatStore = {
       updatedAt: Date.now(),
     }));
 
-    const submitted = await apiSendMessage(id, body, newClientMessageId());
+    const submitted = await apiSendMessage(
+      id,
+      body,
+      newClientMessageId(),
+      options.wardrobeScope,
+    );
 
     /* 스타일리스트 모드면 답변을 기다리는 방식이 다르다 — 결과가 여러 개고 끝나는 시각이
        제각각이라, 다 끝날 때까지 묶어 두지 않고 끝난 카드부터 채운다. */
