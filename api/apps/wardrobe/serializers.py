@@ -12,7 +12,7 @@ from drf_spectacular.utils import extend_schema_field
 from rest_framework import serializers
 
 from . import taxonomy as T
-from .models import WardrobeCategory, WardrobeItem, WardrobeUploadJob
+from .models import WardrobeHashtag, WardrobeItem, WardrobeUploadJob
 from .services import storage
 
 MAX_UPLOAD_MB = 15
@@ -21,11 +21,16 @@ MAX_BATCH_ITEMS = int(os.getenv("WARDROBE_BATCH_MAX_ITEMS", "30"))
 MAX_BATCH_TOTAL_MB = int(os.getenv("WARDROBE_BATCH_MAX_TOTAL_MB", "100"))
 
 
-class WardrobeCategoryWriteSerializer(serializers.Serializer):
-    name = serializers.CharField(max_length=30, trim_whitespace=False)
+class WardrobeHashtagCreateSerializer(serializers.Serializer):
+    name = serializers.CharField(max_length=80, trim_whitespace=False)
+    item_ids = serializers.ListField(
+        child=serializers.UUIDField(),
+        allow_empty=False,
+        max_length=500,
+    )
 
 
-class WardrobeCategoryItemsPatchSerializer(serializers.Serializer):
+class WardrobeHashtagItemsPatchSerializer(serializers.Serializer):
     add_item_ids = serializers.ListField(
         child=serializers.UUIDField(),
         required=False,
@@ -40,42 +45,43 @@ class WardrobeCategoryItemsPatchSerializer(serializers.Serializer):
     )
 
 
-class WardrobeItemCategoriesPutSerializer(serializers.Serializer):
-    category_ids = serializers.ListField(
-        child=serializers.UUIDField(),
+class WardrobeItemHashtagsPutSerializer(serializers.Serializer):
+    names = serializers.ListField(
+        child=serializers.CharField(max_length=80, trim_whitespace=False),
         allow_empty=True,
         max_length=100,
     )
 
 
-class WardrobeCategorySummarySerializer(serializers.ModelSerializer):
+class WardrobeHashtagOrderSerializer(serializers.Serializer):
+    hashtag_ids = serializers.ListField(
+        child=serializers.UUIDField(),
+        allow_empty=True,
+        max_length=500,
+    )
+
+
+class WardrobeHashtagSummarySerializer(serializers.ModelSerializer):
     class Meta:
-        model = WardrobeCategory
+        model = WardrobeHashtag
         fields = ["id", "name", "position"]
         read_only_fields = fields
 
 
-class WardrobeCategorySerializer(serializers.ModelSerializer):
-    type = serializers.SerializerMethodField()
+class WardrobeHashtagSerializer(serializers.ModelSerializer):
     item_count = serializers.SerializerMethodField()
-    mutable = serializers.SerializerMethodField()
 
     class Meta:
-        model = WardrobeCategory
+        model = WardrobeHashtag
         fields = [
             "id",
-            "type",
             "name",
             "position",
             "item_count",
-            "mutable",
             "created_at",
             "updated_at",
         ]
         read_only_fields = fields
-
-    def get_type(self, obj) -> str:
-        return "CUSTOM"
 
     def get_item_count(self, obj) -> int:
         annotated = getattr(obj, "item_count", None)
@@ -85,10 +91,6 @@ class WardrobeCategorySerializer(serializers.ModelSerializer):
             wardrobe_item__user_id=obj.user_id,
             wardrobe_item__added_to_closet_at__isnull=False,
         ).count()
-
-    def get_mutable(self, obj) -> bool:
-        return True
-
 
 # ── 업로드 ────────────────────────────────────────────────
 class WardrobeUploadSerializer(serializers.Serializer):
@@ -160,7 +162,7 @@ class WardrobeBatchCreateSerializer(serializers.Serializer):
 # ── 아이템 조회/수정 ──────────────────────────────────────
 class WardrobeItemSerializer(serializers.ModelSerializer):
     image_url = serializers.SerializerMethodField()
-    custom_categories = serializers.SerializerMethodField()
+    wardrobe_hashtags = serializers.SerializerMethodField()
 
     class Meta:
         model = WardrobeItem
@@ -174,7 +176,7 @@ class WardrobeItemSerializer(serializers.ModelSerializer):
             # 확정하면 이 방에 공유된다는 예약. 상세 화면이 "확정 시 OO방에 공유" 안내를
             # 그릴 수 있어야 사용자가 등록할 때 켠 토글을 확정 직전에 다시 확인할 수 있다.
             "pending_share_room", "pending_share_status",
-            "custom_categories",
+            "wardrobe_hashtags",
         ]
         read_only_fields = [
             "id", "job", "s3_key", "seg_meta", "created_at", "added_to_closet_at",
@@ -184,15 +186,15 @@ class WardrobeItemSerializer(serializers.ModelSerializer):
     def get_image_url(self, obj) -> str:
         return storage.presigned_get(obj.s3_key)
 
-    @extend_schema_field(WardrobeCategorySummarySerializer(many=True))
-    def get_custom_categories(self, obj) -> list[dict]:
+    @extend_schema_field(WardrobeHashtagSummarySerializer(many=True))
+    def get_wardrobe_hashtags(self, obj) -> list[dict]:
         """개인 정리 정보는 요청 사용자 본인의 아이템 응답에만 포함한다."""
 
         request = self.context.get("request")
         if request is None or obj.user_id != getattr(request.user, "pk", None):
             return []
-        return WardrobeCategorySummarySerializer(
-            obj.custom_categories.all(),
+        return WardrobeHashtagSummarySerializer(
+            obj.wardrobe_hashtags.all(),
             many=True,
         ).data
 

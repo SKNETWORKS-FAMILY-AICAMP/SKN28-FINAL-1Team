@@ -31,7 +31,7 @@ from apps.lookbook.services import lookbook_service
 from apps.style_calendar.services import calendar_service
 
 from .models import (
-    WardrobeCategory,
+    WardrobeHashtag,
     WardrobeItem,
     WardrobeItemBatch,
     WardrobeUploadJob,
@@ -42,17 +42,18 @@ from .serializers import (
     MAX_BATCH_TOTAL_MB,
     MAX_UPLOAD_MB,
     WardrobeBatchCreateSerializer,
-    WardrobeCategoryItemsPatchSerializer,
-    WardrobeCategorySerializer,
-    WardrobeCategorySummarySerializer,
-    WardrobeCategoryWriteSerializer,
-    WardrobeItemCategoriesPutSerializer,
+    WardrobeHashtagCreateSerializer,
+    WardrobeHashtagItemsPatchSerializer,
+    WardrobeHashtagOrderSerializer,
+    WardrobeHashtagSerializer,
+    WardrobeHashtagSummarySerializer,
+    WardrobeItemHashtagsPutSerializer,
     WardrobeItemSerializer,
     WardrobeItemUpdateSerializer,
     WardrobeJobSerializer,
     WardrobeUploadSerializer,
 )
-from .services import categories as category_service
+from .services import hashtags as hashtag_service
 from .services import jobs, storage, vectors
 from . import taxonomy as T
 
@@ -117,49 +118,37 @@ def _batch_data(batch: WardrobeItemBatch) -> dict:
     }
 
 
-def _category_write_error(serializer) -> Response:
-    error = serializer.errors.get("name", ["카테고리 이름을 입력해 주세요."])[0]
-    serializer_code = getattr(error, "code", "invalid")
-    code = {
-        "required": "CATEGORY_NAME_REQUIRED",
-        "blank": "CATEGORY_NAME_REQUIRED",
-        "null": "CATEGORY_NAME_REQUIRED",
-        "max_length": "CATEGORY_NAME_TOO_LONG",
-    }.get(serializer_code, "CATEGORY_NAME_INVALID")
-    return Response({"code": code, "detail": str(error)}, status=status.HTTP_400_BAD_REQUEST)
-
-
-def _category_service_error(exc: category_service.CategoryServiceError) -> Response:
+def _hashtag_service_error(exc: hashtag_service.HashtagServiceError) -> Response:
     return Response(
         {"code": exc.code, "detail": exc.detail},
         status=exc.status_code,
     )
 
 
-def _category_assignment_write_error(serializer) -> Response:
+def _hashtag_write_error(serializer) -> Response:
     return Response(
         {
-            "code": "CATEGORY_ASSIGNMENT_INVALID",
-            "detail": "옷 카테고리 배정 요청이 올바르지 않습니다.",
+            "code": "HASHTAG_REQUEST_INVALID",
+            "detail": "옷장 해시태그 요청이 올바르지 않습니다.",
             "errors": serializer.errors,
         },
         status=status.HTTP_400_BAD_REQUEST,
     )
 
 
-def _owned_category_or_error(user, category_id):
-    category = WardrobeCategory.objects.filter(pk=category_id).first()
-    if category is None:
+def _owned_hashtag_or_error(user, hashtag_id):
+    hashtag = WardrobeHashtag.objects.filter(pk=hashtag_id).first()
+    if hashtag is None:
         return None, Response(
-            {"code": "CATEGORY_NOT_FOUND", "detail": "카테고리를 찾을 수 없습니다."},
+            {"code": "HASHTAG_NOT_FOUND", "detail": "해시태그를 찾을 수 없습니다."},
             status=status.HTTP_404_NOT_FOUND,
         )
-    if category.user_id != user.pk:
+    if hashtag.user_id != user.pk:
         return None, Response(
-            {"code": "CATEGORY_FORBIDDEN", "detail": "이 카테고리에 접근할 수 없습니다."},
+            {"code": "HASHTAG_FORBIDDEN", "detail": "이 해시태그에 접근할 수 없습니다."},
             status=status.HTTP_403_FORBIDDEN,
         )
-    return category, None
+    return hashtag, None
 
 
 class WardrobeBatchView(APIView):
@@ -483,116 +472,111 @@ class WardrobeCallbackView(APIView):
         )
 
 
-class WardrobeCategoryListCreateView(APIView):
-    """GET/POST /api/v1/wardrobe/categories/ — 개인 옷장 카테고리 조회·생성."""
+class WardrobeFilterListView(APIView):
+    """GET /api/v1/wardrobe/categories/ — 기본 카테고리와 옷장 해시태그."""
 
     def get(self, request):
-        payloads = category_service.category_payloads(request.user)
+        payloads = hashtag_service.filter_payloads(request.user)
         return Response(
             {
                 "system_categories": payloads["system_categories"],
-                "custom_categories": WardrobeCategorySerializer(
-                    payloads["custom_categories"],
+                "hashtags": WardrobeHashtagSerializer(
+                    payloads["hashtags"],
                     many=True,
                 ).data,
             }
         )
 
+
+class WardrobeHashtagListCreateView(APIView):
+    """GET/POST /api/v1/wardrobe/hashtags/ — 조회 또는 옷과 함께 생성."""
+
+    def get(self, request):
+        hashtags = hashtag_service.filter_payloads(request.user)["hashtags"]
+        return Response(WardrobeHashtagSerializer(hashtags, many=True).data)
+
     def post(self, request):
-        serializer = WardrobeCategoryWriteSerializer(data=request.data)
+        serializer = WardrobeHashtagCreateSerializer(data=request.data)
         if not serializer.is_valid():
-            return _category_write_error(serializer)
+            return _hashtag_write_error(serializer)
         try:
-            category = category_service.create_category(
+            hashtag, created = hashtag_service.create_hashtag_with_items(
                 user=request.user,
                 name=serializer.validated_data["name"],
+                item_ids=serializer.validated_data["item_ids"],
             )
-        except category_service.CategoryServiceError as exc:
-            return _category_service_error(exc)
+        except hashtag_service.HashtagServiceError as exc:
+            return _hashtag_service_error(exc)
         return Response(
-            WardrobeCategorySerializer(category).data,
-            status=status.HTTP_201_CREATED,
+            WardrobeHashtagSerializer(hashtag).data,
+            status=status.HTTP_201_CREATED if created else status.HTTP_200_OK,
         )
 
 
-class WardrobeCategoryDetailView(APIView):
-    """PATCH/DELETE /api/v1/wardrobe/categories/{id}/ — 이름 변경·삭제."""
+class WardrobeHashtagItemsView(APIView):
+    """PATCH /hashtags/{id}/items/ — 해시태그의 옷 연결을 일괄 변경."""
 
-    def patch(self, request, category_id):
-        category, error_response = _owned_category_or_error(
+    def patch(self, request, hashtag_id):
+        hashtag, error_response = _owned_hashtag_or_error(
             request.user,
-            category_id,
+            hashtag_id,
         )
         if error_response is not None:
             return error_response
-        serializer = WardrobeCategoryWriteSerializer(data=request.data)
+        serializer = WardrobeHashtagItemsPatchSerializer(data=request.data)
         if not serializer.is_valid():
-            return _category_write_error(serializer)
+            return _hashtag_write_error(serializer)
         try:
-            category = category_service.rename_category(
-                category=category,
-                name=serializer.validated_data["name"],
-            )
-        except category_service.CategoryServiceError as exc:
-            return _category_service_error(exc)
-        return Response(WardrobeCategorySerializer(category).data)
-
-    def delete(self, request, category_id):
-        category, error_response = _owned_category_or_error(
-            request.user,
-            category_id,
-        )
-        if error_response is not None:
-            return error_response
-        category.delete()
-        return Response(status=status.HTTP_204_NO_CONTENT)
-
-
-class WardrobeCategoryItemsView(APIView):
-    """PATCH /categories/{id}/items/ — 카테고리에서 옷을 일괄 추가·제거."""
-
-    def patch(self, request, category_id):
-        category, error_response = _owned_category_or_error(
-            request.user,
-            category_id,
-        )
-        if error_response is not None:
-            return error_response
-        serializer = WardrobeCategoryItemsPatchSerializer(data=request.data)
-        if not serializer.is_valid():
-            return _category_assignment_write_error(serializer)
-        try:
-            result = category_service.update_category_items(
+            result = hashtag_service.update_hashtag_items(
                 user=request.user,
-                category=category,
+                hashtag=hashtag,
                 add_item_ids=serializer.validated_data["add_item_ids"],
                 remove_item_ids=serializer.validated_data["remove_item_ids"],
             )
-        except category_service.CategoryServiceError as exc:
-            return _category_service_error(exc)
+        except hashtag_service.HashtagServiceError as exc:
+            return _hashtag_service_error(exc)
         return Response(result)
 
 
-class WardrobeItemCategoriesView(APIView):
-    """PUT /items/{id}/categories/ — 아이템의 사용자 카테고리 전체 교체."""
+class WardrobeHashtagOrderView(APIView):
+    """PUT /hashtags/order/ — 사용자의 전체 해시태그 순서를 저장."""
+
+    def put(self, request):
+        serializer = WardrobeHashtagOrderSerializer(data=request.data)
+        if not serializer.is_valid():
+            return _hashtag_write_error(serializer)
+        try:
+            hashtags = hashtag_service.reorder_hashtags(
+                user=request.user,
+                hashtag_ids=serializer.validated_data["hashtag_ids"],
+            )
+        except hashtag_service.HashtagServiceError as exc:
+            return _hashtag_service_error(exc)
+        return Response(
+            {"hashtags": WardrobeHashtagSerializer(hashtags, many=True).data}
+        )
+
+
+class WardrobeItemHashtagsView(APIView):
+    """PUT /items/{id}/hashtags/ — 아이템의 옷장 해시태그 전체 교체."""
 
     def put(self, request, item_id):
-        serializer = WardrobeItemCategoriesPutSerializer(data=request.data)
+        serializer = WardrobeItemHashtagsPutSerializer(data=request.data)
         if not serializer.is_valid():
-            return _category_assignment_write_error(serializer)
+            return _hashtag_write_error(serializer)
         try:
-            item, categories = category_service.replace_item_categories(
+            item, hashtags = hashtag_service.replace_item_hashtags(
                 user=request.user,
                 item_id=item_id,
-                category_ids=serializer.validated_data["category_ids"],
+                names=serializer.validated_data["names"],
             )
-        except category_service.CategoryServiceError as exc:
-            return _category_service_error(exc)
+        except hashtag_service.HashtagServiceError as exc:
+            return _hashtag_service_error(exc)
         return Response(
             {
                 "item_id": str(item.pk),
-                "custom_categories": WardrobeCategorySummarySerializer(
-                    categories,
+                "wardrobe_hashtags": WardrobeHashtagSummarySerializer(
+                    hashtags,
                     many=True,
                 ).data,
             }
@@ -612,7 +596,7 @@ class WardrobeItemListView(APIView):
 
     def get(self, request):
         qs = WardrobeItem.objects.filter(user=request.user).prefetch_related(
-            "custom_categories"
+            "wardrobe_hashtags"
         )
         if request.query_params.get("include_unadded", "").lower() != "true":
             qs = qs.filter(added_to_closet_at__isnull=False)
@@ -666,7 +650,7 @@ class WardrobeItemDetailView(APIView):
                     ],
                 )
             )
-            .prefetch_related("custom_categories")
+            .prefetch_related("wardrobe_hashtags")
             .distinct()
         )
         item = get_object_or_404(queryset, pk=item_id)
@@ -702,7 +686,9 @@ class WardrobeItemDetailView(APIView):
     def delete(self, request, item_id):
         item = get_object_or_404(WardrobeItem, pk=item_id, user=request.user)
         item_pk = item.pk
-        item.delete()
+        with transaction.atomic():
+            item.delete()
+            hashtag_service.prune_orphan_hashtags(user=request.user)
         vectors.delete_item(item_pk)
         return Response(status=status.HTTP_204_NO_CONTENT)
 

@@ -5,11 +5,12 @@ from apps.wardrobe.views import (
     WardrobeBatchDetailView,
     WardrobeBatchView,
     WardrobeCallbackView,
-    WardrobeCategoryDetailView,
-    WardrobeCategoryItemsView,
-    WardrobeCategoryListCreateView,
+    WardrobeFilterListView,
+    WardrobeHashtagItemsView,
+    WardrobeHashtagListCreateView,
+    WardrobeHashtagOrderView,
     WardrobeItemAddToClosetView,
-    WardrobeItemCategoriesView,
+    WardrobeItemHashtagsView,
     WardrobeItemDetailView,
     WardrobeItemListView,
     WardrobeUploadJobView,
@@ -30,29 +31,34 @@ urlpatterns = [
     path("wardrobe/uploads/<uuid:job_id>/", WardrobeUploadJobView.as_view(), name="upload-job"),
     # 이미지 프로세서 콜백 (내부 토큰 인증)
     path("internal/wardrobe/callback/", WardrobeCallbackView.as_view(), name="callback"),
-    # 개인 옷장 사용자 카테고리 조회·생성·수정·삭제
+    # 고정 기본 카테고리와 개인 옷장 해시태그
     path(
         "wardrobe/categories/",
-        WardrobeCategoryListCreateView.as_view(),
-        name="category-list-create",
+        WardrobeFilterListView.as_view(),
+        name="wardrobe-filter-list",
     ),
     path(
-        "wardrobe/categories/<uuid:category_id>/",
-        WardrobeCategoryDetailView.as_view(),
-        name="category-detail",
+        "wardrobe/hashtags/",
+        WardrobeHashtagListCreateView.as_view(),
+        name="hashtag-list-create",
     ),
     path(
-        "wardrobe/categories/<uuid:category_id>/items/",
-        WardrobeCategoryItemsView.as_view(),
-        name="category-items",
+        "wardrobe/hashtags/order/",
+        WardrobeHashtagOrderView.as_view(),
+        name="hashtag-order",
+    ),
+    path(
+        "wardrobe/hashtags/<uuid:hashtag_id>/items/",
+        WardrobeHashtagItemsView.as_view(),
+        name="hashtag-items",
     ),
     # 옷장 아이템 조회·수정·삭제
     path("wardrobe/items/", WardrobeItemListView.as_view(), name="items"),
     path("wardrobe/items/<uuid:item_id>/", WardrobeItemDetailView.as_view(), name="item-detail"),
     path(
-        "wardrobe/items/<uuid:item_id>/categories/",
-        WardrobeItemCategoriesView.as_view(),
-        name="item-categories",
+        "wardrobe/items/<uuid:item_id>/hashtags/",
+        WardrobeItemHashtagsView.as_view(),
+        name="item-hashtags",
     ),
     # ── 공유 옷장 (Shared Wardrobe) ──
     path("", include(router.urls)),
