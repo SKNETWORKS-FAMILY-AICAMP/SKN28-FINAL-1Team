@@ -116,6 +116,18 @@ class Command(BaseCommand):
             queue_service.ack(raw, look_id, spec=SPEC)
             return
 
+        # '다른 룩' 후보들의 착용 이미지. 추천이 이미 끝난 뒤에 도는 부가 작업이라
+        # 여기서도 claim()을 거치지 않는다.
+        if payload.get("job") == service.JOB_RENDER_ALTERNATIVES:
+            try:
+                service.run_alternative_renders(look_id)
+            except Exception as exc:  # noqa: BLE001
+                logger.exception("오늘의 룩 %s 후보 착용 이미지 생성 실패", look_id)
+                queue_service.retry_or_dead(raw, look_id, str(exc), spec=SPEC)
+                return
+            queue_service.ack(raw, look_id, spec=SPEC)
+            return
+
         look = service.claim(look_id)
         if look is None:
             # 이미 성공했거나 행이 지워졌다. 재시도 대상이 아니다.

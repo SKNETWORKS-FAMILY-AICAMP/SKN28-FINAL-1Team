@@ -6,6 +6,8 @@ from django.urls import reverse
 from drf_spectacular.utils import extend_schema_field
 from rest_framework import serializers
 
+from apps.lookbook.serializers import LookbookPostSerializer
+
 from .models import (
     DailyLook,
     OutfitAnalysis,
@@ -381,6 +383,16 @@ class DailyLookResultSerializer(serializers.Serializer):
     golden_id = serializers.CharField()
     rationale_ko = serializers.CharField()
     styling_tips = serializers.ListField(child=serializers.CharField(), required=False)
+    tags = serializers.ListField(
+        child=serializers.CharField(),
+        required=False,
+        help_text=(
+            "룩북 필터와 **같은 어휘**의 태그 (apps/lookbook/contracts.py LOOKBOOK_TAGS). "
+            "골든 코디의 occasion·style, 그것이 비면 사용자 추구미에서 뽑는다. "
+            "하나도 못 만들면 빈 배열이며, 그때 프론트는 태그 줄을 숨긴다 — "
+            "아이템 이름을 태그처럼 보여주면 룩북과 어휘가 갈린다."
+        ),
+    )
     generated_by = serializers.CharField(
         required=False,
         help_text="문장을 누가 썼는지: llm | template. template이면 담백한 톤이다.",
@@ -415,6 +427,7 @@ class DailyLookSerializer(serializers.ModelSerializer):
 
     look_id = serializers.UUIDField(source="id", read_only=True)
     result = serializers.SerializerMethodField()
+    alternatives = serializers.SerializerMethodField()
     context = serializers.SerializerMethodField()
     poll_after_ms = serializers.SerializerMethodField()
     detail = serializers.SerializerMethodField()
@@ -426,6 +439,7 @@ class DailyLookSerializer(serializers.ModelSerializer):
             "look_date",
             "status",
             "result",
+            "alternatives",
             "context",
             "poll_after_ms",
             "detail",
@@ -444,6 +458,23 @@ class DailyLookSerializer(serializers.ModelSerializer):
         if not obj.result:
             return None
         return DailyLookResultSerializer(obj.result).data
+
+    @extend_schema_field(DailyLookResultSerializer(many=True))
+    def get_alternatives(self, obj: DailyLook) -> list[dict]:
+        """'다른 룩'으로 돌려볼 차순위 후보. `result`와 **같은 스키마**다.
+
+        프론트는 대표 룩과 후보를 한 배열로 이어 붙여 카드 하나를 그리는 코드를
+        그대로 쓴다. 문장은 템플릿이라 `generated_by`가 `template`이고
+        (LLM은 대표 룩에만 붙인다), `render_image_url`은 후보 이미지 생성이
+        끝나기 전까지 null이다 — 그때는 `items[].image_url`로 카드가 성립한다.
+
+        저장(POST /looks/today/save/)에 여기 `golden_id`를 그대로 보내면 된다.
+        """
+        return [
+            DailyLookResultSerializer(row).data
+            for row in (obj.alternatives or [])
+            if isinstance(row, dict) and row.get("golden_id")
+        ]
 
     def get_context(self, obj: DailyLook) -> dict:
         """무엇이 개인화에 쓰였는지만 알려준다 (값 자체는 프로필 API에 있다)."""
@@ -475,6 +506,45 @@ class DailyLookSerializer(serializers.ModelSerializer):
         if obj.status == DailyLook.Status.FAILED:
             return "오늘의 룩을 만들지 못했어요. 잠시 후 다시 확인해주세요."
         return None
+
+
+class DailyLookSaveRequestSerializer(serializers.Serializer):
+    """오늘의 룩 저장 입력.
+
+    `golden_id`는 '다른 룩'으로 돌려보던 후보를 담기 위한 값이다. 생략하면 대표
+    룩이다.
+
+    이 값을 받는다고 아무 코디나 담을 수 있는 것은 아니다 — **서버가 그 사용자의
+    오늘 후보(result + alternatives) 안에 있는지 확인한다.** 클라이언트가 코디를
+    지정하되 목록은 서버가 정하는 구조라, "남의 코디를 담을 수 있는 구멍"은
+    그대로 막혀 있다.
+    """
+
+    golden_id = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        default="",
+        max_length=100,
+        help_text="담을 룩의 골든 코디 id. 생략하면 대표 룩(result.golden_id).",
+    )
+
+
+class DailyLookSaveResponseSerializer(serializers.Serializer):
+    """오늘의 룩 저장 응답.
+
+    `created`가 false면 이미 담아 둔 코디라는 뜻이고 `lookbook`은 그때 만든
+    행이다. 프론트는 이 값으로 "담았어요"와 "이미 담겨 있어요"를 가른다 —
+    상태코드(201/200)만으로 가르게 하면 재시도·프록시 때문에 흔들린다.
+
+    `lookbook`은 룩북 목록(GET /api/v1/lookbooks/)의 항목과 같은 스키마다.
+    저장 직후 룩북 화면으로 이동하는 흐름이라, 프론트가 목록을 다시 부르지 않고
+    이 응답만으로 카드를 그릴 수 있어야 한다.
+    """
+
+    created = serializers.BooleanField(
+        help_text="새로 담았으면 true, 이미 담아 둔 코디면 false"
+    )
+    lookbook = LookbookPostSerializer(read_only=True)
 
 
 class RecommendationHistoryQuerySerializer(serializers.Serializer):

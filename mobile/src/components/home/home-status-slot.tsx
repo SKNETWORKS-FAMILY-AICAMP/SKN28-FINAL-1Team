@@ -1,5 +1,7 @@
 import type { ComponentType } from 'react';
 
+import { AnalysisStatusCard } from './analysis-status-card';
+
 /**
  * 홈 상태 슬롯 — 착장 분석 진행, 완료 알림처럼 **일시적인** 상태 카드가 들어가는 자리.
  *
@@ -22,7 +24,7 @@ type SlotCard = {
 };
 
 const SLOT_CARDS: SlotCard[] = [
-  // 예) { id: 'outfit-analysis', Component: AnalysisStatusCard }
+  { id: 'outfit-analysis', Component: AnalysisStatusCard },
 ];
 
 /**

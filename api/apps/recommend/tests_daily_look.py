@@ -7,6 +7,7 @@
 - '생성 중'과 '후보 없음'의 구분 (폴링할지 말지가 갈린다)
 - 큐가 죽었을 때 행이 고아로 남지 않는지
 - LLM이 후보에 없는 코디를 지어내지 않는지
+- 카드 태그가 룩북과 같은 어휘인지 (어휘가 갈리면 필터와 이어지지 않는다)
 """
 
 from __future__ import annotations
@@ -576,3 +577,61 @@ class TodayLookApiRefreshTests(TestCase):
         self.assertEqual(body["result"]["render_image_url"], "https://signed/x")
         look.refresh_from_db()
         self.assertEqual(look.result["render_image"]["s3_key"], "k.jpg")
+
+
+class BuildTagsTests(TestCase):
+    """카드 태그는 룩북 필터와 **같은 어휘**여야 한다.
+
+    예전에는 프론트가 아이템 이름에 `#`만 붙여 태그처럼 보이게 했다. 그러면
+    `#블랙스트레이트데님팬츠` 같은 값이 나오고, 룩북 칩과 어휘가 갈려 같은 말이
+    두 가지를 뜻하게 된다. 여기서 지키는 계약은 넷이다.
+    """
+
+    def test_golden_labels_win(self):
+        """코디 자신의 라벨이 1순위 — 무엇을 추천했는지 그대로 말하는 값이다."""
+        tags = service._build_tags(
+            {"occasion": ["데이트"], "style": ["미니멀"]},
+            {"pursuit": {"preferred": {"styles": ["casual"]}}},
+        )
+        self.assertEqual(tags, ["데이트", "미니멀"])
+
+    def test_axis_is_enforced(self):
+        """occasion에서 온 스타일, style에서 온 TPO는 라벨링 사고다 — 통과시키지 않는다.
+
+        한 덩어리 어휘로 검사하면 이런 값이 조용히 화면에 나가고, 원인을 찾을 때
+        골든셋이 아니라 프론트를 뒤지게 된다.
+        """
+        tags = service._build_tags(
+            {"occasion": ["미니멀"], "style": ["출근"]},
+            {"pursuit": {"preferred": {"styles": []}}},
+        )
+        self.assertEqual(tags, [])
+
+    def test_falls_back_to_pursuit_when_goldenset_untagged(self):
+        """골든 코디 라벨이 비어 있어도 화면은 성립해야 한다.
+
+        season/style/occasion은 analyses.jsonl에서 오는데 그 분석이 유료라 꺼져
+        있던 시기가 있다. 추구미는 프로필 입력이라 그 사정과 무관하게 채워진다.
+        영문 코드(minimal)가 vocabulary.STYLE을 거쳐 한글로 나와야 한다.
+        """
+        tags = service._build_tags(
+            {"occasion": [], "style": []},
+            {"pursuit": {"preferred": {"styles": ["minimal", "casual"]}}},
+        )
+        self.assertEqual(sorted(tags), ["미니멀", "캐주얼"])
+
+    def test_unknown_labels_are_dropped_and_count_is_capped(self):
+        """어휘 밖 값은 버리고, 카드 한 줄을 넘기지 않는다."""
+        tags = service._build_tags(
+            {
+                "occasion": ["출근", "데이트", "나들이", "여행", "하객룩"],
+                "style": ["아메카지"],  # 룩북 어휘에 없다
+            },
+            {},
+        )
+        self.assertEqual(tags, ["출근", "데이트", "나들이", "여행"])
+        self.assertNotIn("아메카지", tags)
+
+    def test_empty_when_nothing_matches(self):
+        """지어내지 않는다. 프론트는 빈 배열을 보고 태그 줄을 숨긴다."""
+        self.assertEqual(service._build_tags({}, {}), [])
