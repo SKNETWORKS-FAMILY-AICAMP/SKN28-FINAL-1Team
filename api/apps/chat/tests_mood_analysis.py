@@ -356,7 +356,6 @@ class ChatMoodWorkerTests(APITestCase):
                 avoided_styles=[],
                 avoided_colors=[],
                 excluded_source_ids=[],
-                focus_slots=[],
                 budget=None,
             ),
             clarification_question="",

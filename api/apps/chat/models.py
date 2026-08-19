@@ -13,28 +13,6 @@ from django.db.models.functions import Upper
 from django.utils import timezone
 
 from apps.chat.services.stylist_personas import load_stylist_personas
-from apps.recommend.services.focus_slots import FOCUS_SLOT_ORDER
-
-
-def validate_focus_slots(value: object) -> None:
-    """LLM이 확정한 초점 슬롯을 중복 없는 고정 순서 배열로 제한한다."""
-
-    if not isinstance(value, list):
-        raise ValidationError("초점 슬롯은 JSON 배열이어야 합니다.")
-    if len(value) > 3:
-        raise ValidationError("초점 슬롯은 최대 3개까지 저장할 수 있습니다.")
-    if any(not isinstance(slot, str) for slot in value):
-        raise ValidationError("초점 슬롯 ID는 문자열이어야 합니다.")
-    if len(value) != len(set(value)):
-        raise ValidationError("초점 슬롯은 중복될 수 없습니다.")
-    unsupported = sorted(set(value) - set(FOCUS_SLOT_ORDER))
-    if unsupported:
-        raise ValidationError(
-            f"지원하지 않는 초점 슬롯입니다: {', '.join(unsupported)}"
-        )
-    canonical = tuple(slot for slot in FOCUS_SLOT_ORDER if slot in value)
-    if tuple(value) != canonical:
-        raise ValidationError("초점 슬롯은 서비스 고정 순서로 저장해야 합니다.")
 
 
 def validate_selected_persona_ids(value: object) -> None:
@@ -887,15 +865,6 @@ class ChatRun(models.Model):
         db_comment=(
             "실행 접수 당시 개인 옷장 기본 카테고리·해시태그 범위와 후보 아이템 JSON "
             "(범위가 없거나 기존 실행이면 빈 객체)"
-        ),
-    )
-    focus_slots = models.JSONField(
-        default=list,
-        blank=True,
-        validators=[validate_focus_slots],
-        db_comment=(
-            "LLM 분석으로 확정한 초점 추천 슬롯 JSON 배열 "
-            "(TOP/BOTTOM/OUTER/DRESS/SHOES/ACCESSORY, 최대 3개)"
         ),
     )
     enqueued_at = models.DateTimeField(

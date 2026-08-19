@@ -21,7 +21,6 @@ from .models import (
     WishlistItem,
 )
 from .services import storage, wardrobe_link
-from .services.focus_slots import focus_slot_from_snapshot
 
 MAX_OUTFIT_IMAGE_SIZE_MB = 15
 ALLOWED_OUTFIT_IMAGE_CONTENT_TYPES = {
@@ -701,7 +700,6 @@ class RecommendationCardItemSerializer(serializers.ModelSerializer):
     category = serializers.SerializerMethodField()
     color = serializers.SerializerMethodField()
     purchase_url = serializers.SerializerMethodField()
-    focus_slot = serializers.SerializerMethodField()
 
     class Meta:
         model = OutfitCompositionItem
@@ -709,7 +707,6 @@ class RecommendationCardItemSerializer(serializers.ModelSerializer):
             "item_id",
             "position",
             "slot",
-            "focus_slot",
             "source_type",
             "source_id",
             "display_name",
@@ -758,13 +755,6 @@ class RecommendationCardItemSerializer(serializers.ModelSerializer):
             "url",
         )
 
-    def get_focus_slot(self, obj: OutfitCompositionItem) -> str | None:
-        return focus_slot_from_snapshot(
-            slot=obj.slot,
-            snapshot=obj.item_snapshot,
-        )
-
-
 class WishlistItemSerializer(serializers.ModelSerializer):
     """찜 한 줄. 앱은 이 값만으로 목록을 그리고 판매처로 나간다.
 
@@ -803,7 +793,6 @@ class RecommendationCardSerializer(serializers.ModelSerializer):
     items = RecommendationCardItemSerializer(many=True, read_only=True)
     feedback = serializers.SerializerMethodField()
     is_saved = serializers.SerializerMethodField()
-    focus_slots = serializers.SerializerMethodField()
 
     class Meta:
         model = OutfitComposition
@@ -815,7 +804,6 @@ class RecommendationCardSerializer(serializers.ModelSerializer):
             "reference_match",
             "warnings",
             "rationale",
-            "focus_slots",
             "items",
             "feedback",
             "is_saved",
@@ -832,11 +820,6 @@ class RecommendationCardSerializer(serializers.ModelSerializer):
     @extend_schema_field(serializers.BooleanField())
     def get_is_saved(self, obj: OutfitComposition) -> bool:
         return bool(obj.saved_records.all())
-
-    @extend_schema_field(serializers.ListField(child=serializers.CharField()))
-    def get_focus_slots(self, obj: OutfitComposition) -> list[str]:
-        return list(obj.result.run.focus_slots)
-
 
 class OutfitRenderJobSerializer(serializers.ModelSerializer):
     job_id = serializers.UUIDField(source="id", read_only=True)

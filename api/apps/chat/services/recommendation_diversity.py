@@ -9,12 +9,49 @@ from apps.recommend.services.outfit_types import (
     OutfitComposition,
     OutfitItem,
 )
-from apps.recommend.services.focus_slots import (
-    canonical_focus_slot,
-    focus_slot_from_snapshot,
-)
 
 DEFAULT_CORE_DIVERSITY_SLOTS = frozenset({"TOP", "BOTTOM", "OUTER"})
+
+_SLOT_ALIASES = {
+    "TOP": "TOP",
+    "UPPER": "TOP",
+    "INNER": "TOP",
+    "MID": "TOP",
+    "LAYER": "TOP",
+    "상의": "TOP",
+    "기본상의": "TOP",
+    "기본_상의": "TOP",
+    "레이어드상의": "TOP",
+    "레이어드_상의": "TOP",
+    "이너": "TOP",
+    "BOTTOM": "BOTTOM",
+    "LOWER": "BOTTOM",
+    "하의": "BOTTOM",
+    "OUTER": "OUTER",
+    "OUTERWEAR": "OUTER",
+    "아우터": "OUTER",
+    "겉옷": "OUTER",
+    "DRESS": "DRESS",
+    "원피스": "DRESS",
+    "SHOES": "SHOES",
+    "FOOTWEAR": "SHOES",
+    "신발": "SHOES",
+    "ACCESSORY": "ACCESSORY",
+    "ACCESSORIES": "ACCESSORY",
+    "액세서리": "ACCESSORY",
+    "BAG": "ACCESSORY",
+    "가방": "ACCESSORY",
+    "모자": "ACCESSORY",
+    "주얼리": "ACCESSORY",
+}
+
+
+def _canonical_slot(value: object) -> str | None:
+    if not isinstance(value, str):
+        return None
+    normalized = value.strip().replace("-", "_").replace(" ", "_").upper()
+    return _SLOT_ALIASES.get(normalized)
+
 
 class CandidateWithComposition(Protocol):
     composition: OutfitComposition
@@ -26,12 +63,17 @@ CandidateT = TypeVar("CandidateT", bound=CandidateWithComposition)
 def _item_slot(item: OutfitItem) -> str | None:
     """레이어 역할을 우선하고 카테고리·슬롯 접두사를 안전망으로 쓴다."""
 
-    return focus_slot_from_snapshot(
-        slot=item.slot_id,
-        category_large=item.category_large,
-        layer_role=item.layer_role,
-        snapshot=item.payload,
-    )
+    slot_prefix = item.slot_id.split(":", 1)[0]
+    for value in (
+        item.layer_role,
+        item.payload.get("layer_role"),
+        item.category_large,
+        item.payload.get("category_large"),
+        slot_prefix,
+    ):
+        if slot := _canonical_slot(value):
+            return slot
+    return None
 
 
 def _core_fingerprint(
@@ -60,7 +102,7 @@ def select_diverse_candidates(
     """순위를 보존하며 핵심 슬롯 구성이 겹치지 않는 후보를 최대 ``limit``개 남긴다.
 
     첫 후보는 핵심 슬롯을 분류하지 못한 경우에도 항상 남긴다. ``diversity_slots``는
-    후속 초점 추천에서 아우터처럼 특정 슬롯 집합을 주입할 수 있는 경계다.
+    호출자가 다른 다양성 정책을 쓰는 경우 슬롯 집합을 주입할 수 있다.
     """
 
     if isinstance(limit, bool) or not isinstance(limit, int) or limit < 1:
@@ -71,7 +113,7 @@ def select_diverse_candidates(
     normalized_slots = frozenset(
         slot
         for raw_slot in diversity_slots
-        if (slot := canonical_focus_slot(raw_slot)) is not None
+        if (slot := _canonical_slot(raw_slot)) is not None
     )
     if not normalized_slots:
         raise ValueError("다양성 판정 슬롯이 하나 이상 필요합니다.")

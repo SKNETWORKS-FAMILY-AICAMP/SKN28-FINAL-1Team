@@ -97,7 +97,6 @@ class RecommendationExplanationTests(TestCase):
             budget=60_000,
             conditions=self.conditions,
             weather={},
-            focus_slots=[],
             recent_messages=[],
         )
 
@@ -139,7 +138,6 @@ class RecommendationExplanationTests(TestCase):
             budget=60_000,
             conditions=self.conditions,
             weather={},
-            focus_slots=[],
             recent_messages=[],
         )
 
@@ -162,7 +160,6 @@ class RecommendationExplanationTests(TestCase):
             budget=None,
             conditions=self.conditions,
             weather={},
-            focus_slots=[],
             recent_messages=[],
             fallback_reason="CHAT_LLM_UNAVAILABLE",
         )
@@ -200,7 +197,6 @@ class RecommendationExplanationTests(TestCase):
             budget=None,
             conditions=self.conditions,
             weather={},
-            focus_slots=[],
             recent_messages=[],
         )
 

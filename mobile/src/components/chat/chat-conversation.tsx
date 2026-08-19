@@ -601,37 +601,28 @@ export function ChatConversation({
                       ) : null}
                       {/* 아이템 한 줄 — 사진이 있는 것만 그리고, 없으면 이름으로 대신한다 */}
                       <View style={styles.recItems}>
-                        {m.items.map((item) => {
-                          const hasFocus = m.items.some((value) => value.focused);
-                          const imageSize = item.focused ? 80 : hasFocus ? 56 : 64;
-                          return (
-                            <View
-                              key={item.id}
-                              style={[styles.recItem, { width: imageSize }]}>
-                              {item.focused ? (
-                                <Text style={styles.recFocusLabel}>집중 추천</Text>
-                              ) : null}
-                              <SmartImage
-                                uri={item.imageUrl}
-                                width={imageSize}
-                                height={imageSize}
-                                radius={10}
-                                style={styles.recItemImage}
-                              />
-                              <Text style={styles.recItemName} numberOfLines={2}>
-                                {item.name}
-                              </Text>
-                              {/* 옷장 옷은 살 필요가 없다는 것이 가격보다 중요한 정보다 */}
-                              <Text style={styles.recItemMeta}>
-                                {item.fromWardrobe
-                                  ? '내 옷장'
-                                  : item.price != null
-                                    ? `${item.price.toLocaleString()}원`
-                                    : '새 상품'}
-                              </Text>
-                            </View>
-                          );
-                        })}
+                        {m.items.map((item) => (
+                          <View key={item.id} style={styles.recItem}>
+                            <SmartImage
+                              uri={item.imageUrl}
+                              width={64}
+                              height={64}
+                              radius={10}
+                              style={styles.recItemImage}
+                            />
+                            <Text style={styles.recItemName} numberOfLines={2}>
+                              {item.name}
+                            </Text>
+                            {/* 옷장 옷은 살 필요가 없다는 것이 가격보다 중요한 정보다 */}
+                            <Text style={styles.recItemMeta}>
+                              {item.fromWardrobe
+                                ? '내 옷장'
+                                : item.price != null
+                                  ? `${item.price.toLocaleString()}원`
+                                  : '새 상품'}
+                            </Text>
+                          </View>
+                        ))}
                       </View>
 
                       {m.totalPrice ? (
@@ -942,7 +933,6 @@ const styles = StyleSheet.create({
   recItems: { flexDirection: 'row', flexWrap: 'wrap', gap: 12 },
   recItem: { width: 64, gap: 4 },
   recItemImage: { backgroundColor: BONE },
-  recFocusLabel: { fontSize: Type.micro, color: Editorial.wine, fontWeight: '600' },
   recItemName: { fontSize: Type.micro, color: INK, lineHeight: 15 },
   recItemMeta: { fontSize: Type.micro, color: Editorial.textCaption },
 
