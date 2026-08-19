@@ -14,8 +14,13 @@ from django.conf import settings
 from django.core.management.base import BaseCommand
 from django.utils import timezone
 
-from apps.recommend.models import OutfitRenderJob
-from apps.recommend.services import render_execution, render_jobs, render_queue
+from apps.recommend.models import OutfitRenderJob, VirtualTryOnJob
+from apps.recommend.services import (
+    render_execution,
+    render_jobs,
+    render_queue,
+    virtual_try_on_jobs,
+)
 from apps.recommend.services.mixed_outfit_render import (
     OutfitRenderError,
     RenderDisabled,
@@ -123,6 +128,12 @@ class Command(BaseCommand):
             render_queue.ack(raw, "?")
             return
 
+        # 같은 큐에 가상 피팅 작업도 들어온다. 둘 다 같은 이미지 모델을 부르는 긴
+        # 작업이라 한 워커가 순서대로 처리한다 (큐를 나누면 컨테이너도 나뉜다).
+        if render_queue.kind_of(raw) == render_queue.KIND_VIRTUAL_TRY_ON:
+            self._handle_virtual_try_on(raw, job_id)
+            return
+
         current = OutfitRenderJob.objects.filter(pk=job_id).first()
         if current is None:
             render_queue.ack(raw, job_id)
@@ -159,6 +170,59 @@ class Command(BaseCommand):
                 "status": completed.status,
                 "cache_hit": completed.cache_hit,
             },
+        )
+        render_queue.ack(raw, job_id)
+
+    def _handle_virtual_try_on(self, raw: str, job_id: str) -> None:
+        """가상 피팅 한 건.
+
+        SSE 이벤트는 발행하지 않는다 — 이 기능의 프론트는 폴링으로 본다
+        (화면을 나갔다 와도 보이려면 어차피 조회가 필요하다).
+        """
+        current = VirtualTryOnJob.objects.filter(pk=job_id).first()
+        if current is None or current.status in VirtualTryOnJob.TERMINAL_STATUSES:
+            render_queue.ack(raw, job_id)
+            return
+
+        job = virtual_try_on_jobs.start(job_id)
+        if job is None:
+            render_queue.ack(raw, job_id)
+            return
+
+        try:
+            completed = virtual_try_on_jobs.run(job)
+        except Exception as exc:  # noqa: BLE001 — 한 건의 실패로 워커가 죽으면 안 된다
+            code = self._error_code(exc)
+            # 사용자에게 보여도 되는 문구만 남긴다. 내부 예외 메시지에는 버킷·키가
+            # 섞여 나올 수 있다.
+            safe = (
+                str(exc)[:500]
+                if isinstance(exc, (OutfitRenderError, ValueError))
+                else "가상 착장 이미지를 만들지 못했습니다."
+            )
+            non_retryable = isinstance(exc, (RenderDisabled, RenderInputError, ValueError))
+            try:
+                if non_retryable:
+                    render_queue.dead_letter(raw, job_id, code)
+                    dead = True
+                else:
+                    dead = render_queue.retry_or_dead(raw, job_id, code)
+            except redis.RedisError:
+                logger.exception("가상 피팅 실패 작업의 큐 상태 전환 실패")
+                dead = True
+            if dead:
+                virtual_try_on_jobs.mark_failed(
+                    job_id, error_code=code, error_message=safe
+                )
+            else:
+                # 재시도가 예약됐으니 다시 집을 수 있게 되돌린다.
+                virtual_try_on_jobs.reset_for_retry(job_id)
+            logger.warning("가상 피팅 실패: job=%s code=%s", job_id, code)
+            return
+
+        logger.info(
+            "가상 피팅 완료: job=%s look=%s golden=%s cache_hit=%s",
+            completed.pk, completed.look_id, completed.golden_id, completed.cache_hit,
         )
         render_queue.ack(raw, job_id)
 

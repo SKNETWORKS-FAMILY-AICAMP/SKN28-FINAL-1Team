@@ -10,9 +10,11 @@
 
 from __future__ import annotations
 
+import base64
 from unittest.mock import patch
 
 from django.contrib.auth import get_user_model
+from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import TestCase
 from django.urls import reverse
 from rest_framework.test import APIClient
@@ -26,6 +28,12 @@ from apps.recommend.tests_daily_look import CONTEXT, _FakeCandidate
 User = get_user_model()
 
 GOLDEN_BUCKET = "skn28-cozy3"
+#: 진짜 1x1 PNG. 시리얼라이저의 ImageField 가 Pillow 로 열어보므로 흉내만 낸
+#: 바이트열은 400 으로 떨어진다.
+PNG = base64.b64decode(
+    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAE"
+    "hQGAhKmMIQAAAABJRU5ErkJggg=="
+)
 
 
 def _alternative(golden_id: str, *, render: bool = False) -> dict:
@@ -423,3 +431,127 @@ class SaveAlternativeTests(TestCase):
             daily_look_save.save_to_lookbook(self.user, golden_id="999")
 
         self.assertEqual(ctx.exception.golden_id, "999")
+
+
+class VirtualTryOnLookSelectionTests(TestCase):
+    """가상 피팅이 **화면에서 보던 그 룩**을 입히는가.
+
+    golden_id 를 안 받던 시절에는 '다른 룩'으로 후보를 보다 입어봐도 대표 룩이
+    입혀졌다. 화면에서 고른 것과 결과가 다르면 사용자에게는 그냥 오작동이다.
+    """
+
+    def setUp(self):
+        self.user = User.objects.create(username="tryon1")
+        self.client = APIClient()
+        self.client.force_authenticate(self.user)
+        self.look = DailyLook.objects.create(
+            user=self.user,
+            look_date=service.today(),
+            body=CONTEXT["body"],
+            status=DailyLook.Status.SUCCEEDED,
+            result=_alternative("095", render=True),
+            alternatives=[_alternative("096", render=True), _alternative("097")],
+        )
+        self.url = reverse(
+            "recommend:daily-look-virtual-try-on", kwargs={"look_id": self.look.pk}
+        )
+
+        patches = {
+            "download": patch("apps.recommend.views.storage.download_for", return_value=PNG),
+            "exists": patch("apps.recommend.views.storage.exists_for", return_value=True),
+            "put": patch("apps.recommend.views.storage.put_bytes_for"),
+            "presign": patch(
+                "apps.recommend.views.storage.presigned_get_for",
+                return_value="https://signed",
+            ),
+            "service": patch("apps.recommend.views.VirtualTryOnService"),
+            "bucket": patch(
+                "apps.recommend.views.settings.OUTFIT_RENDER_RESULT_BUCKET", "result-bucket"
+            ),
+        }
+        self.mocks = {}
+        for name, patcher in patches.items():
+            self.mocks[name] = patcher.start()
+            self.addCleanup(patcher.stop)
+
+    def _post(self, **extra):
+        return self.client.post(
+            self.url,
+            {"person_image": SimpleUploadedFile("me.png", PNG, content_type="image/png"),
+             "mode": "mannequin", **extra},
+            format="multipart",
+        )
+
+    def _downloaded_key(self) -> str:
+        return self.mocks["download"].call_args.args[1]
+
+    def test_alternative_is_the_look_that_gets_worn(self):
+        response = self._post(golden_id="096")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertIn("096", self._downloaded_key())
+
+    def test_blank_golden_id_uses_the_primary_look(self):
+        response = self._post(golden_id="")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertIn("095", self._downloaded_key())
+
+    def test_golden_id_can_be_omitted(self):
+        response = self._post()
+
+        self.assertEqual(response.status_code, 200)
+        self.assertIn("095", self._downloaded_key())
+
+    def test_unknown_golden_id_is_refused(self):
+        """저장 API와 같은 규칙 — 오늘 나가지 않은 코디는 입힐 수 없다."""
+        response = self._post(golden_id="999")
+
+        self.assertEqual(response.status_code, 404)
+        self.assertEqual(response.json()["code"], "GOLDEN_LOOK_NOT_IN_TODAY")
+        self.mocks["download"].assert_not_called()
+
+    def test_another_users_look_is_not_reachable(self):
+        other = User.objects.create(username="tryon2")
+        other_look = DailyLook.objects.create(
+            user=other,
+            look_date=service.today(),
+            status=DailyLook.Status.SUCCEEDED,
+            result=_alternative("555", render=True),
+        )
+        url = reverse(
+            "recommend:daily-look-virtual-try-on", kwargs={"look_id": other_look.pk}
+        )
+
+        response = self.client.post(
+            url,
+            {"person_image": SimpleUploadedFile("me.png", PNG, content_type="image/png"),
+             "mode": "mannequin"},
+            format="multipart",
+        )
+
+        self.assertEqual(response.status_code, 404)
+
+    @patch("apps.recommend.services.daily_look.refresh_alternatives", return_value=False)
+    def test_candidate_without_render_image_is_409(self, _refresh):
+        """후보 이미지는 별도 작업이 채운다 — 아직이면 '나중에'라고 말한다."""
+        response = self._post(golden_id="097")
+
+        self.assertEqual(response.status_code, 409)
+        self.assertIn("완료된 뒤", response.json()["detail"])
+
+    @patch("apps.recommend.services.daily_look.refresh_alternatives")
+    def test_refresh_picks_up_a_just_finished_render(self, refresh):
+        """조회 보정이 방금 만들어진 이미지를 붙이면 그대로 진행한다."""
+
+        def _fill(look):
+            look.alternatives = [_alternative("096", render=True), _alternative("097", render=True)]
+            look.save(update_fields=["alternatives"])
+            return True
+
+        refresh.side_effect = _fill
+
+        response = self._post(golden_id="097")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertIn("097", self._downloaded_key())

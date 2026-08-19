@@ -132,6 +132,24 @@ export default function LookDetail() {
   const [openSlot, setOpenSlot] = useState<string | null>(null);
   const toast = useToast();
   const { effectiveCategoryBudgets } = usePrefs();
+
+  /* 가상 피팅은 **서버가 만든 오늘의 룩**에서만 연다. 목업·둘러보기 룩에는 넘길
+     look_id 가 없어, 그대로 보내면 피팅 화면이 내 룩이 아닌 것을 그린다.
+
+     golden 도 함께 넘긴다 — '다른 룩'으로 돌려보던 후보를 입어보려는 것인데
+     lookId 만 주면 서버가 대표 룩을 입힌다. 화면에서 고른 룩과 마네킹이 입은 룩이
+     달라지는 것은 사용자에게 그냥 오작동이다(저장 버튼에서 같은 문제를 고쳤다). */
+  const openVirtualTryOn = () => {
+    if (!dailyLook?.look_id || !serverGoldenId) {
+      toast('서버에서 생성된 추천 룩만 가상으로 입어볼 수 있어요.');
+      return;
+    }
+    router.push({
+      pathname: '/fitting',
+      params: { lookId: dailyLook.look_id, golden: serverGoldenId },
+    });
+  };
+
   /** 관련 상품은 실제 적용 예산 안에서만 보여준다. */
   const filterRelated = (items: LookRelated[], category: string) =>
     items.filter((item) => {
@@ -336,7 +354,7 @@ export default function LookDetail() {
               /* 준비 중에는 눌리지 않는다 — 없는 착용 이미지를 두고 '가상으로
                  입어보기'로 보내면 버튼이 약속한 것과 다른 화면이 열린다. */
               disabled={renderPending}
-              onPress={() => router.push('/fitting')}>
+              onPress={openVirtualTryOn}>
           {renderPending ? (
             <>
               <ActivityIndicator color={Editorial.selected} />

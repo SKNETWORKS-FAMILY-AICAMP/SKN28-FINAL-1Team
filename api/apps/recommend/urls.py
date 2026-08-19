@@ -3,6 +3,7 @@ from django.urls import path
 from .views import (
     DailyLookSaveView,
     DailyLookTodayView,
+    DailyLookVirtualTryOnView,
     OutfitAnalysisClaimView,
     OutfitAnalysisDetailView,
     OutfitAnalysisHistoryView,
@@ -15,6 +16,7 @@ from .views import (
     WishlistView,
     RecommendationCardDetailView,
     RecommendationCardRenderView,
+    RecommendationCardVirtualTryOnView,
     RecommendationFeedbackView,
     RecommendationHistoryView,
     RecommendationResultDetailView,
@@ -49,6 +51,11 @@ urlpatterns = [
         "looks/today/save/",
         DailyLookSaveView.as_view(),
         name="daily-look-save",
+    ),
+    path(
+        "looks/<uuid:look_id>/virtual-try-on/",
+        DailyLookVirtualTryOnView.as_view(),
+        name="daily-look-virtual-try-on",
     ),
     path(
         "recommendations/",
@@ -104,6 +111,11 @@ urlpatterns = [
         "recommendations/<uuid:result_id>/cards/<uuid:card_id>/render/",
         RecommendationCardRenderView.as_view(),
         name="recommendation-card-render",
+    ),
+    path(
+        "recommendations/<uuid:result_id>/cards/<uuid:card_id>/virtual-try-on/",
+        RecommendationCardVirtualTryOnView.as_view(),
+        name="recommendation-card-virtual-try-on",
     ),
     path(
         "recommendations/render-jobs/<uuid:job_id>/events/",

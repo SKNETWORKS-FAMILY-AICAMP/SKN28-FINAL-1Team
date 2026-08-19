@@ -1008,6 +1008,42 @@ def refresh_alternatives(look: DailyLook) -> bool:
     return bool(filled)
 
 
+class GoldenLookNotInTodayError(Exception):
+    """오늘 이 사용자에게 나가지 않은 코디를 지목한 경우.
+
+    '아직 안 됐다'(생성 중)와 다르다. 폴링해도 달라지지 않고, 대개 어제 화면을
+    열어 둔 채 버튼을 누른 것이다.
+    """
+
+    def __init__(self, golden_id: str) -> None:
+        super().__init__(golden_id)
+        self.golden_id = golden_id
+
+
+def pick_result(look: DailyLook, golden_id: str = "") -> dict[str, Any]:
+    """그날의 룩 하나를 고른다. 대표 룩이거나 '다른 룩' 후보 중 하나다.
+
+    **클라이언트가 고르되 목록은 서버가 정한다.** golden_id를 그대로 믿으면 남의
+    코디도, 어제의 코디도 집힌다. 그래서 이 사용자의 오늘 행에 실제로 실려 나간
+    것들(result + alternatives) 안에서만 찾는다.
+
+    저장(룩북)과 가상 피팅이 같은 함수를 쓴다 — 두 기능이 서로 다른 룩을 고르면
+    사용자는 화면에서 본 것과 다른 결과를 받는다.
+
+    Raises: GoldenLookNotInTodayError
+    """
+    result = look.result or {}
+    golden_id = (golden_id or "").strip()
+    if not golden_id or golden_id == str(result.get("golden_id") or ""):
+        return result
+    for alternative in look.alternatives or []:
+        if isinstance(alternative, dict) and str(
+            alternative.get("golden_id") or ""
+        ) == golden_id:
+            return alternative
+    raise GoldenLookNotInTodayError(golden_id)
+
+
 def _candidate_for_llm(candidate) -> dict[str, Any]:
     """LLM 프롬프트에 넣을 형태. 이미지 대신 태그와 근거만 넘긴다.
 

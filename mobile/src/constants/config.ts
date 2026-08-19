@@ -152,6 +152,8 @@ export const HomeEndpoint = '/api/v1/home/';
  *   - 대표 이미지는 result.render_image_url, null 이면 items[].image_url 카드로 화면을 만든다.
  */
 export const DailyLookEndpoint = '/api/v1/looks/today/';
+export const DailyLookVirtualTryOnEndpoint = (lookId: string) =>
+  `/api/v1/looks/${lookId}/virtual-try-on/`;
 
 /**
  * 오늘의 룩 저장 (홈 카드의 '저장'). POST, **본문 없음**.
