@@ -574,27 +574,6 @@ export function listSharedRoomItems(roomId: string): Promise<SharedRoomItem[]> {
   return api.get<SharedRoomItem[]>(`/api/v1/shared-wardrobes/${roomId}/items/`);
 }
 
-export type SharedRoomCategory = {
-  id: string;
-  name: string;
-  created_by: number | null;
-  created_at: string;
-};
-
-export function listSharedRoomCategories(roomId: string): Promise<SharedRoomCategory[]> {
-  return api.get<SharedRoomCategory[]>(`/api/v1/shared-wardrobes/${roomId}/categories/`);
-}
-
-export function createSharedRoomCategory(roomId: string, name: string): Promise<SharedRoomCategory> {
-  return api.post<SharedRoomCategory>(`/api/v1/shared-wardrobes/${roomId}/categories/`, { name });
-}
-
-export function deleteSharedRoomCategory(roomId: string, categoryId: string): Promise<unknown> {
-  return api.delete(
-    `/api/v1/shared-wardrobes/${roomId}/categories/?category_id=${encodeURIComponent(categoryId)}`,
-  );
-}
-
 export function registerItemToSharedRoom(roomId: string, wardrobeItemId: string, status: SharedItemStatus = 'available'): Promise<SharedRoomItem> {
   return api.post<SharedRoomItem>(`/api/v1/shared-wardrobes/${roomId}/items/`, {
     wardrobe_item_id: wardrobeItemId,

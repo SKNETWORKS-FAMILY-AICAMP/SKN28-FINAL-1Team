@@ -59,6 +59,12 @@ class SwaggerEndpointTests(SimpleTestCase):
             if parameter["name"] == "category_id"
         )
         self.assertEqual((category_id["in"], category_id["required"]), ("query", True))
+        for method in ("get", "post", "delete"):
+            category_operation = paths[
+                "/api/v1/shared-wardrobes/{id}/categories/"
+            ][method]
+            self.assertTrue(category_operation["deprecated"])
+            self.assertIn("레거시", category_operation["description"])
 
         required_operations = {
             ("get", "/api/v1/wardrobe/batches/"),
@@ -116,12 +122,16 @@ class SwaggerEndpointTests(SimpleTestCase):
                 if method not in {"get", "post", "patch", "put", "delete"}:
                     continue
                 with self.subTest(path=path, method=method):
-                    self.assertEqual(operation["tags"], ["채팅"])
+                    self.assertIn(
+                        operation["tags"],
+                        (["채팅"], ["선택형 스타일리스트"]),
+                    )
                     self.assertTrue(operation.get("summary"))
                     self.assertTrue(operation.get("description"))
 
         declared_tags = {tag["name"]: tag for tag in schema["tags"]}
         self.assertIn("채팅", declared_tags)
+        self.assertIn("선택형 스타일리스트", declared_tags)
         self.assertIn("추천 카드", declared_tags["채팅"]["description"])
 
         session_create = paths["/api/v1/chat/sessions/"]["post"]
@@ -172,6 +182,50 @@ class SwaggerEndpointTests(SimpleTestCase):
 
         chat_sse = paths["/api/v1/chat/runs/{run_id}/events/"]["get"]
         self.assertIn("text/event-stream", chat_sse["responses"]["200"]["content"])
+
+    def test_shared_reference_schema_documents_eligibility_and_errors(self) -> None:
+        response = self.client.get(
+            reverse("api-schema"),
+            headers={"accept": "application/json"},
+        )
+        self.assertEqual(response.status_code, 200)
+        schema = json.loads(response.content)
+        paths = schema["paths"]
+
+        message_create = paths[
+            "/api/v1/chat/sessions/{session_id}/messages/"
+        ]["post"]
+        for response_status, error_code in (
+            ("403", "REFERENCE_ITEM_FORBIDDEN"),
+            ("404", "REFERENCE_ITEM_NOT_FOUND"),
+            ("409", "REFERENCE_ITEM_NOT_READY"),
+        ):
+            error_response = message_create["responses"][response_status]
+            self.assertIn(error_code, error_response["description"])
+            self.assertIn("application/json", error_response["content"])
+
+        shared_items = paths[
+            "/api/v1/shared-wardrobes/{id}/items/"
+        ]["get"]
+        for contract_value in (
+            "reference_eligible",
+            "reference_unavailable_reason",
+            "PRIVATE",
+            "NOT_CONFIRMED",
+            "VECTOR_NOT_READY",
+            "BORROWED",
+        ):
+            self.assertIn(contract_value, shared_items["description"])
+
+        item_list_schema = shared_items["responses"]["200"]["content"][
+            "application/json"
+        ]["schema"]
+        item_schema_name = item_list_schema["items"]["$ref"].rsplit("/", 1)[-1]
+        item_properties = schema["components"]["schemas"][item_schema_name][
+            "properties"
+        ]
+        self.assertIn("reference_eligible", item_properties)
+        self.assertIn("reference_unavailable_reason", item_properties)
 
     def test_chat_swagger_exposes_executable_parameters(self) -> None:
         """채팅 문서가 설명만 있고 입력칸이 사라지는 회귀를 막는다."""

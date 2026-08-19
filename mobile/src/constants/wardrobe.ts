@@ -1,14 +1,11 @@
 /**
- * 아직 백엔드가 없는 옷 목록의 목업.
+ * 서버에 올릴 수 없는 데모 착장과 앱 카탈로그 화면에만 쓰는 로컬 항목.
  *
- * ⚠️ **내 옷장(CLOSET_ITEMS)은 더 이상 화면이 쓰지 않는다** — 옷장 화면과 캘린더 '옷 고르기'는
- * 실 API(hooks/use-wardrobe.ts)를 본다. 남겨 둔 이유는 캘린더 시드 기록이 이 배열을 참조하기
- * 때문이다(state/calendar.ts). 착장 기록이 서버로 옮겨가면 함께 지운다.
- *
- * SHARED_CLOSET_ITEMS(친구 옷장)·LIBRARY_ITEMS(앱 카탈로그)는 백엔드가 아직 없어 계속 목업이다.
+ * 내 옷장과 공유 옷장은 실 API를 사용한다. `CLOSET_ITEMS`는 저장 룩 시드의 하위 호환,
+ * `LIBRARY_ITEMS`는 아직 서버 상품 선택 계약이 없는 앱 카탈로그용이다.
  */
 
-/** 옷이 어디서 왔는지 — 캘린더 기록은 소스까지 함께 저장한다 */
+/** 옷이 어디서 왔는지 — `shared`는 기존 캘린더 기록 복원 호환을 위해 유지한다. */
 export type WardrobeSource = 'closet' | 'library' | 'shared';
 
 export type WardrobeItem = {
@@ -66,58 +63,6 @@ export const CLOSET_ITEMS: WardrobeItem[] = [
     category: '가방',
     tone: 0.3,
     image: 'https://i.pinimg.com/1200x/39/32/c4/3932c44dead7e38ad916ef2e8cc2902f.jpg',
-  },
-];
-
-/** 함께 쓰는 옷장 — 스페이스 멤버들의 옷 */
-export const SHARED_CLOSET_ITEMS: WardrobeItem[] = [
-  {
-    id: 's1',
-    name: '카멜 오버 코트',
-    category: '아우터',
-    tone: 0.12,
-    owner: '지민',
-    image: 'https://images.unsplash.com/photo-1596755094514-f87e34085b2c?w=400&h=500&fit=crop',
-  },
-  {
-    id: 's2',
-    name: '플리츠 미디 스커트',
-    category: '하의',
-    tone: 0.07,
-    owner: '서연',
-    image: 'https://images.unsplash.com/photo-1591195853828-11db59a44f6b?w=400&h=500&fit=crop',
-  },
-  {
-    id: 's3',
-    name: '체크 오버 셔츠',
-    category: '상의',
-    tone: 0.18,
-    owner: '민준',
-    image: 'https://images.unsplash.com/photo-1602810318383-e386cc2a3ccf?w=400&h=500&fit=crop',
-  },
-  {
-    id: 's4',
-    name: '스웨이드 첼시 부츠',
-    category: '신발',
-    tone: 0.26,
-    owner: '지민',
-    image: 'https://images.unsplash.com/photo-1549298916-b41d501d3772?w=400&h=500&fit=crop',
-  },
-  {
-    id: 's5',
-    name: '베이지 트렌치 코트',
-    category: '아우터',
-    tone: 0.1,
-    owner: '서연',
-    image: 'https://images.unsplash.com/photo-1539533018447-63fcce2678e3?w=400&h=500&fit=crop',
-  },
-  {
-    id: 's6',
-    name: '실버 체인 목걸이',
-    category: '액세서리',
-    tone: 0.14,
-    owner: '민준',
-    image: 'https://images.unsplash.com/photo-1515562141207-7a88fb7ce338?w=400&h=500&fit=crop',
   },
 ];
 

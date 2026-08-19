@@ -373,8 +373,19 @@ class SharedWardrobeMemberSerializer(serializers.ModelSerializer):
 class SharedWardrobeItemSerializer(serializers.ModelSerializer):
     wardrobe_item = WardrobeItemSerializer(read_only=True)
     registered_by = UserSimpleSerializer(read_only=True)
+    status = serializers.ChoiceField(
+        choices=SharedWardrobeItem.Status.choices,
+        read_only=True,
+        help_text=(
+            "공유 상태. AVAILABLE은 공유 가능, BORROWED는 대여 중이지만 채팅 참고 가능, "
+            "PRIVATE는 소유자만 볼 수 있고 채팅 참고 불가"
+        ),
+    )
     reference_eligible = serializers.SerializerMethodField(
-        help_text="채팅 추천의 공유 옷 레퍼런스로 선택할 수 있는지 여부",
+        help_text=(
+            "현재 채팅 추천의 공유 옷 레퍼런스로 선택할 수 있는지 여부. "
+            "전송 시 서버가 권한과 준비 상태를 다시 검증함"
+        ),
     )
     reference_unavailable_reason = serializers.SerializerMethodField(
         help_text=(

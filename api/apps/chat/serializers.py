@@ -147,6 +147,30 @@ class SharedWardrobeItemReferenceSerializer(serializers.Serializer):
     shared_item_id = serializers.UUIDField()
 
 
+class SharedReferenceNotFoundErrorSerializer(serializers.Serializer):
+    code = serializers.ChoiceField(
+        choices=["REFERENCE_ITEM_NOT_FOUND"],
+        read_only=True,
+    )
+    detail = serializers.CharField(read_only=True)
+
+
+class SharedReferenceForbiddenErrorSerializer(serializers.Serializer):
+    code = serializers.ChoiceField(
+        choices=["REFERENCE_ITEM_FORBIDDEN"],
+        read_only=True,
+    )
+    detail = serializers.CharField(read_only=True)
+
+
+class SharedReferenceNotReadyErrorSerializer(serializers.Serializer):
+    code = serializers.ChoiceField(
+        choices=["REFERENCE_ITEM_NOT_READY"],
+        read_only=True,
+    )
+    detail = serializers.CharField(read_only=True)
+
+
 class WardrobeScopeSerializer(serializers.Serializer):
     system_categories = serializers.ListField(
         child=serializers.CharField(max_length=30),
