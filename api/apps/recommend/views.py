@@ -2,6 +2,7 @@ import hashlib
 import logging
 import re
 from datetime import timedelta
+from pathlib import Path
 
 import redis
 from django.conf import settings
@@ -61,8 +62,10 @@ from .serializers import (
     RecommendationHistoryQuerySerializer,
     RecommendationHistoryResponseSerializer,
     RecommendationResultDetailSerializer,
+    DailyLookVirtualTryOnRequestSerializer,
+    VirtualTryOnJobSerializer,
     VirtualTryOnRequestSerializer,
-    VirtualTryOnResponseSerializer,
+    VirtualTryOnResultSerializer,
     SavedOutfitSerializer,
 )
 from .services import analysis as analysis_service
@@ -70,7 +73,8 @@ from .services import claim as claim_service
 from .services import daily_look as daily_look_service
 from .services import daily_look_save
 from .services import recommendation_results as recommendation_service
-from .services import render_jobs, storage
+from .services import render_jobs, render_queue, storage
+from .services import virtual_try_on_jobs
 from .services.mixed_outfit_render import OutfitRenderError
 from .services.render_events import (
     RenderEvent,
@@ -1211,12 +1215,17 @@ class RecommendationCardVirtualTryOnView(APIView):
         description=(
             "완료된 추천 카드 이미지와 전신 사진을 Qwen에 전달합니다. `person`은 "
             "얼굴·체형·포즈를 유지하고 옷만 교체하며, `mannequin`은 같은 체형의 "
-            "마네킹에 선택한 추천 룩을 한 번에 입힙니다. 요청 사진 원본은 저장하지 않습니다."
+            "마네킹에 선택한 추천 룩을 한 번에 입힙니다. 요청 사진 원본은 저장하지 않습니다.\n\n"
+            "⚠️ **이 경로는 동기입니다.** 응답이 올 때까지 이미지 생성을 기다리므로 "
+            "수십 초~2분이 걸리고, 프록시가 먼저 끊으면 504/524가 납니다. "
+            "오늘의 룩(`POST /looks/{look_id}/virtual-try-on/`)은 같은 이유로 "
+            "접수(202)와 조회로 나눠 두었으니, 이 API를 화면에 붙일 때 같은 구조로 "
+            "옮기는 것을 권합니다."
         ),
         parameters=[_RESULT_ID_PARAMETER, _CARD_ID_PARAMETER],
         request=VirtualTryOnRequestSerializer,
         responses={
-            200: VirtualTryOnResponseSerializer,
+            200: VirtualTryOnResultSerializer,
             409: OpenApiResponse(description="추천 코디 이미지가 아직 생성되지 않음"),
             502: OpenApiResponse(description="이미지 모델이 가상 착장 생성에 실패함"),
             503: OpenApiResponse(description="결과 저장소가 설정되지 않음"),
@@ -1302,7 +1311,11 @@ class RecommendationCardVirtualTryOnView(APIView):
 
 
 class DailyLookVirtualTryOnView(APIView):
-    """화면에 표시된 오늘의 추천 룩을 사용자 체형 마네킹에 적용한다."""
+    """화면에 표시된 오늘의 추천 룩을 사용자 체형 마네킹에 적용한다 (비동기).
+
+    POST 는 접수만 하고, 실제 생성은 워커가 한다. GET 으로 그 룩의 마지막 작업을
+    조회하므로 화면을 나갔다 와도 이어서 볼 수 있다.
+    """
 
     permission_classes = [IsAuthenticated]
     parser_classes = [MultiPartParser, FormParser]
@@ -1310,14 +1323,30 @@ class DailyLookVirtualTryOnView(APIView):
     @extend_schema(
         operation_id="daily_look_virtual_try_on_create",
         tags=[CHAT_TAG],
-        summary="오늘의 추천 룩 가상 착장",
-        request=VirtualTryOnRequestSerializer,
+        summary="오늘의 추천 룩 가상 착장 요청 (비동기)",
+        description=(
+            "가상 피팅을 **접수만** 하고 바로 응답한다. 이미지 생성은 워커가 하며 "
+            "수십 초~2분이 걸린다 — 요청 스레드에서 기다리면 프록시가 먼저 끊는다"
+            "(Cloudflare 터널 100초 → 524).\n\n"
+            "- `202`: 접수됨. `poll_after_ms` 간격으로 "
+            "`GET /looks/{look_id}/virtual-try-on/` 을 호출해 상태를 본다\n"
+            "- `200`: 같은 사진·같은 코디로 이미 만들어 둔 것이 있다 "
+            "(`cache_hit=true`, `status=SUCCEEDED`) — 폴링할 필요 없다\n"
+            "- `404`: `golden_id` 가 오늘 이 사용자에게 나간 룩이 아니다\n"
+            "- `409`: 입힐 추천 룩 이미지(착용 이미지)가 아직 만들어지지 않았다\n\n"
+            "전신 사진은 워커가 읽을 때까지 S3 에 잠시 보관되며, 버킷 수명주기 규칙으로 "
+            "만료된다.\n\n"
+            "`golden_id` 를 주면 '다른 룩'으로 돌려보던 그 후보를 입힌다. 생략하면 대표 룩이다."
+        ),
+        request=DailyLookVirtualTryOnRequestSerializer,
         responses={
-            200: VirtualTryOnResponseSerializer,
+            200: VirtualTryOnJobSerializer,
+            202: VirtualTryOnJobSerializer,
             404: OpenApiResponse(description="오늘 나간 룩이 아닌 golden_id"),
             409: OpenApiResponse(description="추천 룩 이미지가 아직 생성되지 않음"),
-            502: OpenApiResponse(description="이미지 모델이 가상 착장 생성에 실패함"),
-            503: OpenApiResponse(description="결과 저장소가 설정되지 않음"),
+            503: OpenApiResponse(
+                description="결과 저장소 미설정 또는 큐 적재 실패로 접수하지 못함"
+            ),
         },
     )
     def post(self, request: Request, look_id) -> Response:
@@ -1329,7 +1358,7 @@ class DailyLookVirtualTryOnView(APIView):
         if look is None:
             raise NotFound("추천 룩을 찾을 수 없습니다.")
 
-        serializer = VirtualTryOnRequestSerializer(data=request.data)
+        serializer = DailyLookVirtualTryOnRequestSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
 
         # '다른 룩'으로 돌려보던 후보를 입어볼 수 있다. golden_id 없이 대표 룩만
@@ -1375,52 +1404,77 @@ class DailyLookVirtualTryOnView(APIView):
             str(image["s3_key"]),
             max_bytes=settings.OUTFIT_RENDER_MAX_OUTPUT_BYTES,
         )
-        mode = serializer.validated_data["mode"]
-        prompt_version = (
-            DIRECT_PROMPT_VERSION if mode == "person" else MANNEQUIN_PROMPT_VERSION
-        )
-        contract = hashlib.sha256(
-            (
-                f"daily|{look.pk}|{chosen.get('golden_id', '')}|{mode}|"
-                f"{hashlib.sha256(person).hexdigest()}|"
-                f"{hashlib.sha256(outfit).hexdigest()}|{settings.OUTFIT_RENDER_MODEL}|"
-                f"{prompt_version}"
-            ).encode()
-        ).hexdigest()
-        bucket = settings.OUTFIT_RENDER_RESULT_BUCKET
-        if not bucket:
+
+        # 여기서 이미지를 만들지 않는다. 생성이 수십 초~2분이라 앞단 프록시가 먼저
+        # 끊고(Cloudflare 터널 100초 → 524), 그 연결이 곧 결과의 수명이라 화면을
+        # 나가면 만들던 것이 사라진다. 접수만 하고 워커에 넘긴다.
+        try:
+            job, done = virtual_try_on_jobs.accept(
+                user=request.user,
+                look=look,
+                golden_id=str(chosen.get("golden_id") or ""),
+                mode=serializer.validated_data["mode"],
+                person=person,
+                person_extension=Path(getattr(upload, "name", "") or "person.jpg").suffix
+                or ".jpg",
+                person_content_type=getattr(upload, "content_type", "") or "image/jpeg",
+                outfit=outfit,
+            )
+        except virtual_try_on_jobs.VirtualTryOnUnavailable:
             return Response(
                 {"detail": "가상 착장 결과 저장소가 설정되지 않았습니다."},
                 status=status.HTTP_503_SERVICE_UNAVAILABLE,
             )
-        key = (
-            f"{settings.VIRTUAL_TRY_ON_RESULT_PREFIX}/{contract[:2]}/{contract}/result.png"
-        )
-        cache_hit = storage.exists_for(bucket, key)
-        if not cache_hit:
-            service = VirtualTryOnService()
-            try:
-                result = (
-                    service.fit_mannequin(person, outfit)
-                    if mode == "mannequin"
-                    else service.fit_person(person, outfit)
-                )
-            except OutfitRenderError:
-                logger.exception("오늘의 룩 가상 착장 생성 실패: look=%s", look.pk)
-                return Response(
-                    {"detail": "가상 착장 이미지를 생성하지 못했습니다."},
-                    status=status.HTTP_502_BAD_GATEWAY,
-                )
-            storage.put_bytes_for(bucket, key, result.content, result.media_type)
 
-        ttl = settings.OUTFIT_RENDER_PRESIGNED_GET_TTL_SECONDS
+        if done:
+            # 같은 사진·같은 코디로 이미 만들어 둔 것이 있다. 폴링할 이유가 없다.
+            return Response(virtual_try_on_jobs.payload(job))
+
+        try:
+            render_queue.enqueue_virtual_try_on(job)
+        except redis.RedisError:
+            logger.exception("가상 피팅 큐 적재 실패: job=%s", job.pk)
+            virtual_try_on_jobs.mark_failed(
+                job.pk,
+                error_code="QUEUE_ENQUEUE_FAILED",
+                error_message="잠시 후 다시 시도해 주세요.",
+            )
+            return Response(
+                {"detail": "가상 착장 요청을 접수하지 못했습니다."},
+                status=status.HTTP_503_SERVICE_UNAVAILABLE,
+            )
+        virtual_try_on_jobs.mark_enqueued(job)
         return Response(
-            {
-                "mode": mode,
-                "image_url": storage.presigned_get_for(bucket, key, ttl=ttl),
-                "cache_hit": cache_hit,
-            }
+            virtual_try_on_jobs.payload(job), status=status.HTTP_202_ACCEPTED
         )
+
+    @extend_schema(
+        operation_id="daily_look_virtual_try_on_retrieve",
+        tags=[CHAT_TAG],
+        summary="가상 피팅 결과 조회",
+        description=(
+            "이 사용자가 그 룩(그 후보)에 대해 **마지막으로 만든** 가상 피팅을 돌려준다.\n\n"
+            "화면을 나갔다 다시 들어와도 사진을 다시 고를 필요 없이 이 조회로 복원한다. "
+            "아직 한 번도 만든 적이 없으면 `status`가 null이다."
+        ),
+        parameters=[
+            OpenApiParameter(
+                name="golden_id", type=str, required=False,
+                description="어느 룩의 결과인지. 생략하면 대표 룩.",
+            ),
+        ],
+        responses={200: VirtualTryOnJobSerializer},
+    )
+    def get(self, request: Request, look_id) -> Response:
+        look = DailyLook.objects.filter(pk=look_id, user=request.user).first()
+        if look is None:
+            raise NotFound("추천 룩을 찾을 수 없습니다.")
+        job = virtual_try_on_jobs.latest_job(
+            user=request.user,
+            look=look,
+            golden_id=request.query_params.get("golden_id", ""),
+        )
+        return Response(virtual_try_on_jobs.payload(job))
 
 
 def _owned_render_job(request: Request, job_id) -> OutfitRenderJob:

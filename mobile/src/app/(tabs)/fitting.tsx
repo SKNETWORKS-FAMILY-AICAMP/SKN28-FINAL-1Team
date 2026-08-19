@@ -5,10 +5,11 @@ import { Editorial, ink, Fonts } from '@/constants/theme';
 import { dailyLookToVariant } from '@/constants/today-look';
 import { useBreakpoint } from '@/hooks/use-breakpoint';
 import { useDailyLook } from '@/hooks/use-daily-look';
+import { useVirtualTryOn } from '@/hooks/use-virtual-try-on';
 import { goBack } from '@/lib/goBack';
 import { pickBodyPhoto } from '@/lib/pickItemPhoto';
 import { dailyLookPhase } from '@/lib/dailyLookApi';
-import { fitDailyLookToMannequin } from '@/lib/virtualTryOnApi';
+import { isVirtualTryOnPending } from '@/lib/virtualTryOnApi';
 import { router, useLocalSearchParams } from 'expo-router';
 import { useMemo, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
@@ -28,10 +29,22 @@ export default function Fitting() {
      온 화면에서 내 것이 아닌 구성을 보게 된다. 없으면 없다고 말한다(아래 early return). */
   const look = useMemo(() => dailyLookToVariant(dailyLook, golden), [dailyLook, golden]);
   const lookPhase = dailyLookPhase(dailyLook, dailyStalled);
-  const [phase, setPhase] = useState<'idle' | 'loading' | 'done'>('idle');
-  const [resultUri, setResultUri] = useState<string | null>(null);
+  /* 접수·폴링·재진입 복원을 훅이 맡는다. 화면에 들어오면 먼저 조회하므로,
+     나갔다 온 사용자는 사진을 다시 고르지 않아도 생성 중·완성 결과를 그대로 본다. */
+  const {
+    job,
+    loading: restoring,
+    submitting,
+    stalled: tryOnStalled,
+    submit,
+  } = useVirtualTryOn(lookId, golden);
   const toast = useToast();
   const maxW = width >= 1280 ? 960 : 720;
+
+  const resultUri = job?.status === 'SUCCEEDED' ? job.image_url : null;
+  /* 만드는 중 — 사진을 올리는 동안과 워커가 만드는 동안을 한 상태로 묶는다.
+     사용자에게는 "요청했고 기다린다" 하나의 일이다. */
+  const generating = submitting || (isVirtualTryOnPending(job) && !tryOnStalled);
 
   const generate = async () => {
     if (!lookId) {
@@ -41,17 +54,12 @@ export default function Fitting() {
     const personUri = await pickBodyPhoto();
     if (!personUri) return;
 
-    setPhase('loading');
     try {
       /* 보고 있던 그 룩을 입힌다 — golden 을 빼면 서버가 대표 룩을 입혀,
          화면의 구성과 결과가 어긋난다. */
-      const result = await fitDailyLookToMannequin(lookId, personUri, golden);
-      setResultUri(result.image_url);
-      setPhase('done');
-      toast('이 추천 룩을 내 체형 마네킹에 입혔어요.', { variant: 'success' });
+      await submit(personUri);
     } catch (error) {
-      setPhase(resultUri ? 'done' : 'idle');
-      toast(error instanceof Error ? error.message : '가상 착장을 만들지 못했어요.', {
+      toast(error instanceof Error ? error.message : '가상 착장을 요청하지 못했어요.', {
         variant: 'error',
       });
     }
@@ -104,8 +112,20 @@ export default function Fitting() {
         <DetailTwoPane
           image={
             <View style={styles.canvas}>
-              {phase === 'loading' ? (
-                <LoadingState message={'선택한 추천 룩을\n내 체형 마네킹에 입히고 있어요'} />
+              {restoring ? (
+                /* 재진입 복원 — 이미 만들어 둔 것이 있는지 먼저 확인한다. */
+                <LoadingState message={'가상 피팅을 불러오는 중이에요…'} />
+              ) : generating ? (
+                <>
+                  <LoadingState
+                    message={job?.detail ?? '가상 피팅 이미지를 생성 중입니다.'}
+                  />
+                  {/* 만드는 곳은 서버다. 이 화면을 벗어나도 계속 만들어지고,
+                      다시 들어오면 이어서 보인다는 것을 알려 준다. */}
+                  <Text style={styles.canvasGuide}>
+                    다른 화면을 봐도 괜찮아요. 완성되면 여기서 다시 볼 수 있어요.
+                  </Text>
+                </>
               ) : resultUri ? (
                 <>
                   <SmartImage
@@ -123,10 +143,25 @@ export default function Fitting() {
               ) : (
                 <>
                   <Icon name="figure.stand" tintColor={ink(0.45)} size={42} />
-                  <Text style={styles.canvasTitle}>전신 사진을 선택해 주세요</Text>
-                  <Text style={styles.canvasGuide}>사진은 저장하지 않고 가상 착장에만 사용해요.</Text>
-                  <Pressable style={styles.photoBtn} onPress={generate}>
-                    <Text style={styles.photoBtnText}>사진 선택하고 입어보기</Text>
+                  <Text style={styles.canvasTitle}>
+                    {tryOnStalled ? '아직 만들고 있어요' : '전신 사진을 선택해 주세요'}
+                  </Text>
+                  <Text style={styles.canvasGuide}>
+                    {tryOnStalled
+                      ? '생각보다 오래 걸리고 있어요. 잠시 뒤 다시 들어오면 보일 거예요.'
+                      : job?.status === 'FAILED'
+                        ? (job.detail ?? '만들지 못했어요. 다시 시도해 주세요.')
+                        : /* 사진은 워커가 읽어야 해서 잠시 저장된다. "저장하지 않는다"고
+                             적어 두면 실제와 다른 약속이 된다. */
+                          '사진은 가상 착장을 만드는 데만 쓰고, 만든 뒤 자동으로 지워져요.'}
+                  </Text>
+                  <Pressable
+                    style={[styles.photoBtn, submitting && styles.btnDisabled]}
+                    disabled={submitting}
+                    onPress={generate}>
+                    <Text style={styles.photoBtnText}>
+                      {job?.status === 'FAILED' ? '다시 시도' : '사진 선택하고 입어보기'}
+                    </Text>
                   </Pressable>
                 </>
               )}
@@ -159,8 +194,8 @@ export default function Fitting() {
       <View style={styles.bottomDivider} />
       <View style={[styles.bottomBar, { paddingBottom: 12 }, contentStyle(maxW)]}>
         <Pressable
-          style={[styles.altBtn, phase === 'loading' && styles.btnDisabled]}
-          disabled={phase === 'loading'}
+          style={[styles.altBtn, generating && styles.btnDisabled]}
+          disabled={generating}
           onPress={generate}>
           <Icon name="arrow.clockwise" tintColor={ink(0.6)} size={15} />
           <Text style={styles.altText}>{resultUri ? '다른 사진으로 생성' : '사진 선택'}</Text>

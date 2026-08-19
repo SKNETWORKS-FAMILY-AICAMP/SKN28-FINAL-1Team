@@ -5,11 +5,45 @@ import { ApiError, apiFetch } from '@/lib/apiClient';
 import { getAccessToken } from '@/lib/secureStore';
 import { guessFileName, guessMimeType, uploadMultipart } from '@/lib/uploadFile';
 
-export type VirtualTryOnResult = {
-  mode: 'person' | 'mannequin';
-  image_url: string;
+export type VirtualTryOnStatus = 'QUEUED' | 'PROCESSING' | 'SUCCEEDED' | 'FAILED';
+
+/**
+ * 가상 피팅 작업 상태. **접수(POST)와 조회(GET)가 같은 본문**을 준다.
+ *
+ * 생성은 수십 초~2분이라 서버가 기다려 주지 않는다(예전에는 기다리다 프록시가
+ * 끊어 524가 났다). 접수만 받고 워커가 만들며, 화면은 poll_after_ms 간격으로
+ * 다시 물어본다. 결과는 서버에 남으므로 화면을 나갔다 와도 GET 으로 되살린다.
+ *
+ * `status`가 null 이면 이 룩으로 아직 한 번도 만든 적이 없다는 뜻이다.
+ */
+export type VirtualTryOnJob = {
+  job_id: string | null;
+  status: VirtualTryOnStatus | null;
+  mode: string;
+  /** 어느 룩을 입혔는지 (빈 값이면 대표 룩) */
+  golden_id: string;
+  /** presigned URL — 조회마다 새로 서명되므로 캐시하면 만료된다 */
+  image_url: string | null;
   cache_hit: boolean;
+  /** 생성 중일 때만 값이 있다 */
+  poll_after_ms: number | null;
+  /** 상태별 사용자 안내 문구 */
+  detail: string | null;
 };
+
+/** 아직 만드는 중이라 계속 물어봐야 하는 상태 */
+export function isVirtualTryOnPending(job: VirtualTryOnJob | null): boolean {
+  return job?.status === 'QUEUED' || job?.status === 'PROCESSING';
+}
+
+/** 그 룩의 마지막 가상 피팅. 화면 재진입 시 이걸로 복원한다. */
+export function getVirtualTryOn(
+  lookId: string,
+  goldenId?: string,
+): Promise<VirtualTryOnJob> {
+  const qs = goldenId ? `?golden_id=${encodeURIComponent(goldenId)}` : '';
+  return apiFetch<VirtualTryOnJob>(`${DailyLookVirtualTryOnEndpoint(lookId)}${qs}`);
+}
 
 /**
  * 오늘의 룩을 내 체형 마네킹에 입힌다.
@@ -23,7 +57,7 @@ export async function fitDailyLookToMannequin(
   lookId: string,
   personUri: string,
   goldenId?: string,
-): Promise<VirtualTryOnResult> {
+): Promise<VirtualTryOnJob> {
   const form = new FormData();
   const name = guessFileName(personUri, 'person.jpg');
 
@@ -33,7 +67,7 @@ export async function fitDailyLookToMannequin(
     form.append('person_image', await response.blob(), name);
     form.append('mode', 'mannequin');
     if (goldenId) form.append('golden_id', goldenId);
-    return apiFetch<VirtualTryOnResult>(DailyLookVirtualTryOnEndpoint(lookId), {
+    return apiFetch<VirtualTryOnJob>(DailyLookVirtualTryOnEndpoint(lookId), {
       method: 'POST',
       body: form,
     });
@@ -48,7 +82,9 @@ export async function fitDailyLookToMannequin(
   const response = await uploadMultipart(
     `${API_BASE_URL}${DailyLookVirtualTryOnEndpoint(lookId)}`,
     form,
-    { token: await getAccessToken(), timeoutMs: 10 * 60 * 1000 },
+    /* 이제 서버가 접수만 하고 바로 답하므로 10분을 잡아둘 이유가 없다.
+       업로드(사진 한 장)만 끝나면 되는 시간이다. */
+    { token: await getAccessToken(), timeoutMs: 60 * 1000 },
   );
   let body: unknown = null;
   try {
@@ -60,5 +96,5 @@ export async function fitDailyLookToMannequin(
     const detail = (body as { detail?: string } | null)?.detail;
     throw new ApiError(detail ?? `가상 착장 요청 실패 (${response.status})`, response.status, body);
   }
-  return body as VirtualTryOnResult;
+  return body as VirtualTryOnJob;
 }
