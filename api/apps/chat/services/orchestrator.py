@@ -66,6 +66,7 @@ from apps.chat.services.stylist_execution import (
 from apps.chat.services.stylist_personas import load_stylist_personas
 from apps.chat.services.wardrobe_scope import build_wardrobe_scope_snapshot
 from apps.recommend.models import OutfitComposition, RecommendationResult
+from apps.recommend.services.focus_slots import focus_slot_labels
 
 logger = logging.getLogger(__name__)
 
@@ -420,6 +421,8 @@ class ChatOrchestrator:
             usage += analyzed.usage
             provider_response_id = analyzed.response_id
             analysis = self._effective_analysis(run.session, analyzed.value)
+            run.focus_slots = list(analysis.conditions.focus_slots)
+            run.save(update_fields=["focus_slots", "updated_at"])
             self._update_session_conditions(run.session, analysis)
             context_fingerprint = fingerprint(
                 {
@@ -458,7 +461,27 @@ class ChatOrchestrator:
                     or "패션 추천과 관련해 궁금한 조건을 알려주세요."
                 )
             else:
-                if run.response_mode == ChatSession.ResponseMode.STYLIST:
+                missing_focus_slots = (
+                    self.recommendation_pipeline.missing_wardrobe_focus_slots(
+                        run=run,
+                        focus_slots=analysis.conditions.focus_slots,
+                    )
+                    if analysis.conditions.focus_slots
+                    else ()
+                )
+                if missing_focus_slots:
+                    self._discard_unstarted_persona_executions(run)
+                    final_status = ChatRun.Status.NEEDS_CLARIFICATION
+                    labels = ", ".join(focus_slot_labels(missing_focus_slots))
+                    response_text = (
+                        f"옷장에 추천할 수 있는 {labels} 아이템이 없어요. "
+                        "새 상품 포함 모드에서 찾아볼까요?"
+                    )
+                    response_metadata["target_mode"] = ChatSession.Mode.NEW_ITEM
+                    response_metadata["missing_focus_slots"] = list(
+                        missing_focus_slots
+                    )
+                elif run.response_mode == ChatSession.ResponseMode.STYLIST:
                     stylist_execution = self.stylist_coordinator.execute(
                         run=run,
                         persona_executions=tuple(run.persona_executions.all()),
@@ -500,7 +523,7 @@ class ChatOrchestrator:
                             weather=context.payload["weather"],
                             budget=analysis.conditions.budget,
                             conditions=analysis.conditions.model_dump(),
-                            focus_slots=[],
+                            focus_slots=list(analysis.conditions.focus_slots),
                         )
                         usage += explained.usage
                         provider_response_id = explained.response_id
@@ -520,7 +543,7 @@ class ChatOrchestrator:
                         budget=analysis.conditions.budget,
                         conditions=analysis.conditions.model_dump(),
                         weather=context.payload["weather"],
-                        focus_slots=[],
+                        focus_slots=list(analysis.conditions.focus_slots),
                         recent_messages=context.payload["recent_messages"],
                         fallback_reason=explanation_fallback_reason,
                     )

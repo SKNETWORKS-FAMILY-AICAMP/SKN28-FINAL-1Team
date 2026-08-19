@@ -39,6 +39,10 @@ from apps.recommend.models import (
 )
 from apps.recommend.services import render_jobs
 from apps.recommend.services.body_profile import BodyProfile, build_profile
+from apps.recommend.services.focus_slots import (
+    focus_slot_from_snapshot,
+    normalize_focus_slots,
+)
 from apps.recommend.services.item_retriever import (
     ItemCandidateRetriever,
     ItemRetrievalRequest,
@@ -82,6 +86,7 @@ from apps.recommend.services.wardrobe_link import (
     accessible_item_ids,
     owned_closet_item_ids,
 )
+from apps.wardrobe.models import WardrobeItem
 
 
 class ChatRecommendationError(RuntimeError):
@@ -154,6 +159,42 @@ class ChatRecommendationPipeline:
         )
         self.diversity_slots = tuple(diversity_slots)
 
+    @staticmethod
+    def missing_wardrobe_focus_slots(
+        *,
+        run: ChatRun,
+        focus_slots: Sequence[str],
+    ) -> tuple[str, ...]:
+        requested = normalize_focus_slots(focus_slots)
+        if (
+            not requested
+            or run.session.mode != ChatSession.Mode.WARDROBE_BASED
+            or run.session.identity.user_id is None
+        ):
+            return ()
+
+        scope_snapshot = getattr(run, "wardrobe_scope_snapshot", None) or {}
+        scoped_ids = tuple(scope_snapshot.get("candidate_item_ids") or ())
+        allowed_ids = (
+            scoped_ids
+            if scoped_ids
+            else tuple(accessible_item_ids(run.session.identity.user))
+        )
+        available = {
+            slot
+            for item in WardrobeItem.objects.filter(pk__in=allowed_ids).only(
+                "category_large",
+                "layer_role",
+            )
+            if (
+                slot := focus_slot_from_snapshot(
+                    category_large=item.category_large,
+                    layer_role=item.layer_role,
+                )
+            )
+        }
+        return tuple(slot for slot in requested if slot not in available)
+
     def _retrieve_golden(self, request: RetrievalRequest) -> RetrievalResult:
         """골든 코디를 찾는다. 질의 임베딩을 못 쓰면 필터 검색으로 내려간다.
 
@@ -216,7 +257,7 @@ class ChatRecommendationPipeline:
         )
         selected = select_diverse_candidates(
             generated.candidates,
-            diversity_slots=self.diversity_slots,
+            diversity_slots=(analysis.conditions.focus_slots or self.diversity_slots),
             limit=3,
         )
         if len(selected) < min(3, len(generated.candidates)):
@@ -226,7 +267,7 @@ class ChatRecommendationPipeline:
                 run.pk,
                 len(generated.candidates),
                 len(selected),
-                self.diversity_slots,
+                analysis.conditions.focus_slots or self.diversity_slots,
             )
         return self.persist_candidates(
             run=run,
@@ -316,10 +357,11 @@ class ChatRecommendationPipeline:
         candidate_limit = strategy_plan.candidate_limit if strategy_plan else 5
         body = build_profile(context.get("profile", {}).get("body"))
         category_budgets = context.get("profile", {}).get("category_budgets", {})
+        total_budget = analysis.conditions.budget
         reference_anchor = self._resolve_reference_anchor(
             run=run,
             user_id=user_id,
-            total_budget=analysis.conditions.budget,
+            total_budget=total_budget,
             category_budgets=category_budgets,
             event_recorder=event_recorder,
         )
@@ -379,7 +421,7 @@ class ChatRecommendationPipeline:
                         template_item_point_id=point_id,
                         sources=self._sources(session.mode, user_id),
                         user_id=user_id,
-                        max_price=analysis.conditions.budget,
+                        max_price=total_budget,
                         category_budgets=category_budgets,
                         dataset_version=settings.CHAT_GOLDENSET_DATASET_VERSION,
                         dataset_statuses=settings.CHAT_GOLDENSET_DATASET_STATUSES,
@@ -418,7 +460,7 @@ class ChatRecommendationPipeline:
                     batch = self._compose(
                         session.mode,
                         slot_results,
-                        budget=analysis.conditions.budget,
+                        budget=total_budget,
                         category_budgets=category_budgets,
                     )
             except (ValueError, RuntimeError):
@@ -1100,6 +1142,10 @@ class ChatRecommendationPipeline:
                         {
                             "item_id": str(item.id),
                             "slot": item.slot.split(":", 1)[0],
+                            "focus_slot": focus_slot_from_snapshot(
+                                slot=item.slot,
+                                snapshot=item.item_snapshot,
+                            ),
                             "source_type": item.source_type,
                             "name": (
                                 item.item_snapshot.get("display_name")

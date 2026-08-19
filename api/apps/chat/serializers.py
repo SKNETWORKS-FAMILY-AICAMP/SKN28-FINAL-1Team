@@ -313,6 +313,11 @@ class ChatRunPersonaCardSerializer(serializers.Serializer):
     validation_reasons = serializers.JSONField(read_only=True)
     reference_match = serializers.JSONField(read_only=True)
     warnings = serializers.JSONField(read_only=True)
+    focus_slots = serializers.ListField(
+        source="result.run.focus_slots",
+        child=serializers.CharField(),
+        read_only=True,
+    )
     items = RecommendationCardItemSerializer(many=True, read_only=True)
     image = serializers.SerializerMethodField()
     is_saved = serializers.SerializerMethodField()
@@ -466,6 +471,7 @@ class ChatRunSerializer(serializers.ModelSerializer):
             "results",
             "reference_snapshot",
             "wardrobe_scope_snapshot",
+            "focus_slots",
             "enqueued_at",
             "error_code",
             "error_message",

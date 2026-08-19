@@ -9,40 +9,12 @@ from apps.recommend.services.outfit_types import (
     OutfitComposition,
     OutfitItem,
 )
+from apps.recommend.services.focus_slots import (
+    canonical_focus_slot,
+    focus_slot_from_snapshot,
+)
 
 DEFAULT_CORE_DIVERSITY_SLOTS = frozenset({"TOP", "BOTTOM", "OUTER"})
-
-_SLOT_ALIASES = {
-    "TOP": "TOP",
-    "UPPER": "TOP",
-    "INNER": "TOP",
-    "MID": "TOP",
-    "LAYER": "TOP",
-    "상의": "TOP",
-    "기본상의": "TOP",
-    "기본_상의": "TOP",
-    "레이어드상의": "TOP",
-    "레이어드_상의": "TOP",
-    "이너": "TOP",
-    "BOTTOM": "BOTTOM",
-    "LOWER": "BOTTOM",
-    "하의": "BOTTOM",
-    "OUTER": "OUTER",
-    "OUTERWEAR": "OUTER",
-    "아우터": "OUTER",
-    "겉옷": "OUTER",
-    "DRESS": "DRESS",
-    "원피스": "DRESS",
-    "SHOES": "SHOES",
-    "FOOTWEAR": "SHOES",
-    "신발": "SHOES",
-    "ACCESSORY": "ACCESSORY",
-    "ACCESSORIES": "ACCESSORY",
-    "액세서리": "ACCESSORY",
-    "BAG": "ACCESSORY",
-    "가방": "ACCESSORY",
-}
-
 
 class CandidateWithComposition(Protocol):
     composition: OutfitComposition
@@ -51,28 +23,15 @@ class CandidateWithComposition(Protocol):
 CandidateT = TypeVar("CandidateT", bound=CandidateWithComposition)
 
 
-def _canonical_slot(value: object) -> str | None:
-    if not isinstance(value, str):
-        return None
-    normalized = value.strip().replace("-", "_").replace(" ", "_").upper()
-    if not normalized:
-        return None
-    return _SLOT_ALIASES.get(normalized)
-
-
 def _item_slot(item: OutfitItem) -> str | None:
     """레이어 역할을 우선하고 카테고리·슬롯 접두사를 안전망으로 쓴다."""
 
-    for value in (
-        item.layer_role,
-        item.payload.get("layer_role"),
-        item.category_large,
-        item.payload.get("category_large"),
-        item.slot_id.split(":", 1)[0],
-    ):
-        if slot := _canonical_slot(value):
-            return slot
-    return None
+    return focus_slot_from_snapshot(
+        slot=item.slot_id,
+        category_large=item.category_large,
+        layer_role=item.layer_role,
+        snapshot=item.payload,
+    )
 
 
 def _core_fingerprint(
@@ -112,7 +71,7 @@ def select_diverse_candidates(
     normalized_slots = frozenset(
         slot
         for raw_slot in diversity_slots
-        if (slot := _canonical_slot(raw_slot)) is not None
+        if (slot := canonical_focus_slot(raw_slot)) is not None
     )
     if not normalized_slots:
         raise ValueError("다양성 판정 슬롯이 하나 이상 필요합니다.")

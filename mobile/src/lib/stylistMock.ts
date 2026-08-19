@@ -257,6 +257,7 @@ function toItems(sample: Sample, cardId: string): ApiRecommendationItem[] {
     item_id: `${cardId}-i${i}`,
     position: i,
     slot: it.slot,
+    focus_slot: null,
     source_type: it.price === null ? 'WARDROBE' : 'PRODUCT',
     // 목업엔 카탈로그가 없다 — 실제 응답에는 카탈로그 식별자가 온다.
     source_id: '',
@@ -297,6 +298,7 @@ function toResult(r: MockResult, now: number): ApiPersonaResult {
           total_product_price: total > 0 ? total : null,
           validation_reasons: [],
           warnings: sample.warnings,
+          focus_slots: [],
           items: toItems(sample, r.cardId),
           image: null,
           is_saved: r.saved,

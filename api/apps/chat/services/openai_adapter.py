@@ -46,6 +46,9 @@ class RecommendationConditions(BaseModel):
     avoided_styles: list[str]
     avoided_colors: list[str]
     excluded_source_ids: list[str]
+    focus_slots: list[
+        Literal["TOP", "BOTTOM", "OUTER", "DRESS", "SHOES", "ACCESSORY"]
+    ] = Field(max_length=3)
     budget: int | None = Field(ge=0)
 
 
@@ -135,6 +138,10 @@ unisex 중 하나 이상으로 채우고, 명시하지 않았으면 빈 배열�
 session_conditions에 승인된 사진 무드나 이전 조건이 있으면 현재 발화와 합쳐
 유효 조건으로 반환한다.
 현재 발화가 기존 조건을 명시적으로 바꾸면 현재 발화를 우선한다.
+사용자가 상의·하의·아우터·원피스·신발·액세서리 중 특정 부위를 추천해 달라고
+명시하면 focus_slots에 표준값(TOP/BOTTOM/OUTER/DRESS/SHOES/ACCESSORY)을 담는다.
+전체 코디 요청이면 focus_slots는 빈 배열이다. 여러 부위를 명시하면 요청 순서와 무관하게
+TOP, BOTTOM, OUTER, DRESS, SHOES, ACCESSORY 고정 순서로 최대 3개까지 담는다.
 RECOMMEND의 search_query는 벡터 검색에 바로 쓸 수 있는 간결한 한국어 문장으로 만든다.
 상품·옷장·골든셋 ID를 만들거나 소유권·판매 상태·사이즈를 확정하지 않는다.
 clarification_question과 response_text는 친근하고 정중한 해요체로 1~3문장만 작성한다.
@@ -158,6 +165,8 @@ approved_recommendation의 코디마다 같은 outfit_id로 outfits 항목을 �
 rationale은 1~3문장으로 요청 스타일·TPO·날씨·예산 중 입력으로 확인된 사실을 종합해
 룩 전체를 추천한 이유를 설명한다. focus_slots가 있으면 그 슬롯을 중심으로 설명한다.
 item.note는 한 문장으로 해당 아이템을 고른 이유만 설명하며 룩 전체 rationale을 반복하지 않는다.
+focus_slots가 있으면 같은 focus_slot의 item.note는 요청 조건과 예산을 중심으로 설명하고,
+나머지 item.note는 초점 아이템과 함께 매치한 이유를 설명한다.
 아이템의 색상·소재·핏·브랜드·가격·사이즈·세탁법·날씨 적합성은 해당 아이템의
 attributes, price, reasons 또는 validation_reasons에 실제 값이나 근거가 있을 때만 언급한다.
 weather와 conditions는 사용자 요청의 확정된 사실이지만, 특정 아이템의 날씨 적합성을

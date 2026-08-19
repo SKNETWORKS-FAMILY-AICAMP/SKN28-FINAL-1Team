@@ -102,6 +102,8 @@ export type RecItem = {
   /** 새로 사야 하는 상품만 가격이 있다. 옷장에 있는 옷은 null. */
   price: number | null;
   fromWardrobe: boolean;
+  /** 사용자가 이번 요청에서 직접 추천받고 싶다고 지정한 아이템. */
+  focused: boolean;
 };
 
 export type ChatMessage =
@@ -340,6 +342,12 @@ function toRecMessage(
   resultId: string,
   card: ApiRecommendationCard,
 ): ChatMessage {
+  const focusSlots = new Set(card.focus_slots ?? []);
+  const orderedItems = [...card.items].sort((left, right) => {
+    const leftFocused = left.focus_slot != null && focusSlots.has(left.focus_slot);
+    const rightFocused = right.focus_slot != null && focusSlots.has(right.focus_slot);
+    return Number(rightFocused) - Number(leftFocused) || left.position - right.position;
+  });
   return {
     id: `${messageId}-r${card.card_id}`,
     role: 'ai',
@@ -350,13 +358,14 @@ function toRecMessage(
        생기므로 순위를 그대로 쓴다. */
     title: `추천 코디 ${card.rank}`,
     tags: recommendationCategoryTags(card.items),
-    items: card.items.map((i) => ({
+    items: orderedItems.map((i) => ({
       id: i.item_id,
       name: i.display_name,
       category: i.category,
       imageUrl: imageUrlOf(i.image_ref),
       price: i.price_snapshot,
       fromWardrobe: i.source_type !== 'PRODUCT',
+      focused: i.focus_slot != null && focusSlots.has(i.focus_slot),
     })),
     totalPrice: card.total_product_price,
     warnings: card.warnings ?? [],
@@ -732,6 +741,12 @@ function patchCard(
 
 function toStylistCard(r: ApiPersonaResult): StylistCard {
   const card = r.card;
+  const focusSlots = new Set(card?.focus_slots ?? []);
+  const orderedItems = [...(card?.items ?? [])].sort((left, right) => {
+    const leftFocused = left.focus_slot != null && focusSlots.has(left.focus_slot);
+    const rightFocused = right.focus_slot != null && focusSlots.has(right.focus_slot);
+    return Number(rightFocused) - Number(leftFocused) || left.position - right.position;
+  });
   return {
     personaId: r.persona_id,
     name: r.display_name || stylistStore.displayName(r.persona_id),
@@ -740,13 +755,14 @@ function toStylistCard(r: ApiPersonaResult): StylistCard {
     message: r.message,
     reasonCodes: r.validated_reason_codes ?? [],
     items:
-      card?.items.map((i) => ({
+      orderedItems.map((i) => ({
         id: i.item_id,
         name: i.display_name,
         category: i.category,
         imageUrl: imageUrlOf(i.image_ref),
         price: i.price_snapshot,
         fromWardrobe: i.source_type !== 'PRODUCT',
+        focused: i.focus_slot != null && focusSlots.has(i.focus_slot),
       })) ?? [],
     totalPrice: card?.total_product_price ?? null,
     warnings: card?.warnings ?? [],

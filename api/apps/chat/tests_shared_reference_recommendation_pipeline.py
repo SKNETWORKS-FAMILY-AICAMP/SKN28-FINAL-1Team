@@ -114,6 +114,7 @@ class SharedReferenceRecommendationPipelineTests(SimpleTestCase):
                 avoided_styles=[],
                 avoided_colors=[],
                 excluded_source_ids=[],
+                focus_slots=[],
                 budget=100_000,
             ),
             clarification_question="",

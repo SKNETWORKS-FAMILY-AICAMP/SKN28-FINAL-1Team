@@ -16,6 +16,10 @@ from apps.recommend.models import (
     OutfitCompositionItem,
     RecommendationResult,
 )
+from apps.recommend.services.focus_slots import (
+    focus_slot_from_snapshot,
+    focus_slot_labels,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -91,7 +95,7 @@ def _fallback_rationale(
 ) -> str:
     criteria: list[str] = []
     if focus_slots:
-        criteria.append(f"{', '.join(focus_slots)} 선택")
+        criteria.append(f"{', '.join(focus_slot_labels(focus_slots))} 선택")
     styles = _condition_values(conditions, "styles")
     if styles:
         criteria.append(f"{', '.join(styles[:2])} 스타일")
@@ -114,8 +118,18 @@ def _fallback_rationale(
     return first
 
 
-def _fallback_note(item: OutfitCompositionItem) -> str:
+def _fallback_note(
+    item: OutfitCompositionItem,
+    *,
+    focus_slots: list[str],
+) -> str:
     reasons = [str(reason) for reason in item.reasons]
+    item_focus_slot = focus_slot_from_snapshot(
+        slot=item.slot,
+        snapshot=item.item_snapshot,
+    )
+    if focus_slots and item_focus_slot not in focus_slots:
+        return "초점 아이템과 함께 자연스럽게 매치할 수 있도록 골랐어요."
     if item.source_type == OutfitCompositionItem.SourceType.WARDROBE:
         return "보유 중인 아이템을 활용할 수 있도록 골랐어요."
     if any("레이어 역할 일치" in reason for reason in reasons):
@@ -148,7 +162,10 @@ def _fallback_values(
                 weather=weather,
                 focus_slots=focus_slots,
             ),
-            {str(item.id): _fallback_note(item) for item in card.items.all()},
+            {
+                str(item.id): _fallback_note(item, focus_slots=focus_slots)
+                for item in card.items.all()
+            },
         )
     return _fallback_opening(conditions, recent_messages), values
 

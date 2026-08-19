@@ -12,6 +12,8 @@ export type ApiRecommendationItem = {
   item_id: string;
   position: number;
   slot: string;
+  /** 서버가 정규화한 초점 슬롯. 분류할 수 없으면 null이다. */
+  focus_slot: string | null;
   /** WARDROBE = 내 옷장 옷, PRODUCT = 새로 살 상품 */
   source_type: string;
   /**
@@ -76,6 +78,8 @@ export type ApiRecommendationCard = {
   warnings: string[];
   /** 채팅 카드 바로 아래에서 보여줄 코디 전체 추천 이유. */
   rationale: string;
+  /** 이번 요청에서 사용자가 직접 추천받고 싶다고 지정한 슬롯. */
+  focus_slots: string[];
   /** 공유 옷 참고 결과. 참고 안 했으면 빈 객체다. 서버가 이 필드를 아예 안 줄 수도 있다. */
   reference_match?: ApiReferenceMatch;
   items: ApiRecommendationItem[];

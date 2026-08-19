@@ -23,6 +23,7 @@ import {
   type ApiCardFeedback,
   type ApiFeedbackReaction,
   type ApiRecommendationCard,
+  type ApiRecommendationItem,
   type ApiRenderJob,
 } from '@/lib/recommendApi';
 
@@ -173,6 +174,10 @@ export default function RecCard() {
   };
 
   const back = () => goBack(backTo(from, '/chat'));
+  const focusSlots = new Set(card?.focus_slots ?? []);
+  const focusedItems = card?.items.filter((item) => item.focus_slot && focusSlots.has(item.focus_slot)) ?? [];
+  const supportingItems =
+    card?.items.filter((item) => !item.focus_slot || !focusSlots.has(item.focus_slot)) ?? [];
 
   if (!resultId || !cardId) {
     return (
@@ -231,42 +236,19 @@ export default function RecCard() {
               </View>
             ) : null}
 
-            <Text style={styles.section}>구성 아이템</Text>
-            {card.items.map((item) => {
-              const image = imageUrlOf(item.image_ref);
-              const fromWardrobe = item.source_type !== 'PRODUCT';
-              const buyUrl = item.purchase_url;
-              const meta = recommendationItemMeta(item);
-              return (
-                <View key={item.item_id} style={styles.item}>
-                  <SmartImage uri={image} width={72} height={72} radius={12} />
-                  <View style={styles.itemBody}>
-                    <Text style={styles.itemName} numberOfLines={2}>
-                      {item.display_name}
-                    </Text>
-                    {meta ? <Text style={styles.itemMeta}>{meta}</Text> : null}
-                    {/* 옷장 옷은 살 필요가 없다는 것이 가격보다 중요한 정보다 */}
-                    <Text style={styles.itemPrice}>
-                      {fromWardrobe
-                        ? '내 옷장'
-                        : item.price_snapshot != null
-                          ? `${item.price_snapshot.toLocaleString()}원`
-                          : '새 상품'}
-                    </Text>
-                    {item.note ? (
-                      <Text style={styles.itemNote}>💬 {item.note}</Text>
-                    ) : null}
+            <Text style={styles.section}>{focusedItems.length ? '집중 추천 아이템' : '구성 아이템'}</Text>
+            {(focusedItems.length ? focusedItems : supportingItems).map((item) => (
+              <RecommendationItem key={item.item_id} item={item} />
+            ))}
 
-                    {buyUrl ? (
-                      <Pressable style={styles.buy} onPress={() => openExternal(buyUrl)}>
-                        <Text style={styles.buyText}>{mallLabel(buyUrl)}에서 보기</Text>
-                        <Icon name="arrow.up.right.square" tintColor={INK} size={13} />
-                      </Pressable>
-                    ) : null}
-                  </View>
-                </View>
-              );
-            })}
+            {focusedItems.length && supportingItems.length ? (
+              <>
+                <Text style={styles.section}>함께 매치하면 좋아요</Text>
+                {supportingItems.map((item) => (
+                  <RecommendationItem key={item.item_id} item={item} />
+                ))}
+              </>
+            ) : null}
 
             {card.total_product_price ? (
               <Text style={styles.total}>
@@ -312,6 +294,40 @@ export default function RecCard() {
           </ScrollView>
         )}
       </SafeAreaView>
+    </View>
+  );
+}
+
+function RecommendationItem({ item }: { item: ApiRecommendationItem }) {
+  const image = imageUrlOf(item.image_ref);
+  const fromWardrobe = item.source_type !== 'PRODUCT';
+  const buyUrl = item.purchase_url;
+  const meta = recommendationItemMeta(item);
+  return (
+    <View style={styles.item}>
+      <SmartImage uri={image} width={72} height={72} radius={12} />
+      <View style={styles.itemBody}>
+        <Text style={styles.itemName} numberOfLines={2}>
+          {item.display_name}
+        </Text>
+        {meta ? <Text style={styles.itemMeta}>{meta}</Text> : null}
+        {/* 옷장 옷은 살 필요가 없다는 것이 가격보다 중요한 정보다 */}
+        <Text style={styles.itemPrice}>
+          {fromWardrobe
+            ? '내 옷장'
+            : item.price_snapshot != null
+              ? `${item.price_snapshot.toLocaleString()}원`
+              : '새 상품'}
+        </Text>
+        {item.note ? <Text style={styles.itemNote}>💬 {item.note}</Text> : null}
+
+        {buyUrl ? (
+          <Pressable style={styles.buy} onPress={() => openExternal(buyUrl)}>
+            <Text style={styles.buyText}>{mallLabel(buyUrl)}에서 보기</Text>
+            <Icon name="arrow.up.right.square" tintColor={INK} size={13} />
+          </Pressable>
+        ) : null}
+      </View>
     </View>
   );
 }

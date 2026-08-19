@@ -149,28 +149,35 @@ function StylistOutfitCard({
           {card.message ? <Text style={styles.message}>{card.message}</Text> : null}
 
           <View style={styles.items}>
-            {card.items.map((item) => (
-              <View key={item.id} style={styles.item}>
-                <SmartImage
-                  uri={item.imageUrl}
-                  width={64}
-                  height={64}
-                  radius={10}
-                  style={styles.itemImage}
-                />
-                <Text style={styles.itemName} numberOfLines={2}>
-                  {item.name}
-                </Text>
-                {/* 옷장 옷은 살 필요가 없다는 것이 가격보다 중요한 정보다 */}
-                <Text style={styles.itemMeta}>
-                  {item.fromWardrobe
-                    ? '내 옷장'
-                    : item.price != null
-                      ? `${item.price.toLocaleString()}원`
-                      : '새 상품'}
-                </Text>
-              </View>
-            ))}
+            {card.items.map((item) => {
+              const hasFocus = card.items.some((value) => value.focused);
+              const imageSize = item.focused ? 80 : hasFocus ? 56 : 64;
+              return (
+                <View key={item.id} style={[styles.item, { width: imageSize }]}>
+                  {item.focused ? (
+                    <Text style={styles.focusLabel}>집중 추천</Text>
+                  ) : null}
+                  <SmartImage
+                    uri={item.imageUrl}
+                    width={imageSize}
+                    height={imageSize}
+                    radius={10}
+                    style={styles.itemImage}
+                  />
+                  <Text style={styles.itemName} numberOfLines={2}>
+                    {item.name}
+                  </Text>
+                  {/* 옷장 옷은 살 필요가 없다는 것이 가격보다 중요한 정보다 */}
+                  <Text style={styles.itemMeta}>
+                    {item.fromWardrobe
+                      ? '내 옷장'
+                      : item.price != null
+                        ? `${item.price.toLocaleString()}원`
+                        : '새 상품'}
+                  </Text>
+                </View>
+              );
+            })}
           </View>
 
           {card.totalPrice ? (
@@ -327,6 +334,7 @@ const styles = StyleSheet.create({
   items: { flexDirection: 'row', flexWrap: 'wrap', gap: 12 },
   item: { width: 64, gap: 4 },
   itemImage: { backgroundColor: Editorial.bone },
+  focusLabel: { fontSize: Type.micro, color: Editorial.wine, fontWeight: '600' },
   itemName: { fontSize: Type.micro, color: INK, lineHeight: 15 },
   itemMeta: { fontSize: Type.micro, color: Editorial.textCaption },
 

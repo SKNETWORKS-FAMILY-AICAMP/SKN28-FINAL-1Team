@@ -79,6 +79,7 @@ export type ApiPersonaCard = {
    */
   validation_reasons: { severity: string; code: string; message: string; slot: string }[];
   warnings: string[];
+  focus_slots: string[];
   items: ApiRecommendationItem[];
   /**
    * 공유 옷 참고 결과.

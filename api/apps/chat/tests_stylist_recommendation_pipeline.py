@@ -154,6 +154,7 @@ class StylistRecommendationPipelineTests(TestCase):
                 avoided_styles=[],
                 avoided_colors=["레드"],
                 excluded_source_ids=[],
+                focus_slots=[],
                 budget=150_000,
             ),
             clarification_question="",

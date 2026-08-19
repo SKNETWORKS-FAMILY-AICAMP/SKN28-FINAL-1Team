@@ -86,6 +86,7 @@ def analysis(
     response_text="",
     clarification_question="어떤 상황에서 입을 옷인가요?",
     presentation_groups=None,
+    focus_slots=None,
 ):
     return TurnAnalysis(
         action=action,
@@ -101,6 +102,7 @@ def analysis(
             avoided_styles=[],
             avoided_colors=["빨강"],
             excluded_source_ids=[],
+            focus_slots=list(focus_slots or []),
             budget=None,
         ),
         clarification_question=clarification_question,
@@ -543,6 +545,7 @@ class ChatOrchestratorTests(TestCase):
         )
         self.llm = Mock()
         self.pipeline = Mock()
+        self.pipeline.missing_wardrobe_focus_slots.return_value = ()
 
     def test_create_run_is_idempotent(self):
         duplicate, created = create_run(
@@ -586,7 +589,7 @@ class ChatOrchestratorTests(TestCase):
 
     def test_recommendation_uses_only_pipeline_approved_payload_for_explanation(self):
         self.llm.analyze_turn.return_value = LLMResult(
-            value=analysis(action="RECOMMEND"),
+            value=analysis(action="RECOMMEND", focus_slots=["TOP"]),
             response_id="resp-analysis",
             usage=LLMUsage(input_tokens=100, output_tokens=20),
         )
@@ -680,11 +683,35 @@ class ChatOrchestratorTests(TestCase):
         self.assertEqual(explanation_kwargs["recent_messages"], [])
         self.assertEqual(explanation_kwargs["weather"], {})
         self.assertEqual(explanation_kwargs["conditions"]["occasion"], "출근")
-        self.assertEqual(explanation_kwargs["focus_slots"], [])
+        self.assertEqual(explanation_kwargs["focus_slots"], ["TOP"])
+        result.run.refresh_from_db()
+        self.assertEqual(result.run.focus_slots, ["TOP"])
         card.refresh_from_db()
         item.refresh_from_db()
         self.assertEqual(card.rationale, "미니멀 출근 스타일에 맞춘 룩이에요.")
         self.assertEqual(item.note, "단정한 상의로 골랐어요.")
+
+    def test_missing_wardrobe_focus_slot_asks_to_include_new_products(self):
+        self.llm.analyze_turn.return_value = LLMResult(
+            value=analysis(action="RECOMMEND", focus_slots=["OUTER"]),
+            response_id="resp-analysis",
+            usage=LLMUsage(input_tokens=100, output_tokens=20),
+        )
+        self.pipeline.missing_wardrobe_focus_slots.return_value = ("OUTER",)
+        orchestrator = ChatOrchestrator(
+            context_service=self.context_service,
+            llm=self.llm,
+            recommendation_pipeline=self.pipeline,
+        )
+
+        result = orchestrator.process(self.run.id)
+
+        self.assertEqual(result.run.status, ChatRun.Status.NEEDS_CLARIFICATION)
+        self.assertIn("아우터", result.response_message.content)
+        self.assertIn("새 상품 포함 모드", result.response_message.content)
+        self.pipeline.execute.assert_not_called()
+        result.run.refresh_from_db()
+        self.assertEqual(result.run.focus_slots, ["OUTER"])
 
     def test_llm_failure_marks_run_and_request_message_failed(self):
         self.llm.analyze_turn.side_effect = ChatLLMError("provider unavailable")
@@ -818,7 +845,7 @@ class ChatRecommendationPipelineTests(TestCase):
         output = pipeline.execute(
             run=run,
             context=self._context(),
-            analysis=analysis(action="RECOMMEND"),
+            analysis=analysis(action="RECOMMEND", focus_slots=["TOP"]),
         )
 
         request = item_retriever.retrieve.call_args.args[0]
@@ -884,3 +911,22 @@ class ChatRecommendationPipelineTests(TestCase):
                 context=self._context(),
                 analysis=analysis(action="RECOMMEND"),
             )
+
+    def test_wardrobe_focus_preflight_returns_only_missing_slots(self):
+        run = self._run(member=True, mode=ChatSession.Mode.WARDROBE_BASED)
+        WardrobeItem.objects.create(
+            user=run.session.identity.user,
+            job=None,
+            s3_key="wardrobe/focus/top.png",
+            item_name="집중 추천용 상의",
+            category_large="상의",
+            confirmed=True,
+            added_to_closet_at=timezone.now(),
+        )
+
+        missing = ChatRecommendationPipeline.missing_wardrobe_focus_slots(
+            run=run,
+            focus_slots=["TOP", "OUTER"],
+        )
+
+        self.assertEqual(missing, ("OUTER",))
