@@ -6,7 +6,6 @@ import { ErrorState, LoadingState, SmartImage } from '@/components/ui';
 import { ContentMax, Editorial, ink, Type } from '@/constants/theme';
 import {
   LIBRARY_ITEMS,
-  SHARED_CLOSET_ITEMS,
   type WardrobeItem,
   type WardrobeSource,
 } from '@/constants/wardrobe';
@@ -19,7 +18,7 @@ const GAP = 10;
 const COLUMNS = 3;
 
 /**
- * 옷 고르기 — 소스(내 옷장 / 앱 추천 / 친구 옷장)를 탭으로 전환하는 단일 시트.
+ * 옷 고르기 — 소스(내 옷장 / 앱 추천)를 탭으로 전환하는 단일 시트.
  *
  * 소스를 화면 분기로 두지 않는 이유: 한 착장에 여러 소스의 옷이 섞이는 게 정상이라
  * 소스마다 화면을 나가고 들어오면 한 벌을 꾸리는 데 왕복이 너무 많아진다.
@@ -48,9 +47,8 @@ export function ItemPickerSheet({
     if (visible) setDraft(selected);
   }
 
-  /* '내 옷장'은 서버가 출처다 — 옷장 화면이 실 API 를 보는데 여기서 목업 옷을 고르게 하면
-     옷장에 없는 옷이 착장 기록에 남는다. 시트를 열 때만 조회한다.
-     '앱 추천'·'친구 옷장'은 아직 백엔드가 없어 목업을 그대로 쓴다. */
+  /* '내 옷장'은 서버가 출처다. 공유 옷장도 실 API가 있지만 캘린더 기록에 친구 옷을
+     연결하는 계약은 없으므로 가짜 목록으로 대신하지 않는다. 앱 추천만 로컬 카탈로그를 쓴다. */
   const { items: apiItems, loading, error, reload } = useWardrobeItems({}, visible);
 
   const closetItems = useMemo<WardrobeItem[]>(
@@ -70,7 +68,6 @@ export function ItemPickerSheet({
     () => [
       { key: 'closet' as WardrobeSource, label: '내 옷장', items: closetItems },
       { key: 'library' as WardrobeSource, label: '앱 추천', items: LIBRARY_ITEMS },
-      { key: 'shared' as WardrobeSource, label: '친구 옷장', items: SHARED_CLOSET_ITEMS },
     ],
     [closetItems],
   );
@@ -153,7 +150,7 @@ export function ItemPickerSheet({
                           {item.name}
                         </Text>
                         <Text style={styles.itemMeta} numberOfLines={1}>
-                          {item.owner ? `${item.owner}님` : (item.brand ?? item.category)}
+                          {item.owner ? `${item.owner}` : (item.brand ?? item.category)}
                         </Text>
                       </Pressable>
                     );

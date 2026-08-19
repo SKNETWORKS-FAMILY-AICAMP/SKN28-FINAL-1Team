@@ -21,7 +21,7 @@ from __future__ import annotations
 import logging
 import time
 from dataclasses import dataclass, field, replace
-from typing import Any, Iterable
+from typing import Any, Iterable, Sequence
 
 from django.conf import settings
 from qdrant_client import models as qm
@@ -42,6 +42,7 @@ from apps.recommend.services.gender import (
 from apps.recommend.services.qdrant import (
     GOLDEN_ITEM_COLLECTION,
     GOLDEN_OUTFIT_COLLECTION,
+    WARDROBE_ITEM_COLLECTION,
     IMAGE_VECTOR,
     TEXT_VECTOR,
     get_client,
@@ -95,6 +96,10 @@ class RetrievalRequest:
     #: 코디를 찍은 이미지 벡터로 검색할 때 (옷장 기반 추천의 '비슷한 코디')
     image_vector: list[float] | None = None
     presentation_groups: tuple[str, ...] = ()
+    #: 공유 옷 레퍼런스를 쓸 때 해당 아이템을 꽂을 수 있는 골든 슬롯이
+    #: 반드시 포함되도록 하는 코디 단위 하드 필터다.
+    required_item_categories: tuple[str, ...] = ()
+    required_item_layer_roles: tuple[str, ...] = ()
     dataset_version: str = ""
     dataset_statuses: tuple[str, ...] = ()
     limit: int = 10
@@ -226,6 +231,10 @@ def build_filter(
         )
     if request.dataset_statuses:
         must.append(_status_condition(request.dataset_statuses))
+    if request.required_item_categories:
+        must.append(_any_of("item_categories", request.required_item_categories))
+    if request.required_item_layer_roles:
+        must.append(_any_of("item_layer_roles", request.required_item_layer_roles))
 
     # 성별은 하드 필터다. 남성 사용자에게 여성 코디를 "순위만 낮춰" 보여주는 건
     # 추천이 아니라 오작동으로 읽힌다. 계절과 달리 감점으로 둘 수 없는 축이다.
@@ -886,19 +895,20 @@ def _scroll_all(client, search_filter) -> list[Any]:
 def retrieve_substitutes(
     item: dict[str, Any],
     *,
-    collection: str,
+    collection: str = WARDROBE_ITEM_COLLECTION,
     client=None,
-    user_id: str = "",
+    allowed_item_ids: Sequence[str] | None = None,
     limit: int = 10,
 ) -> list[dict[str, Any]]:
     """골든 코디의 아이템 하나를 교체할 후보를 찾는다.
 
-    `collection`은 "wardrobe"(옷장) 또는 "products"(상품). 세 컬렉션이 같은 태그
-    인덱스를 쓰도록 맞춰 두었기 때문에 같은 필터 언어가 그대로 통한다.
-
-    같은 대분류·레이어 역할로 좁히는 이유는, 상의를 하의로 바꾸는 제안이 나오면
-    코디가 성립하지 않기 때문이다.
+    `collection`은 실제 Qdrant 컬렉션 이름 (기본값 WARDROBE_ITEM_COLLECTION 또는 GOLDEN_ITEM_COLLECTION).
+    `allowed_item_ids`가 지정된 경우(공유/개인 옷장 검색 등), 화이트리스트 point id 목록에 속하는 아이템만 검색한다.
+    `allowed_item_ids`가 빈 배열 `[]`이면 검색하지 않고 `[]`를 즉시 반환한다 (교차 유저 유출 차단).
     """
+    if allowed_item_ids is not None and len(allowed_item_ids) == 0:
+        return []
+
     client = client or get_client()
     must: list[qm.Condition] = []
     for field_name in ("category_large", "layer_role"):
@@ -906,10 +916,9 @@ def retrieve_substitutes(
             must.append(
                 qm.FieldCondition(key=field_name, match=qm.MatchValue(value=value))
             )
-    if collection == "wardrobe" and user_id:
-        must.append(
-            qm.FieldCondition(key="user_id", match=qm.MatchValue(value=str(user_id)))
-        )
+
+    if allowed_item_ids is not None:
+        must.append(qm.HasIdCondition(has_id=list(allowed_item_ids)))
 
     vector = item.get("image_vector")
     if vector is None:
@@ -980,3 +989,34 @@ class GoldenOutfitRetriever:
             embedding_model=embedding_model,
             embedding_version=embedding_version,
         )
+
+
+def retrieve_accessible_substitutes(
+    user,
+    item: dict[str, Any],
+    *,
+    client=None,
+    limit: int = 10,
+) -> list[dict[str, Any]]:
+    """사용자의 개인·공유 옷 중 접근 가능한 교체 후보만 검색한다.
+
+    Confluence 설계안 B의 2단계 조회 진입점이다. 접근 권한은 PostgreSQL을
+    단일 진실 공급원으로 삼아 먼저 UUID 화이트리스트로 계산하고, Qdrant에는
+    그 ID만 ``HasIdCondition``으로 전달한다. 공유방 정보를 벡터 payload에
+    복제하지 않으므로 멤버 탈퇴·공개 상태 변경도 다음 요청부터 즉시 반영된다.
+
+    익명 사용자 또는 접근 가능한 확정 아이템이 없는 사용자는 Qdrant를 호출하지
+    않고 빈 목록을 반환한다. 호출부는 보안을 위해 ``retrieve_substitutes``에
+    ID를 직접 조립하지 말고 이 함수를 사용해야 한다.
+    """
+    # crossing-app ORM 접근은 wardrobe_link 한 곳에만 둔다. 여기서 지연 import해
+    # 기존 골든셋 전용 리트리버 사용 시 wardrobe 모델 로딩까지 강제하지 않는다.
+    from apps.recommend.services.wardrobe_link import accessible_item_ids
+
+    return retrieve_substitutes(
+        item,
+        collection=WARDROBE_ITEM_COLLECTION,
+        client=client,
+        allowed_item_ids=accessible_item_ids(user),
+        limit=limit,
+    )

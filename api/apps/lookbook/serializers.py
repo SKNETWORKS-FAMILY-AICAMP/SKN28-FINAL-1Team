@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from collections.abc import Mapping
 
 from rest_framework import serializers
@@ -23,6 +24,40 @@ ALLOWED_LOOKBOOK_IMAGE_TYPES = {
 }
 DEFAULT_PAGE_SIZE = 20
 MAX_PAGE_SIZE = 100
+
+logger = logging.getLogger(__name__)
+
+
+def _safe_presign(bucket: str, key: str) -> str:
+    """서명 실패를 이미지 하나의 문제로 가둔다.
+
+    룩북 목록은 한 응답에 수십 장을 담는다. 버킷 하나가 잘못 설정돼 있거나
+    자격증명이 만료됐을 때 목록 전체를 500으로 만들면 사용자는 이미 잘 저장돼
+    있는 룩까지 못 본다 — 이미지 없는 카드가 500 화면보다 낫다.
+    (오늘의 룩 조회가 같은 판단을 한다: recommend/serializers.py)
+    """
+
+    try:
+        return storage.presigned_get_in(bucket, key)
+    except Exception:  # noqa: BLE001 — 이미지 하나가 목록을 죽이면 안 된다
+        logger.warning("룩북 이미지 서명 실패: bucket=%s key=%s", bucket, key)
+        return ""
+
+
+class DiscoveryLookQuerySerializer(serializers.Serializer):
+    query = serializers.CharField(
+        required=False, allow_blank=True, default="", max_length=100
+    )
+    tag = serializers.CharField(
+        required=False, allow_blank=True, default="", max_length=30
+    )
+    gender = serializers.ChoiceField(
+        required=False, allow_blank=True, choices=("WOMAN", "MAN"), default=""
+    )
+    limit = serializers.IntegerField(
+        required=False, min_value=1, max_value=50, default=20
+    )
+    offset = serializers.IntegerField(required=False, min_value=0, default=0)
 
 
 class StrictObjectInputMixin:
@@ -244,10 +279,11 @@ class LookbookWardrobeItemSerializer(serializers.ModelSerializer):
     wardrobe_item_id = serializers.UUIDField(read_only=True)
     image_url = serializers.SerializerMethodField()
     # 이 옷이 옷장에 들어 있는가. NULL 이면 룩 상세가 '옷장에 추가' 버튼을 그린다.
-    added_to_closet_at = serializers.DateTimeField(
-        source="wardrobe_item.added_to_closet_at",
-        read_only=True,
-    )
+    #
+    # source="wardrobe_item.added_to_closet_at" 로 두면 안 된다 — 골든 코디의
+    # 구성 아이템은 wardrobe_item 이 NULL 이라 DRF 의 속성 순회가 AttributeError
+    # 로 죽고, 룩북 목록 전체가 500 이 된다.
+    added_to_closet_at = serializers.SerializerMethodField()
 
     class Meta:
         model = LookbookWardrobeItem
@@ -263,7 +299,17 @@ class LookbookWardrobeItemSerializer(serializers.ModelSerializer):
         read_only_fields = fields
 
     def get_image_url(self, obj) -> str:
-        return storage.presigned_get(obj.snapshot.get("s3_key", ""))
+        snapshot = obj.snapshot or {}
+        return _safe_presign(
+            str(snapshot.get("s3_bucket", "")),
+            str(snapshot.get("s3_key", "")),
+        )
+
+    def get_added_to_closet_at(self, obj) -> str | None:
+        item = obj.wardrobe_item
+        if item is None or item.added_to_closet_at is None:
+            return None
+        return item.added_to_closet_at.isoformat()
 
 
 class LookbookPostSerializer(serializers.ModelSerializer):
@@ -280,6 +326,7 @@ class LookbookPostSerializer(serializers.ModelSerializer):
         fields = (
             "id",
             "source_type",
+            "golden_id",
             "image_s3_key",
             "image_url",
             "schedule",
@@ -296,7 +343,7 @@ class LookbookPostSerializer(serializers.ModelSerializer):
         read_only_fields = fields
 
     def get_image_url(self, obj) -> str:
-        return storage.presigned_get(obj.image_s3_key)
+        return _safe_presign(obj.image_s3_bucket, obj.image_s3_key)
 
     def get_calendar(self, obj) -> dict[str, str] | None:
         """캘린더에도 남긴 룩이면 그 날짜를 함께 준다.

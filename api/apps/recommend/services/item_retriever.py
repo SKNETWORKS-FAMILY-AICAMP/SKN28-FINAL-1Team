@@ -46,7 +46,9 @@ class ItemRetrievalRequest:
         ItemSource.PRODUCT,
     )
     user_id: int | None = None
+    allowed_wardrobe_item_ids: tuple[str, ...] | None = None
     max_price: int | None = None
+    category_budgets: dict[str, int] = field(default_factory=dict)
     dataset_version: str = ""
     dataset_statuses: tuple[str, ...] = ()
     limit_per_source: int = 10
@@ -99,6 +101,7 @@ class ItemRetrievalResult:
     template: TemplateItem
     candidates: tuple[ItemCandidate, ...]
     vector_name: str
+    pinned_candidate: ItemCandidate | None = None
 
     def for_source(self, source_type: ItemSource) -> tuple[ItemCandidate, ...]:
         return tuple(
@@ -143,6 +146,18 @@ class ItemCandidateRetriever:
     def retrieve(self, request: ItemRetrievalRequest) -> ItemRetrievalResult:
         self._validate_request(request)
         template = self._load_template(request.template_item_point_id)
+        category_budget = request.category_budgets.get(
+            _single_value(template.payload, "category_large")
+        )
+        effective_max_price = (
+            min(
+                price
+                for price in (request.max_price, category_budget)
+                if price is not None
+            )
+            if request.max_price is not None or category_budget is not None
+            else None
+        )
         vector_name, vector = self._select_vector(template)
         common_conditions = self._common_conditions(template.payload)
 
@@ -168,6 +183,7 @@ class ItemCandidateRetriever:
                     common_conditions,
                     vector_name,
                     vector,
+                    max_price=effective_max_price,
                 )
 
         # 호출부가 지정한 출처 순서를 유지한다. 출처 내부에서는 유사도 순이다.
@@ -205,6 +221,14 @@ class ItemCandidateRetriever:
             or request.max_price < 0
         ):
             raise ValueError("max_price는 0 이상의 정수여야 합니다.")
+        if any(
+            not isinstance(category, str)
+            or not isinstance(amount, int)
+            or isinstance(amount, bool)
+            or amount < 0
+            for category, amount in request.category_budgets.items()
+        ):
+            raise ValueError("category_budgets는 대분류별 0 이상의 정수여야 합니다.")
 
     def _load_template(self, point_id: str) -> TemplateItem:
         points = self.client.retrieve(
@@ -253,11 +277,15 @@ class ItemCandidateRetriever:
         vector_name: str,
         vector: list[float] | None,
     ) -> list[ItemCandidate]:
-        conditions = [
-            *common_conditions,
-            _match_value("user_id", request.user_id),
-            _match_value("confirmed", True),
-        ]
+        if request.allowed_wardrobe_item_ids == ():
+            return []
+        conditions = [*common_conditions, _match_value("confirmed", True)]
+        if request.allowed_wardrobe_item_ids is None:
+            conditions.append(_match_value("user_id", request.user_id))
+        else:
+            conditions.append(
+                qm.HasIdCondition(has_id=list(request.allowed_wardrobe_item_ids))
+            )
         return self._retrieve_collection(
             collection_name=collection_spec("wardrobe").name,
             source_type=ItemSource.WARDROBE,
@@ -300,16 +328,18 @@ class ItemCandidateRetriever:
         common_conditions: list[qm.Condition],
         vector_name: str,
         vector: list[float] | None,
+        *,
+        max_price: int | None,
     ) -> list[ItemCandidate]:
         conditions = [
             *common_conditions,
             _match_value("tagging_status", "tagged"),
         ]
-        if request.max_price is not None:
+        if max_price is not None:
             conditions.append(
                 qm.FieldCondition(
                     key="price",
-                    range=qm.Range(lte=request.max_price),
+                    range=qm.Range(lte=max_price),
                 )
             )
 

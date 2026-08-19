@@ -20,18 +20,40 @@ REPO_ROOT = PROJECT_ROOT.parent.parent
 DATA_DIR = PROJECT_ROOT / "data" / "splits" / "vlm"
 PROMPTS_DIR = PROJECT_ROOT / "prompts"
 
-# 모델 선정 벤치마크에서 반드시 확인하는 핵심 부위. 현재 prompt는 전체 10개를 요청한다.
+# 모델 선정 벤치마크에서 반드시 확인하는 핵심 부위.
 CORE_TARGETS = ["chest", "waist", "hip"]
-# 서빙에서 실제로 쓰는 7개 + 3개 비율 지표 전체
-RATIO_TARGETS = ["neck_length", "thigh_calf_ratio", "torso_leg_ratio"]
-FULL_TARGETS = [*CORE_TARGETS, "thigh", "calf", "arm", "shoulder", *RATIO_TARGETS]
-RATIO_RANGES = {
-    "thigh_calf_ratio": (0.8, 1.3),
-    "torso_leg_ratio": (0.6, 1.0),
+# 서빙에서 실제로 쓰는 저장 항목 전체. 팔뚝둘레와 허벅지·종아리 둘레는 제외한다.
+RATIO_TARGETS = ["thigh_calf_ratio", "torso_leg_ratio"]
+MEASUREMENT_TARGETS = [
+    "shoulder",
+    *CORE_TARGETS,
+    "thigh_length",
+    "calf_length",
+    "torso_length",
+    "leg_length",
+    "neck_length",
+]
+FULL_TARGETS = [
+    *MEASUREMENT_TARGETS,
+    *RATIO_TARGETS,
+]
+VLM_RESPONSE_TARGETS = MEASUREMENT_TARGETS
+RATIO_REFERENCE_RANGES = {
+    "thigh_calf_ratio": (0.506, 1.026),
+    "torso_leg_ratio": (0.339, 0.920),
+}
+GENDER_ALIASES = {
+    "M": "male",
+    "F": "female",
+    "MALE": "male",
+    "FEMALE": "female",
+    "남": "male",
+    "여": "female",
+    "남성": "male",
+    "여성": "female",
 }
 
-# core: 기존 모델 선정용 prompt 이름을 유지하지만 현재는 10개를 요청한다.
-# full: 서빙과 동일한 10개 prompt.
+# core/full 이름은 기존 실행 명령 호환성을 위해 유지하며, 둘 다 새 11개 스키마를 사용한다.
 PROMPT_SETS = {
     "core": {
         "targets": FULL_TARGETS,
@@ -57,10 +79,7 @@ TRAILING_METADATA_COLUMNS = [
 
 def get_column_names(target: str) -> tuple[str, str]:
     if target in RATIO_TARGETS:
-        if target == "neck_length":
-            return f"predicted_{target}_cm", f"{target}_absolute_error_cm"
-        else:
-            return f"predicted_{target}", f"{target}_absolute_error"
+        return f"predicted_{target}", f"{target}_absolute_error"
     return f"predicted_{target}_cm", f"{target}_absolute_error_cm"
 
 
@@ -68,7 +87,7 @@ def measurement_columns() -> list[str]:
     """예측값 → 정답값 → 오차 순으로 보이도록 앞쪽 열 순서를 만든다."""
     pred_cols = []
     err_cols = []
-    for target in FULL_TARGETS:
+    for target in [*VLM_RESPONSE_TARGETS, *RATIO_TARGETS]:
         p_col, e_col = get_column_names(target)
         pred_cols.append(p_col)
         err_cols.append(e_col)
@@ -106,8 +125,11 @@ def render_prompt(row: pd.Series, prompt_path: Path) -> str:
     template = Environment(undefined=StrictUndefined).from_string(
         prompt_path.read_text(encoding="utf-8")
     )
+    gender = GENDER_ALIASES.get(str(row["gender"]).strip().upper())
+    if gender is None:
+        raise ValueError(f"gender는 male 또는 female이어야 합니다: {row['gender']!r}")
     return template.render(
-        gender=row["gender"],
+        gender=gender,
         height_cm=float(row["height"]),
         weight_kg=float(row["weight"]),
     )
@@ -120,27 +142,37 @@ def parse_prediction(content: str, targets: list[str]) -> dict:
     cleaned = re.sub(r"\s*```$", "", cleaned)
     prediction = json.loads(cleaned)
 
-    missing_keys = [f"{t}_cm" for t in CORE_TARGETS if f"{t}_cm" not in prediction]
+    missing_keys = [
+        f"{target}_cm"
+        for target in VLM_RESPONSE_TARGETS
+        if f"{target}_cm" not in prediction
+    ]
     if missing_keys:
         raise ValueError(f"응답에 필수 키가 없습니다: {missing_keys}")
 
     result = {}
-    for target in targets:
-        if target.endswith("_ratio"):
-            value = prediction.get(target)
-            try:
-                numeric = float(value)
-            except (TypeError, ValueError):
-                result[target] = None
-                continue
-            minimum, maximum = RATIO_RANGES[target]
-            result[target] = (
-                round(numeric, 3)
-                if math.isfinite(numeric) and minimum <= numeric <= maximum
-                else None
-            )
-        else:
-            result[target] = prediction.get(f"{target}_cm")
+    for target in VLM_RESPONSE_TARGETS:
+        value = prediction.get(f"{target}_cm")
+        try:
+            numeric = float(value)
+        except (TypeError, ValueError):
+            result[target] = None
+            continue
+        result[target] = numeric if math.isfinite(numeric) else None
+
+    if result.get("thigh_length") and result.get("calf_length"):
+        result["thigh_calf_ratio"] = round(
+            result["thigh_length"] / result["calf_length"], 3
+        )
+    else:
+        result["thigh_calf_ratio"] = None
+    if result.get("torso_length") and result.get("leg_length"):
+        result["torso_leg_ratio"] = round(
+            result["torso_length"] / result["leg_length"], 3
+        )
+    else:
+        result["torso_leg_ratio"] = None
+
     return result
 
 
@@ -193,7 +225,7 @@ def main() -> None:
         "--output-dir",
         type=Path,
         default=None,
-        help="결과 저장 폴더. 생략하면 experiments/vlm/<model>/<split>-<run-name>입니다.",
+        help="결과 저장 폴더. 생략하면 data/vlm/<model>/<split>-<run-name>입니다.",
     )
     parser.add_argument("--resume", action="store_true")
     parser.add_argument(
@@ -201,8 +233,7 @@ def main() -> None:
         choices=sorted(PROMPT_SETS),
         default="core",
         help=(
-            "core=10개 질문 (기존 모델 선정용 prompt, 기본값). "
-            "full=서빙과 동일하게 측정값 7개와 체형 지표 3개, 총 10개 질문."
+            "core/full 모두 새 11개 질문 스키마를 사용합니다."
         ),
     )
     args = parser.parse_args()
@@ -225,7 +256,7 @@ def main() -> None:
     model_file_name = args.model.rsplit("/", maxsplit=1)[-1]
     results_dir = args.output_dir or (
         PROJECT_ROOT
-        / "experiments"
+        / "data"
         / "vlm"
         / model_file_name
         / f"{args.split}-{args.run_name}"
@@ -257,7 +288,10 @@ def main() -> None:
             "run_name": args.run_name,
             "prompt_set": args.prompt_set,
             "status": "success",
-            **{get_column_names(target)[0]: None for target in targets},
+            **{
+                get_column_names(target)[0]: None
+                for target in [*VLM_RESPONSE_TARGETS, *RATIO_TARGETS]
+            },
             "latency_seconds": None,
             "prompt_tokens": None,
             "completion_tokens": None,
@@ -287,7 +321,7 @@ def main() -> None:
 
             prediction = parse_prediction(content, targets)
             usage = response_data.get("usage", {})
-            for target in targets:
+            for target in [*VLM_RESPONSE_TARGETS, *RATIO_TARGETS]:
                 p_col, _ = get_column_names(target)
                 record[p_col] = prediction[target]
             record["prompt_tokens"] = usage.get("prompt_tokens")
@@ -309,7 +343,7 @@ def main() -> None:
 
     print(f"\n결과 저장 완료: {output_path}")
 
-    # 여기서는 호출 직후 응답률만 보여준다. 정확도는 evaluate_results.py가
+    # 여기서는 호출 직후 응답률만 보여준다. 정확도는 align_vlm_predictions.py와
     # 라벨 CSV와 병합해서 계산한다.
     extra_targets = [t for t in targets if t not in CORE_TARGETS]
     if extra_targets:

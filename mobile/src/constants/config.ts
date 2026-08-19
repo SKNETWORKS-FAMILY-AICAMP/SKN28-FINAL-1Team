@@ -38,6 +38,29 @@ export const KAKAO_NATIVE_APP_KEY =
   process.env.EXPO_PUBLIC_KAKAO_NATIVE_APP_KEY ?? '1366adcd2e8c643a4b5471fabd32b6ea';
 
 /**
+ * 카카오 **JavaScript 키** — 웹에서 Kakao JS SDK(Kakao.init) 초기화에 쓴다.
+ * 네이티브 앱 키와 값이 다르며, 네이티브 키로 Kakao.init 을 부르면 공유 창이
+ * 열리지 않고 조용히 실패한다(한 번 겪은 함정이라 상수를 따로 둔다).
+ * 브라우저 번들에 그대로 실리는 준공개값이고, 카카오 개발자 콘솔의
+ * [내 애플리케이션 > 플랫폼 > Web]에 등록된 도메인에서만 동작한다.
+ *
+ * ⚠️ Expo 는 **EXPO_PUBLIC_ 접두사가 붙은 변수만** 번들에 넣는다.
+ *    Infisical/셸에 `KAKAO_JAVASCRIPT_KEY` 로만 넣으면 앱에는 전달되지 않는다.
+ */
+export const KAKAO_JAVASCRIPT_KEY = process.env.EXPO_PUBLIC_KAKAO_JAVASCRIPT_KEY ?? '';
+
+/**
+ * 공유 옷장 초대 링크의 기준 주소.
+ *
+ * 초대 링크는 **남에게 보내는 주소**다. 웹에서 `window.location.origin`을 그대로 쓰면
+ * 개발 중에 `http://localhost:8081/invite?code=...` 같은 링크가 만들어지는데,
+ * 받는 사람에게 localhost 는 **자기 컴퓨터**라 아무것도 열리지 않는다.
+ * 그래서 내 컴퓨터에서만 열리는 주소일 때는 이 값으로 바꿔 링크를 만든다.
+ */
+export const INVITE_BASE_URL =
+  process.env.EXPO_PUBLIC_INVITE_BASE_URL ?? 'https://skn-1st-mobile.expo.app';
+
+/**
  * 네이버 로그인 (네이티브 SDK, @react-native-seoul/naver-login).
  * consumerKey/Secret 은 네이버 개발자센터 발급값. 네이버 모바일 SDK 는 secret 을 앱에
  * 내장하도록 요구하므로(카카오 네이티브 키와 동일한 준공개값) EXPO_PUBLIC_ 로 주입한다 — .env(gitignore).
@@ -133,6 +156,17 @@ export const DailyLookVirtualTryOnEndpoint = (lookId: string) =>
   `/api/v1/looks/${lookId}/virtual-try-on/`;
 
 /**
+ * 오늘의 룩 저장 (홈 카드의 '저장'). POST, **본문 없음**.
+ *
+ * 담을 대상은 그날의 추천 하나로 정해져 있어서 클라이언트가 golden_id 를 보내지
+ * 않는다 — 보내게 하면 남의 코디도 담을 수 있는 구멍이 된다.
+ *
+ * 201 새로 담음 / 200 이미 담아 둔 코디(같은 룩북을 돌려준다) /
+ * 409 아직 담을 수 없음(응답 status 가 이유: QUEUED·PROCESSING·EMPTY·FAILED·MISSING)
+ */
+export const DailyLookSaveEndpoint = '/api/v1/looks/today/save/';
+
+/**
  * 착장 사진 분석. 인증 없이 호출할 수 있고, JWT가 있으면 개인화 정보를 반영한다.
  * POST multipart { image, lat?, lon? } → { status, evaluation, context }
  */
@@ -167,7 +201,7 @@ export const OutfitHistoryEndpoints = {
  *             + 체형 지표 3개(neck_length, thigh_calf_ratio, torso_leg_ratio).
  *   지표 3개는 2026-08-10 백엔드에 추가됐다(users 마이그레이션 0014~0016, PR#10).
  *   항목별 라벨·단위·범위는 constants/body-measures.ts 가 단일 출처다.
- *   ※ 수치는 Decimal 소수 1자리(1~999.9), 비율 2개는 3자리(thigh_calf 0.8~1.3 · torso_leg 0.6~1.0).
+ *   ※ 수치는 Decimal 소수 1자리(1~999.9), 비율 2개는 3자리(thigh_calf 0.7~1.3 · torso_leg는 골든 임계값 기준).
  *   ※ estimate 와 photos/{id} 는 같은 결과 형식을 준다 —
  *     { status, source, transaction_id, measurement, error_message }. 추정 치수가 응답에 들어 있어
  *     따로 GET body 를 부를 필요가 없다. estimate 는 본문을 비우면 저장된 기본 정보를 쓴다.
@@ -200,6 +234,8 @@ export const PursuitEndpoint = '/api/v1/users/me/pursuit/';
  *   POST  /api/v1/wardrobe/uploads/           multipart { image } → 202 { job_id, status }
  *   GET   /api/v1/wardrobe/uploads/{job_id}/  → { id, status, error_message, created_at, finished_at, items[] }
  *         status: PENDING | PROCESSING | DONE | FAILED
+ *   GET   /api/v1/wardrobe/categories/        → 기본 카테고리 + 개인 옷장 해시태그
+ *   POST  /api/v1/wardrobe/hashtags/          { name, item_ids } → 옷과 함께 해시태그 생성
  *   GET   /api/v1/wardrobe/items/             → WardrobeApiItem[]  (?category_large=&confirmed=true|false)
  *   PATCH /api/v1/wardrobe/items/{id}/        태그 수정 + confirmed → 수정된 아이템
  *   DELETE /api/v1/wardrobe/items/{id}/       → 204
@@ -227,8 +263,17 @@ export const PursuitEndpoint = '/api/v1/users/me/pursuit/';
 export const WardrobeEndpoints = {
   uploads: '/api/v1/wardrobe/uploads/',
   uploadJob: (jobId: string) => `/api/v1/wardrobe/uploads/${jobId}/`,
+  categories: '/api/v1/wardrobe/categories/',
+  hashtags: '/api/v1/wardrobe/hashtags/',
+  hashtag: (hashtagId: string) => `/api/v1/wardrobe/hashtags/${hashtagId}/`,
+  hashtagItems: (hashtagId: string) =>
+    `/api/v1/wardrobe/hashtags/${hashtagId}/items/`,
+  hashtagOrder: '/api/v1/wardrobe/hashtags/order/',
+  viewPreferences: '/api/v1/wardrobe/view-preferences/',
   items: '/api/v1/wardrobe/items/',
   item: (itemId: string) => `/api/v1/wardrobe/items/${itemId}/`,
+  itemHashtags: (itemId: string) =>
+    `/api/v1/wardrobe/items/${itemId}/hashtags/`,
   /* 룩 사진에서 뽑혀 아직 옷장 밖에 있는 옷을 옷장에 들인다(멱등). */
   addToCloset: (itemId: string) => `/api/v1/wardrobe/items/${itemId}/add-to-closet/`,
   batches: '/api/v1/wardrobe/batches/',
@@ -245,12 +290,15 @@ export const WardrobeEndpoints = {
  *   GET    /api/v1/calendars/{id}/                    → CalendarEntry
  *   PATCH  /api/v1/calendars/{id}/                    → CalendarEntry
  *   DELETE /api/v1/calendars/{id}/                    → 204
+ *   POST   /api/v1/calendars/{id}/items/              → CalendarEntry (옷 연결 추가, 멱등)
  *   DELETE /api/v1/calendars/{id}/items/{itemId}/     → CalendarEntry (옷 연결만 해제)
  *   GET    /api/v1/calendars/{id}/processing-status/  사진 처리 폴링
  *
  * ⚠️ **날짜당 1건이고 서버에 upsert 가 없다.** 이미 있는 날짜로 등록하면 409 다.
- *    사진을 바꾸거나 옷을 **더하려면** DELETE 후 다시 등록해야 한다(PATCH 로는 못 바꾼다).
- *    옷을 **빼는 건** items DELETE 로 연결만 끊는다 — 기록과 옷장 아이템은 남는다.
+ *    **사진을 바꿀 때만** DELETE 후 다시 등록한다(PATCH 로는 못 바꾼다).
+ *    옷을 더하고 빼는 것은 items POST/DELETE 로 연결만 손댄다 — 기록 id 도 사진도 그대로다.
+ *    사진 기록을 지우고 다시 만들면 같은 사진을 서버가 다시 분석해, 같은 옷이 서로 다른
+ *    두 벌로 옷장에 쌓인다. 옷 구성 변경에 재등록을 쓰면 안 되는 이유다.
  * ⚠️ **PATCH 는 schedule·tpo·hashtags 만 받는다.** 서버가 미선언 필드를 400 으로 거절하므로
  *    프론트에만 있는 개념(shared·lookId)을 실어 보내면 요청 전체가 실패한다.
  * ⚠️ 업로드 제한: 15MB 이하, jpeg/png/webp/heic.
@@ -261,6 +309,8 @@ export const CalendarEndpoints = {
   photo: '/api/v1/calendars/photo/',
   wardrobe: '/api/v1/calendars/wardrobe/',
   detail: (calendarId: string) => `/api/v1/calendars/${calendarId}/`,
+  /** 입은 옷 연결 추가 — 이미 걸린 옷은 서버가 건너뛴다(멱등). */
+  items: (calendarId: string) => `/api/v1/calendars/${calendarId}/items/`,
   /** 입은 옷 연결 해제 — itemId 는 옷장 아이템 id(wardrobe_item_id)다. */
   item: (calendarId: string, wardrobeItemId: string) =>
     `/api/v1/calendars/${calendarId}/items/${wardrobeItemId}/`,
@@ -285,16 +335,18 @@ export const CalendarEndpoints = {
  * ⚠️ PATCH 는 캘린더와 같은 제약: schedule·tpo·hashtags 만. 사진·옷 구성은 못 바꾼다.
  */
 /**
- * 월 의류 구매 예산 — 상품 추천에서 '예산 내' 표시를 가르는 값.
+ * 대분류별 상품 1개 최대 가격 — 상품 추천에서 '예산 내' 표시를 가르는 값.
  *
- *   GET /api/v1/users/me/budget/  → { monthly_budget: number | null }   미설정이면 null
- *   PUT /api/v1/users/me/budget/    { monthly_budget }  전체 교체
+ *   GET /api/v1/users/me/budget/  → { category_budgets, effective_category_budgets }
+ *   PUT /api/v1/users/me/budget/    { category_budgets }  전체 교체
  *
  * ⚠️ **1만원 단위, 10,000 이상**만 받는다. 지울 때는 키를 빼는 게 아니라 **명시적으로 null**.
  */
 export const BudgetEndpoint = '/api/v1/users/me/budget/';
 
 export const LookbookEndpoints = {
+  discover: '/api/v1/lookbooks/discover/',
+  discoverDetail: (lookId: string) => `/api/v1/lookbooks/discover/${lookId}/`,
   list: '/api/v1/lookbooks/',
   /* 전체 공개된 룩 — 앱 '둘러보기'가 읽는 목록. 비회원도 볼 수 있다. */
   publicFeed: '/api/v1/lookbooks/public/',
@@ -311,10 +363,19 @@ export const LookbookEndpoints = {
  *   GET    /api/v1/chat/sessions/                                             → 세션 배열
  *   PATCH  /api/v1/chat/sessions/{id}/                 { title }              → 200
  *   DELETE /api/v1/chat/sessions/{id}/                                        → 204
+ *   GET    /api/v1/chat/sessions/search/?query=&limit=&cursor=                → 제목·본문 검색
  *   GET    /api/v1/chat/sessions/{id}/messages/                               → 메시지 배열(시간순)
+ *   GET    /api/v1/chat/sessions/{id}/messages/page/?limit=&cursor=           → 최신부터 커서 페이지
  *   POST   /api/v1/chat/sessions/{id}/messages/  { content, client_message_id } → 202 { message, run, events_url }
+ *   POST   /api/v1/chat/sessions/{id}/attachments/  multipart{ image, client_message_id } → 201 { message, attachment }
+ *   POST   .../attachments/{attachmentId}/analysis/                           → 202 { attachment, run }
+ *   POST   .../attachments/{attachmentId}/mood-decision/  { decision }        → 200 { attachment, applied }
  *   GET    /api/v1/chat/runs/{runId}/                                         → run 상태(폴링용)
  *   GET    /api/v1/chat/runs/{runId}/events/                                  → SSE 진행 이벤트
+ *
+ * 사진은 **세 단계**다. 올리기만 해서는 아무 일도 일어나지 않는다 —
+ * 업로드(첨부 전용 사용자 메시지가 생김) → 무드 분석 요청(run 이 생김) →
+ * 사용자가 그 무드를 쓸지 정하기(승인해야 세션 추천 조건에 들어간다).
  *
  * 답변은 **동기 응답이 아니다.** 메시지를 POST 하면 202 와 함께 run 이 생기고,
  * 실제 답변은 별도 워커가 만들어 SSE(또는 run 폴링)로 전달된다. lib/chatStream.ts 참고.
@@ -325,12 +386,46 @@ export const LookbookEndpoints = {
  * ⚠️ 게스트 채팅(/chat/guest/)은 **HttpOnly 쿠키**로 신원을 잡는 방식이라 네이티브·크로스
  *    오리진에서 다루기 까다롭다. 지금은 로그인 사용자만 붙인다.
  */
+/**
+ * 사진 첨부 → 무드 분석 → 반영 여부는 **세 번의 호출**로 나뉜다.
+ *
+ *   POST /chat/sessions/{id}/attachments/                      multipart → 201 { message, attachment, created }
+ *   POST /chat/sessions/{id}/attachments/{aid}/analysis/                → 202 { attachment, run, events_url }
+ *   POST /chat/sessions/{id}/attachments/{aid}/mood-decision/  { decision } → 200 { attachment, changed, applied, context_state }
+ *
+ * 올리는 것과 분석하는 것이 나뉜 이유 — 사진만 보내고 분석은 원할 때 시킬 수 있다.
+ * 분석도 답변과 같은 run 구조라 끝날 때까지 기다려야 한다(lib/chatStream.ts).
+ *
+ * ⚠️ 요청과 저장값의 철자가 다르다. 보낼 때는 `APPROVE`/`REJECT`, 첨부에 남는 값은
+ *    `APPROVED`/`REJECTED`(미결정은 `UNDECIDED`)다. 둘을 섞어 비교하면 결정 상태를 놓친다.
+ * ⚠️ 무드를 승인해도 **추천이 자동으로 만들어지지 않는다.** 세션의 context_state 에만
+ *    반영되고, 다음 질문부터 그 무드가 조건으로 쓰인다.
+ */
 export const ChatEndpoints = {
   sessions: '/api/v1/chat/sessions/',
   session: (sessionId: string) => `/api/v1/chat/sessions/${sessionId}/`,
   messages: (sessionId: string) => `/api/v1/chat/sessions/${sessionId}/messages/`,
+  /** 최근 메시지부터 커서로 끊어 받는다. 대화가 길어지면 messages 대신 이쪽을 쓴다. */
+  messagePage: (sessionId: string) => `/api/v1/chat/sessions/${sessionId}/messages/page/`,
+  /** 제목과 **저장된 메시지 본문**까지 서버가 찾아준다. */
+  sessionSearch: '/api/v1/chat/sessions/search/',
+  attachments: (sessionId: string) => `/api/v1/chat/sessions/${sessionId}/attachments/`,
+  attachmentAnalysis: (sessionId: string, attachmentId: string) =>
+    `/api/v1/chat/sessions/${sessionId}/attachments/${attachmentId}/analysis/`,
+  attachmentMoodDecision: (sessionId: string, attachmentId: string) =>
+    `/api/v1/chat/sessions/${sessionId}/attachments/${attachmentId}/mood-decision/`,
   run: (runId: string) => `/api/v1/chat/runs/${runId}/`,
   runEvents: (runId: string) => `/api/v1/chat/runs/${runId}/events/`,
+
+  /* ── 스타일리스트 모드 ──
+     ⚠️ 아래 네 자리는 아직 **배포 서버에 없다**(origin/feature/chat-main-integration 전용).
+        없는 서버에서는 404 가 오고 lib/stylistApi.ts 가 목업으로 대신한다. */
+  stylists: '/api/v1/chat/stylists/',
+  responseMode: (sessionId: string) => `/api/v1/chat/sessions/${sessionId}/response-mode/`,
+  personaRetry: (runId: string, personaId: string) =>
+    `/api/v1/chat/runs/${runId}/personas/${personaId}/retry/`,
+  personaAlternative: (runId: string, personaId: string) =>
+    `/api/v1/chat/runs/${runId}/personas/${personaId}/alternative/`,
 } as const;
 
 /**
@@ -340,7 +435,39 @@ export const ChatEndpoints = {
  *
  * 채팅 답변이 추천까지 만들면 그 메시지의 metadata.recommendation_result_id 로 여기를 부른다.
  * 카드 하나가 코디 한 벌이고, 그 안의 items 가 착장 아이템이다.
+ *
+ *   GET    /api/v1/recommendations/{resultId}/cards/{cardId}/           → 카드 상세
+ *   PUT    .../cards/{cardId}/feedback/  { reaction, reason_codes }     → 최신 피드백 교체
+ *   DELETE .../cards/{cardId}/feedback/                                 → 피드백 삭제
+ *   GET    .../cards/{cardId}/render/                                   → 코디 이미지 생성 상태
+ *   POST   .../cards/{cardId}/render/                                   → 이미지 생성 접수
+ *
+ * 이미지 생성은 추천이 저장될 때 서버가 미리 걸어둔다. 그래서 보통은 GET 만으로 결과가
+ * 나오고, 없거나(404) 실패했을 때만 POST 로 다시 건다.
  */
+/**
+ * 스타일리스트 API 가 없을 때 목업으로 대신 그려도 되는지 (lib/stylistApi.ts).
+ *
+ * ⚠️ **배포된 실서버에서는 켜면 안 된다.** 게이트웨이 설정이 틀려 404 가 나는 상황까지
+ *    "라우트가 아직 없구나"로 삼켜 버리면, 사용자에게 **지어낸 코디**를 진짜 추천인 것처럼
+ *    보여주게 된다. 장애가 목업 뒤에 숨는 쪽이 오류 화면보다 나쁘다.
+ *
+ * 그래서 기본은 개발 빌드에서만 열어 둔다. 팀원 체험용 웹 배포처럼 백엔드가 아직 안 붙은
+ * 곳에서 화면을 보여줘야 하면 그 빌드에만 EXPO_PUBLIC_STYLIST_MOCK=1 을 준다.
+ */
+export const ALLOW_STYLIST_MOCK =
+  __DEV__ || process.env.EXPO_PUBLIC_STYLIST_MOCK === '1';
+
 export const RecommendEndpoints = {
   result: (resultId: string) => `/api/v1/recommendations/${resultId}/`,
+  card: (resultId: string, cardId: string) =>
+    `/api/v1/recommendations/${resultId}/cards/${cardId}/`,
+  cardFeedback: (resultId: string, cardId: string) =>
+    `/api/v1/recommendations/${resultId}/cards/${cardId}/feedback/`,
+  cardRender: (resultId: string, cardId: string) =>
+    `/api/v1/recommendations/${resultId}/cards/${cardId}/render/`,
+  /** 카드 한 장을 내 룩으로 저장 — 스타일리스트 카드의 '이 코디로 할래요'가 부른다.
+      ⚠️ 이 자리도 아직 배포 서버에 없다(위 stylists 주석과 같은 브랜치). */
+  saveCard: (resultId: string, cardId: string) =>
+    `/api/v1/recommendations/${resultId}/cards/${cardId}/save/`,
 } as const;

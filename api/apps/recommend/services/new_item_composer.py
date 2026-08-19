@@ -22,6 +22,7 @@ class NewItemCompositionRequest:
     slot_results: tuple[ItemRetrievalResult, ...]
     composition_count: int = 3
     total_budget: int | None = None
+    category_budgets: dict[str, int] | None = None
     require_image: bool = True
 
 
@@ -44,6 +45,7 @@ class NewItemOutfitComposer:
                 source_priority=self.SOURCE_PRIORITY,
                 composition_count=request.composition_count,
                 total_budget=request.total_budget,
+                category_budgets=request.category_budgets,
                 require_image=request.require_image,
                 minimum_source_counts=((ItemSource.PRODUCT, 1),),
             ),

@@ -34,12 +34,11 @@ const CALENDAR_TAB = { name: 'calendar', href: '/calendar', icon: 'calendar', la
 const HIDDEN_ROUTES = [
   { name: 'chat-room', href: '/chat-room', icon: 'bubble.left', label: '대화' },
   { name: 'look-detail', href: '/look-detail', icon: 'book', label: '추천 룩' },
+  { name: 'rec-card', href: '/rec-card', icon: 'sparkles', label: '추천 코디' },
   { name: 'fitting', href: '/fitting', icon: 'sparkles', label: '가상 피팅' },
   { name: 'item-detail', href: '/item-detail', icon: 'tshirt', label: '아이템' },
   { name: 'saved-look', href: '/saved-look', icon: 'book', label: '저장 룩' },
-  { name: 'wishlist', href: '/wishlist', icon: 'heart', label: '찜한 상품' },
   { name: 'budget', href: '/budget', icon: 'person', label: '예산' },
-  { name: 'personal-color', href: '/personal-color', icon: 'person', label: '퍼스널컬러' },
   { name: 'style-onboarding', href: '/style-onboarding', icon: 'person', label: '추구미' },
   { name: 'permissions', href: '/permissions', icon: 'person', label: '권한' },
   { name: 'notifications', href: '/notifications', icon: 'bell', label: '알림' },
@@ -74,9 +73,17 @@ export default function AppTabs() {
        날짜 칸이 세로로 길쭉해진다. 코디 추천은 화면 안의 '코디 추천받기'로 간다. */
   const showChatPanel =
     isWide &&
-    !['/chat', '/chat-room', '/chat-mode', '/calendar', '/look-detail', '/fitting', '/item-detail'].includes(
-      pathname,
-    );
+    ![
+      '/chat',
+      '/chat-room',
+      '/chat-mode',
+      '/calendar',
+      '/look-detail',
+      '/fitting',
+      '/item-detail',
+      // 추천 코디 상세도 그 자리를 아이템 목록에 쓴다.
+      '/rec-card',
+    ].includes(pathname);
 
   return (
     <Tabs style={[styles.root, isDesktop && styles.rootDesktop]}>
@@ -102,7 +109,12 @@ export default function AppTabs() {
             ))}
           </Sidebar>
         ) : (
-          <BottomBar onLayout={(e) => setBarHeight(e.nativeEvent.layout.height)}>
+          <BottomBar onLayout={(e) => {
+            const h = e.nativeEvent.layout.height;
+            if (h !== barHeight) {
+              setBarHeight(h);
+            }
+          }}>
             {TABS.slice(0, 2).map((t) => (
               <TabTrigger key={t.name} name={t.name} href={t.href} asChild>
                 <TabItem icon={t.icon} label={t.label} />
@@ -136,13 +148,16 @@ export default function AppTabs() {
  * 옷장·룩북을 보면서 바로 물어볼 수 있게 한다. 폭은 고정 — 대화는 한 줄이 길면 읽기 어렵다.
  */
 function ChatPanel() {
+  // 이 패널이 어느 화면 옆에 붙어 있는지 — 대화를 넓혀 봤다가 돌아올 자리다.
+  const pathname = usePathname();
   return (
     <View style={styles.chatPanel}>
       <View style={styles.chatPanelHeader}>
         <Text style={styles.chatPanelTitle}>코지에게 물어보기</Text>
         <Pressable
           hitSlop={8}
-          onPress={() => router.push('/chat-room')}
+          /* 이 패널은 다른 화면 옆에 붙어 있다 — 넓혀 보고 나면 보던 화면으로 돌아와야 한다. */
+          onPress={() => router.push({ pathname: '/chat-room', params: { from: pathname } })}
           accessibilityLabel="대화 전체 보기">
           <Icon name="arrow.right" tintColor={ink(0.45)} size={16} />
         </Pressable>

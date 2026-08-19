@@ -287,6 +287,46 @@ class RenderApiTests(RenderFixtureMixin, TestCase):
         self.assertEqual(enqueue.call_count, 2)
         self.assertEqual(events.return_value.publish.call_count, 2)
 
+    @patch("apps.recommend.services.render_events.RenderEventStore")
+    @patch("apps.recommend.services.render_queue.enqueue")
+    def test_post_creates_job_only_for_selected_card(
+        self,
+        enqueue,
+        _events,
+    ) -> None:
+        other_card = OutfitComposition.objects.create(
+            result=self.card.result,
+            rank=2,
+            status=OutfitComposition.Status.VALIDATED,
+            composition_fingerprint="c" * 64,
+        )
+
+        response = self.client.post(self.url, {}, format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_202_ACCEPTED)
+        self.assertTrue(OutfitRenderJob.objects.filter(composition=self.card).exists())
+        self.assertFalse(
+            OutfitRenderJob.objects.filter(composition=other_card).exists()
+        )
+        enqueue.assert_called_once()
+
+    def test_render_failure_does_not_change_recommendation_or_run_status(self) -> None:
+        job, _ = render_jobs.prepare_job(self.card)
+        started = render_jobs.start(job.pk)
+        self.assertIsNotNone(started)
+
+        failed = render_jobs.mark_failed(
+            job.pk,
+            error_code="PROVIDER_FAILED",
+            error_message="이미지 제공자 호출 실패",
+        )
+        self.card.result.refresh_from_db()
+        self.card.result.run.refresh_from_db()
+
+        self.assertEqual(failed.status, OutfitRenderJob.Status.FAILED)
+        self.assertEqual(self.card.result.run.status, ChatRun.Status.SUCCEEDED)
+        self.assertTrue(self.card.result.is_current)
+
     @patch("apps.recommend.services.render_queue.enqueue")
     def test_queue_failure_is_terminal_and_retryable_by_new_post(self, enqueue) -> None:
         enqueue.side_effect = redis.ConnectionError("down")

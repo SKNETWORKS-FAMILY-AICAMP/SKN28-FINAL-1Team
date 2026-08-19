@@ -6,6 +6,7 @@ from unittest.mock import Mock, patch
 from django.contrib.auth import get_user_model
 from django.db import IntegrityError, transaction
 from django.test import SimpleTestCase, TestCase, override_settings
+from django.utils import timezone
 
 from apps.chat.models import (
     ChatIdentity,
@@ -34,7 +35,13 @@ from apps.chat.services.recommendation_pipeline import (
     OutfitCompositionFailed,
     RecommendationPipelineResult,
 )
-from apps.recommend.models import RecommendationResult
+from apps.recommend.models import (
+    OutfitComposition as OutfitCompositionModel,
+)
+from apps.recommend.models import (
+    RecommendationFeedback,
+    RecommendationResult,
+)
 from apps.recommend.services.item_retriever import ItemSource
 from apps.recommend.services.outfit_types import (
     CompositionBatch,
@@ -48,7 +55,10 @@ from apps.recommend.services.retriever import (
     RetrievalResult,
 )
 from apps.recommend.services.validator import OutfitValidationResult
+from apps.style_calendar.contracts import CalendarSourceType, CalendarStatus
+from apps.style_calendar.models import CalendarEntry, CalendarWardrobeItem
 from apps.users.models import Pursuit
+from apps.wardrobe.models import WardrobeItem
 
 User = get_user_model()
 
@@ -112,6 +122,10 @@ class ChatContextServiceTests(TestCase):
             content="  가을   출근룩 추천해줘 ",
             metadata={"location": {"lat": 37.5665, "lon": 126.978}},
         )
+        self.run = ChatRun.objects.create(
+            session=self.session,
+            request_message=self.message,
+        )
         Pursuit.objects.create(
             user=self.user,
             payload={"preferred": {"styles": ["minimal"]}, "avoided": {}},
@@ -130,14 +144,26 @@ class ChatContextServiceTests(TestCase):
         }
         service = ChatContextService(cache=MemoryJsonCache())
 
-        first = service.build(session=self.session, request_message=self.message)
-        second = service.build(session=self.session, request_message=self.message)
+        first = service.build(
+            session=self.session,
+            request_message=self.message,
+            current_run=self.run,
+        )
+        second = service.build(
+            session=self.session,
+            request_message=self.message,
+            current_run=self.run,
+        )
 
         self.assertFalse(first.cache_hit)
         self.assertTrue(second.cache_hit)
         self.assertEqual(first.base_fingerprint, second.base_fingerprint)
         self.assertEqual(first.fingerprint, second.fingerprint)
         self.assertEqual(first.payload["profile"], second.payload["profile"])
+        self.assertEqual(
+            first.payload["profile"]["category_budgets"]["상의"],
+            50_000,
+        )
 
     @patch("apps.chat.services.context.get_current_weather")
     def test_profile_update_changes_base_fingerprint(self, mock_weather):
@@ -149,7 +175,11 @@ class ChatContextServiceTests(TestCase):
             "observed_at": "2026-08-11T09:00:00+09:00",
         }
         service = ChatContextService(cache=MemoryJsonCache())
-        first = service.build(session=self.session, request_message=self.message)
+        first = service.build(
+            session=self.session,
+            request_message=self.message,
+            current_run=self.run,
+        )
         pursuit = Pursuit.objects.get(user=self.user)
         pursuit.payload = {
             "preferred": {"styles": ["casual"]},
@@ -157,10 +187,208 @@ class ChatContextServiceTests(TestCase):
         }
         pursuit.save()
 
-        second = service.build(session=self.session, request_message=self.message)
+        second = service.build(
+            session=self.session,
+            request_message=self.message,
+            current_run=self.run,
+        )
 
         self.assertFalse(second.cache_hit)
         self.assertNotEqual(first.base_fingerprint, second.base_fingerprint)
+
+    @patch("apps.chat.services.context.load_user_behavior_signals")
+    @patch("apps.chat.services.context.get_current_weather")
+    def test_member_behavior_signals_are_loaded_once_into_common_context(
+        self,
+        mock_weather,
+        mock_behavior_signals,
+    ):
+        mock_weather.return_value = {
+            "region": "서울",
+            "observed_at": "2026-08-15T09:00:00+09:00",
+            "is_stale": False,
+        }
+        behavior_payload = {
+            "schema_version": "1.0",
+            "signals": {"strong_preferences": {"worn_items": []}},
+        }
+        mock_behavior_signals.return_value = behavior_payload
+
+        context = ChatContextService(cache=MemoryJsonCache()).build(
+            session=self.session,
+            request_message=self.message,
+            current_run=self.run,
+        )
+
+        mock_behavior_signals.assert_called_once_with(
+            identity=self.identity,
+            current_run=self.run,
+            as_of=timezone.localdate(),
+        )
+        self.assertEqual(context.payload["behavior_signals"], behavior_payload)
+
+    @patch("apps.chat.services.context.load_user_behavior_signals")
+    @patch("apps.chat.services.context.get_current_weather")
+    def test_guest_context_skips_member_behavior_loaders(
+        self,
+        mock_weather,
+        mock_behavior_signals,
+    ):
+        mock_weather.return_value = {
+            "region": "서울",
+            "observed_at": "2026-08-15T09:00:00+09:00",
+            "is_stale": False,
+        }
+        guest_identity = ChatIdentity.objects.create(
+            identity_type=ChatIdentity.IdentityType.GUEST,
+            guest_token_hash="c" * 64,
+            expires_at="2099-01-01T00:00:00Z",
+        )
+        guest_session = ChatSession.objects.create(
+            identity=guest_identity,
+            mode=ChatSession.Mode.NEW_ITEM,
+        )
+        guest_message = ChatMessage.objects.create(
+            session=guest_session,
+            sequence=1,
+            role=ChatMessage.Role.USER,
+            content="추천해줘",
+        )
+        guest_run = ChatRun.objects.create(
+            session=guest_session,
+            request_message=guest_message,
+        )
+
+        context = ChatContextService(cache=MemoryJsonCache()).build(
+            session=guest_session,
+            request_message=guest_message,
+            current_run=guest_run,
+        )
+
+        mock_behavior_signals.assert_not_called()
+        self.assertIsNone(context.payload["behavior_signals"])
+
+    @patch("apps.chat.services.context.load_user_behavior_signals")
+    @patch("apps.chat.services.context.get_current_weather")
+    def test_personalization_updates_invalidate_base_context_cache(
+        self,
+        mock_weather,
+        mock_behavior_signals,
+    ):
+        mock_weather.return_value = {
+            "region": "서울",
+            "observed_at": "2026-08-15T09:00:00+09:00",
+            "is_stale": False,
+        }
+        mock_behavior_signals.return_value = {
+            "schema_version": "1.0",
+            "signals": {},
+        }
+        service = ChatContextService(cache=MemoryJsonCache())
+
+        initial = service.build(
+            session=self.session,
+            request_message=self.message,
+            current_run=self.run,
+        )
+        wardrobe_item = WardrobeItem.objects.create(
+            user=self.user,
+            job=None,
+            s3_key="wardrobe/context/top.png",
+            item_name="컨텍스트 상의",
+            category_large="상의",
+            confirmed=True,
+            added_to_closet_at=timezone.now(),
+        )
+        after_wardrobe = service.build(
+            session=self.session,
+            request_message=self.message,
+            current_run=self.run,
+        )
+
+        calendar = CalendarEntry.objects.create(
+            user=self.user,
+            date=timezone.localdate(),
+            source_type=CalendarSourceType.WARDROBE_SELECTED.value,
+            image_s3_key="calendar/context/today.jpg",
+            status=CalendarStatus.COMPLETED.value,
+        )
+        CalendarWardrobeItem.objects.create(
+            calendar=calendar,
+            wardrobe_item=wardrobe_item,
+        )
+        after_calendar = service.build(
+            session=self.session,
+            request_message=self.message,
+            current_run=self.run,
+        )
+
+        previous_session = ChatSession.objects.create(
+            identity=self.identity,
+            mode=ChatSession.Mode.NEW_ITEM,
+        )
+        previous_message = ChatMessage.objects.create(
+            session=previous_session,
+            sequence=1,
+            role=ChatMessage.Role.USER,
+            content="이전 추천",
+        )
+        previous_run = ChatRun.objects.create(
+            session=previous_session,
+            request_message=previous_message,
+            status=ChatRun.Status.SUCCEEDED,
+        )
+        previous_result = RecommendationResult.objects.create(
+            identity=self.identity,
+            session=previous_session,
+            run=previous_run,
+            mode=RecommendationResult.Mode.NEW_ITEM,
+            dataset_version="context-test-v1",
+        )
+        previous_card = OutfitCompositionModel.objects.create(
+            result=previous_result,
+            rank=1,
+            status=OutfitCompositionModel.Status.VALIDATED,
+            composition_fingerprint="d" * 64,
+            validation_reasons=[],
+            warnings=[],
+        )
+        after_recommendation = service.build(
+            session=self.session,
+            request_message=self.message,
+            current_run=self.run,
+        )
+
+        RecommendationFeedback.objects.create(
+            composition=previous_card,
+            reaction=RecommendationFeedback.Reaction.LIKE,
+            reason_codes=["STYLE"],
+        )
+        after_feedback = service.build(
+            session=self.session,
+            request_message=self.message,
+            current_run=self.run,
+        )
+
+        fingerprints = [
+            initial.base_fingerprint,
+            after_wardrobe.base_fingerprint,
+            after_calendar.base_fingerprint,
+            after_recommendation.base_fingerprint,
+            after_feedback.base_fingerprint,
+        ]
+        self.assertEqual(len(set(fingerprints)), len(fingerprints))
+        self.assertTrue(
+            all(
+                not context.cache_hit
+                for context in (
+                    after_wardrobe,
+                    after_calendar,
+                    after_recommendation,
+                    after_feedback,
+                )
+            )
+        )
 
 
 @override_settings(
@@ -281,6 +509,10 @@ class ChatOrchestratorTests(TestCase):
         self.assertIn("어떤 상황", result.response_message.content)
         self.assertTrue(result.run.context_cache_hit)
         self.assertEqual(result.run.cached_input_tokens, 50)
+        self.assertEqual(
+            self.context_service.build.call_args.kwargs["current_run"].id,
+            self.run.id,
+        )
         self.pipeline.execute.assert_not_called()
         self.message.refresh_from_db()
         self.assertEqual(self.message.status, ChatMessage.Status.COMPLETED)

@@ -14,7 +14,12 @@ import {
 /** 사진 등록은 옷 추출이 끝나야 COMPLETED 가 된다. 옷만 고른 룩은 처음부터 COMPLETED. */
 export type LookbookStatus = 'REGISTERED' | 'PROCESSING' | 'COMPLETED' | 'FAILED';
 
-export type LookbookSourceType = 'PHOTO_UPLOAD' | 'WARDROBE_SELECTED';
+/**
+ * GOLDEN_LOOK — 오늘의 룩 카드에서 '저장'으로 담은 골든 코디. 사진 업로드도
+ * 옷장 선택도 아니라 서버가 골든셋 이미지를 가리키기만 하고, 옷 추출을 거치지
+ * 않아 처음부터 COMPLETED 다.
+ */
+export type LookbookSourceType = 'PHOTO_UPLOAD' | 'WARDROBE_SELECTED' | 'GOLDEN_LOOK';
 
 export type LookbookProcessingErrorCode =
   | 'QUEUE_ENQUEUE_FAILED'
@@ -25,7 +30,8 @@ export type LookbookProcessingErrorCode =
 /** 룩에 딸린 옷 한 벌. `snapshot` 은 등록 시점의 옷장 아이템을 그대로 굳혀둔 것이다. */
 export type LookbookWardrobeItem = {
   link_id: string;
-  wardrobe_item_id: string;
+  /** 골든 코디 구성 아이템은 내 옷장의 옷이 아니라 null 이고 snapshot 만 있다. */
+  wardrobe_item_id: string | null;
   /** 사진에서 뽑은 옷인지, 사용자가 직접 고른 옷인지 */
   link_type: string;
   image_url: string;
@@ -45,6 +51,8 @@ export type LookbookWardrobeItem = {
 export type LookbookPostDto = {
   id: string;
   source_type: LookbookSourceType;
+  /** 오늘의 룩에서 담은 골든 코디 id. 그 외에는 빈 문자열이다. */
+  golden_id: string;
   image_s3_key: string;
   /** presigned URL. 옷만 고른 룩이면 첫 아이템 이미지가 표지가 된다. */
   image_url: string;

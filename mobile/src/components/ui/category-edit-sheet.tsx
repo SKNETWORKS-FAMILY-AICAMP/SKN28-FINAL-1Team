@@ -2,6 +2,7 @@ import { Editorial, ink } from '@/constants/theme';
 import { Icon } from '@/components/icon';
 import { useEffect, useState } from 'react';
 import {
+  ActivityIndicator,
   Modal,
   Pressable,
   ScrollView,
@@ -18,30 +19,39 @@ type CategoryEditSheetProps = {
   title: string;
   /** 첫 항목은 항상 '전체' (고정) */
   categories: string[];
+  /** 삭제할 수 없는 카테고리. 옷장은 전체 기본 카테고리, 다른 화면은 기본값인 '전체'만 잠근다. */
+  lockedCategories?: string[];
   onClose: () => void;
-  onSave: (categories: string[]) => void;
+  onSave: (categories: string[]) => boolean | void | Promise<boolean | void>;
+  /** 사용자 카테고리 행에서 해당 카테고리의 옷 선택 화면을 연다. */
+  onManageCategory?: (categoryName: string) => void;
   addPlaceholder?: string;
+  lockedHint?: string;
 };
 
 export function CategoryEditSheet({
   visible,
   title,
   categories,
+  lockedCategories = ['전체'],
   onClose,
   onSave,
+  onManageCategory,
   addPlaceholder = '새 카테고리',
+  lockedHint = "'전체'는 항상 맨 앞에 유지돼요.",
 }: CategoryEditSheetProps) {
   const [draft, setDraft] = useState<string[]>(categories);
   const [newName, setNewName] = useState('');
+  const [saving, setSaving] = useState(false);
 
   useEffect(() => {
     if (visible) {
+      // 열릴 때마다 서버에서 복원된 최신 카테고리로 편집 초안을 다시 만든다.
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setDraft(categories);
       setNewName('');
     }
   }, [visible, categories]);
-
-  const editable = draft.slice(1);
 
   const addCategory = () => {
     const name = newName.trim();
@@ -54,9 +64,14 @@ export function CategoryEditSheet({
     setDraft((prev) => prev.filter((c) => c !== name));
   };
 
-  const handleSave = () => {
-    onSave(draft);
-    onClose();
+  const handleSave = async () => {
+    setSaving(true);
+    try {
+      const saved = await onSave(draft);
+      if (saved !== false) onClose();
+    } finally {
+      setSaving(false);
+    }
   };
 
   return (
@@ -65,24 +80,40 @@ export function CategoryEditSheet({
         <Pressable style={styles.sheet} onPress={(e) => e.stopPropagation()}>
           <View style={styles.handle} />
           <Text style={styles.title}>{title}</Text>
-          <Text style={styles.hint}>'전체'는 항상 맨 앞에 유지돼요.</Text>
+          <Text style={styles.hint}>{lockedHint}</Text>
 
           <ScrollView style={styles.list} showsVerticalScrollIndicator={false}>
-            <View style={styles.fixedRow}>
-              <Text style={styles.fixedLabel}>전체</Text>
-              <Text style={styles.fixedBadge}>고정</Text>
-            </View>
-            {editable.map((name) => (
-              <View key={name} style={styles.row}>
-                <Text style={styles.rowLabel}>{name}</Text>
-                <Pressable
-                  hitSlop={8}
-                  onPress={() => removeCategory(name)}
-                  style={styles.removeBtn}>
-                  <Icon name="trash" tintColor={ink(0.4)} size={16} />
-                </Pressable>
-              </View>
-            ))}
+            {draft.map((name) => {
+              const locked = lockedCategories.includes(name);
+              return (
+                <View key={name} style={locked ? styles.fixedRow : styles.row}>
+                  <Text style={locked ? styles.fixedLabel : styles.rowLabel}>{name}</Text>
+                  {locked ? (
+                    <Text style={styles.fixedBadge}>고정</Text>
+                  ) : (
+                    <View style={styles.rowActions}>
+                      {onManageCategory ? (
+                        <Pressable
+                          hitSlop={6}
+                          onPress={() => onManageCategory(name)}
+                          style={styles.manageBtn}
+                          accessibilityLabel={`${name} 옷 관리`}>
+                          <Text style={styles.manageText}>옷 관리</Text>
+                          <Icon name="chevron.right" tintColor={ink(0.45)} size={12} />
+                        </Pressable>
+                      ) : null}
+                      <Pressable
+                        hitSlop={8}
+                        onPress={() => removeCategory(name)}
+                        style={styles.removeBtn}
+                        accessibilityLabel={`${name} 삭제`}>
+                        <Icon name="trash" tintColor={ink(0.4)} size={16} />
+                      </Pressable>
+                    </View>
+                  )}
+                </View>
+              );
+            })}
           </ScrollView>
 
           <View style={styles.addRow}>
@@ -104,11 +135,15 @@ export function CategoryEditSheet({
           </View>
 
           <View style={styles.actions}>
-            <Pressable style={styles.cancelBtn} onPress={onClose}>
+            <Pressable style={styles.cancelBtn} onPress={onClose} disabled={saving}>
               <Text style={styles.cancelText}>취소</Text>
             </Pressable>
-            <Pressable style={styles.saveBtn} onPress={handleSave}>
-              <Text style={styles.saveText}>저장</Text>
+            <Pressable style={[styles.saveBtn, saving && styles.saveBtnDisabled]} onPress={handleSave} disabled={saving}>
+              {saving ? (
+                <ActivityIndicator color="#fff" size="small" />
+              ) : (
+                <Text style={styles.saveText}>저장</Text>
+              )}
             </Pressable>
           </View>
         </Pressable>
@@ -170,6 +205,17 @@ const styles = StyleSheet.create({
     borderBottomColor: ink(0.06),
   },
   rowLabel: { fontSize: 15, color: INK },
+  rowActions: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  manageBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 3,
+    paddingHorizontal: 9,
+    paddingVertical: 6,
+    borderRadius: 8,
+    backgroundColor: Editorial.control,
+  },
+  manageText: { fontSize: 12, fontWeight: '600', color: Editorial.textCaption },
   removeBtn: { padding: 4 },
   addRow: { flexDirection: 'row', gap: 10, marginTop: 16 },
   addInput: {
@@ -210,5 +256,6 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
+  saveBtnDisabled: { opacity: 0.65 },
   saveText: { fontSize: 15, fontWeight: '600', color: '#fff' },
 });

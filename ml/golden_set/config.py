@@ -9,6 +9,8 @@ from pathlib import Path
 #: 리포 루트 (ml/golden_set/config.py → ../../)
 REPO_ROOT = Path(__file__).resolve().parents[2]
 
+GOLDEN_DATASET_STATUSES = frozenset({"PILOT", "DRAFT", "ACTIVE", "ARCHIVED"})
+
 
 def load_project_env() -> None:
     """루트 .env를 기존 프로세스 환경보다 낮은 우선순위로 읽는다.
@@ -32,6 +34,17 @@ def _int(name: str, default: str) -> int:
 
 def _bool(name: str, default: str) -> bool:
     return os.getenv(name, default).strip().lower() in {"1", "true", "yes", "y"}
+
+
+def normalize_dataset_status(value: object, *, default: str = "PILOT") -> str:
+    """골든셋 상태를 DB의 GoldenDataset.Status 계약에 맞춰 정규화한다."""
+    status = str(value or default).strip().upper()
+    if status not in GOLDEN_DATASET_STATUSES:
+        allowed = ", ".join(sorted(GOLDEN_DATASET_STATUSES))
+        raise ValueError(
+            f"지원하지 않는 골든셋 상태입니다: {status!r} (허용값: {allowed})"
+        )
+    return status
 
 
 @dataclass(frozen=True)
@@ -61,6 +74,7 @@ class GoldenSettings:
     run_root: Path = REPO_ROOT / "local/golden-runs"
     dataset_name: str = "team-golden"
     dataset_version: str = "v1"
+    dataset_status: str = "PILOT"
     item_pipeline: str = "gemini-edit"
     item_embedding_version: str = ""
     anchor_exposable: bool = False
@@ -68,6 +82,13 @@ class GoldenSettings:
     index_only_missing: bool = True
     scan_interval_seconds: int = 0
     image_processor_path: Path = REPO_ROOT / "image-processor"
+
+    def __post_init__(self) -> None:
+        object.__setattr__(
+            self,
+            "dataset_status",
+            normalize_dataset_status(self.dataset_status),
+        )
 
     @classmethod
     def from_env(cls) -> GoldenSettings:
@@ -99,6 +120,9 @@ class GoldenSettings:
             run_root=Path(os.getenv("GOLDEN_RUN_ROOT", str(REPO_ROOT / "local/golden-runs"))),
             dataset_name=os.getenv("GOLDEN_DATASET_NAME", "team-golden"),
             dataset_version=os.getenv("GOLDEN_DATASET_VERSION", "v1"),
+            dataset_status=normalize_dataset_status(
+                os.getenv("GOLDEN_DATASET_STATUS", "PILOT")
+            ),
             # image-processor의 pipeline 레지스트리 키. sam3-crop이 등록되면
             # 코드 변경 없이 이 값만 바꿔 교체한다.
             item_pipeline=os.getenv("GOLDEN_ITEM_PIPELINE")

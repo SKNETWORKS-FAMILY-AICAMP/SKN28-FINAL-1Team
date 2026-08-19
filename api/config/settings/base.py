@@ -76,10 +76,18 @@ LOGGING = {
     "version": 1,
     # Django/서드파티가 이미 만들어 둔 로거를 죽이지 않는다.
     "disable_existing_loggers": False,
+    "filters": {
+        "request_context": {
+            "()": "config.observability.RequestContextFilter",
+        },
+    },
     "formatters": {
         "standard": {
             "format": "%(asctime)s [%(levelname)s] %(name)s: %(message)s",
             "datefmt": "%Y-%m-%d %H:%M:%S",
+        },
+        "json": {
+            "()": "config.observability.JsonFormatter",
         },
     },
     "handlers": {
@@ -89,12 +97,25 @@ LOGGING = {
             # gunicorn --capture-output이 stdout/stderr를 에러 로그로 모은다.
             "stream": "ext://sys.stdout",
         },
+        "reference_recommendation": {
+            "class": "logging.StreamHandler",
+            "formatter": "json",
+            "filters": ["request_context"],
+            "stream": "ext://sys.stdout",
+        },
     },
     "root": {
         "handlers": ["console"],
         "level": LOG_LEVEL,
     },
     "loggers": {
+        # 레퍼런스 추천 운영 지표는 친구 이름·스냅샷·벡터를 허용하지 않는
+        # 전용 JSON 포맷으로만 남긴다.
+        "apps.chat.reference_recommendation": {
+            "handlers": ["reference_recommendation"],
+            "level": "INFO",
+            "propagate": False,
+        },
         # 애플리케이션 코드 (apps.users, apps.recommend, ...)
         "apps": {
             "handlers": ["console"],
@@ -189,6 +210,9 @@ USE_TZ = True
 STATIC_URL = "static/"
 STATIC_ROOT = BASE_DIR / "staticfiles"
 
+MEDIA_URL = "media/"
+MEDIA_ROOT = BASE_DIR / "media"
+
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
 # ------------------------------------------------------------
@@ -204,6 +228,41 @@ REST_FRAMEWORK = {
     "DEFAULT_RENDERER_CLASSES": [
         "rest_framework.renderers.JSONRenderer",
     ],
+    # 스로틀 클래스는 각 뷰에서 지정한다 (전역 적용 안 함). 여기엔 요율만 등록.
+    # invite_preview: 초대코드가 곧 열람 권한이라 무차별 대입을 막아야 한다.
+    "DEFAULT_THROTTLE_RATES": {
+        "invite_preview": "20/min",
+    },
+}
+
+# ── 캐시 ───────────────────────────────────────────────
+#
+# throttle 별칭을 따로 둔다. DRF 스로틀 카운터를 기본 LocMemCache에 저장하면
+# gunicorn 워커마다 따로 세기 때문에, 실제 허용량이 (요율 x 워커 수)로 부풀어
+# 오른다 (GUNICORN_WORKERS=3 환경에서 20/min 제한이 사실상 60/min이 됐다).
+# Redis가 있으면 워커 간에 카운터를 공유하고, 없으면 LocMemCache로 폴백한다.
+_REDIS_URL = os.getenv("REDIS_URL", "")
+# requirepass 비밀번호는 URL에 내장하지 않고 별도 주입한다 (services/jobs.py와 동일 규약)
+_REDIS_PASSWORD = os.getenv("REDIS_PASSWORD", "")
+
+CACHES = {
+    "default": {
+        "BACKEND": "django.core.cache.backends.locmem.LocMemCache",
+    },
+    "throttle": (
+        {
+            "BACKEND": "django.core.cache.backends.redis.RedisCache",
+            "LOCATION": _REDIS_URL,
+            **(
+                {"OPTIONS": {"password": _REDIS_PASSWORD}} if _REDIS_PASSWORD else {}
+            ),
+        }
+        if _REDIS_URL
+        else {
+            "BACKEND": "django.core.cache.backends.locmem.LocMemCache",
+            "LOCATION": "throttle-fallback",
+        }
+    ),
 }
 
 SIMPLE_JWT = {
@@ -351,6 +410,15 @@ PRODUCT_ELEVEN_QDRANT_COLLECTION = os.getenv(
 QDRANT_KNOWLEDGE_COLLECTION = os.getenv(
     "QDRANT_KNOWLEDGE_COLLECTION", "knowledge"
 ).strip()
+# 공유 옷을 기준으로 내 옷을 찾을 때 적용하는 FashionSigLIP cosine 최소 점수.
+# 실제 사용자 평가 데이터가 쌓이면 환경별로 조정하며 코드에 임계값을 박지 않는다.
+SHARED_REFERENCE_VISUAL_MIN_SCORE = float(
+    os.getenv("SHARED_REFERENCE_VISUAL_MIN_SCORE", "0.75")
+)
+# 스타일 fallback은 단일 색상 일치만으로 통과하지 않도록 0.30을 기본값으로 둔다.
+SHARED_REFERENCE_STYLE_MIN_SCORE = float(
+    os.getenv("SHARED_REFERENCE_STYLE_MIN_SCORE", "0.30")
+)
 
 # BGE-M3 질의 임베딩은 골든셋 적재와 같은 벡터 공간을 사용한다.
 TEXT_EMBEDDING_API_URL = os.getenv("TEXT_EMBEDDING_API_URL", "").strip()
@@ -398,6 +466,7 @@ OUTFIT_ESTIMATED_SECONDS = int(os.getenv("OUTFIT_ESTIMATED_SECONDS", "30"))
 # 하루 한 번, 사용자당 한 번 도는 작업이라 이 비용은 감당할 수 있다.
 RETRIEVER_SCROLL_CAP = int(os.getenv("RETRIEVER_SCROLL_CAP", "2000"))
 RETRIEVER_SCROLL_PAGE = int(os.getenv("RETRIEVER_SCROLL_PAGE", "256"))
+RETRIEVER_WARDROBE_ID_CAP = int(os.getenv("RETRIEVER_WARDROBE_ID_CAP", "1000"))
 
 # 코디 payload의 아이템 요약에는 fit·length·pattern이 없다. 체형 규칙은 정확히
 # 그 축으로 조건을 걸기 때문에, 붙이지 않으면 모든 체형 규칙이 0점이 된다.
@@ -634,6 +703,13 @@ CHAT_GUEST_COOKIE_SAMESITE = os.getenv("CHAT_GUEST_COOKIE_SAMESITE", "Lax")
 # 채팅 사진은 DB에 바이너리를 넣지 않고 비공개 S3 객체와 메타데이터로 분리한다.
 # 전용 버킷이 없으면 기존 옷장 이미지 버킷을 재사용한다.
 AWS_REGION = os.getenv("AWS_REGION", "ap-northeast-2")
+REFERENCE_RECOMMENDATION_LOG_GROUP = os.getenv(
+    "REFERENCE_RECOMMENDATION_LOG_GROUP",
+    "",
+).strip()
+REFERENCE_RECOMMENDATION_QUERY_LIMIT = int(
+    os.getenv("REFERENCE_RECOMMENDATION_QUERY_LIMIT", "10000")
+)
 CHAT_ATTACHMENT_S3_BUCKET = (
     os.getenv("CHAT_ATTACHMENT_S3_BUCKET", "").strip()
     or os.getenv("WARDROBE_S3_BUCKET", "").strip()
@@ -667,6 +743,31 @@ CHAT_OPENAI_MAX_OUTPUT_TOKENS = int(
     os.getenv("CHAT_OPENAI_MAX_OUTPUT_TOKENS", "1200")
 )
 CHAT_PROMPT_VERSION = os.getenv("CHAT_PROMPT_VERSION", "chat-orchestrator-v1").strip()
+PERSONA_LLM_PROVIDER = os.getenv("PERSONA_LLM_PROVIDER", "openai").strip().lower()
+_PERSONA_LLM_DEFAULT_MODEL = (
+    GEMINI_MODEL if PERSONA_LLM_PROVIDER == "gemini" else CHAT_OPENAI_MODEL
+)
+PERSONA_LLM_MODEL = os.getenv(
+    "PERSONA_LLM_MODEL",
+    _PERSONA_LLM_DEFAULT_MODEL,
+).strip()
+PERSONA_LLM_TIMEOUT_SECONDS = float(
+    os.getenv(
+        "PERSONA_LLM_TIMEOUT_SECONDS",
+        str(
+            GEMINI_TIMEOUT_SECONDS
+            if PERSONA_LLM_PROVIDER == "gemini"
+            else CHAT_OPENAI_TIMEOUT_SECONDS
+        ),
+    )
+)
+PERSONA_LLM_MAX_OUTPUT_TOKENS = int(
+    os.getenv("PERSONA_LLM_MAX_OUTPUT_TOKENS", "400")
+)
+PERSONA_LLM_PROMPT_VERSION = os.getenv(
+    "PERSONA_LLM_PROMPT_VERSION",
+    "persona-narration-v1",
+).strip()
 CHAT_GOLDENSET_DATASET_VERSION = os.getenv(
     "CHAT_GOLDENSET_DATASET_VERSION", ""
 ).strip()

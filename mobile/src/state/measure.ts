@@ -1,7 +1,11 @@
 import { useSyncExternalStore } from 'react';
 import { Platform } from 'react-native';
 
-import { BODY_MEASURES, type BodyMeasureKey } from '@/constants/body-measures';
+import {
+  BODY_MEASURES,
+  EDITABLE_MEASURES,
+  type BodyMeasureKey,
+} from '@/constants/body-measures';
 import { API_BASE_URL, BodyEndpoints } from '@/constants/config';
 import { ApiError, api } from '@/lib/apiClient';
 import { getAccessToken } from '@/lib/secureStore';
@@ -41,6 +45,8 @@ export type MeasureResult = {
   measures: Measurement;
   sizes: SizeMatch[];
   usedPhotos: boolean; // 사진을 써서 추정했는지 (안내문 분기용)
+  bodyType: string | null;
+  bodyTypeLabel: string | null;
 };
 
 type EstimateStatus = 'idle' | 'loading' | 'success' | 'error';
@@ -93,7 +99,15 @@ type BodyDto = Record<BodyMeasureKey, Numeric> & {
   gender: string | null;
   height: Numeric;
   weight: Numeric;
+  body_type: string | null;
+  body_type_label: string | null;
   updated_at: string | null;
+};
+
+type BodyEstimationResult = {
+  status: 'pending' | 'processing' | 'succeeded' | 'failed';
+  measurement: BodyDto;
+  error_message?: string | null;
 };
 
 function toNum(v: unknown): number | null {
@@ -129,21 +143,22 @@ function toMeasurement(dto: BodyDto): Measurement | null {
   return measures;
 }
 
-/** 추정 결과 형식 — 무사진(POST estimate)과 사진(GET photos/{id})이 공유한다. */
-type BodyEstimationResult = {
-  status: 'in_progress' | 'succeeded' | 'failed';
-  source: 'basic_info' | 'photo';
-  transaction_id: string | null;
-  measurement: BodyDto;
-  /** 실패했을 때만 사유가 들어온다. */
-  error_message: string | null;
-};
+function isMissingBasicInfo(error: unknown, input: MeasureInput | null): boolean {
+  const sentBasicInfo = Boolean(input && input.sex !== 'none');
+  return !sentBasicInfo && error instanceof ApiError && error.status === 400;
+}
 
 /** 추정 결과 → 스토어 결과. 치수가 덜 왔으면 null (호출부가 실패로 알린다). */
 function toResult(outcome: BodyEstimationResult, usedPhotos: boolean): MeasureResult | null {
   const measures = toMeasurement(outcome.measurement);
   if (!measures) return null;
-  return { measures, sizes: mockSizes(measures.chest), usedPhotos };
+  return {
+    measures,
+    sizes: mockSizes(measures.chest),
+    usedPhotos,
+    bodyType: outcome.measurement.body_type,
+    bodyTypeLabel: outcome.measurement.body_type_label,
+  };
 }
 
 /**
@@ -353,6 +368,7 @@ export const measureStore = {
       const needsInput = e instanceof ApiError && e.status === 400;
       setState({
         status: 'error',
+        needsInput,
         error: needsInput
           ? '키·몸무게와 성별을 확인해주세요. 입력이 없거나 범위를 벗어났어요.'
           : e instanceof ApiError
@@ -420,7 +436,13 @@ export const measureStore = {
       pendingTransactionId = null;
       setState({
         status: 'error',
-        error: e instanceof ApiError ? e.message : '사진 측정에 실패했어요. 다시 시도해주세요.',
+        result: null,
+        error:
+          e instanceof ApiError
+            ? e.message
+            : '사진 측정에 실패했어요. 다시 시도해주세요.',
+        // 업로드 400 도 기본 정보 부족이 원인일 수 있다 (서버가 저장된 값을 못 찾은 경우).
+        needsInput: isMissingBasicInfo(e, state.input),
       });
     }
   },
@@ -438,7 +460,13 @@ export const measureStore = {
    */
   async saveDetail(measures: Measurement): Promise<void> {
     if (state.result) setState({ result: { ...state.result, measures } });
-    await api.patch(BodyEndpoints.detail, measures);
+    /* 비율처럼 **서버가 계산하는 값은 되돌려 보내지 않는다.**
+       보내면 서버가 가진 길이 값과 어긋난 비율이 저장됐다가 다음 추정에서 덮어써진다.
+       무엇을 보낼지는 constants/body-measures.ts 의 editable 이 단일 출처다. */
+    const body = Object.fromEntries(
+      EDITABLE_MEASURES.map((spec) => [spec.key, measures[spec.key]]),
+    );
+    await api.patch(BodyEndpoints.detail, body);
   },
 };
 

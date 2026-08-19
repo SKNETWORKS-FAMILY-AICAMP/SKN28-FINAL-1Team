@@ -54,6 +54,22 @@ async function parseBody(res: Response): Promise<unknown> {
   return text || null;
 }
 
+function errorMessage(data: unknown, status: number): string {
+  if (!data || typeof data !== 'object') return `요청 실패 (${status})`;
+  const record = data as Record<string, unknown>;
+  for (const key of ['detail', 'message', ...Object.keys(record)]) {
+    const value = record[key];
+    if (typeof value === 'string' && value) return value;
+    if (Array.isArray(value) && typeof value[0] === 'string') return value[0];
+    if (value && typeof value === 'object') {
+      const nested = Object.values(value as Record<string, unknown>).flat();
+      const first = nested.find((item) => typeof item === 'string');
+      if (typeof first === 'string') return first;
+    }
+  }
+  return `요청 실패 (${status})`;
+}
+
 // 동시에 여러 요청이 401 을 받아도 refresh 는 한 번만 수행하도록 공유한다.
 let refreshPromise: Promise<string | null> | null = null;
 
@@ -133,9 +149,7 @@ export async function apiFetch<T = unknown>(
   const data = await parseBody(res);
 
   if (!res.ok) {
-    const detail = (data as { detail?: string; message?: string } | null) ?? null;
-    const message = detail?.detail ?? detail?.message ?? `요청 실패 (${res.status})`;
-    throw new ApiError(message, res.status, data);
+    throw new ApiError(errorMessage(data, res.status), res.status, data);
   }
 
   return data as T;

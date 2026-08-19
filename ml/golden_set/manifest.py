@@ -20,7 +20,7 @@ from PIL import Image, ImageOps
 
 from . import s3io
 from .artifacts import write_json, write_jsonl
-from .config import GoldenSettings
+from .config import GoldenSettings, normalize_dataset_status
 
 IMAGE_EXTENSIONS = s3io.IMAGE_EXTENSIONS
 
@@ -209,6 +209,7 @@ def _write_manifest(
     rows: list[dict[str, Any]],
     dataset_name: str,
     dataset_version: str,
+    dataset_status: str = "PILOT",
     source: dict[str, Any],
 ) -> None:
     run_dir.mkdir(parents=True, exist_ok=True)
@@ -219,6 +220,7 @@ def _write_manifest(
             "run_id": run_dir.name,
             "dataset_name": dataset_name,
             "dataset_version": dataset_version,
+            "dataset_status": normalize_dataset_status(dataset_status),
             "status": "PREPARED",
             "num_images": len(rows),
             "num_exact_duplicates": sum(
@@ -304,6 +306,7 @@ def build_manifest_from_s3(
         rows=rows,
         dataset_name=settings.dataset_name,
         dataset_version=settings.dataset_version,
+        dataset_status=settings.dataset_status,
         source={
             "kind": "s3",
             "bucket": bucket,

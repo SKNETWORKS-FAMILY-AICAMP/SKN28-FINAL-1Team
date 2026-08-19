@@ -163,6 +163,29 @@ def presigned_get(key: str, ttl: int = PRESIGNED_GET_TTL) -> str:
     )
 
 
+def presigned_get_in(bucket: str, key: str, ttl: int = PRESIGNED_GET_TTL) -> str:
+    """다른 버킷에 있는 객체에 서명한다. 버킷이 비면 룩북 버킷으로 떨어진다.
+
+    오늘의 룩에서 담은 골든 코디는 이미지를 룩북 버킷으로 **복사하지 않는다**.
+    같은 코디를 담은 사용자 수만큼 같은 사진이 복제되는데, 골든셋 이미지는
+    코디당 한 장을 모두가 공유하는 자산이라 그 복제가 순수한 낭비다. 대신
+    버킷과 키를 함께 저장해 두고 조회 시점에 그 버킷으로 서명한다.
+
+    서명 실패는 여기서 삼키지 않는다 — 호출부(시리얼라이저)가 목록 전체를
+    500으로 만들지 않도록 감싼다.
+    """
+
+    if not key:
+        return ""
+    if not bucket.strip():
+        return presigned_get(key, ttl)
+    return _client().generate_presigned_url(
+        "get_object",
+        Params={"Bucket": bucket.strip(), "Key": key},
+        ExpiresIn=ttl,
+    )
+
+
 def delete_objects(keys: Iterable[str]) -> None:
     """명시적으로 전달된 룩북 객체를 S3 API 제한에 맞춰 삭제한다."""
 

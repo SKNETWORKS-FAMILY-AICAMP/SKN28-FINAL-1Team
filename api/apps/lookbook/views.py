@@ -11,9 +11,12 @@
 from __future__ import annotations
 
 import logging
+from pathlib import Path
 
 import redis as redis_lib
 from django.shortcuts import get_object_or_404
+from django.http import FileResponse, Http404
+from django.conf import settings
 from rest_framework import status
 from rest_framework.parsers import FormParser, MultiPartParser
 from rest_framework.permissions import AllowAny
@@ -21,6 +24,7 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from apps.lookbook.serializers import (
+    DiscoveryLookQuerySerializer,
     LookbookListQuerySerializer,
     LookbookMetadataUpdateSerializer,
     LookbookPhotoCreateSerializer,
@@ -28,10 +32,53 @@ from apps.lookbook.serializers import (
     LookbookProcessingStatusSerializer,
     LookbookWardrobeCreateSerializer,
 )
-from apps.lookbook.services import lookbook_service
+from apps.lookbook.services import discovery, lookbook_service
 from apps.wardrobe.services import jobs as wardrobe_jobs
 
 logger = logging.getLogger(__name__)
+
+
+class DiscoveryLookListView(APIView):
+    """GET /api/v1/lookbooks/discover/ — 네이버 상품 기반 공개 룩 피드."""
+
+    permission_classes = (AllowAny,)
+
+    def get(self, request):
+        serializer = DiscoveryLookQuerySerializer(data=request.query_params)
+        serializer.is_valid(raise_exception=True)
+        params = discovery.DiscoveryQuery(**serializer.validated_data)
+        return Response(discovery.list_looks(params))
+
+
+class DiscoveryLookDetailView(APIView):
+    """GET /api/v1/lookbooks/discover/{id}/ — 구성 아이템과 가격 비교 후보."""
+
+    permission_classes = (AllowAny,)
+
+    def get(self, request, look_id: str):
+        look = discovery.get_look(look_id)
+        if look is None:
+            return Response(
+                {"detail": "룩을 찾을 수 없습니다."},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+        return Response(look)
+
+
+class DiscoveryLookCoverView(APIView):
+    """운영 CSV가 가리키는 로컬 전신사진을 개발·배포 환경에 동일하게 제공한다."""
+
+    permission_classes = (AllowAny,)
+
+    def get(self, request, external_id: str):
+        from apps.lookbook.models import CuratedLook
+
+        look = get_object_or_404(CuratedLook, external_id=external_id, is_active=True)
+        root = Path(settings.BASE_DIR).parent / "data" / "lookbook"
+        path = (root / look.cover_image_url).resolve()
+        if root.resolve() not in path.parents or not path.is_file():
+            raise Http404
+        return FileResponse(path.open("rb"), content_type="image/png")
 
 
 def _creation_error_response(error: Exception) -> Response | None:

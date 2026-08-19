@@ -6,14 +6,19 @@ from django.urls import reverse
 from drf_spectacular.utils import extend_schema_field
 from rest_framework import serializers
 
+from apps.lookbook.serializers import LookbookPostSerializer
+
 from .models import (
     DailyLook,
     OutfitAnalysis,
     OutfitComposition,
     OutfitCompositionItem,
     OutfitRenderJob,
+    ProductClickEvent,
     RecommendationFeedback,
     RecommendationResult,
+    SavedOutfit,
+    WishlistItem,
 )
 from .services import storage, wardrobe_link
 
@@ -219,7 +224,9 @@ class WardrobeLinkSerializer(serializers.Serializer):
     """save_to_wardrobe로 연계된 옷장 등록 job의 진행 상황과 결과."""
 
     job_id = serializers.UUIDField(help_text="옷장 등록 job UUID")
-    status = serializers.CharField(help_text="등록 상태 (PENDING/PROCESSING/DONE/FAILED)")
+    status = serializers.CharField(
+        help_text="등록 상태 (PENDING/PROCESSING/DONE/FAILED)"
+    )
     error_message = serializers.CharField(
         allow_blank=True, help_text="등록 실패 사유 (FAILED가 아니면 빈 문자열)"
     )
@@ -376,6 +383,16 @@ class DailyLookResultSerializer(serializers.Serializer):
     golden_id = serializers.CharField()
     rationale_ko = serializers.CharField()
     styling_tips = serializers.ListField(child=serializers.CharField(), required=False)
+    tags = serializers.ListField(
+        child=serializers.CharField(),
+        required=False,
+        help_text=(
+            "룩북 필터와 **같은 어휘**의 태그 (apps/lookbook/contracts.py LOOKBOOK_TAGS). "
+            "골든 코디의 occasion·style, 그것이 비면 사용자 추구미에서 뽑는다. "
+            "하나도 못 만들면 빈 배열이며, 그때 프론트는 태그 줄을 숨긴다 — "
+            "아이템 이름을 태그처럼 보여주면 룩북과 어휘가 갈린다."
+        ),
+    )
     generated_by = serializers.CharField(
         required=False,
         help_text="문장을 누가 썼는지: llm | template. template이면 담백한 톤이다.",
@@ -410,6 +427,7 @@ class DailyLookSerializer(serializers.ModelSerializer):
 
     look_id = serializers.UUIDField(source="id", read_only=True)
     result = serializers.SerializerMethodField()
+    alternatives = serializers.SerializerMethodField()
     context = serializers.SerializerMethodField()
     poll_after_ms = serializers.SerializerMethodField()
     detail = serializers.SerializerMethodField()
@@ -421,6 +439,7 @@ class DailyLookSerializer(serializers.ModelSerializer):
             "look_date",
             "status",
             "result",
+            "alternatives",
             "context",
             "poll_after_ms",
             "detail",
@@ -439,6 +458,23 @@ class DailyLookSerializer(serializers.ModelSerializer):
         if not obj.result:
             return None
         return DailyLookResultSerializer(obj.result).data
+
+    @extend_schema_field(DailyLookResultSerializer(many=True))
+    def get_alternatives(self, obj: DailyLook) -> list[dict]:
+        """'다른 룩'으로 돌려볼 차순위 후보. `result`와 **같은 스키마**다.
+
+        프론트는 대표 룩과 후보를 한 배열로 이어 붙여 카드 하나를 그리는 코드를
+        그대로 쓴다. 문장은 템플릿이라 `generated_by`가 `template`이고
+        (LLM은 대표 룩에만 붙인다), `render_image_url`은 후보 이미지 생성이
+        끝나기 전까지 null이다 — 그때는 `items[].image_url`로 카드가 성립한다.
+
+        저장(POST /looks/today/save/)에 여기 `golden_id`를 그대로 보내면 된다.
+        """
+        return [
+            DailyLookResultSerializer(row).data
+            for row in (obj.alternatives or [])
+            if isinstance(row, dict) and row.get("golden_id")
+        ]
 
     def get_context(self, obj: DailyLook) -> dict:
         """무엇이 개인화에 쓰였는지만 알려준다 (값 자체는 프로필 API에 있다)."""
@@ -470,6 +506,45 @@ class DailyLookSerializer(serializers.ModelSerializer):
         if obj.status == DailyLook.Status.FAILED:
             return "오늘의 룩을 만들지 못했어요. 잠시 후 다시 확인해주세요."
         return None
+
+
+class DailyLookSaveRequestSerializer(serializers.Serializer):
+    """오늘의 룩 저장 입력.
+
+    `golden_id`는 '다른 룩'으로 돌려보던 후보를 담기 위한 값이다. 생략하면 대표
+    룩이다.
+
+    이 값을 받는다고 아무 코디나 담을 수 있는 것은 아니다 — **서버가 그 사용자의
+    오늘 후보(result + alternatives) 안에 있는지 확인한다.** 클라이언트가 코디를
+    지정하되 목록은 서버가 정하는 구조라, "남의 코디를 담을 수 있는 구멍"은
+    그대로 막혀 있다.
+    """
+
+    golden_id = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        default="",
+        max_length=100,
+        help_text="담을 룩의 골든 코디 id. 생략하면 대표 룩(result.golden_id).",
+    )
+
+
+class DailyLookSaveResponseSerializer(serializers.Serializer):
+    """오늘의 룩 저장 응답.
+
+    `created`가 false면 이미 담아 둔 코디라는 뜻이고 `lookbook`은 그때 만든
+    행이다. 프론트는 이 값으로 "담았어요"와 "이미 담겨 있어요"를 가른다 —
+    상태코드(201/200)만으로 가르게 하면 재시도·프록시 때문에 흔들린다.
+
+    `lookbook`은 룩북 목록(GET /api/v1/lookbooks/)의 항목과 같은 스키마다.
+    저장 직후 룩북 화면으로 이동하는 흐름이라, 프론트가 목록을 다시 부르지 않고
+    이 응답만으로 카드를 그릴 수 있어야 한다.
+    """
+
+    created = serializers.BooleanField(
+        help_text="새로 담았으면 true, 이미 담아 둔 코디면 false"
+    )
+    lookbook = LookbookPostSerializer(read_only=True)
 
 
 class RecommendationHistoryQuerySerializer(serializers.Serializer):
@@ -528,6 +603,63 @@ class RecommendationFeedbackSerializer(serializers.ModelSerializer):
             "created_at",
             "updated_at",
         ]
+
+
+class SavedOutfitSerializer(serializers.ModelSerializer):
+    saved_outfit_id = serializers.UUIDField(source="id", read_only=True)
+    card_id = serializers.UUIDField(source="composition_id", read_only=True)
+    is_saved = serializers.BooleanField(default=True, read_only=True)
+    saved_at = serializers.DateTimeField(source="created_at", read_only=True)
+
+    class Meta:
+        model = SavedOutfit
+        fields = [
+            "saved_outfit_id",
+            "card_id",
+            "is_saved",
+            "saved_at",
+        ]
+
+
+class ProductClickEventSerializer(serializers.ModelSerializer):
+    product_click_id = serializers.UUIDField(source="id", read_only=True)
+    result_id = serializers.UUIDField(source="result_id_snapshot", read_only=True)
+    card_id = serializers.UUIDField(
+        source="composition_id_snapshot",
+        read_only=True,
+    )
+    item_id = serializers.UUIDField(read_only=True)
+    persona_id = serializers.SerializerMethodField()
+    deduplicated = serializers.BooleanField(default=False, read_only=True)
+    clicked_at = serializers.DateTimeField(source="created_at", read_only=True)
+
+    class Meta:
+        model = ProductClickEvent
+        fields = [
+            "product_click_id",
+            "result_id",
+            "card_id",
+            "item_id",
+            "persona_id",
+            "source_collection",
+            "source_id",
+            "deduplicated",
+            "clicked_at",
+            "engagement_duration_ms",
+            "engagement_recorded_at",
+        ]
+
+    @extend_schema_field(serializers.CharField(allow_null=True))
+    def get_persona_id(self, obj: ProductClickEvent) -> str | None:
+        return obj.persona_id or None
+
+
+class ProductClickEngagementRequestSerializer(serializers.Serializer):
+    duration_ms = serializers.IntegerField(
+        min_value=0,
+        max_value=86_400_000,
+        help_text="외부 판매처 이동 후 앱 복귀까지 측정한 근사 체류 시간(ms, 최대 24시간)",
+    )
 
 
 def _snapshot_text(snapshot: object, *keys: str) -> str | None:
@@ -601,10 +733,44 @@ class RecommendationCardItemSerializer(serializers.ModelSerializer):
         )
 
 
+class WishlistItemSerializer(serializers.ModelSerializer):
+    """찜 한 줄. 앱은 이 값만으로 목록을 그리고 판매처로 나간다.
+
+    이미지·가격은 담은 시점 스냅샷이다 — 카탈로그 가격이 바뀌어도 담을 때 본 값이
+    목록에 남아야 사용자가 왜 담았는지 알 수 있다.
+    """
+
+    wish_id = serializers.UUIDField(source="id", read_only=True)
+    item_id = serializers.UUIDField(read_only=True, allow_null=True)
+    result_id = serializers.UUIDField(source="result_id_snapshot", read_only=True)
+    card_id = serializers.UUIDField(source="composition_id_snapshot", read_only=True)
+    added_at = serializers.DateTimeField(source="created_at", read_only=True)
+
+    class Meta:
+        model = WishlistItem
+        fields = [
+            "wish_id",
+            "item_id",
+            "result_id",
+            "card_id",
+            "source_collection",
+            "source_id",
+            "display_name",
+            "brand",
+            "price_snapshot",
+            "image_ref",
+            "purchase_url",
+            "slot",
+            "added_at",
+        ]
+        read_only_fields = fields
+
+
 class RecommendationCardSerializer(serializers.ModelSerializer):
     card_id = serializers.UUIDField(source="id", read_only=True)
     items = RecommendationCardItemSerializer(many=True, read_only=True)
     feedback = serializers.SerializerMethodField()
+    is_saved = serializers.SerializerMethodField()
 
     class Meta:
         model = OutfitComposition
@@ -613,9 +779,11 @@ class RecommendationCardSerializer(serializers.ModelSerializer):
             "rank",
             "total_product_price",
             "validation_reasons",
+            "reference_match",
             "warnings",
             "items",
             "feedback",
+            "is_saved",
         ]
 
     @extend_schema_field(RecommendationFeedbackSerializer(allow_null=True))
@@ -625,6 +793,10 @@ class RecommendationCardSerializer(serializers.ModelSerializer):
         except RecommendationFeedback.DoesNotExist:
             return None
         return RecommendationFeedbackSerializer(feedback).data
+
+    @extend_schema_field(serializers.BooleanField())
+    def get_is_saved(self, obj: OutfitComposition) -> bool:
+        return bool(obj.saved_records.all())
 
 
 class OutfitRenderJobSerializer(serializers.ModelSerializer):
@@ -708,6 +880,7 @@ class VirtualTryOnResponseSerializer(serializers.Serializer):
 
 class RecommendationHistoryItemSerializer(serializers.ModelSerializer):
     result_id = serializers.UUIDField(source="id", read_only=True)
+    replaces_result_id = serializers.UUIDField(source="replaces_id", read_only=True)
     card_count = serializers.SerializerMethodField()
     top_card = serializers.SerializerMethodField()
 
@@ -717,6 +890,14 @@ class RecommendationHistoryItemSerializer(serializers.ModelSerializer):
             "result_id",
             "session_id",
             "mode",
+            "response_mode",
+            "persona_id",
+            "persona_version",
+            "persona_explanation",
+            "result_type",
+            "generation",
+            "is_current",
+            "replaces_result_id",
             "created_at",
             "card_count",
             "top_card",
@@ -740,6 +921,7 @@ class RecommendationHistoryResponseSerializer(serializers.Serializer):
 
 class RecommendationResultDetailSerializer(serializers.ModelSerializer):
     result_id = serializers.UUIDField(source="id", read_only=True)
+    replaces_result_id = serializers.UUIDField(source="replaces_id", read_only=True)
     cards = serializers.SerializerMethodField()
 
     class Meta:
@@ -749,6 +931,15 @@ class RecommendationResultDetailSerializer(serializers.ModelSerializer):
             "session_id",
             "run_id",
             "mode",
+            "response_mode",
+            "persona_id",
+            "persona_version",
+            "persona_explanation",
+            "validated_reason_codes",
+            "result_type",
+            "generation",
+            "is_current",
+            "replaces_result_id",
             "dataset_version",
             "created_at",
             "cards",

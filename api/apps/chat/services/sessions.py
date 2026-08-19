@@ -109,6 +109,9 @@ def derive_session(
     derived = ChatSession(
         identity=identity,
         mode=mode,
+        response_mode=source.response_mode,
+        selected_persona_ids=deepcopy(source.selected_persona_ids),
+        persona_selection_updated_at=source.persona_selection_updated_at,
         title=_normalized_title(title),
         persona_profile_id=source.persona_profile_id,
         parent_session=source,

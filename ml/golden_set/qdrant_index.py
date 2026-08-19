@@ -25,7 +25,7 @@ from qdrant_client import QdrantClient
 from qdrant_client.models import PointStruct
 
 from .artifacts import read_json, read_jsonl, write_json
-from .config import GoldenSettings
+from .config import GoldenSettings, normalize_dataset_status
 from .embedding import build_text_backend, load_embeddings
 from .items import load_item_vectors
 from .point_ids import point_id
@@ -85,6 +85,9 @@ def index_run(
 ) -> dict[str, Any]:
     run_manifest = read_json(run_dir / "run_manifest.json")
     version = str(run_manifest["dataset_version"])
+    dataset_status = normalize_dataset_status(
+        run_manifest.get("dataset_status"), default=settings.dataset_status
+    )
     images = {row["golden_id"]: row for row in read_jsonl(run_dir / "images.jsonl")}
     clusters = {row["golden_id"]: row for row in read_jsonl(run_dir / "clusters.jsonl")}
     analyses = {row["golden_id"]: row for row in read_jsonl(run_dir / "analyses.jsonl")}
@@ -142,9 +145,15 @@ def index_run(
         payload: dict[str, Any] = {
             "source": "team_golden_set",
             "dataset_version": version,
-            # 데이터셋 운영 상태. 승격은 PG(GoldenDataset.status)가 관리하고
-            # 여기서는 파일럿 기본값을 박는다.
-            "status": str(run_manifest.get("dataset_status", "PILOT")),
+            # 실행 단계(PREPARED/EMBEDDED)와 별개인 데이터셋 공개 상태다.
+            # manifest에 없던 구형 run은 현재 GOLDEN_DATASET_STATUS를 따른다.
+            #
+            # 두 키에 같은 값을 쓴다. 리트리버의 상태 필터는 둘 중 하나만 맞아도
+            # 통과시키지만(should), 승격 커맨드(set_goldenset_qdrant_status)는 둘
+            # 다 쓴다. 여기서 status만 쓰면 승격 뒤 재적재할 때 dataset_status가
+            # 통째로 사라져, 두 키를 각각 보는 도구가 서로 다른 답을 준다.
+            "status": dataset_status,
+            "dataset_status": dataset_status,
             "split": image.get("split", "KNOWLEDGE"),
             "presentation_group": image.get("presentation_group", ""),
             "style": look_tags.get("style")
@@ -299,6 +308,7 @@ def index_run(
 
     summary = {
         "dataset_version": version,
+        "dataset_status": dataset_status,
         "outfit_points": len(outfit_points),
         "item_points": len(item_points),
         "principle_points": len(principle_points),
@@ -522,7 +532,7 @@ def preflight(client: QdrantClient | None = None) -> None:
     qdrant = client or build_client()
     try:
         qdrant.get_collections()
-    except Exception as exc:  # noqa: BLE001 — 원인을 사람이 읽을 문장으로 바꾼다
+    except Exception as exc:
         raise RuntimeError(
             f"Qdrant에 접속할 수 없습니다 (QDRANT_URL={os.getenv('QDRANT_URL', '(미설정)')}). "
             "GPU 호스트에서 그 주소로 실제 경로가 있는지 확인하세요 — "

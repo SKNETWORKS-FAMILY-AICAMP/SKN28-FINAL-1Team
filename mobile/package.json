@@ -7,6 +7,7 @@
     "@expo/vector-icons": "^15.0.2",
     "@react-native-google-signin/google-signin": "^16.1.2",
     "@react-native-kakao/core": "^2.4.6",
+    "@react-native-kakao/share": "^2.4.6",
     "@react-native-kakao/user": "^2.4.6",
     "@react-native-seoul/naver-login": "^4.2.4",
     "eslint-config-expo": "~57.0.0",
@@ -14,7 +15,9 @@
     "expo-apple-authentication": "~57.0.0",
     "expo-auth-session": "~57.0.2",
     "expo-build-properties": "~57.0.3",
+    "expo-clipboard": "~57.0.1",
     "expo-constants": "~57.0.2",
+    "expo-dev-client": "~57.0.11",
     "expo-device": "~57.0.0",
     "expo-file-system": "~57.0.1",
     "expo-font": "~57.0.0",
@@ -53,7 +56,9 @@
     "android": "expo run:android",
     "ios": "expo run:ios",
     "web": "expo start --web",
-    "lint": "expo lint"
+    "lint": "expo lint",
+    "test:shared-reference": "node ./scripts/test-shared-reference-regression.mjs",
+    "test:wardrobe-sections": "node ./scripts/test-wardrobe-sections.mjs"
   },
   "private": true
 }

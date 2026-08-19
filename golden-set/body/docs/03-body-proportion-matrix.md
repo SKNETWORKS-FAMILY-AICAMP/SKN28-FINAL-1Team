@@ -1,5 +1,7 @@
 # 체형·비율 처방 매트릭스 (v3, 사이즈코리아 6체형)
 
+> **폐기된 v3 참고표:** 현재 판정과 임계값은 [`04-body-threshold-contract-v4.md`](04-body-threshold-contract-v4.md) 및 `body_shape_thresholds.json` v4를 따른다. 아래 6체형/5,092명 값은 운영에 사용하지 않는다.
+
 > `body/rules/body_fit_rules.json`과 `body/rules/body_shape_thresholds.json`을 사람이 빠르게 참조할 수 있도록 표로 정리했다. **직접 수정하지 말 것** — 규칙을 바꾸려면 JSON을 고친다.
 >
 > 본문·알고리즘·근거는 [02-body-proportion-rules.md](02-body-proportion-rules.md).
@@ -118,11 +120,11 @@
 
 | 비율 | 신호 (F 기준) | 하의 (실루엣) | 핵심 원리 |
 | --- | --- | --- | --- |
-| **허벅지 김** (thigh-dominant) | 성별 p67 이상 (유효 범위 0.8~1.3) | 와이드·부츠컷 / 슬림 ✕ | 무릎 위 분산 |
+| **허벅지 김** (thigh-dominant) | 성별 p67 이상 (유효 범위 0.7~1.3) | 와이드·부츠컷 / 슬림 ✕ | 무릎 위 분산 |
 | **균형** | 성별 p33~p67 | 무난 | 보통 (`balanced`) |
-| **종아리 김** (calf-dominant) | 성별 p33 이하 (유효 범위 0.8~1.3) | 슬림·스트레이트 / 와이드 ✕ | 무릎 아래 분산 |
+| **종아리 김** (calf-dominant) | 성별 p33 이하 (유효 범위 0.7~1.3) | 슬림·스트레이트 / 와이드 ✕ | 무릎 아래 분산 |
 
-> `thigh_calf_ratio`는 둘레가 아니라 **시각적 허벅지 길이(바깥 골반~무릎) / 무릎~발목 길이**다. `torso_leg_ratio`는 **시각적 어깨~바깥 골반 / 바깥 골반~발목(바닥)**이다. 현재 Size Korea 기본 데이터의 torso 값은 baseline `0.786`으로 일정하므로 기본 경로는 `balanced`이며, 사진 VLM의 유효값만 세로축 분류에 사용한다.
+> `thigh_calf_ratio`는 **샅선~무릎 중심 / 무릎 중심~가쪽복사**다. `torso_leg_ratio`는 **어깨선~위앞엉덩뼈가시 / 위앞엉덩뼈가시~가쪽복사**다. 무사진 경로도 정확 3D 랜드마크 4,485명으로 학습한 Hist v2 길이에서 계산한다.
 
 ---
 

@@ -206,6 +206,13 @@ output
 # Local docs/artifacts
 docs/*
 !docs/wardrobe-product-import-investigation.md
+!docs/lookbook-admin-csv-guide.md
+!docs/wardrobe-custom-category-contract.md
+!docs/wardrobe-custom-category-chat-followup.md
+!docs/wardrobe-category-order-preference-chat-contract.md
+!docs/wardrobe-hashtag-contract.md
+!docs/shared-wardrobe-category-api-retirement.md
+!docs/reference-recommendation-operations.md
 main
 input
 nohup.out
@@ -215,3 +222,8 @@ collector/eleven/tests/test_category_mapping.py
 _parse_*.py
 
 _to_delete/
+
+# 개인별 SizeKorea 실측치는 생성 과정에서만 로컬에 두고 Git에는 집계 artifact만 보관한다.
+/ml/body_measurement/data/preprocessed/sizekorea_172_clean.csv
+/ml/body_measurement/data/preprocessed/sizekorea_8th_exact_lengths_v2.csv
+/ml/body_measurement/data/hist/predictions/cv_predictions_exact_lengths_v2.csv

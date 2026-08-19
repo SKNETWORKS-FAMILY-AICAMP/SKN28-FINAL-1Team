@@ -51,6 +51,8 @@ export type CalendarEntryDto = {
   tpo: string[];
   weather_snapshot: Record<string, unknown> | null;
   hashtags: string[];
+  /** 입은 옷으로 이미 지정해 사진 추출에서 제외한 대분류 — 서버가 정한다. */
+  skipped_categories: string[];
   status: CalendarStatus;
   wardrobe_items: CalendarWardrobeItem[];
   created_at: string;
@@ -184,6 +186,23 @@ export function patchCalendarEntry(
   patch: CalendarMetadata,
 ): Promise<CalendarEntryDto> {
   return api.patch<CalendarEntryDto>(CalendarEndpoints.detail(calendarId), patch);
+}
+
+/**
+ * 입은 옷을 기록에 **더한다** — 연결만 만든다. 사진도 기록 id 도 그대로다.
+ *
+ * 이미 걸린 옷은 서버가 건너뛰므로(멱등) 화면에 있는 옷을 통째로 보내도 된다.
+ * 이 API 가 없던 동안 옷을 더하려면 기록을 지우고 다시 만들어야 했는데, 사진 기록에서는
+ * 그게 곧 재분석이라 같은 옷이 옷장에 한 벌 더 생겼다.
+ * 처리 중(REGISTERED/PROCESSING)인 기록은 서버가 409 로 막는다.
+ */
+export function linkCalendarItems(
+  calendarId: string,
+  wardrobeItemIds: string[],
+): Promise<CalendarEntryDto> {
+  return api.post<CalendarEntryDto>(CalendarEndpoints.items(calendarId), {
+    wardrobe_item_ids: wardrobeItemIds,
+  });
 }
 
 /**

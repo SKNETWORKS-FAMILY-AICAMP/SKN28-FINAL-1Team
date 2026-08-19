@@ -120,7 +120,7 @@ export function LookComposer({ date }: { date?: string }) {
         </Text>
         {item.owner ? (
           <Text style={styles.chipOwner} numberOfLines={1}>
-            {item.owner}님 옷
+            {item.owner} 옷
           </Text>
         ) : null}
       </View>
@@ -156,12 +156,16 @@ export function LookComposer({ date }: { date?: string }) {
       ? Boolean(photo) || items.length > 0
       : Boolean(photo) || items.length > 0 || note.trim().length > 0;
 
-  /** 룩북 카드에 쓸 대표 사진 — 룩 사진이 없으면 담은 옷의 첫 장으로 대신한다. */
-  const coverImage = photo ?? items.find((i) => i.image)?.image;
+  /* 룩북에 올릴 실체가 있는가 — 룩 사진이거나 내 옷장에서 고른 옷.
+     일정만 적은 날은 룩으로 성립하지 않아 캘린더에만 남는다. */
+  const canPostLook = Boolean(photo) || items.some((i) => i.source === 'closet');
 
+  /* 룩 사진 자리에는 **사진만** 넘긴다. 옷만 고른 룩의 표지는 서버가 첫 아이템으로 정한다
+     (createLookbookFromWardrobe). 여기서 아이템 사진을 룩 사진인 척 넘기면 그 사진이
+     새 착장으로 다시 분석돼, 같은 옷이 다른 옷 한 벌로 옷장에 또 등록된다. */
   const makeLook = (opts?: { entryDate?: string; createCalendar?: boolean; overwrite?: boolean }) =>
     savedLookStore.addLook({
-      image: coverImage,
+      image: photo,
       comment: note.trim() || undefined,
       origin: 'closet',
       items,
@@ -186,10 +190,49 @@ export function LookComposer({ date }: { date?: string }) {
   const runSave = async () => {
 
     if (mode === 'calendar' && date) {
-      /* 룩북에도 올리는 경우 캘린더 기록은 아래 saveEntry 가 만든다 —
-         룩 등록에까지 날짜를 넘기면 같은 날짜를 두 번 등록해 409 가 난다. */
+      const linkToLookbook = linkOn && !alreadyLinked;
+
+      /* '룩북에도 올리기' — 룩과 캘린더 기록을 서버가 **한 번의 등록으로** 함께 만든다
+         (calendar_date). 룩북 모드에서 '캘린더에도 기록'을 켠 경우와 같은 길이다.
+         예전에는 룩 등록과 캘린더 등록을 따로 불렀는데, 같은 사진이 두 번 올라가
+         착장 분석도 두 번 돌았다. 그래서 같은 옷이 서로 다른 두 벌로 옷장에 등록됐다.
+
+         **그 날짜가 비어 있을 때만** 이 길로 간다. 서버의 calendar_date 는 기록을
+         새로 만드는 것이라, 이미 있는 날에 쓰려면 기존 기록을 지워야 한다
+         (overwrite_calendar). 수정하러 들어와 토글 하나 켰을 뿐인데 기록이 지워지고
+         id 가 바뀌는 것은 사용자가 시킨 일이 아니다. 있는 날은 아래 경로로 간다. */
+      const prev = linkToLookbook
+        ? await calendarStore.findEntry(date).catch(() => undefined)
+        : undefined;
+
+      if (linkToLookbook && canPostLook && !prev) {
+        try {
+          const look = await makeLook({ entryDate: date, createCalendar: true });
+          const entry = await calendarStore.adoptLinkedEntry({
+            date,
+            items,
+            shared,
+            lookId: look.id,
+          });
+          /* 룩이 이 기기에만 담긴 경우(비로그인 등) 서버에는 기록이 없다 —
+             성공했다고 알리면 캘린더를 열었을 때 빈 날로 보인다. */
+          if (!entry) throw new Error('착장 기록을 만들지 못했어요. 잠시 후 다시 시도해 주세요.');
+        } catch (error) {
+          toast(calendarErrorMessage(error), { variant: 'error' });
+          return;
+        }
+        toast('착장을 기록하고 룩북에도 올렸어요', { variant: 'success' });
+        goBack('/(tabs)/calendar');
+        return;
+      }
+
+      /* 여기로 오는 두 경우 — 룩으로 올릴 실체가 없거나(일정만 적은 날), 이미 그 날짜에
+         기록이 있어 룩과 함께 새로 만들 수 없는 경우. 캘린더 기록은 saveEntry 가 맡고
+         (지울지 고칠지 그쪽이 판단한다) 룩은 따로 만든다. 사진이 있는 기록에 나중에
+         룩북을 연결하면 그 사진이 룩 등록에서 한 번 더 분석된다 — 기존 기록을 룩에
+         잇는 API 가 없어 남아 있는 한계다. */
       let lookId: string | undefined;
-      if (linkOn && !alreadyLinked) {
+      if (linkToLookbook) {
         try {
           lookId = (await makeLook({ entryDate: date })).id;
         } catch (error) {
@@ -244,7 +287,7 @@ export function LookComposer({ date }: { date?: string }) {
     toast(linkOn ? '룩북에 올리고 캘린더에도 기록했어요' : '룩북에 올렸어요', {
       variant: 'success',
     });
-    router.navigate('/(tabs)/lookbook?tab=saved');
+    router.navigate('/(tabs)/lookbook?tab=mine');
   };
 
   const handleDelete = async () => {
@@ -422,7 +465,7 @@ export function LookComposer({ date }: { date?: string }) {
                 </View>
                 <View style={styles.optionBody}>
                   <Text style={styles.optionTitle}>룩북에 올려 둔 기록이에요</Text>
-                  <Text style={styles.optionDesc}>내 룩북 · 저장됨에서 볼 수 있어요</Text>
+                  <Text style={styles.optionDesc}>내 룩북 · 올린 룩에서 볼 수 있어요</Text>
                 </View>
                 <Icon name="checkmark" tintColor={ink(0.45)} size={16} />
               </View>

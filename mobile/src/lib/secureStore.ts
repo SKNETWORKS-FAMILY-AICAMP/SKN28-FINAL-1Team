@@ -16,6 +16,9 @@ const REFRESH_KEY = 'auth_refresh_token';
 const DEMO_KEY = 'auth_demo_session';
 const OUTFIT_ANALYSIS_KEY = 'outfit_analysis_job';
 const OUTFIT_CLAIM_KEY = 'outfit_claim_tokens';
+const PENDING_SHARE_KEY = 'wardrobe_pending_share';
+/* 룩북 위시(하트로 담은 룩) — 서버에 자리가 없어 기기에 둔다(아래 저장 함수 주석 참고). */
+const WISHLIST_KEY = 'wishlist_v1';
 
 const isWeb = Platform.OS === 'web';
 
@@ -127,4 +130,33 @@ export function getOutfitClaimTokens(): Promise<string | null> {
 
 export function clearOutfitClaimTokens(): Promise<void> {
   return deleteItem(OUTFIT_CLAIM_KEY);
+}
+
+/**
+ * 예전 공유 예약함(itemId → roomId)의 잔재를 지운다.
+ *
+ * 예약은 이제 서버(`wardrobe_item.pending_share_room`)가 들고 있다 — 기기에 두면
+ * PC 에서 올리고 폰에서 확정할 때 공유가 사라지기 때문이다. 남은 값은 아무도 읽지
+ * 않으므로, 앱이 뜰 때 한 번 치워 저장소를 깨끗이 둔다.
+ * 이 정리 호출은 구버전 사용자가 모두 넘어간 뒤 지워도 된다.
+ */
+export function clearLegacyPendingShare(): Promise<void> {
+  return deleteItem(PENDING_SHARE_KEY);
+}
+
+/**
+ * 룩북 위시 보관함.
+ *
+ * ⚠️ **토큰과 달리 비밀이 아니다.** 여기 두는 이유는 하나 — 둘러보기 피드의 하트를
+ *    받아 줄 서버 자리가 없어서(`/api/v1/likes` 부재) 기기 말고는 둘 데가 없다.
+ *    이미 붙어 있는 저장소를 쓰는 편이 새 의존성(AsyncStorage)을 더하는 것보다 낫다.
+ *
+ * 계정이 아니라 **기기에 붙는다.** 서버 API 가 생기면 이 쌍을 지우고 스토어 본문만 바꾸면 된다.
+ */
+export function saveWishlist(value: string): Promise<void> {
+  return setItem(WISHLIST_KEY, value);
+}
+
+export function getWishlist(): Promise<string | null> {
+  return getItem(WISHLIST_KEY);
 }

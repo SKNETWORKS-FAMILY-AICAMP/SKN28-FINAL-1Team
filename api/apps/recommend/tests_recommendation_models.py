@@ -8,7 +8,13 @@ from django.db import IntegrityError, transaction
 from django.test import TestCase
 from django.utils import timezone
 
-from apps.chat.models import ChatIdentity, ChatMessage, ChatRun, ChatSession
+from apps.chat.models import (
+    ChatIdentity,
+    ChatMessage,
+    ChatRun,
+    ChatRunPersona,
+    ChatSession,
+)
 from apps.recommend.models import (
     GoldenTemplateSnapshot,
     OutfitComposition,
@@ -18,6 +24,8 @@ from apps.recommend.models import (
 
 
 class RecommendationModelTests(TestCase):
+    PERSONA_IDS = ("minimal", "experimental", "practical")
+
     def _result(
         self,
         *,
@@ -47,6 +55,69 @@ class RecommendationModelTests(TestCase):
             session=session,
             run=run,
             mode=mode,
+            dataset_version="goldenset-2026-08-01",
+        )
+
+    def _stylist_run(self) -> tuple[ChatRun, list[ChatRunPersona]]:
+        identity = ChatIdentity.objects.create(
+            identity_type=ChatIdentity.IdentityType.GUEST,
+            guest_token_hash=uuid.uuid4().hex + uuid.uuid4().hex,
+            expires_at=timezone.now() + timedelta(days=7),
+        )
+        session = ChatSession.objects.create(
+            identity=identity,
+            mode=ChatSession.Mode.NEW_ITEM,
+            response_mode=ChatSession.ResponseMode.STYLIST,
+            selected_persona_ids=list(self.PERSONA_IDS),
+        )
+        message = ChatMessage.objects.create(
+            session=session,
+            sequence=1,
+            role=ChatMessage.Role.USER,
+            content="스타일리스트별 추천 요청",
+        )
+        versions = {persona_id: 1 for persona_id in self.PERSONA_IDS}
+        prompt_versions = {persona_id: "persona-v1" for persona_id in self.PERSONA_IDS}
+        run = ChatRun.objects.create(
+            session=session,
+            request_message=message,
+            status=ChatRun.Status.SUCCEEDED,
+            response_mode=ChatSession.ResponseMode.STYLIST,
+            persona_ids=list(self.PERSONA_IDS),
+            persona_versions=versions,
+            persona_prompt_versions=prompt_versions,
+            stylist_config_version="1.0",
+        )
+        executions = [
+            ChatRunPersona.objects.create(
+                run=run,
+                persona_id=persona_id,
+                persona_version=1,
+                prompt_version="persona-v1",
+                display_order=display_order,
+                strategy_snapshot={"persona_id": persona_id},
+            )
+            for display_order, persona_id in enumerate(self.PERSONA_IDS, start=1)
+        ]
+        return run, executions
+
+    @staticmethod
+    def _stylist_result(
+        run: ChatRun,
+        execution: ChatRunPersona,
+    ) -> RecommendationResult:
+        return RecommendationResult.objects.create(
+            identity=run.session.identity,
+            session=run.session,
+            run=run,
+            persona_execution=execution,
+            response_mode=RecommendationResult.ResponseMode.STYLIST,
+            persona_id=execution.persona_id,
+            persona_version=execution.persona_version,
+            persona_explanation=f"{execution.persona_id} 추천입니다.",
+            validated_reason_codes=["WEATHER", "STYLE"],
+            strategy_snapshot=execution.strategy_snapshot,
+            mode=run.session.mode,
             dataset_version="goldenset-2026-08-01",
         )
 
@@ -157,7 +228,7 @@ class RecommendationModelTests(TestCase):
         with self.assertRaises(IntegrityError), transaction.atomic():
             item.save(force_insert=True)
 
-    def test_one_chat_run_cannot_create_duplicate_results(self):
+    def test_one_chat_run_cannot_create_duplicate_default_results(self):
         result = self._result()
 
         with self.assertRaises(IntegrityError), transaction.atomic():
@@ -168,6 +239,49 @@ class RecommendationModelTests(TestCase):
                 mode=result.mode,
                 dataset_version=result.dataset_version,
             )
+
+    def test_one_chat_run_can_store_three_stylist_results(self):
+        run, executions = self._stylist_run()
+
+        results = [self._stylist_result(run, execution) for execution in executions]
+        for result in results:
+            self._composition(result)
+
+        self.assertEqual(run.recommendation_results.count(), 3)
+        self.assertEqual(
+            list(
+                run.recommendation_results.order_by(
+                    "persona_execution__display_order"
+                ).values_list("persona_id", flat=True)
+            ),
+            list(self.PERSONA_IDS),
+        )
+        self.assertTrue(all(result.compositions.count() == 1 for result in results))
+
+    def test_stylist_result_must_match_persona_execution_snapshot(self):
+        run, executions = self._stylist_run()
+        result = RecommendationResult(
+            identity=run.session.identity,
+            session=run.session,
+            run=run,
+            persona_execution=executions[0],
+            response_mode=RecommendationResult.ResponseMode.STYLIST,
+            persona_id="practical",
+            persona_version=1,
+            mode=run.session.mode,
+            dataset_version="goldenset-2026-08-01",
+        )
+
+        with self.assertRaises(ValidationError):
+            result.save()
+
+    def test_stylist_result_cannot_store_a_second_ranked_composition(self):
+        run, executions = self._stylist_run()
+        result = self._stylist_result(run, executions[0])
+        self._composition(result, rank=1)
+
+        with self.assertRaises(ValidationError):
+            self._composition(result, rank=2)
 
     def test_composition_rank_is_limited_to_one_through_three(self):
         result = self._result()

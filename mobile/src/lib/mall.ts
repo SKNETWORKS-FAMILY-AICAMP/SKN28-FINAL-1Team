@@ -42,7 +42,8 @@ export function productUrl(
   mall: MallKey = DEFAULT_MALL,
 ): string {
   if (p.link) return p.link;
-  return MALLS[mall].search(`${p.brand} ${p.name}`);
+  /* 브랜드는 비어 있을 수 있다(추천 API 가 안 내려준다) — 그대로 이으면 검색어가 공백으로 시작한다. */
+  return MALLS[mall].search([p.brand, p.name].filter(Boolean).join(' '));
 }
 
 /** 주소를 보고 어느 몰인지 — 버튼에 "네이버쇼핑에서 보기"처럼 쓴다 */

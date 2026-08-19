@@ -44,20 +44,6 @@ python manage.py runserver
 python manage.py test apps.users   # 테스트
 ```
 
-### 인증 없이 실행 (noauth, 로컬 전용)
-
-소셜 로그인 없이 보호된 API를 테스트하려면 `noauth` 설정으로 실행한다.
-Authorization 헤더가 없는 요청은 개발용 유저(`dev_autologin`)로 자동 인증되고,
-Bearer JWT를 보내면 기존 JWT 인증이 그대로 우선 적용된다.
-
-```bash
-DJANGO_SETTINGS_MODULE=config.settings.noauth python manage.py runserver
-# Windows PowerShell: $env:DJANGO_SETTINGS_MODULE = "config.settings.noauth"
-```
-
-`AutoLoginAuthentication`은 `DEBUG=True` + `AUTO_LOGIN_ENABLED=True`가 아니면
-기동을 실패시키므로 prod에 실수로 섞여 들어갈 수 없다. 프로덕션 사용 금지.
-
 ## Docker (통합 compose)
 
 루트 `docker-compose.yml`이 db/api/collector를 profiles로 관리한다.

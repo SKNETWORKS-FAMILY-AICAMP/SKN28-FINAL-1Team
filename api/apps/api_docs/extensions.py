@@ -427,9 +427,15 @@ BODY_DETAIL_DESCRIPTION = """상세 치수와 체형 지표를 저장합니다. 
 
 - 보낸 필드만 갱신됩니다 (partial update).
 - 필드에 `null`을 보내면 저장된 값을 지웁니다.
-- 둘레·길이 단위는 cm, 소수점 1자리까지 허용합니다 (1 ~ 999.9).
-- `thigh_calf_ratio`는 시각적 허벅지 길이(골반·외측 엉덩이→무릎)를 종아리 길이(무릎→발목)로 나눈 값이며, 소수점 3자리와 `0.8~1.3` 범위를 허용합니다.
-- `torso_leg_ratio`는 시각적 상체 길이(어깨→외측 엉덩이)를 다리 길이(외측 엉덩이→발목·바닥)로 나눈 값이며, 소수점 3자리와 `0.6~1.0` 범위를 허용합니다.
+- 이 값들은 옷 추천·핏 판단에 쓰는 **패션용 체형 지표**입니다. 정밀 의료 실측값이 아닙니다.
+- 둘레·길이감 단위는 cm, 소수점 1자리까지 허용합니다 (1 ~ 999.9).
+- `thigh_length`는 사진상 샅선/인심 라인에서 무릎뼈/무릎 중심까지의 허벅지 길이감입니다.
+- `calf_length`는 사진상 무릎뼈/무릎 중심에서 복사뼈/발목 라인까지의 종아리 길이감입니다.
+- `torso_length`는 사진상 어깨선에서 골반점까지의 상체 길이감입니다.
+- `leg_length`는 사진상 샅선/인심 라인에서 복사뼈/발목 라인까지의 하체 길이감입니다.
+- `neck_length`는 정면 기준 턱밑/턱끝 라인에서 목앞/쇄골 라인까지 보이는 목 길이감입니다.
+- `thigh_calf_ratio`는 허벅지 길이감 / 종아리 길이감입니다 (SizeKorea 평균 `0.823`, 참고 분포 약 `0.506~1.026`).
+- `torso_leg_ratio`는 상체 길이감 / 하체 길이감입니다 (SizeKorea 평균 `0.660`, 참고 분포 약 `0.339~0.920`).
 """
 
 BODY_PHOTOS_DESCRIPTION = """정면/측면 전신 사진을 접수하고 **신체 측정을 비동기로 시작**합니다 (multipart/form-data).
@@ -437,11 +443,10 @@ BODY_PHOTOS_DESCRIPTION = """정면/측면 전신 사진을 접수하고 **신�
 - 사진은 **서버에 저장하지 않습니다.** 추론에만 쓰고 요청 처리 후 즉시 버립니다.
 - 접수 시 측정 트랜잭션이 `in_progress`로 생성되고, 202와 함께 `transaction_id`가 반환됩니다.
 - 결과는 **결과 조회 API**(`GET /users/me/body/photos/{transaction_id}/`)를 폴링해서 받습니다.
-- 성공하면 상세 7개(가슴·허리·엉덩이·허벅지·종아리·팔뚝·어깨)와 체형 지표
-  3개(목길이·허벅지/종아리 비율·상하체 비율)가 **전부** 갱신됩니다.
+- 성공하면 11개 패션용 체형 지표(어깨·가슴·허리·엉덩이·허벅지 길이감·종아리 길이감·상체 길이감·하체 길이감·목 길이감·두 비율)가 **전부** 갱신됩니다.
 - `gender`/`height`/`weight`는 생략 가능합니다. 생략하면 저장된 기본 신체치수를 사용하며,
   저장된 값도 없고 요청에도 없으면 **400**입니다.
-- 이미 진행 중인 측정이 있으면 **400**입니다. 단 10분이 지나도 끝나지 않은 측정은
+- 이미 진행 중인 측정이 있으면 **400**입니다. 단 5분이 지나도 끝나지 않은 측정은
   자동으로 실패 처리되어 다시 올릴 수 있습니다.
 - 파일당 10MB 이하의 이미지 파일이어야 합니다.
 """
@@ -547,8 +552,7 @@ class BodyEstimateViewExtension(OpenApiViewExtension):
                 tags=["Body"],
                 summary="사진 없이 상세 신체치수 추정 (동기)",
                 description=(
-                    "성별·키·몸무게만으로 상세 7개와 체형 지표 3개(목길이·허벅지/종아리 "
-                    "비율·상하체 비율)를 추정해 저장하고 결과를 반환합니다.\n\n"
+                    "성별·키·몸무게만으로 새 11개 항목을 추정해 저장하고 결과를 반환합니다.\n\n"
                     "- 세 값을 본문에 담지 않으면 이미 저장된 기본 신체치수를 사용합니다.\n"
                     "- 저장된 값도 없고 요청에도 없으면 400입니다.\n"
                     "- 추정값은 기존 상세 수치를 덮어씁니다. 이후 "
@@ -727,25 +731,27 @@ class PursuitViewExtension(OpenApiViewExtension):
         return DocumentedPursuitView
 
 
-BUDGET_DESCRIPTION = """내 월 의류 구매 예산을 조회·설정합니다.
+BUDGET_DESCRIPTION = """대분류별 상품 1개 최대 가격을 조회·설정합니다.
 
 - 금액은 **1만원 단위**입니다. 10,000으로 나누어떨어지지 않으면 400입니다.
 - 범위는 10,000 이상 2,147,480,000 이하입니다.
-- 설정한 적 없으면 GET은 `monthly_budget: null`을 반환합니다 (404 아님).
-- PUT은 전체 교체라 `monthly_budget` 키가 **반드시** 있어야 합니다.
-  예산을 지우려면 키를 생략하는 게 아니라 명시적으로 `null`을 보내세요.
+- 지원 대분류는 상의, 하의, 아우터, 원피스/세트, 신발, 가방, 액세서리입니다.
+- `category_budgets`에는 사용자가 바꾼 값만 저장합니다.
+- 미설정 카테고리는 시스템 기본값을 적용하며 `effective_category_budgets`에서 확인합니다.
+- 빈 객체를 보내면 모든 카테고리를 시스템 기본값으로 되돌립니다.
+- PUT은 전체 교체라 `category_budgets` 키가 반드시 있어야 합니다.
 """
 
 BUDGET_REQUEST_EXAMPLES = [
     OpenApiExample(
-        name="예산 설정 (월 30만원)",
-        value={"monthly_budget": 300000},
+        name="카테고리별 예산 설정",
+        value={"category_budgets": {"상의": 100000, "하의": 150000, "아우터": 300000}},
         request_only=True,
     ),
     OpenApiExample(
-        name="예산 해제 (null)",
-        description="키를 빼면 400이다 — 해제는 반드시 명시적인 null로 보낸다.",
-        value={"monthly_budget": None},
+        name="모든 예산을 기본값으로 복원",
+        description="category_budgets 키는 유지하고 빈 객체를 보낸다.",
+        value={"category_budgets": {}},
         request_only=True,
     ),
 ]
@@ -753,12 +759,34 @@ BUDGET_REQUEST_EXAMPLES = [
 BUDGET_RESPONSE_EXAMPLES = [
     OpenApiExample(
         name="설정됨",
-        value={"monthly_budget": 300000},
+        value={
+            "category_budgets": {"상의": 120000},
+            "effective_category_budgets": {
+                "상의": 120000,
+                "하의": 50000,
+                "아우터": 150000,
+                "원피스/세트": 50000,
+                "신발": 100000,
+                "가방": 200000,
+                "액세서리": 50000,
+            },
+        },
         response_only=True,
     ),
     OpenApiExample(
         name="미설정",
-        value={"monthly_budget": None},
+        value={
+            "category_budgets": {},
+            "effective_category_budgets": {
+                "상의": 50000,
+                "하의": 50000,
+                "아우터": 150000,
+                "원피스/세트": 50000,
+                "신발": 100000,
+                "가방": 200000,
+                "액세서리": 50000,
+            },
+        },
         response_only=True,
     ),
 ]
@@ -778,7 +806,7 @@ class BudgetViewExtension(OpenApiViewExtension):
             get=extend_schema(
                 operation_id="get_budget",
                 tags=["Users"],
-                summary="내 월 의류 구매 예산 조회",
+                summary="내 카테고리별 상품 예산 조회",
                 description=BUDGET_DESCRIPTION,
                 responses={
                     200: BudgetSerializer,
@@ -789,7 +817,7 @@ class BudgetViewExtension(OpenApiViewExtension):
             put=extend_schema(
                 operation_id="update_budget",
                 tags=["Users"],
-                summary="내 월 의류 구매 예산 설정 (전체 교체)",
+                summary="내 카테고리별 상품 예산 설정 (전체 교체)",
                 description=BUDGET_DESCRIPTION,
                 request=BudgetSerializer,
                 responses={
@@ -1097,6 +1125,16 @@ class WardrobeItemDetailViewExtension(OpenApiViewExtension):
 
     def view_replacement(self):
         @extend_schema_view(
+            get=extend_schema(
+                operation_id="wardrobe_item_detail",
+                tags=["Wardrobe"],
+                summary="아이템 상세 조회",
+                responses={
+                    200: WardrobeItemSerializer,
+                    401: DetailResponseSerializer,
+                    404: DetailResponseSerializer,
+                },
+            ),
             patch=extend_schema(
                 operation_id="wardrobe_item_update",
                 tags=["Wardrobe"],
@@ -1128,6 +1166,29 @@ class WardrobeItemDetailViewExtension(OpenApiViewExtension):
             pass
 
         return DocumentedWardrobeItemDetailView
+
+
+class WardrobeItemAddToClosetViewExtension(OpenApiViewExtension):
+    target_class = "apps.wardrobe.views.WardrobeItemAddToClosetView"
+
+    def view_replacement(self):
+        @extend_schema_view(
+            post=extend_schema(
+                operation_id="wardrobe_item_add_to_closet",
+                tags=["Wardrobe"],
+                summary="아이템을 내 옷장에 추가",
+                request=None,
+                responses={
+                    200: WardrobeItemSerializer,
+                    401: DetailResponseSerializer,
+                    404: DetailResponseSerializer,
+                },
+            )
+        )
+        class DocumentedWardrobeItemAddToClosetView(self.target_class):
+            pass
+
+        return DocumentedWardrobeItemAddToClosetView
 
 
 # =============================================================================

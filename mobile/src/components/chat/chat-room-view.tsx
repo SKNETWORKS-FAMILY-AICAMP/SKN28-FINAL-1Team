@@ -1,5 +1,5 @@
-import { router } from 'expo-router';
-import { useState } from 'react';
+import { router, type Href } from 'expo-router';
+import { useEffect, useState } from 'react';
 import { Modal, Pressable, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
@@ -7,11 +7,11 @@ import { ChatConversation } from '@/components/chat/chat-conversation';
 import { SessionList } from '@/components/chat/session-list';
 import { ChatSessionSheet } from '@/components/chat/session-sheet';
 import { Icon } from '@/components/icon';
-import { EmptyState } from '@/components/ui';
+import { EmptyState, LoadingState } from '@/components/ui';
 import { ChatPanelWidth, ContentMax, Editorial, ink } from '@/constants/theme';
 import { useBreakpoint } from '@/hooks/use-breakpoint';
-import { goBack } from '@/lib/goBack';
-import { CHAT_MODE_META, useChatSession, useLatestSession } from '@/state/chat';
+import { backTo, goBack } from '@/lib/goBack';
+import { chatStore, CHAT_MODE_META, useChatSession, useChatStatus, useLatestSession } from '@/state/chat';
 
 const INK = Editorial.ink;
 
@@ -27,20 +27,61 @@ const INK = Editorial.ink;
 export function ChatRoomView({
   sessionId,
   showBack = false,
+  from,
 }: {
   sessionId?: string;
   /** 다른 화면에서 밀고 들어온 경우에만 뒤로가기를 둔다 (탭으로 들어온 /chat 은 갈 곳이 없다) */
   showBack?: boolean;
+  /** 들어온 자리. 뒤로가기는 여기로 돌아간다 (룩 상세·저장 룩이 쓰는 것과 같은 패턴). */
+  from?: string;
 }) {
   const { contentStyle, isWide } = useBreakpoint();
+
+  /**
+   * 뒤로가기가 갈 자리와, 버튼을 보여줄지.
+   *
+   * **넓은 화면의 '/(tabs)/chat' 은 목록이 아니라 '가장 최근 대화'** 다(app/(tabs)/chat.tsx).
+   * 방금 보던 대화가 대개 최근이라 눌러도 같은 화면이 나오고, 버튼이 고장 난 것처럼 읽힌다.
+   * 넓은 화면에는 목록이 오른쪽 패널로 이미 옆에 있으니 돌아갈 자리가 없는 게 맞다 —
+   * 그럴 땐 버튼을 두지 않는다. 판단은 **목적지**로 한다(from 유무가 아니라):
+   * 목록에서 들어오면 from 이 '/(tabs)/chat' 이라 넓은 화면에선 역시 제자리이기 때문이다.
+   * 좁은 화면의 '/(tabs)/chat' 은 진짜 목록 화면이라 그대로 둔다.
+   */
+  const backTarget = from ?? '/(tabs)/chat';
+  const backVisible = showBack && !(isWide && backTarget === '/(tabs)/chat');
 
   /* 옷 상세·저장한 룩처럼 id 없이 들어오는 입구가 있다 → 가장 최근 대화로 이어 붙인다. */
   const requested = useChatSession(sessionId);
   const latest = useLatestSession();
   const session = requested ?? latest;
+  const { loadedOnce } = useChatStatus();
+
+  /**
+   * 목록을 여기서도 받아온다.
+   *
+   * ⚠️ 지난 대화 패널(SessionList)이 목록을 받아 오지만, 그 패널은 **대화가 있을 때만**
+   *    그려진다. 그래서 목록을 한 번도 못 받은 채로 들어오면
+   *    "대화 없음 → 패널 안 뜸 → 목록을 받을 일이 영영 없음" 으로 갇힌다.
+   *    넓은 화면의 /chat 이 대화가 있는데도 "이어갈 대화가 없어요" 를 띄우던 원인이다
+   *    (좁은 화면은 SessionList 가 바로 떠서 멀쩡했다 — 그래서 폭에 따라 달라 보였다).
+   *    이미 받아 뒀으면 건너뛴다. 갱신은 패널 쪽이 계속 맡는다.
+   */
+  useEffect(() => {
+    if (!loadedOnce) chatStore.loadSessions().catch(() => {});
+  }, [loadedOnce]);
 
   const [managing, setManaging] = useState(false);
   const [listOpen, setListOpen] = useState(false);
+
+  /* 아직 한 번도 못 받아온 것과 정말 없는 것은 다르다. 받아오기 전에 "대화 없음" 을 그리면
+     대화가 있는 사람에게도 그 화면이 먼저 보인다 (SessionList 의 firstLoad 와 같은 이유). */
+  if (!session && !loadedOnce) {
+    return (
+      <View style={styles.container}>
+        <LoadingState message="대화를 불러오는 중…" />
+      </View>
+    );
+  }
 
   /* 이어 붙일 대화가 없으면(전부 삭제했거나 처음이거나) 모드부터 고르게 한다.
      여기서 대화를 몰래 만들면, 마지막 대화를 지우고 나온 직후 빈 '새 대화'가 되살아난다. */
@@ -49,8 +90,11 @@ export function ChatRoomView({
       <View style={styles.container}>
         <SafeAreaView edges={['top']} style={styles.headerSafe}>
           <View style={[styles.header, contentStyle(ContentMax.narrow)]}>
-            {showBack ? (
-              <Pressable hitSlop={12} onPress={() => goBack('/(tabs)/home')}>
+            {backVisible ? (
+              <Pressable
+                hitSlop={12}
+                accessibilityLabel="뒤로"
+                onPress={() => goBack(backTo(from, '/(tabs)/home'))}>
                 <Icon name="chevron.left" tintColor={INK} size={20} />
               </Pressable>
             ) : null}
@@ -75,8 +119,11 @@ export function ChatRoomView({
         <SafeAreaView edges={['top']} style={styles.headerSafe}>
           <View style={[styles.header, contentStyle(ContentMax.narrow)]}>
             <View style={styles.headerSide}>
-              {showBack ? (
-                <Pressable hitSlop={12} onPress={() => goBack('/(tabs)/chat')}>
+              {backVisible ? (
+                <Pressable
+                  hitSlop={12}
+                  accessibilityLabel="뒤로"
+                  onPress={() => goBack(backTarget as Href)}>
                   <Icon name="chevron.left" tintColor={INK} size={20} />
                 </Pressable>
               ) : null}

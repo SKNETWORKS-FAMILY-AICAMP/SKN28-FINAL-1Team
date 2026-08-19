@@ -15,11 +15,12 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Sequence
+from dataclasses import dataclass
 from datetime import date
 from typing import TYPE_CHECKING
 from uuid import UUID, uuid4
 
-from django.db import transaction
+from django.db import IntegrityError, transaction
 from django.db.models import Count, Prefetch, Q, QuerySet
 from django.utils import timezone
 
@@ -36,6 +37,7 @@ from apps.style_calendar.services import calendar_service
 from apps.style_calendar.services import storage as calendar_storage
 from apps.wardrobe.models import WardrobeItem, WardrobeUploadJob
 from apps.wardrobe.services import storage as wardrobe_storage
+from apps.wardrobe.services.items import skipped_categories_for
 
 if TYPE_CHECKING:
     from django.core.files.uploadedfile import UploadedFile
@@ -175,17 +177,6 @@ def _owned_wardrobe_items(
     if len(item_by_id) != len(wardrobe_item_ids):
         raise WardrobeItemsNotFoundError
     return [item_by_id[item_id] for item_id in wardrobe_item_ids]
-
-
-def skipped_categories_for(items: Sequence[WardrobeItem]) -> list[str]:
-    """입은 옷이 이미 덮고 있는 대분류 — 사진 등록에서 제외할 부위.
-
-    판정 단위를 대분류(상의/하의/아우터…)로 둔 것은 사용자가 말한 "겹치는
-    부위"가 소분류(티셔츠/셔츠)가 아니라 부위이기 때문이다. 상의를 하나 골라
-    뒀으면 사진 속 다른 상의도 등록하지 않는다.
-    """
-
-    return sorted({item.category_large for item in items if item.category_large})
 
 
 def _wardrobe_snapshot(
@@ -459,6 +450,118 @@ def create_from_wardrobe(
         raise _translate_calendar_errors(exc, calendar_date) from exc
 
     return posts_for_user(user=user).get(pk=post.pk)
+
+
+@dataclass(frozen=True)
+class GoldenLookItem:
+    """골든 코디 구성 아이템 한 벌치 스냅샷.
+
+    옷장 아이템(WardrobeItem)이 아니다 — 사용자가 가진 옷이 아니라 골든셋의
+    옷이므로 옷장에 넣지 않고 값만 베껴 둔다. 골든셋이 다시 적재되어 태그가
+    바뀌어도 사용자가 담아 둔 룩은 담을 때 모습 그대로 남아야 한다.
+    """
+
+    item_key: str
+    name: str = ""
+    category: str = ""
+    sub_category: str = ""
+    layer_role: str = ""
+    color: str = ""
+    s3_bucket: str = ""
+    s3_key: str = ""
+
+    def as_snapshot(self) -> dict[str, str]:
+        """옷장 아이템 스냅샷(_wardrobe_snapshot)과 **같은 키 이름**을 쓴다.
+
+        룩북 상세는 옷장 룩과 골든 룩을 한 화면에서 그린다. 여기서만 "name"을
+        쓰면 프론트가 출처별로 다른 키를 읽어야 하고, 한쪽을 고칠 때 다른 쪽이
+        조용히 빈칸이 된다. s3_bucket 은 골든 룩에만 있는 추가 키다 —
+        옷장 스냅샷은 룩북 버킷이 기본이라 버킷을 적을 필요가 없었다.
+        """
+
+        return {
+            "item_key": self.item_key,
+            "item_name": self.name,
+            "category_large": self.category,
+            "category_small": self.sub_category,
+            "layer_role": self.layer_role,
+            "color": self.color,
+            "s3_bucket": self.s3_bucket,
+            "s3_key": self.s3_key,
+        }
+
+
+def create_from_golden_look(
+    *,
+    user: User,
+    golden_id: str,
+    image_bucket: str,
+    image_key: str,
+    schedule: str = "",
+    hashtags: Sequence[str] = (),
+    items: Sequence[GoldenLookItem] = (),
+) -> tuple[LookbookPost, bool]:
+    """오늘의 룩에서 담은 골든 코디를 룩북에 남긴다.
+
+    Returns: (룩북, 새로 만들었는지). 이미 담아 둔 코디면 (기존 룩북, False).
+
+    사진 등록과 달리 **S3를 전혀 건드리지 않는다.** 골든셋 이미지는 코디당 한
+    장을 모든 사용자가 공유하는 자산이라, 담을 때마다 룩북 버킷으로 복사하면
+    같은 사진이 사용자 수만큼 늘어난다. 버킷과 키를 함께 저장해 두고 조회 시점에
+    그 버킷으로 서명한다(storage.presigned_get_in).
+
+    그래서 상태도 처음부터 COMPLETED다. 뽑을 옷도 만들 이미지도 없다.
+
+    멱등은 DB가 보장한다. (user, golden_id) 유니크 제약이 있어 두 기기에서
+    동시에 눌러도 행은 하나다 — select 후 insert 사이에 다른 요청이 끼면
+    깨지므로 IntegrityError를 '이미 있음'으로 읽는다 (오늘의 룩 생성과 같은 관례).
+    """
+
+    golden_id = golden_id.strip()
+    if not golden_id:
+        raise ValueError("golden_id는 비어 있을 수 없습니다.")
+
+    existing = LookbookPost.objects.filter(user=user, golden_id=golden_id).first()
+    if existing is not None:
+        return posts_for_user(user=user).get(pk=existing.pk), False
+
+    post = LookbookPost(
+        user=user,
+        source_type=LookbookSourceType.GOLDEN_LOOK.value,
+        golden_id=golden_id,
+        image_s3_bucket=image_bucket.strip(),
+        image_s3_key=image_key.strip(),
+        schedule=schedule.strip(),
+        tpo=[],
+        hashtags=list(hashtags),
+        skipped_categories=[],
+        is_public=False,
+        status=LookbookStatus.COMPLETED.value,
+    )
+    links = [
+        LookbookWardrobeItem(
+            lookbook=post,
+            wardrobe_item=None,
+            link_type=LookbookLinkType.GOLDEN.value,
+            sort_order=order,
+            snapshot=item.as_snapshot(),
+        )
+        for order, item in enumerate(items)
+    ]
+
+    try:
+        with transaction.atomic():
+            post.save(force_insert=True)
+            if links:
+                LookbookWardrobeItem.objects.bulk_create(links)
+    except IntegrityError:
+        # 같은 코디를 두 기기에서 동시에 담은 경우. 진 쪽은 이긴 쪽의 행을 쓴다.
+        already = LookbookPost.objects.filter(user=user, golden_id=golden_id).first()
+        if already is None:
+            raise
+        return posts_for_user(user=user).get(pk=already.pk), False
+
+    return posts_for_user(user=user).get(pk=post.pk), True
 
 
 def create_from_photo(

@@ -12,6 +12,170 @@ from django.db.models import Q
 from django.db.models.functions import Upper
 from django.utils import timezone
 
+from apps.chat.services.stylist_personas import load_stylist_personas
+
+
+def validate_selected_persona_ids(value: object) -> None:
+    """세션 선택값이 활성 스타일리스트의 고정 순서 부분집합인지 검증한다."""
+
+    if not isinstance(value, list):
+        raise ValidationError("스타일리스트 선택값은 JSON 배열이어야 합니다.")
+
+    catalog = load_stylist_personas()
+    if len(value) > catalog.max_select:
+        raise ValidationError(
+            f"스타일리스트는 최대 {catalog.max_select}명까지 선택할 수 있습니다."
+        )
+    if any(not isinstance(persona_id, str) for persona_id in value):
+        raise ValidationError("스타일리스트 ID는 문자열이어야 합니다.")
+    if len(value) != len(set(value)):
+        raise ValidationError("스타일리스트 ID는 중복될 수 없습니다.")
+
+    supported_ids = catalog.supported_persona_ids
+    unsupported_ids = sorted(set(value) - set(supported_ids))
+    if unsupported_ids:
+        raise ValidationError(
+            f"지원하지 않는 스타일리스트 ID입니다: {', '.join(unsupported_ids)}"
+        )
+
+    canonical_ids = tuple(
+        persona_id for persona_id in supported_ids if persona_id in value
+    )
+    if tuple(value) != canonical_ids:
+        raise ValidationError(
+            "스타일리스트 ID는 minimal, experimental, practical 고정 순서로 "
+            "저장해야 합니다."
+        )
+
+
+def validate_member_last_selected_persona_ids(value: object) -> None:
+    """회원 마지막 선택은 유효한 스타일리스트를 최소 1명 포함해야 한다."""
+
+    validate_selected_persona_ids(value)
+    catalog = load_stylist_personas()
+    if len(value) < catalog.min_select:
+        raise ValidationError(
+            f"회원 마지막 선택에는 스타일리스트가 최소 {catalog.min_select}명 필요합니다."
+        )
+
+
+def validate_persona_version_snapshot(value: object) -> None:
+    """스타일리스트별 설정 버전 스냅샷의 키와 양의 정수를 검증한다."""
+
+    if not isinstance(value, dict):
+        raise ValidationError("스타일리스트 버전 스냅샷은 JSON 객체여야 합니다.")
+    supported_ids = set(load_stylist_personas().supported_persona_ids)
+    if not set(value).issubset(supported_ids):
+        raise ValidationError("버전 스냅샷에 지원하지 않는 스타일리스트 ID가 있습니다.")
+    if any(
+        isinstance(version, bool)
+        or not isinstance(version, int)
+        or version < 1
+        for version in value.values()
+    ):
+        raise ValidationError("스타일리스트 설정 버전은 1 이상의 정수여야 합니다.")
+
+
+def validate_persona_prompt_version_snapshot(value: object) -> None:
+    """스타일리스트별 프롬프트 버전 스냅샷을 검증한다."""
+
+    if not isinstance(value, dict):
+        raise ValidationError("프롬프트 버전 스냅샷은 JSON 객체여야 합니다.")
+    supported_ids = set(load_stylist_personas().supported_persona_ids)
+    if not set(value).issubset(supported_ids):
+        raise ValidationError(
+            "프롬프트 버전 스냅샷에 지원하지 않는 스타일리스트 ID가 있습니다."
+        )
+    if any(
+        not isinstance(version, str) or not version.strip()
+        for version in value.values()
+    ):
+        raise ValidationError("프롬프트 버전은 비어 있지 않은 문자열이어야 합니다.")
+
+
+def validate_personalization_snapshot(value: object) -> None:
+    """실행 접수 당시 개인화 기준 스냅샷의 최소 계약을 검증한다."""
+
+    if not isinstance(value, dict):
+        raise ValidationError("개인화 데이터 기준 스냅샷은 JSON 객체여야 합니다.")
+    if not value:
+        return
+    for key in ("schema_version", "captured_at", "as_of_date", "identity_type"):
+        if not isinstance(value.get(key), str) or not value[key].strip():
+            raise ValidationError(f"개인화 스냅샷의 {key} 값이 필요합니다.")
+    if not isinstance(value.get("personalized"), bool):
+        raise ValidationError("개인화 스냅샷의 personalized 값은 boolean이어야 합니다.")
+    sources = value.get("sources")
+    if not isinstance(sources, dict):
+        raise ValidationError("개인화 스냅샷의 sources 값은 JSON 객체여야 합니다.")
+    if any(
+        not isinstance(sources.get(key), dict)
+        for key in ("profile", "wardrobe", "behavior")
+    ):
+        raise ValidationError(
+            "개인화 스냅샷 sources에는 profile, wardrobe, behavior 객체가 필요합니다."
+        )
+
+
+def validate_reference_snapshot(value: object) -> None:
+    """실행 접수 당시 공유 옷장 참조의 최소 계약을 검증한다."""
+
+    if not isinstance(value, dict):
+        raise ValidationError("공유 옷장 참조 스냅샷은 JSON 객체여야 합니다.")
+
+
+def validate_wardrobe_scope_snapshot(value: object) -> None:
+    if not isinstance(value, dict):
+        raise ValidationError("옷장 추천 범위 스냅샷은 JSON 객체여야 합니다.")
+    if value and not isinstance(value.get("candidate_item_ids"), list):
+        raise ValidationError("옷장 추천 범위 후보 ID는 배열이어야 합니다.")
+    if not value:
+        return
+
+    required_strings = (
+        "schema_version",
+        "type",
+        "shared_item_id",
+        "room_id",
+        "wardrobe_item_id",
+        "source_status",
+        "qdrant_collection",
+        "qdrant_point_id",
+        "embedding_version",
+        "image_s3_key",
+        "captured_at",
+    )
+    for key in required_strings:
+        if not isinstance(value.get(key), str) or not value[key].strip():
+            raise ValidationError(f"공유 옷장 참조 스냅샷의 {key} 값이 필요합니다.")
+    if value["type"] != "SHARED_WARDROBE_ITEM":
+        raise ValidationError("지원하지 않는 공유 옷장 참조 유형입니다.")
+
+    item = value.get("item")
+    if not isinstance(item, dict):
+        raise ValidationError("공유 옷장 참조 스냅샷의 item 객체가 필요합니다.")
+    for key in ("season", "style", "usage"):
+        if not isinstance(item.get(key), list) or any(
+            not isinstance(tag, str) for tag in item[key]
+        ):
+            raise ValidationError(f"공유 옷장 참조 item.{key}는 문자열 배열이어야 합니다.")
+
+
+def validate_stylist_persona_id(value: object) -> None:
+    """스타일리스트별 실행 행의 ID가 현재 지원 목록에 있는지 검증한다."""
+
+    if not isinstance(value, str) or not value.strip():
+        raise ValidationError("스타일리스트 ID는 비어 있지 않은 문자열이어야 합니다.")
+    if value not in load_stylist_personas().supported_persona_ids:
+        raise ValidationError(f"지원하지 않는 스타일리스트 ID입니다: {value}")
+
+
+def validate_persona_error_history(value: object) -> None:
+    """재시도 전 오류 이력이 JSON 객체 배열인지 검증한다."""
+
+    if not isinstance(value, list) or any(not isinstance(row, dict) for row in value):
+        raise ValidationError("스타일리스트 오류 이력은 JSON 객체 배열이어야 합니다.")
+
 
 class PersonaProfile(models.Model):
     """버전이 고정된 채팅 스타일리스트 페르소나 설정."""
@@ -180,12 +344,68 @@ class ChatIdentity(models.Model):
         )
 
 
+class MemberStylistSelection(models.Model):
+    """회원의 새 채팅방에서 복원할 마지막 스타일리스트 선택."""
+
+    user = models.OneToOneField(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        primary_key=True,
+        related_name="stylist_selection",
+        db_comment="마지막 스타일리스트 선택을 저장한 회원 FK (users.id, 회원당 1행)",
+    )
+    last_selected_persona_ids = models.JSONField(
+        blank=True,
+        validators=[validate_member_last_selected_persona_ids],
+        db_comment=(
+            "회원이 마지막으로 선택한 스타일리스트 ID JSON 배열 "
+            "(minimal/experimental/practical, 고정 순서, 1~3개)"
+        ),
+    )
+    created_at = models.DateTimeField(
+        auto_now_add=True,
+        db_comment="회원 스타일리스트 선택값 최초 생성 시각",
+    )
+    updated_at = models.DateTimeField(
+        auto_now=True,
+        db_comment="회원 스타일리스트 선택값 마지막 변경 시각",
+    )
+
+    class Meta:
+        db_table = "member_stylist_selection"
+        db_table_comment = "회원별 마지막 선택형 스타일리스트 ID와 변경 시각"
+        constraints = [
+            models.CheckConstraint(
+                condition=~Q(last_selected_persona_ids=[]),
+                name="ck_member_stylist_ids_not_empty",
+            ),
+        ]
+
+    def clean(self) -> None:
+        super().clean()
+        try:
+            validate_member_last_selected_persona_ids(
+                self.last_selected_persona_ids
+            )
+        except ValidationError as exc:
+            raise ValidationError(
+                {"last_selected_persona_ids": exc.messages}
+            ) from exc
+
+    def __str__(self) -> str:
+        return f"member-stylist-selection {self.user_id}"
+
+
 class ChatSession(models.Model):
     """추천 모드가 고정된 하나의 대화 세션."""
 
     class Mode(models.TextChoices):
         WARDROBE_BASED = "WARDROBE_BASED", "옷장 기반 추천"
         NEW_ITEM = "NEW_ITEM", "신규 상품 포함 추천"
+
+    class ResponseMode(models.TextChoices):
+        DEFAULT = "DEFAULT", "기본 응답"
+        STYLIST = "STYLIST", "선택형 스타일리스트 응답"
 
     id = models.UUIDField(
         primary_key=True,
@@ -203,6 +423,26 @@ class ChatSession(models.Model):
         max_length=24,
         choices=Mode.choices,
         db_comment="세션 생성 후 변경할 수 없는 추천 모드 (WARDROBE_BASED/NEW_ITEM)",
+    )
+    response_mode = models.CharField(
+        max_length=12,
+        choices=ResponseMode.choices,
+        default=ResponseMode.DEFAULT,
+        db_comment="현재 응답 모드 (DEFAULT/STYLIST, 기존 추천 mode와 별도)",
+    )
+    selected_persona_ids = models.JSONField(
+        default=list,
+        blank=True,
+        validators=[validate_selected_persona_ids],
+        db_comment=(
+            "현재 선택한 스타일리스트 ID JSON 배열 "
+            "(minimal/experimental/practical, 고정 순서, 최대 3개)"
+        ),
+    )
+    persona_selection_updated_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        db_comment="스타일리스트 선택 배열이 마지막으로 변경된 시각 (미선택이면 NULL)",
     )
     title = models.CharField(
         max_length=120,
@@ -262,7 +502,9 @@ class ChatSession(models.Model):
 
     class Meta:
         db_table = "chat_session"
-        db_table_comment = "추천 모드·조건·대화 요약을 보관하는 회원·게스트 채팅 세션"
+        db_table_comment = (
+            "추천·응답 모드와 스타일리스트 선택·조건·대화 요약을 보관하는 채팅 세션"
+        )
         ordering = ["-updated_at"]
         indexes = [
             models.Index(
@@ -279,23 +521,65 @@ class ChatSession(models.Model):
                 condition=Q(mode__in=["WARDROBE_BASED", "NEW_ITEM"]),
                 name="ck_chat_session_mode",
             ),
+            models.CheckConstraint(
+                condition=Q(response_mode__in=["DEFAULT", "STYLIST"]),
+                name="ck_chat_session_response_mode",
+            ),
+            models.CheckConstraint(
+                condition=(
+                    Q(response_mode="DEFAULT") | ~Q(selected_persona_ids=[])
+                ),
+                name="ck_chat_session_stylist_ids",
+            ),
         ]
 
     def __str__(self) -> str:
         return f"chat-session {self.id} ({self.mode})"
 
+    def clean(self) -> None:
+        super().clean()
+        if (
+            self.response_mode == self.ResponseMode.STYLIST
+            and not self.selected_persona_ids
+        ):
+            raise ValidationError(
+                {
+                    "selected_persona_ids": (
+                        "STYLIST 응답 모드에서는 스타일리스트를 1명 이상 "
+                        "선택해야 합니다."
+                    )
+                }
+            )
+
     def save(self, *args, **kwargs) -> None:
+        update_fields = kwargs.get("update_fields")
+        selection_will_be_saved = (
+            update_fields is None or "selected_persona_ids" in update_fields
+        )
         if not self._state.adding:
-            previous_mode = (
+            previous = (
                 type(self)
                 .objects.filter(pk=self.pk)
-                .values_list("mode", flat=True)
+                .values("mode", "selected_persona_ids")
                 .first()
             )
-            if previous_mode is not None and previous_mode != self.mode:
+            if previous is not None and previous["mode"] != self.mode:
                 raise ValidationError(
                     {"mode": "추천 모드는 변경할 수 없습니다. 파생 세션을 생성하세요."}
                 )
+            if (
+                previous is not None
+                and selection_will_be_saved
+                and previous["selected_persona_ids"] != self.selected_persona_ids
+            ):
+                self.persona_selection_updated_at = timezone.now()
+                if update_fields is not None:
+                    kwargs["update_fields"] = [
+                        *update_fields,
+                        "persona_selection_updated_at",
+                    ]
+        elif self.selected_persona_ids and self.persona_selection_updated_at is None:
+            self.persona_selection_updated_at = timezone.now()
         super().save(*args, **kwargs)
 
 
@@ -523,6 +807,66 @@ class ChatRun(models.Model):
         default=Status.PENDING,
         db_comment=("실행 상태 (PENDING/RUNNING/NEEDS_CLARIFICATION/SUCCEEDED/FAILED)"),
     )
+    response_mode = models.CharField(
+        max_length=12,
+        choices=ChatSession.ResponseMode.choices,
+        default=ChatSession.ResponseMode.DEFAULT,
+        db_comment="실행 접수 당시 응답 모드 스냅샷 (DEFAULT/STYLIST)",
+    )
+    persona_ids = models.JSONField(
+        default=list,
+        blank=True,
+        validators=[validate_selected_persona_ids],
+        db_comment=(
+            "실행 접수 당시 선택 스타일리스트 ID JSON 배열 "
+            "(고정 순서, 선택하지 않았으면 빈 배열)"
+        ),
+    )
+    persona_versions = models.JSONField(
+        default=dict,
+        blank=True,
+        validators=[validate_persona_version_snapshot],
+        db_comment="실행 접수 당시 스타일리스트 ID별 설정 버전 JSON 객체",
+    )
+    persona_prompt_versions = models.JSONField(
+        default=dict,
+        blank=True,
+        validators=[validate_persona_prompt_version_snapshot],
+        db_comment="실행 접수 당시 스타일리스트 ID별 프롬프트 버전 JSON 객체",
+    )
+    stylist_config_version = models.CharField(
+        max_length=64,
+        blank=True,
+        default="",
+        db_comment="실행 접수 당시 스타일리스트 설정 파일 스키마 버전",
+    )
+    personalization_snapshot = models.JSONField(
+        default=dict,
+        blank=True,
+        validators=[validate_personalization_snapshot],
+        db_comment=(
+            "실행 접수 당시 개인화 원천별 행 수·마지막 변경 시각·설정 지문 "
+            "JSON (기존 실행은 빈 객체)"
+        ),
+    )
+    reference_snapshot = models.JSONField(
+        default=dict,
+        blank=True,
+        validators=[validate_reference_snapshot],
+        db_comment=(
+            "실행 접수 당시 공유 옷장 참조 아이템·이미지·태그·벡터 위치 JSON "
+            "(참조가 없거나 기존 실행이면 빈 객체, 원본 벡터는 저장하지 않음)"
+        ),
+    )
+    wardrobe_scope_snapshot = models.JSONField(
+        default=dict,
+        blank=True,
+        validators=[validate_wardrobe_scope_snapshot],
+        db_comment=(
+            "실행 접수 당시 개인 옷장 기본 카테고리·해시태그 범위와 후보 아이템 JSON "
+            "(범위가 없거나 기존 실행이면 빈 객체)"
+        ),
+    )
     enqueued_at = models.DateTimeField(
         null=True,
         blank=True,
@@ -610,7 +954,9 @@ class ChatRun(models.Model):
 
     class Meta:
         db_table = "chat_run"
-        db_table_comment = "사용자 메시지별 채팅 오케스트레이터 실행·LLM·캐시·오류 추적"
+        db_table_comment = (
+            "사용자 메시지별 응답 상태 스냅샷과 오케스트레이터·LLM·오류 추적"
+        )
         ordering = ["-created_at"]
         indexes = [
             models.Index(
@@ -635,7 +981,268 @@ class ChatRun(models.Model):
                 ),
                 name="ck_chat_run_status",
             ),
+            models.CheckConstraint(
+                condition=Q(response_mode__in=["DEFAULT", "STYLIST"]),
+                name="ck_chat_run_response_mode",
+            ),
+            models.CheckConstraint(
+                condition=(Q(response_mode="DEFAULT") | ~Q(persona_ids=[])),
+                name="ck_chat_run_stylist_ids",
+            ),
         ]
+
+    def clean(self) -> None:
+        super().clean()
+        errors: dict[str, str] = {}
+        persona_id_set = (
+            set(self.persona_ids) if isinstance(self.persona_ids, list) else set()
+        )
+        if (
+            self.response_mode == ChatSession.ResponseMode.STYLIST
+            and not self.persona_ids
+        ):
+            errors["persona_ids"] = (
+                "STYLIST 응답 실행에는 스타일리스트가 1명 이상 필요합니다."
+            )
+        if isinstance(self.persona_versions, dict) and set(
+            self.persona_versions
+        ) != persona_id_set:
+            errors["persona_versions"] = (
+                "설정 버전 스냅샷 키는 선택 스타일리스트 ID와 같아야 합니다."
+            )
+        if isinstance(self.persona_prompt_versions, dict) and set(
+            self.persona_prompt_versions
+        ) != persona_id_set:
+            errors["persona_prompt_versions"] = (
+                "프롬프트 버전 스냅샷 키는 선택 스타일리스트 ID와 같아야 합니다."
+            )
+        if self.persona_ids and not self.stylist_config_version:
+            errors["stylist_config_version"] = (
+                "스타일리스트 선택이 있으면 설정 스키마 버전이 필요합니다."
+            )
+        if errors:
+            raise ValidationError(errors)
 
     def __str__(self) -> str:
         return f"chat-run {self.id} ({self.status})"
+
+
+class ChatRunPersona(models.Model):
+    """한 ChatRun 안에서 독립적으로 처리되는 스타일리스트 실행 상태."""
+
+    class Status(models.TextChoices):
+        PENDING = "PENDING", "처리 대기"
+        RUNNING = "RUNNING", "처리 중"
+        SUCCEEDED = "SUCCEEDED", "성공"
+        FAILED = "FAILED", "실패"
+
+    class AlternativeStatus(models.TextChoices):
+        IDLE = "IDLE", "요청 없음"
+        PENDING = "PENDING", "다른 추천 대기"
+        RUNNING = "RUNNING", "다른 추천 처리 중"
+        SUCCEEDED = "SUCCEEDED", "다른 추천 성공"
+        FAILED = "FAILED", "다른 추천 실패"
+
+    id = models.UUIDField(
+        primary_key=True,
+        default=uuid.uuid4,
+        editable=False,
+        db_comment="스타일리스트별 채팅 실행 UUID",
+    )
+    run = models.ForeignKey(
+        ChatRun,
+        on_delete=models.CASCADE,
+        related_name="persona_executions",
+        db_comment="상위 채팅 실행 FK (chat_run.id)",
+    )
+    persona_id = models.CharField(
+        max_length=32,
+        validators=[validate_stylist_persona_id],
+        db_comment="실행할 스타일리스트 고정 ID (minimal/experimental/practical)",
+    )
+    persona_version = models.PositiveIntegerField(
+        db_comment="ChatRun에 고정된 스타일리스트 설정 버전 (1 이상)",
+    )
+    prompt_version = models.CharField(
+        max_length=64,
+        db_comment="ChatRun에 고정된 스타일리스트 프롬프트 버전",
+    )
+    display_order = models.PositiveSmallIntegerField(
+        db_comment="스타일리스트 고정 표시 순서 (minimal=1/experimental=2/practical=3)",
+    )
+    status = models.CharField(
+        max_length=16,
+        choices=Status.choices,
+        default=Status.PENDING,
+        db_comment="스타일리스트별 실행 상태 (PENDING/RUNNING/SUCCEEDED/FAILED)",
+    )
+    latency_ms = models.PositiveIntegerField(
+        default=0,
+        db_comment="스타일리스트별 추천 실행 지연시간 (ms)",
+    )
+    error_code = models.CharField(
+        max_length=64,
+        blank=True,
+        default="",
+        db_comment="스타일리스트 실행 실패 오류 코드 (실패가 아니면 빈 문자열)",
+    )
+    error_message = models.CharField(
+        max_length=500,
+        blank=True,
+        default="",
+        db_comment="민감정보를 제거한 스타일리스트 실행 실패 요약",
+    )
+    strategy_snapshot = models.JSONField(
+        default=dict,
+        blank=True,
+        db_comment="실행 접수 당시 스타일리스트 추천 전략 설정 JSON 스냅샷",
+    )
+    hypothesis_snapshot = models.JSONField(
+        default=dict,
+        blank=True,
+        db_comment="실험형 검색 가설과 fallback 판단 JSON 스냅샷",
+    )
+    retry_count = models.PositiveSmallIntegerField(
+        default=0,
+        db_comment="해당 스타일리스트 실행 재시도 횟수 (최초 실행은 0)",
+    )
+    error_history = models.JSONField(
+        default=list,
+        blank=True,
+        validators=[validate_persona_error_history],
+        db_comment="스타일리스트 재시도 전 오류 이력 JSON 배열 (시각·코드·메시지)",
+    )
+    alternative_status = models.CharField(
+        max_length=16,
+        choices=AlternativeStatus.choices,
+        default=AlternativeStatus.IDLE,
+        db_comment="다른 추천 요청 상태 (IDLE/PENDING/RUNNING/SUCCEEDED/FAILED)",
+    )
+    alternative_count = models.PositiveSmallIntegerField(
+        default=0,
+        db_comment="해당 스타일리스트의 다른 추천 요청 횟수",
+    )
+    alternative_error_code = models.CharField(
+        max_length=64,
+        blank=True,
+        default="",
+        db_comment="마지막 다른 추천 실패 오류 코드 (성공 또는 미요청이면 빈 문자열)",
+    )
+    alternative_error_message = models.CharField(
+        max_length=500,
+        blank=True,
+        default="",
+        db_comment="마지막 다른 추천 실패 안내 (성공 또는 미요청이면 빈 문자열)",
+    )
+    started_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        db_comment="스타일리스트별 추천 처리를 시작한 시각",
+    )
+    completed_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        db_comment="스타일리스트별 추천 처리가 성공 또는 실패로 종료된 시각",
+    )
+    created_at = models.DateTimeField(
+        auto_now_add=True,
+        db_comment="스타일리스트별 실행 상태 행 생성 시각",
+    )
+    updated_at = models.DateTimeField(
+        auto_now=True,
+        db_comment="스타일리스트별 실행 상태 마지막 변경 시각",
+    )
+
+    class Meta:
+        db_table = "chat_run_persona"
+        db_table_comment = "채팅 실행에 속한 스타일리스트별 독립 추천 상태와 오류·전략"
+        ordering = ["display_order"]
+        indexes = [
+            models.Index(
+                fields=["run", "status"],
+                name="ix_chat_run_persona_status",
+            ),
+        ]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["run", "persona_id"],
+                name="uq_chat_run_persona_id",
+            ),
+            models.UniqueConstraint(
+                fields=["run", "display_order"],
+                name="uq_chat_run_persona_order",
+            ),
+            models.CheckConstraint(
+                condition=Q(
+                    status__in=["PENDING", "RUNNING", "SUCCEEDED", "FAILED"]
+                ),
+                name="ck_chat_run_persona_status",
+            ),
+            models.CheckConstraint(
+                condition=Q(
+                    alternative_status__in=[
+                        "IDLE",
+                        "PENDING",
+                        "RUNNING",
+                        "SUCCEEDED",
+                        "FAILED",
+                    ]
+                ),
+                name="ck_chat_run_persona_alt_status",
+            ),
+            models.CheckConstraint(
+                condition=Q(persona_version__gte=1),
+                name="ck_chat_run_persona_version",
+            ),
+            models.CheckConstraint(
+                condition=Q(display_order__gte=1, display_order__lte=3),
+                name="ck_chat_run_persona_order",
+            ),
+        ]
+
+    def clean(self) -> None:
+        super().clean()
+        if not self.run_id or not isinstance(self.persona_id, str):
+            return
+
+        catalog = load_stylist_personas()
+        if self.persona_id not in catalog.supported_persona_ids:
+            return
+        persona = catalog.get(self.persona_id)
+        errors: dict[str, str] = {}
+        if self.persona_id not in self.run.persona_ids:
+            errors["persona_id"] = "상위 ChatRun이 선택한 스타일리스트가 아닙니다."
+        expected_version = self.run.persona_versions.get(self.persona_id)
+        if self.persona_version != expected_version:
+            errors["persona_version"] = (
+                "스타일리스트 설정 버전이 상위 ChatRun 스냅샷과 다릅니다."
+            )
+        expected_prompt_version = self.run.persona_prompt_versions.get(
+            self.persona_id
+        )
+        if self.prompt_version != expected_prompt_version:
+            errors["prompt_version"] = (
+                "프롬프트 버전이 상위 ChatRun 스냅샷과 다릅니다."
+            )
+        if self.display_order != persona.display_order:
+            errors["display_order"] = "스타일리스트 고정 표시 순서와 다릅니다."
+        if errors:
+            raise ValidationError(errors)
+
+    @property
+    def recommendation_result(self):
+        """기존 단건 접근 계약을 현재 노출 결과로 유지한다."""
+
+        from apps.recommend.models import RecommendationResult
+
+        prefetched = getattr(self, "current_recommendation_results", None)
+        if prefetched is not None:
+            result = next(iter(prefetched), None)
+        else:
+            result = self.recommendation_results.filter(is_current=True).first()
+        if result is None:
+            raise RecommendationResult.DoesNotExist
+        return result
+
+    def __str__(self) -> str:
+        return f"chat-run-persona {self.run_id}:{self.persona_id} ({self.status})"

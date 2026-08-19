@@ -1,10 +1,13 @@
 import { useCallback, useEffect, useState } from 'react';
 
 import {
+  createWardrobeHashtag,
   deleteWardrobeItem,
   getWardrobeItem,
+  listWardrobeFilters,
   listWardrobeItems,
   patchWardrobeItem,
+  type WardrobeFiltersResponse,
   type WardrobeApiItem,
   type WardrobeItemPatch,
   type WardrobeItemQuery,
@@ -74,6 +77,48 @@ export function useWardrobeItems(query: WardrobeItemQuery = {}, enabled = true):
   return { items, loading, error, reload, removeLocal, replaceLocal };
 }
 
+type CategoriesResult = {
+  data: WardrobeFiltersResponse | null;
+  loading: boolean;
+  error: string | null;
+  reload: () => Promise<WardrobeFiltersResponse | null>;
+};
+
+/** 기본 카테고리와 개인 옷장 해시태그는 서버 응답으로 매번 복원한다. */
+export function useWardrobeFilters(enabled = true): CategoriesResult {
+  const [data, setData] = useState<WardrobeFiltersResponse | null>(null);
+  const [loading, setLoading] = useState(enabled);
+  const [error, setError] = useState<string | null>(null);
+
+  const load = useCallback(async (): Promise<WardrobeFiltersResponse | null> => {
+    if (!enabled) return null;
+    try {
+      const next = await listWardrobeFilters();
+      setData(next);
+      setError(null);
+      return next;
+    } catch (e) {
+      setError(e instanceof Error ? e.message : '카테고리를 불러오지 못했어요');
+      return null;
+    } finally {
+      setLoading(false);
+    }
+  }, [enabled]);
+
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    void load();
+  }, [load]);
+
+  const reload = useCallback(async () => {
+    setLoading(true);
+    setError(null);
+    return load();
+  }, [load]);
+
+  return { data, loading, error, reload };
+}
+
 type ItemResult = {
   item: WardrobeApiItem | null;
   loading: boolean;
@@ -120,12 +165,26 @@ export function useWardrobeItem(itemId: string | undefined): ItemResult {
   return { item, loading, error, reload, setItem };
 }
 
-/** 태그 확인·수정 후 확정. 화면에서 바로 쓰도록 얇게 감쌌다. */
+/**
+ * 태그 확인·수정 후 확정. 화면에서 바로 쓰도록 얇게 감쌌다.
+ *
+ * 공유 예약 소진은 **서버가 같은 요청 안에서** 한다 — 등록할 때 '공유 옷장에 공유'를
+ * 켠 옷은 그때는 미확정이라 거부됐고, 확정된 지금이 유일하게 공유 가능한 시점이다.
+ * 예전엔 이 예약을 기기(secureStore)에 들고 있어서 PC 에서 올리고 폰에서 확정하면
+ * 공유가 통째로 사라졌다. 지금은 `wardrobe_item.pending_share_room` 이 들고 있다.
+ *
+ * 공유는 곁가지라 실패해도 확정 결과를 그대로 돌려준다 (`sharedRoomId`가 null일 뿐).
+ */
 export async function confirmWardrobeItem(
   itemId: string,
   patch: WardrobeItemPatch = {},
-): Promise<WardrobeApiItem> {
-  return patchWardrobeItem(itemId, { ...patch, confirmed: true });
+): Promise<{ item: WardrobeApiItem; sharedRoomId: string | null }> {
+  const item = await patchWardrobeItem(itemId, { ...patch, confirmed: true });
+  return { item, sharedRoomId: item.shared_room_id ?? null };
 }
 
-export { deleteWardrobeItem, patchWardrobeItem };
+export {
+  createWardrobeHashtag,
+  deleteWardrobeItem,
+  patchWardrobeItem,
+};

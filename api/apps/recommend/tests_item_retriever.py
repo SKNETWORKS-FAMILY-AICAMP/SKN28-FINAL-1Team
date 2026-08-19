@@ -210,6 +210,49 @@ class ItemCandidateRetrieverIntegrationTests(SimpleTestCase):
         self.assertTrue(all(candidate.price <= 60_000 for candidate in products))
         self.assertEqual(result.vector_name, "image")
 
+    def test_wardrobe_whitelist_includes_shared_item_owned_by_another_user(self) -> None:
+        shared_id = _point_id()
+        blocked_id = _point_id()
+        for point_id, user_id in ((shared_id, 8), (blocked_id, 9)):
+            _upsert(
+                self.client,
+                self.wardrobe_collection,
+                point_id=point_id,
+                image=[1.0, 0.0, 0.0],
+                payload={
+                    "user_id": user_id,
+                    "item_id": point_id,
+                    "category_large": "상의",
+                    "layer_role": "TOP",
+                    "confirmed": True,
+                },
+            )
+
+        result = ItemCandidateRetriever(client=self.client).retrieve(
+            ItemRetrievalRequest(
+                template_item_point_id=self.template_id,
+                sources=(ItemSource.WARDROBE,),
+                user_id=7,
+                allowed_wardrobe_item_ids=(shared_id,),
+            )
+        )
+
+        self.assertEqual(
+            [candidate.point_id for candidate in result.candidates], [shared_id]
+        )
+
+    def test_empty_wardrobe_whitelist_skips_qdrant_search(self) -> None:
+        result = ItemCandidateRetriever(client=self.client).retrieve(
+            ItemRetrievalRequest(
+                template_item_point_id=self.template_id,
+                sources=(ItemSource.WARDROBE,),
+                user_id=7,
+                allowed_wardrobe_item_ids=(),
+            )
+        )
+
+        self.assertEqual(result.candidates, ())
+
 
 class FakeQdrantClient:
     def __init__(self, *, template=None, query_hits=None, scroll_points=None) -> None:
@@ -240,6 +283,25 @@ def _template(*, point_id: str = "template", vectors=None):
 
 
 class ItemCandidateRetrieverUnitTests(SimpleTestCase):
+    def test_category_budget_is_used_as_product_price_filter(self) -> None:
+        client = FakeQdrantClient(template=_template(vectors={"text": [0.1, 0.2]}))
+
+        ItemCandidateRetriever(client=client).retrieve(
+            ItemRetrievalRequest(
+                template_item_point_id="template",
+                sources=(ItemSource.PRODUCT,),
+                category_budgets={"상의": 80_000},
+            )
+        )
+
+        ranges = [
+            condition.range.lte
+            for call in client.query_calls
+            for condition in call["query_filter"].must
+            if getattr(condition, "range", None) is not None
+        ]
+        self.assertEqual(ranges, [80_000, 80_000])
+
     def test_wardrobe_source_requires_positive_user_id(self) -> None:
         retriever = ItemCandidateRetriever(client=FakeQdrantClient())
 

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from dataclasses import replace
+
 from django.test import SimpleTestCase
 
 from apps.recommend.services.composer import (
@@ -172,6 +174,23 @@ class OutfitComposerTests(SimpleTestCase):
         )
         self.assertEqual(result.total_product_price, 70_000)
 
+    def test_category_budget_is_applied_to_each_product(self) -> None:
+        top = _slot(
+            _template("golden-top", layer_role="TOP", image_ref="golden/top.jpg"),
+            _candidate(ItemSource.PRODUCT, "expensive-top", price=120_000),
+            _candidate(ItemSource.PRODUCT, "affordable-top", price=90_000, score=0.7),
+        )
+
+        result = self.composer.compose(
+            CompositionRequest(
+                mode=RecommendationMode.NEW_ITEM,
+                slot_results=(top,),
+                category_budgets={"상의": 100_000},
+            )
+        )
+
+        self.assertEqual(result.items[0].source_id, "affordable-top")
+
     def test_same_candidate_is_not_selected_for_two_slots(self) -> None:
         duplicated = _candidate(ItemSource.WARDROBE, "same-item")
         top = _slot(
@@ -229,5 +248,57 @@ class OutfitComposerTests(SimpleTestCase):
                 CompositionRequest(
                     mode=RecommendationMode.WARDROBE_BASED,
                     slot_results=(slot, slot),
+                )
+            )
+
+    def test_pinned_candidate_is_selected_even_when_another_scores_higher(self) -> None:
+        pinned = _candidate(ItemSource.WARDROBE, "pinned-owned", score=0.5)
+        slot = replace(
+            _slot(
+                _template(
+                    "golden-top",
+                    layer_role="TOP",
+                    image_ref="golden/top.jpg",
+                ),
+                _candidate(ItemSource.WARDROBE, "higher-owned", score=0.99),
+            ),
+            pinned_candidate=pinned,
+        )
+
+        result = self.composer.compose(
+            CompositionRequest(
+                mode=RecommendationMode.WARDROBE_BASED,
+                slot_results=(slot,),
+            )
+        )
+
+        self.assertEqual([item.source_id for item in result.items], ["pinned-owned"])
+
+    def test_ineligible_pinned_candidate_cannot_be_dropped_as_missing_slot(
+        self,
+    ) -> None:
+        pinned_without_image = _candidate(
+            ItemSource.PRODUCT,
+            "pinned-product",
+            price=30_000,
+            image_ref="",
+        )
+        slot = replace(
+            _slot(
+                _template(
+                    "golden-top",
+                    layer_role="TOP",
+                    image_ref="golden/top.jpg",
+                ),
+                _candidate(ItemSource.PRODUCT, "fallback-product", price=20_000),
+            ),
+            pinned_candidate=pinned_without_image,
+        )
+
+        with self.assertRaises(CompositionError):
+            self.composer.compose(
+                CompositionRequest(
+                    mode=RecommendationMode.NEW_ITEM,
+                    slot_results=(slot,),
                 )
             )

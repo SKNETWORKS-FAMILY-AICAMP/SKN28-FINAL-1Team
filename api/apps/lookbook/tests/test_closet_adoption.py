@@ -98,6 +98,44 @@ class ClosetAdoptionTests(LookbookApiTestCase):
         self.assertEqual(first.json()["added_to_closet_at"], second.json()["added_to_closet_at"])
 
     @patch.dict("os.environ", {"WARDROBE_INTERNAL_TOKEN": "test-token"})
+    def test_calendar_linked_look_puts_items_in_closet(self):
+        """캘린더 기록과 job 을 공유하는 룩은 뽑힌 옷이 바로 옷장에 든다.
+
+        그날 입었다고 적은 옷이라 사용자 것이 확실하고, 캘린더 상세에는 옷장에
+        넣는 버튼이 없다. 여기서 막으면 그 옷을 어디서도 꺼낼 수 없다.
+        """
+
+        create = self.client.post(
+            reverse("lookbook:lookbook-photo-create"),
+            {"image": make_image_file(), "calendar_date": "2026-08-14"},
+            format="multipart",
+        )
+        self.assertEqual(create.status_code, 202, create.content)
+        job = LookbookPost.objects.get(pk=create.json()["id"]).wardrobe_upload_job
+
+        callback = self.client.post(
+            reverse("wardrobe:callback"),
+            {
+                "job_id": str(job.pk),
+                "status": "success",
+                "items": [
+                    {
+                        "s3_key": "wardrobe/user/worn.png",
+                        "item_name": "그날 입은 상의",
+                        "category_large": "상의",
+                    }
+                ],
+            },
+            format="json",
+            HTTP_X_INTERNAL_TOKEN="test-token",
+        )
+
+        self.assertEqual(callback.status_code, 201, callback.content)
+        item = WardrobeItem.objects.get(job=job)
+        self.assertIsNotNone(item.added_to_closet_at)
+        self.assertIn(str(item.pk), self._closet_item_ids())
+
+    @patch.dict("os.environ", {"WARDROBE_INTERNAL_TOKEN": "test-token"})
     def test_plain_wardrobe_upload_still_lands_in_closet(self):
         """룩북과 무관한 옷장 업로드는 종전대로 바로 옷장에 든다."""
 

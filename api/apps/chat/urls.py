@@ -5,20 +5,25 @@ from apps.chat.views import (
     ChatAttachmentMoodDecisionView,
     ChatRunDetailView,
     ChatRunEventStreamView,
+    ChatRunPersonaAlternativeView,
+    ChatRunPersonaRetryView,
     ChatSessionAttachmentUploadView,
     ChatSessionDeriveView,
     ChatSessionDetailView,
     ChatSessionListCreateView,
     ChatSessionMessageListView,
     ChatSessionMessagePageView,
+    ChatSessionResponseModeView,
     ChatSessionSearchView,
     GuestClaimView,
     GuestIdentityView,
+    StylistListView,
 )
 
 app_name = "chat"
 
 urlpatterns = [
+    path("chat/stylists/", StylistListView.as_view(), name="stylist-list"),
     path("chat/guest/", GuestIdentityView.as_view(), name="guest-identity"),
     path("chat/guest/claim/", GuestClaimView.as_view(), name="guest-claim"),
     path("chat/sessions/", ChatSessionListCreateView.as_view(), name="session-list"),
@@ -31,6 +36,11 @@ urlpatterns = [
         "chat/sessions/<uuid:session_id>/",
         ChatSessionDetailView.as_view(),
         name="session-detail",
+    ),
+    path(
+        "chat/sessions/<uuid:session_id>/response-mode/",
+        ChatSessionResponseModeView.as_view(),
+        name="session-response-mode",
     ),
     path(
         "chat/sessions/<uuid:session_id>/derive/",
@@ -71,5 +81,15 @@ urlpatterns = [
         "chat/runs/<uuid:run_id>/events/",
         ChatRunEventStreamView.as_view(),
         name="run-events",
+    ),
+    path(
+        "chat/runs/<uuid:run_id>/personas/<str:persona_id>/retry/",
+        ChatRunPersonaRetryView.as_view(),
+        name="run-persona-retry",
+    ),
+    path(
+        "chat/runs/<uuid:run_id>/personas/<str:persona_id>/alternative/",
+        ChatRunPersonaAlternativeView.as_view(),
+        name="run-persona-alternative",
     ),
 ]

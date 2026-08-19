@@ -5,18 +5,22 @@ import { ActivityIndicator, Pressable, RefreshControl, ScrollView, StyleSheet, T
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { HomeStatusSlot } from '@/components/home/home-status-slot';
-import { Avatar, ErrorState, LoadingState, SmartImage, useToast } from '@/components/ui';
-import { DEMO_HOME } from '@/constants/demo';
+import { Avatar, ErrorState, LoadingState, Skeleton, SmartImage, useToast } from '@/components/ui';
+import { DEMO_HOME, DEMO_LOOKS } from '@/constants/demo';
 import { Editorial, ink, Fonts , ContentMax} from '@/constants/theme';
-import { PROFILE_IMAGE, TODAY_LOOK_IMAGE } from '@/constants/look-images';
+import { PROFILE_IMAGE } from '@/constants/look-images';
 import { useBreakpoint } from '@/hooks/use-breakpoint';
 import { useDailyLook } from '@/hooks/use-daily-look';
 import { useHome, type HomeData, type HomeWeather } from '@/hooks/use-home';
 import { useRefresh } from '@/hooks/use-refresh';
 import { useWardrobeItems } from '@/hooks/use-wardrobe';
-import { type DailyLook } from '@/lib/dailyLookApi';
+import {
+  dailyLookPhase,
+  type DailyLook,
+  type DailyLookPhase,
+  type DailyLookResult,
+} from '@/lib/dailyLookApi';
 import { useAuth } from '@/state/auth';
-import { outfitAnalysisStore, useOutfitAnalysis } from '@/state/outfit-analysis';
 import { savedLookStore } from '@/state/saved';
 
 // ── 에디토리얼 본 팔레트 (라이트 고정) ──
@@ -51,12 +55,20 @@ export default function HomeScreen() {
      데모 세션도 부른다 — 토큰이 없을 뿐 요청은 통과한다(dev 서버가 무토큰 요청을 허용).
      그래야 발표에서 진짜 날씨가 뜬다. 예전엔 여기서 막아 두어 고정 목업만 보였다. */
   const { data: apiData, loading, reload } = useHome(undefined, status === 'authed');
-  /* 오늘의 룩은 홈 API 의 기온 템플릿과 별도로 추천 API(/looks/today/)가 만든다.
-     생성 중이면 훅이 알아서 폴링하고, 완성되는 순간 아래 카드가 실제 추천으로 바뀐다.
-     실패·EMPTY·데모 폴백에서는 카드가 홈 API 템플릿으로 물러나므로 홈을 막지 않는다. */
-  const { look: dailyLook, reload: reloadDailyLook } = useDailyLook(status === 'authed');
-  /* 당겨서 새로고침은 홈과 오늘의 룩을 같이 다시 부른다 — 하나만 부르면
-     "새로고침했는데 룩은 그대로"가 된다. */
+  /* 오늘의 룩(추천 API)의 상태는 **홈 응답이 이미 싣고 온다** — 홈 진입이 곧 생성
+     트리거라 백엔드가 걸어두는 김에 같은 시리얼라이저로 넣어준다. 그걸 시드로 주면
+     첫 프레임부터 올바른 분기를 그릴 수 있고(왕복 0회), 아직 만드는 중일 때만 훅이
+     폴링을 이어받는다. 홈 응답 전에는 `undefined` 를 넘겨 훅이 기다리게 한다 —
+     여기서 따로 조회하면 같은 것을 두 번 묻고, 그 사이 카드가 빈 채로 깜빡인다.
+     데모 세션은 토큰이 없어 추천 API 가 401 이므로 아예 부르지 않는다(아래 목업 카드). */
+  const {
+    look: dailyLook,
+    stalled: dailyStalled,
+    reload: reloadDailyLook,
+  } = useDailyLook(status === 'authed' && !isDemo, apiData ? apiData.daily_look : undefined);
+  /* 당겨서 새로고침은 홈만 다시 부르면 된다 — 홈 응답에 룩 상태가 실려 오므로
+     시드가 갱신되고 카드도 같이 바뀐다. 홈이 룩 상태를 못 실어 온(선반영 실패)
+     경우에만 훅이 직접 조회하고 있으므로, 그때를 위해 룩 쪽도 함께 부른다. */
   const reloadAll = useCallback(
     () => Promise.all([reload(), reloadDailyLook()]),
     [reload, reloadDailyLook],
@@ -66,11 +78,23 @@ export default function HomeScreen() {
      체험용 링크에서 홈이 통째로 에러 화면이 되는 것보다 낫다. */
   const data = apiData ?? (isDemo ? DEMO_HOME : null);
 
+  /* 추천 카드가 그려야 할 단계. 이 세 갈래를 구분하지 않으면 "아직 없음"이
+     "완성됨"과 같은 모양으로 나가고, 그게 목업이 진짜 추천처럼 보이던 원인이었다. */
+  const lookPhase: DailyLookPhase = dailyLookPhase(dailyLook, dailyStalled);
+
   /* 옷장이 비었는지는 **실제 옷장**에 물어본다.
      홈 API 의 closet_count 는 백엔드가 아직 고정값(MOCK_CLOSET_COUNT)을 주기 때문에,
      그대로 믿으면 옷장이 텅 비어도 "42벌 있다"고 보고 추천 카드를 띄운다.
-     옷장·채팅 모드 선택과 같은 출처(필터 없음)를 써서 세 화면이 늘 같은 수를 본다. */
-  const { items: closetItems, loading: closetLoading } = useWardrobeItems({}, status === 'authed');
+     옷장·채팅 모드 선택과 같은 출처(필터 없음)를 써서 세 화면이 늘 같은 수를 본다.
+     **이 값은 이제 홈의 분기를 정하지 않는다** — 오늘의 룩은 골든셋에서 나오므로
+     옷장이 비어도 성립한다(아이템이 전부 '추천 구매'인 이유). 옷장 상태는 카드 아래의
+     안내 한 줄만 정한다. 데모는 토큰이 없어 401 이 나므로 아예 묻지 않는다. */
+  const {
+    items: closetItems,
+    loading: closetLoading,
+    error: closetError,
+    reload: reloadCloset,
+  } = useWardrobeItems({}, status === 'authed' && !isDemo);
 
   /* 서비스 페르소나 이름으로 부른다. 백엔드 nickname 은 개발용 계정명이라 그대로 쓰지 않는다. */
   const nickname = '코지';
@@ -116,16 +140,29 @@ export default function HomeScreen() {
             <LoadingState message="홈을 준비하는 중…" />
           ) : status === 'guest' ? (
             <EmptyClosetStart />
-          ) : loading || closetLoading ? (
+          ) : loading ? (
+            /* 옷장 로딩은 더 이상 기다리지 않는다 — 홈의 주인공(오늘의 룩)과 무관한
+               부가 정보라, 여기서 같이 묶으면 룩 카드가 옷장 응답만큼 늦게 뜬다. */
             <LoadingState message="오늘의 추천을 불러오는 중…" />
           ) : !data ? (
             /* 에러가 나도 데모 세션은 위에서 DEMO_HOME 으로 물러나 있다 —
                error 를 함께 보면 그 폴백이 무효가 되어 체험용 링크가 통째로 에러 화면이 된다. */
             <ErrorState onRetry={reload} />
-          ) : closetItems.length === 0 ? (
-            <EmptyClosetStart />
           ) : (
-            <HomeBody data={data} daily={dailyLook} />
+            <HomeBody
+              data={data}
+              daily={dailyLook}
+              phase={isDemo ? 'ready' : lookPhase}
+              isDemo={isDemo}
+              onRetry={reloadAll}
+              closet={{
+                /* 빈 옷장과 조회 실패를 구분한다. 예전에는 실패해도 items 가 []
+                   라서(use-wardrobe.ts) "옷장이 비었네"로 둔갑해 온보딩 화면이 떴다. */
+                empty: !closetError && !closetLoading && closetItems.length === 0,
+                error: closetError,
+                reload: reloadCloset,
+              }}
+            />
           )}
         </ScrollView>
       </SafeAreaView>
@@ -133,11 +170,17 @@ export default function HomeScreen() {
   );
 }
 
-/** 옷장 데이터가 없는 첫 방문자를 위한 홈. 분석 경험부터 제공해 추천의 근거를 만든다. */
+/**
+ * **비회원 전용** 온보딩 홈. 부를 토큰도 옷장도 없으니 추천 대신 체험 경로를 준다.
+ *
+ * 예전에는 로그인 사용자도 옷장이 비면 여기로 왔는데, 오늘의 룩은 골든셋에서 나오므로
+ * 옷장 없이도 만들어진다 — 멀쩡히 준비된 추천을 온보딩 화면이 덮고 있었다.
+ * 로그인 사용자의 옷장 유도는 이제 룩 카드 아래 한 줄(HomeBody)로 내려갔다.
+ *
+ * 착장 분석 진행 상태는 여기 있었지만 components/home/analysis-status-card.tsx 로 옮겼다.
+ * 이 분기 안에 두면 옷장에 옷이 생기는 순간 진행 중인 분석이 화면에서 사라진다.
+ */
 function EmptyClosetStart() {
-  const { job } = useOutfitAnalysis();
-  const pending = outfitAnalysisStore.isPending(job);
-
   return (
     <View style={styles.emptyStart}>
       <View style={styles.emptyEyebrow}>
@@ -157,47 +200,22 @@ function EmptyClosetStart() {
           </Text>
         </Pressable>
       </View>
-      {job ? (
-        <Pressable style={styles.analysisStatus} onPress={() => router.push('/outfit-review')}>
-          <View style={styles.analysisStatusIcon}>
-            {pending ? (
-              <ActivityIndicator size="small" color={Editorial.selected} />
-            ) : (
-              <Text style={styles.analysisStatusMark}>{job.phase === 'SUCCEEDED' ? '✓' : '!'}</Text>
-            )}
-          </View>
-          <View style={styles.analysisStatusText}>
-            <Text style={styles.analysisStatusTitle}>
-              {pending
-                ? '착장 분석이 진행 중이에요'
-                : job.phase === 'SUCCEEDED'
-                  ? '착장 분석이 완료됐어요'
-                  : '착장 분석을 완료하지 못했어요'}
-            </Text>
-            <Text style={styles.analysisStatusBody} numberOfLines={1}>
-              {pending ? '다른 화면을 둘러봐도 분석은 계속됩니다.' : job.phase === 'SUCCEEDED' ? '눌러서 분석 결과를 확인해 보세요.' : job.detail}
-            </Text>
-          </View>
-          <Text style={styles.analysisStatusArrow}>›</Text>
-        </Pressable>
-      ) : null}
     </View>
   );
 }
 
 type DisplayLook = {
   image?: string | null;
-  asset?: number;
   comment: string;
   tags: string[];
   /** 눌렀을 때 열 룩 상세 (constants/today-look.ts LOOK_VARIANTS) */
   variantId: string;
+  /** 이 카드가 어느 골든 코디인지 — 저장·상세로 이 룩을 그대로 이어 준다(데모는 없음) */
+  goldenId?: string;
 };
 
-/** 오늘의 룩 API 응답 → 홈 카드. 완성(SUCCEEDED) 전에는 null — 카드는 템플릿으로 물러난다. */
-function toDisplayLook(look: DailyLook | null): DisplayLook | null {
-  if (look?.status !== 'SUCCEEDED' || !look.result) return null;
-  const r = look.result;
+/** 추천 결과 한 벌 → 홈 카드. 대표 룩과 '다른 룩' 후보가 같은 스키마라 함께 쓴다. */
+function resultToDisplayLook(r: DailyLookResult): DisplayLook {
   /* 대표 이미지 우선순위: 정면 착용 이미지 → 원본 코디 사진(exposable 일 때만 있음)
      → 아이템 카드 첫 장. 전부 presigned URL 이라 캐시하지 않고 받은 그대로 쓴다. */
   const image =
@@ -205,132 +223,142 @@ function toDisplayLook(look: DailyLook | null): DisplayLook | null {
     r.outfit_image_url ??
     r.items?.find((i) => i.image_url)?.image_url ??
     null;
-  const tags = (r.items ?? [])
-    .map((i) => (i.name || i.category || '').trim())
-    .filter(Boolean)
-    .slice(0, 4)
-    .map((t) => `#${t.replace(/\s+/g, '')}`);
+  /* 태그는 백엔드가 **룩북과 같은 어휘**로 만들어 내려준다(result.tags).
+     예전에는 여기서 아이템 이름에 `#`만 붙였는데, 그러면 `#블랙스트레이트데님팬츠`
+     같은 덩어리가 나오고 룩북 필터 칩과 어휘가 갈렸다. 비어 있으면 지어내지 않고
+     태그 줄을 통째로 숨긴다(ReadyLook) — 어색한 태그보다 없는 편이 낫다. */
+  const tags = (r.tags ?? []).map((t) => `#${t}`);
   return {
     image,
-    asset: image ? undefined : TODAY_LOOK_IMAGE,
     /* 카드 문구는 headline — 룩 상세의 제목과 같은 값이라, 카드에서 본 문장이
        눌러서 들어간 화면의 제목으로 그대로 이어진다. 비어 있으면 근거 문장으로. */
     comment: r.headline || r.rationale_ko,
-    tags: tags.length ? tags : ['#오늘의룩'],
+    tags,
     variantId: 'daily',
+    goldenId: r.golden_id,
   };
 }
 
-/** '다른 룩' 순환용 대안 추천 — 오늘의 룩(API) 다음으로 돌아가며 보여준다(룩북 피드와 같은 사진 재사용). */
-const ALT_LOOKS: DisplayLook[] = [
-  {
-    image: 'https://i.pinimg.com/736x/55/26/0d/55260de328aec1e50740655fd4b5fdc5.jpg',
-    comment: '데이트에 어울리게 색을 절제한 부드러운 캐주얼로 골라봤어요.',
-    tags: ['#데이트', '#캐주얼'],
-    variantId: 'date',
-  },
-  {
-    image: 'https://i.pinimg.com/736x/b4/cd/22/b4cd22015add333e10cd2ba06067406b.jpg',
-    comment: '나들이용으로 편하면서도 산뜻한 조합이에요.',
-    tags: ['#나들이', '#미니멀'],
-    variantId: 'outdoor',
-  },
-  {
-    image: 'https://i.pinimg.com/736x/ec/96/f3/ec96f39eb800d19290736c17f0253ed9.jpg',
-    comment: '일교차가 큰 날 가볍게 걸치기 좋은 레이어드 룩이에요.',
-    tags: ['#여행', '#캐주얼'],
-    variantId: 'outdoor',
-  },
-];
+/**
+ * 오늘의 룩 API 응답 → 홈 카드 목록. 대표 룩이 먼저, 그 뒤가 '다른 룩' 후보다.
+ *
+ * 완성(SUCCEEDED) 전에는 빈 배열 — 카드는 스켈레톤으로 간다. 후보 이미지는
+ * 서버가 나중에 채우므로, 처음 몇 초는 후보 카드가 아이템 사진으로 그려질 수 있다.
+ * 그래도 목록에서 빼지는 않는다: 눌렀을 때 룩이 나오는 편이 버튼이 사라졌다
+ * 나타나는 것보다 낫다.
+ */
+function toDisplayLooks(look: DailyLook | null): DisplayLook[] {
+  if (look?.status !== 'SUCCEEDED' || !look.result) return [];
+  return [look.result, ...(look.alternatives ?? [])].map(resultToDisplayLook);
+}
 
-/** 홈 본문 — 오늘의 룩 (데이터 로드 성공 시) */
-function HomeBody({ data, daily }: { data: HomeData; daily: DailyLook | null }) {
+/** 홈 본문 — 오늘의 룩.
+ *
+ * 카드의 껍데기(제목·날짜·날씨)는 어느 단계에서나 같고 속만 바뀐다. 그래야
+ * 완성되는 순간 화면이 튀지 않는다. 중요한 건 **아직 없는 추천을 완성된 것처럼
+ * 그리지 않는 것** — 예전에는 생성 중(수 초~수십 초)에도 기온 템플릿 문구와
+ * 번들 목업 사진으로 카드를 채워, 잠시 뒤 통째로 다른 룩으로 바뀌었다.
+ */
+function HomeBody({
+  data,
+  daily,
+  phase,
+  isDemo,
+  onRetry,
+  closet,
+}: {
+  data: HomeData;
+  daily: DailyLook | null;
+  phase: DailyLookPhase;
+  isDemo: boolean;
+  onRetry: () => void;
+  /** 옷장 상태. 홈의 분기가 아니라 카드 아래 안내 한 줄만 정한다. */
+  closet: { empty: boolean; error: string | null; reload: () => void };
+}) {
   const toast = useToast();
   const [idx, setIdx] = useState(0);
 
-  // 오늘의 룩(추천 API)을 맨 앞에 두고 대안 룩을 이어 붙여 '다른 룩'으로 순환한다.
-  // 추천이 아직이면(생성 중·후보 없음·실패·데모) 홈 API 의 기온 템플릿으로 물러난다 —
-  // 그래야 어떤 상태에서도 카드가 비지 않는다. 생성 중에는 훅이 폴링하고 있어
-  // 완성되는 순간 이 메모가 다시 계산되며 카드가 실제 추천으로 바뀐다.
-  const apiLook = useMemo(() => toDisplayLook(daily), [daily]);
+  const apiLooks = useMemo(() => toDisplayLooks(daily), [daily]);
+  /* 데모는 진짜 추천이 없어 목업으로 그린다 — 목업이 인증 사용자 경로로 새지 않게
+     데모 상수(constants/demo.ts)에만 둔다. 인증 사용자는 대표 룩 + 리트리버가 뽑은
+     차순위 후보를 '다른 룩'으로 돌려본다. */
   const looks = useMemo<DisplayLook[]>(
-    () => [
-      apiLook ?? {
-        image: data.today_look.image ?? null,
-        asset: data.today_look.image ? undefined : TODAY_LOOK_IMAGE,
-        comment: data.today_look.comment,
-        tags: data.today_look.tags,
-        variantId: 'daily',
-      },
-      ...ALT_LOOKS,
-    ],
-    [data, apiLook],
+    () => (isDemo ? DEMO_LOOKS : apiLooks),
+    [isDemo, apiLooks],
   );
-  const look = looks[idx % looks.length];
+  const look = looks.length ? looks[idx % looks.length] : null;
 
-  // 지금 보고 있는 룩을 '저장됨'에 담고 룩북 저장됨 탭으로 이동한다.
+  /**
+   * 지금 보고 있는 룩을 내 룩북에 담고 그 목록으로 이동한다.
+   *
+   * 진짜 추천(daily)과 데모 목업은 담는 길이 다르다.
+   * - 추천: 서버가 골든 코디를 가리키기만 한다(왕복 한 번). 표지 사진을 다시
+   *   올리면 이미 가진 자산이 사용자 수만큼 복제되고 옷 추출까지 다시 돈다.
+   * - 데모: 번들 목업이라 서버에 올릴 실체가 없다 — 예전처럼 이 기기에만 담는다.
+   */
   const saveCurrentLook = async () => {
+    if (!look) return;
+    const isRealLook = !isDemo && phase === 'ready';
     /* 서버 왕복이라 끝난 뒤에 알린다 — 먼저 토스트를 띄우면 실패해도 담긴 것처럼 보인다. */
     try {
-      await savedLookStore.addLook({
-        image: look.image ?? undefined,
-        asset: look.image ? undefined : look.asset,
-        comment: look.comment,
-        tags: look.tags,
-      });
+      if (isRealLook) {
+        /* 지금 보고 있는 룩을 담는다 — '다른 룩'으로 돌려본 뒤 저장했는데 대표 룩이
+           담기면 화면과 결과가 어긋난다. 서버가 이 id 를 오늘 후보 안에서 확인한다. */
+        const { created } = await savedLookStore.saveDailyLook(look.goldenId);
+        toast(created ? '내 룩북에 담았어요' : '이미 담아둔 룩이에요');
+      } else {
+        await savedLookStore.addLook({
+          image: look.image ?? undefined,
+          comment: look.comment,
+          tags: look.tags,
+        });
+        toast('위시에 담았어요');
+      }
     } catch (error) {
       toast(error instanceof Error ? error.message : '저장하지 못했어요', { variant: 'error' });
       return;
     }
-    toast('저장됨에 담았어요');
-    router.push('/(tabs)/lookbook?tab=saved');
+    /* 담긴 갈래로 보낸다 — 담았다고 해 놓고 그 룩이 없는 목록을 열면 실패로 읽힌다.
+       데모 목업은 예전처럼 위시(origin 'ai')에, 진짜 추천은 내 룩북에 선다. */
+    router.push(isRealLook ? '/(tabs)/lookbook?tab=mine' : '/(tabs)/lookbook?tab=wish');
   };
 
   return (
     <View style={styles.lookSection}>
       <View style={styles.lookCard}>
-          <View style={styles.lookMetaRow}>
-            <Text style={styles.sectionTitle} numberOfLines={1}>
-              오늘의 룩
-            </Text>
-            <Text style={styles.metaText} numberOfLines={1}>
-              {todayLabel()} | {weatherLabel(data.weather)}
-            </Text>
-          </View>
-          <Pressable onPress={() => router.push(`/look-detail?id=${look.variantId}`)}>
-            <SmartImage
-              uri={look.image}
-              asset={look.image ? undefined : look.asset}
-              width="100%"
-              aspectRatio={LOOK_IMAGE_RATIO}
-              radius={0}
-              contentFit="cover"
-            />
-          </Pressable>
-          <View style={styles.lookBody}>
-            <Text style={styles.lookText} numberOfLines={2}>
-              {look.comment}
-            </Text>
-            <ScrollView
-              horizontal
-              showsHorizontalScrollIndicator={false}
-              contentContainerStyle={styles.tagRow}>
-              {look.tags.map((t) => (
-                <View key={t} style={styles.tag}>
-                  <Text style={styles.tagText}>{t}</Text>
-                </View>
-              ))}
-            </ScrollView>
-            <View style={styles.lookButtons}>
-              <Pressable style={styles.saveBtn} onPress={saveCurrentLook}>
-                <Text style={styles.saveBtnText}>저장</Text>
-              </Pressable>
-              <Pressable style={styles.altBtn} onPress={() => setIdx((i) => i + 1)}>
-                <Text style={styles.altBtnText}>다른 룩</Text>
-              </Pressable>
-            </View>
-          </View>
+        <View style={styles.lookMetaRow}>
+          <Text style={styles.sectionTitle} numberOfLines={1}>
+            오늘의 룩
+          </Text>
+          <Text style={styles.metaText} numberOfLines={1}>
+            {todayLabel()} | {weatherLabel(data.weather)}
+          </Text>
         </View>
+
+        {phase === 'ready' && look ? (
+          <ReadyLook look={look} showAnother={looks.length > 1} onAnother={() => setIdx((i) => i + 1)} onSave={saveCurrentLook} />
+        ) : phase === 'pending' ? (
+          <PendingLook hint={data.today_look} detail={daily?.detail} />
+        ) : (
+          <UnavailableLook status={daily?.status} detail={daily?.detail} onRetry={onRetry} />
+        )}
+      </View>
+
+      {/* 옷장이 비었으면 채우도록 권한다 — 다만 **오늘의 룩을 가리지 않는다.**
+          추천은 골든셋에서 나오므로 옷장 없이도 성립하고, 첫 화면을 온보딩으로 덮으면
+          이 서비스가 무엇인지 보여줄 기회를 잃는다. 조회에 실패한 경우는 "비었다"고
+          말하지 않고 다시 시도할 길을 준다. */}
+      {closet.error ? (
+        <Pressable style={styles.analyzeLink} onPress={closet.reload}>
+          <Text style={styles.closetErrorText}>옷장을 불러오지 못했어요 · 다시 시도</Text>
+          <Text style={styles.analyzeLinkArrow}>↻</Text>
+        </Pressable>
+      ) : closet.empty ? (
+        <Pressable style={styles.analyzeLink} onPress={() => router.push('/item-add')}>
+          <Text style={styles.analyzeLinkText}>옷장 채우고 내 옷으로 추천받기</Text>
+          <Text style={styles.analyzeLinkArrow}>›</Text>
+        </Pressable>
+      ) : null}
 
       {/* 착장 분석 진입점은 옷장이 빈 사용자용 EmptyClosetStart 에만 있었다 — 옷을 등록하고 나면
           홈에서 들어갈 길이 사라진다. 오늘의 룩 아래 한 줄로 두어 세로 공간을 거의 안 쓰면서
@@ -339,7 +367,133 @@ function HomeBody({ data, daily }: { data: HomeData; daily: DailyLook | null }) 
         <Text style={styles.analyzeLinkText}>내 착장 분석하기</Text>
         <Text style={styles.analyzeLinkArrow}>›</Text>
       </Pressable>
+    </View>
+  );
+}
+
+/** 완성된 추천. */
+function ReadyLook({
+  look,
+  showAnother,
+  onAnother,
+  onSave,
+}: {
+  look: DisplayLook;
+  showAnother: boolean;
+  onAnother: () => void;
+  onSave: () => void;
+}) {
+  return (
+    <>
+      {/* 상세도 카드가 보여 준 그 룩을 연다 — golden 이 없으면(데모) 대표 룩이다. */}
+      <Pressable
+        onPress={() =>
+          router.push(
+            `/look-detail?id=${look.variantId}${look.goldenId ? `&golden=${encodeURIComponent(look.goldenId)}` : ''}`,
+          )
+        }>
+        {/* 사진이 없으면 SmartImage 가 자리만 잡는다 — 다른 룩의 목업 사진을 빌려
+            쓰면 문구와 사진이 어긋나 placeholder 보다 나쁜 화면이 된다. */}
+        <SmartImage uri={look.image} width="100%" aspectRatio={LOOK_IMAGE_RATIO} radius={0} contentFit="cover" />
+      </Pressable>
+      <View style={styles.lookBody}>
+        <Text style={styles.lookText} numberOfLines={2}>
+          {look.comment}
+        </Text>
+        {/* 태그가 없으면 줄 자체를 없앤다 — 빈 ScrollView 를 두면 gap 만큼 허공이 남는다. */}
+        {look.tags.length ? (
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.tagRow}>
+            {look.tags.map((t) => (
+              <View key={t} style={styles.tag}>
+                <Text style={styles.tagText}>{t}</Text>
+              </View>
+            ))}
+          </ScrollView>
+        ) : null}
+        <View style={styles.lookButtons}>
+          <Pressable style={styles.saveBtn} onPress={onSave}>
+            <Text style={styles.saveBtnText}>저장</Text>
+          </Pressable>
+          {/* 돌려볼 대상이 하나뿐이면 버튼을 숨긴다 — 눌러도 같은 룩이 나오면
+              버튼 이름('다른 룩')이 거짓말이 된다. */}
+          {showAnother ? (
+            <Pressable style={styles.altBtn} onPress={onAnother}>
+              <Text style={styles.altBtnText}>다른 룩</Text>
+            </Pressable>
+          ) : null}
+        </View>
       </View>
+    </>
+  );
+}
+
+/**
+ * 만드는 중. 사진 자리는 스켈레톤으로 비워 둔다.
+ *
+ * 홈 API 의 기온 템플릿(hint)은 여기서 **추천이 아니라 힌트로만** 쓴다 —
+ * "지금 서울 25도, 이런 옷을 찾고 있어요" 정도. 이 문구를 추천 카드 본문 자리에
+ * 그대로 올리면 사용자는 그게 오늘의 추천인 줄 알고, 몇 초 뒤 바뀌는 걸 본다.
+ */
+function PendingLook({ hint, detail }: { hint: HomeData['today_look']; detail?: string | null }) {
+  return (
+    <>
+      <View style={styles.skeletonImage}>
+        <Skeleton width="100%" height="100%" radius={0} />
+      </View>
+      <View style={styles.lookBody}>
+        <View style={styles.pendingHead}>
+          <ActivityIndicator size="small" color={Editorial.selected} />
+          <Text style={styles.pendingTitle}>오늘의 룩을 만들고 있어요</Text>
+        </View>
+        <Text style={styles.pendingBody}>
+          {detail ?? '체형·취향과 오늘 날씨를 맞춰보는 중이에요. 잠시만 기다려주세요.'}
+        </Text>
+        {hint.comment ? <Text style={styles.pendingHint}>{hint.comment}</Text> : null}
+        {hint.tags.length ? (
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.tagRow}>
+            {hint.tags.map((t) => (
+              <View key={t} style={[styles.tag, styles.hintTag]}>
+                <Text style={styles.tagText}>{t}</Text>
+              </View>
+            ))}
+          </ScrollView>
+        ) : null}
+      </View>
+    </>
+  );
+}
+
+/**
+ * 준비하지 못함. EMPTY 와 FAILED 는 사용자가 할 일이 달라서 문구·버튼을 나눈다
+ * (후보 없음 → 프로필을 채워야 하고, 실패 → 다시 시도하면 된다).
+ */
+function UnavailableLook({
+  status,
+  detail,
+  onRetry,
+}: {
+  status?: DailyLook['status'];
+  detail?: string | null;
+  onRetry: () => void;
+}) {
+  const empty = status === 'EMPTY';
+  return (
+    <View style={[styles.lookBody, styles.unavailable]}>
+      <Text style={styles.pendingTitle}>
+        {empty ? '오늘 추천할 룩을 찾지 못했어요' : '오늘의 룩을 준비하지 못했어요'}
+      </Text>
+      <Text style={styles.pendingBody}>
+        {detail ??
+          (empty
+            ? '체형·추구미를 채우면 그에 맞는 코디를 찾아드릴 수 있어요.'
+            : '잠시 뒤 다시 시도해 주세요.')}
+      </Text>
+      <Pressable
+        style={styles.unavailableBtn}
+        onPress={() => (empty ? router.push('/edit-profile') : onRetry())}>
+        <Text style={styles.unavailableBtnText}>{empty ? '프로필 채우기' : '다시 시도'}</Text>
+      </Pressable>
+    </View>
   );
 }
 
@@ -397,27 +551,6 @@ const styles = StyleSheet.create({
     borderColor: ink(0.14),
   },
   emptySecondaryText: { fontSize: 14, fontWeight: '600', color: Editorial.textSoft },
-  analysisStatus: {
-    alignSelf: 'stretch',
-    marginTop: 18,
-    minHeight: 72,
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    borderRadius: 16,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 12,
-    backgroundColor: Editorial.page,
-    borderWidth: 1,
-    borderColor: Editorial.line,
-  },
-  analysisStatusIcon: { width: 28, height: 28, alignItems: 'center', justifyContent: 'center' },
-  analysisStatusMark: { fontSize: 17, fontWeight: '700', color: Editorial.selected },
-  analysisStatusText: { flex: 1 },
-  analysisStatusTitle: { fontSize: 14, fontWeight: '700', color: INK },
-  analysisStatusBody: { marginTop: 4, fontSize: 12, color: Editorial.textCaption },
-  analysisStatusArrow: { fontSize: 24, color: Editorial.textCaption },
-
   lookMetaRow: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -446,6 +579,25 @@ const styles = StyleSheet.create({
     overflow: 'hidden',
   },
   lookBody: { flexShrink: 0, padding: 24, gap: 16 },
+  /* 사진 자리를 비율로 잡아둔다 — 완성됐을 때 들어올 SmartImage 와 같은 틀이라
+     추천이 도착해도 카드 높이가 튀지 않는다. */
+  skeletonImage: { width: '100%', aspectRatio: LOOK_IMAGE_RATIO },
+  pendingHead: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+  pendingTitle: { fontSize: 17, fontWeight: '600', color: Editorial.ink },
+  pendingBody: { fontSize: 14, lineHeight: 21, color: Editorial.textCaption },
+  /* 기온 템플릿은 추천이 아니라 힌트다 — 본문보다 한 단계 낮춰 그린다. */
+  pendingHint: { fontSize: 13, lineHeight: 20, color: Editorial.textSoft, fontStyle: 'italic' },
+  hintTag: { backgroundColor: Editorial.surface, borderWidth: 1, borderColor: Editorial.line },
+  unavailable: { alignItems: 'flex-start' },
+  unavailableBtn: {
+    height: 44,
+    paddingHorizontal: 22,
+    borderRadius: 999,
+    backgroundColor: Editorial.cta,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  unavailableBtnText: { color: '#ffffff', fontSize: 14, fontWeight: '600' },
   lookText: { fontSize: 17, fontWeight: '500', color: Editorial.ink },
   tagRow: { flexDirection: 'row', gap: 8, alignItems: 'center' },
   tag: {
@@ -486,5 +638,7 @@ const styles = StyleSheet.create({
     paddingVertical: 12,
   },
   analyzeLinkText: { fontSize: 14, fontWeight: '600', color: Editorial.textSoft },
+  /* 실패는 권유가 아니다 — 같은 줄 형태를 쓰되 색으로 성격을 구분한다. */
+  closetErrorText: { fontSize: 14, fontWeight: '600', color: Editorial.wine },
   analyzeLinkArrow: { fontSize: 20, color: Editorial.textCaption },
 });

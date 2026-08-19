@@ -6,7 +6,7 @@
  * API 응답으로 교체한다(필드명 유지).
  */
 
-import type { DailyLook } from '@/lib/dailyLookApi';
+import type { DailyLook, DailyLookResult } from '@/lib/dailyLookApi';
 import type { MallKey } from '@/lib/mall';
 
 export type LookRelated = {
@@ -14,6 +14,8 @@ export type LookRelated = {
   brand: string;
   price: string;
   tone: number;
+  /** 가격 비교 상품의 네이버 쇼핑 썸네일. */
+  image?: string;
   /**
    * 외부 쇼핑몰 상품 주소. 백엔드 catalog 가 아직 link 를 안 내려줘서 지금은 비어 있고,
    * 비어 있으면 `mall` 에서 브랜드+상품명 검색 주소를 만든다(lib/mall.ts).
@@ -41,7 +43,15 @@ export type LookPiece = {
 };
 
 export type LookVariant = {
-  /** 화면 주소에 실리는 값 — `/look-detail?id=daily` */
+  /**
+   * 화면 주소에 실리는 값 — `/look-detail?id=<여기>`.
+   *
+   * ⚠️ **번들 목업의 id 는 실제 라우트의 id 와 겹치면 안 된다.** 오늘의 룩은
+   * `id=daily` 로 열리는데 목업도 같은 id 를 쓰고 있었다. 그래서
+   * `resolveLookVariant('daily')` 가 폴백이 아니라 **정확히 매치**해서 목업을
+   * 돌려줬고, 실데이터가 아직 없는 순간(인증 복원 중)에 로그인 사용자가
+   * '오늘의 룩'이라는 제목의 남의 룩을 보게 됐다.
+   */
   id: string;
   title: string;
   /** 무드·상황. 날씨는 화면에서 실시간 값을 앞에 붙일 수 있다. */
@@ -53,7 +63,8 @@ export type LookVariant = {
 };
 
 export const TODAY_LOOK = {
-  id: 'daily',
+  /* 'daily' 가 아니다 — 그건 실제 오늘의 룩 라우트의 id 다(위 주석 참고). */
+  id: 'mock-daily',
   title: '산뜻한 미니멀 데일리',
   /** 무드·상황. 날씨는 화면에서 실시간 값을 앞에 붙일 수 있다. */
   subtitle: '미니멀 · 데일리',
@@ -216,7 +227,13 @@ export const LOOK_VARIANTS: LookVariant[] = [
   },
 ];
 
-/** id 로 룩을 찾는다. 못 찾으면 오늘의 룩. */
+/**
+ * id 로 **번들 목업** 룩을 찾는다. 못 찾으면 첫 번째 목업.
+ *
+ * 여기서 나오는 것은 언제나 목업이다 — 실제 추천은 dailyLookToVariant 가 만든다.
+ * 그래서 호출부는 "실데이터를 못 쓰는 자리인가"를 먼저 판단하고 불러야 한다.
+ * 로그인 사용자의 오늘의 룩 경로에서 이걸 부르면 그게 곧 목업 노출이다.
+ */
 export function resolveLookVariant(id?: string | null): LookVariant {
   return LOOK_VARIANTS.find((l) => l.id === id) ?? LOOK_VARIANTS[0];
 }
@@ -241,14 +258,40 @@ function dedupeSlots(pieces: LookPiece[]): LookPiece[] {
  * 완성 전(생성 중·EMPTY·실패)이면 null — 그때 상세는 번들 목업(TODAY_LOOK)으로
  * 물러나, 홈 카드가 기온 템플릿으로 물러나는 것과 짝이 맞는다.
  */
-export function dailyLookToVariant(look: DailyLook | null): LookVariant | null {
-  if (look?.status !== 'SUCCEEDED' || !look.result) return null;
-  const r = look.result;
+/** 대표 룩과 '다른 룩' 후보를 한 목록으로. 카드가 보여 준 순서와 같다. */
+export function dailyLookResults(look: DailyLook | null): DailyLookResult[] {
+  if (look?.status !== 'SUCCEEDED' || !look.result) return [];
+  return [look.result, ...(look.alternatives ?? [])];
+}
+
+/**
+ * `goldenId` 로 지목된 룩. 없거나 못 찾으면 대표 룩이다.
+ *
+ * 못 찾았을 때 null 로 두지 않는 이유: 홈 카드에서 넘어온 golden 이 그새 바뀐
+ * 추천(자정 넘김·재생성)에 없을 수 있는데, 그때 빈 화면을 주는 것보다 오늘의
+ * 대표 룩을 보여주는 편이 낫다.
+ */
+export function pickDailyLookResult(
+  look: DailyLook | null,
+  goldenId?: string,
+): DailyLookResult | null {
+  const results = dailyLookResults(look);
+  if (!results.length) return null;
+  if (!goldenId) return results[0];
+  return results.find((r) => r.golden_id === goldenId) ?? results[0];
+}
+
+export function dailyLookToVariant(
+  look: DailyLook | null,
+  goldenId?: string,
+): LookVariant | null {
+  const r = pickDailyLookResult(look, goldenId);
+  if (!r) return null;
   /* 무드·상황 자리에는 "무엇을 반영했는지"를 쓴다 — 서브텍스트이자 저장 시
      태그(tagsOf)가 되는 값이라, 지어낸 무드보다 실제 개인화 근거가 낫다. */
   const persona = [
-    look.context?.used_body ? '체형 반영' : null,
-    look.context?.used_pursuit ? '취향 반영' : null,
+    look?.context?.used_body ? '체형 반영' : null,
+    look?.context?.used_pursuit ? '취향 반영' : null,
   ].filter((s): s is string => s != null);
   return {
     id: 'daily',

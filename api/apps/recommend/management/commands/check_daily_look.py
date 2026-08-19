@@ -86,23 +86,46 @@ class Command(BaseCommand):
 
     # ── 1 ──────────────────────────────────────────────
     def _check_code(self, options) -> bool:
-        """컨테이너 안의 코드가 최신인지. 이미지가 옛 코드면 여기서 걸린다."""
+        """컨테이너 안의 코드가 최신인지. 이미지가 옛 코드면 여기서 걸린다.
+
+        ⚠️ 이 검사는 훅의 **이름을 그대로 박아 둔다.** 이름을 바꾸면 여기도 같이
+        고쳐야 한다. 2026-08-18에 `_kick_off_daily_look` → `_daily_look_payload`로
+        개명하면서 이 줄을 안 고쳐, 최신 이미지에 "옛 코드입니다"라는 거짓 실패가
+        났다 — 진단 도구가 진단 대상보다 낡으면 배포를 의심하느라 시간을 버린다.
+        """
         import inspect
 
         from apps.home import views as home_views
 
-        if not hasattr(home_views, "_kick_off_daily_look"):
-            self.stdout.write(FAIL + "home/views.py에 홈 진입 훅이 없습니다.")
+        if not hasattr(home_views, "_daily_look_payload"):
+            # 개명 전 이름이 남아 있으면 그때는 정말로 옛 이미지다.
+            reason = (
+                "옛 이름(_kick_off_daily_look)만 있습니다"
+                if hasattr(home_views, "_kick_off_daily_look")
+                else "홈 진입 훅이 없습니다"
+            )
+            self.stdout.write(FAIL + f"home/views.py에 {reason}.")
             self.stdout.write(
                 "        → 이미지가 옛 코드입니다: "
                 "docker compose --profile api build api migrate && up -d api"
             )
             return False
+
         source = inspect.getsource(home_views.HomeView.get)
-        if "_kick_off_daily_look" not in source:
+        if "_daily_look_payload" not in source:
             self.stdout.write(FAIL + "홈 뷰가 훅을 호출하지 않습니다.")
             return False
         self.stdout.write(OK + "홈 진입 훅이 HomeView.get 안에 있습니다.")
+
+        # 훅이 있어도 상태를 안 실어 보내면 프론트는 완성 전 구간을 스스로 조회해야
+        # 하고, 그 왕복 동안 추천 자리가 비어 깜빡인다. 경고로만 둔다 — 생성 자체는
+        # 되므로 여기서 진단을 멈출 이유는 없다.
+        if '"daily_look"' in source:
+            self.stdout.write(OK + "홈 응답이 daily_look 상태를 함께 싣습니다.")
+        else:
+            self.stdout.write(
+                WARN + "홈 응답에 daily_look 상태가 없습니다 (프론트가 별도 조회로 폴백)."
+            )
         return True
 
     # ── 2 ──────────────────────────────────────────────

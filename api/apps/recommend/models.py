@@ -27,6 +27,7 @@ from __future__ import annotations
 import uuid
 
 from django.conf import settings
+from django.core.exceptions import ValidationError
 from django.db import models
 from django.db.models import Q
 
@@ -250,11 +251,19 @@ class OutfitAnalysis(models.Model):
 
 
 class RecommendationResult(models.Model):
-    """한 번의 채팅 추천 실행에서 확정된 추천 결과 묶음."""
+    """기본 응답 하나 또는 스타일리스트 한 명의 확정 추천 결과."""
 
     class Mode(models.TextChoices):
         WARDROBE_BASED = "WARDROBE_BASED", "옷장 기반 추천"
         NEW_ITEM = "NEW_ITEM", "신규 상품 포함 추천"
+
+    class ResponseMode(models.TextChoices):
+        DEFAULT = "DEFAULT", "기본 통합 응답"
+        STYLIST = "STYLIST", "스타일리스트별 응답"
+
+    class ResultType(models.TextChoices):
+        INITIAL = "INITIAL", "최초 추천"
+        ALTERNATIVE = "ALTERNATIVE", "다른 추천"
 
     id = models.UUIDField(
         primary_key=True,
@@ -276,12 +285,81 @@ class RecommendationResult(models.Model):
         db_column="session_id",
         db_comment="추천이 생성된 채팅 세션 FK (chat_session.id)",
     )
-    run = models.OneToOneField(
+    run = models.ForeignKey(
         "chat.ChatRun",
         on_delete=models.CASCADE,
-        related_name="recommendation_result",
+        related_name="recommendation_results",
         db_column="run_id",
-        db_comment="추천을 생성한 채팅 실행 FK (chat_run.id, 실행당 결과 최대 1개)",
+        db_comment="추천을 생성한 채팅 실행 FK (chat_run.id)",
+    )
+    persona_execution = models.ForeignKey(
+        "chat.ChatRunPersona",
+        on_delete=models.CASCADE,
+        null=True,
+        blank=True,
+        related_name="recommendation_results",
+        db_column="persona_execution_id",
+        db_comment=(
+            "스타일리스트별 실행 FK (chat_run_persona.id, 기본 응답이면 NULL, 재추천 이력 허용)"
+        ),
+    )
+    response_mode = models.CharField(
+        max_length=12,
+        choices=ResponseMode.choices,
+        default=ResponseMode.DEFAULT,
+        db_comment="추천 결과 응답 모드 (DEFAULT/STYLIST)",
+    )
+    persona_id = models.CharField(
+        max_length=32,
+        blank=True,
+        default="",
+        db_comment=(
+            "결과를 생성한 스타일리스트 고정 ID "
+            "(minimal/experimental/practical, 기본 응답이면 빈 문자열)"
+        ),
+    )
+    persona_version = models.PositiveIntegerField(
+        null=True,
+        blank=True,
+        db_comment="결과 생성 당시 스타일리스트 설정 버전 (기본 응답이면 NULL)",
+    )
+    persona_explanation = models.CharField(
+        max_length=500,
+        blank=True,
+        default="",
+        db_comment="확정된 코디를 설명하는 스타일리스트 핵심 문장",
+    )
+    validated_reason_codes = models.JSONField(
+        default=list,
+        blank=True,
+        db_comment="Validator를 통과한 추천 근거 코드 문자열 JSON 배열",
+    )
+    strategy_snapshot = models.JSONField(
+        default=dict,
+        blank=True,
+        db_comment="결과 선택에 사용한 스타일리스트 추천 전략 JSON 스냅샷",
+    )
+    result_type = models.CharField(
+        max_length=16,
+        choices=ResultType.choices,
+        default=ResultType.INITIAL,
+        db_comment="추천 결과 생성 목적 (INITIAL/ALTERNATIVE)",
+    )
+    generation = models.PositiveSmallIntegerField(
+        default=1,
+        db_comment="동일 run·스타일리스트 안의 추천 결과 세대 (최초 1, 다른 추천마다 증가)",
+    )
+    is_current = models.BooleanField(
+        default=True,
+        db_comment="동일 run·스타일리스트에서 현재 노출할 최신 결과 여부",
+    )
+    replaces = models.ForeignKey(
+        "self",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="replaced_by_results",
+        db_comment="다른 추천이 교체한 직전 추천 결과 FK (최초 추천이면 NULL)",
     )
     mode = models.CharField(
         max_length=24,
@@ -304,8 +382,8 @@ class RecommendationResult(models.Model):
     class Meta:
         db_table = "recommendation_result"
         db_table_comment = (
-            "채팅과 독립적으로 조회하는 추천 결과 묶음 "
-            "(소유 identity·세션·실행·모드·골든셋 버전 보관)"
+            "채팅과 독립적으로 조회하는 기본 또는 스타일리스트별 추천 결과 "
+            "(소유권·실행·전략·근거·골든셋 버전 보관)"
         )
         ordering = ["-created_at"]
         indexes = [
@@ -317,10 +395,149 @@ class RecommendationResult(models.Model):
                 fields=["session", "-created_at"],
                 name="ix_reco_result_session",
             ),
+            models.Index(
+                fields=["run", "response_mode"],
+                name="ix_reco_result_run_mode",
+            ),
+        ]
+        constraints = [
+            models.CheckConstraint(
+                condition=Q(response_mode__in=["DEFAULT", "STYLIST"]),
+                name="ck_reco_result_response_mode",
+            ),
+            models.CheckConstraint(
+                condition=(
+                    Q(
+                        response_mode="DEFAULT",
+                        persona_id="",
+                        persona_version__isnull=True,
+                        persona_execution__isnull=True,
+                    )
+                    | Q(
+                        response_mode="STYLIST",
+                        persona_id__in=["minimal", "experimental", "practical"],
+                        persona_version__gte=1,
+                        persona_execution__isnull=False,
+                    )
+                ),
+                name="ck_reco_result_persona_fields",
+            ),
+            models.UniqueConstraint(
+                fields=["run"],
+                condition=Q(response_mode="DEFAULT"),
+                name="uq_reco_result_default_run",
+            ),
+            models.UniqueConstraint(
+                fields=["run", "persona_id", "generation"],
+                condition=Q(response_mode="STYLIST"),
+                name="uq_reco_result_run_persona_gen",
+            ),
+            models.UniqueConstraint(
+                fields=["run", "persona_id"],
+                condition=Q(response_mode="STYLIST", is_current=True),
+                name="uq_reco_result_current_persona",
+            ),
+            models.CheckConstraint(
+                condition=Q(generation__gte=1),
+                name="ck_reco_result_generation",
+            ),
+            models.CheckConstraint(
+                condition=Q(result_type__in=["INITIAL", "ALTERNATIVE"]),
+                name="ck_reco_result_type",
+            ),
         ]
 
     def __str__(self) -> str:
-        return f"recommendation-result {self.id} ({self.mode})"
+        scope = self.persona_id or self.response_mode
+        return f"recommendation-result {self.id} ({self.mode}/{scope})"
+
+    def clean(self) -> None:
+        """소유권과 실행 스냅샷이 서로 다른 결과가 저장되는 것을 막는다."""
+
+        super().clean()
+        errors: dict[str, str] = {}
+        if self.run_id:
+            if self.session_id and self.run.session_id != self.session_id:
+                errors["session"] = "추천 결과 세션이 상위 ChatRun 세션과 다릅니다."
+            if self.identity_id and self.run.session.identity_id != self.identity_id:
+                errors["identity"] = "추천 결과 소유자가 상위 ChatRun 소유자와 다릅니다."
+            if self.response_mode != self.run.response_mode:
+                errors["response_mode"] = (
+                    "추천 결과 응답 모드가 상위 ChatRun 스냅샷과 다릅니다."
+                )
+
+        if not isinstance(self.validated_reason_codes, list) or any(
+            not isinstance(code, str) or not code.strip()
+            for code in self.validated_reason_codes
+        ):
+            errors["validated_reason_codes"] = (
+                "검증 근거 코드는 비어 있지 않은 문자열 배열이어야 합니다."
+            )
+        elif len(self.validated_reason_codes) != len(
+            set(self.validated_reason_codes)
+        ):
+            errors["validated_reason_codes"] = (
+                "검증 근거 코드는 중복될 수 없습니다."
+            )
+        if not isinstance(self.strategy_snapshot, dict):
+            errors["strategy_snapshot"] = "전략 스냅샷은 JSON 객체여야 합니다."
+
+        if self.result_type == self.ResultType.INITIAL:
+            if self.generation != 1 or self.replaces_id is not None:
+                errors["result_type"] = (
+                    "최초 추천은 generation 1이며 교체 전 결과가 없어야 합니다."
+                )
+        elif self.response_mode != self.ResponseMode.STYLIST:
+            errors["result_type"] = "다른 추천 결과는 STYLIST 응답만 지원합니다."
+        elif self.generation < 2 or self.replaces_id is None:
+            errors["result_type"] = (
+                "다른 추천은 generation 2 이상이며 직전 결과를 연결해야 합니다."
+            )
+        elif (
+            self.replaces.run_id != self.run_id
+            or self.replaces.persona_id != self.persona_id
+            or self.replaces.generation != self.generation - 1
+        ):
+            errors["replaces"] = (
+                "교체 전 결과는 같은 run·스타일리스트의 바로 이전 세대여야 합니다."
+            )
+
+        if self.response_mode == self.ResponseMode.STYLIST:
+            if not self.persona_execution_id:
+                errors["persona_execution"] = (
+                    "스타일리스트 결과에는 개별 실행 연결이 필요합니다."
+                )
+            else:
+                execution = self.persona_execution
+                if self.run_id and execution.run_id != self.run_id:
+                    errors["persona_execution"] = (
+                        "개별 스타일리스트 실행의 상위 ChatRun이 다릅니다."
+                    )
+                if execution.persona_id != self.persona_id:
+                    errors["persona_id"] = (
+                        "스타일리스트 ID가 개별 실행 스냅샷과 다릅니다."
+                    )
+                if execution.persona_version != self.persona_version:
+                    errors["persona_version"] = (
+                        "스타일리스트 버전이 개별 실행 스냅샷과 다릅니다."
+                    )
+        elif any(
+            (
+                self.persona_id,
+                self.persona_version is not None,
+                self.persona_execution_id is not None,
+            )
+        ):
+            errors["response_mode"] = (
+                "기본 응답에는 스타일리스트 실행 정보를 저장할 수 없습니다."
+            )
+
+        if errors:
+            raise ValidationError(errors)
+
+    def save(self, *args, **kwargs) -> None:
+        self.clean()
+        super().save(*args, **kwargs)
 
 
 class GoldenTemplateSnapshot(models.Model):
@@ -415,6 +632,14 @@ class OutfitComposition(models.Model):
         default=list,
         db_comment="Validator의 통과·실패 근거 JSON 배열",
     )
+    reference_match = models.JSONField(
+        default=dict,
+        blank=True,
+        db_comment=(
+            "공유 옷 참고 매칭 근거 JSON "
+            "(match_type/source_type/source_id/score/reasons, 미사용 시 빈 객체)"
+        ),
+    )
     warnings = models.JSONField(
         default=list,
         db_comment="추천은 가능하지만 사용자에게 안내할 검증 경고 JSON 배열",
@@ -453,6 +678,64 @@ class OutfitComposition(models.Model):
 
     def __str__(self) -> str:
         return f"outfit-composition {self.result_id}#{self.rank} ({self.status})"
+
+    def clean(self) -> None:
+        super().clean()
+        if not isinstance(self.reference_match, dict):
+            raise ValidationError(
+                {"reference_match": "공유 옷 매칭 근거는 JSON 객체여야 합니다."}
+            )
+        if self.reference_match:
+            required = {
+                "schema_version",
+                "match_type",
+                "selection_role",
+                "source_type",
+                "source_id",
+                "source_collection",
+                "source_point_id",
+                "template_item_point_id",
+                "score",
+                "reasons",
+            }
+            if set(self.reference_match) != required:
+                raise ValidationError(
+                    {
+                        "reference_match": (
+                            "공유 옷 매칭 근거의 필드 계약이 올바르지 않습니다."
+                        )
+                    }
+                )
+            if self.reference_match.get("selection_role") != (
+                "PINNED_REFERENCE_ANCHOR"
+            ):
+                raise ValidationError(
+                    {"reference_match": "고정 anchor 매칭 근거만 저장할 수 있습니다."}
+                )
+            if self.reference_match.get("match_type") not in {
+                "VISUAL_SIMILAR",
+                "STYLE_SIMILAR",
+            }:
+                raise ValidationError(
+                    {"reference_match": "지원하지 않는 공유 옷 매칭 유형입니다."}
+                )
+            if not isinstance(self.reference_match.get("reasons"), list):
+                raise ValidationError(
+                    {"reference_match": "매칭 근거 reasons는 JSON 배열이어야 합니다."}
+                )
+        if (
+            self.result_id
+            and self.result.response_mode
+            == RecommendationResult.ResponseMode.STYLIST
+            and self.rank != 1
+        ):
+            raise ValidationError(
+                {"rank": "스타일리스트별 추천 결과는 순위 1 코디 하나만 저장합니다."}
+            )
+
+    def save(self, *args, **kwargs) -> None:
+        self.clean()
+        super().save(*args, **kwargs)
 
 
 class OutfitCompositionItem(models.Model):
@@ -867,6 +1150,16 @@ class DailyLook(models.Model):
         blank=True,
         db_comment="프론트에 내려줄 추천 결과 JSON (headline/outfit/items/rationale)",
     )
+    alternatives = models.JSONField(
+        "다른 룩 후보",
+        default=list,
+        blank=True,
+        db_comment=(
+            "'다른 룩'으로 돌려볼 차순위 후보들. result와 **같은 스키마**의 배열이라 "
+            "프론트가 카드 한 벌을 그리는 코드를 그대로 쓴다. 문장은 템플릿이고 "
+            "착용 이미지는 별도 큐 작업이 나중에 채운다"
+        ),
+    )
     error = models.TextField(
         blank=True,
         default="",
@@ -974,3 +1267,315 @@ class RecommendationFeedback(models.Model):
 
     def __str__(self) -> str:
         return f"recommendation-feedback {self.composition_id} ({self.reaction})"
+
+
+class SavedOutfit(models.Model):
+    """회원이 나중에 다시 보기 위해 저장한 검증 완료 추천 코디."""
+
+    id = models.UUIDField(
+        primary_key=True,
+        default=uuid.uuid4,
+        editable=False,
+        db_comment="저장 코디 UUID",
+    )
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name="saved_outfits",
+        db_comment="코디를 저장한 회원 FK (게스트 저장 불가)",
+    )
+    composition = models.ForeignKey(
+        OutfitComposition,
+        on_delete=models.CASCADE,
+        related_name="saved_records",
+        db_comment="저장 대상 검증 완료 추천 코디 FK (outfit_composition.id)",
+    )
+    created_at = models.DateTimeField(
+        auto_now_add=True,
+        db_comment="코디를 최초 저장한 시각",
+    )
+
+    class Meta:
+        db_table = "saved_outfit"
+        db_table_comment = "회원이 저장한 추천 코디와 최초 저장 시각"
+        ordering = ["-created_at"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["user", "composition"],
+                name="uq_saved_outfit_user_comp",
+            ),
+        ]
+
+    def __str__(self) -> str:
+        return f"saved-outfit {self.user_id}:{self.composition_id}"
+
+    def clean(self) -> None:
+        """검증 카드의 실제 소유 회원만 저장할 수 있게 모델 경계에서도 막는다."""
+
+        super().clean()
+        if not self.composition_id:
+            return
+        errors: dict[str, str] = {}
+        if self.composition.status != OutfitComposition.Status.VALIDATED:
+            errors["composition"] = "검증을 통과한 추천 코디만 저장할 수 있습니다."
+        owner_id = self.composition.result.identity.user_id
+        if owner_id is None or owner_id != self.user_id:
+            errors["user"] = "추천 코디의 소유 회원만 저장할 수 있습니다."
+        if errors:
+            raise ValidationError(errors)
+
+    def save(self, *args, **kwargs) -> None:
+        self.clean()
+        super().save(*args, **kwargs)
+
+
+class ProductClickEvent(models.Model):
+    """회원이 추천 카드의 판매 상품 링크를 누른 참고 행동 이벤트."""
+
+    id = models.UUIDField(
+        primary_key=True,
+        default=uuid.uuid4,
+        editable=False,
+        db_comment="상품 클릭 이벤트 UUID",
+    )
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name="recommendation_product_clicks",
+        db_comment="상품을 클릭한 회원 FK (게스트 수집 불가)",
+    )
+    item = models.ForeignKey(
+        OutfitCompositionItem,
+        on_delete=models.CASCADE,
+        related_name="product_click_events",
+        db_comment="클릭한 추천 카드의 판매 상품 아이템 FK",
+    )
+    result_id_snapshot = models.UUIDField(
+        db_comment="클릭 당시 추천 결과 UUID 스냅샷",
+    )
+    composition_id_snapshot = models.UUIDField(
+        db_comment="클릭 당시 추천 카드 UUID 스냅샷",
+    )
+    persona_id = models.CharField(
+        max_length=32,
+        blank=True,
+        default="",
+        db_comment="클릭 당시 스타일리스트 ID (기본 추천이면 빈 문자열)",
+    )
+    source_collection = models.CharField(
+        max_length=128,
+        db_comment="클릭 당시 상품 원본 컬렉션 스냅샷",
+    )
+    source_id = models.CharField(
+        max_length=128,
+        db_comment="클릭 당시 상품 원본 레코드 식별자 스냅샷",
+    )
+    created_at = models.DateTimeField(
+        auto_now_add=True,
+        db_comment="상품 클릭 이벤트 수집 시각",
+    )
+    engagement_duration_ms = models.PositiveBigIntegerField(
+        null=True,
+        blank=True,
+        db_comment=(
+            "외부 판매처 이동 후 앱 복귀까지의 근사 체류 시간(ms, 미수집 시 NULL)"
+        ),
+    )
+    engagement_recorded_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        db_comment="상품 클릭 근사 체류 시간을 마지막으로 수집한 시각",
+    )
+
+    class Meta:
+        db_table = "product_click_event"
+        db_table_comment = "추천 카드 판매 상품 클릭 참고 행동 이벤트"
+        ordering = ["-created_at"]
+        indexes = [
+            models.Index(
+                fields=["user", "item", "-created_at"],
+                name="ix_prod_click_user_item",
+            ),
+        ]
+
+    def __str__(self) -> str:
+        return f"product-click {self.user_id}:{self.source_collection}:{self.source_id}"
+
+    def clean(self) -> None:
+        """상품·카드·추천·회원 귀속과 저장 스냅샷의 일치를 검증한다."""
+
+        super().clean()
+        if not self.item_id:
+            return
+        errors: dict[str, str] = {}
+        composition = self.item.composition
+        result = composition.result
+        if self.item.source_type != OutfitCompositionItem.SourceType.PRODUCT:
+            errors["item"] = "판매 상품 아이템 클릭만 수집할 수 있습니다."
+        if composition.status != OutfitComposition.Status.VALIDATED:
+            errors["item"] = "검증을 통과한 추천 카드의 상품만 수집할 수 있습니다."
+        if result.identity.user_id is None or result.identity.user_id != self.user_id:
+            errors["user"] = "추천 상품의 소유 회원만 클릭 이벤트를 저장할 수 있습니다."
+        if self.result_id_snapshot != result.id:
+            errors["result_id_snapshot"] = "추천 결과 스냅샷이 상품 귀속과 다릅니다."
+        if self.composition_id_snapshot != composition.id:
+            errors["composition_id_snapshot"] = (
+                "추천 카드 스냅샷이 상품 귀속과 다릅니다."
+            )
+        if self.persona_id != result.persona_id:
+            errors["persona_id"] = "스타일리스트 스냅샷이 추천 결과와 다릅니다."
+        if self.source_collection != self.item.source_collection:
+            errors["source_collection"] = "상품 컬렉션 스냅샷이 원본과 다릅니다."
+        if self.source_id != self.item.source_id:
+            errors["source_id"] = "상품 식별자 스냅샷이 원본과 다릅니다."
+        if errors:
+            raise ValidationError(errors)
+
+    def save(self, *args, **kwargs) -> None:
+        self.clean()
+        super().save(*args, **kwargs)
+
+
+class WishlistItem(models.Model):
+    """회원이 담아 둔 판매 상품(찜).
+
+    ProductClickEvent 와 같은 방식으로 상품을 가리킨다 — 이름이 아니라
+    ``source_collection``/``source_id``(카탈로그 원본 식별자)다. 이름으로 묶으면
+    같은 상품이 추천마다 다른 이름으로 와서 두 번 담기고, 카탈로그의 브랜드·링크와
+    이어 붙일 수도 없다.
+
+    추천 카드가 지워져도 담아 둔 것은 남아야 하므로 ``item`` 은 끊어질 수 있고
+    (SET_NULL), 화면에 필요한 값은 담는 순간의 스냅샷으로 이 행에 복사한다.
+    """
+
+    id = models.UUIDField(
+        primary_key=True,
+        default=uuid.uuid4,
+        editable=False,
+        db_comment="찜 UUID",
+    )
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name="wishlist_items",
+        db_comment="찜한 회원 FK (users.id)",
+    )
+    item = models.ForeignKey(
+        OutfitCompositionItem,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="wishlist_entries",
+        db_comment="담은 시점의 코디 구성 아이템 FK (추천 삭제 시 NULL)",
+    )
+    result_id_snapshot = models.UUIDField(
+        null=True,
+        blank=True,
+        db_comment="담은 추천 결과 UUID 스냅샷",
+    )
+    composition_id_snapshot = models.UUIDField(
+        null=True,
+        blank=True,
+        db_comment="담은 추천 카드 UUID 스냅샷",
+    )
+    source_collection = models.CharField(
+        max_length=128,
+        blank=True,
+        default="",
+        db_comment="상품 후보를 조회한 Qdrant 컬렉션명",
+    )
+    source_id = models.CharField(
+        max_length=128,
+        blank=True,
+        default="",
+        db_comment="상품 카탈로그 원본 식별자 (naver_product_id / eleven_product_id)",
+    )
+    display_name = models.CharField(
+        max_length=500,
+        db_comment="목록에 보여줄 상품명 (담은 시점 스냅샷)",
+    )
+    brand = models.CharField(
+        max_length=200,
+        blank=True,
+        default="",
+        db_comment="브랜드명 (카탈로그에 있으면 채우고, 없으면 빈 문자열)",
+    )
+    price_snapshot = models.PositiveBigIntegerField(
+        null=True,
+        blank=True,
+        db_comment="담은 시점 가격 (원, 미상이면 NULL)",
+    )
+    image_ref = models.CharField(
+        max_length=1024,
+        blank=True,
+        default="",
+        db_comment="상품 이미지 S3 키 또는 검증된 URL",
+    )
+    purchase_url = models.TextField(
+        blank=True,
+        default="",
+        db_comment="판매처 상품 주소 (없으면 앱이 검색 주소를 만든다)",
+    )
+    slot = models.CharField(
+        max_length=64,
+        blank=True,
+        default="",
+        db_comment="담을 때의 코디 슬롯 (상의/하의 등, 예산 비교에 쓴다)",
+    )
+    created_at = models.DateTimeField(
+        auto_now_add=True,
+        db_comment="찜한 시각",
+    )
+
+    class Meta:
+        db_table = "wishlist_item"
+        db_table_comment = "회원이 담아 둔 추천 판매 상품과 담은 시점 스냅샷"
+        ordering = ["-created_at"]
+        constraints = [
+            # 같은 상품을 두 카드에서 담아도 목록에는 하나만 선다.
+            # 카탈로그 식별자가 없는 행(과거 목업 등)은 이 규칙에서 뺀다.
+            models.UniqueConstraint(
+                fields=["user", "source_collection", "source_id"],
+                condition=~Q(source_id=""),
+                name="uq_wishlist_user_source",
+            ),
+        ]
+        indexes = [
+            models.Index(
+                fields=["user", "-created_at"],
+                name="ix_wishlist_user_created",
+            ),
+        ]
+
+    def __str__(self) -> str:
+        return f"wishlist {self.user_id}:{self.source_collection}:{self.source_id}"
+
+    def clean(self) -> None:
+        """추천에서 담은 행이면 그 상품·회원 귀속과 스냅샷의 일치를 검증한다."""
+
+        super().clean()
+        if not self.item_id:
+            return
+        errors: dict[str, str] = {}
+        composition = self.item.composition
+        result = composition.result
+        if self.item.source_type != OutfitCompositionItem.SourceType.PRODUCT:
+            errors["item"] = "판매 상품만 찜할 수 있습니다."
+        if result.identity.user_id is None or result.identity.user_id != self.user_id:
+            errors["user"] = "추천 상품의 소유 회원만 찜할 수 있습니다."
+        if self.result_id_snapshot != result.id:
+            errors["result_id_snapshot"] = "추천 결과 스냅샷이 상품 귀속과 다릅니다."
+        if self.composition_id_snapshot != composition.id:
+            errors["composition_id_snapshot"] = (
+                "추천 카드 스냅샷이 상품 귀속과 다릅니다."
+            )
+        if self.source_collection != self.item.source_collection:
+            errors["source_collection"] = "상품 컬렉션 스냅샷이 원본과 다릅니다."
+        if self.source_id != self.item.source_id:
+            errors["source_id"] = "상품 식별자 스냅샷이 원본과 다릅니다."
+        if errors:
+            raise ValidationError(errors)
+
+    def save(self, *args, **kwargs) -> None:
+        self.clean()
+        super().save(*args, **kwargs)

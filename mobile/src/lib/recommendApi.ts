@@ -1,5 +1,5 @@
 import { RecommendEndpoints } from '@/constants/config';
-import { api } from '@/lib/apiClient';
+import { api, ApiError } from '@/lib/apiClient';
 
 /**
  * 추천 결과 조회.
@@ -14,6 +14,11 @@ export type ApiRecommendationItem = {
   slot: string;
   /** WARDROBE = 내 옷장 옷, PRODUCT = 새로 살 상품 */
   source_type: string;
+  /**
+   * 상품 카탈로그의 원본 식별자. 상품을 이름이 아니라 이 값으로 구분한다 —
+   * 같은 상품이 카드마다 다른 이름(스냅샷)으로 오기 때문이다. 지금 화면에서 쓰지는 않는다.
+   */
+  source_id: string;
   display_name: string;
   category: string | null;
   color: string | null;
@@ -28,13 +33,51 @@ export type ApiRecommendationItem = {
   reasons: string[];
 };
 
+/** 검증기가 남긴 한 줄. severity 는 INFO/WARNING 계열 문자열이다. */
+export type ApiValidationReason = {
+  severity: string;
+  code: string;
+  message: string;
+  slot: string | null;
+};
+
+/**
+ * 공유 옷을 참고해 만든 카드에 붙는 매칭 근거.
+ *
+ * 참고하지 않은 추천은 **빈 객체 `{}`** 로 온다(null 이 아니다) — 그래서 `match_type` 유무로 가른다.
+ *
+ * ⚠️ 값이 늘 수 있으므로 `match_type`·`source_type` 을 좁은 유니온으로 못 박지 않는다.
+ *    모르는 값이 오면 배지를 **생략**하고 카드 자체는 그대로 그린다(요구사항 7장).
+ * ⚠️ `score` 는 화면에 그대로 노출하지 않는다. 사용자에게는 뜻이 없는 숫자다.
+ */
+export type ApiReferenceMatch = {
+  schema_version?: string;
+  /** 'VISUAL_SIMILAR' | 'STYLE_SIMILAR' — 그 밖의 값이 오면 배지를 생략한다 */
+  match_type?: string;
+  selection_role?: string;
+  /** 'WARDROBE' | 'PRODUCT' */
+  source_type?: string;
+  source_id?: string;
+  source_collection?: string;
+  source_point_id?: string;
+  template_item_point_id?: string;
+  score?: number;
+  /** 상세 화면에서만 보여줄 근거 문장 */
+  reasons?: string[];
+};
+
 export type ApiRecommendationCard = {
   card_id: string;
   rank: number;
   /** 새로 사야 하는 상품들의 합. 옷장 옷만으로 짠 코디면 0 이다. */
   total_product_price: number | null;
   warnings: string[];
+  /** 공유 옷 참고 결과. 참고 안 했으면 빈 객체다. 서버가 이 필드를 아예 안 줄 수도 있다. */
+  reference_match?: ApiReferenceMatch;
   items: ApiRecommendationItem[];
+  validation_reasons: ApiValidationReason[];
+  /** 아직 반응을 남기지 않았으면 null. 카드 목록·상세가 같은 모양으로 준다. */
+  feedback: ApiCardFeedback | null;
 };
 
 export type ApiRecommendationResult = {
@@ -57,4 +100,102 @@ export function imageUrlOf(imageRef: string | null | undefined): string | null {
 
 export function getRecommendationResult(resultId: string): Promise<ApiRecommendationResult> {
   return api.get<ApiRecommendationResult>(RecommendEndpoints.result(resultId));
+}
+
+/** 카드 한 장. 목록에도 같은 모양이 들어 있지만, 상세는 항상 최신 피드백을 다시 받는다. */
+export function getRecommendationCard(
+  resultId: string,
+  cardId: string,
+): Promise<ApiRecommendationCard> {
+  return api.get<ApiRecommendationCard>(RecommendEndpoints.card(resultId, cardId));
+}
+
+/* ── 피드백 ───────────────────────────────────────── */
+
+export type ApiFeedbackReaction = 'LIKE' | 'DISLIKE';
+
+export type ApiCardFeedback = {
+  feedback_id: string;
+  reaction: ApiFeedbackReaction;
+  reason_codes: string[];
+  comment: string;
+  created_at: string;
+  updated_at: string;
+};
+
+/**
+ * 왜 별로였는지 고르는 코드. 서버는 대문자 코드면 무엇이든 받지만, 집계가 되려면
+ * 값이 흔들리지 않아야 해서 앱이 쓰는 목록을 여기 고정한다.
+ */
+export const FEEDBACK_REASONS = [
+  { code: 'STYLE', label: '스타일이 안 맞아요' },
+  { code: 'COLOR', label: '색이 취향이 아니에요' },
+  { code: 'FIT', label: '핏이 안 맞아요' },
+  { code: 'PRICE', label: '너무 비싸요' },
+  { code: 'ALREADY_OWNED', label: '이미 비슷한 옷이 있어요' },
+] as const;
+
+/**
+ * 카드의 최신 반응을 통째로 교체한다(PUT). 사유를 바꾸려면 reaction 도 함께 보낸다.
+ * 서버가 카드당 하나만 두므로 여러 번 보내도 마지막 것만 남는다.
+ */
+export function putCardFeedback(
+  resultId: string,
+  cardId: string,
+  input: { reaction: ApiFeedbackReaction; reasonCodes?: string[]; comment?: string },
+): Promise<ApiCardFeedback> {
+  return api.put<ApiCardFeedback>(RecommendEndpoints.cardFeedback(resultId, cardId), {
+    reaction: input.reaction,
+    reason_codes: input.reasonCodes ?? [],
+    comment: input.comment ?? '',
+  });
+}
+
+/** 반응 취소. 카드 자체는 그대로 남는다. */
+export function deleteCardFeedback(resultId: string, cardId: string): Promise<void> {
+  return api.delete<void>(RecommendEndpoints.cardFeedback(resultId, cardId));
+}
+
+/* ── 코디 이미지 ───────────────────────────────────── */
+
+export type ApiRenderStatus = 'QUEUED' | 'PROCESSING' | 'SUCCEEDED' | 'FAILED';
+
+export type ApiRenderJob = {
+  job_id: string;
+  card_id: string;
+  status: ApiRenderStatus;
+  cache_hit: boolean;
+  /** 만료되는 presigned URL. SUCCEEDED 일 때만 채워진다. */
+  image_url: string | null;
+  error: { code: string; message: string } | null;
+  created_at: string;
+  updated_at: string;
+};
+
+export function isRenderTerminal(status: ApiRenderStatus): boolean {
+  return status === 'SUCCEEDED' || status === 'FAILED';
+}
+
+/**
+ * 이미지 생성 상태. **아직 작업이 없으면 null** 이다(서버는 404).
+ * 추천이 저장될 때 서버가 미리 작업을 걸어두므로 보통은 여기서 결과가 나온다.
+ */
+export async function getCardRender(
+  resultId: string,
+  cardId: string,
+): Promise<ApiRenderJob | null> {
+  try {
+    return await api.get<ApiRenderJob>(RecommendEndpoints.cardRender(resultId, cardId));
+  } catch (e) {
+    if (e instanceof ApiError && e.status === 404) return null;
+    throw e;
+  }
+}
+
+/** 이미지 생성 접수. 이미 만들어 둔 같은 조합이 있으면 서버가 그대로 돌려준다. */
+export function requestCardRender(
+  resultId: string,
+  cardId: string,
+): Promise<ApiRenderJob> {
+  return api.post<ApiRenderJob>(RecommendEndpoints.cardRender(resultId, cardId));
 }

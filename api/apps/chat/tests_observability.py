@@ -4,15 +4,15 @@ import json
 import logging
 from unittest.mock import patch
 
-from django.test import SimpleTestCase, override_settings
-
-from apps.recommend.checks import chat_recommend_deployment_checks
 from config.observability import (
     JsonFormatter,
     RequestContextFilter,
     bind_request_id,
     reset_request_id,
 )
+from django.test import SimpleTestCase, override_settings
+
+from apps.recommend.checks import chat_recommend_deployment_checks
 
 
 class HealthAndRequestTracingTests(SimpleTestCase):
@@ -83,7 +83,7 @@ class DeploymentCheckTests(SimpleTestCase):
         QDRANT_API_KEY="qdrant-secret",
         OPENAI_API_KEY="openai-secret",
         CHAT_GOLDENSET_DATASET_VERSION="goldenset-v1",
-        CHAT_GOLDENSET_DATASET_STATUSES=("PUBLISHED",),
+        CHAT_GOLDENSET_DATASET_STATUSES=("ACTIVE",),
         OUTFIT_RENDER_ENABLED=True,
         OPENROUTER_API_KEY="openrouter-secret",
         OUTFIT_RENDER_RESULT_BUCKET="private-render-bucket",
@@ -115,3 +115,17 @@ class DeploymentCheckTests(SimpleTestCase):
                 "recommend.E007",
             },
         )
+
+    @override_settings(
+        REDIS_PASSWORD="redis-secret",
+        QDRANT_API_KEY="qdrant-secret",
+        OPENAI_API_KEY="openai-secret",
+        CHAT_GOLDENSET_DATASET_VERSION="goldenset-v1",
+        CHAT_GOLDENSET_DATASET_STATUSES=("PUBLISHED",),
+        OUTFIT_RENDER_ENABLED=False,
+    )
+    def test_unknown_goldenset_status_is_rejected(self) -> None:
+        errors = chat_recommend_deployment_checks(None)
+
+        self.assertEqual([error.id for error in errors], ["recommend.E008"])
+        self.assertIn("PUBLISHED", errors[0].msg)

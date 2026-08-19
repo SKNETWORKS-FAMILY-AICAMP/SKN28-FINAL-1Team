@@ -135,3 +135,76 @@ def job_summary(analysis) -> dict | None:
         "finished_at": job.finished_at,
         "items": items,
     }
+
+
+def accessible_item_ids(user) -> list[str]:
+    """로그인 사용자가 추천 검색에서 접근 가능한 옷장 아이템 UUID 리스트를 반환합니다.
+
+    격리 규칙 (Confluence §4-2 / shared-wardrobe-spec.md):
+    - 내 옷: user=user, confirmed=True
+    - 공유방 옷: room__members__user=user, status=AVAILABLE, wardrobe_item__confirmed=True
+    - 상한: settings.RETRIEVER_WARDROBE_ID_CAP
+    - 정열: created_at 내림차순 (결정적 필터링)
+    """
+    from django.conf import settings
+    from apps.wardrobe.models import SharedWardrobeItem, WardrobeItem
+
+    if user is None or not user.is_authenticated:
+        return []
+
+    own_items = list(
+        WardrobeItem.objects.filter(user=user, confirmed=True)
+        .order_by("-created_at")
+        .values_list("id", flat=True)
+    )
+
+    shared_items = list(
+        SharedWardrobeItem.objects.filter(
+            room__members__user=user,
+            status=SharedWardrobeItem.Status.AVAILABLE,
+            wardrobe_item__confirmed=True,
+        )
+        .order_by("-created_at")
+        .values_list("wardrobe_item_id", flat=True)
+    )
+
+    seen = set()
+    combined: list[str] = []
+    for item_id in own_items + shared_items:
+        str_id = str(item_id)
+        if str_id not in seen:
+            seen.add(str_id)
+            combined.append(str_id)
+
+    cap = getattr(settings, "RETRIEVER_WARDROBE_ID_CAP", 1000)
+    if len(combined) > cap:
+        logger.warning(
+            "accessible_item_ids 상한(%d) 초과: user=%s total=%d",
+            cap,
+            user.pk,
+            len(combined),
+        )
+        combined = combined[:cap]
+
+    return combined
+
+
+def owned_closet_item_ids(user) -> list[str]:
+    """개인 해시태그 추천용 소유·확정·옷장 편입 아이템 UUID만 반환한다."""
+    from django.conf import settings
+    from apps.wardrobe.models import WardrobeItem
+
+    if user is None or not user.is_authenticated:
+        return []
+    values = (
+        WardrobeItem.objects.filter(
+            user=user,
+            confirmed=True,
+            added_to_closet_at__isnull=False,
+        )
+        .order_by("-added_to_closet_at", "-created_at")
+        .values_list("id", flat=True)
+    )
+    cap = getattr(settings, "RETRIEVER_WARDROBE_ID_CAP", 1000)
+    return [str(value) for value in values[:cap]]
+

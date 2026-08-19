@@ -5,14 +5,26 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
+from collections.abc import Mapping, Sequence
+from contextlib import nullcontext
 from dataclasses import dataclass, replace
 from typing import Any
 
 from django.conf import settings
 from django.db import transaction
+from django.db.models import Max
 
-from apps.chat.models import ChatRun, ChatSession
+from apps.chat.models import ChatRun, ChatRunPersona, ChatSession
 from apps.chat.services.openai_adapter import TurnAnalysis
+from apps.chat.services.reference_recommendation_events import (
+    STAGE_COMPOSER,
+    STAGE_VALIDATOR,
+    ReferenceRecommendationEventRecorder,
+)
+from apps.chat.services.stylist_strategy import (
+    PreferencePolarity,
+    StrategyPlan,
+)
 from apps.recommend.models import (
     GoldenTemplateSnapshot,
     OutfitCompositionItem,
@@ -32,6 +44,12 @@ from apps.recommend.services.new_item_composer import (
     NewItemCompositionRequest,
     NewItemOutfitComposer,
 )
+from apps.recommend.services.outfit_types import (
+    OutfitComposition as DomainOutfitComposition,
+)
+from apps.recommend.services.outfit_types import (
+    RecommendationMode,
+)
 from apps.recommend.services.retriever import (
     GoldenOutfitRetriever,
     OutfitCandidate,
@@ -39,11 +57,26 @@ from apps.recommend.services.retriever import (
     RetrievalResult,
     normalize_presentation_groups,
 )
+from apps.recommend.services.shared_reference_anchor import (
+    PinnedReferenceAnchor,
+    SharedReferenceAnchorResolver,
+    composition_contains_anchor,
+    pin_reference_anchor,
+)
 from apps.recommend.services.text_embedding import TextEmbeddingConfigurationError
-from apps.recommend.services.validator import OutfitValidator, ValidationContext
+from apps.recommend.services.validator import (
+    OutfitValidationResult,
+    OutfitValidator,
+    ReferenceValidationContract,
+    ValidationContext,
+)
 from apps.recommend.services.wardrobe_composer import (
     WardrobeCompositionRequest,
     WardrobeOutfitComposer,
+)
+from apps.recommend.services.wardrobe_link import (
+    accessible_item_ids,
+    owned_closet_item_ids,
 )
 
 
@@ -62,12 +95,35 @@ class OutfitCompositionFailed(ChatRecommendationError):
     code = "OUTFIT_COMPOSITION_FAILED"
 
 
-
-
 @dataclass(frozen=True)
 class RecommendationPipelineResult:
     result: RecommendationResult
     approved_payload: dict[str, Any]
+
+
+@dataclass(frozen=True)
+class ValidatedRecommendationCandidate:
+    """DB에 저장하기 전 Validator를 통과한 코디 한 건."""
+
+    ordinal: int
+    template_rank: int
+    composition_rank: int
+    golden: OutfitCandidate
+    composition: DomainOutfitComposition
+    validation: OutfitValidationResult
+
+
+@dataclass(frozen=True)
+class GeneratedRecommendationCandidates:
+    """한 ChatRun 범위에서 생성된 저장 전 추천 후보 묶음."""
+
+    run_id: str
+    session_id: str
+    identity_id: str
+    response_mode: str
+    mode: str
+    search_mode: str
+    candidates: tuple[ValidatedRecommendationCandidate, ...]
 
 
 class ChatRecommendationPipeline:
@@ -81,12 +137,16 @@ class ChatRecommendationPipeline:
         wardrobe_composer: WardrobeOutfitComposer | None = None,
         new_item_composer: NewItemOutfitComposer | None = None,
         validator: OutfitValidator | None = None,
+        reference_anchor_resolver: SharedReferenceAnchorResolver | None = None,
     ) -> None:
         self.golden_retriever = golden_retriever or GoldenOutfitRetriever()
         self.item_retriever = item_retriever or ItemCandidateRetriever()
         self.wardrobe_composer = wardrobe_composer or WardrobeOutfitComposer()
         self.new_item_composer = new_item_composer or NewItemOutfitComposer()
         self.validator = validator or OutfitValidator()
+        self.reference_anchor_resolver = (
+            reference_anchor_resolver or SharedReferenceAnchorResolver()
+        )
 
     def _retrieve_golden(self, request: RetrievalRequest) -> RetrievalResult:
         """골든 코디를 찾는다. 질의 임베딩을 못 쓰면 필터 검색으로 내려간다.
@@ -124,13 +184,93 @@ class ChatRecommendationPipeline:
         context: dict[str, Any],
         analysis: TurnAnalysis,
     ) -> RecommendationPipelineResult:
-        existing = RecommendationResult.objects.filter(run=run).first()
+        """기본 응답의 기존 동작을 보존하는 생성·저장 호환 진입점."""
+
+        if run.response_mode != ChatSession.ResponseMode.DEFAULT:
+            raise OutfitCompositionFailed(
+                "스타일리스트 응답은 후보를 생성한 뒤 개별 실행별로 저장해야 합니다."
+            )
+        existing = RecommendationResult.objects.filter(
+            run=run,
+            response_mode=RecommendationResult.ResponseMode.DEFAULT,
+        ).first()
         if existing is not None:
-            transaction.on_commit(lambda: render_jobs.schedule_result(existing.pk))
+            self._schedule_render_on_commit(run=run, result_id=existing.pk)
             return RecommendationPipelineResult(
                 result=existing,
                 approved_payload=self._approved_payload(existing),
             )
+
+        generated = self.generate_candidates(
+            run=run,
+            context=context,
+            analysis=analysis,
+            # 기존 기본 추천은 첫 번째로 성공한 골든 템플릿의 조합만 저장했다.
+            max_validated_templates=1,
+        )
+        return self.persist_candidates(
+            run=run,
+            generated=generated,
+            selected=generated.candidates[:3],
+        )
+
+    def generate_candidates(
+        self,
+        *,
+        run: ChatRun,
+        context: dict[str, Any],
+        analysis: TurnAnalysis,
+        max_validated_templates: int | None = None,
+        strategy_plan: StrategyPlan | None = None,
+    ) -> GeneratedRecommendationCandidates:
+        """레퍼런스 추천이면 성공·실패를 포함한 운영 이벤트를 실행당 한 번 남긴다."""
+
+        recorder = (
+            ReferenceRecommendationEventRecorder(
+                run_id=str(run.pk),
+                recommendation_mode=str(run.session.mode),
+                is_stylist=(
+                    run.response_mode == ChatSession.ResponseMode.STYLIST
+                ),
+            )
+            if getattr(run, "reference_snapshot", None)
+            else None
+        )
+        try:
+            generated = self._generate_candidates(
+                run=run,
+                context=context,
+                analysis=analysis,
+                max_validated_templates=max_validated_templates,
+                strategy_plan=strategy_plan,
+                event_recorder=recorder,
+            )
+        except Exception as exc:
+            if recorder is not None:
+                recorder.failure(exc)
+            raise
+        if recorder is not None:
+            recorder.success()
+        return generated
+
+    def _generate_candidates(
+        self,
+        *,
+        run: ChatRun,
+        context: dict[str, Any],
+        analysis: TurnAnalysis,
+        max_validated_templates: int | None = None,
+        strategy_plan: StrategyPlan | None = None,
+        event_recorder: ReferenceRecommendationEventRecorder | None = None,
+    ) -> GeneratedRecommendationCandidates:
+        """Retriever·Composer·Validator를 실행하고 DB 저장 전 후보를 반환한다."""
+
+        if max_validated_templates is not None and (
+            isinstance(max_validated_templates, bool)
+            or not isinstance(max_validated_templates, int)
+            or max_validated_templates < 1
+        ):
+            raise ValueError("max_validated_templates는 1 이상의 정수여야 합니다.")
 
         session = run.session
         user_id = session.identity.user_id
@@ -138,9 +278,36 @@ class ChatRecommendationPipeline:
             raise OutfitCompositionFailed(
                 "옷장 기반 추천은 회원의 확정된 옷장 아이템이 필요합니다."
             )
+        scope_snapshot = getattr(run, "wardrobe_scope_snapshot", None) or {}
+        scoped_item_ids = tuple(scope_snapshot.get("candidate_item_ids") or ())
+        allowed_wardrobe_item_ids = (
+            tuple(
+                owned_closet_item_ids(session.identity.user)
+                if scoped_item_ids
+                else accessible_item_ids(session.identity.user)
+            )
+            if user_id is not None
+            else None
+        )
 
         pursuit = self._merged_pursuit(context, analysis)
+        if strategy_plan is not None:
+            pursuit = self._apply_strategy_preferences(pursuit, strategy_plan)
+        candidate_limit = strategy_plan.candidate_limit if strategy_plan else 5
         body = build_profile(context.get("profile", {}).get("body"))
+        category_budgets = context.get("profile", {}).get("category_budgets", {})
+        reference_anchor = self._resolve_reference_anchor(
+            run=run,
+            user_id=user_id,
+            total_budget=analysis.conditions.budget,
+            category_budgets=category_budgets,
+            event_recorder=event_recorder,
+        )
+        if reference_anchor is not None and event_recorder is not None:
+            event_recorder.select_match(
+                match_result=reference_anchor.match_type,
+                similarity=reference_anchor.candidate.score,
+            )
         retrieval = self._retrieve_golden(
             RetrievalRequest(
                 body=body,
@@ -149,14 +316,28 @@ class ChatRecommendationPipeline:
                 gender=self._gender(context),
                 occasion=analysis.conditions.occasion,
                 season=analysis.conditions.season,
-                query_text=analysis.search_query or context["current_request"],
+                query_text=(
+                    strategy_plan.search_query
+                    if strategy_plan is not None
+                    else analysis.search_query or context["current_request"]
+                ),
                 presentation_groups=self._presentation_groups(
                     context=context,
                     analysis=analysis,
                 ),
+                required_item_categories=(
+                    (reference_anchor.reference.tags.category_large,)
+                    if reference_anchor is not None
+                    else ()
+                ),
+                required_item_layer_roles=(
+                    (reference_anchor.reference.tags.layer_role,)
+                    if reference_anchor is not None
+                    else ()
+                ),
                 dataset_version=settings.CHAT_GOLDENSET_DATASET_VERSION,
                 dataset_statuses=settings.CHAT_GOLDENSET_DATASET_STATUSES,
-                limit=5,
+                limit=candidate_limit,
                 hard_filter=True,
                 # 골든 코디는 내부 조합 템플릿이다. 원본 이미지 노출 권한은
                 # 결과 표출·렌더링 경계에서 별도로 검사한다.
@@ -166,60 +347,406 @@ class ChatRecommendationPipeline:
         if not retrieval.candidates:
             raise GoldenOutfitNotFound("조건에 맞는 골든 코디를 찾지 못했습니다.")
 
-        for candidate in retrieval.candidates:
+        generated: list[ValidatedRecommendationCandidate] = []
+        validated_template_count = 0
+        for template_rank, candidate in enumerate(retrieval.candidates, start=1):
             template_ids = self._template_item_ids(candidate)
             if not template_ids:
                 continue
             try:
-                slot_results = tuple(
-                    self.item_retriever.retrieve(
+                def retrieve_slot(point_id):
+                    request_kwargs = dict(
+                        template_item_point_id=point_id,
+                        sources=self._sources(session.mode, user_id),
+                        user_id=user_id,
+                        max_price=analysis.conditions.budget,
+                        category_budgets=category_budgets,
+                        dataset_version=settings.CHAT_GOLDENSET_DATASET_VERSION,
+                        dataset_statuses=settings.CHAT_GOLDENSET_DATASET_STATUSES,
+                        limit_per_source=10,
+                    )
+                    if (
+                        scoped_item_ids
+                        and session.mode == ChatSession.Mode.WARDROBE_BASED
+                    ):
+                        scoped = self.item_retriever.retrieve(
+                            ItemRetrievalRequest(
+                                **request_kwargs,
+                                allowed_wardrobe_item_ids=scoped_item_ids,
+                            )
+                        )
+                        if scoped.candidates:
+                            return scoped
+                    return self.item_retriever.retrieve(
                         ItemRetrievalRequest(
-                            template_item_point_id=point_id,
-                            sources=self._sources(session.mode, user_id),
-                            user_id=user_id,
-                            max_price=analysis.conditions.budget,
-                            dataset_version=settings.CHAT_GOLDENSET_DATASET_VERSION,
-                            dataset_statuses=settings.CHAT_GOLDENSET_DATASET_STATUSES,
-                            limit_per_source=10,
+                            **request_kwargs,
+                            allowed_wardrobe_item_ids=allowed_wardrobe_item_ids,
                         )
                     )
-                    for point_id in template_ids
-                )
-                batch = self._compose(
-                    session.mode,
-                    slot_results,
-                    budget=analysis.conditions.budget,
-                )
+
+                slot_results = tuple(retrieve_slot(point_id) for point_id in template_ids)
+                if reference_anchor is not None:
+                    slot_results = pin_reference_anchor(
+                        reference_anchor,
+                        slot_results,
+                    )
+                with (
+                    event_recorder.measure(STAGE_COMPOSER)
+                    if event_recorder is not None
+                    else nullcontext()
+                ):
+                    batch = self._compose(
+                        session.mode,
+                        slot_results,
+                        budget=analysis.conditions.budget,
+                        category_budgets=category_budgets,
+                    )
             except (ValueError, RuntimeError):
                 continue
 
-            validated = []
-            for composition in batch.compositions:
-                validation = self.validator.validate(
+            template_candidates: list[ValidatedRecommendationCandidate] = []
+            for composition_rank, composition in enumerate(
+                batch.compositions,
+                start=1,
+            ):
+                if len(generated) + len(template_candidates) >= candidate_limit:
+                    break
+                if (
+                    scoped_item_ids
+                    and scope_snapshot.get("match_mode") == "REQUIRED"
+                    and session.mode == ChatSession.Mode.WARDROBE_BASED
+                    and not any(
+                        item.source_id in scoped_item_ids
+                        for item in composition.items
+                    )
+                ):
+                    continue
+                if reference_anchor is not None and not composition_contains_anchor(
                     composition,
-                    context=self._validation_context(
-                        user_id=user_id,
-                        context=context,
-                        analysis=analysis,
-                        body=body,
-                    ),
-                )
+                    reference_anchor,
+                ):
+                    continue
+                with (
+                    event_recorder.measure(STAGE_VALIDATOR)
+                    if event_recorder is not None
+                    else nullcontext()
+                ):
+                    validation = self.validator.validate(
+                        composition,
+                        context=self._validation_context(
+                            user_id=user_id,
+                            context=context,
+                            analysis=analysis,
+                            body=body,
+                            reference_anchor=reference_anchor,
+                        ),
+                    )
                 if validation.valid:
-                    validated.append((composition, validation))
-            if validated:
-                result = self._persist(
-                    run=run,
-                    candidate=candidate,
-                    validated=validated,
-                )
-                return RecommendationPipelineResult(
-                    result=result,
-                    approved_payload=self._approved_payload(result),
-                )
+                    template_candidates.append(
+                        ValidatedRecommendationCandidate(
+                            ordinal=len(generated) + len(template_candidates) + 1,
+                            template_rank=template_rank,
+                            composition_rank=composition_rank,
+                            golden=candidate,
+                            composition=composition,
+                            validation=validation,
+                        )
+                    )
+            if template_candidates:
+                generated.extend(template_candidates)
+                validated_template_count += 1
+                if len(generated) >= candidate_limit:
+                    break
+                if (
+                    max_validated_templates is not None
+                    and validated_template_count >= max_validated_templates
+                ):
+                    break
 
-        raise OutfitCompositionFailed(
-            "검색된 골든 코디로 검증 가능한 최종 조합을 만들지 못했습니다."
+        if not generated:
+            raise OutfitCompositionFailed(
+                "검색된 골든 코디로 검증 가능한 최종 조합을 만들지 못했습니다."
+            )
+        return GeneratedRecommendationCandidates(
+            run_id=str(run.pk),
+            session_id=str(session.pk),
+            identity_id=str(session.identity_id),
+            response_mode=run.response_mode,
+            mode=session.mode,
+            search_mode=retrieval.search_mode,
+            candidates=tuple(generated),
         )
+
+    def _resolve_reference_anchor(
+        self,
+        *,
+        run: ChatRun,
+        user_id: int | None,
+        total_budget: int | None,
+        category_budgets: Mapping[str, int],
+        event_recorder: ReferenceRecommendationEventRecorder | None,
+    ) -> PinnedReferenceAnchor | None:
+        snapshot = getattr(run, "reference_snapshot", None)
+        if not snapshot:
+            return None
+        try:
+            return self.reference_anchor_resolver.resolve(
+                snapshot=snapshot,
+                mode=RecommendationMode(run.session.mode),
+                user_id=user_id,
+                total_budget=total_budget,
+                category_budgets=category_budgets,
+                stage_observer=(
+                    event_recorder.add_stage_duration
+                    if event_recorder is not None
+                    else None
+                ),
+            )
+        except (TypeError, ValueError, RuntimeError) as exc:
+            raise OutfitCompositionFailed(
+                "공유 옷을 최종 코디의 고정 아이템으로 연결하지 못했습니다."
+            ) from exc
+
+    @transaction.atomic
+    def persist_candidates(
+        self,
+        *,
+        run: ChatRun,
+        generated: GeneratedRecommendationCandidates,
+        selected: Sequence[ValidatedRecommendationCandidate],
+        persona_execution: ChatRunPersona | None = None,
+        persona_explanation: str = "",
+        validated_reason_codes: Sequence[str] = (),
+        strategy_snapshot: dict[str, Any] | None = None,
+        result_type: str = RecommendationResult.ResultType.INITIAL,
+        replace_current: bool = False,
+    ) -> RecommendationPipelineResult:
+        """중복 검사·재정렬 뒤 선택된 후보만 최종 추천 결과로 저장한다."""
+
+        selected_candidates = tuple(selected)
+        normalized_reason_codes = self._normalize_reason_codes(validated_reason_codes)
+        if len(persona_explanation.strip()) > 500:
+            raise OutfitCompositionFailed(
+                "스타일리스트 추천 설명은 500자 이하여야 합니다."
+            )
+        if strategy_snapshot is not None and not isinstance(strategy_snapshot, dict):
+            raise OutfitCompositionFailed("전략 스냅샷은 JSON 객체여야 합니다.")
+        if result_type not in RecommendationResult.ResultType.values:
+            raise OutfitCompositionFailed("지원하지 않는 추천 결과 생성 목적입니다.")
+        if replace_current != (
+            result_type == RecommendationResult.ResultType.ALTERNATIVE
+        ):
+            raise OutfitCompositionFailed(
+                "다른 추천 결과만 현재 스타일리스트 결과를 교체할 수 있습니다."
+            )
+        self._validate_persistence_scope(
+            run=run,
+            generated=generated,
+            selected=selected_candidates,
+            persona_execution=persona_execution,
+        )
+
+        locked_run = (
+            ChatRun.objects.select_for_update()
+            .select_related(
+                "session",
+                "session__identity",
+            )
+            .get(pk=run.pk)
+        )
+        existing = self._existing_result(
+            run=locked_run,
+            persona_execution=persona_execution,
+        )
+        if existing is not None and not replace_current:
+            self._schedule_render_on_commit(
+                run=locked_run,
+                result_id=existing.pk,
+            )
+            return RecommendationPipelineResult(
+                result=existing,
+                approved_payload=self._approved_payload(existing),
+            )
+        if replace_current and (persona_execution is None or existing is None):
+            raise OutfitCompositionFailed(
+                "다른 추천을 생성할 현재 스타일리스트 결과가 없습니다."
+            )
+
+        generation = 1
+        replaces = None
+        if replace_current:
+            generation = (
+                RecommendationResult.objects.filter(
+                    run=locked_run,
+                    persona_id=persona_execution.persona_id,
+                ).aggregate(value=Max("generation"))["value"]
+                or 1
+            ) + 1
+            replaces = existing
+            RecommendationResult.objects.filter(pk=existing.pk).update(is_current=False)
+
+        candidate = selected_candidates[0].golden
+        result = RecommendationResult.objects.create(
+            identity=locked_run.session.identity,
+            session=locked_run.session,
+            run=locked_run,
+            persona_execution=persona_execution,
+            response_mode=locked_run.response_mode,
+            persona_id=(persona_execution.persona_id if persona_execution else ""),
+            persona_version=(
+                persona_execution.persona_version if persona_execution else None
+            ),
+            persona_explanation=persona_explanation.strip(),
+            validated_reason_codes=normalized_reason_codes,
+            strategy_snapshot=(
+                dict(strategy_snapshot)
+                if strategy_snapshot is not None
+                else (
+                    dict(persona_execution.strategy_snapshot)
+                    if persona_execution is not None
+                    else {}
+                )
+            ),
+            result_type=result_type,
+            generation=generation,
+            is_current=True,
+            replaces=replaces,
+            mode=locked_run.session.mode,
+            dataset_version=(
+                settings.CHAT_GOLDENSET_DATASET_VERSION
+                or str(candidate.payload.get("dataset_version") or "unversioned")
+            ),
+        )
+        GoldenTemplateSnapshot.objects.create(
+            result=result,
+            golden_id=candidate.golden_id or candidate.point_id,
+            point_id=candidate.point_id,
+            retrieval_score=candidate.score,
+            payload_snapshot=candidate.payload,
+            reasons=[
+                {"source": reason.source, "delta": reason.delta, "text": reason.text}
+                for reason in candidate.reasons
+            ],
+        )
+        for rank, selected_candidate in enumerate(selected_candidates, start=1):
+            self._persist_composition(
+                result=result,
+                rank=rank,
+                candidate=selected_candidate,
+            )
+
+        result_id = result.pk
+        self._schedule_render_on_commit(run=locked_run, result_id=result_id)
+        return RecommendationPipelineResult(
+            result=result,
+            approved_payload=self._approved_payload(result),
+        )
+
+    @staticmethod
+    def _schedule_render_on_commit(*, run: ChatRun, result_id: Any) -> None:
+        """기본 추천만 저장 커밋 후 이미지를 자동 생성한다."""
+
+        if run.response_mode != ChatSession.ResponseMode.DEFAULT:
+            return
+        transaction.on_commit(lambda: render_jobs.schedule_result(result_id))
+
+    @staticmethod
+    def _validate_persistence_scope(
+        *,
+        run: ChatRun,
+        generated: GeneratedRecommendationCandidates,
+        selected: tuple[ValidatedRecommendationCandidate, ...],
+        persona_execution: ChatRunPersona | None,
+    ) -> None:
+        expected_scope = (
+            str(run.pk),
+            str(run.session_id),
+            str(run.session.identity_id),
+            run.response_mode,
+            run.session.mode,
+        )
+        actual_scope = (
+            generated.run_id,
+            generated.session_id,
+            generated.identity_id,
+            generated.response_mode,
+            generated.mode,
+        )
+        if actual_scope != expected_scope:
+            raise OutfitCompositionFailed(
+                "다른 채팅 실행에서 생성한 추천 후보는 저장할 수 없습니다."
+            )
+        if not selected:
+            raise OutfitCompositionFailed("최종 저장할 추천 후보가 없습니다.")
+
+        available = {candidate.ordinal: candidate for candidate in generated.candidates}
+        if len({candidate.ordinal for candidate in selected}) != len(selected) or any(
+            available.get(candidate.ordinal) != candidate for candidate in selected
+        ):
+            raise OutfitCompositionFailed(
+                "생성 결과에 속한 서로 다른 추천 후보만 저장할 수 있습니다."
+            )
+
+        golden_keys = {
+            (candidate.golden.point_id, candidate.golden.golden_id)
+            for candidate in selected
+        }
+        if len(golden_keys) != 1:
+            raise OutfitCompositionFailed(
+                "하나의 추천 결과에는 같은 골든 템플릿의 후보만 저장할 수 있습니다."
+            )
+
+        if run.response_mode == ChatSession.ResponseMode.DEFAULT:
+            if persona_execution is not None:
+                raise OutfitCompositionFailed(
+                    "기본 응답에는 스타일리스트 실행을 연결할 수 없습니다."
+                )
+            if len(selected) > 3:
+                raise OutfitCompositionFailed(
+                    "기본 응답은 검증된 코디를 최대 3개까지 저장할 수 있습니다."
+                )
+            return
+
+        if run.response_mode != ChatSession.ResponseMode.STYLIST:
+            raise OutfitCompositionFailed("지원하지 않는 추천 응답 모드입니다.")
+        if persona_execution is None or persona_execution.run_id != run.pk:
+            raise OutfitCompositionFailed(
+                "스타일리스트 응답에는 같은 ChatRun의 개별 실행이 필요합니다."
+            )
+        if len(selected) != 1:
+            raise OutfitCompositionFailed(
+                "스타일리스트별 추천 결과는 코디 하나만 저장해야 합니다."
+            )
+
+    @staticmethod
+    def _existing_result(
+        *,
+        run: ChatRun,
+        persona_execution: ChatRunPersona | None,
+    ) -> RecommendationResult | None:
+        queryset = RecommendationResult.objects.filter(
+            run=run,
+            response_mode=run.response_mode,
+        )
+        if persona_execution is None:
+            return queryset.filter(persona_execution__isnull=True).first()
+        return queryset.filter(
+            persona_execution=persona_execution,
+            is_current=True,
+        ).first()
+
+    @staticmethod
+    def _normalize_reason_codes(codes: Sequence[str]) -> list[str]:
+        normalized: list[str] = []
+        for code in codes:
+            if not isinstance(code, str) or not code.strip():
+                raise OutfitCompositionFailed(
+                    "검증 근거 코드는 비어 있지 않은 문자열이어야 합니다."
+                )
+            value = code.strip()
+            if value not in normalized:
+                normalized.append(value)
+        return normalized
 
     @staticmethod
     def _sources(mode: str, user_id: int | None) -> tuple[ItemSource, ...]:
@@ -229,7 +756,14 @@ class ChatRecommendationPipeline:
             return (ItemSource.PRODUCT,)
         return (ItemSource.WARDROBE, ItemSource.PRODUCT)
 
-    def _compose(self, mode: str, slot_results: tuple, *, budget: int | None):
+    def _compose(
+        self,
+        mode: str,
+        slot_results: tuple,
+        *,
+        budget: int | None,
+        category_budgets: dict[str, int],
+    ):
         if mode == ChatSession.Mode.WARDROBE_BASED:
             return self.wardrobe_composer.compose(
                 WardrobeCompositionRequest(slot_results=slot_results)
@@ -238,6 +772,7 @@ class ChatRecommendationPipeline:
             NewItemCompositionRequest(
                 slot_results=slot_results,
                 total_budget=budget,
+                category_budgets=category_budgets,
             )
         )
 
@@ -286,6 +821,31 @@ class ChatRecommendationPipeline:
         return {"preferred": preferred, "avoided": avoided}
 
     @staticmethod
+    def _apply_strategy_preferences(
+        pursuit: dict[str, dict[str, list[str]]],
+        plan: StrategyPlan,
+    ) -> dict[str, dict[str, list[str]]]:
+        """전략의 소프트 보정을 원본 사용자 조건을 보존한 검색 입력으로 변환한다."""
+
+        adjusted = {
+            polarity: {
+                axis: list(values)
+                for axis, values in (pursuit.get(polarity) or {}).items()
+            }
+            for polarity in ("preferred", "avoided")
+        }
+        axis_names = {"style": "styles", "color": "colors", "fit": "fits"}
+        for row in plan.preference_adjustments:
+            polarity = (
+                "preferred" if row.polarity is PreferencePolarity.PREFER else "avoided"
+            )
+            axis = axis_names[row.axis]
+            adjusted[polarity][axis] = list(
+                dict.fromkeys([*adjusted[polarity].get(axis, []), *row.values])
+            )
+        return adjusted
+
+    @staticmethod
     def _presentation_groups(
         *,
         context: dict[str, Any],
@@ -308,6 +868,7 @@ class ChatRecommendationPipeline:
         context: dict,
         analysis: TurnAnalysis,
         body: BodyProfile,
+        reference_anchor: PinnedReferenceAnchor | None,
     ) -> ValidationContext:
         return ValidationContext(
             user_id=user_id,
@@ -316,6 +877,7 @@ class ChatRecommendationPipeline:
             weather=context.get("weather"),
             occasion=analysis.conditions.occasion,
             total_budget=analysis.conditions.budget,
+            category_budgets=context.get("profile", {}).get("category_budgets", {}),
             excluded_source_ids=tuple(analysis.conditions.excluded_source_ids),
             preferred_tags={
                 "style": tuple(analysis.conditions.styles),
@@ -327,6 +889,19 @@ class ChatRecommendationPipeline:
                 "color": tuple(analysis.conditions.avoided_colors),
             },
             require_image=True,
+            reference=(
+                ReferenceValidationContract(
+                    original_wardrobe_item_ids=(
+                        reference_anchor.reference.exclusions.wardrobe_item_ids
+                    ),
+                    original_qdrant_point_ids=(
+                        reference_anchor.reference.exclusions.qdrant_point_ids
+                    ),
+                    anchor_identity=reference_anchor.identity,
+                )
+                if reference_anchor is not None
+                else None
+            ),
         )
 
     @staticmethod
@@ -346,66 +921,137 @@ class ChatRecommendationPipeline:
         )
         return hashlib.sha256(raw.encode("utf-8")).hexdigest()
 
-    @transaction.atomic
-    def _persist(self, *, run: ChatRun, candidate: OutfitCandidate, validated: list):
-        result = RecommendationResult.objects.create(
-            identity=run.session.identity,
-            session=run.session,
-            run=run,
-            mode=run.session.mode,
-            dataset_version=(
-                settings.CHAT_GOLDENSET_DATASET_VERSION
-                or str(candidate.payload.get("dataset_version") or "unversioned")
-            ),
-        )
-        GoldenTemplateSnapshot.objects.create(
+    def _persist_composition(
+        self,
+        *,
+        result: RecommendationResult,
+        rank: int,
+        candidate: ValidatedRecommendationCandidate,
+    ) -> None:
+        composition = candidate.composition
+        validation = candidate.validation
+        self._validate_composition_for_persistence(
             result=result,
-            golden_id=candidate.golden_id or candidate.point_id,
-            point_id=candidate.point_id,
-            retrieval_score=candidate.score,
-            payload_snapshot=candidate.payload,
-            reasons=[
-                {"source": reason.source, "delta": reason.delta, "text": reason.text}
-                for reason in candidate.reasons
-            ],
+            composition=composition,
         )
-        for rank, (composition, validation) in enumerate(validated[:3], start=1):
-            row = OutfitCompositionModel.objects.create(
-                result=result,
-                rank=rank,
-                status=OutfitCompositionModel.Status.VALIDATED,
-                composition_fingerprint=self._composition_fingerprint(composition),
-                total_product_price=validation.effective_total_product_price,
-                validation_reasons=[
-                    {
-                        "severity": issue.severity.value,
-                        "code": issue.code,
-                        "message": issue.message,
-                        "slot": issue.slot_id,
-                    }
-                    for issue in validation.issues
-                ],
-                warnings=list(composition.warnings),
+        row = OutfitCompositionModel.objects.create(
+            result=result,
+            rank=rank,
+            status=OutfitCompositionModel.Status.VALIDATED,
+            composition_fingerprint=self._composition_fingerprint(composition),
+            total_product_price=validation.effective_total_product_price,
+            validation_reasons=[
+                {
+                    "severity": issue.severity.value,
+                    "code": issue.code,
+                    "message": issue.message,
+                    "slot": issue.slot_id,
+                }
+                for issue in validation.issues
+            ],
+            reference_match=self._reference_match(composition),
+            warnings=list(composition.warnings),
+        )
+        for position, item in enumerate(composition.items, start=1):
+            OutfitCompositionItem.objects.create(
+                composition=row,
+                position=position,
+                slot=item.slot_id,
+                source_type=item.source_type.value,
+                source_id=item.source_id,
+                source_collection=item.source_collection,
+                source_point_id=item.point_id,
+                template_item_point_id=item.template_point_id,
+                replacement_score=item.score,
+                image_ref=item.image_ref,
+                price_snapshot=item.price,
+                reasons=list(item.reasons),
+                item_snapshot=item.payload,
             )
-            for position, item in enumerate(composition.items, start=1):
-                OutfitCompositionItem.objects.create(
-                    composition=row,
-                    position=position,
-                    slot=item.slot_id,
-                    source_type=item.source_type.value,
-                    source_id=item.source_id,
-                    source_collection=item.source_collection,
-                    source_point_id=item.point_id,
-                    template_item_point_id=item.template_point_id,
-                    replacement_score=item.score,
-                    image_ref=item.image_ref,
-                    price_snapshot=item.price,
-                    reasons=list(item.reasons),
-                    item_snapshot=item.payload,
+
+    @staticmethod
+    def _validate_composition_for_persistence(
+        *,
+        result: RecommendationResult,
+        composition: DomainOutfitComposition,
+    ) -> None:
+        allowed = {
+            RecommendationResult.Mode.WARDROBE_BASED: {ItemSource.WARDROBE},
+            RecommendationResult.Mode.NEW_ITEM: {
+                ItemSource.WARDROBE,
+                ItemSource.PRODUCT,
+            },
+        }.get(result.mode, set())
+        if any(item.source_type not in allowed for item in composition.items):
+            raise OutfitCompositionFailed(
+                "추천 모드에서 허용되지 않는 최종 아이템 출처는 저장할 수 없습니다."
+            )
+        if result.mode == RecommendationResult.Mode.NEW_ITEM and not any(
+            item.source_type is ItemSource.PRODUCT for item in composition.items
+        ):
+            raise OutfitCompositionFailed(
+                "신규 상품 추천에는 판매 상품이 최소 한 개 필요합니다."
+            )
+
+        run = getattr(result, "run", None)
+        snapshot = getattr(run, "reference_snapshot", None) or {}
+        if not snapshot:
+            return
+        original_item_id = str(snapshot.get("wardrobe_item_id") or "")
+        original_point_id = str(snapshot.get("qdrant_point_id") or "")
+        for item in composition.items:
+            if (
+                (original_item_id and item.source_id == original_item_id)
+                or (original_point_id and item.point_id == original_point_id)
+                or (
+                    original_item_id
+                    and str(item.payload.get("item_id") or "") == original_item_id
                 )
-        result_id = result.pk
-        transaction.on_commit(lambda: render_jobs.schedule_result(result_id))
-        return result
+            ):
+                raise OutfitCompositionFailed(
+                    "참고용 친구 옷 원본은 최종 코디에 저장할 수 없습니다."
+                )
+        anchors = [
+            item
+            for item in composition.items
+            if item.payload.get("selection_role") == "PINNED_REFERENCE_ANCHOR"
+        ]
+        if len(anchors) != 1:
+            raise OutfitCompositionFailed(
+                "공유 옷 추천 결과에는 고정 anchor가 정확히 하나 필요합니다."
+            )
+
+    @staticmethod
+    def _reference_match(composition: DomainOutfitComposition) -> dict[str, Any]:
+        anchors = [
+            item
+            for item in composition.items
+            if item.payload.get("selection_role") == "PINNED_REFERENCE_ANCHOR"
+        ]
+        if not anchors:
+            return {}
+        if len(anchors) != 1:
+            raise OutfitCompositionFailed(
+                "최종 코디에는 공유 옷 고정 anchor가 정확히 하나여야 합니다."
+            )
+        item = anchors[0]
+        match_type = str(item.payload.get("match_type") or "").strip()
+        if match_type not in {"VISUAL_SIMILAR", "STYLE_SIMILAR"}:
+            raise OutfitCompositionFailed(
+                "공유 옷 고정 anchor의 매칭 유형이 올바르지 않습니다."
+            )
+        return {
+            "schema_version": "1.0",
+            "match_type": match_type,
+            "selection_role": "PINNED_REFERENCE_ANCHOR",
+            "source_type": item.source_type.value,
+            "source_id": item.source_id,
+            "source_collection": item.source_collection,
+            "source_point_id": item.point_id,
+            "template_item_point_id": item.template_point_id,
+            "score": item.score,
+            "reasons": list(item.reasons),
+        }
 
     @staticmethod
     def _approved_payload(result: RecommendationResult) -> dict[str, Any]:
@@ -415,6 +1061,7 @@ class ChatRecommendationPipeline:
                 {
                     "rank": composition.rank,
                     "total_product_price": composition.total_product_price,
+                    "reference_match": composition.reference_match,
                     "warnings": composition.warnings,
                     "items": [
                         {

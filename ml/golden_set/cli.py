@@ -16,6 +16,8 @@ from .manifest import build_manifest, build_manifest_from_s3
 from .principles import apply_principle_reviews, synthesize_principles
 from .qdrant_index import index_run
 from .review import collect_accepted_claims, create_review_templates
+from .review_manifest import build_review_manifest
+from .review_sheets import build_review_sheets
 
 
 def main() -> None:
@@ -23,6 +25,53 @@ def main() -> None:
         description="골든 이미지 → 판단 원칙(메인) + 점수 앵커(보조) 파일럿"
     )
     subparsers = parser.add_subparsers(dest="command", required=True)
+
+    review_manifest = subparsers.add_parser(
+        "review-manifest",
+        help="드라이브 원본 폴더 → 본 검수용 metadata.csv·표집 배치·정규화 파일명",
+    )
+    review_manifest.add_argument(
+        "--root", type=Path, required=True, help="수집자 폴더를 모아둔 로컬 루트"
+    )
+    review_manifest.add_argument(
+        "--out-dir", type=Path, default=Path("local/golden-review")
+    )
+    review_manifest.add_argument("--batch-size", type=int, default=100)
+    review_manifest.add_argument("--batch-label", default="batch1")
+    review_manifest.add_argument(
+        "--apply",
+        action="store_true",
+        help="정규화한 이름으로 이미지를 평면 폴더에 복사한다 (원본은 그대로 둔다)",
+    )
+    review_manifest.add_argument(
+        "--exclude",
+        type=Path,
+        action="append",
+        default=[],
+        help="앞 배치 metadata CSV. 여기 있는 golden_id는 빼고 이어 뽑는다 (반복 가능)",
+    )
+    review_manifest.add_argument(
+        "--quota",
+        action="append",
+        default=[],
+        metavar="CODE=N",
+        help="수집자별 상한 (예: shj=177). 반복 가능",
+    )
+
+    review_sheets = subparsers.add_parser(
+        "review-sheets",
+        help="metadata CSV만으로 사람이 채울 검수표 생성 (모델 호출 없음)",
+    )
+    review_sheets.add_argument("--metadata-csv", type=Path, required=True)
+    review_sheets.add_argument("--images-dir", type=Path, required=True)
+    review_sheets.add_argument("--out-dir", type=Path, required=True)
+    review_sheets.add_argument("--pair-count", type=int, default=120)
+    review_sheets.add_argument("--reviewer-label", default="")
+    review_sheets.add_argument(
+        "--analysis",
+        type=Path,
+        help="golden_id별 관찰·claim·최소 수정 JSONL. 미리 채워 둔 내용",
+    )
 
     prepare = subparsers.add_parser(
         "prepare",
@@ -117,7 +166,53 @@ def main() -> None:
     load_project_env()
     settings = GoldenSettings.from_env()
 
-    if args.command == "prepare":
+    def _parse_quotas(values: list[str]) -> dict[str, int]:
+        quotas: dict[str, int] = {}
+        for value in values:
+            code, _, count = value.partition("=")
+            if not code or not count.isdigit():
+                raise SystemExit(f"--quota 형식은 CODE=N 입니다: {value!r}")
+            quotas[code.strip()] = int(count)
+        return quotas
+
+    if args.command == "review-sheets":
+        paths, counts = build_review_sheets(
+            metadata_csv=args.metadata_csv,
+            images_dir=args.images_dir,
+            out_dir=args.out_dir,
+            pair_count=args.pair_count,
+            reviewer_label=args.reviewer_label,
+            analysis_jsonl=args.analysis,
+        )
+        print(f"관찰 검수표: {paths.observation} ({counts['images']}행)")
+        print(f"관찰 내용 채워진 행: {counts['analyzed']}/{counts['images']}")
+        print(f"claim 검수표: {paths.claim} ({counts['claims']}행)")
+        print(f"최소 수정 검수표: {paths.minimum_edit} ({counts['minimum_edits']}행)")
+        print(f"쌍대 비교표: {paths.pairwise} ({counts['pairs']}행)")
+        print(f"스타일 묶음을 잇는 다리 쌍: {counts['bridge_pairs']}행")
+    elif args.command == "review-manifest":
+        summary = build_review_manifest(
+            root=args.root,
+            out_dir=args.out_dir,
+            batch_size=args.batch_size,
+            batch_label=args.batch_label,
+            apply_rename=args.apply,
+            exclude_csvs=args.exclude,
+            quotas=_parse_quotas(args.quota),
+        )
+        print(f"전체 인벤토리: {summary['total']}장 → {summary['metadata_csv']}")
+        print(f"검수 배치: {summary['batch']}장 → {summary['batch_csv']}")
+        print(f"중복 제외 대상: {summary['duplicates']}장")
+        if summary["copied"]:
+            print(f"정규화 복사: 전체 {summary['copied']}장, 배치 {summary['batch_copied']}장")
+        for missing in summary["missing_collectors"]:
+            print(f"[미수집] {missing}")
+        for unmapped in summary["unmapped_styles"]:
+            print(f"[스타일 미매핑] {unmapped}")
+        for unknown in summary["unknown_styles"]:
+            print(f"[taxonomy 밖 값] {unknown}")
+        print(f"요약: {summary['out_dir'] / 'inventory_summary.md'}")
+    elif args.command == "prepare":
         run_dir = args.run_dir or settings.run_dir
         if args.input_dir is not None:
             build_manifest(

@@ -38,8 +38,8 @@ def normalize_payload(payload: dict) -> dict:
     api:  {job_id, user_id, source{bucket,key}, output_prefix, callback_url}
     설계서: {job_id, input{bucket,key}, output{bucket,prefix}, ...}
 
-    exclude_categories는 룩북 등록에서만 실려 온다 — 사용자가 '입은 옷'으로 이미
-    지정해 둔 대분류다. 키가 없으면 빈 목록이 되어 기존 옷장·캘린더 페이로드와
+    exclude_categories는 룩북·캘린더 등록에서 실려 온다 — 사용자가 '입은 옷'으로
+    이미 지정해 둔 대분류다. 키가 없으면 빈 목록이 되어 기존 옷장 페이로드와
     동작이 완전히 같다.
     """
     source = payload.get("source") or payload.get("input") or {}

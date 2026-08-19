@@ -30,6 +30,78 @@ class SwaggerEndpointTests(SimpleTestCase):
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, reverse("api-schema"))
 
+    def test_wardrobe_swagger_operations_are_executable(self) -> None:
+        response = self.client.get(
+            reverse("api-schema"),
+            headers={"accept": "application/json"},
+        )
+        self.assertEqual(response.status_code, 200)
+        paths = json.loads(response.content)["paths"]
+
+        detail = paths["/api/v1/wardrobe/items/{item_id}/"]["get"]
+        self.assertEqual(detail["operationId"], "wardrobe_item_detail")
+        self.assertIn("$ref", detail["responses"]["200"]["content"]["application/json"]["schema"])
+
+        add_to_closet = paths[
+            "/api/v1/wardrobe/items/{item_id}/add-to-closet/"
+        ]["post"]
+        self.assertEqual(
+            add_to_closet["operationId"], "wardrobe_item_add_to_closet"
+        )
+        self.assertNotIn("requestBody", add_to_closet)
+
+        delete_category = paths[
+            "/api/v1/shared-wardrobes/{id}/categories/"
+        ]["delete"]
+        category_id = next(
+            parameter
+            for parameter in delete_category["parameters"]
+            if parameter["name"] == "category_id"
+        )
+        self.assertEqual((category_id["in"], category_id["required"]), ("query", True))
+        for method in ("get", "post", "delete"):
+            category_operation = paths[
+                "/api/v1/shared-wardrobes/{id}/categories/"
+            ][method]
+            self.assertTrue(category_operation["deprecated"])
+            self.assertIn("레거시", category_operation["description"])
+
+        required_operations = {
+            ("get", "/api/v1/wardrobe/batches/"),
+            ("post", "/api/v1/wardrobe/batches/"),
+            ("get", "/api/v1/wardrobe/batches/{batch_id}/"),
+            ("post", "/api/v1/wardrobe/uploads/"),
+            ("get", "/api/v1/wardrobe/uploads/{job_id}/"),
+            ("get", "/api/v1/wardrobe/items/"),
+            ("get", "/api/v1/wardrobe/items/{item_id}/"),
+            ("patch", "/api/v1/wardrobe/items/{item_id}/"),
+            ("delete", "/api/v1/wardrobe/items/{item_id}/"),
+            ("post", "/api/v1/wardrobe/items/{item_id}/add-to-closet/"),
+            ("get", "/api/v1/shared-wardrobes/"),
+            ("post", "/api/v1/shared-wardrobes/"),
+            ("get", "/api/v1/shared-wardrobes/{id}/"),
+            ("patch", "/api/v1/shared-wardrobes/{id}/"),
+            ("delete", "/api/v1/shared-wardrobes/{id}/"),
+            ("post", "/api/v1/shared-wardrobes/join/"),
+            ("get", "/api/v1/shared-wardrobes/preview/"),
+            ("post", "/api/v1/shared-wardrobes/{id}/refresh-code/"),
+            ("post", "/api/v1/shared-wardrobes/{id}/leave/"),
+            ("get", "/api/v1/shared-wardrobes/{id}/members/"),
+            ("get", "/api/v1/shared-wardrobes/{id}/items/"),
+            ("post", "/api/v1/shared-wardrobes/{id}/items/"),
+            ("patch", "/api/v1/shared-wardrobes/{id}/items/"),
+            ("delete", "/api/v1/shared-wardrobes/{id}/items/"),
+            ("get", "/api/v1/shared-wardrobes/{id}/categories/"),
+            ("post", "/api/v1/shared-wardrobes/{id}/categories/"),
+            ("delete", "/api/v1/shared-wardrobes/{id}/categories/"),
+        }
+        for method, path in required_operations:
+            with self.subTest(method=method, path=path):
+                operation = paths[path][method]
+                self.assertTrue(operation.get("summary"))
+                self.assertTrue(operation.get("tags"))
+                self.assertTrue(operation.get("responses"))
+
     def test_chat_apis_share_one_executable_swagger_category(self) -> None:
         response = self.client.get(
             reverse("api-schema"),
@@ -50,12 +122,16 @@ class SwaggerEndpointTests(SimpleTestCase):
                 if method not in {"get", "post", "patch", "put", "delete"}:
                     continue
                 with self.subTest(path=path, method=method):
-                    self.assertEqual(operation["tags"], ["채팅"])
+                    self.assertIn(
+                        operation["tags"],
+                        (["채팅"], ["선택형 스타일리스트"]),
+                    )
                     self.assertTrue(operation.get("summary"))
                     self.assertTrue(operation.get("description"))
 
         declared_tags = {tag["name"]: tag for tag in schema["tags"]}
         self.assertIn("채팅", declared_tags)
+        self.assertIn("선택형 스타일리스트", declared_tags)
         self.assertIn("추천 카드", declared_tags["채팅"]["description"])
 
         session_create = paths["/api/v1/chat/sessions/"]["post"]
@@ -106,6 +182,50 @@ class SwaggerEndpointTests(SimpleTestCase):
 
         chat_sse = paths["/api/v1/chat/runs/{run_id}/events/"]["get"]
         self.assertIn("text/event-stream", chat_sse["responses"]["200"]["content"])
+
+    def test_shared_reference_schema_documents_eligibility_and_errors(self) -> None:
+        response = self.client.get(
+            reverse("api-schema"),
+            headers={"accept": "application/json"},
+        )
+        self.assertEqual(response.status_code, 200)
+        schema = json.loads(response.content)
+        paths = schema["paths"]
+
+        message_create = paths[
+            "/api/v1/chat/sessions/{session_id}/messages/"
+        ]["post"]
+        for response_status, error_code in (
+            ("403", "REFERENCE_ITEM_FORBIDDEN"),
+            ("404", "REFERENCE_ITEM_NOT_FOUND"),
+            ("409", "REFERENCE_ITEM_NOT_READY"),
+        ):
+            error_response = message_create["responses"][response_status]
+            self.assertIn(error_code, error_response["description"])
+            self.assertIn("application/json", error_response["content"])
+
+        shared_items = paths[
+            "/api/v1/shared-wardrobes/{id}/items/"
+        ]["get"]
+        for contract_value in (
+            "reference_eligible",
+            "reference_unavailable_reason",
+            "PRIVATE",
+            "NOT_CONFIRMED",
+            "VECTOR_NOT_READY",
+            "BORROWED",
+        ):
+            self.assertIn(contract_value, shared_items["description"])
+
+        item_list_schema = shared_items["responses"]["200"]["content"][
+            "application/json"
+        ]["schema"]
+        item_schema_name = item_list_schema["items"]["$ref"].rsplit("/", 1)[-1]
+        item_properties = schema["components"]["schemas"][item_schema_name][
+            "properties"
+        ]
+        self.assertIn("reference_eligible", item_properties)
+        self.assertIn("reference_unavailable_reason", item_properties)
 
     def test_chat_swagger_exposes_executable_parameters(self) -> None:
         """채팅 문서가 설명만 있고 입력칸이 사라지는 회귀를 막는다."""
@@ -295,20 +415,25 @@ class SwaggerEndpointTests(SimpleTestCase):
         )
 
         field = schema["components"]["schemas"]["BudgetRequest"]
-        self.assertEqual(field["required"], ["monthly_budget"])
-        budget_field = field["properties"]["monthly_budget"]
-        self.assertTrue(budget_field["nullable"])  # null로 예산 해제
-        self.assertEqual(budget_field["minimum"], 10_000)
-        self.assertEqual(budget_field["maximum"], 2_147_480_000)
+        self.assertEqual(field["required"], ["category_budgets"])
+        budget_field = field["properties"]["category_budgets"]
+        amount_field = budget_field["additionalProperties"]
+        self.assertEqual(amount_field["minimum"], 10_000)
+        self.assertEqual(amount_field["maximum"], 2_147_480_000)
         self.assertIn("1만원 단위", budget_field["description"])
+        self.assertNotIn("effective_category_budgets", field["properties"])
+        response_field = schema["components"]["schemas"]["Budget"]
+        effective_field = response_field["properties"]["effective_category_budgets"]
+        self.assertTrue(effective_field["readOnly"])
 
         # 예시 드롭다운 (이름은 drf-spectacular가 공백을 지워 생성한다)
         self.assertEqual(
             set(request_body["examples"]),
-            {"예산설정(월30만원)", "예산해제(null)"},
+            {"카테고리별예산설정", "모든예산을기본값으로복원"},
         )
-        self.assertIsNone(
-            request_body["examples"]["예산해제(null)"]["value"]["monthly_budget"]
+        self.assertEqual(
+            request_body["examples"]["모든예산을기본값으로복원"]["value"]["category_budgets"],
+            {},
         )
 
         # 응답쪽도 설정됨/미설정 두 가지를 보여준다

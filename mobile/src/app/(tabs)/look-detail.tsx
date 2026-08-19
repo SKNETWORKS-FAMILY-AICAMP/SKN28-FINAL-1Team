@@ -1,25 +1,33 @@
 import { Icon } from '@/components/icon';
-import { SmartImage, useToast } from '@/components/ui';
-import { formatBudget, parsePrice, usePrefs } from '@/state/prefs';
+import { ErrorState, LoadingState, SmartImage, useToast } from '@/components/ui';
+import { categoryBudget, formatBudget, parsePrice, usePrefs } from '@/state/prefs';
 import { router, useLocalSearchParams } from 'expo-router';
 import { useMemo, useState } from 'react';
-import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { Editorial, ink, Fonts } from '@/constants/theme';
 import { TODAY_LOOK_IMAGE } from '@/constants/look-images';
-import { dailyLookToVariant, LOOK_VARIANTS, resolveLookVariant } from '@/constants/today-look';
+import {
+  dailyLookResults,
+  dailyLookToVariant,
+  LOOK_VARIANTS,
+  pickDailyLookResult,
+  resolveLookVariant,
+} from '@/constants/today-look';
 import { savedLookStore } from '@/state/saved';
 import { useAuth } from '@/state/auth';
 import { draftItem } from '@/state/draft-item';
-import { brandScores, likesStore, useWishlist, wishKey } from '@/state/likes';
 import { backTo, goBack } from '@/lib/goBack';
 import { mallLabel, openExternal, productUrl } from '@/lib/mall';
 import type { LookRelated } from '@/constants/today-look';
 import { useBreakpoint } from '@/hooks/use-breakpoint';
 import { useDailyLook } from '@/hooks/use-daily-look';
 import { useHome } from '@/hooks/use-home';
+import { dailyLookPhase } from '@/lib/dailyLookApi';
 import { DetailTwoPane } from '@/components/detail-two-pane';
+import { useDiscoveryLook } from '@/hooks/use-discovery-look';
+import type { LookVariant } from '@/constants/today-look';
 
 const INK = Editorial.ink;
 const WINE = Editorial.wine;
@@ -36,27 +44,97 @@ export default function LookDetail() {
   // 2단(≥1280)일 땐 본문을 넓게, 세로로 쌓일 땐 좁게 잡아 사진·카드가 과하게 커지지 않게 한다.
   const maxW = width >= 1280 ? 960 : 720;
   /* 어떤 룩을 볼지는 주소가 정한다. 없으면 오늘의 룩. */
-  const { id, from } = useLocalSearchParams<{ id?: string; from?: string }>();
-  const { isLoggedIn } = useAuth();
+  /* golden = 홈 카드가 보여 주던 그 룩('다른 룩'으로 돌려본 후보일 수 있다).
+     없으면 대표 룩이다. */
+  const { id, from, golden } = useLocalSearchParams<{
+    id?: string;
+    from?: string;
+    golden?: string;
+  }>();
+  /* authLoading = 저장된 토큰으로 세션을 복원하는 중(status 'loading').
+     **비회원과 갈라야 한다** — 아래 목업 분기가 이 구간을 게스트로 보면
+     로그인 사용자가 부팅 몇 초 동안 목업을 본다. */
+  const { isLoggedIn, isLoading: authLoading } = useAuth();
+  /* 서브텍스트의 날씨는 홈과 같은 출처(useHome)에서 가져와 통일한다. 홈 응답에는
+     오늘의 룩 상태도 실려 있어 아래 훅의 시드로 그대로 넘긴다(왕복 0회). */
+  const { data: home } = useHome();
   /* 오늘의 룩(id 없음/'daily')은 추천 API 실데이터로 그린다. 홈이 이미 만들어 둔
      것을 다시 조회하는 것뿐이라(하루 1건 멱등) 재생성은 없고, 생성 중이면 훅이
-     폴링해 보는 사이 완성되면 화면이 실제 추천으로 바뀐다. 완성 전·비회원이면
-     번들 목업으로 물러난다 — 홈 카드의 템플릿 폴백과 같은 규칙. */
-  const { look: dailyLook } = useDailyLook(isLoggedIn);
-  const apiVariant = useMemo(() => dailyLookToVariant(dailyLook), [dailyLook]);
-  const look = (!id || id === 'daily') && apiVariant ? apiVariant : resolveLookVariant(id);
+     폴링해 보는 사이 완성되면 화면이 실제 추천으로 바뀐다.
+     **완성 전에는 목업으로 물러나지 않는다** — 로그인 사용자에게 남의 룩 목업을
+     보여주면 몇 초 뒤 통째로 바뀌어 방금 본 것이 가짜였다는 인상만 남는다.
+     번들 목업은 비회원 둘러보기(LOOK_VARIANTS) 몫으로만 남긴다. */
+  const {
+    look: dailyLook,
+    stalled: dailyStalled,
+    reload: reloadDailyLook,
+  } = useDailyLook(isLoggedIn, home ? home.daily_look : undefined);
+  const discoveryLook = useDiscoveryLook(id);
+  const apiVariant = useMemo(
+    () => dailyLookToVariant(dailyLook, golden),
+    [dailyLook, golden],
+  );
+  const discoveryVariant = useMemo<LookVariant | null>(() => discoveryLook ? ({
+    id: discoveryLook.id,
+    title: discoveryLook.title,
+    subtitle: discoveryLook.subtitle,
+    image: discoveryLook.image,
+    reasons: discoveryLook.reasons,
+    pieces: discoveryLook.items.map((item) => ({
+      slot: item.slot,
+      image: item.image,
+      name: item.name,
+      brand: item.brand,
+      tone: 0.08,
+      mine: false,
+      related: item.similar_products.map((product) => ({
+        name: product.name,
+        brand: product.brand,
+        price: String(product.price),
+        tone: 0.08,
+        image: product.image,
+        link: product.link,
+      })),
+    })),
+  }) : null, [discoveryLook]);
+  const look = discoveryVariant ?? ((!id || id === 'daily') && apiVariant ? apiVariant : resolveLookVariant(id));
   const PIECES = look.pieces;
   const lookTags = tagsOf(look.subtitle);
   /* 사진은 원격 URL 이 있으면 그것, 없으면 번들 목업(오늘의 룩) */
   const lookKey = look.image ? { image: look.image } : { asset: TODAY_LOOK_IMAGE };
+  /* 지금 그리는 것이 서버가 만든 오늘의 룩인가. 저장이 골든 코디 경로를 타야 하는
+     조건이자, '이미 담았는지'를 사진이 아니라 골든 id 로 봐야 하는 조건이다 —
+     이 룩의 사진은 presigned URL 이라 조회마다 달라진다. */
+  const serverGoldenId =
+    !discoveryVariant && (!id || id === 'daily') && apiVariant
+      ? (pickDailyLookResult(dailyLook, golden)?.golden_id ?? '')
+      : '';
 
-  const [saved, setSaved] = useState(() => savedLookStore.isSaved(lookKey));
+  /* 북마크는 **보고 있는 룩마다** 따로다. '다른 룩'으로 돌리면 같은 화면에서 대상이
+     바뀌므로, 하나의 boolean 으로 들고 있으면 앞 룩의 상태가 뒷 룩에 그대로 남는다.
+     낙관적 갱신(누르는 즉시 켜기)은 유지하되 룩 단위로 덮어쓴다. */
+  /* 착용 이미지(render_frontal_*)가 아직 없는 실제 추천인가.
+     골든 코디당 한 장을 만들어 재사용하는 구조라, 처음 나간 코디는 추천이 끝난 뒤
+     몇 초~몇 분 동안 이미지가 비어 있다. 그때 번들 목업으로 메우면 안 된다 —
+     내 추천을 보러 온 사람에게 남의 룩 사진을 보여주는 셈이고, 진짜 이미지가
+     들어오는 순간 방금 본 것이 가짜였다는 인상만 남는다. */
+  const renderPending = Boolean(serverGoldenId) && !look.image;
+  const savedKey = serverGoldenId || (look.image ?? `asset:${TODAY_LOOK_IMAGE}`);
+  const [savedOverrides, setSavedOverrides] = useState<Record<string, boolean>>({});
+  const saved =
+    savedOverrides[savedKey] ??
+    (serverGoldenId
+      ? savedLookStore.getByGoldenId(serverGoldenId) != null
+      : savedLookStore.isSaved(lookKey));
+  const setSaved = (next: boolean) =>
+    setSavedOverrides((prev) => ({ ...prev, [savedKey]: next }));
   const [vote, setVote] = useState<'up' | 'down' | null>(null);
   const [openSlot, setOpenSlot] = useState<string | null>(null);
   const toast = useToast();
-  const { budget } = usePrefs();
-  const wishlist = useWishlist();
+  const { effectiveCategoryBudgets } = usePrefs();
 
+  /* 가상 피팅은 **서버가 만든 오늘의 룩**에서만 연다. 목업·둘러보기 룩에는 넘길
+     look_id 가 없어, 그대로 보내면 피팅 화면이 내 룩이 아닌 것을 그린다. */
   const openVirtualTryOn = () => {
     if (!dailyLook?.look_id || look.id !== 'daily') {
       toast('서버에서 생성된 추천 룩만 가상으로 입어볼 수 있어요.');
@@ -65,36 +143,36 @@ export default function LookDetail() {
     router.push({ pathname: '/fitting', params: { lookId: dailyLook.look_id } });
   };
 
-  /* 찜한 브랜드 = 취향. 예산 다음 순위로 써서 관련 상품 순서를 정한다(아래 sortRelated). */
-  const brands = useMemo(() => brandScores(wishlist), [wishlist]);
-  const wishedIds = useMemo(() => new Set(wishlist.map((w) => w.id)), [wishlist]);
-
-  /**
-   * 관련 상품 정렬 — ①예산 안 ②찜한 브랜드 순.
-   * 예산을 앞에 두는 이유: 살 수 없는 것을 아무리 취향에 맞게 올려도 소용이 없다.
-   */
-  const sortRelated = (items: LookRelated[]) =>
-    [...items].sort((a, b) => {
-      if (budget != null) {
-        const fit = (p: LookRelated) => (parsePrice(p.price) <= budget ? 0 : 1);
-        if (fit(a) !== fit(b)) return fit(a) - fit(b);
-      }
-      return (brands[b.brand] ?? 0) - (brands[a.brand] ?? 0);
+  /** 관련 상품은 실제 적용 예산 안에서만 보여준다. */
+  const filterRelated = (items: LookRelated[], category: string) =>
+    items.filter((item) => {
+      const budget = categoryBudget(effectiveCategoryBudgets, category);
+      return budget == null || parsePrice(item.price) <= budget;
     });
 
-  const relatedHead = (() => {
+  const relatedHead = (category: string) => {
     const parts: string[] = [];
+    const budget = categoryBudget(effectiveCategoryBudgets, category);
     if (budget != null) parts.push(`${formatBudget(budget)} 예산 내 우선`);
-    if (Object.keys(brands).length > 0) parts.push('찜한 브랜드 우선');
     return parts.length ? `비슷한 상품 · ${parts.join(' · ')}` : '비슷한 상품';
-  })();
+  };
 
   /* [다른 룩] = 다음 변형으로. 이름 그대로 다른 룩을 보여준다 —
-     예전엔 룩북으로 나가버려서 버튼 이름과 하는 일이 어긋나 있었다. */
+     예전엔 룩북으로 나가버려서 버튼 이름과 하는 일이 어긋나 있었다.
+
+     오늘의 룩이면 리트리버가 뽑은 **진짜 차순위 후보**를 돌린다. 목업 변형으로
+     넘어가면 로그인 사용자가 자기 추천을 보다가 남의 룩을 보게 된다. */
   const showAnotherLook = () => {
-    const at = LOOK_VARIANTS.findIndex((l) => l.id === look.id);
-    const next = LOOK_VARIANTS[(at + 1) % LOOK_VARIANTS.length];
-    router.setParams({ id: next.id });
+    if (serverGoldenId) {
+      const results = dailyLookResults(dailyLook);
+      const at = results.findIndex((r) => r.golden_id === serverGoldenId);
+      const next = results[(at + 1) % results.length];
+      router.setParams({ id: 'daily', golden: next.golden_id });
+    } else {
+      const at = LOOK_VARIANTS.findIndex((l) => l.id === look.id);
+      const next = LOOK_VARIANTS[(at + 1) % LOOK_VARIANTS.length];
+      router.setParams({ id: next.id });
+    }
     setOpenSlot(null);
     setVote(null);
   };
@@ -113,20 +191,7 @@ export default function LookDetail() {
     router.push('/item-add');
   };
 
-  const toggleWish = (r: LookRelated, slot: string) => {
-    const added = likesStore.toggleWish({
-      name: r.name,
-      brand: r.brand,
-      price: r.price,
-      tone: r.tone,
-      link: r.link,
-      mall: r.mall,
-      slot,
-    });
-    toast(added ? '찜했어요' : '찜에서 뺐어요');
-  };
-
-  /* 북마크 = 저장 토글. 켜면 '저장됨'에 담고, 끄면 뺀다.
+  /* 북마크 = 저장 토글. 켜면 내 룩북의 '위시'에 담고, 끄면 뺀다.
      하트를 안 쓰는 이유 — 하트는 룩북 피드의 '좋아요'가 가져갔다. 한 아이콘이 화면마다
      다른 뜻이면 누르기 전에 무슨 일이 생길지 알 수 없다. */
   /* 서버 왕복이라 먼저 켜 두고 실패하면 되돌린다 — 저장은 한 번 누르면 끝나야 하는 동작이라
@@ -134,6 +199,12 @@ export default function LookDetail() {
   const saveLook = async (): Promise<boolean> => {
     setSaved(true);
     try {
+      if (serverGoldenId) {
+        /* 골든 코디는 서버가 이미 가진 자산이다. 표지 사진을 다시 올리면(addLook)
+           같은 사진이 사용자 수만큼 복제되고 이미 끝난 옷 추출을 다시 돈다. */
+        await savedLookStore.saveDailyLook(serverGoldenId);
+        return true;
+      }
       await savedLookStore.addLook({
         ...lookKey,
         comment: look.title,
@@ -150,9 +221,11 @@ export default function LookDetail() {
 
   const toggleSave = async () => {
     if (saved) {
-      const found = savedLookStore
-        .getLooks()
-        .find((l) => (look.image ? l.image === look.image : l.asset === TODAY_LOOK_IMAGE));
+      const found = serverGoldenId
+        ? savedLookStore.getByGoldenId(serverGoldenId)
+        : savedLookStore
+            .getLooks()
+            .find((l) => (look.image ? l.image === look.image : l.asset === TODAY_LOOK_IMAGE));
       setSaved(false);
       if (found) {
         try {
@@ -164,20 +237,78 @@ export default function LookDetail() {
       }
       return;
     }
-    if (await saveLook()) toast('저장됨에 담았어요');
+    if (await saveLook()) toast(serverGoldenId ? '내 룩북에 담았어요' : '위시에 담았어요');
   };
 
-  // 하단 '룩북에 저장' = 담고 룩북 저장됨 탭으로 이동.
+  /* 하단 '룩북에 저장' = 담고 그 룩이 선 갈래로 이동 — 담았다고 해 놓고 그 룩이 없는
+     목록을 열면 실패로 읽힌다. 오늘의 룩은 서버에 진짜 룩북 글로 남아 내 룩북에,
+     목업·피드 룩은 예전처럼 위시에 선다. */
   const saveAndGoLookbook = async () => {
-    if (await saveLook()) router.push('/(tabs)/lookbook?tab=saved');
+    if (await saveLook()) {
+      router.push(serverGoldenId ? '/(tabs)/lookbook?tab=mine' : '/(tabs)/lookbook?tab=wish');
+    }
   };
 
-  /* 서브텍스트의 날씨는 홈과 같은 출처(useHome)에서 실시간 값을 가져와 통일한다.
-     아직 안 불러왔거나 API 실패 시엔 날씨를 생략하고 무드·상황만 보여준다. */
-  const { data: home } = useHome();
+  /* 아직 안 불러왔거나 API 실패 시엔 날씨를 생략하고 무드·상황만 보여준다. */
   const w = home?.weather;
   const weatherPart = w && w.temperature != null ? `${w.region ?? '서울'} ${w.temperature}°` : null;
   const subtitle = [weatherPart, look.subtitle].filter(Boolean).join(' · ');
+
+  /* 로그인 사용자가 '오늘의 룩'을 열었는데 아직 완성 전이면, 목업 룩을 그리는 대신
+     지금 무슨 일이 벌어지는지 보여준다. 홈 카드와 같은 판정(dailyLookPhase)을 써서
+     두 화면이 같은 순간에 같은 말을 하게 한다. */
+  const isDailyRoute = !discoveryVariant && (!id || id === 'daily');
+  const dailyPhase = dailyLookPhase(dailyLook, dailyStalled);
+  /* 오늘의 룩 경로에서 실데이터를 그릴 수 없는 동안은 목업으로 물러나지 않는다.
+     두 경우다.
+
+     1. 인증 복원 중(authLoading) — 아직 회원인지 모른다. bootstrap 은 secure store
+        읽기에 `GET /users/me` 왕복까지라 수백 ms~수 초다. 그동안 useDailyLook 도
+        꺼져 있어(enabled=isLoggedIn) 조회가 시작조차 안 된다.
+     2. 로그인 사용자인데 추천이 아직 안 됐다(생성 중·후보 없음·실패).
+
+     비회원은 여기 걸리지 않는다 — 둘러보기로 들어온 사람에게는 샘플 룩이 빈 화면보다 낫다. */
+  if (isDailyRoute && (authLoading || (isLoggedIn && dailyPhase !== 'ready'))) {
+    return (
+      <View style={styles.container}>
+        <SafeAreaView edges={['top']} style={styles.headerSafe}>
+          <View style={[styles.header, contentStyle(maxW)]}>
+            <Pressable hitSlop={12} onPress={() => goBack(backTo(from, '/(tabs)/home'))}>
+              <Icon name="chevron.left" tintColor={INK} size={20} />
+            </Pressable>
+            <Text style={styles.headerTitle}>추천 룩</Text>
+            <View style={styles.headerRight} />
+          </View>
+        </SafeAreaView>
+        {authLoading || dailyPhase === 'pending' ? (
+          /* 인증 복원 중에는 '만들고 있어요'가 사실이 아니다 — 아직 아무것도
+             부르지 않았다. 문구를 갈라 두면 사용자가 기다리는 대상이 정확해진다. */
+          <LoadingState
+            message={
+              authLoading
+                ? '오늘의 룩을 불러오는 중이에요…'
+                : (dailyLook?.detail ?? '오늘의 룩을 만들고 있어요…')
+            }
+          />
+        ) : dailyLook?.status === 'EMPTY' ? (
+          /* 후보가 없는 것은 오류가 아니다 — 다시 시도해도 같으니 프로필로 보낸다. */
+          <ErrorState
+            title="오늘 추천할 룩을 찾지 못했어요"
+            description={dailyLook?.detail ?? '체형·추구미를 채우면 그에 맞는 코디를 찾아드릴 수 있어요.'}
+            onRetry={() => router.push('/edit-profile')}
+            retryLabel="프로필 채우기"
+            retryIcon="person"
+          />
+        ) : (
+          <ErrorState
+            title="오늘의 룩을 준비하지 못했어요"
+            description={dailyLook?.detail ?? '잠시 뒤 다시 시도해 주세요.'}
+            onRetry={reloadDailyLook}
+          />
+        )}
+      </View>
+    );
+  }
 
   return (
     <View style={styles.container}>
@@ -211,7 +342,34 @@ export default function LookDetail() {
         <DetailTwoPane
           image={
             /* 2D 가상착장 — 탭하면 가상 피팅 화면으로 */
-            <Pressable style={styles.fitting} onPress={openVirtualTryOn}>
+            <Pressable
+              style={styles.fitting}
+              /* 준비 중에는 눌리지 않는다 — 없는 착용 이미지를 두고 '가상으로
+                 입어보기'로 보내면 버튼이 약속한 것과 다른 화면이 열린다. */
+              disabled={renderPending}
+              onPress={openVirtualTryOn}>
+          {renderPending ? (
+            <>
+              <ActivityIndicator color={Editorial.selected} />
+              <Text style={styles.renderPendingTitle}>착용 이미지를 준비하고 있어요</Text>
+              {/* "잠시 뒤 자동으로 보여요"라고 쓰지 않는다 — 추천이 이미 SUCCEEDED 라
+                  이 화면은 더 이상 폴링하지 않는다(서버 계약: 다음 조회에서 채워진다).
+                  대신 지금 확인할 수단을 옆에 둔다. */}
+              <Text style={styles.renderPendingBody}>
+                코디 구성은 아래에서 먼저 볼 수 있어요. 이미지는 다 만들어진 뒤 다시 열면 보여요.
+              </Text>
+              <Pressable
+                style={styles.renderPendingBtn}
+                hitSlop={8}
+                onPress={() => {
+                  void reloadDailyLook();
+                }}>
+                <Icon name="arrow.clockwise" tintColor={INK} size={13} />
+                <Text style={styles.renderPendingBtnText}>지금 확인</Text>
+              </Pressable>
+            </>
+          ) : (
+            <>
           <SmartImage
             uri={look.image}
             asset={look.image ? undefined : TODAY_LOOK_IMAGE}
@@ -228,6 +386,8 @@ export default function LookDetail() {
             <Icon name="sparkles" tintColor={INK} size={13} />
             <Text style={styles.fittingCtaText}>가상으로 입어보기</Text>
           </View>
+            </>
+          )}
             </Pressable>
           }
           details={
@@ -243,6 +403,7 @@ export default function LookDetail() {
                  아코디언을 잠그고 화살표도 숨긴다. */
               const expandable = p.related.length > 0;
               const open = expandable && openSlot === p.slot;
+              const related = filterRelated(p.related, p.slot);
               return (
                 <View key={p.slot} style={[styles.pieceWrap, open && styles.pieceWrapOpen]}>
                   <Pressable
@@ -287,10 +448,10 @@ export default function LookDetail() {
 
                   {open ? (
                     <View style={styles.related}>
-                      <Text style={styles.relatedHead}>{relatedHead}</Text>
-                      {sortRelated(p.related).map((r) => {
+                      <Text style={styles.relatedHead}>{relatedHead(p.slot)}</Text>
+                      {related.map((r) => {
+                        const budget = categoryBudget(effectiveCategoryBudgets, p.slot);
                         const inBudget = budget != null && parsePrice(r.price) <= budget;
-                        const wished = wishedIds.has(wishKey(r));
                         const url = productUrl(r, r.mall);
                         return (
                           <View key={r.name} style={styles.relatedItem}>
@@ -299,12 +460,15 @@ export default function LookDetail() {
                               style={styles.relatedMain}
                               onPress={() => openExternal(url)}
                               accessibilityLabel={`${r.brand} ${r.name} — ${mallLabel(url)}에서 보기`}>
-                              <View
-                                style={[
-                                  styles.relatedThumb,
-                                  { backgroundColor: `rgba(28,25,23,${r.tone})` },
-                                ]}
-                              />
+                              <View style={styles.relatedThumb}>
+                                <SmartImage
+                                  uri={r.image}
+                                  width={44}
+                                  height={44}
+                                  radius={10}
+                                  contentFit="cover"
+                                />
+                              </View>
                               <View style={styles.relatedBody}>
                                 <Text style={styles.relatedName} numberOfLines={1}>
                                   {r.name}
@@ -324,26 +488,20 @@ export default function LookDetail() {
                                 ) : null}
                               </View>
                             </Pressable>
-                            <Pressable
-                              style={styles.wishBtn}
-                              hitSlop={6}
-                              onPress={() => toggleWish(r, p.slot)}
-                              accessibilityLabel={wished ? '찜에서 빼기' : '찜하기'}>
-                              <Icon
-                                name={wished ? 'heart.fill' : 'heart'}
-                                tintColor={wished ? WINE : ink(0.35)}
-                                size={17}
-                              />
-                            </Pressable>
                           </View>
                         );
                       })}
-                      {budget == null ? (
+                      {related.length === 0 ? (
+                        <Text style={styles.relatedEmpty}>
+                          현재 예산 안의 비슷한 상품을 찾지 못했어요.
+                        </Text>
+                      ) : null}
+                      {categoryBudget(effectiveCategoryBudgets, p.slot) == null ? (
                         <Pressable
                           style={styles.budgetPrompt}
                           onPress={() => router.push('/budget')}>
                           <Icon name="wallet" tintColor={ink(0.5)} size={14} />
-                          <Text style={styles.budgetPromptText}>예산을 설정하면 예산 내 상품을 먼저 보여드려요</Text>
+                          <Text style={styles.budgetPromptText}>{p.slot} 예산을 설정하면 예산 내 상품을 먼저 보여드려요</Text>
                         </Pressable>
                       ) : null}
                     </View>
@@ -352,15 +510,6 @@ export default function LookDetail() {
               );
             })}
           </View>
-
-          {/* 담아 둔 상품으로 가는 길 — 아코디언을 닫으면 찜한 게 어디 갔는지 알 수 없어서 둔다. */}
-          {wishlist.length > 0 ? (
-            <Pressable style={styles.wishLink} onPress={() => router.push('/wishlist')}>
-              <Icon name="heart.fill" tintColor={WINE} size={14} />
-              <Text style={styles.wishLinkText}>찜한 상품 {wishlist.length}개 보기</Text>
-              <Icon name="chevron.right" tintColor={ink(0.3)} size={14} />
-            </Pressable>
-          ) : null}
 
           {/* 추천 이유 */}
           <Text style={styles.sectionTitle}>왜 이 룩일까요?</Text>
@@ -477,6 +626,29 @@ const styles = StyleSheet.create({
     borderRadius: 999,
   },
   fittingCtaText: { fontSize: 12.5, fontWeight: '600', color: INK },
+  /* 착용 이미지 준비 중 — 사진 자리를 그대로 쓰므로(styles.fitting) 이미지가
+     도착해도 레이아웃이 튀지 않는다. */
+  renderPendingTitle: { fontSize: 15, fontWeight: '600', color: INK, marginTop: 4 },
+  renderPendingBody: {
+    fontSize: 12.5,
+    lineHeight: 19,
+    color: Editorial.textCaption,
+    textAlign: 'center',
+    paddingHorizontal: 32,
+  },
+  renderPendingBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    marginTop: 4,
+    height: 34,
+    paddingHorizontal: 14,
+    borderRadius: 17,
+    borderWidth: 1,
+    borderColor: Editorial.line,
+    backgroundColor: Editorial.page,
+  },
+  renderPendingBtnText: { fontSize: 12.5, fontWeight: '600', color: INK },
 
   body: { paddingHorizontal: 20, paddingTop: 22 },
   title: { fontFamily: Fonts.serif, fontSize: 24, color: INK },
@@ -531,8 +703,8 @@ const styles = StyleSheet.create({
     gap: 10,
   },
   relatedHead: { fontSize: 11, color: Editorial.textCaption, fontWeight: '600' },
+  relatedEmpty: { fontSize: 12, color: Editorial.textCaption, paddingVertical: 10 },
   relatedItem: { flexDirection: 'row', alignItems: 'center', gap: 4 },
-  // 상품 본문(→판매처)과 찜 버튼을 갈라 놓는다. 한 행에서 두 동작이 갈리므로 영역도 나눈다.
   relatedMain: { flex: 1, flexDirection: 'row', alignItems: 'center', gap: 10 },
   relatedThumb: { width: 44, height: 44, borderRadius: 10, backgroundColor: BONE },
   relatedBody: { flex: 1, gap: 2 },
@@ -540,19 +712,6 @@ const styles = StyleSheet.create({
   relatedMeta: { flexDirection: 'row', alignItems: 'center', gap: 4 },
   relatedBrand: { fontSize: 11.5, color: Editorial.textCaption },
   relatedMall: { fontSize: 11, color: Editorial.textMuted },
-  wishBtn: { width: 32, height: 32, alignItems: 'center', justifyContent: 'center' },
-  wishLink: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-    marginTop: 12,
-    paddingVertical: 12,
-    paddingHorizontal: 14,
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: Editorial.line,
-  },
-  wishLinkText: { flex: 1, fontSize: 13, color: Editorial.textSoft, fontWeight: '500' },
   relatedRight: { alignItems: 'flex-end', gap: 4 },
   relatedPrice: { fontSize: 13, fontWeight: '600', color: INK },
   budgetTag: {
