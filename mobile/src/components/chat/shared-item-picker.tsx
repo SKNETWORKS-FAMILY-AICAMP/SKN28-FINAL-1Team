@@ -9,6 +9,7 @@ import {
   getMySharedRooms,
   listSharedRoomItems,
   sharedUserDisplayName,
+  type SharedReferenceUnavailableReason,
   type SharedRoomItem,
 } from '@/lib/wardrobeApi';
 import type { SharedReferencePick } from '@/state/chat';
@@ -30,12 +31,34 @@ const INK = Editorial.ink;
 
 /** 방 하나가 실패해도 나머지는 보여준다 — 전부 못 보느니 일부라도 고를 수 있어야 한다. */
 type LoadState = {
-  picks: SharedReferencePick[];
+  picks: SharedReferencePickerItem[];
   failedRooms: number;
   error: string | null;
 };
 
-function toPick(item: SharedRoomItem, roomId: string, roomName: string): SharedReferencePick {
+type SharedReferencePickerItem = SharedReferencePick & {
+  referenceEligible: boolean;
+  referenceUnavailableReason: SharedReferenceUnavailableReason | null;
+};
+
+const UNAVAILABLE_LABELS: Record<SharedReferenceUnavailableReason, string> = {
+  PRIVATE: '나만 보기 상태',
+  VECTOR_NOT_READY: '이미지 분석 중',
+  NOT_CONFIRMED: '옷 정보 확인 필요',
+};
+
+function unavailableLabel(item: SharedReferencePickerItem): string | null {
+  if (item.referenceEligible) return null;
+  return item.referenceUnavailableReason
+    ? UNAVAILABLE_LABELS[item.referenceUnavailableReason]
+    : '지금은 참고할 수 없어요';
+}
+
+function toPick(
+  item: SharedRoomItem,
+  roomId: string,
+  roomName: string,
+): SharedReferencePickerItem {
   const w = item.wardrobe_item;
   return {
     sharedItemId: item.id,
@@ -45,6 +68,8 @@ function toPick(item: SharedRoomItem, roomId: string, roomName: string): SharedR
     ownerName: sharedUserDisplayName(item.registered_by),
     roomId,
     roomName,
+    referenceEligible: item.reference_eligible,
+    referenceUnavailableReason: item.reference_unavailable_reason,
   };
 }
 
@@ -128,7 +153,8 @@ export function SharedItemPicker({
     }
   }
 
-  const selected = state.picks.find((p) => p.sharedItemId === selectedId) ?? null;
+  const selected =
+    state.picks.find((p) => p.sharedItemId === selectedId && p.referenceEligible) ?? null;
   /* 방이 여럿일 때만 방 이름을 붙인다 — 하나뿐이면 모든 카드에 같은 말이 붙어 소음이 된다. */
   const showRoom = new Set(state.picks.map((p) => p.roomId)).size > 1;
 
@@ -193,16 +219,25 @@ export function SharedItemPicker({
 
               <ScrollView contentContainerStyle={styles.grid} showsVerticalScrollIndicator={false}>
                 {state.picks.map((p) => {
-                  const on = p.sharedItemId === selectedId;
+                  const disabled = !p.referenceEligible;
+                  const reason = unavailableLabel(p);
+                  const on = !disabled && p.sharedItemId === selectedId;
                   return (
                     <Pressable
                       key={p.sharedItemId}
-                      style={[styles.card, on && styles.cardOn]}
-                      onPress={() => setSelectedId(on ? null : p.sharedItemId)}
+                      style={[styles.card, disabled && styles.cardDisabled, on && styles.cardOn]}
+                      disabled={disabled}
+                      onPress={() => {
+                        if (disabled) return;
+                        setSelectedId(on ? null : p.sharedItemId);
+                      }}
                       accessibilityRole="radio"
-                      accessibilityState={{ selected: on }}
-                      accessibilityLabel={`${p.ownerName}님의 ${p.itemName}`}>
-                      <SmartImage uri={p.imageUrl} width="100%" height={92} radius={10} />
+                      accessibilityState={{ selected: on, disabled }}
+                      accessibilityLabel={`${p.ownerName}님의 ${p.itemName}${reason ? `, ${reason}` : ''}`}>
+                      <View style={styles.imageFrame}>
+                        <SmartImage uri={p.imageUrl} width="100%" height={92} radius={10} />
+                        {disabled ? <View pointerEvents="none" style={styles.imageVeil} /> : null}
+                      </View>
                       {on ? (
                         <View style={styles.check}>
                           <Icon name="checkmark" tintColor="#fff" size={11} />
@@ -216,6 +251,24 @@ export function SharedItemPicker({
                           {p.ownerName}
                           {showRoom && p.roomName ? ` · ${p.roomName}` : ''}
                         </Text>
+                        {reason ? (
+                          <View style={styles.unavailableRow}>
+                            <Icon
+                              name={
+                                p.referenceUnavailableReason === 'PRIVATE'
+                                  ? 'lock'
+                                  : p.referenceUnavailableReason === 'VECTOR_NOT_READY'
+                                    ? 'sparkles'
+                                    : 'questionmark.circle'
+                              }
+                              tintColor={Editorial.textMuted}
+                              size={10}
+                            />
+                            <Text style={styles.unavailableText} numberOfLines={1}>
+                              {reason}
+                            </Text>
+                          </View>
+                        ) : null}
                       </View>
                     </Pressable>
                   );
@@ -299,6 +352,13 @@ const styles = StyleSheet.create({
   },
   /* 고른 것은 면이 아니라 테두리로 말한다 — 채워지는 자리는 CTA 하나뿐이다. */
   cardOn: { borderColor: Editorial.lineStrong },
+  cardDisabled: { borderColor: Editorial.lineSoft },
+  imageFrame: { height: 92, position: 'relative' },
+  imageVeil: {
+    ...StyleSheet.absoluteFill,
+    borderRadius: 10,
+    backgroundColor: 'rgba(255,255,255,0.48)',
+  },
   check: {
     position: 'absolute',
     top: 12,
@@ -313,6 +373,8 @@ const styles = StyleSheet.create({
   cardMeta: { gap: 2 },
   cardName: { fontSize: Type.micro, color: INK, fontWeight: '500' },
   cardOwner: { fontSize: Type.micro, color: Editorial.textCaption },
+  unavailableRow: { flexDirection: 'row', alignItems: 'center', gap: 3, marginTop: 2 },
+  unavailableText: { flex: 1, fontSize: 9.5, color: Editorial.textMuted, lineHeight: 13 },
 
   confirm: {
     height: 48,
