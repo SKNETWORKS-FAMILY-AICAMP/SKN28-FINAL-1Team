@@ -146,6 +146,41 @@ class RecommendationApiTests(TestCase):
         self.assertEqual(detail.data["cards"][0]["card_id"], str(validated.id))
         self.assertEqual(card.status_code, status.HTTP_200_OK)
 
+    def test_card_item_labels_do_not_stringify_empty_arrays(self):
+        result, validated, _ = self._result(self.identity)
+        item = validated.items.get()
+        item.slot = f"기본 상의:{uuid.uuid4()}"
+        item.item_snapshot = {
+            "product_name": "검정 티셔츠",
+            "category_small": "티셔츠",
+            "color": [],
+        }
+        item.save(update_fields=["slot", "item_snapshot"])
+        self.client.force_authenticate(self.user)
+
+        response = self.client.get(
+            reverse(
+                "recommend:recommendation-card-detail",
+                args=[result.id, validated.id],
+            )
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        payload = response.data["items"][0]
+        self.assertEqual(payload["slot"], item.slot)
+        self.assertEqual(payload["category"], "티셔츠")
+        self.assertIsNone(payload["color"])
+
+        item.item_snapshot = {**item.item_snapshot, "color": ["검정", "회색"]}
+        item.save(update_fields=["item_snapshot"])
+        response = self.client.get(
+            reverse(
+                "recommend:recommendation-card-detail",
+                args=[result.id, validated.id],
+            )
+        )
+        self.assertEqual(response.data["items"][0]["color"], "검정, 회색")
+
     def test_missing_identity_is_401_and_other_owner_is_404(self):
         result, _, _ = self._result(self.identity)
 

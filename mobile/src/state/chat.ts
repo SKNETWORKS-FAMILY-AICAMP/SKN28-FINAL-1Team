@@ -34,6 +34,7 @@ import {
   type ApiRenderJob,
   type ApiRenderStatus,
 } from '@/lib/recommendApi';
+import { recommendationCategoryTags } from '@/lib/recommendationPresentation';
 import {
   buildReferenceBadge,
   buildReferenceBubble,
@@ -161,6 +162,8 @@ export type ChatMessage =
       /** 새로 사야 하는 상품 합계. 옷장 옷만으로 짠 코디면 0 이라 표시하지 않는다. */
       totalPrice: number | null;
       warnings: string[];
+      /** 카드 아래에서만 보여주는 룩 전체 추천 이유. */
+      rationale: string;
       /** 공유 옷을 참고한 추천일 때만. 아니면 null 이라 배지를 안 그린다. */
       referenceBadge: ReferenceBadge | null;
     }
@@ -346,7 +349,7 @@ function toRecMessage(
     /* 서버가 코디에 이름을 붙이지 않는다. 없는 이름을 지어내면 추천마다 다른 작명 규칙이
        생기므로 순위를 그대로 쓴다. */
     title: `추천 코디 ${card.rank}`,
-    tags: card.items.map((i) => i.category || i.slot).filter(Boolean),
+    tags: recommendationCategoryTags(card.items),
     items: card.items.map((i) => ({
       id: i.item_id,
       name: i.display_name,
@@ -357,6 +360,7 @@ function toRecMessage(
     })),
     totalPrice: card.total_product_price,
     warnings: card.warnings ?? [],
+    rationale: card.rationale ?? '',
     referenceBadge: toReferenceBadge(card.reference_match),
   };
 }

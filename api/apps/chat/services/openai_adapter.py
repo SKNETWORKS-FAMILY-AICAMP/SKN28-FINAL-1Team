@@ -12,7 +12,7 @@ from django.conf import settings
 from django.core.exceptions import ImproperlyConfigured
 from django.utils.crypto import salted_hmac
 from openai import OpenAI
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 from apps.chat.services.experimental_hypotheses import (
     ExperimentalHypothesisCandidateBatch,
@@ -62,8 +62,30 @@ class ConversationSummary(BaseModel):
     summary: str
 
 
+class RecommendationExplanationItem(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    item_id: str = Field(min_length=1)
+    note: str = Field(min_length=1, max_length=500)
+    attribute_claims: list[str] = Field(max_length=0)
+
+
+class RecommendationExplanationOutfit(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    outfit_id: str = Field(min_length=1)
+    rationale: str = Field(min_length=1, max_length=1000)
+    items: list[RecommendationExplanationItem] = Field(min_length=1, max_length=8)
+
+
 class RecommendationExplanation(BaseModel):
-    message: str
+    model_config = ConfigDict(extra="forbid")
+
+    opening: str = Field(min_length=1, max_length=600)
+    outfits: list[RecommendationExplanationOutfit] = Field(
+        min_length=1,
+        max_length=3,
+    )
 
 
 class PhotoMoodAnalysis(BaseModel):
@@ -112,6 +134,9 @@ session_conditions에 승인된 사진 무드나 이전 조건이 있으면 현�
 현재 발화가 기존 조건을 명시적으로 바꾸면 현재 발화를 우선한다.
 RECOMMEND의 search_query는 벡터 검색에 바로 쓸 수 있는 간결한 한국어 문장으로 만든다.
 상품·옷장·골든셋 ID를 만들거나 소유권·판매 상태·사이즈를 확정하지 않는다.
+clarification_question과 response_text는 친근하고 정중한 해요체로 1~3문장만 작성한다.
+마크다운 제목·목록·강조 문법(###, -, ** 등)을 사용하지 않는다.
+이모지는 선택 사항이며 메시지당 0~2개를 문장 끝에만 쓰고 아이템 나열에는 쓰지 않는다.
 응답은 지정된 구조화 출력 스키마만 따른다.
 """.strip()
 
@@ -123,9 +148,22 @@ _SUMMARY_INSTRUCTIONS = """
 
 _EXPLAIN_INSTRUCTIONS = """
 검증을 통과한 패션 추천 결과를 사용자에게 설명한다.
-제공된 코디와 아이템, 선택 근거만 언급하고 존재하지 않는 상품이나 ID를 만들지 않는다.
-옷장 기반은 보유 아이템만 사용했다는 점을, 신규 상품 포함 모드는 새 상품이 포함된다는 점을 명확히 한다.
-사이즈 데이터가 부족하면 확정 표현을 피한다. 간결하고 읽기 쉬운 한국어로 답한다.
+opening은 1~3줄로 작성한다. recent_messages에 이전 사용자 발화가 없으면 짧게 인사하고,
+그 외에는 current_request를 어떻게 이해했는지 친근하게 답한다. 아이템을 나열하지 않는다.
+approved_recommendation의 코디마다 같은 outfit_id로 outfits 항목을 정확히 하나 만들고,
+각 코디의 모든 아이템에 같은 item_id로 items 항목을 정확히 하나 만든다. ID를 만들거나 바꾸지 않는다.
+rationale은 1~3문장으로 요청 스타일·TPO·날씨·예산 중 입력으로 확인된 사실을 종합해
+룩 전체를 추천한 이유를 설명한다. focus_slots가 있으면 그 슬롯을 중심으로 설명한다.
+item.note는 한 문장으로 해당 아이템을 고른 이유만 설명하며 룩 전체 rationale을 반복하지 않는다.
+아이템의 색상·소재·핏·브랜드·가격·사이즈·세탁법·날씨 적합성은 해당 아이템의
+attributes, price, reasons 또는 validation_reasons에 실제 값이나 근거가 있을 때만 언급한다.
+weather와 conditions는 사용자 요청의 확정된 사실이지만, 특정 아이템의 날씨 적합성을
+자동으로 증명하지는 않는다. 입력에 없는 속성을 추론하지 않는다.
+모든 item.attribute_claims는 반드시 빈 배열로 둔다. 존재하지 않는 상품이나 조건을 만들지 않는다.
+옷장 기반은 보유 아이템을 활용했다는 점을, 신규 상품 포함 모드는 새 상품 가격을 입력 범위에서만 설명한다.
+친근하고 정중한 해요체로 간결하게 답하며 마크다운 제목·목록·강조 문법(###, -, ** 등)을 사용하지 않는다.
+이모지는 선택 사항이며 opening과 rationale을 합쳐 0~2개를 문장 끝에만 쓰고 item.note에는 쓰지 않는다.
+응답은 지정된 구조화 출력 스키마만 따른다.
 """.strip()
 
 _PHOTO_MOOD_INSTRUCTIONS = """
@@ -233,6 +271,12 @@ class OpenAIChatAdapter:
         persona: dict,
         mode: str,
         approved_recommendation: dict,
+        current_request: str,
+        recent_messages: list[dict],
+        weather: dict,
+        budget: int | None,
+        conditions: dict,
+        focus_slots: list[str],
     ) -> LLMResult[RecommendationExplanation]:
         return self._parse(
             schema=RecommendationExplanation,
@@ -242,6 +286,12 @@ class OpenAIChatAdapter:
                 "task": "explain_recommendation",
                 "persona": persona,
                 "mode": mode,
+                "current_request": current_request,
+                "recent_messages": recent_messages,
+                "weather": weather,
+                "budget": budget,
+                "conditions": conditions,
+                "focus_slots": focus_slots,
                 "approved_recommendation": approved_recommendation,
             },
         )

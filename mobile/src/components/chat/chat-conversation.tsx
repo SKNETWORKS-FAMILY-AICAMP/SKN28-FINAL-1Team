@@ -573,7 +573,7 @@ export function ChatConversation({
               </View>
               <View style={styles.aiCol}>
                 {m.kind === 'rec' ? (
-                  /* 눌러서 상세로 — 구매 링크·선택 근거·코디 이미지·피드백은 그쪽에 있다.
+                  /* 눌러서 상세로 — 구매 링크·코디 이미지·피드백은 그쪽에 있다.
                      (/look-detail 은 목업이라 쓰지 않는다. 방금 받은 추천과 상관없는 룩이 열린다.) */
                   <Pressable
                     style={styles.recCard}

@@ -45,10 +45,14 @@ from apps.chat.services.recommendation_pipeline import (
     ChatRecommendationError,
     ChatRecommendationPipeline,
 )
+from apps.chat.services.recommendation_explanations import (
+    apply_recommendation_explanation,
+)
 from apps.chat.services.reference_recommendation_events import (
     STAGE_SNAPSHOT_VALIDATION,
     ReferenceRecommendationEventRecorder,
 )
+from apps.chat.services.response_text import normalize_assistant_text
 from apps.chat.services.sessions import ChatSessionForbidden, append_message
 from apps.chat.services.shared_reference import (
     SharedReferenceError,
@@ -483,21 +487,50 @@ class ChatOrchestrator:
                         context=context.payload,
                         analysis=analysis,
                     )
-                    explained = self.llm.explain_recommendation(
-                        identity_id=str(run.session.identity_id),
-                        persona=context.payload["persona"],
+                    explanation = None
+                    explanation_fallback_reason = ""
+                    try:
+                        explained = self.llm.explain_recommendation(
+                            identity_id=str(run.session.identity_id),
+                            persona=context.payload["persona"],
+                            mode=run.session.mode,
+                            approved_recommendation=pipeline_result.approved_payload,
+                            current_request=context.payload["current_request"],
+                            recent_messages=context.payload["recent_messages"],
+                            weather=context.payload["weather"],
+                            budget=analysis.conditions.budget,
+                            conditions=analysis.conditions.model_dump(),
+                            focus_slots=[],
+                        )
+                        usage += explained.usage
+                        provider_response_id = explained.response_id
+                        explanation = explained.value
+                    except ChatLLMError as exc:
+                        explanation_fallback_reason = str(
+                            getattr(exc, "code", ChatLLMError.code)
+                        )
+                        logger.warning(
+                            "일반 추천 설명 생성 실패, 규칙 폴백 사용: code=%s",
+                            explanation_fallback_reason,
+                        )
+                    applied_explanation = apply_recommendation_explanation(
+                        result=pipeline_result.result,
+                        explanation=explanation,
                         mode=run.session.mode,
-                        approved_recommendation=pipeline_result.approved_payload,
+                        budget=analysis.conditions.budget,
+                        conditions=analysis.conditions.model_dump(),
+                        weather=context.payload["weather"],
+                        focus_slots=[],
+                        fallback_reason=explanation_fallback_reason,
                     )
-                    usage += explained.usage
-                    provider_response_id = explained.response_id
-                    response_text = explained.value.message.strip()
+                    response_text = applied_explanation.opening
                     recommendation_result_id = str(pipeline_result.result.id)
                     recommendation_result_ids = (recommendation_result_id,)
                     response_metadata["recommendation_result_id"] = (
                         recommendation_result_id
                     )
 
+            response_text = normalize_assistant_text(response_text)
             response_message, _ = append_message(
                 identity=run.session.identity,
                 session_id=run.session_id,
@@ -1087,10 +1120,11 @@ class ChatOrchestrator:
                     requested_provider=settings.PERSONA_LLM_PROVIDER,
                     reason="PERSONA_NARRATION_FAILED",
                 )
+            narrated_message = normalize_assistant_text(narrated.message)
             RecommendationResult.objects.filter(pk=result.pk).update(
-                persona_explanation=narrated.message,
+                persona_explanation=narrated_message,
             )
-            result.persona_explanation = narrated.message
+            result.persona_explanation = narrated_message
             usage += narrated.usage
         return usage
 

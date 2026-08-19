@@ -543,7 +543,9 @@ class ChatOrchestratorTests(TestCase):
             approved_payload=approved,
         )
         self.llm.explain_recommendation.return_value = LLMResult(
-            value=RecommendationExplanation(message="검증된 출근 코디예요."),
+            value=RecommendationExplanation(
+                message="### 추천 룩\n- **검증된 출근 코디**예요."
+            ),
             response_id="resp-explanation",
             usage=LLMUsage(input_tokens=80, output_tokens=15),
         )
@@ -559,6 +561,10 @@ class ChatOrchestratorTests(TestCase):
         self.assertEqual(result.recommendation_result_id, str(recommendation.id))
         self.assertEqual(result.run.input_tokens, 180)
         self.assertEqual(result.run.output_tokens, 35)
+        self.assertEqual(
+            result.response_message.content,
+            "추천 룩\n검증된 출근 코디예요.",
+        )
         self.assertEqual(
             self.llm.explain_recommendation.call_args.kwargs["approved_recommendation"],
             approved,
