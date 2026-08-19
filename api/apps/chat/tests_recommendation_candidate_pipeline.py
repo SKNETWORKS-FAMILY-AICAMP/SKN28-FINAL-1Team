@@ -146,7 +146,11 @@ class RecommendationCandidatePipelineTests(TestCase):
             total_product_price=price,
         )
 
-    def _pipeline(self) -> tuple[ChatRecommendationPipeline, Mock]:
+    def _pipeline(
+        self,
+        *,
+        diversity_slots: tuple[str, ...] = ("TOP", "BOTTOM", "OUTER"),
+    ) -> tuple[ChatRecommendationPipeline, Mock]:
         first = OutfitCandidate(
             point_id="outfit-1",
             golden_id="golden-1",
@@ -200,6 +204,7 @@ class RecommendationCandidatePipelineTests(TestCase):
                 wardrobe_composer=Mock(),
                 new_item_composer=composer,
                 validator=validator,
+                diversity_slots=diversity_slots,
             ),
             composer,
         )
@@ -283,6 +288,25 @@ class RecommendationCandidatePipelineTests(TestCase):
             ["product-a", "product-b"],
         )
         self.assertEqual(output.result.golden_template.golden_id, "golden-1")
+        self.assertEqual(composer.compose.call_count, 1)
+
+    def test_default_execute_uses_injected_diversity_slots_after_generation(
+        self,
+    ) -> None:
+        run, _ = self._run()
+        pipeline, composer = self._pipeline(diversity_slots=("OUTER",))
+
+        output = pipeline.execute(
+            run=run,
+            context=self._context(),
+            analysis=self._analysis(),
+        )
+
+        self.assertEqual(output.result.compositions.count(), 1)
+        self.assertEqual(
+            output.result.compositions.get().items.get().source_id,
+            "product-a",
+        )
         self.assertEqual(composer.compose.call_count, 1)
 
     @patch("apps.chat.services.recommendation_pipeline.render_jobs.schedule_result")

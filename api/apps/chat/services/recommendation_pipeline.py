@@ -5,7 +5,7 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
-from collections.abc import Mapping, Sequence
+from collections.abc import Collection, Mapping, Sequence
 from contextlib import nullcontext
 from dataclasses import dataclass, replace
 from typing import Any
@@ -16,6 +16,10 @@ from django.db.models import Max
 
 from apps.chat.models import ChatRun, ChatRunPersona, ChatSession
 from apps.chat.services.openai_adapter import TurnAnalysis
+from apps.chat.services.recommendation_diversity import (
+    DEFAULT_CORE_DIVERSITY_SLOTS,
+    select_diverse_candidates,
+)
 from apps.chat.services.reference_recommendation_events import (
     STAGE_COMPOSER,
     STAGE_VALIDATOR,
@@ -138,6 +142,7 @@ class ChatRecommendationPipeline:
         new_item_composer: NewItemOutfitComposer | None = None,
         validator: OutfitValidator | None = None,
         reference_anchor_resolver: SharedReferenceAnchorResolver | None = None,
+        diversity_slots: Collection[str] = DEFAULT_CORE_DIVERSITY_SLOTS,
     ) -> None:
         self.golden_retriever = golden_retriever or GoldenOutfitRetriever()
         self.item_retriever = item_retriever or ItemCandidateRetriever()
@@ -147,6 +152,7 @@ class ChatRecommendationPipeline:
         self.reference_anchor_resolver = (
             reference_anchor_resolver or SharedReferenceAnchorResolver()
         )
+        self.diversity_slots = tuple(diversity_slots)
 
     def _retrieve_golden(self, request: RetrievalRequest) -> RetrievalResult:
         """골든 코디를 찾는다. 질의 임베딩을 못 쓰면 필터 검색으로 내려간다.
@@ -184,7 +190,7 @@ class ChatRecommendationPipeline:
         context: dict[str, Any],
         analysis: TurnAnalysis,
     ) -> RecommendationPipelineResult:
-        """기본 응답의 기존 동작을 보존하는 생성·저장 호환 진입점."""
+        """일반 모드 후보를 생성하고 핵심 슬롯 다양성을 적용해 저장한다."""
 
         if run.response_mode != ChatSession.ResponseMode.DEFAULT:
             raise OutfitCompositionFailed(
@@ -208,10 +214,24 @@ class ChatRecommendationPipeline:
             # 기존 기본 추천은 첫 번째로 성공한 골든 템플릿의 조합만 저장했다.
             max_validated_templates=1,
         )
+        selected = select_diverse_candidates(
+            generated.candidates,
+            diversity_slots=self.diversity_slots,
+            limit=3,
+        )
+        if len(selected) < min(3, len(generated.candidates)):
+            logger.info(
+                "핵심 슬롯이 같은 일반 추천 후보를 제외함: "
+                "run=%s generated=%s selected=%s slots=%s",
+                run.pk,
+                len(generated.candidates),
+                len(selected),
+                self.diversity_slots,
+            )
         return self.persist_candidates(
             run=run,
             generated=generated,
-            selected=generated.candidates[:3],
+            selected=selected,
         )
 
     def generate_candidates(
