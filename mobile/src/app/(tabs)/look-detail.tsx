@@ -3,7 +3,7 @@ import { ErrorState, LoadingState, SmartImage, useToast } from '@/components/ui'
 import { categoryBudget, formatBudget, parsePrice, usePrefs } from '@/state/prefs';
 import { router, useLocalSearchParams } from 'expo-router';
 import { useMemo, useState } from 'react';
-import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { Editorial, ink, Fonts } from '@/constants/theme';
@@ -51,7 +51,10 @@ export default function LookDetail() {
     from?: string;
     golden?: string;
   }>();
-  const { isLoggedIn } = useAuth();
+  /* authLoading = 저장된 토큰으로 세션을 복원하는 중(status 'loading').
+     **비회원과 갈라야 한다** — 아래 목업 분기가 이 구간을 게스트로 보면
+     로그인 사용자가 부팅 몇 초 동안 목업을 본다. */
+  const { isLoggedIn, isLoading: authLoading } = useAuth();
   /* 서브텍스트의 날씨는 홈과 같은 출처(useHome)에서 가져와 통일한다. 홈 응답에는
      오늘의 룩 상태도 실려 있어 아래 훅의 시드로 그대로 넘긴다(왕복 0회). */
   const { data: home } = useHome();
@@ -110,6 +113,12 @@ export default function LookDetail() {
   /* 북마크는 **보고 있는 룩마다** 따로다. '다른 룩'으로 돌리면 같은 화면에서 대상이
      바뀌므로, 하나의 boolean 으로 들고 있으면 앞 룩의 상태가 뒷 룩에 그대로 남는다.
      낙관적 갱신(누르는 즉시 켜기)은 유지하되 룩 단위로 덮어쓴다. */
+  /* 착용 이미지(render_frontal_*)가 아직 없는 실제 추천인가.
+     골든 코디당 한 장을 만들어 재사용하는 구조라, 처음 나간 코디는 추천이 끝난 뒤
+     몇 초~몇 분 동안 이미지가 비어 있다. 그때 번들 목업으로 메우면 안 된다 —
+     내 추천을 보러 온 사람에게 남의 룩 사진을 보여주는 셈이고, 진짜 이미지가
+     들어오는 순간 방금 본 것이 가짜였다는 인상만 남는다. */
+  const renderPending = Boolean(serverGoldenId) && !look.image;
   const savedKey = serverGoldenId || (look.image ?? `asset:${TODAY_LOOK_IMAGE}`);
   const [savedOverrides, setSavedOverrides] = useState<Record<string, boolean>>({});
   const saved =
@@ -239,7 +248,16 @@ export default function LookDetail() {
      두 화면이 같은 순간에 같은 말을 하게 한다. */
   const isDailyRoute = !discoveryVariant && (!id || id === 'daily');
   const dailyPhase = dailyLookPhase(dailyLook, dailyStalled);
-  if (isLoggedIn && isDailyRoute && dailyPhase !== 'ready') {
+  /* 오늘의 룩 경로에서 실데이터를 그릴 수 없는 동안은 목업으로 물러나지 않는다.
+     두 경우다.
+
+     1. 인증 복원 중(authLoading) — 아직 회원인지 모른다. bootstrap 은 secure store
+        읽기에 `GET /users/me` 왕복까지라 수백 ms~수 초다. 그동안 useDailyLook 도
+        꺼져 있어(enabled=isLoggedIn) 조회가 시작조차 안 된다.
+     2. 로그인 사용자인데 추천이 아직 안 됐다(생성 중·후보 없음·실패).
+
+     비회원은 여기 걸리지 않는다 — 둘러보기로 들어온 사람에게는 샘플 룩이 빈 화면보다 낫다. */
+  if (isDailyRoute && (authLoading || (isLoggedIn && dailyPhase !== 'ready'))) {
     return (
       <View style={styles.container}>
         <SafeAreaView edges={['top']} style={styles.headerSafe}>
@@ -251,8 +269,16 @@ export default function LookDetail() {
             <View style={styles.headerRight} />
           </View>
         </SafeAreaView>
-        {dailyPhase === 'pending' ? (
-          <LoadingState message={dailyLook?.detail ?? '오늘의 룩을 만들고 있어요…'} />
+        {authLoading || dailyPhase === 'pending' ? (
+          /* 인증 복원 중에는 '만들고 있어요'가 사실이 아니다 — 아직 아무것도
+             부르지 않았다. 문구를 갈라 두면 사용자가 기다리는 대상이 정확해진다. */
+          <LoadingState
+            message={
+              authLoading
+                ? '오늘의 룩을 불러오는 중이에요…'
+                : (dailyLook?.detail ?? '오늘의 룩을 만들고 있어요…')
+            }
+          />
         ) : dailyLook?.status === 'EMPTY' ? (
           /* 후보가 없는 것은 오류가 아니다 — 다시 시도해도 같으니 프로필로 보낸다. */
           <ErrorState
@@ -305,7 +331,34 @@ export default function LookDetail() {
         <DetailTwoPane
           image={
             /* 2D 가상착장 — 탭하면 가상 피팅 화면으로 */
-            <Pressable style={styles.fitting} onPress={() => router.push('/fitting')}>
+            <Pressable
+              style={styles.fitting}
+              /* 준비 중에는 눌리지 않는다 — 없는 착용 이미지를 두고 '가상으로
+                 입어보기'로 보내면 버튼이 약속한 것과 다른 화면이 열린다. */
+              disabled={renderPending}
+              onPress={() => router.push('/fitting')}>
+          {renderPending ? (
+            <>
+              <ActivityIndicator color={Editorial.selected} />
+              <Text style={styles.renderPendingTitle}>착용 이미지를 준비하고 있어요</Text>
+              {/* "잠시 뒤 자동으로 보여요"라고 쓰지 않는다 — 추천이 이미 SUCCEEDED 라
+                  이 화면은 더 이상 폴링하지 않는다(서버 계약: 다음 조회에서 채워진다).
+                  대신 지금 확인할 수단을 옆에 둔다. */}
+              <Text style={styles.renderPendingBody}>
+                코디 구성은 아래에서 먼저 볼 수 있어요. 이미지는 다 만들어진 뒤 다시 열면 보여요.
+              </Text>
+              <Pressable
+                style={styles.renderPendingBtn}
+                hitSlop={8}
+                onPress={() => {
+                  void reloadDailyLook();
+                }}>
+                <Icon name="arrow.clockwise" tintColor={INK} size={13} />
+                <Text style={styles.renderPendingBtnText}>지금 확인</Text>
+              </Pressable>
+            </>
+          ) : (
+            <>
           <SmartImage
             uri={look.image}
             asset={look.image ? undefined : TODAY_LOOK_IMAGE}
@@ -322,6 +375,8 @@ export default function LookDetail() {
             <Icon name="sparkles" tintColor={INK} size={13} />
             <Text style={styles.fittingCtaText}>가상으로 입어보기</Text>
           </View>
+            </>
+          )}
             </Pressable>
           }
           details={
@@ -560,6 +615,29 @@ const styles = StyleSheet.create({
     borderRadius: 999,
   },
   fittingCtaText: { fontSize: 12.5, fontWeight: '600', color: INK },
+  /* 착용 이미지 준비 중 — 사진 자리를 그대로 쓰므로(styles.fitting) 이미지가
+     도착해도 레이아웃이 튀지 않는다. */
+  renderPendingTitle: { fontSize: 15, fontWeight: '600', color: INK, marginTop: 4 },
+  renderPendingBody: {
+    fontSize: 12.5,
+    lineHeight: 19,
+    color: Editorial.textCaption,
+    textAlign: 'center',
+    paddingHorizontal: 32,
+  },
+  renderPendingBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    marginTop: 4,
+    height: 34,
+    paddingHorizontal: 14,
+    borderRadius: 17,
+    borderWidth: 1,
+    borderColor: Editorial.line,
+    backgroundColor: Editorial.page,
+  },
+  renderPendingBtnText: { fontSize: 12.5, fontWeight: '600', color: INK },
 
   body: { paddingHorizontal: 20, paddingTop: 22 },
   title: { fontFamily: Fonts.serif, fontSize: 24, color: INK },
