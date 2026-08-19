@@ -263,6 +263,7 @@ export const WardrobeEndpoints = {
   uploadJob: (jobId: string) => `/api/v1/wardrobe/uploads/${jobId}/`,
   categories: '/api/v1/wardrobe/categories/',
   hashtags: '/api/v1/wardrobe/hashtags/',
+  hashtag: (hashtagId: string) => `/api/v1/wardrobe/hashtags/${hashtagId}/`,
   hashtagItems: (hashtagId: string) =>
     `/api/v1/wardrobe/hashtags/${hashtagId}/items/`,
   hashtagOrder: '/api/v1/wardrobe/hashtags/order/',

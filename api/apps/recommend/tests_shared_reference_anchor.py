@@ -125,6 +125,7 @@ class SharedReferenceAnchorTests(SimpleTestCase):
             style_searcher=style_searcher,
             product_searcher=Mock(),
         )
+        observed: list[tuple[str, float]] = []
 
         anchor = resolver.resolve(
             snapshot={"type": "SHARED_WARDROBE_ITEM"},
@@ -132,12 +133,17 @@ class SharedReferenceAnchorTests(SimpleTestCase):
             user_id=7,
             total_budget=None,
             category_budgets={},
+            stage_observer=lambda stage, duration_ms: observed.append(
+                (stage, duration_ms)
+            ),
         )
 
         self.assertEqual(anchor.candidate.source_type, ItemSource.WARDROBE)
         self.assertEqual(anchor.candidate.source_id, selected_id)
         self.assertEqual(anchor.match_type, "VISUAL_SIMILAR")
         style_searcher.search.assert_not_called()
+        self.assertEqual([stage for stage, _ in observed], ["SIMILAR_SEARCH"])
+        self.assertGreaterEqual(observed[0][1], 0)
 
     def test_new_item_mode_selects_product_search_anchor(self) -> None:
         reference = _reference()

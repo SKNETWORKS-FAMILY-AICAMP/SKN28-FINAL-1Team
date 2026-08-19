@@ -76,10 +76,18 @@ LOGGING = {
     "version": 1,
     # Django/서드파티가 이미 만들어 둔 로거를 죽이지 않는다.
     "disable_existing_loggers": False,
+    "filters": {
+        "request_context": {
+            "()": "config.observability.RequestContextFilter",
+        },
+    },
     "formatters": {
         "standard": {
             "format": "%(asctime)s [%(levelname)s] %(name)s: %(message)s",
             "datefmt": "%Y-%m-%d %H:%M:%S",
+        },
+        "json": {
+            "()": "config.observability.JsonFormatter",
         },
     },
     "handlers": {
@@ -89,12 +97,25 @@ LOGGING = {
             # gunicorn --capture-output이 stdout/stderr를 에러 로그로 모은다.
             "stream": "ext://sys.stdout",
         },
+        "reference_recommendation": {
+            "class": "logging.StreamHandler",
+            "formatter": "json",
+            "filters": ["request_context"],
+            "stream": "ext://sys.stdout",
+        },
     },
     "root": {
         "handlers": ["console"],
         "level": LOG_LEVEL,
     },
     "loggers": {
+        # 레퍼런스 추천 운영 지표는 친구 이름·스냅샷·벡터를 허용하지 않는
+        # 전용 JSON 포맷으로만 남긴다.
+        "apps.chat.reference_recommendation": {
+            "handlers": ["reference_recommendation"],
+            "level": "INFO",
+            "propagate": False,
+        },
         # 애플리케이션 코드 (apps.users, apps.recommend, ...)
         "apps": {
             "handlers": ["console"],
@@ -676,6 +697,13 @@ CHAT_GUEST_COOKIE_SAMESITE = os.getenv("CHAT_GUEST_COOKIE_SAMESITE", "Lax")
 # 채팅 사진은 DB에 바이너리를 넣지 않고 비공개 S3 객체와 메타데이터로 분리한다.
 # 전용 버킷이 없으면 기존 옷장 이미지 버킷을 재사용한다.
 AWS_REGION = os.getenv("AWS_REGION", "ap-northeast-2")
+REFERENCE_RECOMMENDATION_LOG_GROUP = os.getenv(
+    "REFERENCE_RECOMMENDATION_LOG_GROUP",
+    "",
+).strip()
+REFERENCE_RECOMMENDATION_QUERY_LIMIT = int(
+    os.getenv("REFERENCE_RECOMMENDATION_QUERY_LIMIT", "10000")
+)
 CHAT_ATTACHMENT_S3_BUCKET = (
     os.getenv("CHAT_ATTACHMENT_S3_BUCKET", "").strip()
     or os.getenv("WARDROBE_S3_BUCKET", "").strip()

@@ -30,6 +30,10 @@ class WardrobeHashtagCreateSerializer(serializers.Serializer):
     )
 
 
+class WardrobeHashtagUpdateSerializer(serializers.Serializer):
+    name = serializers.CharField(max_length=80, trim_whitespace=False)
+
+
 class WardrobeHashtagItemsPatchSerializer(serializers.Serializer):
     add_item_ids = serializers.ListField(
         child=serializers.UUIDField(),
@@ -303,6 +307,10 @@ from .models import (
     SharedWardrobeMember,
     SharedWardrobeRoom,
 )
+from .services.reference_eligibility import (
+    REFERENCE_UNAVAILABLE_REASON_CHOICES,
+    evaluate_reference_eligibility,
+)
 
 User = get_user_model()
 
@@ -365,10 +373,51 @@ class SharedWardrobeMemberSerializer(serializers.ModelSerializer):
 class SharedWardrobeItemSerializer(serializers.ModelSerializer):
     wardrobe_item = WardrobeItemSerializer(read_only=True)
     registered_by = UserSimpleSerializer(read_only=True)
+    status = serializers.ChoiceField(
+        choices=SharedWardrobeItem.Status.choices,
+        read_only=True,
+        help_text=(
+            "공유 상태. AVAILABLE은 공유 가능, BORROWED는 대여 중이지만 채팅 참고 가능, "
+            "PRIVATE는 소유자만 볼 수 있고 채팅 참고 불가"
+        ),
+    )
+    reference_eligible = serializers.SerializerMethodField(
+        help_text=(
+            "현재 채팅 추천의 공유 옷 레퍼런스로 선택할 수 있는지 여부. "
+            "전송 시 서버가 권한과 준비 상태를 다시 검증함"
+        ),
+    )
+    reference_unavailable_reason = serializers.SerializerMethodField(
+        help_text=(
+            "선택 불가 사유 코드. PRIVATE, NOT_CONFIRMED, VECTOR_NOT_READY 중 "
+            "하나이며 선택 가능하면 null"
+        ),
+    )
 
     class Meta:
         model = SharedWardrobeItem
-        fields = ["id", "registered_by", "wardrobe_item", "status", "created_at"]
+        fields = [
+            "id",
+            "registered_by",
+            "wardrobe_item",
+            "status",
+            "reference_eligible",
+            "reference_unavailable_reason",
+            "created_at",
+        ]
+
+    @extend_schema_field(serializers.BooleanField())
+    def get_reference_eligible(self, obj) -> bool:
+        return evaluate_reference_eligibility(obj).eligible
+
+    @extend_schema_field(
+        serializers.ChoiceField(
+            choices=REFERENCE_UNAVAILABLE_REASON_CHOICES,
+            allow_null=True,
+        )
+    )
+    def get_reference_unavailable_reason(self, obj) -> str | None:
+        return evaluate_reference_eligibility(obj).unavailable_reason
 
 
 class SharedWardrobeJoinSerializer(serializers.Serializer):

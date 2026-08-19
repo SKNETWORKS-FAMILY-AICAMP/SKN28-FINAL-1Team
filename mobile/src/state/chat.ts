@@ -35,6 +35,10 @@ import {
   type ApiRenderStatus,
 } from '@/lib/recommendApi';
 import {
+  buildReferenceBadge,
+  buildReferenceBubble,
+} from '@/lib/sharedReferencePresentation';
+import {
   getStylistRun,
   getCardRenderStatus as apiGetCardRenderStatus,
   requestAlternative as apiRequestAlternative,
@@ -297,27 +301,12 @@ export type ReferenceBadge = {
   reasons: string[];
 };
 
-const REFERENCE_LABELS: Record<string, string> = {
-  'WARDROBE:VISUAL_SIMILAR': '친구 옷과 비슷한 내 옷',
-  'WARDROBE:STYLE_SIMILAR': '친구 옷과 스타일이 비슷한 내 옷',
-  'PRODUCT:VISUAL_SIMILAR': '친구 옷과 비슷한 새 상품',
-  /* 정상 경로에서는 안 나오지만 받으면 안전하게 표시한다. */
-  'PRODUCT:STYLE_SIMILAR': '친구 옷과 스타일이 비슷한 새 상품',
-};
-
 /** 스타일 fallback 안내 — 오류가 아니라는 게 문장에서 읽혀야 한다. */
 export const STYLE_FALLBACK_NOTE =
   '겉모습이 충분히 비슷한 내 옷이 없어 스타일·색상·핏·소재가 가까운 옷을 골랐어요.';
 
 export function toReferenceBadge(match: ApiReferenceMatch | undefined): ReferenceBadge | null {
-  const label = REFERENCE_LABELS[`${match?.source_type}:${match?.match_type}`];
-  if (!label) return null;
-  return {
-    label,
-    isStyleFallback: match?.match_type === 'STYLE_SIMILAR',
-    /* 점수(score)는 넘기지 않는다 — 사용자에게 뜻이 없는 숫자다. */
-    reasons: match?.reasons ?? [],
-  };
+  return buildReferenceBadge(match);
 }
 
 /**
@@ -457,15 +446,7 @@ function toMessages(
     out.push({
       id: api.id,
       role: 'user',
-      kind: 'reference',
-      text,
-      sharedItemId: ref.shared_item_id,
-      /* 서명이 실패하면 null 로 온다 — 이미지 자리만 비고 나머지는 그대로 보여준다. */
-      imageUrl: ref.image_url,
-      /* 이름이 비어 있으면 대분류로 대신한다(요구사항 4.2). */
-      itemName: ref.item_name || ref.category_large || '옷',
-      ownerName: ref.owner_name,
-      roomName: ref.room_name || undefined,
+      ...buildReferenceBubble(ref, text),
     });
   } else if (text) {
     out.push({ id: api.id, role, kind: 'text', text });

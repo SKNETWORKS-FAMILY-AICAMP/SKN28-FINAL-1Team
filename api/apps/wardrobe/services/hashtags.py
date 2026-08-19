@@ -180,6 +180,35 @@ def create_hashtag_with_items(*, user, name: str, item_ids: list):
 
 
 @transaction.atomic
+def rename_hashtag(*, user, hashtag: WardrobeHashtag, name: str) -> WardrobeHashtag:
+    display_name, normalized_name = normalize_and_validate_name(name)
+    User.objects.select_for_update().only("pk").get(pk=user.pk)
+    locked = WardrobeHashtag.objects.select_for_update().get(pk=hashtag.pk)
+    if WardrobeHashtag.objects.filter(
+        user=user,
+        normalized_name=normalized_name,
+    ).exclude(pk=locked.pk).exists():
+        raise HashtagServiceError(
+            "HASHTAG_NAME_DUPLICATE",
+            "이미 사용 중인 해시태그 이름입니다.",
+        )
+    if locked.name == display_name and locked.normalized_name == normalized_name:
+        return locked
+    locked.name = display_name
+    locked.normalized_name = normalized_name
+    locked.save(update_fields=["name", "normalized_name", "updated_at"])
+    return locked
+
+
+@transaction.atomic
+def delete_hashtag(*, user, hashtag: WardrobeHashtag) -> None:
+    User.objects.select_for_update().only("pk").get(pk=user.pk)
+    locked = WardrobeHashtag.objects.select_for_update().get(pk=hashtag.pk)
+    locked.delete()
+    _compact_positions(user)
+
+
+@transaction.atomic
 def update_hashtag_items(
     *,
     user,

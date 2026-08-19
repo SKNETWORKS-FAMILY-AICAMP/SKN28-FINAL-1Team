@@ -6,6 +6,7 @@ from apps.wardrobe.views import (
     WardrobeBatchView,
     WardrobeCallbackView,
     WardrobeFilterListView,
+    WardrobeHashtagDetailView,
     WardrobeHashtagItemsView,
     WardrobeHashtagListCreateView,
     WardrobeHashtagOrderView,
@@ -47,6 +48,11 @@ urlpatterns = [
         "wardrobe/hashtags/order/",
         WardrobeHashtagOrderView.as_view(),
         name="hashtag-order",
+    ),
+    path(
+        "wardrobe/hashtags/<uuid:hashtag_id>/",
+        WardrobeHashtagDetailView.as_view(),
+        name="hashtag-detail",
     ),
     path(
         "wardrobe/hashtags/<uuid:hashtag_id>/items/",

@@ -115,7 +115,7 @@ export function entryItemKey(item: { source: WardrobeSource; id: string }): stri
   return `${item.source}:${item.id}`;
 }
 
-/** 서버에 보낼 수 있는 건 내 옷장 옷뿐이다 — 친구 옷장·앱 카탈로그는 백엔드가 없다. */
+/** 캘린더 API는 개인 옷 FK만 받는다. 공유 옷·상품을 기록하는 쓰기 계약은 아직 없다. */
 function isServerItem(item: EntryItem): boolean {
   return item.source === 'closet';
 }

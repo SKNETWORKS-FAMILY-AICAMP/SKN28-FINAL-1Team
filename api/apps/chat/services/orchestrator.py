@@ -45,15 +45,22 @@ from apps.chat.services.recommendation_pipeline import (
     ChatRecommendationError,
     ChatRecommendationPipeline,
 )
+from apps.chat.services.reference_recommendation_events import (
+    STAGE_SNAPSHOT_VALIDATION,
+    ReferenceRecommendationEventRecorder,
+)
 from apps.chat.services.sessions import ChatSessionForbidden, append_message
-from apps.chat.services.shared_reference import build_reference_snapshot
-from apps.chat.services.wardrobe_scope import build_wardrobe_scope_snapshot
+from apps.chat.services.shared_reference import (
+    SharedReferenceError,
+    build_reference_snapshot,
+)
 from apps.chat.services.stylist_execution import (
     StylistExecutionCoordinator,
     StylistExecutionError,
     StylistExecutionResult,
 )
 from apps.chat.services.stylist_personas import load_stylist_personas
+from apps.chat.services.wardrobe_scope import build_wardrobe_scope_snapshot
 from apps.recommend.models import OutfitComposition, RecommendationResult
 
 logger = logging.getLogger(__name__)
@@ -218,10 +225,27 @@ def create_run(
         return existing, False
 
     snapshot = _session_run_snapshot(session, identity=identity)
-    snapshot["reference_snapshot"] = build_reference_snapshot(
-        identity=identity,
-        reference=reference,
-    )
+    if reference:
+        rejection_recorder = ReferenceRecommendationEventRecorder(
+            # 권한 단계에서는 ChatRun이 아직 만들어지지 않았다. request_id는 로깅
+            # context filter가 붙이므로 가짜 run UUID를 저장하지 않는다.
+            run_id="",
+            recommendation_mode=str(session.mode),
+            is_stylist=(
+                session.response_mode == ChatSession.ResponseMode.STYLIST
+            ),
+        )
+        try:
+            with rejection_recorder.measure(STAGE_SNAPSHOT_VALIDATION):
+                snapshot["reference_snapshot"] = build_reference_snapshot(
+                    identity=identity,
+                    reference=reference,
+                )
+        except SharedReferenceError as exc:
+            rejection_recorder.failure(exc)
+            raise
+    else:
+        snapshot["reference_snapshot"] = {}
     snapshot["wardrobe_scope_snapshot"] = build_wardrobe_scope_snapshot(
         identity=identity,
         scope=wardrobe_scope,

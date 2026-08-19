@@ -342,6 +342,14 @@ export function createWardrobeHashtag(name: string, itemIds: string[]): Promise<
   return api.post<WardrobeHashtag>(WardrobeEndpoints.hashtags, { name, item_ids: itemIds });
 }
 
+export function renameWardrobeHashtag(hashtagId: string, name: string): Promise<WardrobeHashtag> {
+  return api.patch<WardrobeHashtag>(WardrobeEndpoints.hashtag(hashtagId), { name });
+}
+
+export function deleteWardrobeHashtag(hashtagId: string): Promise<unknown> {
+  return api.delete(WardrobeEndpoints.hashtag(hashtagId));
+}
+
 export function updateWardrobeHashtagItems(
   hashtagId: string,
   changes: { add_item_ids: string[]; remove_item_ids: string[] },
@@ -444,6 +452,11 @@ export function itemDisplayName(item: WardrobeApiItem): string {
 /** 공유 옷의 상태. 서버 `SharedWardrobeItem.Status` 와 값이 1:1 로 맞아야 한다. */
 export type SharedItemStatus = 'available' | 'borrowed' | 'private';
 
+export type SharedReferenceUnavailableReason =
+  | 'PRIVATE'
+  | 'NOT_CONFIRMED'
+  | 'VECTOR_NOT_READY';
+
 export type SharedRoom = {
   id: string;
   title: string;
@@ -487,6 +500,8 @@ export type SharedRoomItem = {
   registered_by: SharedRoomUser | null;
   wardrobe_item: WardrobeApiItem;
   status: 'available' | 'borrowed' | 'private';
+  reference_eligible: boolean;
+  reference_unavailable_reason: SharedReferenceUnavailableReason | null;
   created_at: string;
 };
 
@@ -557,27 +572,6 @@ export function leaveSharedRoom(roomId: string, deleteMyItems: boolean = true): 
 
 export function listSharedRoomItems(roomId: string): Promise<SharedRoomItem[]> {
   return api.get<SharedRoomItem[]>(`/api/v1/shared-wardrobes/${roomId}/items/`);
-}
-
-export type SharedRoomCategory = {
-  id: string;
-  name: string;
-  created_by: number | null;
-  created_at: string;
-};
-
-export function listSharedRoomCategories(roomId: string): Promise<SharedRoomCategory[]> {
-  return api.get<SharedRoomCategory[]>(`/api/v1/shared-wardrobes/${roomId}/categories/`);
-}
-
-export function createSharedRoomCategory(roomId: string, name: string): Promise<SharedRoomCategory> {
-  return api.post<SharedRoomCategory>(`/api/v1/shared-wardrobes/${roomId}/categories/`, { name });
-}
-
-export function deleteSharedRoomCategory(roomId: string, categoryId: string): Promise<unknown> {
-  return api.delete(
-    `/api/v1/shared-wardrobes/${roomId}/categories/?category_id=${encodeURIComponent(categoryId)}`,
-  );
 }
 
 export function registerItemToSharedRoom(roomId: string, wardrobeItemId: string, status: SharedItemStatus = 'available'): Promise<SharedRoomItem> {

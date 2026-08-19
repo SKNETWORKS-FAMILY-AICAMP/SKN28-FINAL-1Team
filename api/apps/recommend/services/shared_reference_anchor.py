@@ -15,6 +15,8 @@ from apps.recommend.services.outfit_types import OutfitComposition, Recommendati
 from apps.recommend.services.shared_reference_loader import (
     SharedReferenceSearchBasis,
     SharedReferenceVectorLoader,
+    StageTimingObserver,
+    measure_reference_stage,
 )
 from apps.recommend.services.shared_reference_product_search import (
     SharedReferenceProductSearcher,
@@ -191,15 +193,21 @@ class SharedReferenceAnchorResolver:
         user_id: int | None,
         total_budget: int | None,
         category_budgets: Mapping[str, int],
+        stage_observer: StageTimingObserver | None = None,
     ) -> PinnedReferenceAnchor:
-        reference = self.loader.load(snapshot)
+        reference = self.loader.load(snapshot, stage_observer=stage_observer)
         if mode is RecommendationMode.WARDROBE_BASED:
-            return self._wardrobe_anchor(reference=reference, user_id=user_id)
+            return self._wardrobe_anchor(
+                reference=reference,
+                user_id=user_id,
+                stage_observer=stage_observer,
+            )
         if mode is RecommendationMode.NEW_ITEM:
             return self._product_anchor(
                 reference=reference,
                 total_budget=total_budget,
                 category_budgets=category_budgets,
+                stage_observer=stage_observer,
             )
         raise SharedReferenceAnchorInvalid("지원하지 않는 추천 모드입니다.")
 
@@ -208,39 +216,41 @@ class SharedReferenceAnchorResolver:
         *,
         reference: SharedReferenceSearchBasis,
         user_id: int | None,
+        stage_observer: StageTimingObserver | None,
     ) -> PinnedReferenceAnchor:
         if user_id is None:
             raise SharedReferenceAnchorInvalid(
                 "내 옷 기반 공유 레퍼런스 추천에는 회원 user_id가 필요합니다."
             )
-        visual = self.visual_searcher.search(
-            WardrobeVisualSearchRequest(reference=reference, user_id=user_id)
-        )
-        if visual.candidates:
-            selected = visual.candidates[0]
+        with measure_reference_stage(stage_observer, "SIMILAR_SEARCH"):
+            visual = self.visual_searcher.search(
+                WardrobeVisualSearchRequest(reference=reference, user_id=user_id)
+            )
+            if visual.candidates:
+                selected = visual.candidates[0]
+                return PinnedReferenceAnchor(
+                    reference=reference,
+                    candidate=_wardrobe_visual_candidate(reference, selected),
+                    match_type=selected.match_type,
+                )
+
+            fallback = self.style_searcher.search(
+                StyleFallbackRequest(
+                    reference=reference,
+                    visual_result=visual,
+                    user_id=user_id,
+                )
+            )
+            if not fallback.candidates:
+                raise SharedReferenceAnchorNotFound(
+                    "공유 옷과 같은 슬롯에서 유사한 내 옷을 찾지 못했습니다."
+                )
+            selected = fallback.candidates[0]
             return PinnedReferenceAnchor(
                 reference=reference,
-                candidate=_wardrobe_visual_candidate(reference, selected),
+                candidate=_wardrobe_style_candidate(reference, selected),
                 match_type=selected.match_type,
             )
-
-        fallback = self.style_searcher.search(
-            StyleFallbackRequest(
-                reference=reference,
-                visual_result=visual,
-                user_id=user_id,
-            )
-        )
-        if not fallback.candidates:
-            raise SharedReferenceAnchorNotFound(
-                "공유 옷과 같은 슬롯에서 유사한 내 옷을 찾지 못했습니다."
-            )
-        selected = fallback.candidates[0]
-        return PinnedReferenceAnchor(
-            reference=reference,
-            candidate=_wardrobe_style_candidate(reference, selected),
-            match_type=selected.match_type,
-        )
 
     def _product_anchor(
         self,
@@ -248,23 +258,25 @@ class SharedReferenceAnchorResolver:
         reference: SharedReferenceSearchBasis,
         total_budget: int | None,
         category_budgets: Mapping[str, int],
+        stage_observer: StageTimingObserver | None,
     ) -> PinnedReferenceAnchor:
-        result = self.product_searcher.search(
-            SharedReferenceProductSearchRequest(
+        with measure_reference_stage(stage_observer, "SIMILAR_SEARCH"):
+            result = self.product_searcher.search(
+                SharedReferenceProductSearchRequest(
+                    reference=reference,
+                    total_budget=total_budget,
+                    category_budgets=category_budgets,
+                )
+            )
+            if result.selected_anchor is None:
+                raise SharedReferenceAnchorNotFound(
+                    "예산 안에서 판매 중인 유사 상품을 찾지 못했습니다."
+                )
+            return PinnedReferenceAnchor(
                 reference=reference,
-                total_budget=total_budget,
-                category_budgets=category_budgets,
+                candidate=_product_candidate(result.selected_anchor),
+                match_type=result.selected_anchor.match_type,
             )
-        )
-        if result.selected_anchor is None:
-            raise SharedReferenceAnchorNotFound(
-                "예산 안에서 판매 중인 유사 상품을 찾지 못했습니다."
-            )
-        return PinnedReferenceAnchor(
-            reference=reference,
-            candidate=_product_candidate(result.selected_anchor),
-            match_type=result.selected_anchor.match_type,
-        )
 
 
 def pin_reference_anchor(

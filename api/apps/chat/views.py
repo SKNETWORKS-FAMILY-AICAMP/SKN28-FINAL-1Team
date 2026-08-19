@@ -63,6 +63,9 @@ from apps.chat.serializers import (
     GuestClaimResponseSerializer,
     GuestClaimSerializer,
     GuestIdentityResponseSerializer,
+    SharedReferenceForbiddenErrorSerializer,
+    SharedReferenceNotFoundErrorSerializer,
+    SharedReferenceNotReadyErrorSerializer,
     StylistListResponseSerializer,
 )
 from apps.chat.services import attachments as attachment_service
@@ -903,7 +906,14 @@ class ChatSessionDeriveView(APIView):
             "**로컬 테스트 전제:** Redis와 채팅 worker가 실행 중이어야 실제 AI 답변이 "
             "완료됩니다. OpenAI 키가 설정된 환경에서는 실제 API 비용이 발생할 수 "
             "있습니다. Swagger에서는 먼저 run 상태 조회를 반복하는 방식이 가장 "
-            "간단합니다."
+            "간단합니다.\n\n"
+            "**공유 옷 레퍼런스:** 공유 아이템 목록의 `reference_eligible=true`인 "
+            "아이템 UUID만 전송합니다. `BORROWED`는 참고 가능하고 `PRIVATE`, "
+            "미확정, 벡터 미준비 아이템은 불가합니다. 목록 조회 뒤 상태가 바뀔 수 "
+            "있으므로 서버는 접수 시 다시 검증합니다.\n\n"
+            "- `REFERENCE_ITEM_NOT_FOUND` (404): 공유 아이템이 존재하지 않음\n"
+            "- `REFERENCE_ITEM_FORBIDDEN` (403): 방 멤버가 아니거나 PRIVATE 등 권한 없음\n"
+            "- `REFERENCE_ITEM_NOT_READY` (409): 옷 확정 또는 임베딩 처리가 완료되지 않음"
         ),
         parameters=[_SESSION_ID_PARAMETER],
         request={"application/json": ChatMessageCreateSerializer},
@@ -915,11 +925,23 @@ class ChatSessionDeriveView(APIView):
             200: ChatMessageSubmitResponseSerializer,
             202: ChatMessageSubmitResponseSerializer,
             400: OpenApiResponse(description="메시지·client_message_id 검증 실패"),
-            403: OpenApiResponse(description="공유 옷장 참조 권한 없음"),
-            404: OpenApiResponse(
-                description="세션 또는 공유 옷장 참조 아이템을 찾을 수 없음"
+            403: OpenApiResponse(
+                response=SharedReferenceForbiddenErrorSerializer,
+                description="REFERENCE_ITEM_FORBIDDEN: 공유 옷장 참조 권한 없음",
             ),
-            409: OpenApiResponse(description="공유 옷 이미지·벡터 처리가 아직 완료되지 않음"),
+            404: OpenApiResponse(
+                response=SharedReferenceNotFoundErrorSerializer,
+                description=(
+                    "REFERENCE_ITEM_NOT_FOUND: 공유 옷장 참조 아이템을 찾을 수 없음. "
+                    "세션이 없을 때는 일반 404 detail 응답"
+                ),
+            ),
+            409: OpenApiResponse(
+                response=SharedReferenceNotReadyErrorSerializer,
+                description=(
+                    "REFERENCE_ITEM_NOT_READY: 공유 옷 이미지·벡터 처리가 아직 완료되지 않음"
+                ),
+            ),
             503: OpenApiResponse(description="Redis 채팅 실행 큐를 사용할 수 없음"),
         },
     ),

@@ -211,6 +211,8 @@ docs/*
 !docs/wardrobe-custom-category-chat-followup.md
 !docs/wardrobe-category-order-preference-chat-contract.md
 !docs/wardrobe-hashtag-contract.md
+!docs/shared-wardrobe-category-api-retirement.md
+!docs/reference-recommendation-operations.md
 main
 input
 nohup.out

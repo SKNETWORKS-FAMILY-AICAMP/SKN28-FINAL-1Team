@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import math
+import time
 import uuid
-from collections.abc import Mapping
+from collections.abc import Callable, Iterator, Mapping
+from contextlib import contextmanager
 from dataclasses import dataclass
 from typing import Any
 
@@ -43,6 +45,21 @@ _INDEXED_TAGS = (
     "length",
     "layer_role",
 )
+
+StageTimingObserver = Callable[[str, float], None]
+
+
+@contextmanager
+def measure_reference_stage(
+    observer: StageTimingObserver | None,
+    stage: str,
+) -> Iterator[None]:
+    started_at = time.perf_counter()
+    try:
+        yield
+    finally:
+        if observer is not None:
+            observer(stage, max(0.0, (time.perf_counter() - started_at) * 1000))
 
 
 class SharedReferenceLoaderError(RuntimeError):
@@ -246,99 +263,108 @@ class SharedReferenceVectorLoader:
     def __init__(self, *, client=None) -> None:
         self.client = client if client is not None else get_client()
 
-    def load(self, snapshot: Mapping[str, Any]) -> SharedReferenceSearchBasis:
-        if not isinstance(snapshot, Mapping) or not snapshot:
-            raise ReferenceSnapshotInvalid("공유 옷 참조 스냅샷이 필요합니다.")
-        if _required_string(snapshot, "schema_version") != REFERENCE_SCHEMA_VERSION:
-            raise ReferenceSnapshotInvalid("지원하지 않는 참조 스냅샷 버전입니다.")
-        if _required_string(snapshot, "type") != REFERENCE_TYPE:
-            raise ReferenceSnapshotInvalid("지원하지 않는 참조 유형입니다.")
-        if _required_string(snapshot, "source_status") not in {
-            "available",
-            "borrowed",
-        }:
-            raise ReferenceSnapshotInvalid("참조할 수 없는 공유 옷 상태입니다.")
+    def load(
+        self,
+        snapshot: Mapping[str, Any],
+        *,
+        stage_observer: StageTimingObserver | None = None,
+    ) -> SharedReferenceSearchBasis:
+        with measure_reference_stage(stage_observer, "SNAPSHOT_VALIDATION"):
+            if not isinstance(snapshot, Mapping) or not snapshot:
+                raise ReferenceSnapshotInvalid("공유 옷 참조 스냅샷이 필요합니다.")
+            if _required_string(snapshot, "schema_version") != REFERENCE_SCHEMA_VERSION:
+                raise ReferenceSnapshotInvalid("지원하지 않는 참조 스냅샷 버전입니다.")
+            if _required_string(snapshot, "type") != REFERENCE_TYPE:
+                raise ReferenceSnapshotInvalid("지원하지 않는 참조 유형입니다.")
+            if _required_string(snapshot, "source_status") not in {
+                "available",
+                "borrowed",
+            }:
+                raise ReferenceSnapshotInvalid("참조할 수 없는 공유 옷 상태입니다.")
 
-        spec = collection_spec("wardrobe")
-        collection_name = _required_string(snapshot, "qdrant_collection")
-        if collection_name != spec.name:
-            raise ReferenceIndexMismatch(
-                "참조 스냅샷의 Qdrant 컬렉션이 현재 옷장 인덱스와 다릅니다."
+            spec = collection_spec("wardrobe")
+            collection_name = _required_string(snapshot, "qdrant_collection")
+            if collection_name != spec.name:
+                raise ReferenceIndexMismatch(
+                    "참조 스냅샷의 Qdrant 컬렉션이 현재 옷장 인덱스와 다릅니다."
+                )
+
+            shared_item_id = _uuid_string(snapshot, "shared_item_id")
+            room_id = _uuid_string(snapshot, "room_id")
+            wardrobe_item_id = _uuid_string(snapshot, "wardrobe_item_id")
+            point_id = _uuid_string(snapshot, "qdrant_point_id")
+            if point_id != wardrobe_item_id:
+                raise ReferenceIndexMismatch(
+                    "공유 옷의 Qdrant 포인트 ID와 원본 옷장 아이템 ID가 다릅니다."
+                )
+
+            embedding_version = _required_string(snapshot, "embedding_version")
+            image_s3_key = _required_string(snapshot, "image_s3_key")
+            snapshot_item = snapshot.get("item")
+            if not isinstance(snapshot_item, Mapping):
+                raise ReferenceSnapshotInvalid("참조 스냅샷의 item 객체가 필요합니다.")
+            _tags(snapshot_item)
+
+        with measure_reference_stage(stage_observer, "VECTOR_LOADING"):
+            try:
+                points = self.client.retrieve(
+                    collection_name=collection_name,
+                    ids=[point_id],
+                    with_payload=True,
+                    with_vectors=True,
+                )
+            except Exception as exc:
+                raise ReferenceVectorStoreUnavailable(
+                    "공유 옷 벡터 저장소를 조회할 수 없습니다."
+                ) from exc
+            if not points:
+                raise ReferenceVectorNotFound(
+                    "공유 옷의 Qdrant 포인트를 찾을 수 없습니다."
+                )
+
+            point = points[0]
+            if str(point.id) != point_id:
+                raise ReferenceIndexMismatch("조회된 Qdrant 포인트 ID가 요청과 다릅니다.")
+            payload = getattr(point, "payload", None)
+            if not isinstance(payload, Mapping):
+                raise ReferenceIndexMismatch("공유 옷의 Qdrant payload가 없습니다.")
+            if str(payload.get("item_id", "")) != wardrobe_item_id:
+                raise ReferenceIndexMismatch(
+                    "Qdrant payload의 원본 옷장 아이템 ID가 스냅샷과 다릅니다."
+                )
+            if payload.get("confirmed") is not True:
+                raise ReferenceIndexMismatch("Qdrant에서 확정되지 않은 공유 옷입니다.")
+            if str(payload.get("embedding_version", "")) != embedding_version:
+                raise ReferenceIndexMismatch(
+                    "Qdrant 임베딩 버전이 실행 스냅샷과 일치하지 않습니다."
+                )
+            if str(payload.get("s3_key", "")) != image_s3_key:
+                raise ReferenceIndexMismatch(
+                    "Qdrant 이미지 키가 실행 스냅샷과 일치하지 않습니다."
+                )
+            _validate_indexed_tags(payload=payload, snapshot_item=snapshot_item)
+            tags = _merged_tags(payload=payload, snapshot_item=snapshot_item)
+
+            image_vector = _vector(point, IMAGE_VECTOR, spec.vectors[IMAGE_VECTOR])
+            text_vector = _vector(point, TEXT_VECTOR, spec.vectors[TEXT_VECTOR])
+            exclusions = ReferenceSearchExclusions(
+                wardrobe_item_ids=(wardrobe_item_id,),
+                qdrant_point_ids=(point_id,),
             )
-
-        shared_item_id = _uuid_string(snapshot, "shared_item_id")
-        room_id = _uuid_string(snapshot, "room_id")
-        wardrobe_item_id = _uuid_string(snapshot, "wardrobe_item_id")
-        point_id = _uuid_string(snapshot, "qdrant_point_id")
-        if point_id != wardrobe_item_id:
-            raise ReferenceIndexMismatch(
-                "공유 옷의 Qdrant 포인트 ID와 원본 옷장 아이템 ID가 다릅니다."
-            )
-
-        embedding_version = _required_string(snapshot, "embedding_version")
-        image_s3_key = _required_string(snapshot, "image_s3_key")
-        snapshot_item = snapshot.get("item")
-        if not isinstance(snapshot_item, Mapping):
-            raise ReferenceSnapshotInvalid("참조 스냅샷의 item 객체가 필요합니다.")
-        _tags(snapshot_item)
-
-        try:
-            points = self.client.retrieve(
+            return SharedReferenceSearchBasis(
+                schema_version=REFERENCE_SCHEMA_VERSION,
+                shared_item_id=shared_item_id,
+                room_id=room_id,
+                source_wardrobe_item_id=wardrobe_item_id,
                 collection_name=collection_name,
-                ids=[point_id],
-                with_payload=True,
-                with_vectors=True,
+                point_id=point_id,
+                embedding_version=embedding_version,
+                image_s3_key=image_s3_key,
+                image_vector=image_vector,
+                text_vector=text_vector,
+                tags=tags,
+                exclusions=exclusions,
             )
-        except Exception as exc:
-            raise ReferenceVectorStoreUnavailable(
-                "공유 옷 벡터 저장소를 조회할 수 없습니다."
-            ) from exc
-        if not points:
-            raise ReferenceVectorNotFound("공유 옷의 Qdrant 포인트를 찾을 수 없습니다.")
-
-        point = points[0]
-        if str(point.id) != point_id:
-            raise ReferenceIndexMismatch("조회된 Qdrant 포인트 ID가 요청과 다릅니다.")
-        payload = getattr(point, "payload", None)
-        if not isinstance(payload, Mapping):
-            raise ReferenceIndexMismatch("공유 옷의 Qdrant payload가 없습니다.")
-        if str(payload.get("item_id", "")) != wardrobe_item_id:
-            raise ReferenceIndexMismatch(
-                "Qdrant payload의 원본 옷장 아이템 ID가 스냅샷과 다릅니다."
-            )
-        if payload.get("confirmed") is not True:
-            raise ReferenceIndexMismatch("Qdrant에서 확정되지 않은 공유 옷입니다.")
-        if str(payload.get("embedding_version", "")) != embedding_version:
-            raise ReferenceIndexMismatch(
-                "Qdrant 임베딩 버전이 실행 스냅샷과 일치하지 않습니다."
-            )
-        if str(payload.get("s3_key", "")) != image_s3_key:
-            raise ReferenceIndexMismatch(
-                "Qdrant 이미지 키가 실행 스냅샷과 일치하지 않습니다."
-            )
-        _validate_indexed_tags(payload=payload, snapshot_item=snapshot_item)
-        tags = _merged_tags(payload=payload, snapshot_item=snapshot_item)
-
-        image_vector = _vector(point, IMAGE_VECTOR, spec.vectors[IMAGE_VECTOR])
-        text_vector = _vector(point, TEXT_VECTOR, spec.vectors[TEXT_VECTOR])
-        exclusions = ReferenceSearchExclusions(
-            wardrobe_item_ids=(wardrobe_item_id,),
-            qdrant_point_ids=(point_id,),
-        )
-        return SharedReferenceSearchBasis(
-            schema_version=REFERENCE_SCHEMA_VERSION,
-            shared_item_id=shared_item_id,
-            room_id=room_id,
-            source_wardrobe_item_id=wardrobe_item_id,
-            collection_name=collection_name,
-            point_id=point_id,
-            embedding_version=embedding_version,
-            image_s3_key=image_s3_key,
-            image_vector=image_vector,
-            text_vector=text_vector,
-            tags=tags,
-            exclusions=exclusions,
-        )
 
 
 def load_shared_reference(

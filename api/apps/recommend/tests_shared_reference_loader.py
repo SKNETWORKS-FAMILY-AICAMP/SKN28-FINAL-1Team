@@ -15,6 +15,7 @@ from apps.recommend.services.shared_reference_loader import (
     ReferenceVectorMissing,
     ReferenceVectorNotFound,
     ReferenceVectorStoreUnavailable,
+    SharedReferenceVectorLoader,
     load_shared_reference,
 )
 
@@ -153,6 +154,26 @@ class SharedReferenceVectorLoaderTests(SimpleTestCase):
                 }
             ],
         )
+
+    def test_reports_snapshot_and_vector_stage_timings(self) -> None:
+        snapshot = _snapshot()
+        observed: list[tuple[str, float]] = []
+        loader = SharedReferenceVectorLoader(
+            client=FakeQdrantClient(points=[_point(snapshot)])
+        )
+
+        loader.load(
+            snapshot,
+            stage_observer=lambda stage, duration_ms: observed.append(
+                (stage, duration_ms)
+            ),
+        )
+
+        self.assertEqual(
+            [stage for stage, _duration in observed],
+            ["SNAPSHOT_VALIDATION", "VECTOR_LOADING"],
+        )
+        self.assertTrue(all(duration >= 0 for _stage, duration in observed))
 
     def test_missing_qdrant_point_raises_not_found(self) -> None:
         with self.assertRaises(ReferenceVectorNotFound):

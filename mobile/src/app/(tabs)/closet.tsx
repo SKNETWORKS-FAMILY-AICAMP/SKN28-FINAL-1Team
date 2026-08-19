@@ -6,6 +6,7 @@ import {
   type SharedSpace,
 } from '@/components/closet/shared-space-flow';
 import { SharedItemAddSheet } from '@/components/closet/shared-item-add-sheet';
+import { SharedItemStatusSheet } from '@/components/closet/shared-item-status-sheet';
 import { PhotoSourceSheet } from '@/components/closet/photo-source-sheet';
 import { HashtagItemManageSheet } from '@/components/closet/category-item-manage-sheet';
 import { HashtagFilterRow } from '@/components/closet/hashtag-filter-row';
@@ -29,7 +30,7 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { ContentMax, Editorial, GridCard, gridCardImageHeight, gridCardWidth, ink } from '@/constants/theme';
-import { SHARED_CLOSET_ITEMS } from '@/constants/wardrobe';
+import { SHARED_ITEM_STATUS_META } from '@/constants/shared-wardrobe';
 import { WARDROBE_FILTER_OPTIONS } from '@/constants/wardrobe-taxonomy';
 import { useBreakpoint } from '@/hooks/use-breakpoint';
 import { useRefresh } from '@/hooks/use-refresh';
@@ -38,7 +39,29 @@ import {
   useWardrobeFilters,
   useWardrobeItems,
 } from '@/hooks/use-wardrobe';
-import { itemDisplayName, getMySharedRooms, createSharedRoom, joinSharedRoom, listSharedRoomMembers, listSharedRoomItems, renameSharedRoom, deleteSharedRoom, unregisterItemFromSharedRoom, sharedUserDisplayName, updateWardrobeHashtagItems, reorderWardrobeHashtags } from '@/lib/wardrobeApi';
+import {
+  createSharedRoom,
+  deleteSharedRoom,
+  deleteWardrobeHashtag,
+  getMySharedRooms,
+  itemDisplayName,
+  joinSharedRoom,
+  leaveSharedRoom,
+  listSharedRoomItems,
+  listSharedRoomMembers,
+  refreshInviteCode,
+  renameSharedRoom,
+  renameWardrobeHashtag,
+  reorderWardrobeHashtags,
+  sharedUserDisplayName,
+  type SharedRoom,
+  type SharedRoomItem,
+  type SharedRoomMember,
+  type SharedItemStatus,
+  unregisterItemFromSharedRoom,
+  updateSharedItemStatus,
+  updateWardrobeHashtagItems,
+} from '@/lib/wardrobeApi';
 import {
   buildWardrobeSections,
   uniqueWardrobeItemCount,
@@ -93,12 +116,19 @@ const DEFAULT_CATEGORIES = WARDROBE_FILTER_OPTIONS;
 
 /** 옷장의 두 갈래 — 내 것과 함께 쓰는 것. */
 type ClosetTab = 'mine' | 'shared';
+type SharedRoomRole = 'owner' | 'member';
+type ManagedRoom = {
+  id: string;
+  title: string;
+  draftTitle: string;
+  role: SharedRoomRole;
+};
 const CLOSET_TABS: { value: ClosetTab; label: string }[] = [
   { value: 'mine', label: '내 옷장' },
   { value: 'shared', label: '공유 옷장' },
 ];
 
-/** 그리드 카드가 쓰는 최소 형태 — 내 옷장(API)과 공유 옷장(목업)을 한 모양으로 맞춘다. */
+/** 그리드 카드가 쓰는 최소 형태 — 내 옷장과 공유 옷장 API 응답을 한 모양으로 맞춘다. */
 type Card = {
   id: string;
   wardrobeItemId?: string;
@@ -107,17 +137,9 @@ type Card = {
   filterCategories: string[];
   image?: string;
   owner?: string;
+  sharedStatus?: SharedItemStatus;
+  isMySharedItem?: boolean;
 };
-
-/* 공유 옷장은 아직 백엔드가 없어 목업을 그대로 쓴다. */
-const SHARED_ITEMS: Card[] = SHARED_CLOSET_ITEMS.map((i) => ({
-  id: i.id,
-  name: i.name,
-  category: i.category,
-  filterCategories: [i.category],
-  image: i.image,
-  owner: i.owner,
-}));
 
 function matchesQuery(item: Card, query: string): boolean {
   const q = query.trim();
@@ -146,13 +168,17 @@ export default function ClosetScreen() {
 
   const [query, setQuery] = useState('');
   const [sharedSpace, setSharedSpace] = useState<SharedSpace | null>(null);
-  const [sharedRooms, setSharedRooms] = useState<any[]>([]);
+  const [sharedRooms, setSharedRooms] = useState<SharedRoom[]>([]);
   const [sharedItems, setSharedItems] = useState<Card[]>([]);
+  const [sharedRefreshing, setSharedRefreshing] = useState(false);
   const [inviteOpen, setInviteOpen] = useState(false);
   const [shareAddOpen, setShareAddOpen] = useState(false);
   const [joinOpen, setJoinOpen] = useState(false);
-  const [manageRoom, setManageRoom] = useState<{ id: string; title: string; draftTitle: string } | null>(null);
+  const [manageRoom, setManageRoom] = useState<ManagedRoom | null>(null);
   const [deleteRoom, setDeleteRoom] = useState<{ id: string; title: string } | null>(null);
+  const [leaveRoom, setLeaveRoom] = useState<{ id: string; title: string } | null>(null);
+  const [statusItem, setStatusItem] = useState<Card | null>(null);
+  const [statusSaving, setStatusSaving] = useState(false);
   const [createOpen, setCreateOpen] = useState(false);
   const [createDraftTitle, setCreateDraftTitle] = useState('공유 옷장');
   const [viewSettingsOpen, setViewSettingsOpen] = useState(false);
@@ -279,7 +305,7 @@ export default function ClosetScreen() {
       if (target && target.wardrobeItemId) {
         await unregisterItemFromSharedRoom(sharedSpace.id, target.wardrobeItemId);
         toast('공유를 해제했어요', { variant: 'success' });
-        await loadRoomData(sharedSpace.id);
+        await refreshSharedCloset(sharedSpace.id);
       }
     } catch (e) {
       toast(e instanceof Error ? e.message : '공유를 해제하지 못했어요', { variant: 'error' });
@@ -397,68 +423,155 @@ export default function ClosetScreen() {
     pruneSharedCategories(DEFAULT_CATEGORIES.slice(1));
   }, [mineCategories, personalFilterData?.hashtags, pruneHashtags, pruneSharedCategories, pruneSystemCategories]);
 
-  const loadRoomData = async (roomId: string, currentRoomsList?: any[]) => {
+  const applySharedRoomData = (
+    room: SharedRoom,
+    membersList: SharedRoomMember[],
+    itemsList: SharedRoomItem[],
+  ): SharedRoomRole => {
+    /* '나' 판정은 내 user id 로 한다. 예전엔 username === 'dev_autologin' 문자열
+       비교였는데, 실사용자 username 은 email_<uuid>/kakao_<id> 라 절대 매칭되지 않아
+       공유 해제(X) 버튼이 프로덕션에서 아예 안 그려졌다. */
+    const memberNames = membersList.map((member) =>
+      member.user.id === me?.id ? '나' : sharedUserDisplayName(member.user),
+    );
+    const currentMember = membersList.find((member) => member.user.id === me?.id);
+    if (!currentMember) {
+      throw new Error('현재 사용자의 공유 옷장 권한을 확인하지 못했습니다.');
+    }
+
+    setSharedSpace({
+      id: room.id,
+      name: room.title,
+      inviteCode: room.invite_code || '',
+      inviteCodeExpiresAt: room.code_expires_at,
+      members: memberNames,
+      role: currentMember.role,
+    });
+    setSharedItems(
+      itemsList.map((sharedItem) => ({
+        id: sharedItem.id,
+        wardrobeItemId: sharedItem.wardrobe_item.id,
+        name: sharedItem.wardrobe_item.item_name || '옷',
+        category: sharedItem.wardrobe_item.category_large,
+        filterCategories: [sharedItem.wardrobe_item.category_large],
+        image: sharedItem.wardrobe_item.image_url,
+        sharedStatus: sharedItem.status,
+        isMySharedItem: sharedItem.registered_by?.id === me?.id,
+        owner:
+          sharedItem.registered_by?.id === me?.id
+            ? '나'
+            : sharedItem.registered_by
+              ? sharedUserDisplayName(sharedItem.registered_by)
+              : undefined,
+      })),
+    );
+    return currentMember.role;
+  };
+
+  /**
+   * 공유 옷장의 단일 갱신 진입점.
+   * 활성 방이 있으면 방 목록·멤버·아이템을 동시에 요청하고, 다른 사용자가 방을
+   * 삭제했거나 내가 나간 직후라면 남아 있는 첫 방으로 안전하게 이동한다.
+   */
+  const refreshSharedCloset = async (
+    preferredRoomId: string | null | undefined = undefined,
+    options: { showError?: boolean } = {},
+  ): Promise<SharedRoomRole | null> => {
+    const requestedRoomId =
+      preferredRoomId === undefined ? sharedSpace?.id ?? null : preferredRoomId;
+    setSharedRefreshing(true);
+
     try {
+      if (requestedRoomId) {
+        try {
+          const [rooms, membersList, itemsList] = await Promise.all([
+            getMySharedRooms(),
+            listSharedRoomMembers(requestedRoomId),
+            listSharedRoomItems(requestedRoomId),
+          ]);
+          setSharedRooms(rooms);
+          const requestedRoom = rooms.find((room) => room.id === requestedRoomId);
+          if (requestedRoom) {
+            return applySharedRoomData(requestedRoom, membersList, itemsList);
+          }
+        } catch (activeRoomError) {
+          /* 다른 멤버의 방 삭제·권한 변경과 요청이 겹치면 활성 방 세부 조회만 404가
+             날 수 있다. 최신 방 목록으로 한 번 더 정합성을 맞춘다. */
+          console.warn('활성 공유방 동시 갱신 실패, 방 목록 기준으로 복구합니다:', activeRoomError);
+        }
+      }
+
+      const rooms = await getMySharedRooms();
+      setSharedRooms(rooms);
+      if (rooms.length === 0) {
+        setSharedSpace(null);
+        setSharedItems([]);
+        return null;
+      }
+
+      const fallbackRoom =
+        rooms.find((room) => room.id === requestedRoomId) ?? rooms[0];
       const [membersList, itemsList] = await Promise.all([
-        listSharedRoomMembers(roomId),
-        listSharedRoomItems(roomId),
+        listSharedRoomMembers(fallbackRoom.id),
+        listSharedRoomItems(fallbackRoom.id),
       ]);
-      /* '나' 판정은 내 user id 로 한다. 예전엔 username === 'dev_autologin' 문자열
-         비교였는데, 실사용자 username 은 email_<uuid>/kakao_<id> 라 절대 매칭되지 않아
-         공유 해제(X) 버튼이 프로덕션에서 아예 안 그려졌다. */
-      const memberNames = membersList.map((m) =>
-        m.user.id === me?.id ? '나' : sharedUserDisplayName(m.user)
-      );
-      const targetRoom = (currentRoomsList || sharedRooms).find((r) => r.id === roomId);
-      setSharedSpace({
-        id: roomId,
-        name: targetRoom?.title || '공유 옷장',
-        inviteCode: targetRoom?.invite_code || '',
-        members: memberNames,
-      });
-      setSharedItems(
-        itemsList.map((si) => ({
-          id: si.id,
-          wardrobeItemId: si.wardrobe_item.id,
-          name: si.wardrobe_item.item_name || '옷',
-          category: si.wardrobe_item.category_large,
-          filterCategories: [si.wardrobe_item.category_large],
-          image: si.wardrobe_item.image_url,
-          owner:
-            si.registered_by?.id === me?.id
-              ? '나'
-              : si.registered_by
-                ? sharedUserDisplayName(si.registered_by)
-                : undefined,
-        }))
-      );
+      return applySharedRoomData(fallbackRoom, membersList, itemsList);
     } catch (err) {
-      console.error('공유방 세부 정보 로드 실패:', err);
+      console.error('공유 옷장 갱신 실패:', err);
+      if (options.showError !== false) {
+        toast(err instanceof Error ? err.message : '공유 옷장을 새로고침하지 못했어요.', {
+          variant: 'error',
+        });
+      }
+      return null;
+    } finally {
+      setSharedRefreshing(false);
+    }
+  };
+
+  const handleSharedStatusChange = async (status: SharedItemStatus) => {
+    if (!sharedSpace || !statusItem?.isMySharedItem || !statusItem.sharedStatus || statusSaving) {
+      return;
+    }
+    if (status === statusItem.sharedStatus) {
+      setStatusItem(null);
+      return;
+    }
+
+    setStatusSaving(true);
+    try {
+      const updated = await updateSharedItemStatus(sharedSpace.id, statusItem.id, status);
+      setSharedItems((items) =>
+        items.map((item) =>
+          item.id === statusItem.id ? { ...item, sharedStatus: updated.status } : item,
+        ),
+      );
+      setStatusItem(null);
+      toast(
+        status === 'private'
+          ? '나만 보기로 바꿨어요. 채팅 참고 대상에서도 제외됐어요.'
+          : status === 'borrowed'
+            ? '대여 중으로 바꿨어요. 채팅 참고는 계속 가능해요.'
+            : '공유 가능 상태로 바꿨어요.',
+        { variant: 'success' },
+      );
+      /* 서버가 계산한 reference_eligible까지 다시 읽는다. PRIVATE 해제 시에도
+         벡터 준비·확정 여부에 따라 선택 가능 상태가 달라질 수 있기 때문이다. */
+      await refreshSharedCloset(sharedSpace.id);
+    } catch (err) {
+      console.error('공유 아이템 상태 변경 실패:', err);
+      toast(err instanceof Error ? err.message : '공유 상태를 바꾸지 못했어요.', {
+        variant: 'error',
+      });
+    } finally {
+      setStatusSaving(false);
     }
   };
 
   // 첫 마운트 또는 로그인 상태 변경 시 내 공유 옷장 방 로드
   useEffect(() => {
     if (isLoggedIn && tab === 'shared') {
-      getMySharedRooms()
-        .then(async (rooms) => {
-          setSharedRooms(rooms || []);
-          if (rooms && rooms.length > 0) {
-            const selectedId =
-              sharedSpace?.id && rooms.some((r) => r.id === sharedSpace.id)
-                ? sharedSpace.id
-                : rooms[0].id;
-            await loadRoomData(selectedId, rooms);
-          } else {
-            setSharedSpace(null);
-            setSharedItems([]);
-          }
-        })
-        .catch(() => {
-          setSharedRooms([]);
-          setSharedSpace(null);
-          setSharedItems([]);
-        });
+      void refreshSharedCloset(undefined, { showError: false });
     }
   }, [isLoggedIn, tab]);
 
@@ -484,9 +597,7 @@ export default function ClosetScreen() {
     try {
       const room = await createSharedRoom(title);
       toast(`'${title}'을 만들었어요`, { variant: 'success' });
-      const rooms = await getMySharedRooms();
-      setSharedRooms(rooms || []);
-      await loadRoomData(room.id, rooms);
+      await refreshSharedCloset(room.id);
       setInviteOpen(true);
     } catch (err) {
       console.error('공유 옷장 개설 실패:', err);
@@ -494,8 +605,16 @@ export default function ClosetScreen() {
     }
   };
 
-  const openRoomManager = (roomId: string, title: string) => {
-    setManageRoom({ id: roomId, title, draftTitle: title });
+  const openRoomManager = async (roomId: string, title: string) => {
+    const role =
+      sharedSpace?.id === roomId
+        ? sharedSpace.role
+        : await refreshSharedCloset(roomId, { showError: false });
+    if (!role) {
+      toast('공유 옷장 권한을 확인하지 못했습니다.', { variant: 'error' });
+      return;
+    }
+    setManageRoom({ id: roomId, title, draftTitle: title, role });
   };
 
   const handleRenameSpace = async () => {
@@ -518,12 +637,9 @@ export default function ClosetScreen() {
 
     try {
       await renameSharedRoom(manageRoom.id, newTitle);
+      const roomId = manageRoom.id;
       setManageRoom(null);
-      const rooms = await getMySharedRooms();
-      setSharedRooms(rooms);
-      if (sharedSpace?.id === manageRoom.id) {
-        setSharedSpace((prev) => (prev ? { ...prev, name: newTitle } : null));
-      }
+      await refreshSharedCloset(roomId);
       toast('옷장 이름을 수정했어요', { variant: 'success' });
     } catch (err) {
       console.error('공유 옷장 이름 수정 실패:', err);
@@ -531,22 +647,14 @@ export default function ClosetScreen() {
     }
   };
 
-  const handleDeleteSpace = async (deletePersonalItems: boolean) => {
-    if (!deleteRoom) return;
+  const handleDeleteSpace = async () => {
+    if (!deleteRoom || sharedSpace?.id !== deleteRoom.id || sharedSpace.role !== 'owner') return;
     const room = deleteRoom;
 
     try {
-      await deleteSharedRoom(room.id, deletePersonalItems);
+      await deleteSharedRoom(room.id);
       setDeleteRoom(null);
-      const rooms = await getMySharedRooms();
-      setSharedRooms(rooms);
-
-      if (rooms.length > 0) {
-        await loadRoomData(rooms[0].id, rooms);
-      } else {
-        setSharedSpace(null);
-        setSharedItems([]);
-      }
+      await refreshSharedCloset(null);
       toast('공유 옷장을 삭제했어요', { variant: 'success' });
     } catch (err) {
       console.error('공유 옷장 삭제 실패:', err);
@@ -563,9 +671,7 @@ export default function ClosetScreen() {
         res.status === 'already_member' ? '이미 참여 중인 공유 옷장이에요' : '공유 옷장에 참여했어요',
         { variant: 'success' },
       );
-      const rooms = await getMySharedRooms();
-      setSharedRooms(rooms || []);
-      await loadRoomData(res.room_id, rooms);
+      await refreshSharedCloset(res.room_id);
       return true;
     } catch (err) {
       console.error('공유 옷장 참여 실패:', err);
@@ -614,12 +720,20 @@ export default function ClosetScreen() {
     removeItemIds: string[];
   }) => {
     try {
-      const result = managedHashtag
-        ? await updateWardrobeHashtagItems(managedHashtag.id, {
-            add_item_ids: payload.addItemIds,
-            remove_item_ids: payload.removeItemIds,
-          })
-        : await createWardrobeHashtag(payload.name, payload.itemIds);
+      let result;
+      if (managedHashtag) {
+        if (payload.name !== managedHashtag.name) {
+          await renameWardrobeHashtag(managedHashtag.id, payload.name);
+        }
+        result = payload.addItemIds.length > 0 || payload.removeItemIds.length > 0
+          ? await updateWardrobeHashtagItems(managedHashtag.id, {
+              add_item_ids: payload.addItemIds,
+              remove_item_ids: payload.removeItemIds,
+            })
+          : managedHashtag;
+      } else {
+        result = await createWardrobeHashtag(payload.name, payload.itemIds);
+      }
       await reloadAll();
       const count = 'item_count' in result ? result.item_count : payload.itemIds.length;
       toast(`${count}벌에 해시태그를 저장했어요`, { variant: 'success' });
@@ -630,6 +744,89 @@ export default function ClosetScreen() {
         { variant: 'error' },
       );
       await reloadAll();
+      return false;
+    }
+  };
+
+  const handleRefreshInviteCode = async (room: {
+    id: string;
+    title: string;
+    role: SharedRoomRole;
+  }) => {
+    if (room.role !== 'owner') return;
+    setManageRoom(null);
+    const ok = await confirm({
+      title: '초대 코드를 새로 발급할까요?',
+      message: '기존 초대 코드는 바로 사용할 수 없게 됩니다.',
+      confirmLabel: '새로 발급',
+    });
+    if (!ok) return;
+
+    try {
+      const result = await refreshInviteCode(room.id);
+      setSharedRooms((rooms) =>
+        rooms.map((item) =>
+          item.id === room.id
+            ? { ...item, invite_code: result.invite_code, code_expires_at: result.code_expires_at }
+            : item,
+        ),
+      );
+      setSharedSpace((space) =>
+        space?.id === room.id
+          ? {
+              ...space,
+              inviteCode: result.invite_code,
+              inviteCodeExpiresAt: result.code_expires_at,
+            }
+          : space,
+      );
+      setInviteOpen(true);
+      toast('새 초대 코드를 발급했어요', { variant: 'success' });
+      await refreshSharedCloset(room.id);
+    } catch (err) {
+      console.error('초대 코드 갱신 실패:', err);
+      toast(err instanceof Error ? err.message : '초대 코드를 갱신하지 못했습니다.', {
+        variant: 'error',
+      });
+    }
+  };
+
+  const handleLeaveSpace = async (deleteMyItems: boolean) => {
+    if (!leaveRoom || sharedSpace?.id !== leaveRoom.id || sharedSpace.role !== 'member') return;
+    const room = leaveRoom;
+
+    try {
+      await leaveSharedRoom(room.id, deleteMyItems);
+      setLeaveRoom(null);
+      await refreshSharedCloset(null);
+      toast(`'${room.title}'에서 나왔어요`, { variant: 'success' });
+    } catch (err) {
+      console.error('공유 옷장 나가기 실패:', err);
+      toast(err instanceof Error ? err.message : '공유 옷장에서 나가지 못했습니다.', {
+        variant: 'error',
+      });
+    }
+  };
+
+  const deleteManagedHashtag = async () => {
+    if (!managedHashtag) return false;
+    const ok = await confirm({
+      title: '해시태그 삭제',
+      message: `#${managedHashtag.name} 해시태그를 삭제할까요? 옷은 내 옷장에 그대로 유지됩니다.`,
+      confirmLabel: '삭제',
+      destructive: true,
+    });
+    if (!ok) return false;
+    try {
+      await deleteWardrobeHashtag(managedHashtag.id);
+      await reloadAll();
+      toast('해시태그를 삭제했어요', { variant: 'success' });
+      return true;
+    } catch (deleteError) {
+      toast(
+        deleteError instanceof Error ? deleteError.message : '해시태그를 삭제하지 못했어요',
+        { variant: 'error' },
+      );
       return false;
     }
   };
@@ -723,6 +920,30 @@ export default function ClosetScreen() {
               {it.owner}
             </Text>
           </View>
+        ) : null}
+        {tab === 'shared' && it.sharedStatus ? (
+          <Pressable
+            style={[
+              styles.sharedStatusBadge,
+              it.sharedStatus === 'borrowed' && styles.sharedStatusBadgeBorrowed,
+              it.sharedStatus === 'private' && styles.sharedStatusBadgePrivate,
+            ]}
+            disabled={!it.isMySharedItem}
+            onPress={(event) => {
+              event.stopPropagation();
+              if (it.isMySharedItem) setStatusItem(it);
+            }}
+            accessibilityRole={it.isMySharedItem ? 'button' : undefined}
+            accessibilityLabel={`${SHARED_ITEM_STATUS_META[it.sharedStatus].label}${
+              it.isMySharedItem ? ', 눌러서 상태 변경' : ''
+            }`}>
+            <Text style={styles.sharedStatusText}>
+              {SHARED_ITEM_STATUS_META[it.sharedStatus].label}
+            </Text>
+            {it.isMySharedItem ? (
+              <Icon name="chevron.down" tintColor={Editorial.textCaption} size={9} />
+            ) : null}
+          </Pressable>
         ) : null}
         {tab === 'shared' && it.owner === '나' ? (
           <Pressable
@@ -863,7 +1084,7 @@ export default function ClosetScreen() {
                     isSelected && styles.roomTabActive,
                     { flexDirection: 'row', alignItems: 'center' }
                   ]}
-                  onPress={() => loadRoomData(room.id)}
+                  onPress={() => void refreshSharedCloset(room.id)}
                   onLongPress={() => openRoomManager(room.id, room.title)}
                 >
                   <Text style={[styles.roomTabText, isSelected && styles.roomTabTextActive]}>
@@ -874,7 +1095,7 @@ export default function ClosetScreen() {
                       <Pressable
                         hitSlop={8}
                         onPress={() => openRoomManager(room.id, room.title)}
-                        accessibilityLabel="공유 옷장 이름 수정">
+                        accessibilityLabel="공유 옷장 관리">
                         <Icon name="pencil" tintColor="#FFFFFF" size={12} />
                       </Pressable>
                     </View>
@@ -894,6 +1115,13 @@ export default function ClosetScreen() {
             space={sharedSpace}
             onInvite={() => setInviteOpen(true)}
             onJoin={handleJoinSpace}
+            onRefreshInviteCode={() =>
+              handleRefreshInviteCode({
+                id: sharedSpace.id,
+                title: sharedSpace.name,
+                role: sharedSpace.role,
+              })
+            }
           />
         ) : null}
 
@@ -908,10 +1136,13 @@ export default function ClosetScreen() {
           <ScrollView
             style={styles.gridScroll}
             showsVerticalScrollIndicator={false}
-            /* 공유 옷장은 아직 목업이라 다시 불러올 것이 없다 — 내 옷장에서만 당길 수 있게 둔다. */
             refreshControl={
-              tab === 'mine' && isLoggedIn ? (
-                <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={INK} />
+              isLoggedIn ? (
+                <RefreshControl
+                  refreshing={tab === 'mine' ? refreshing : sharedRefreshing}
+                  onRefresh={tab === 'mine' ? onRefresh : refreshSharedCloset}
+                  tintColor={INK}
+                />
               ) : undefined
             }
             contentContainerStyle={[
@@ -919,7 +1150,7 @@ export default function ClosetScreen() {
               { paddingBottom: 24 },
               contentStyle(ContentMax.wide),
             ]}>
-            {/* 내 옷장만 서버에서 온다 — 공유 옷장은 아직 목업이라 로딩·에러가 없다. */}
+            {/* 내 옷장은 훅의 상태를, 공유 옷장은 공통 갱신 함수의 상태를 사용한다. */}
             {tab === 'mine' && loading ? (
               <LoadingState message="옷장을 불러오는 중…" style={styles.empty} />
             ) : tab === 'mine' && error ? (
@@ -1044,7 +1275,26 @@ export default function ClosetScreen() {
           <Pressable style={styles.dialogBackdrop} onPress={() => setManageRoom(null)}>
             <Pressable style={styles.dialogCard} onPress={() => {}}>
               <Text style={styles.dialogTitle}>공유 옷장 관리</Text>
-              <Text style={styles.dialogMessage}>옷장 이름을 수정하거나 삭제할 수 있어요.</Text>
+              <View style={styles.dialogRoleRow}>
+                <View
+                  style={[
+                    styles.dialogRoleBadge,
+                    manageRoom?.role === 'owner' && styles.dialogRoleBadgeOwner,
+                  ]}>
+                  <Text
+                    style={[
+                      styles.dialogRoleText,
+                      manageRoom?.role === 'owner' && styles.dialogRoleTextOwner,
+                    ]}>
+                    {manageRoom?.role === 'owner' ? '방장' : '일반 멤버'}
+                  </Text>
+                </View>
+              </View>
+              <Text style={styles.dialogMessage}>
+                {manageRoom?.role === 'owner'
+                  ? '이름과 초대 코드를 관리하거나 공유 옷장을 삭제할 수 있어요.'
+                  : '이름을 수정하거나 공유 옷장에서 나갈 수 있어요.'}
+              </Text>
               <TextInput
                 style={styles.dialogInput}
                 value={manageRoom?.draftTitle ?? ''}
@@ -1064,15 +1314,36 @@ export default function ClosetScreen() {
                   <Text style={styles.dialogConfirmText}>이름 수정</Text>
                 </Pressable>
               </View>
-              <Pressable
-                style={styles.dialogDelete}
-                onPress={() => {
-                  if (!manageRoom) return;
-                  setDeleteRoom({ id: manageRoom.id, title: manageRoom.title });
-                  setManageRoom(null);
-                }}>
-                <Text style={styles.dialogDeleteText}>이 옷장 삭제</Text>
-              </Pressable>
+              {manageRoom?.role === 'owner' ? (
+                <>
+                  <Pressable
+                    style={styles.dialogSubAction}
+                    onPress={() => {
+                      if (manageRoom) void handleRefreshInviteCode(manageRoom);
+                    }}>
+                    <Text style={styles.dialogSubActionText}>초대 코드 새로 발급</Text>
+                  </Pressable>
+                  <Pressable
+                    style={styles.dialogDelete}
+                    onPress={() => {
+                      if (!manageRoom) return;
+                      setDeleteRoom({ id: manageRoom.id, title: manageRoom.title });
+                      setManageRoom(null);
+                    }}>
+                    <Text style={styles.dialogDeleteText}>이 옷장 삭제</Text>
+                  </Pressable>
+                </>
+              ) : (
+                <Pressable
+                  style={styles.dialogDelete}
+                  onPress={() => {
+                    if (!manageRoom) return;
+                    setLeaveRoom({ id: manageRoom.id, title: manageRoom.title });
+                    setManageRoom(null);
+                  }}>
+                  <Text style={styles.dialogDeleteText}>공유 옷장 나가기</Text>
+                </Pressable>
+              )}
             </Pressable>
           </Pressable>
         </Modal>
@@ -1091,10 +1362,39 @@ export default function ClosetScreen() {
               <Text style={styles.dialogMessage}>
                 공유 목록과 초대 링크가 삭제됩니다.{"\n"}내 옷장의 아이템은 그대로 유지됩니다.
               </Text>
-              <Pressable style={styles.deleteItemsButton} onPress={() => handleDeleteSpace(false)}>
+              <Pressable style={styles.deleteItemsButton} onPress={handleDeleteSpace}>
                 <Text style={styles.dialogConfirmText}>삭제</Text>
               </Pressable>
               <Pressable style={styles.dialogCancelOnly} onPress={() => setDeleteRoom(null)}>
+                <Text style={styles.dialogCancelText}>취소</Text>
+              </Pressable>
+            </Pressable>
+          </Pressable>
+        </Modal>
+
+        <Modal
+          visible={!!leaveRoom}
+          transparent
+          animationType="fade"
+          onRequestClose={() => setLeaveRoom(null)}>
+          <Pressable style={styles.dialogBackdrop} onPress={() => setLeaveRoom(null)}>
+            <Pressable style={styles.dialogCard} onPress={() => {}}>
+              <Text style={styles.dialogTitle}>공유 옷장에서 나갈까요?</Text>
+              <Text style={styles.dialogMessage}>
+                내 옷장 원본은 어떤 선택을 해도 삭제되지 않아요.{"\n"}이 방에 공유한 옷만 어떻게
+                할지 선택해 주세요.
+              </Text>
+              <Pressable style={styles.leavePrimaryButton} onPress={() => handleLeaveSpace(true)}>
+                <Text style={styles.leavePrimaryTitle}>공유한 옷도 빼고 나가기</Text>
+                <Text style={styles.leavePrimaryDescription}>이 방의 내 공유 목록만 함께 정리해요</Text>
+              </Pressable>
+              <Pressable style={styles.leaveSecondaryButton} onPress={() => handleLeaveSpace(false)}>
+                <Text style={styles.leaveSecondaryTitle}>공유한 옷은 남기고 나가기</Text>
+                <Text style={styles.leaveSecondaryDescription}>
+                  등록자 표시 없이 방에 계속 남아요
+                </Text>
+              </Pressable>
+              <Pressable style={styles.dialogCancelOnly} onPress={() => setLeaveRoom(null)}>
                 <Text style={styles.dialogCancelText}>취소</Text>
               </Pressable>
             </Pressable>
@@ -1118,6 +1418,7 @@ export default function ClosetScreen() {
           items={apiItems}
           onClose={() => setHashtagManagerOpen(false)}
           onSave={saveHashtagItems}
+          onDelete={managedHashtag ? deleteManagedHashtag : undefined}
         />
 
         {showAddFab ? (
@@ -1136,7 +1437,21 @@ export default function ClosetScreen() {
             roomName={sharedSpace.name}
             alreadySharedItemIds={sharedWardrobeItemIds}
             onClose={() => setShareAddOpen(false)}
-            onDone={() => loadRoomData(sharedSpace.id)}
+            onDone={async () => {
+              await refreshSharedCloset(sharedSpace.id);
+            }}
+          />
+        ) : null}
+        {statusItem?.sharedStatus ? (
+          <SharedItemStatusSheet
+            visible
+            itemName={statusItem.name}
+            value={statusItem.sharedStatus}
+            saving={statusSaving}
+            onChange={handleSharedStatusChange}
+            onClose={() => {
+              if (!statusSaving) setStatusItem(null);
+            }}
           />
         ) : null}
       </SafeAreaView>
@@ -1226,6 +1541,23 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     zIndex: 10,
   },
+  sharedStatusBadge: {
+    position: 'absolute',
+    left: 10,
+    bottom: 10,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingHorizontal: 9,
+    paddingVertical: 5,
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: Editorial.line,
+    backgroundColor: 'rgba(255,255,255,0.94)',
+  },
+  sharedStatusBadgeBorrowed: { borderColor: ink(0.24) },
+  sharedStatusBadgePrivate: { opacity: 0.78 },
+  sharedStatusText: { fontSize: 11, fontWeight: '600', color: Editorial.ink },
   cardMeta: {
     flexDirection: 'row',
     alignItems: 'baseline',
@@ -1325,6 +1657,18 @@ const styles = StyleSheet.create({
     marginTop: 10,
     lineHeight: 21,
   },
+  dialogRoleRow: { alignItems: 'center', marginTop: 10 },
+  dialogRoleBadge: {
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 999,
+    backgroundColor: Editorial.surfaceSoft,
+    borderWidth: 1,
+    borderColor: Editorial.line,
+  },
+  dialogRoleBadgeOwner: { backgroundColor: Editorial.ink, borderColor: Editorial.ink },
+  dialogRoleText: { fontSize: 11, fontWeight: '700', color: Editorial.textCaption },
+  dialogRoleTextOwner: { color: Editorial.surface },
   dialogInput: {
     height: 48,
     marginTop: 20,
@@ -1343,6 +1687,16 @@ const styles = StyleSheet.create({
   dialogConfirmText: { fontSize: 14, fontWeight: '600', color: '#fff' },
   dialogDelete: { height: 44, marginTop: 12, alignItems: 'center', justifyContent: 'center' },
   dialogDeleteText: { fontSize: 14, fontWeight: '600', color: Editorial.danger },
+  dialogSubAction: {
+    height: 44,
+    marginTop: 10,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: Editorial.line,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  dialogSubActionText: { fontSize: 14, fontWeight: '600', color: Editorial.ink },
   keepItemsButton: {
     height: 48,
     marginTop: 22,
@@ -1360,5 +1714,31 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
+  leavePrimaryButton: {
+    minHeight: 62,
+    marginTop: 22,
+    paddingHorizontal: 14,
+    paddingVertical: 11,
+    borderRadius: 14,
+    backgroundColor: Editorial.cta,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  leavePrimaryTitle: { fontSize: 14, fontWeight: '700', color: Editorial.surface },
+  leavePrimaryDescription: { marginTop: 3, fontSize: 11, color: 'rgba(255,255,255,0.72)' },
+  leaveSecondaryButton: {
+    minHeight: 62,
+    marginTop: 10,
+    paddingHorizontal: 14,
+    paddingVertical: 11,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: Editorial.line,
+    backgroundColor: Editorial.surface,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  leaveSecondaryTitle: { fontSize: 14, fontWeight: '700', color: Editorial.ink },
+  leaveSecondaryDescription: { marginTop: 3, fontSize: 11, color: Editorial.textCaption },
   dialogCancelOnly: { height: 44, marginTop: 4, alignItems: 'center', justifyContent: 'center' },
 });

@@ -46,6 +46,7 @@ from .serializers import (
     WardrobeHashtagCreateSerializer,
     WardrobeHashtagItemsPatchSerializer,
     WardrobeHashtagOrderSerializer,
+    WardrobeHashtagUpdateSerializer,
     WardrobeViewPreferenceSerializer,
     WardrobeHashtagSerializer,
     WardrobeHashtagSummarySerializer,
@@ -515,6 +516,34 @@ class WardrobeHashtagListCreateView(APIView):
         )
 
 
+class WardrobeHashtagDetailView(APIView):
+    """PATCH/DELETE /hashtags/{id}/ — 이름 변경 또는 해시태그 삭제."""
+
+    def patch(self, request, hashtag_id):
+        hashtag, error_response = _owned_hashtag_or_error(request.user, hashtag_id)
+        if error_response is not None:
+            return error_response
+        serializer = WardrobeHashtagUpdateSerializer(data=request.data)
+        if not serializer.is_valid():
+            return _hashtag_write_error(serializer)
+        try:
+            hashtag = hashtag_service.rename_hashtag(
+                user=request.user,
+                hashtag=hashtag,
+                name=serializer.validated_data["name"],
+            )
+        except hashtag_service.HashtagServiceError as exc:
+            return _hashtag_service_error(exc)
+        return Response(WardrobeHashtagSerializer(hashtag).data)
+
+    def delete(self, request, hashtag_id):
+        hashtag, error_response = _owned_hashtag_or_error(request.user, hashtag_id)
+        if error_response is not None:
+            return error_response
+        hashtag_service.delete_hashtag(user=request.user, hashtag=hashtag)
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+
 class WardrobeHashtagItemsView(APIView):
     """PATCH /hashtags/{id}/items/ — 해시태그의 옷 연결을 일괄 변경."""
 
@@ -790,18 +819,28 @@ class SharedWardrobeViewSet(viewsets.ModelViewSet):
 
     @extend_schema(
         methods=["GET"],
-        summary="공유 옷장 사용자 정의 카테고리 목록",
+        summary="[폐기 예정] 공유 옷장 사용자 정의 카테고리 목록",
+        description=(
+            "현재 프론트에서 사용하지 않는 레거시 API입니다. 공유 옷장 사용자 정의 "
+            "카테고리 기능은 제품 범위에서 삭제되었으므로 신규 연동하지 않습니다. "
+            "기존 데이터 정리와 스키마 제거 전까지만 호환 목적으로 유지합니다."
+        ),
+        deprecated=True,
         responses=SharedWardrobeCategorySerializer(many=True),
     )
     @extend_schema(
         methods=["POST"],
-        summary="공유 옷장 사용자 정의 카테고리 추가",
+        summary="[폐기 예정] 공유 옷장 사용자 정의 카테고리 추가",
+        description="레거시 호환 API입니다. 신규 프론트 기능에서 호출하지 않습니다.",
+        deprecated=True,
         request=SharedWardrobeCategorySerializer,
         responses={201: SharedWardrobeCategorySerializer},
     )
     @extend_schema(
         methods=["DELETE"],
-        summary="공유 옷장 사용자 정의 카테고리 삭제",
+        summary="[폐기 예정] 공유 옷장 사용자 정의 카테고리 삭제",
+        description="레거시 호환 API입니다. 신규 프론트 기능에서 호출하지 않습니다.",
+        deprecated=True,
         parameters=[
             OpenApiParameter(
                 name="category_id",
@@ -1010,6 +1049,12 @@ class SharedWardrobeViewSet(viewsets.ModelViewSet):
     @extend_schema(
         methods=["GET"],
         summary="공유 옷장에 등록된 옷 목록",
+        description=(
+            "각 아이템의 `reference_eligible`과 `reference_unavailable_reason`으로 "
+            "채팅 참고 가능 상태를 함께 반환합니다. 선택 불가 사유는 PRIVATE, "
+            "NOT_CONFIRMED, VECTOR_NOT_READY이며, BORROWED는 준비 상태가 충족되면 "
+            "참고할 수 있습니다. 프론트는 Qdrant를 직접 확인하지 않습니다."
+        ),
         responses=SharedWardrobeItemSerializer(many=True),
     )
     @extend_schema(

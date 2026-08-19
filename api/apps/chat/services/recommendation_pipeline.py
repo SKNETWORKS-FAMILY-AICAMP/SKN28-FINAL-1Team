@@ -6,6 +6,7 @@ import hashlib
 import json
 import logging
 from collections.abc import Mapping, Sequence
+from contextlib import nullcontext
 from dataclasses import dataclass, replace
 from typing import Any
 
@@ -15,6 +16,11 @@ from django.db.models import Max
 
 from apps.chat.models import ChatRun, ChatRunPersona, ChatSession
 from apps.chat.services.openai_adapter import TurnAnalysis
+from apps.chat.services.reference_recommendation_events import (
+    STAGE_COMPOSER,
+    STAGE_VALIDATOR,
+    ReferenceRecommendationEventRecorder,
+)
 from apps.chat.services.stylist_strategy import (
     PreferencePolarity,
     StrategyPlan,
@@ -68,7 +74,10 @@ from apps.recommend.services.wardrobe_composer import (
     WardrobeCompositionRequest,
     WardrobeOutfitComposer,
 )
-from apps.recommend.services.wardrobe_link import accessible_item_ids, owned_closet_item_ids
+from apps.recommend.services.wardrobe_link import (
+    accessible_item_ids,
+    owned_closet_item_ids,
+)
 
 
 class ChatRecommendationError(RuntimeError):
@@ -214,6 +223,46 @@ class ChatRecommendationPipeline:
         max_validated_templates: int | None = None,
         strategy_plan: StrategyPlan | None = None,
     ) -> GeneratedRecommendationCandidates:
+        """레퍼런스 추천이면 성공·실패를 포함한 운영 이벤트를 실행당 한 번 남긴다."""
+
+        recorder = (
+            ReferenceRecommendationEventRecorder(
+                run_id=str(run.pk),
+                recommendation_mode=str(run.session.mode),
+                is_stylist=(
+                    run.response_mode == ChatSession.ResponseMode.STYLIST
+                ),
+            )
+            if getattr(run, "reference_snapshot", None)
+            else None
+        )
+        try:
+            generated = self._generate_candidates(
+                run=run,
+                context=context,
+                analysis=analysis,
+                max_validated_templates=max_validated_templates,
+                strategy_plan=strategy_plan,
+                event_recorder=recorder,
+            )
+        except Exception as exc:
+            if recorder is not None:
+                recorder.failure(exc)
+            raise
+        if recorder is not None:
+            recorder.success()
+        return generated
+
+    def _generate_candidates(
+        self,
+        *,
+        run: ChatRun,
+        context: dict[str, Any],
+        analysis: TurnAnalysis,
+        max_validated_templates: int | None = None,
+        strategy_plan: StrategyPlan | None = None,
+        event_recorder: ReferenceRecommendationEventRecorder | None = None,
+    ) -> GeneratedRecommendationCandidates:
         """Retriever·Composer·Validator를 실행하고 DB 저장 전 후보를 반환한다."""
 
         if max_validated_templates is not None and (
@@ -252,7 +301,13 @@ class ChatRecommendationPipeline:
             user_id=user_id,
             total_budget=analysis.conditions.budget,
             category_budgets=category_budgets,
+            event_recorder=event_recorder,
         )
+        if reference_anchor is not None and event_recorder is not None:
+            event_recorder.select_match(
+                match_result=reference_anchor.match_type,
+                similarity=reference_anchor.candidate.score,
+            )
         retrieval = self._retrieve_golden(
             RetrievalRequest(
                 body=body,
@@ -335,12 +390,17 @@ class ChatRecommendationPipeline:
                         reference_anchor,
                         slot_results,
                     )
-                batch = self._compose(
-                    session.mode,
-                    slot_results,
-                    budget=analysis.conditions.budget,
-                    category_budgets=category_budgets,
-                )
+                with (
+                    event_recorder.measure(STAGE_COMPOSER)
+                    if event_recorder is not None
+                    else nullcontext()
+                ):
+                    batch = self._compose(
+                        session.mode,
+                        slot_results,
+                        budget=analysis.conditions.budget,
+                        category_budgets=category_budgets,
+                    )
             except (ValueError, RuntimeError):
                 continue
 
@@ -366,16 +426,21 @@ class ChatRecommendationPipeline:
                     reference_anchor,
                 ):
                     continue
-                validation = self.validator.validate(
-                    composition,
-                    context=self._validation_context(
-                        user_id=user_id,
-                        context=context,
-                        analysis=analysis,
-                        body=body,
-                        reference_anchor=reference_anchor,
-                    ),
-                )
+                with (
+                    event_recorder.measure(STAGE_VALIDATOR)
+                    if event_recorder is not None
+                    else nullcontext()
+                ):
+                    validation = self.validator.validate(
+                        composition,
+                        context=self._validation_context(
+                            user_id=user_id,
+                            context=context,
+                            analysis=analysis,
+                            body=body,
+                            reference_anchor=reference_anchor,
+                        ),
+                    )
                 if validation.valid:
                     template_candidates.append(
                         ValidatedRecommendationCandidate(
@@ -419,6 +484,7 @@ class ChatRecommendationPipeline:
         user_id: int | None,
         total_budget: int | None,
         category_budgets: Mapping[str, int],
+        event_recorder: ReferenceRecommendationEventRecorder | None,
     ) -> PinnedReferenceAnchor | None:
         snapshot = getattr(run, "reference_snapshot", None)
         if not snapshot:
@@ -430,6 +496,11 @@ class ChatRecommendationPipeline:
                 user_id=user_id,
                 total_budget=total_budget,
                 category_budgets=category_budgets,
+                stage_observer=(
+                    event_recorder.add_stage_duration
+                    if event_recorder is not None
+                    else None
+                ),
             )
         except (TypeError, ValueError, RuntimeError) as exc:
             raise OutfitCompositionFailed(
