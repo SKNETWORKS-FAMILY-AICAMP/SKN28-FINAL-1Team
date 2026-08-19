@@ -863,6 +863,17 @@ class VirtualTryOnRequestSerializer(serializers.Serializer):
         default="person",
         help_text="person은 사용자에게 바로 착장, mannequin은 체형 마네킹에 추천 룩을 바로 착장",
     )
+    golden_id = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        default="",
+        max_length=100,
+        help_text=(
+            "입힐 룩의 골든 코디 id. 생략하면 대표 룩. "
+            "'다른 룩'으로 돌려보던 후보를 입어볼 때 쓴다 — 저장 API와 같은 규칙으로, "
+            "서버가 그 사용자의 오늘 후보 안에 있는지 확인한다."
+        ),
+    )
 
     def validate_person_image(self, image: UploadedFile) -> UploadedFile:
         if image.size > settings.VIRTUAL_TRY_ON_MAX_PERSON_IMAGE_BYTES:

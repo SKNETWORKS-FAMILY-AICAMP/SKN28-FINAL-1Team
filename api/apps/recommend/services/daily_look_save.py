@@ -35,16 +35,10 @@ class DailyLookNotSavableError(Exception):
         self.status = status
 
 
-class GoldenLookNotInTodayError(Exception):
-    """오늘 이 사용자에게 나가지 않은 코디를 담으려 한 경우.
-
-    '아직 못 담는다'(DailyLookNotSavableError)와 다르다. 폴링해도 달라지지 않고,
-    대개 어제 화면을 열어 둔 채 저장을 누른 것이다.
-    """
-
-    def __init__(self, golden_id: str) -> None:
-        super().__init__(golden_id)
-        self.golden_id = golden_id
+#: 오늘 나가지 않은 코디를 담으려 한 경우. 정의는 daily_look 에 있다 — 저장과
+#: 가상 피팅이 **같은 규칙으로** 룩을 고르기 위해서다(daily_look.pick_result).
+#: 이 이름으로도 쓸 수 있게 남겨 둔다(뷰·테스트가 여기서 잡는다).
+GoldenLookNotInTodayError = daily_look_service.GoldenLookNotInTodayError
 
 
 def _image_ref(value: Any) -> tuple[str, str]:
@@ -95,24 +89,6 @@ def _items(result: dict[str, Any]) -> list[lookbook_service.GoldenLookItem]:
     return items
 
 
-def _pick_result(look: DailyLook, golden_id: str) -> dict[str, Any]:
-    """담을 룩 하나를 고른다. 대표 룩이거나 '다른 룩' 후보 중 하나다.
-
-    **클라이언트가 고르되 목록은 서버가 정한다.** golden_id를 그대로 믿고 담으면
-    남의 코디도, 어제의 코디도 담긴다. 그래서 이 사용자의 오늘 행에 실제로 실려
-    나간 것들 안에서만 찾는다.
-    """
-    result = look.result or {}
-    if not golden_id or golden_id == str(result.get("golden_id") or ""):
-        return result
-    for alternative in look.alternatives or []:
-        if isinstance(alternative, dict) and str(
-            alternative.get("golden_id") or ""
-        ) == golden_id:
-            return alternative
-    raise GoldenLookNotInTodayError(golden_id)
-
-
 def save_to_lookbook(
     user, *, look_date: date | None = None, golden_id: str = ""
 ) -> tuple[LookbookPost, bool]:
@@ -144,7 +120,7 @@ def save_to_lookbook(
     except Exception:  # noqa: BLE001 — 표지 보정 실패가 저장을 막으면 안 된다
         logger.warning("오늘의 룩 %s 표지 보정 실패 (저장은 계속)", look.pk)
 
-    result = _pick_result(look, golden_id.strip())
+    result = daily_look_service.pick_result(look, golden_id)
     chosen_golden_id = str(result.get("golden_id") or "")
     if not chosen_golden_id:
         # SUCCEEDED 인데 golden_id 가 없다면 결과 JSON 이 깨진 것이다. 담아 봐야

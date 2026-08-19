@@ -1,14 +1,15 @@
 import { Icon } from '@/components/icon';
 import { DetailTwoPane } from '@/components/detail-two-pane';
-import { LoadingState, SmartImage, useToast } from '@/components/ui';
+import { ErrorState, LoadingState, SmartImage, useToast } from '@/components/ui';
 import { Editorial, ink, Fonts } from '@/constants/theme';
-import { dailyLookToVariant, TODAY_LOOK } from '@/constants/today-look';
+import { dailyLookToVariant } from '@/constants/today-look';
 import { useBreakpoint } from '@/hooks/use-breakpoint';
 import { useDailyLook } from '@/hooks/use-daily-look';
 import { goBack } from '@/lib/goBack';
 import { pickBodyPhoto } from '@/lib/pickItemPhoto';
+import { dailyLookPhase } from '@/lib/dailyLookApi';
 import { fitDailyLookToMannequin } from '@/lib/virtualTryOnApi';
-import { useLocalSearchParams } from 'expo-router';
+import { router, useLocalSearchParams } from 'expo-router';
 import { useMemo, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -17,10 +18,16 @@ const INK = Editorial.ink;
 const CANVAS = '#f5f1ea';
 
 export default function Fitting() {
-  const { lookId } = useLocalSearchParams<{ lookId?: string }>();
+  /* golden = 룩 상세에서 보고 있던 룩('다른 룩'으로 돌려본 후보일 수 있다).
+     이 값이 없으면 서버는 대표 룩을 입힌다. */
+  const { lookId, golden } = useLocalSearchParams<{ lookId?: string; golden?: string }>();
   const { contentStyle, width } = useBreakpoint();
-  const { look: dailyLook } = useDailyLook(Boolean(lookId));
-  const look = useMemo(() => dailyLookToVariant(dailyLook) ?? TODAY_LOOK, [dailyLook]);
+  const { look: dailyLook, stalled: dailyStalled } = useDailyLook(Boolean(lookId));
+  /* **목업으로 물러나지 않는다.** 예전에는 `?? TODAY_LOOK` 이 걸려 있어, 조회 전이나
+     실패했을 때 '적용되는 추천 룩' 자리에 번들 목업의 옷이 섰다 — 내 룩을 입어보러
+     온 화면에서 내 것이 아닌 구성을 보게 된다. 없으면 없다고 말한다(아래 early return). */
+  const look = useMemo(() => dailyLookToVariant(dailyLook, golden), [dailyLook, golden]);
+  const lookPhase = dailyLookPhase(dailyLook, dailyStalled);
   const [phase, setPhase] = useState<'idle' | 'loading' | 'done'>('idle');
   const [resultUri, setResultUri] = useState<string | null>(null);
   const toast = useToast();
@@ -36,7 +43,9 @@ export default function Fitting() {
 
     setPhase('loading');
     try {
-      const result = await fitDailyLookToMannequin(lookId, personUri);
+      /* 보고 있던 그 룩을 입힌다 — golden 을 빼면 서버가 대표 룩을 입혀,
+         화면의 구성과 결과가 어긋난다. */
+      const result = await fitDailyLookToMannequin(lookId, personUri, golden);
       setResultUri(result.image_url);
       setPhase('done');
       toast('이 추천 룩을 내 체형 마네킹에 입혔어요.', { variant: 'success' });
@@ -48,16 +57,46 @@ export default function Fitting() {
     }
   };
 
+  const header = (
+    <SafeAreaView edges={['top']} style={styles.headerSafe}>
+      <View style={[styles.header, contentStyle(maxW)]}>
+        <Pressable hitSlop={12} onPress={() => goBack('/look-detail')}>
+          <Icon name="chevron.left" tintColor={INK} size={20} />
+        </Pressable>
+        <Text style={styles.headerTitle}>가상 피팅</Text>
+      </View>
+    </SafeAreaView>
+  );
+
+  /* 입힐 룩이 없으면 화면을 그리지 않는다. 예전에는 목업으로 메워, 눌러도 실패만
+     하는 버튼과 남의 옷 목록이 함께 떠 있었다.
+
+     - lookId 없음: 룩 상세를 거치지 않고 /fitting 을 직접 연 경우(웹 주소 입력 등).
+       이 화면은 "어떤 룩을 입힐지"를 스스로 정하지 않는다 — 상세에서 고른 룩을 받는다.
+     - 조회 전/생성 중: 로딩. 완성되면 그대로 이어진다.
+     - 후보 없음·실패: 입힐 대상이 없다는 뜻이라 상세로 돌려보낸다. */
+  if (!lookId || !look) {
+    return (
+      <View style={styles.container}>
+        {header}
+        {lookId && lookPhase === 'pending' ? (
+          <LoadingState message={'추천 룩을 불러오는 중이에요…'} />
+        ) : (
+          <ErrorState
+            title="입어볼 추천 룩이 없어요"
+            description="오늘의 룩 상세에서 '가상으로 입어보기'를 눌러 주세요."
+            onRetry={() => router.replace('/look-detail?id=daily')}
+            retryLabel="오늘의 룩 보기"
+            retryIcon="sparkles"
+          />
+        )}
+      </View>
+    );
+  }
+
   return (
     <View style={styles.container}>
-      <SafeAreaView edges={['top']} style={styles.headerSafe}>
-        <View style={[styles.header, contentStyle(maxW)]}>
-          <Pressable hitSlop={12} onPress={() => goBack('/look-detail')}>
-            <Icon name="chevron.left" tintColor={INK} size={20} />
-          </Pressable>
-          <Text style={styles.headerTitle}>가상 피팅</Text>
-        </View>
-      </SafeAreaView>
+      {header}
 
       <ScrollView
         showsVerticalScrollIndicator={false}

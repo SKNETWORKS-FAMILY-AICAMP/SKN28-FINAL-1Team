@@ -1314,6 +1314,7 @@ class DailyLookVirtualTryOnView(APIView):
         request=VirtualTryOnRequestSerializer,
         responses={
             200: VirtualTryOnResponseSerializer,
+            404: OpenApiResponse(description="오늘 나간 룩이 아닌 golden_id"),
             409: OpenApiResponse(description="추천 룩 이미지가 아직 생성되지 않음"),
             502: OpenApiResponse(description="이미지 모델이 가상 착장 생성에 실패함"),
             503: OpenApiResponse(description="결과 저장소가 설정되지 않음"),
@@ -1330,9 +1331,36 @@ class DailyLookVirtualTryOnView(APIView):
 
         serializer = VirtualTryOnRequestSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
-        image = (look.result or {}).get("render_image") or (look.result or {}).get(
-            "outfit_image"
-        )
+
+        # '다른 룩'으로 돌려보던 후보를 입어볼 수 있다. golden_id 없이 대표 룩만
+        # 입히면, 화면에서 고른 룩과 마네킹이 입은 룩이 어긋난다 — 저장 버튼에서
+        # 같은 문제를 고쳤고 규칙도 같은 함수(pick_result)를 쓴다.
+        try:
+            chosen = daily_look_service.pick_result(
+                look, serializer.validated_data["golden_id"]
+            )
+        except daily_look_service.GoldenLookNotInTodayError as error:
+            return Response(
+                {
+                    "code": "GOLDEN_LOOK_NOT_IN_TODAY",
+                    "golden_id": error.golden_id,
+                    "detail": "오늘 추천에 없는 룩입니다. 새로고침 후 다시 시도해주세요.",
+                },
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        image = chosen.get("render_image") or chosen.get("outfit_image")
+        if not image or not image.get("s3_bucket") or not image.get("s3_key"):
+            # 후보의 착용 이미지는 별도 큐 작업이 채운다. 조회 시점 보정을 한 번
+            # 돌려 방금 만들어진 것을 집어 오고, 그래도 없으면 아직인 것이다.
+            daily_look_service.refresh_alternatives(look)
+            try:
+                chosen = daily_look_service.pick_result(
+                    look, serializer.validated_data["golden_id"]
+                )
+            except daily_look_service.GoldenLookNotInTodayError:
+                chosen = {}
+            image = chosen.get("render_image") or chosen.get("outfit_image")
         if not image or not image.get("s3_bucket") or not image.get("s3_key"):
             return Response(
                 {"detail": "추천 룩 이미지 생성이 완료된 뒤 시도해 주세요."},
@@ -1353,7 +1381,8 @@ class DailyLookVirtualTryOnView(APIView):
         )
         contract = hashlib.sha256(
             (
-                f"daily|{look.pk}|{mode}|{hashlib.sha256(person).hexdigest()}|"
+                f"daily|{look.pk}|{chosen.get('golden_id', '')}|{mode}|"
+                f"{hashlib.sha256(person).hexdigest()}|"
                 f"{hashlib.sha256(outfit).hexdigest()}|{settings.OUTFIT_RENDER_MODEL}|"
                 f"{prompt_version}"
             ).encode()
