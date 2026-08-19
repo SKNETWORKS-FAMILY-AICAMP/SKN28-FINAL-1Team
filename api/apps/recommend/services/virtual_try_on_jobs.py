@@ -26,6 +26,7 @@ from apps.recommend.services.virtual_try_on import (
     DIRECT_PROMPT_VERSION,
     MANNEQUIN_PROMPT_VERSION,
     VirtualTryOnService,
+    body_note,
 )
 
 logger = logging.getLogger(__name__)
@@ -39,19 +40,38 @@ def prompt_version_for(mode: str) -> str:
     return DIRECT_PROMPT_VERSION if mode == "person" else MANNEQUIN_PROMPT_VERSION
 
 
-def build_contract(*, person: bytes, outfit: bytes, mode: str) -> str:
+def body_note_for(look: DailyLook) -> str:
+    """이 룩을 만들 때 얼려 둔 체형 판정으로 프롬프트 한 문장을 만든다.
+
+    BodyMeasurement 를 다시 읽지 않는다. 추천이 나간 시점의 판정
+    (DailyLook.body_profile 스냅샷)이 그 추천의 근거이고, 사용자가 그 뒤에 치수를
+    고쳐도 **이미 나간 추천의 이미지**는 그때 기준으로 남는 편이 앞뒤가 맞는다.
+    """
+    profile = look.body_profile or {}
+    return body_note(
+        silhouette=str(profile.get("silhouette") or ""),
+        bmi_band=str(profile.get("bmi_band") or ""),
+    )
+
+
+def build_contract(
+    *, person: bytes, outfit: bytes, mode: str, body_note_text: str = ""
+) -> str:
     """같은 입력이면 같은 결과 키.
 
     look.pk 를 넣지 않는다. 사람 사진과 코디 이미지가 같으면 결과도 같으므로,
     같은 코디를 받은 다른 사용자·다른 날짜의 작업도 이미 만들어 둔 이미지를
     그대로 쓴다. (예전 키에는 look.pk 와 golden_id 가 들어 있어 사실상 캐시가
     사용자·날짜별로 갈렸다 — 같은 걸 여러 번 만들었다는 뜻이다.)
+
+    체형 문장은 프롬프트의 일부라 여기 들어간다. 같은 사진·같은 코디라도 체형
+    판정이 다르면 옷이 앉는 모양이 달라지므로 다른 결과다.
     """
     return hashlib.sha256(
         (
             f"virtual-try-on|{mode}|{hashlib.sha256(person).hexdigest()}|"
             f"{hashlib.sha256(outfit).hexdigest()}|{settings.OUTFIT_RENDER_MODEL}|"
-            f"{prompt_version_for(mode)}"
+            f"{prompt_version_for(mode)}|{body_note_text}"
         ).encode()
     ).hexdigest()
 
@@ -136,7 +156,9 @@ def accept(
     if not bucket:
         raise VirtualTryOnUnavailable
 
-    contract = build_contract(person=person, outfit=outfit, mode=mode)
+    contract = build_contract(
+        person=person, outfit=outfit, mode=mode, body_note_text=body_note_for(look)
+    )
     key = result_key(contract)
 
     job = VirtualTryOnJob(
@@ -218,7 +240,8 @@ def run(job: VirtualTryOnJob, *, service: VirtualTryOnService | None = None) -> 
         generated = (
             runner.fit_mannequin(person, outfit)
             if job.mode == "mannequin"
-            else runner.fit_person(person, outfit)
+            # 기본 경로. 사진 속 그 사람에게 입히고, 체형 판정은 옷이 앉는 방식에만 쓴다.
+            else runner.fit_person(person, outfit, body_note_for(job.look))
         )
         storage.put_bytes_for(bucket, key, generated.content, generated.media_type)
         media_type = generated.media_type

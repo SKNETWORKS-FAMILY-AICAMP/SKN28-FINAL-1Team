@@ -221,3 +221,100 @@ class VirtualTryOnAsyncTests(TestCase):
 
         self.assertIsNotNone(first)
         self.assertIsNone(second)
+
+
+class PersonModeTests(TestCase):
+    """마네킹이 아니라 **사진 속 그 사람**에게 입힌다."""
+
+    def setUp(self):
+        self.user = User.objects.create(username="vton-person")
+        self.client = APIClient()
+        self.client.force_authenticate(self.user)
+        self.look = DailyLook.objects.create(
+            user=self.user,
+            look_date=service.today(),
+            status=DailyLook.Status.SUCCEEDED,
+            result=_alternative("095", render=True),
+            # body-measure 로 입력한 치수의 판정 결과 (추천 시점 스냅샷)
+            body_profile={"silhouette": "rectangle", "bmi_band": "normal", "ratios": {}},
+        )
+        self.url = reverse(
+            "recommend:daily-look-virtual-try-on", kwargs={"look_id": self.look.pk}
+        )
+        for target, value in [
+            ("apps.recommend.services.storage.exists_for", False),
+            ("apps.recommend.services.storage.put_bytes_for", None),
+            ("apps.recommend.services.storage.download_for", PNG),
+            ("apps.recommend.services.storage.presigned_get_for", "https://signed"),
+            ("apps.recommend.views.render_queue.enqueue_virtual_try_on", None),
+        ]:
+            patcher = patch(target, return_value=value)
+            patcher.start()
+            self.addCleanup(patcher.stop)
+        ctx = patch(
+            "apps.recommend.services.virtual_try_on_jobs.settings"
+            ".OUTFIT_RENDER_RESULT_BUCKET",
+            "result-bucket",
+        )
+        ctx.start()
+        self.addCleanup(ctx.stop)
+
+    def _post(self, **extra):
+        return self.client.post(
+            self.url,
+            {
+                "person_image": SimpleUploadedFile("me.png", PNG, content_type="image/png"),
+                **extra,
+            },
+            format="multipart",
+        )
+
+    def test_default_mode_dresses_the_person(self):
+        """mode 를 안 보내면 사람에게 입힌다 — 마네킹은 이제 선택지다."""
+        self._post()
+
+        self.assertEqual(VirtualTryOnJob.objects.get().mode, "person")
+
+    def test_worker_passes_the_body_note_to_the_person_fit(self):
+        self._post()
+        job = virtual_try_on_jobs.start(VirtualTryOnJob.objects.get().pk)
+        runner = patch.object(virtual_try_on_jobs, "VirtualTryOnService").start()
+        self.addCleanup(patch.stopall)
+        runner.return_value.fit_person.return_value = _Generated()
+
+        virtual_try_on_jobs.run(job)
+
+        runner.return_value.fit_mannequin.assert_not_called()
+        note = runner.return_value.fit_person.call_args.args[2]
+        self.assertIn("rectangle", note)
+        self.assertIn("Do not resize, reshape", note)
+
+    def test_body_type_changes_the_cache_key(self):
+        """같은 사진·같은 코디라도 체형이 다르면 옷이 앉는 모양이 다르다."""
+        rectangle = virtual_try_on_jobs.build_contract(
+            person=PNG, outfit=PNG, mode="person",
+            body_note_text=virtual_try_on_jobs.body_note_for(self.look),
+        )
+        DailyLook.objects.filter(pk=self.look.pk).update(
+            body_profile={"silhouette": "triangle", "bmi_band": "normal", "ratios": {}}
+        )
+        self.look.refresh_from_db()
+        triangle = virtual_try_on_jobs.build_contract(
+            person=PNG, outfit=PNG, mode="person",
+            body_note_text=virtual_try_on_jobs.body_note_for(self.look),
+        )
+
+        self.assertNotEqual(rectangle, triangle)
+
+    def test_look_without_body_data_still_works(self):
+        """체형을 아직 안 넣은 사용자도 입어볼 수 있어야 한다 — 문장만 빠진다."""
+        DailyLook.objects.filter(pk=self.look.pk).update(body_profile={})
+        self.look.refresh_from_db()
+
+        self.assertEqual(virtual_try_on_jobs.body_note_for(self.look), "")
+        self.assertEqual(self._post().status_code, 202)
+
+    def test_mannequin_is_still_available(self):
+        self._post(mode="mannequin")
+
+        self.assertEqual(VirtualTryOnJob.objects.get().mode, "mannequin")

@@ -144,16 +144,17 @@ export default function Fitting() {
                 <>
                   <Icon name="figure.stand" tintColor={ink(0.45)} size={42} />
                   <Text style={styles.canvasTitle}>
-                    {tryOnStalled ? '아직 만들고 있어요' : '전신 사진을 선택해 주세요'}
+                    {tryOnStalled ? '아직 만들고 있어요' : '내 전신 사진으로 입어보기'}
                   </Text>
                   <Text style={styles.canvasGuide}>
                     {tryOnStalled
                       ? '생각보다 오래 걸리고 있어요. 잠시 뒤 다시 들어오면 보일 거예요.'
                       : job?.status === 'FAILED'
                         ? (job.detail ?? '만들지 못했어요. 다시 시도해 주세요.')
-                        : /* 사진은 워커가 읽어야 해서 잠시 저장된다. "저장하지 않는다"고
-                             적어 두면 실제와 다른 약속이 된다. */
-                          '사진은 가상 착장을 만드는 데만 쓰고, 만든 뒤 자동으로 지워져요.'}
+                        : /* 마네킹이 아니라 사진 속 본인에게 입힌다는 것을 먼저 말한다 —
+                             무엇이 나올지 알고 사진을 고르게 된다. 사진은 워커가 읽어야 해서
+                             잠시 저장되므로 "저장하지 않는다"고 적으면 실제와 다른 약속이 된다. */
+                          '사진 속 내 모습 그대로 이 코디를 입혀 드려요. 사진은 만드는 데만 쓰고 자동으로 지워져요.'}
                   </Text>
                   <Pressable
                     style={[styles.photoBtn, submitting && styles.btnDisabled]}

@@ -46,11 +46,15 @@ export function getVirtualTryOn(
 }
 
 /**
- * 오늘의 룩을 내 체형 마네킹에 입힌다.
+ * 오늘의 룩을 **사진 속 본인**에게 입힌다 (mode='person').
+ *
+ * 마네킹이 아니다 — 얼굴·체형·포즈·배경은 그대로 두고 옷만 바꾼다. 서버는
+ * body-measure 로 입력한 체형 판정을 프롬프트에 함께 넣되, 옷이 그 체형에 맞게
+ * 앉도록 하는 데만 쓴다(사람을 그 수치대로 고쳐 그리지 않는다).
  *
  * `goldenId` 는 '다른 룩'으로 돌려보던 후보를 입어볼 때 준다. 생략하면 서버가
  * 대표 룩을 쓰므로, 화면이 후보를 보여주고 있다면 **반드시 넘겨야** 한다 —
- * 안 넘기면 화면에서 고른 룩과 마네킹이 입은 룩이 달라진다.
+ * 안 넘기면 화면에서 고른 룩과 입은 룩이 달라진다.
  * 서버는 이 값이 그 사용자의 오늘 후보 안에 있는지 확인한다(아니면 404).
  */
 export async function fitDailyLookToMannequin(
@@ -65,7 +69,7 @@ export async function fitDailyLookToMannequin(
     const response = await fetch(personUri);
     if (!response.ok) throw new Error('선택한 사진을 불러오지 못했습니다.');
     form.append('person_image', await response.blob(), name);
-    form.append('mode', 'mannequin');
+    form.append('mode', 'person');
     if (goldenId) form.append('golden_id', goldenId);
     return apiFetch<VirtualTryOnJob>(DailyLookVirtualTryOnEndpoint(lookId), {
       method: 'POST',
@@ -77,7 +81,7 @@ export async function fitDailyLookToMannequin(
     'person_image',
     { uri: personUri, name, type: guessMimeType(name) } as unknown as Blob,
   );
-  form.append('mode', 'mannequin');
+  form.append('mode', 'person');
   if (goldenId) form.append('golden_id', goldenId);
   const response = await uploadMultipart(
     `${API_BASE_URL}${DailyLookVirtualTryOnEndpoint(lookId)}`,
