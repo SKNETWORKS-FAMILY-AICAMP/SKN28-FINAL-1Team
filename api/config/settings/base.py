@@ -76,10 +76,18 @@ LOGGING = {
     "version": 1,
     # Django/서드파티가 이미 만들어 둔 로거를 죽이지 않는다.
     "disable_existing_loggers": False,
+    "filters": {
+        "request_context": {
+            "()": "config.observability.RequestContextFilter",
+        },
+    },
     "formatters": {
         "standard": {
             "format": "%(asctime)s [%(levelname)s] %(name)s: %(message)s",
             "datefmt": "%Y-%m-%d %H:%M:%S",
+        },
+        "json": {
+            "()": "config.observability.JsonFormatter",
         },
     },
     "handlers": {
@@ -89,12 +97,25 @@ LOGGING = {
             # gunicorn --capture-output이 stdout/stderr를 에러 로그로 모은다.
             "stream": "ext://sys.stdout",
         },
+        "reference_recommendation": {
+            "class": "logging.StreamHandler",
+            "formatter": "json",
+            "filters": ["request_context"],
+            "stream": "ext://sys.stdout",
+        },
     },
     "root": {
         "handlers": ["console"],
         "level": LOG_LEVEL,
     },
     "loggers": {
+        # 레퍼런스 추천 운영 지표는 친구 이름·스냅샷·벡터를 허용하지 않는
+        # 전용 JSON 포맷으로만 남긴다.
+        "apps.chat.reference_recommendation": {
+            "handlers": ["reference_recommendation"],
+            "level": "INFO",
+            "propagate": False,
+        },
         # 애플리케이션 코드 (apps.users, apps.recommend, ...)
         "apps": {
             "handlers": ["console"],
