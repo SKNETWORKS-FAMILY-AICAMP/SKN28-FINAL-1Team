@@ -302,3 +302,34 @@ class OutfitComposerTests(SimpleTestCase):
                     slot_results=(slot,),
                 )
             )
+
+
+class OutfitSlotRequirementTests(SimpleTestCase):
+    """액세서리 하나를 못 채웠다고 코디 전체가 무효가 되면 안 된다."""
+
+    @staticmethod
+    def _slot(category_large: str):
+        from apps.recommend.services.composer import _outfit_slot
+
+        return _outfit_slot(
+            TemplateItem(
+                point_id=f"template-{category_large}",
+                payload={"category_large": category_large, "layer_role": ""},
+            )
+        )
+
+    def test_body_covering_categories_are_required(self) -> None:
+        for category_large in ("상의", "하의", "원피스/세트"):
+            with self.subTest(category_large=category_large):
+                self.assertTrue(self._slot(category_large).required)
+
+    def test_finishing_categories_are_optional(self) -> None:
+        for category_large in ("아우터", "신발", "가방", "액세서리"):
+            with self.subTest(category_large=category_large):
+                self.assertFalse(self._slot(category_large).required)
+
+    def test_unknown_category_stays_required(self) -> None:
+        """분류를 모를 때 선택으로 두면 검증이 조용히 느슨해진다."""
+
+        self.assertTrue(self._slot("").required)
+        self.assertTrue(self._slot("아직없는분류").required)

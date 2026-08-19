@@ -483,3 +483,79 @@ class DjangoEligibilityGatewayRuleTests(SimpleTestCase):
 
         self.assertFalse(status.eligible)
         self.assertEqual(status.code, "PRODUCT_LINK_MISSING")
+
+
+class OptionalSlotMissingTests(SimpleTestCase):
+    """선택 슬롯이 비는 건 경고지 실패가 아니다."""
+
+    def setUp(self) -> None:
+        self.validator = OutfitValidator(eligibility_gateway=FakeEligibilityGateway())
+        self.top = OutfitSlot(
+            slot_id="TOP",
+            template_point_id="template-TOP",
+            category_large="상의",
+            required=True,
+        )
+        self.accessory = OutfitSlot(
+            slot_id="ACCESSORY",
+            template_point_id="template-ACCESSORY",
+            category_large="액세서리",
+            required=False,
+        )
+
+    def _errors(self, result) -> list[str]:
+        return [
+            issue.code
+            for issue in result.issues
+            if issue.severity is ValidationSeverity.ERROR
+        ]
+
+    def test_missing_optional_slot_does_not_fail_validation(self) -> None:
+        composition = _composition(
+            _item("TOP", ItemSource.PRODUCT, "top-1", price=10000),
+            missing=("ACCESSORY",),
+            slots=(self.top, self.accessory),
+        )
+
+        result = self.validator.validate(composition, context=ValidationContext())
+
+        self.assertNotIn("REQUIRED_SLOT_MISSING", self._errors(result))
+
+    def test_missing_required_slot_still_fails(self) -> None:
+        composition = _composition(
+            _item("ACCESSORY", ItemSource.PRODUCT, "acc-1", category_large="액세서리", price=1000),
+            missing=("TOP",),
+            slots=(self.top, self.accessory),
+        )
+
+        result = self.validator.validate(composition, context=ValidationContext())
+
+        self.assertIn("REQUIRED_SLOT_MISSING", self._errors(result))
+
+    def test_context_required_slot_overrides_optional_flag(self) -> None:
+        """공유 옷 고정처럼 호출부가 필수로 지정한 슬롯은 선택으로 내려가지 않는다."""
+
+        composition = _composition(
+            _item("TOP", ItemSource.PRODUCT, "top-1", price=10000),
+            missing=("ACCESSORY",),
+            slots=(self.top, self.accessory),
+        )
+
+        result = self.validator.validate(
+            composition,
+            context=ValidationContext(required_slot_ids=("ACCESSORY",)),
+        )
+
+        self.assertIn("REQUIRED_SLOT_MISSING", self._errors(result))
+
+    def test_composition_without_slot_metadata_keeps_old_behaviour(self) -> None:
+        """slots가 비면 판단 근거가 없다 — 예전처럼 누락을 전부 오류로 본다."""
+
+        composition = _composition(
+            _item("TOP", ItemSource.PRODUCT, "top-1", price=10000),
+            missing=("ACCESSORY",),
+        )
+
+        result = self.validator.validate(composition, context=ValidationContext())
+
+        self.assertIn("REQUIRED_SLOT_MISSING", self._errors(result))

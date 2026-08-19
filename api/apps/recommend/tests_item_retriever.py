@@ -368,3 +368,74 @@ class ItemCandidateRetrieverUnitTests(SimpleTestCase):
         self.assertIsNone(result.candidates[0].score)
         self.assertIn("태그 조건", result.candidates[0].reasons[-1])
         self.assertEqual(len(client.scroll_calls), 1)
+
+
+class ItemCandidateRetrieverAvoidedTagTests(SimpleTestCase):
+    """기피 태그는 검증이 아니라 후보 검색에서 걸러야 한다."""
+
+    def setUp(self) -> None:
+        self.client = QdrantClient(":memory:")
+        self.product_collections = product_collection_names()
+        for collection_name in (GOLDEN_ITEM_COLLECTION, *self.product_collections):
+            _create_item_collection(self.client, collection_name)
+
+        self.template_id = _point_id()
+        _upsert(
+            self.client,
+            GOLDEN_ITEM_COLLECTION,
+            point_id=self.template_id,
+            image=[1.0, 0.0, 0.0],
+            text=[0.0, 1.0, 0.0],
+            payload={
+                "golden_id": "outfit-1",
+                "category_large": "상의",
+                "layer_role": "TOP",
+            },
+        )
+        for external_id, style in (("naver-casual", "캐주얼"), ("naver-classic", "클래식")):
+            _upsert(
+                self.client,
+                self.product_collections[0],
+                point_id=_point_id(),
+                image=[0.9, 0.1, 0.0],
+                text=[0.0, 1.0, 0.0],
+                payload={
+                    "external_product_id": external_id,
+                    "category_large": "상의",
+                    "layer_role": "TOP",
+                    "style": [style],
+                    "tagging_status": "tagged",
+                    "price": 10000,
+                    "image_url": "https://example.test/item.jpg",
+                },
+            )
+
+    def _retrieve(self, avoided_tags):
+        return ItemCandidateRetriever(client=self.client).retrieve(
+            ItemRetrievalRequest(
+                template_item_point_id=self.template_id,
+                sources=(ItemSource.PRODUCT,),
+                avoided_tags=avoided_tags,
+                limit_per_source=10,
+            )
+        )
+
+    def test_returns_every_candidate_without_avoided_tags(self) -> None:
+        result = self._retrieve({})
+
+        self.assertEqual(len(result.candidates), 2)
+
+    def test_excludes_candidates_carrying_an_avoided_tag(self) -> None:
+        result = self._retrieve({"style": ("캐주얼",)})
+
+        self.assertEqual(
+            [candidate.payload["external_product_id"] for candidate in result.candidates],
+            ["naver-classic"],
+        )
+
+    def test_empty_label_set_does_not_filter(self) -> None:
+        """빈 라벨로 must_not을 만들면 Qdrant가 전부 떨어뜨린다 — 조건 자체를 걸지 않는다."""
+
+        result = self._retrieve({"style": ()})
+
+        self.assertEqual(len(result.candidates), 2)

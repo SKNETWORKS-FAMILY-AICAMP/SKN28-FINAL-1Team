@@ -209,6 +209,47 @@ class RecommendationCandidatePipelineTests(TestCase):
             composer,
         )
 
+    def test_avoided_condition_reaches_item_candidate_search(self) -> None:
+        """기피 조건을 검색에 안 넘기면 조합까지 만든 뒤 Validator가 버린다."""
+
+        run, _ = self._run()
+        pipeline, _ = self._pipeline()
+        analysis = self._analysis().model_copy(
+            update={
+                "conditions": self._analysis().conditions.model_copy(
+                    update={"avoided_styles": ["캐주얼"]}
+                )
+            }
+        )
+
+        pipeline._generate_candidates(
+            run=run,
+            context=self._context(),
+            analysis=analysis,
+        )
+
+        requests = [
+            call.args[0] for call in pipeline.item_retriever.retrieve.call_args_list
+        ]
+        self.assertTrue(requests)
+        self.assertEqual(requests[0].avoided_tags, {"style": ("캐주얼",)})
+
+    def test_no_avoided_condition_sends_empty_filter(self) -> None:
+        run, _ = self._run()
+        pipeline, _ = self._pipeline()
+
+        pipeline._generate_candidates(
+            run=run,
+            context=self._context(),
+            analysis=self._analysis(),
+        )
+
+        requests = [
+            call.args[0] for call in pipeline.item_retriever.retrieve.call_args_list
+        ]
+        self.assertTrue(requests)
+        self.assertEqual(requests[0].avoided_tags, {})
+
     @patch("apps.chat.services.recommendation_pipeline.render_jobs.schedule_result")
     def test_generation_does_not_write_and_persistence_saves_only_selection(
         self,

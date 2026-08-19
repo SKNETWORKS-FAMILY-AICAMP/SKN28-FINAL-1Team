@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
+from collections import Counter
 from collections.abc import Collection, Mapping, Sequence
 from contextlib import nullcontext
 from dataclasses import dataclass, replace
@@ -68,11 +69,13 @@ from apps.recommend.services.shared_reference_anchor import (
     pin_reference_anchor,
 )
 from apps.recommend.services.text_embedding import TextEmbeddingConfigurationError
+from apps.recommend.services import vocabulary
 from apps.recommend.services.validator import (
     OutfitValidationResult,
     OutfitValidator,
     ReferenceValidationContract,
     ValidationContext,
+    ValidationSeverity,
 )
 from apps.recommend.services.wardrobe_composer import (
     WardrobeCompositionRequest,
@@ -368,8 +371,19 @@ class ChatRecommendationPipeline:
         if not retrieval.candidates:
             raise GoldenOutfitNotFound("조건에 맞는 골든 코디를 찾지 못했습니다.")
 
+        # 골든 코디 검색에만 걸려 있던 기피 조건을 아이템 후보 검색에도 넘긴다.
+        avoided_tags = {
+            tag_field: tuple(sorted(labels))
+            for tag_field, labels in vocabulary.translate(
+                pursuit.get("avoided")
+            ).tags.items()
+        }
+
         generated: list[ValidatedRecommendationCandidate] = []
         validated_template_count = 0
+        # 어느 단계에서 몇 건이 떨어졌는지 남긴다. 이게 없으면 실패가
+        # "조합을 만들지 못했습니다" 한 줄로만 남아 원인을 추적할 수 없다.
+        failure_reasons: Counter[str] = Counter()
         for template_rank, candidate in enumerate(retrieval.candidates, start=1):
             template_ids = self._template_item_ids(candidate)
             if not template_ids:
@@ -385,6 +399,7 @@ class ChatRecommendationPipeline:
                         dataset_version=settings.CHAT_GOLDENSET_DATASET_VERSION,
                         dataset_statuses=settings.CHAT_GOLDENSET_DATASET_STATUSES,
                         limit_per_source=10,
+                        avoided_tags=avoided_tags,
                     )
                     if (
                         scoped_item_ids
@@ -422,7 +437,8 @@ class ChatRecommendationPipeline:
                         budget=total_budget,
                         category_budgets=category_budgets,
                     )
-            except (ValueError, RuntimeError):
+            except (ValueError, RuntimeError) as exc:
+                failure_reasons[type(exc).__name__] += 1
                 continue
 
             template_candidates: list[ValidatedRecommendationCandidate] = []
@@ -462,6 +478,12 @@ class ChatRecommendationPipeline:
                             reference_anchor=reference_anchor,
                         ),
                     )
+                if not validation.valid:
+                    failure_reasons.update(
+                        issue.code
+                        for issue in validation.issues
+                        if issue.severity is ValidationSeverity.ERROR
+                    )
                 if validation.valid:
                     template_candidates.append(
                         ValidatedRecommendationCandidate(
@@ -485,9 +507,21 @@ class ChatRecommendationPipeline:
                     break
 
         if not generated:
-            raise OutfitCompositionFailed(
+            detail = ", ".join(
+                f"{reason}x{count}" for reason, count in failure_reasons.most_common(3)
+            )
+            # 사용자 메시지에는 내부 코드를 싣지 않는다. 운영자는 로그로 본다.
+            logger.warning(
+                "골든 코디 %d건에서 유효 조합 0건 (run=%s, 사유=%s)",
+                len(retrieval.candidates),
+                run.pk,
+                detail or "사유 기록 없음",
+            )
+            failure = OutfitCompositionFailed(
                 "검색된 골든 코디로 검증 가능한 최종 조합을 만들지 못했습니다."
             )
+            failure.detail = detail
+            raise failure
         return GeneratedRecommendationCandidates(
             run_id=str(run.pk),
             session_id=str(session.pk),
