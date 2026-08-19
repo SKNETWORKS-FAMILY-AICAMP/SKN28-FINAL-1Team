@@ -9,6 +9,8 @@ import {
   StyleSheet,
   Text,
   TextInput,
+  type NativeSyntheticEvent,
+  type TextInputKeyPressEventData,
   View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -21,6 +23,7 @@ import { Icon } from '@/components/icon';
 import { SmartImage, useToast } from '@/components/ui';
 import { ContentMax, Editorial, Fonts, ink, Type } from '@/constants/theme';
 import { useBreakpoint } from '@/hooks/use-breakpoint';
+import { shouldSubmitChatInputOnKeyPress } from '@/lib/chatInput';
 import { pickOutfitPhoto } from '@/lib/pickItemPhoto';
 import type { StylistId } from '@/lib/stylistApi';
 import {
@@ -36,6 +39,17 @@ const INK = Editorial.ink;
 const BONE = Editorial.bone;
 
 const QUICK = ['더 캐주얼하게', '다른 색으로', '아우터 추천', '신발만 바꿔줘'];
+
+type WebTextInputKeyPressEvent = NativeSyntheticEvent<
+  TextInputKeyPressEventData & {
+    isComposing?: boolean;
+    keyCode?: number;
+    shiftKey?: boolean;
+  }
+> & {
+  keyCode?: number;
+  shiftKey?: boolean;
+};
 
 /** 사이드 패널에서 쓰는 시작 인사 — 넓은 화면에선 옷장을 보며 바로 물어보는 흐름이다. */
 const PANEL_SEED: ChatMessage[] = [
@@ -221,6 +235,21 @@ export function ChatConversation({
       setTyping(false);
       scrollToEnd();
     }
+  };
+
+  const handleInputKeyPress = (event: NativeSyntheticEvent<TextInputKeyPressEventData>) => {
+    const webEvent = event as WebTextInputKeyPressEvent;
+    const { nativeEvent } = webEvent;
+    const shouldSubmit = shouldSubmitChatInputOnKeyPress(Platform.OS, {
+      key: nativeEvent.key,
+      shiftKey: webEvent.shiftKey ?? nativeEvent.shiftKey,
+      isComposing: nativeEvent.isComposing,
+      keyCode: webEvent.keyCode ?? nativeEvent.keyCode,
+    });
+    if (!shouldSubmit) return;
+
+    event.preventDefault();
+    void send();
   };
 
   /**
@@ -782,6 +811,7 @@ export function ChatConversation({
             placeholderTextColor={ink(0.35)}
             multiline
             numberOfLines={1}
+            onKeyPress={Platform.OS === 'web' ? handleInputKeyPress : undefined}
           />
           <Pressable
             style={[styles.sendBtn, text.trim().length > 0 && styles.sendBtnOn]}
