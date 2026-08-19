@@ -1,5 +1,5 @@
 import { Icon } from '@/components/icon';
-import { SmartImage, useToast } from '@/components/ui';
+import { ErrorState, LoadingState, SmartImage, useToast } from '@/components/ui';
 import { categoryBudget, formatBudget, parsePrice, usePrefs } from '@/state/prefs';
 import { router, useLocalSearchParams } from 'expo-router';
 import { useMemo, useState } from 'react';
@@ -8,7 +8,13 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { Editorial, ink, Fonts } from '@/constants/theme';
 import { TODAY_LOOK_IMAGE } from '@/constants/look-images';
-import { dailyLookToVariant, LOOK_VARIANTS, resolveLookVariant } from '@/constants/today-look';
+import {
+  dailyLookResults,
+  dailyLookToVariant,
+  LOOK_VARIANTS,
+  pickDailyLookResult,
+  resolveLookVariant,
+} from '@/constants/today-look';
 import { savedLookStore } from '@/state/saved';
 import { useAuth } from '@/state/auth';
 import { draftItem } from '@/state/draft-item';
@@ -18,6 +24,7 @@ import type { LookRelated } from '@/constants/today-look';
 import { useBreakpoint } from '@/hooks/use-breakpoint';
 import { useDailyLook } from '@/hooks/use-daily-look';
 import { useHome } from '@/hooks/use-home';
+import { dailyLookPhase } from '@/lib/dailyLookApi';
 import { DetailTwoPane } from '@/components/detail-two-pane';
 import { useDiscoveryLook } from '@/hooks/use-discovery-look';
 import type { LookVariant } from '@/constants/today-look';
@@ -37,15 +44,33 @@ export default function LookDetail() {
   // 2단(≥1280)일 땐 본문을 넓게, 세로로 쌓일 땐 좁게 잡아 사진·카드가 과하게 커지지 않게 한다.
   const maxW = width >= 1280 ? 960 : 720;
   /* 어떤 룩을 볼지는 주소가 정한다. 없으면 오늘의 룩. */
-  const { id, from } = useLocalSearchParams<{ id?: string; from?: string }>();
+  /* golden = 홈 카드가 보여 주던 그 룩('다른 룩'으로 돌려본 후보일 수 있다).
+     없으면 대표 룩이다. */
+  const { id, from, golden } = useLocalSearchParams<{
+    id?: string;
+    from?: string;
+    golden?: string;
+  }>();
   const { isLoggedIn } = useAuth();
+  /* 서브텍스트의 날씨는 홈과 같은 출처(useHome)에서 가져와 통일한다. 홈 응답에는
+     오늘의 룩 상태도 실려 있어 아래 훅의 시드로 그대로 넘긴다(왕복 0회). */
+  const { data: home } = useHome();
   /* 오늘의 룩(id 없음/'daily')은 추천 API 실데이터로 그린다. 홈이 이미 만들어 둔
      것을 다시 조회하는 것뿐이라(하루 1건 멱등) 재생성은 없고, 생성 중이면 훅이
-     폴링해 보는 사이 완성되면 화면이 실제 추천으로 바뀐다. 완성 전·비회원이면
-     번들 목업으로 물러난다 — 홈 카드의 템플릿 폴백과 같은 규칙. */
-  const { look: dailyLook } = useDailyLook(isLoggedIn);
+     폴링해 보는 사이 완성되면 화면이 실제 추천으로 바뀐다.
+     **완성 전에는 목업으로 물러나지 않는다** — 로그인 사용자에게 남의 룩 목업을
+     보여주면 몇 초 뒤 통째로 바뀌어 방금 본 것이 가짜였다는 인상만 남는다.
+     번들 목업은 비회원 둘러보기(LOOK_VARIANTS) 몫으로만 남긴다. */
+  const {
+    look: dailyLook,
+    stalled: dailyStalled,
+    reload: reloadDailyLook,
+  } = useDailyLook(isLoggedIn, home ? home.daily_look : undefined);
   const discoveryLook = useDiscoveryLook(id);
-  const apiVariant = useMemo(() => dailyLookToVariant(dailyLook), [dailyLook]);
+  const apiVariant = useMemo(
+    () => dailyLookToVariant(dailyLook, golden),
+    [dailyLook, golden],
+  );
   const discoveryVariant = useMemo<LookVariant | null>(() => discoveryLook ? ({
     id: discoveryLook.id,
     title: discoveryLook.title,
@@ -74,8 +99,26 @@ export default function LookDetail() {
   const lookTags = tagsOf(look.subtitle);
   /* 사진은 원격 URL 이 있으면 그것, 없으면 번들 목업(오늘의 룩) */
   const lookKey = look.image ? { image: look.image } : { asset: TODAY_LOOK_IMAGE };
+  /* 지금 그리는 것이 서버가 만든 오늘의 룩인가. 저장이 골든 코디 경로를 타야 하는
+     조건이자, '이미 담았는지'를 사진이 아니라 골든 id 로 봐야 하는 조건이다 —
+     이 룩의 사진은 presigned URL 이라 조회마다 달라진다. */
+  const serverGoldenId =
+    !discoveryVariant && (!id || id === 'daily') && apiVariant
+      ? (pickDailyLookResult(dailyLook, golden)?.golden_id ?? '')
+      : '';
 
-  const [saved, setSaved] = useState(() => savedLookStore.isSaved(lookKey));
+  /* 북마크는 **보고 있는 룩마다** 따로다. '다른 룩'으로 돌리면 같은 화면에서 대상이
+     바뀌므로, 하나의 boolean 으로 들고 있으면 앞 룩의 상태가 뒷 룩에 그대로 남는다.
+     낙관적 갱신(누르는 즉시 켜기)은 유지하되 룩 단위로 덮어쓴다. */
+  const savedKey = serverGoldenId || (look.image ?? `asset:${TODAY_LOOK_IMAGE}`);
+  const [savedOverrides, setSavedOverrides] = useState<Record<string, boolean>>({});
+  const saved =
+    savedOverrides[savedKey] ??
+    (serverGoldenId
+      ? savedLookStore.getByGoldenId(serverGoldenId) != null
+      : savedLookStore.isSaved(lookKey));
+  const setSaved = (next: boolean) =>
+    setSavedOverrides((prev) => ({ ...prev, [savedKey]: next }));
   const [vote, setVote] = useState<'up' | 'down' | null>(null);
   const [openSlot, setOpenSlot] = useState<string | null>(null);
   const toast = useToast();
@@ -95,11 +138,21 @@ export default function LookDetail() {
   };
 
   /* [다른 룩] = 다음 변형으로. 이름 그대로 다른 룩을 보여준다 —
-     예전엔 룩북으로 나가버려서 버튼 이름과 하는 일이 어긋나 있었다. */
+     예전엔 룩북으로 나가버려서 버튼 이름과 하는 일이 어긋나 있었다.
+
+     오늘의 룩이면 리트리버가 뽑은 **진짜 차순위 후보**를 돌린다. 목업 변형으로
+     넘어가면 로그인 사용자가 자기 추천을 보다가 남의 룩을 보게 된다. */
   const showAnotherLook = () => {
-    const at = LOOK_VARIANTS.findIndex((l) => l.id === look.id);
-    const next = LOOK_VARIANTS[(at + 1) % LOOK_VARIANTS.length];
-    router.setParams({ id: next.id });
+    if (serverGoldenId) {
+      const results = dailyLookResults(dailyLook);
+      const at = results.findIndex((r) => r.golden_id === serverGoldenId);
+      const next = results[(at + 1) % results.length];
+      router.setParams({ id: 'daily', golden: next.golden_id });
+    } else {
+      const at = LOOK_VARIANTS.findIndex((l) => l.id === look.id);
+      const next = LOOK_VARIANTS[(at + 1) % LOOK_VARIANTS.length];
+      router.setParams({ id: next.id });
+    }
     setOpenSlot(null);
     setVote(null);
   };
@@ -126,6 +179,12 @@ export default function LookDetail() {
   const saveLook = async (): Promise<boolean> => {
     setSaved(true);
     try {
+      if (serverGoldenId) {
+        /* 골든 코디는 서버가 이미 가진 자산이다. 표지 사진을 다시 올리면(addLook)
+           같은 사진이 사용자 수만큼 복제되고 이미 끝난 옷 추출을 다시 돈다. */
+        await savedLookStore.saveDailyLook(serverGoldenId);
+        return true;
+      }
       await savedLookStore.addLook({
         ...lookKey,
         comment: look.title,
@@ -142,9 +201,11 @@ export default function LookDetail() {
 
   const toggleSave = async () => {
     if (saved) {
-      const found = savedLookStore
-        .getLooks()
-        .find((l) => (look.image ? l.image === look.image : l.asset === TODAY_LOOK_IMAGE));
+      const found = serverGoldenId
+        ? savedLookStore.getByGoldenId(serverGoldenId)
+        : savedLookStore
+            .getLooks()
+            .find((l) => (look.image ? l.image === look.image : l.asset === TODAY_LOOK_IMAGE));
       setSaved(false);
       if (found) {
         try {
@@ -156,20 +217,61 @@ export default function LookDetail() {
       }
       return;
     }
-    if (await saveLook()) toast('위시에 담았어요');
+    if (await saveLook()) toast(serverGoldenId ? '내 룩북에 담았어요' : '위시에 담았어요');
   };
 
-  // 하단 '룩북에 저장' = 담고 내 룩북의 위시 갈래로 이동 — 담아둔 룩은 거기 선다.
+  /* 하단 '룩북에 저장' = 담고 그 룩이 선 갈래로 이동 — 담았다고 해 놓고 그 룩이 없는
+     목록을 열면 실패로 읽힌다. 오늘의 룩은 서버에 진짜 룩북 글로 남아 내 룩북에,
+     목업·피드 룩은 예전처럼 위시에 선다. */
   const saveAndGoLookbook = async () => {
-    if (await saveLook()) router.push('/(tabs)/lookbook?tab=wish');
+    if (await saveLook()) {
+      router.push(serverGoldenId ? '/(tabs)/lookbook?tab=mine' : '/(tabs)/lookbook?tab=wish');
+    }
   };
 
-  /* 서브텍스트의 날씨는 홈과 같은 출처(useHome)에서 실시간 값을 가져와 통일한다.
-     아직 안 불러왔거나 API 실패 시엔 날씨를 생략하고 무드·상황만 보여준다. */
-  const { data: home } = useHome();
+  /* 아직 안 불러왔거나 API 실패 시엔 날씨를 생략하고 무드·상황만 보여준다. */
   const w = home?.weather;
   const weatherPart = w && w.temperature != null ? `${w.region ?? '서울'} ${w.temperature}°` : null;
   const subtitle = [weatherPart, look.subtitle].filter(Boolean).join(' · ');
+
+  /* 로그인 사용자가 '오늘의 룩'을 열었는데 아직 완성 전이면, 목업 룩을 그리는 대신
+     지금 무슨 일이 벌어지는지 보여준다. 홈 카드와 같은 판정(dailyLookPhase)을 써서
+     두 화면이 같은 순간에 같은 말을 하게 한다. */
+  const isDailyRoute = !discoveryVariant && (!id || id === 'daily');
+  const dailyPhase = dailyLookPhase(dailyLook, dailyStalled);
+  if (isLoggedIn && isDailyRoute && dailyPhase !== 'ready') {
+    return (
+      <View style={styles.container}>
+        <SafeAreaView edges={['top']} style={styles.headerSafe}>
+          <View style={[styles.header, contentStyle(maxW)]}>
+            <Pressable hitSlop={12} onPress={() => goBack(backTo(from, '/(tabs)/home'))}>
+              <Icon name="chevron.left" tintColor={INK} size={20} />
+            </Pressable>
+            <Text style={styles.headerTitle}>추천 룩</Text>
+            <View style={styles.headerRight} />
+          </View>
+        </SafeAreaView>
+        {dailyPhase === 'pending' ? (
+          <LoadingState message={dailyLook?.detail ?? '오늘의 룩을 만들고 있어요…'} />
+        ) : dailyLook?.status === 'EMPTY' ? (
+          /* 후보가 없는 것은 오류가 아니다 — 다시 시도해도 같으니 프로필로 보낸다. */
+          <ErrorState
+            title="오늘 추천할 룩을 찾지 못했어요"
+            description={dailyLook?.detail ?? '체형·추구미를 채우면 그에 맞는 코디를 찾아드릴 수 있어요.'}
+            onRetry={() => router.push('/edit-profile')}
+            retryLabel="프로필 채우기"
+            retryIcon="person"
+          />
+        ) : (
+          <ErrorState
+            title="오늘의 룩을 준비하지 못했어요"
+            description={dailyLook?.detail ?? '잠시 뒤 다시 시도해 주세요.'}
+            onRetry={reloadDailyLook}
+          />
+        )}
+      </View>
+    );
+  }
 
   return (
     <View style={styles.container}>

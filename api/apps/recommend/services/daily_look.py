@@ -26,6 +26,7 @@ from django.conf import settings
 from django.db import IntegrityError, transaction
 from django.utils import timezone
 
+from apps.lookbook.contracts import LOOKBOOK_STYLE_TAGS, LOOKBOOK_TPO_TAGS
 from apps.recommend.models import DailyLook
 from apps.recommend.services import gemini, outfit_render, render_artifacts
 from apps.recommend.services import queue as queue_service
@@ -39,6 +40,7 @@ from apps.recommend.services.mixed_outfit_render import (
 from apps.recommend.services.outfit_context import build_analysis_context
 from apps.recommend.services.retriever import RetrievalRequest, retrieve_outfits
 from apps.recommend.services.style_rules import load_body_rules
+from apps.recommend.services import vocabulary
 
 logger = logging.getLogger(__name__)
 
@@ -48,6 +50,18 @@ CANDIDATE_LIMIT = 5
 #: 최근 며칠간 나간 코디를 다시 추천하지 않을지. 하루 1건이므로 최대 5개
 #: 골든 코디가 제외 대상이 된다.
 RECENT_EXCLUDE_DAYS = 5
+
+#: 홈 카드에 다는 태그 최대 개수. 카드 한 줄에 들어가는 한도이고, 넘치면 가로
+#: 스크롤이 생겨 "더 있나?"를 만든다 — 태그는 부가 정보라 그럴 값어치가 없다.
+MAX_TAGS = 4
+
+#: '다른 룩'으로 돌려볼 차순위 후보 수 (채택된 1위는 별도).
+#:
+#: 후보마다 착용 이미지를 한 장씩 만들어야 해서 이 값이 곧 생성 비용이다. 다만
+#: 이미지는 **골든 코디당 한 번**만 만들고 모든 사용자가 공유하므로, 사용자가
+#: 늘어도 비용은 골든셋 크기에서 멈춘다. 2로 둔 근거는 사람이 카드를 돌려보는
+#: 횟수다 — 세 벌을 넘기면 대개 그만 본다. 0으로 두면 기능이 꺼진다.
+ALTERNATIVE_LIMIT = int(os.getenv("DAILY_LOOK_ALTERNATIVE_LIMIT", "2"))
 
 
 def today(user=None) -> date:
@@ -241,25 +255,51 @@ def run(look: DailyLook) -> None:
     # 코디가 있는데도 사용자는 아무것도 못 봤다.
     chosen = candidates[0]
     look.result = _build_result(chosen, snapshot)
+    # '다른 룩'으로 돌려볼 차순위 후보. result와 같은 스키마로 만들어 두면 프론트가
+    # 카드 한 벌을 그리는 코드를 그대로 재사용한다.
+    #
+    # 문장은 템플릿으로 둔다(generated_by=template). LLM을 후보 수만큼 부르면
+    # 호출이 세 배가 되는데, 사용자가 '다른 룩'을 눌러 실제로 읽는 문장은 대개
+    # 한 벌치다. 대표 룩만 다듬는다.
+    look.alternatives = [
+        _build_result(c, snapshot) for c in candidates[1 : 1 + ALTERNATIVE_LIMIT]
+    ]
     look.status = DailyLook.Status.SUCCEEDED
     look.finished_at = timezone.now()
     look.error = ""
     look.save(
-        update_fields=["candidates", "rules_version", "result", "status", "error",
-                       "finished_at", "updated_at"]
+        update_fields=["candidates", "rules_version", "result", "alternatives",
+                       "status", "error", "finished_at", "updated_at"]
     )
 
     # ── 여기부터는 있으면 좋은 것 ────────────────────────────
-    # 둘 다 실패해도 추천은 이미 SUCCEEDED다. 화면은 아이템 카드로 성립한다.
+    # 셋 다 실패해도 추천은 이미 SUCCEEDED다. 화면은 아이템 카드로 성립한다.
     _attach_render(look, chosen, gender)
     _enrich_with_copy(look, chosen, snapshot)
+    # 후보 이미지는 **여기서 만들지 않는다.** 대표 룩 한 장에도 수십 초가 걸리는데
+    # 후보까지 이어 만들면 워커가 1대 고정이라 뒷사람 추천이 그만큼 밀린다.
+    _schedule_alternative_renders(look)
 
 
 def _daily_render_request(
     look: DailyLook,
     gender: str,
 ) -> OutfitRenderRequest | None:
-    result = look.result or {}
+    return _render_request(look.result or {}, f"daily-look:{look.pk}", gender)
+
+
+def _render_request(
+    result: dict[str, Any],
+    composition_id: str,
+    gender: str,
+) -> OutfitRenderRequest | None:
+    """결과 JSON 하나를 공통 렌더 파이프라인의 요청으로 옮긴다.
+
+    대표 룩과 '다른 룩' 후보가 같은 함수를 쓴다. 지문은 아이템 구성과 모델 성별로만
+    만들어지므로(composition_id는 안 들어간다) 같은 코디는 누가 어느 자리에서
+    요청하든 이미지 한 장을 공유한다 — 후보로 나갔던 코디가 다음 날 1위가 돼도
+    다시 만들지 않는다.
+    """
     items = result.get("items") or []
     references = []
     for position, item in enumerate(items, start=1):
@@ -303,34 +343,44 @@ def _daily_render_request(
         separators=(",", ":"),
     )
     return OutfitRenderRequest(
-        composition_id=f"daily-look:{look.pk}",
+        composition_id=composition_id,
         composition_fingerprint=hashlib.sha256(raw.encode("utf-8")).hexdigest(),
         items=tuple(references),
         subject_presentation=presentation,
     )
 
 
-def _attach_common_render(look: DailyLook, gender: str) -> bool:
-    """채팅 추천과 같은 결과 S3·지문 캐시 계약으로 오늘의 룩을 렌더한다."""
-    request = _daily_render_request(look, gender)
+def _common_render_image(
+    result: dict[str, Any], composition_id: str, gender: str
+) -> dict[str, Any] | None:
+    """공통 렌더 파이프라인(채팅 추천과 같은 S3·지문 캐시)으로 만들어 참조만 돌려준다."""
+    request = _render_request(result, composition_id, gender)
     if request is None or not settings.OUTFIT_RENDER_RESULT_BUCKET:
-        return False
+        return None
     try:
         entry, _ = render_artifacts.get_or_render(request)
     except Exception:
         logger.warning(
-            "오늘의 룩 %s 공통 렌더 실패, 기존 daily 렌더러로 대체합니다.",
-            look.pk,
+            "%s 공통 렌더 실패, 기존 daily 렌더러로 대체합니다.",
+            composition_id,
             exc_info=True,
         )
-        return False
-    result = dict(look.result)
-    result["render_image"] = {
+        return None
+    return {
         "s3_bucket": entry.output_s3_bucket,
         "s3_key": entry.output_s3_key,
         "media_type": entry.output_media_type,
         "render_fingerprint": entry.render_fingerprint,
     }
+
+
+def _attach_common_render(look: DailyLook, gender: str) -> bool:
+    """채팅 추천과 같은 결과 S3·지문 캐시 계약으로 오늘의 룩을 렌더한다."""
+    image = _common_render_image(look.result or {}, f"daily-look:{look.pk}", gender)
+    if image is None:
+        return False
+    result = dict(look.result)
+    result["render_image"] = image
     look.result = result
     look.save(update_fields=["result", "updated_at"])
     return True
@@ -389,6 +439,15 @@ RENDER_RETRY_COOLDOWN_SECONDS = int(
 
 #: 큐 페이로드의 작업 종류. 없으면 기존처럼 전체 생성이다 (하위호환).
 JOB_RENDER = "render"
+
+#: '다른 룩' 후보들의 착용 이미지만 만드는 작업.
+JOB_RENDER_ALTERNATIVES = "render_alternatives"
+
+#: 후보 이미지 생성을 다시 걸기까지의 최소 간격. 락은 룩 행 단위다 — 대표 룩의
+#: 재생성 락(코디 단위)과 달리, 여기서 만드는 것은 여러 코디라 하나로 묶는다.
+ALTERNATIVE_RENDER_COOLDOWN_SECONDS = int(
+    os.getenv("DAILY_LOOK_ALTERNATIVE_RENDER_COOLDOWN_SECONDS", "600")
+)
 
 
 def _render_source(result: dict[str, Any]) -> tuple[str, list[dict[str, Any]]]:
@@ -574,6 +633,53 @@ def run_render_only(look_id: str) -> bool:
     return True
 
 
+def _build_tags(payload: dict[str, Any], snapshot: dict[str, Any]) -> list[str]:
+    """룩북과 **같은 어휘**로 카드 태그를 만든다 (apps/lookbook/contracts.py).
+
+    예전에는 프론트가 아이템 이름을 `#`만 붙여 태그처럼 보이게 했다. 그러면
+    `#블랙스트레이트데님팬츠` 같은 덩어리가 나오고, 룩북 필터 칩과 어휘가 달라
+    같은 서비스 안에서 태그라는 말이 두 가지를 뜻하게 된다.
+
+    출처는 두 단계다.
+
+    1. **골든 코디 자신의 라벨** — Qdrant `outfit_goldenset` payload 의
+       `occasion`(TPO) / `style`(스타일). 무엇을 추천했는지 그대로 말하는 값이라
+       가장 정확하다. 축이 다르므로 어휘도 갈라서 검사한다: occasion 에서 온
+       "미니멀"이나 style 에서 온 "출근"은 라벨링 사고이므로 통과시키지 않는다.
+    2. **사용자 추구미** — `pursuit.preferred.styles`(영문 코드)를
+       `vocabulary.STYLE` 로 한글화. 1번이 비었을 때만 쓴다.
+
+    2번이 필요한 이유: 골든 코디의 season/style/occasion 은 analyses.jsonl 에서
+    오는데 그 분석이 유료라 기본으로 꺼져 있어, 적재된 포인트가 전부 빈 배열인
+    시기가 있었다(retriever.py 의 하드 필터 주석과 같은 사정). 추구미는 프로필
+    입력이라 골든셋 태깅 상태와 무관하게 채워져 있어 화면이 성립한다.
+    다만 2번으로 내려가면 **같은 사용자에게 매일 같은 태그**가 붙는다 — 태그가
+    늘 똑같다면 그건 골든셋 태깅이 비었다는 신호로 읽으면 된다.
+
+    하나도 못 만들면 빈 배열을 돌려준다. 프론트는 이때 태그 줄을 통째로 숨긴다 —
+    어색한 태그를 지어내는 것보다 없는 편이 낫다.
+    """
+    tags: list[str] = []
+
+    def add(values: Any, allowed: frozenset[str]) -> None:
+        for raw in values or []:
+            label = str(raw).strip()
+            if label in allowed and label not in tags:
+                tags.append(label)
+
+    add(payload.get("occasion"), LOOKBOOK_TPO_TAGS)
+    add(payload.get("style"), LOOKBOOK_STYLE_TAGS)
+
+    if not tags:
+        preferred = (snapshot.get("pursuit") or {}).get("preferred") or {}
+        # translate()는 카테고리 전체를 받지만 여기서는 스타일 축만 쓴다.
+        # 색·핏까지 넣으면 룩북 어휘에 없는 라벨만 잔뜩 만들고 전부 버리게 된다.
+        translated = vocabulary.translate({"styles": preferred.get("styles") or []})
+        add(sorted(translated.tags.get("style") or ()), LOOKBOOK_STYLE_TAGS)
+
+    return tags[:MAX_TAGS]
+
+
 def _build_result(candidate, snapshot: dict[str, Any]) -> dict[str, Any]:
     """LLM 없이도 화면을 그릴 수 있는 결과를 만든다.
 
@@ -590,6 +696,7 @@ def _build_result(candidate, snapshot: dict[str, Any]) -> dict[str, Any]:
 
     return {
         "golden_id": candidate.golden_id,
+        "tags": _build_tags(payload, snapshot),
         "headline": _template_headline(snapshot),
         "rationale_ko": _template_rationale(rule_notes, snapshot),
         "styling_tips": [],
@@ -707,6 +814,198 @@ def _candidate_snapshot(candidate) -> dict[str, Any]:
         ],
         "item_keys": list(candidate.payload.get("item_keys", [])),
     }
+
+
+# ── '다른 룩' 후보의 착용 이미지 ────────────────────────────
+#
+# 후보도 카드로 그려지므로 대표 룩과 같은 이미지가 필요하다. 다만 생성 시점을
+# 추천 경로에서 떼어냈다. 대표 룩 한 장에도 수십 초가 걸리는데 후보까지 이어
+# 만들면, 워커가 1대 고정이라 그동안 뒷사람의 추천이 통째로 밀린다.
+#
+# 이미지는 **골든 코디당 한 장**이고 지문 캐시·S3 키가 모두 코디 기준이라,
+# 후보로 나갔던 코디가 다음 날 다른 사용자의 1위가 되어도 다시 만들지 않는다.
+
+
+def _missing_alternative_renders(look: DailyLook) -> list[int]:
+    """착용 이미지가 아직 없는 후보의 인덱스. 참조로 쓸 아이템이 없으면 세지 않는다."""
+    return [
+        index
+        for index, alternative in enumerate(look.alternatives or [])
+        if isinstance(alternative, dict)
+        and not alternative.get("render_image")
+        and alternative.get("items")
+    ]
+
+
+def _schedule_alternative_renders(look: DailyLook) -> None:
+    """후보 착용 이미지 생성을 큐에 건다. 쿨다운 안에서는 한 번만.
+
+    락이 없으면 프론트 폴링마다 작업이 쌓여 요금이 폭주한다(대표 룩 재생성과
+    같은 사고). 락 키는 **룩 행 단위**다 — 대표 룩의 락은 코디 단위지만 여기서
+    만드는 것은 여러 코디라 하나로 묶는 편이 세기 쉽다.
+    """
+    if not settings.DAILY_LOOK_RENDER_ENABLED:
+        return
+    if not _missing_alternative_renders(look):
+        return
+    try:
+        client = queue_service.get_client()
+        acquired = client.set(
+            f"daily_look:alt_render:{look.pk}",
+            "1",
+            nx=True,
+            ex=ALTERNATIVE_RENDER_COOLDOWN_SECONDS,
+        )
+        if not acquired:
+            return
+        queue_service.push(
+            {"look_id": str(look.pk), "job": JOB_RENDER_ALTERNATIVES},
+            spec=queue_service.DAILY_LOOK,
+        )
+    except Exception:  # noqa: BLE001 — 후보 이미지 예약 실패가 추천을 되돌리면 안 된다
+        logger.warning("오늘의 룩 %s 후보 착용 이미지 예약 실패", look.pk, exc_info=True)
+        return
+    logger.info("오늘의 룩 %s 후보 착용 이미지 생성 예약", look.pk)
+
+
+def _render_image_for(
+    result: dict[str, Any], composition_id: str, gender: str
+) -> dict[str, Any] | None:
+    """결과 하나의 착용 이미지를 보장한다. 이미 있으면 만들지 않고 참조만 얻는다."""
+    if image := _common_render_image(result, composition_id, gender):
+        return image
+    bucket, items = _render_source(result)
+    if not bucket or not items:
+        return None
+    reference = outfit_render.ensure_render(bucket=bucket, items=items, gender=gender)
+    return reference.as_dict() if reference is not None else None
+
+
+def _existing_render_image(
+    result: dict[str, Any], composition_id: str, gender: str
+) -> dict[str, Any] | None:
+    """**생성하지 않고** 이미 만들어져 있는 것만 찾는다 (조회 경로용)."""
+    request = _render_request(result, composition_id, gender)
+    if request is not None and settings.OUTFIT_RENDER_RESULT_BUCKET:
+        try:
+            entry = render_artifacts.find_cached(
+                render_artifacts.fingerprint(
+                    request.composition_fingerprint, request.subject_presentation
+                )
+            )
+        except Exception:  # noqa: BLE001
+            entry = None
+            logger.warning("%s 공통 렌더 캐시 확인 실패", composition_id, exc_info=True)
+        if entry is not None:
+            return {
+                "s3_bucket": entry.output_s3_bucket,
+                "s3_key": entry.output_s3_key,
+                "media_type": entry.output_media_type,
+                "render_fingerprint": entry.render_fingerprint,
+            }
+
+    bucket, items = _render_source(result)
+    if not bucket or not items:
+        return None
+    reference = outfit_render.existing_render(bucket, str(items[0]["s3_key"]), gender)
+    return reference.as_dict() if reference is not None else None
+
+
+def _save_alternatives(look: DailyLook, alternatives: list[dict[str, Any]]) -> None:
+    """후보 배열만 갱신한다.
+
+    ``look.save()`` 를 쓰지 않는 이유: 조회 경로(refresh_render)가 같은 순간
+    요청 스레드에서 result 를 다시 쓰고 있을 수 있다. 인스턴스를 통째로 저장하면
+    이 워커가 들고 있는 낡은 result 로 그 갱신을 덮는다.
+    """
+    DailyLook.objects.filter(pk=look.pk).update(
+        alternatives=alternatives, updated_at=timezone.now()
+    )
+    look.alternatives = alternatives
+
+
+def run_alternative_renders(look_id: str) -> int:
+    """워커에서: '다른 룩' 후보들의 착용 이미지를 만든다.
+
+    Returns: 새로 채운 개수.
+
+    후보 하나가 실패해도 나머지는 만든다. 부가 기능이라 전부-아니면-전무로
+    다룰 이유가 없고, 한 코디의 참조 이미지가 깨졌다고 다른 코디까지 못 볼
+    까닭도 없다.
+    """
+    look = DailyLook.objects.filter(pk=look_id).first()
+    if look is None or look.status != DailyLook.Status.SUCCEEDED:
+        return 0
+
+    gender = normalize_gender((look.body or {}).get("gender"))
+    alternatives = list(look.alternatives or [])
+    filled = 0
+    for index in _missing_alternative_renders(look):
+        alternative = dict(alternatives[index])
+        golden_id = str(alternative.get("golden_id") or index)
+        try:
+            image = _render_image_for(
+                alternative, f"daily-look:{look.pk}:alt:{golden_id}", gender
+            )
+        except Exception as exc:  # noqa: BLE001
+            logger.warning(
+                "오늘의 룩 %s 후보 %s 착용 이미지 실패: %s", look.pk, golden_id, exc
+            )
+            continue
+        if image is None:
+            continue
+        alternative["render_image"] = image
+        alternatives[index] = alternative
+        filled += 1
+
+    if filled:
+        _save_alternatives(look, alternatives)
+        logger.info("오늘의 룩 %s 후보 착용 이미지 %d장 완료", look.pk, filled)
+    return filled
+
+
+def refresh_alternatives(look: DailyLook) -> bool:
+    """조회 시점에 후보 착용 이미지를 한 번 더 확인해 붙인다.
+
+    Returns: 행을 갱신했으면 True.
+
+    대표 룩의 refresh_render 와 같은 이유다 — 한 번 실패한 생성이 다음 시행에
+    성공해도, 결과 JSON 은 그때 한 번만 쓰이므로 행은 계속 비어 있다. 여기서도
+    생성은 하지 않고(수십 초) 이미 있는지만 보고, 없으면 큐에 맡긴다.
+    """
+    if look.status != DailyLook.Status.SUCCEEDED:
+        return False
+    missing = _missing_alternative_renders(look)
+    if not missing:
+        return False
+
+    gender = normalize_gender((look.body or {}).get("gender"))
+    alternatives = list(look.alternatives or [])
+    filled = 0
+    for index in missing:
+        alternative = dict(alternatives[index])
+        golden_id = str(alternative.get("golden_id") or index)
+        try:
+            image = _existing_render_image(
+                alternative, f"daily-look:{look.pk}:alt:{golden_id}", gender
+            )
+        except Exception:  # noqa: BLE001 — 보정 실패가 조회를 막으면 안 된다
+            logger.warning(
+                "오늘의 룩 %s 후보 %s 착용 이미지 확인 실패",
+                look.pk, golden_id, exc_info=True,
+            )
+            continue
+        if image is None:
+            continue
+        alternative["render_image"] = image
+        alternatives[index] = alternative
+        filled += 1
+
+    if filled:
+        _save_alternatives(look, alternatives)
+    # 아직 없는 후보가 남아 있으면 생성을 예약한다 (쿨다운 안에서는 한 번만).
+    _schedule_alternative_renders(look)
+    return bool(filled)
 
 
 def _candidate_for_llm(candidate) -> dict[str, Any]:

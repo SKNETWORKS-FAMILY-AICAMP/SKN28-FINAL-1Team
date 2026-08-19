@@ -1150,6 +1150,16 @@ class DailyLook(models.Model):
         blank=True,
         db_comment="프론트에 내려줄 추천 결과 JSON (headline/outfit/items/rationale)",
     )
+    alternatives = models.JSONField(
+        "다른 룩 후보",
+        default=list,
+        blank=True,
+        db_comment=(
+            "'다른 룩'으로 돌려볼 차순위 후보들. result와 **같은 스키마**의 배열이라 "
+            "프론트가 카드 한 벌을 그리는 코드를 그대로 쓴다. 문장은 템플릿이고 "
+            "착용 이미지는 별도 큐 작업이 나중에 채운다"
+        ),
+    )
     error = models.TextField(
         blank=True,
         default="",

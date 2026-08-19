@@ -61,9 +61,13 @@ class LookbookApiTestCase(TestCase):
             "calendar_delete_objects": patch(
                 f"{service}.calendar_storage.delete_objects"
             ),
+            # 시리얼라이저는 버킷을 함께 넘긴다 — 오늘의 룩에서 담은 골든 코디는
+            # 룩북 버킷이 아니라 골든셋 버킷을 가리키기 때문이다(빈 값 = 룩북 버킷).
             "presigned_get": patch(
-                "apps.lookbook.serializers.storage.presigned_get",
-                side_effect=lambda key: f"https://lookbook.example/{key}" if key else "",
+                "apps.lookbook.serializers.storage.presigned_get_in",
+                side_effect=(
+                    lambda bucket, key: f"https://lookbook.example/{key}" if key else ""
+                ),
             ),
             "enqueue": patch("apps.lookbook.views.wardrobe_jobs.enqueue"),
             "logger_exception": patch("apps.lookbook.views.logger.exception"),
