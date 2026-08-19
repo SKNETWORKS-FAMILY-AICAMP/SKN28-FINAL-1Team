@@ -17,6 +17,7 @@ export type SharedSpace = {
   name: string;
   inviteCode: string;
   members: string[];
+  role: 'owner' | 'member';
 };
 
 /**
@@ -143,6 +144,11 @@ export function SharedSpaceMembers({
         })}
       </View>
       <Text style={styles.memberCount}>{space.members.length}명</Text>
+      <View style={[styles.roleBadge, space.role === 'owner' && styles.roleBadgeOwner]}>
+        <Text style={[styles.roleBadgeText, space.role === 'owner' && styles.roleBadgeTextOwner]}>
+          {space.role === 'owner' ? '방장' : '멤버'}
+        </Text>
+      </View>
       <Pressable style={styles.inviteChip} onPress={onInvite} hitSlop={6}>
         <Icon name="plus" tintColor={Editorial.ink} size={14} />
         <Text style={styles.inviteChipText}>초대</Text>
@@ -365,6 +371,7 @@ export function createSharedSpace(name = '우리 옷장'): SharedSpace {
     name,
     inviteCode: makeInviteCode(),
     members: ['나'],
+    role: 'owner',
   };
 }
 
@@ -443,6 +450,20 @@ const styles = StyleSheet.create({
   memberDotOverlap: { marginLeft: -8 },
   memberInitial: { fontSize: 11, fontWeight: '600', color: '#fff' },
   memberCount: { fontSize: Type.micro, color: Editorial.textCaption, flex: 1 },
+  roleBadge: {
+    paddingHorizontal: 9,
+    paddingVertical: 5,
+    borderRadius: 999,
+    backgroundColor: Editorial.surface,
+    borderWidth: 1,
+    borderColor: Editorial.line,
+  },
+  roleBadgeOwner: {
+    backgroundColor: Editorial.ink,
+    borderColor: Editorial.ink,
+  },
+  roleBadgeText: { fontSize: Type.micro, fontWeight: '600', color: Editorial.textCaption },
+  roleBadgeTextOwner: { color: Editorial.surface },
   inviteChip: {
     flexDirection: 'row',
     alignItems: 'center',
