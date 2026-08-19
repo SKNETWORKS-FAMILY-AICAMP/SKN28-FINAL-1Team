@@ -452,6 +452,11 @@ export function itemDisplayName(item: WardrobeApiItem): string {
 /** 공유 옷의 상태. 서버 `SharedWardrobeItem.Status` 와 값이 1:1 로 맞아야 한다. */
 export type SharedItemStatus = 'available' | 'borrowed' | 'private';
 
+export type SharedReferenceUnavailableReason =
+  | 'PRIVATE'
+  | 'NOT_CONFIRMED'
+  | 'VECTOR_NOT_READY';
+
 export type SharedRoom = {
   id: string;
   title: string;
@@ -495,6 +500,8 @@ export type SharedRoomItem = {
   registered_by: SharedRoomUser | null;
   wardrobe_item: WardrobeApiItem;
   status: 'available' | 'borrowed' | 'private';
+  reference_eligible: boolean;
+  reference_unavailable_reason: SharedReferenceUnavailableReason | null;
   created_at: string;
 };
 

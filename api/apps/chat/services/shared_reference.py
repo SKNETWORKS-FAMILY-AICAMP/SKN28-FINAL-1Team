@@ -9,6 +9,11 @@ from django.utils import timezone
 
 from apps.chat.models import ChatIdentity
 from apps.wardrobe.models import SharedWardrobeItem, SharedWardrobeMember
+from apps.wardrobe.services.reference_eligibility import (
+    REFERENCE_UNAVAILABLE_NOT_CONFIRMED,
+    REFERENCE_UNAVAILABLE_PRIVATE,
+    evaluate_reference_eligibility,
+)
 
 REFERENCE_SCHEMA_VERSION = "1.0"
 REFERENCE_TYPE_SHARED_WARDROBE_ITEM = "SHARED_WARDROBE_ITEM"
@@ -88,13 +93,13 @@ def build_reference_snapshot(
         user_id=identity.user_id,
     ).exists():
         raise SharedReferenceForbidden("참여 중인 공유 옷장의 아이템만 참조할 수 있습니다.")
-    if shared_item.status == SharedWardrobeItem.Status.PRIVATE:
-        raise SharedReferenceForbidden("나만 보기 상태인 공유 옷은 참조할 수 없습니다.")
-
     item = shared_item.wardrobe_item
-    if not item.confirmed:
+    eligibility = evaluate_reference_eligibility(shared_item)
+    if eligibility.unavailable_reason == REFERENCE_UNAVAILABLE_PRIVATE:
+        raise SharedReferenceForbidden("나만 보기 상태인 공유 옷은 참조할 수 없습니다.")
+    if eligibility.unavailable_reason == REFERENCE_UNAVAILABLE_NOT_CONFIRMED:
         raise SharedReferenceUnavailable("사용자가 확정한 공유 옷만 참조할 수 있습니다.")
-    if not item.s3_key or not item.embedding_version:
+    if not eligibility.eligible:
         raise SharedReferenceUnavailable(
             "공유 옷 이미지의 벡터 처리가 끝난 뒤 다시 시도해 주세요."
         )
