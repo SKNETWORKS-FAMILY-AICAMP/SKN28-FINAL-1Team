@@ -57,6 +57,7 @@
     "ios": "expo run:ios",
     "web": "expo start --web",
     "lint": "expo lint",
+    "test:shared-reference": "node ./scripts/test-shared-reference-regression.mjs",
     "test:wardrobe-sections": "node ./scripts/test-wardrobe-sections.mjs"
   },
   "private": true

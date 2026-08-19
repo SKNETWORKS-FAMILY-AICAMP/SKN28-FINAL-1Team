@@ -6,6 +6,7 @@ import { ErrorState, LoadingState, SmartImage } from '@/components/ui';
 import { ChatPanelWidth, Editorial, ink, SidebarWidth, Type } from '@/constants/theme';
 import { SHARED_ITEM_STATUS_META } from '@/constants/shared-wardrobe';
 import { useBreakpoint } from '@/hooks/use-breakpoint';
+import { sharedReferenceUnavailableLabel } from '@/lib/sharedReferencePresentation';
 import {
   getMySharedRooms,
   listSharedRoomItems,
@@ -44,17 +45,8 @@ type SharedReferencePickerItem = SharedReferencePick & {
   referenceUnavailableReason: SharedReferenceUnavailableReason | null;
 };
 
-const UNAVAILABLE_LABELS: Record<SharedReferenceUnavailableReason, string> = {
-  PRIVATE: '나만 보기 상태',
-  VECTOR_NOT_READY: '이미지 분석 중',
-  NOT_CONFIRMED: '옷 정보 확인 필요',
-};
-
 function unavailableLabel(item: SharedReferencePickerItem): string | null {
-  if (item.referenceEligible) return null;
-  return item.referenceUnavailableReason
-    ? UNAVAILABLE_LABELS[item.referenceUnavailableReason]
-    : '지금은 참고할 수 없어요';
+  return sharedReferenceUnavailableLabel(item);
 }
 
 function toPick(

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 from django.contrib.auth import get_user_model
 from django.urls import reverse
@@ -201,7 +201,11 @@ class SharedReferenceSnapshotApiTests(APITestCase):
         run.refresh_from_db()
         self.assertEqual(run.reference_snapshot, original_snapshot)
 
-    def test_private_shared_item_is_rejected_without_partial_message(self) -> None:
+    @patch("apps.chat.services.reference_recommendation_events.logger.info")
+    def test_private_shared_item_is_rejected_without_partial_message(
+        self,
+        event_log: Mock,
+    ) -> None:
         self.shared_item.status = SharedWardrobeItem.Status.PRIVATE
         self.shared_item.save(update_fields=["status"])
 
@@ -216,6 +220,47 @@ class SharedReferenceSnapshotApiTests(APITestCase):
             ).exists()
         )
         self.assertFalse(ChatRun.objects.filter(session=self.session).exists())
+        metric = event_log.call_args.kwargs["extra"]
+        self.assertEqual(metric["failure_code"], "REFERENCE_ITEM_FORBIDDEN")
+        self.assertEqual(metric["match_result"], "NO_CANDIDATE")
+        self.assertGreater(metric["stage_durations_ms"]["SNAPSHOT_VALIDATION"], 0)
+
+    @patch("apps.chat.services.reference_recommendation_events.logger.info")
+    def test_reference_is_revalidated_when_status_changes_after_selection(
+        self,
+        event_log: Mock,
+    ) -> None:
+        listed = self.client.get(
+            f"/api/v1/shared-wardrobes/{self.room.pk}/items/"
+        )
+        selected = next(
+            row
+            for row in listed.data
+            if str(row["id"]) == str(self.shared_item.pk)
+        )
+        self.assertTrue(selected["reference_eligible"])
+
+        self.shared_item.status = SharedWardrobeItem.Status.PRIVATE
+        self.shared_item.save(update_fields=["status"])
+        response = self.client.post(
+            self.url,
+            self._payload("shared-reference-race"),
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(response.data["code"], "REFERENCE_ITEM_FORBIDDEN")
+        self.assertFalse(
+            ChatMessage.objects.filter(
+                session=self.session,
+                client_message_id="shared-reference-race",
+            ).exists()
+        )
+        self.assertFalse(ChatRun.objects.filter(session=self.session).exists())
+        self.assertEqual(
+            event_log.call_args.kwargs["extra"]["failure_code"],
+            "REFERENCE_ITEM_FORBIDDEN",
+        )
 
     def test_non_member_cannot_reference_shared_item(self) -> None:
         SharedWardrobeMember.objects.filter(
