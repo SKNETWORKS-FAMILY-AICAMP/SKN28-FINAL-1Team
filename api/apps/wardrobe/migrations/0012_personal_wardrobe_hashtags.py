@@ -234,6 +234,10 @@ class Migration(migrations.Migration):
             migrate_categories_to_hashtags,
             reverse_code=migrations.RunPython.noop,
         ),
+        migrations.RunSQL(
+            sql="SET CONSTRAINTS ALL IMMEDIATE",
+            reverse_sql=migrations.RunSQL.noop,
+        ),
         migrations.AddConstraint(
             model_name="wardrobehashtag",
             constraint=models.UniqueConstraint(
