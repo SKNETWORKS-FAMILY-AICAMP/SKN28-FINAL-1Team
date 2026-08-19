@@ -697,6 +697,13 @@ CHAT_GUEST_COOKIE_SAMESITE = os.getenv("CHAT_GUEST_COOKIE_SAMESITE", "Lax")
 # 채팅 사진은 DB에 바이너리를 넣지 않고 비공개 S3 객체와 메타데이터로 분리한다.
 # 전용 버킷이 없으면 기존 옷장 이미지 버킷을 재사용한다.
 AWS_REGION = os.getenv("AWS_REGION", "ap-northeast-2")
+REFERENCE_RECOMMENDATION_LOG_GROUP = os.getenv(
+    "REFERENCE_RECOMMENDATION_LOG_GROUP",
+    "",
+).strip()
+REFERENCE_RECOMMENDATION_QUERY_LIMIT = int(
+    os.getenv("REFERENCE_RECOMMENDATION_QUERY_LIMIT", "10000")
+)
 CHAT_ATTACHMENT_S3_BUCKET = (
     os.getenv("CHAT_ATTACHMENT_S3_BUCKET", "").strip()
     or os.getenv("WARDROBE_S3_BUCKET", "").strip()

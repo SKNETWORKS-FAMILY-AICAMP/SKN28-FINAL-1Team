@@ -5,6 +5,7 @@ import logging
 from types import SimpleNamespace
 from unittest.mock import Mock, patch
 
+from config.observability import JsonFormatter
 from django.test import SimpleTestCase
 
 from apps.chat.models import ChatSession
@@ -23,7 +24,6 @@ from apps.chat.services.reference_recommendation_events import (
     ReferenceRecommendationEventRecorder,
 )
 from apps.recommend.services.shared_reference_loader import ReferenceVectorNotFound
-from config.observability import JsonFormatter
 
 
 class ReferenceRecommendationEventRecorderTests(SimpleTestCase):
