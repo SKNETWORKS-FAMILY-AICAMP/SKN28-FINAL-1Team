@@ -342,6 +342,14 @@ export function createWardrobeHashtag(name: string, itemIds: string[]): Promise<
   return api.post<WardrobeHashtag>(WardrobeEndpoints.hashtags, { name, item_ids: itemIds });
 }
 
+export function renameWardrobeHashtag(hashtagId: string, name: string): Promise<WardrobeHashtag> {
+  return api.patch<WardrobeHashtag>(WardrobeEndpoints.hashtag(hashtagId), { name });
+}
+
+export function deleteWardrobeHashtag(hashtagId: string): Promise<unknown> {
+  return api.delete(WardrobeEndpoints.hashtag(hashtagId));
+}
+
 export function updateWardrobeHashtagItems(
   hashtagId: string,
   changes: { add_item_ids: string[]; remove_item_ids: string[] },

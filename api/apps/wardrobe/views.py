@@ -46,6 +46,7 @@ from .serializers import (
     WardrobeHashtagCreateSerializer,
     WardrobeHashtagItemsPatchSerializer,
     WardrobeHashtagOrderSerializer,
+    WardrobeHashtagUpdateSerializer,
     WardrobeViewPreferenceSerializer,
     WardrobeHashtagSerializer,
     WardrobeHashtagSummarySerializer,
@@ -513,6 +514,34 @@ class WardrobeHashtagListCreateView(APIView):
             WardrobeHashtagSerializer(hashtag).data,
             status=status.HTTP_201_CREATED if created else status.HTTP_200_OK,
         )
+
+
+class WardrobeHashtagDetailView(APIView):
+    """PATCH/DELETE /hashtags/{id}/ — 이름 변경 또는 해시태그 삭제."""
+
+    def patch(self, request, hashtag_id):
+        hashtag, error_response = _owned_hashtag_or_error(request.user, hashtag_id)
+        if error_response is not None:
+            return error_response
+        serializer = WardrobeHashtagUpdateSerializer(data=request.data)
+        if not serializer.is_valid():
+            return _hashtag_write_error(serializer)
+        try:
+            hashtag = hashtag_service.rename_hashtag(
+                user=request.user,
+                hashtag=hashtag,
+                name=serializer.validated_data["name"],
+            )
+        except hashtag_service.HashtagServiceError as exc:
+            return _hashtag_service_error(exc)
+        return Response(WardrobeHashtagSerializer(hashtag).data)
+
+    def delete(self, request, hashtag_id):
+        hashtag, error_response = _owned_hashtag_or_error(request.user, hashtag_id)
+        if error_response is not None:
+            return error_response
+        hashtag_service.delete_hashtag(user=request.user, hashtag=hashtag)
+        return Response(status=status.HTTP_204_NO_CONTENT)
 
 
 class WardrobeHashtagItemsView(APIView):

@@ -38,7 +38,7 @@ import {
   useWardrobeFilters,
   useWardrobeItems,
 } from '@/hooks/use-wardrobe';
-import { itemDisplayName, getMySharedRooms, createSharedRoom, joinSharedRoom, listSharedRoomMembers, listSharedRoomItems, renameSharedRoom, deleteSharedRoom, unregisterItemFromSharedRoom, sharedUserDisplayName, updateWardrobeHashtagItems, reorderWardrobeHashtags } from '@/lib/wardrobeApi';
+import { itemDisplayName, getMySharedRooms, createSharedRoom, joinSharedRoom, listSharedRoomMembers, listSharedRoomItems, renameSharedRoom, deleteSharedRoom, unregisterItemFromSharedRoom, sharedUserDisplayName, updateWardrobeHashtagItems, reorderWardrobeHashtags, renameWardrobeHashtag, deleteWardrobeHashtag } from '@/lib/wardrobeApi';
 import {
   buildWardrobeSections,
   uniqueWardrobeItemCount,
@@ -614,12 +614,20 @@ export default function ClosetScreen() {
     removeItemIds: string[];
   }) => {
     try {
-      const result = managedHashtag
-        ? await updateWardrobeHashtagItems(managedHashtag.id, {
-            add_item_ids: payload.addItemIds,
-            remove_item_ids: payload.removeItemIds,
-          })
-        : await createWardrobeHashtag(payload.name, payload.itemIds);
+      let result;
+      if (managedHashtag) {
+        if (payload.name !== managedHashtag.name) {
+          await renameWardrobeHashtag(managedHashtag.id, payload.name);
+        }
+        result = payload.addItemIds.length > 0 || payload.removeItemIds.length > 0
+          ? await updateWardrobeHashtagItems(managedHashtag.id, {
+              add_item_ids: payload.addItemIds,
+              remove_item_ids: payload.removeItemIds,
+            })
+          : managedHashtag;
+      } else {
+        result = await createWardrobeHashtag(payload.name, payload.itemIds);
+      }
       await reloadAll();
       const count = 'item_count' in result ? result.item_count : payload.itemIds.length;
       toast(`${count}벌에 해시태그를 저장했어요`, { variant: 'success' });
@@ -630,6 +638,29 @@ export default function ClosetScreen() {
         { variant: 'error' },
       );
       await reloadAll();
+      return false;
+    }
+  };
+
+  const deleteManagedHashtag = async () => {
+    if (!managedHashtag) return false;
+    const ok = await confirm({
+      title: '해시태그 삭제',
+      message: `#${managedHashtag.name} 해시태그를 삭제할까요? 옷은 내 옷장에 그대로 유지됩니다.`,
+      confirmLabel: '삭제',
+      destructive: true,
+    });
+    if (!ok) return false;
+    try {
+      await deleteWardrobeHashtag(managedHashtag.id);
+      await reloadAll();
+      toast('해시태그를 삭제했어요', { variant: 'success' });
+      return true;
+    } catch (deleteError) {
+      toast(
+        deleteError instanceof Error ? deleteError.message : '해시태그를 삭제하지 못했어요',
+        { variant: 'error' },
+      );
       return false;
     }
   };
@@ -1118,6 +1149,7 @@ export default function ClosetScreen() {
           items={apiItems}
           onClose={() => setHashtagManagerOpen(false)}
           onSave={saveHashtagItems}
+          onDelete={managedHashtag ? deleteManagedHashtag : undefined}
         />
 
         {showAddFab ? (

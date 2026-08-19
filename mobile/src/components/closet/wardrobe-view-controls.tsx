@@ -36,27 +36,33 @@ export function WardrobeViewControls({
   onHashtagOrderChange,
 }: Props) {
   const [ordered, setOrdered] = useState(hashtags);
+  const orderedRef = useRef(hashtags);
   const drag = useRef<{ index: number; startY: number } | null>(null);
 
   useEffect(() => {
-    if (visible) setOrdered(hashtags);
+    if (visible) {
+      orderedRef.current = hashtags;
+      setOrdered(hashtags);
+    }
   }, [hashtags, visible]);
 
   const move = (from: number, to: number) => {
-    if (from === to || to < 0 || to >= ordered.length) return;
-    setOrdered((current) => {
-      const next = [...current];
-      const [picked] = next.splice(from, 1);
-      next.splice(to, 0, picked);
-      return next;
-    });
+    const current = orderedRef.current;
+    if (from === to || to < 0 || to >= current.length) return;
+    const next = [...current];
+    const [picked] = next.splice(from, 1);
+    next.splice(to, 0, picked);
+    // responder release가 React의 다음 렌더보다 먼저 와도 마지막 순서를 저장할 수 있어야 한다.
+    orderedRef.current = next;
+    setOrdered(next);
     drag.current = drag.current ? { ...drag.current, index: to } : null;
   };
 
   const finishOrder = async () => {
     drag.current = null;
-    if (ordered.map((row) => row.id).join() !== hashtags.map((row) => row.id).join()) {
-      await onHashtagOrderChange(ordered.map((row) => row.id));
+    const ids = orderedRef.current.map((row) => row.id);
+    if (ids.join() !== hashtags.map((row) => row.id).join()) {
+      await onHashtagOrderChange(ids);
     }
   };
 
@@ -138,7 +144,8 @@ export function WardrobeViewControls({
                           drag.current = { index: current.index - 1, startY: event.nativeEvent.pageY };
                         }
                       }}
-                      onResponderRelease={() => void finishOrder()}>
+                      onResponderRelease={() => void finishOrder()}
+                      onResponderTerminate={() => void finishOrder()}>
                       <Icon name="line.3.horizontal" tintColor={ink(0.38)} size={19} />
                     </View>
                   </View>

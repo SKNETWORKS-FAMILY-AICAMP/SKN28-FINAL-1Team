@@ -23,6 +23,7 @@ type HashtagItemManageSheetProps = {
   onSave: (
     payload: { name: string; itemIds: string[]; addItemIds: string[]; removeItemIds: string[] },
   ) => Promise<boolean>;
+  onDelete?: () => Promise<boolean>;
 };
 
 function sameIds(left: Set<string>, right: Set<string>): boolean {
@@ -35,6 +36,7 @@ export function HashtagItemManageSheet({
   items,
   onClose,
   onSave,
+  onDelete,
 }: HashtagItemManageSheetProps) {
   const { width } = useWindowDimensions();
   const sheetWidth = Math.min(width, GridCard.maxWidth);
@@ -59,7 +61,7 @@ export function HashtagItemManageSheet({
   }, [hashtag, items, visible]);
 
   const changed = useMemo(
-    () => !sameIds(initialSelected, selected) || (!hashtag && name.trim().length > 0),
+    () => !sameIds(initialSelected, selected) || name.trim() !== (hashtag?.name ?? ''),
     [hashtag, initialSelected, name, selected],
   );
 
@@ -74,7 +76,7 @@ export function HashtagItemManageSheet({
   };
 
   const save = async () => {
-    if (!changed || selected.size === 0 || (!hashtag && !name.trim())) return;
+    if (!changed || selected.size === 0 || !name.trim()) return;
     setSaving(true);
     try {
       const saved = await onSave({
@@ -84,6 +86,17 @@ export function HashtagItemManageSheet({
         removeItemIds: [...initialSelected].filter((id) => !selected.has(id)),
       });
       if (saved) onClose();
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const remove = async () => {
+    if (!hashtag || !onDelete || saving) return;
+    setSaving(true);
+    try {
+      const deleted = await onDelete();
+      if (deleted) onClose();
     } finally {
       setSaving(false);
     }
@@ -117,17 +130,17 @@ export function HashtagItemManageSheet({
             </Pressable>
           </View>
 
-          {!hashtag ? (
-            <TextInput
-              value={name}
-              onChangeText={setName}
-              placeholder="# 없이 해시태그 입력"
-              placeholderTextColor={Editorial.textMuted}
-              maxLength={30}
-              style={styles.nameInput}
-              autoFocus
-            />
-          ) : null}
+          <TextInput
+            value={name}
+            onChangeText={setName}
+            placeholder="# 없이 해시태그 입력"
+            placeholderTextColor={Editorial.textMuted}
+            maxLength={30}
+            style={styles.nameInput}
+            autoFocus={!hashtag}
+            editable={!saving}
+            accessibilityLabel="해시태그 이름"
+          />
 
           <ScrollView
             style={styles.scroll}
@@ -175,14 +188,24 @@ export function HashtagItemManageSheet({
             )}
           </ScrollView>
 
+          {hashtag && onDelete ? (
+            <Pressable
+              style={styles.deleteButton}
+              onPress={remove}
+              disabled={saving}
+              accessibilityLabel={`${hashtag.name} 해시태그 삭제`}>
+              <Text style={styles.deleteText}>해시태그 삭제</Text>
+            </Pressable>
+          ) : null}
+
           <View style={styles.actions}>
             <Pressable style={styles.cancelButton} onPress={close} disabled={saving}>
               <Text style={styles.cancelText}>취소</Text>
             </Pressable>
             <Pressable
-              style={[styles.saveButton, (!changed || selected.size === 0 || saving) && styles.saveButtonDisabled]}
+              style={[styles.saveButton, (!changed || selected.size === 0 || !name.trim() || saving) && styles.saveButtonDisabled]}
               onPress={save}
-              disabled={!changed || selected.size === 0 || saving}>
+              disabled={!changed || selected.size === 0 || !name.trim() || saving}>
               {saving ? (
                 <ActivityIndicator color={Editorial.white} size="small" />
               ) : (
@@ -311,6 +334,13 @@ const styles = StyleSheet.create({
   },
   emptyTitle: { marginTop: 12, fontSize: Type.label, fontWeight: '600', color: Editorial.ink },
   emptyBody: { marginTop: 5, fontSize: Type.caption, color: Editorial.textCaption },
+  deleteButton: {
+    alignSelf: 'flex-start',
+    marginTop: 12,
+    paddingHorizontal: 4,
+    paddingVertical: 8,
+  },
+  deleteText: { fontSize: Type.caption, fontWeight: '600', color: Editorial.danger },
   actions: {
     flexDirection: 'row',
     gap: 10,

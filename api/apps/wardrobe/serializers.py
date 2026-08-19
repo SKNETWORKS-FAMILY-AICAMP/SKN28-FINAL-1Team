@@ -30,6 +30,10 @@ class WardrobeHashtagCreateSerializer(serializers.Serializer):
     )
 
 
+class WardrobeHashtagUpdateSerializer(serializers.Serializer):
+    name = serializers.CharField(max_length=80, trim_whitespace=False)
+
+
 class WardrobeHashtagItemsPatchSerializer(serializers.Serializer):
     add_item_ids = serializers.ListField(
         child=serializers.UUIDField(),

@@ -65,6 +65,57 @@ class PersonalWardrobeHashtagApiTests(TestCase):
         self.assertEqual(str(response.data["id"]), str(existing.pk))
         self.assertEqual(WardrobeHashtag.objects.filter(user=self.user).count(), 1)
 
+    def test_owner_can_rename_hashtag_without_losing_item_links(self):
+        hashtag = WardrobeHashtag.objects.create(user=self.user, name="출근룩")
+        self.item.wardrobe_hashtags.add(hashtag)
+
+        response = self.client.patch(
+            f"/api/v1/wardrobe/hashtags/{hashtag.pk}/",
+            {"name": " # 데일리   출근 "},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data["name"], "데일리 출근")
+        hashtag.refresh_from_db()
+        self.assertEqual(hashtag.name, "데일리 출근")
+        self.assertTrue(self.item.wardrobe_hashtags.filter(pk=hashtag.pk).exists())
+
+    def test_rename_rejects_duplicate_and_foreign_hashtag(self):
+        first = WardrobeHashtag.objects.create(user=self.user, name="출근룩")
+        second = WardrobeHashtag.objects.create(user=self.user, name="주말룩")
+        foreign = WardrobeHashtag.objects.create(user=self.other_user, name="다른 사람")
+
+        duplicate = self.client.patch(
+            f"/api/v1/wardrobe/hashtags/{second.pk}/",
+            {"name": "# 출근룩"},
+            format="json",
+        )
+        forbidden = self.client.patch(
+            f"/api/v1/wardrobe/hashtags/{foreign.pk}/",
+            {"name": "침범"},
+            format="json",
+        )
+
+        self.assertEqual(duplicate.status_code, 400)
+        self.assertEqual(duplicate.data["code"], "HASHTAG_NAME_DUPLICATE")
+        self.assertEqual(forbidden.status_code, 403)
+        first.refresh_from_db()
+        self.assertEqual(first.name, "출근룩")
+
+    def test_delete_removes_only_hashtag_and_compacts_positions(self):
+        first = WardrobeHashtag.objects.create(user=self.user, name="첫째", position=0)
+        second = WardrobeHashtag.objects.create(user=self.user, name="둘째", position=1)
+        self.item.wardrobe_hashtags.add(first)
+
+        response = self.client.delete(f"/api/v1/wardrobe/hashtags/{first.pk}/")
+
+        self.assertEqual(response.status_code, 204)
+        self.assertFalse(WardrobeHashtag.objects.filter(pk=first.pk).exists())
+        self.assertTrue(WardrobeItem.objects.filter(pk=self.item.pk).exists())
+        second.refresh_from_db()
+        self.assertEqual(second.position, 0)
+
     def test_create_rejects_foreign_and_unadded_items(self):
         foreign = WardrobeItem.objects.create(
             user=self.other_user,
