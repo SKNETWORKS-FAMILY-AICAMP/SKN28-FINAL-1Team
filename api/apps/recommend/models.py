@@ -1589,3 +1589,155 @@ class WishlistItem(models.Model):
     def save(self, *args, **kwargs) -> None:
         self.clean()
         super().save(*args, **kwargs)
+
+
+class VirtualTryOnJob(models.Model):
+    """가상 피팅 한 건. **비동기로 만들고, 나중에 다시 와서 본다.**
+
+    예전에는 요청 스레드에서 이미지 모델을 그대로 기다렸다. 생성이 수십 초~2분이라
+    Cloudflare 터널(100초)이 먼저 끊어 524가 났고, 화면을 나가면 그 결과는 사라졌다.
+    이제 접수만 하고(202) 워커가 만든다.
+
+    **다시 보기의 기준은 (user, look, golden_id) 의 최근 작업**이다. job_id를 앱이
+    들고 있게 하면 앱을 지우거나 기기를 바꿀 때 결과를 잃는다. 사람이 기억하는 것은
+    "어제 그 룩을 입어봤다"이지 작업 번호가 아니다.
+
+    사람 사진은 원본 그대로 S3에 잠시 둔다(워커가 나중에 읽어야 한다). 버킷 수명주기
+    규칙으로 지우므로 **보관 기간은 코드가 아니라 버킷 설정이 정한다** — 배포 시
+    VIRTUAL_TRY_ON_PERSON_PREFIX 에 TTL 규칙이 걸려 있는지 반드시 확인할 것.
+    """
+
+    class Status(models.TextChoices):
+        QUEUED = "QUEUED", "대기중"
+        PROCESSING = "PROCESSING", "생성 진행중"
+        SUCCEEDED = "SUCCEEDED", "생성 완료"
+        FAILED = "FAILED", "생성 실패"
+
+    PENDING_STATUSES = (Status.QUEUED, Status.PROCESSING)
+    TERMINAL_STATUSES = (Status.SUCCEEDED, Status.FAILED)
+
+    id = models.UUIDField(
+        primary_key=True,
+        default=uuid.uuid4,
+        editable=False,
+        db_comment="가상 피팅 작업 UUID",
+    )
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name="virtual_try_on_jobs",
+        db_comment="요청 사용자 FK (users.id)",
+    )
+    look = models.ForeignKey(
+        "recommend.DailyLook",
+        on_delete=models.CASCADE,
+        related_name="virtual_try_on_jobs",
+        db_comment="입힐 추천이 담긴 오늘의 룩 FK (daily_look.id)",
+    )
+    golden_id = models.CharField(
+        max_length=100,
+        blank=True,
+        default="",
+        db_comment=(
+            "입힌 골든 코디 id. 빈 값이면 대표 룩. "
+            "'다른 룩' 후보마다 결과가 다르므로 조회 기준에 포함된다"
+        ),
+    )
+    mode = models.CharField(
+        max_length=16,
+        choices=[("person", "본인 착장"), ("mannequin", "체형 마네킹")],
+        default="mannequin",
+        db_comment="가상 착장 방식 (person/mannequin)",
+    )
+    status = models.CharField(
+        max_length=16,
+        choices=Status.choices,
+        default=Status.QUEUED,
+        db_comment="작업 상태 (QUEUED/PROCESSING/SUCCEEDED/FAILED)",
+    )
+    contract = models.CharField(
+        max_length=64,
+        db_comment=(
+            "사람 사진·코디 이미지·모델·프롬프트 버전을 합친 해시. "
+            "결과 S3 키가 여기서 나오므로 같은 입력은 다시 만들지 않는다"
+        ),
+    )
+    person_s3_bucket = models.CharField(
+        max_length=255,
+        blank=True,
+        default="",
+        db_comment="사용자 전신 사진을 잠시 둔 버킷",
+    )
+    person_s3_key = models.CharField(
+        max_length=512,
+        blank=True,
+        default="",
+        db_comment=(
+            "사용자 전신 사진 S3 키 (수명주기 규칙으로 만료되는 prefix). "
+            "워커가 읽고 나면 더 쓰지 않는다"
+        ),
+    )
+    result_s3_bucket = models.CharField(
+        max_length=255,
+        blank=True,
+        default="",
+        db_comment="생성된 가상 착장 이미지 버킷",
+    )
+    result_s3_key = models.CharField(
+        max_length=512,
+        blank=True,
+        default="",
+        db_comment="생성된 가상 착장 이미지 S3 키 (조회 시점에 서명한다)",
+    )
+    result_media_type = models.CharField(
+        max_length=64,
+        blank=True,
+        default="",
+        db_comment="생성 결과 Content-Type",
+    )
+    cache_hit = models.BooleanField(
+        default=False,
+        db_comment="같은 입력의 결과가 이미 있어 생성을 건너뛰었는지",
+    )
+    error_code = models.CharField(
+        max_length=64,
+        blank=True,
+        default="",
+        db_comment="실패 코드 (성공 시 빈 문자열)",
+    )
+    error_message = models.CharField(
+        max_length=500,
+        blank=True,
+        default="",
+        db_comment="사용자에게 보여도 되는 실패 사유",
+    )
+    enqueued_at = models.DateTimeField(
+        null=True, blank=True, db_comment="큐 적재 시각"
+    )
+    started_at = models.DateTimeField(
+        null=True, blank=True, db_comment="워커가 집어든 시각"
+    )
+    finished_at = models.DateTimeField(
+        null=True, blank=True, db_comment="성공·실패가 확정된 시각"
+    )
+    created_at = models.DateTimeField(auto_now_add=True, db_comment="작업 생성 시각")
+    updated_at = models.DateTimeField(auto_now=True, db_comment="작업 수정 시각")
+
+    class Meta:
+        db_table = "virtual_try_on_job"
+        db_table_comment = "오늘의 룩 가상 피팅 생성 작업 (비동기)"
+        ordering = ["-created_at"]  # noqa: RUF012 - Django Meta option
+        indexes = [  # noqa: RUF012 - Django Meta option
+            # 재진입 조회: 이 사용자의 이 룩·이 후보에서 가장 최근 작업 한 건.
+            models.Index(
+                fields=["user", "look", "golden_id", "-created_at"],
+                name="vton_user_look_golden_idx",
+            ),
+        ]
+
+    def __str__(self) -> str:
+        return f"virtual-try-on {self.user_id}:{self.look_id}:{self.status}"
+
+    @property
+    def is_pending(self) -> bool:
+        return self.status in self.PENDING_STATUSES

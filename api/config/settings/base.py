@@ -601,6 +601,25 @@ OUTFIT_RENDER_RESULT_PREFIX = os.getenv(
 OUTFIT_RENDER_PRESIGNED_GET_TTL_SECONDS = int(
     os.getenv("OUTFIT_RENDER_PRESIGNED_GET_TTL_SECONDS", "3600")
 )
+VIRTUAL_TRY_ON_RESULT_PREFIX = os.getenv(
+    "VIRTUAL_TRY_ON_RESULT_PREFIX", "virtual-try-on/v1"
+).strip("/")
+VIRTUAL_TRY_ON_MAX_PERSON_IMAGE_BYTES = int(
+    os.getenv("VIRTUAL_TRY_ON_MAX_PERSON_IMAGE_BYTES", str(15 * 1024 * 1024))
+)
+# 사용자 전신 사진을 워커가 읽을 때까지 잠시 두는 prefix.
+#
+# ⚠️ **삭제는 코드가 하지 않는다.** 이 prefix 에 S3 수명주기 규칙(예: 1일 만료)을
+# 걸어 두어야 한다. 규칙이 없으면 사용자 사진이 버킷에 영구히 쌓인다 — 화면에서
+# "생성에만 쓰고 자동으로 지워져요"라고 약속하는 값이라 배포 점검 항목이다.
+VIRTUAL_TRY_ON_PERSON_PREFIX = os.getenv(
+    "VIRTUAL_TRY_ON_PERSON_PREFIX", "virtual-try-on/person-tmp"
+).strip("/")
+# 생성 중 폴링 간격. 이미지 생성이 수십 초라 코디 평가(OUTFIT_POLL_AFTER_MS)보다
+# 느슨하게 준다 — 2초마다 물어봐야 답이 바뀌지 않는다.
+VIRTUAL_TRY_ON_POLL_AFTER_MS = int(
+    os.getenv("VIRTUAL_TRY_ON_POLL_AFTER_MS", "5000")
+)
 OUTFIT_RENDER_QUEUE_PENDING_KEY = os.getenv(
     "OUTFIT_RENDER_QUEUE_PENDING_KEY", "outfit:render:pending"
 )

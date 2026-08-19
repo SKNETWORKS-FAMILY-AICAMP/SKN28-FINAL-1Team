@@ -876,6 +876,88 @@ class OutfitRenderJobSerializer(serializers.ModelSerializer):
         return {"code": obj.error_code, "message": obj.error_message}
 
 
+class VirtualTryOnRequestSerializer(serializers.Serializer):
+    """가상 착장 공통 입력 (채팅 추천 카드용)."""
+
+    person_image = serializers.ImageField(
+        help_text="얼굴·체형·포즈를 유지할 정면 전신 사진 (JPEG, PNG, WebP)",
+    )
+    mode = serializers.ChoiceField(
+        choices=["person", "mannequin"],
+        default="person",
+        help_text="person은 사용자에게 바로 착장, mannequin은 체형 마네킹에 추천 룩을 바로 착장",
+    )
+
+    def validate_person_image(self, image: UploadedFile) -> UploadedFile:
+        if image.size > settings.VIRTUAL_TRY_ON_MAX_PERSON_IMAGE_BYTES:
+            raise serializers.ValidationError("전신 사진의 허용 크기를 초과했습니다.")
+        if image.content_type not in ALLOWED_OUTFIT_IMAGE_CONTENT_TYPES:
+            raise serializers.ValidationError("JPEG, PNG, WebP 사진만 사용할 수 있습니다.")
+        return image
+
+
+class DailyLookVirtualTryOnRequestSerializer(VirtualTryOnRequestSerializer):
+    """오늘의 룩 가상 피팅 입력.
+
+    `golden_id`는 여기에만 있다 — '다른 룩' 후보라는 개념이 오늘의 룩에만 있기
+    때문이다. 공통 입력에 두면 채팅 카드 문서에도 쓰지 않는 필드가 실린다.
+    """
+
+    golden_id = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        default="",
+        max_length=100,
+        help_text=(
+            "입힐 룩의 골든 코디 id. 생략하면 대표 룩. "
+            "'다른 룩'으로 돌려보던 후보를 입어볼 때 쓴다 — 저장 API와 같은 규칙으로, "
+            "서버가 그 사용자의 오늘 후보 안에 있는지 확인한다."
+        ),
+    )
+
+
+class VirtualTryOnResultSerializer(serializers.Serializer):
+    """가상 착장 결과 (채팅 추천 카드 — **동기**).
+
+    이 경로는 요청 스레드에서 이미지를 만들어 바로 돌려준다. 생성이 수십 초~2분이라
+    앞단 프록시가 먼저 끊을 수 있다(Cloudflare 터널 100초 → 524). 오늘의 룩은 같은
+    이유로 접수·조회를 나눴다(VirtualTryOnJobSerializer) — 이 경로도 화면에 붙일 때
+    같은 구조로 옮기는 것이 좋다.
+    """
+
+    mode = serializers.ChoiceField(choices=["person", "mannequin"])
+    image_url = serializers.URLField()
+    cache_hit = serializers.BooleanField()
+
+
+class VirtualTryOnJobSerializer(serializers.Serializer):
+    """가상 피팅 작업 상태 (오늘의 룩 — **비동기**).
+
+    접수(POST)와 조회(GET)가 **같은 본문**을 쓴다. 화면이 두 응답을 다르게 읽으면
+    "요청 직후"와 "다시 들어왔을 때"가 갈라져 분기가 늘어난다.
+
+    - `QUEUED`/`PROCESSING`: `poll_after_ms` 뒤에 다시 조회한다
+    - `SUCCEEDED`: `image_url` 표시 (조회마다 새로 서명되므로 캐시하면 만료된다)
+    - `FAILED`: `detail` 을 보여주고 재시도를 권한다
+    - `status=null`: 이 룩으로 아직 한 번도 만든 적이 없다
+    """
+
+    job_id = serializers.UUIDField(allow_null=True)
+    status = serializers.ChoiceField(
+        choices=["QUEUED", "PROCESSING", "SUCCEEDED", "FAILED"], allow_null=True
+    )
+    mode = serializers.CharField(allow_blank=True)
+    golden_id = serializers.CharField(
+        allow_blank=True, help_text="어느 룩을 입혔는지 (빈 값이면 대표 룩)"
+    )
+    image_url = serializers.URLField(allow_null=True)
+    cache_hit = serializers.BooleanField()
+    poll_after_ms = serializers.IntegerField(
+        allow_null=True, help_text="생성 중일 때만 값이 있다 — 이 간격 뒤 재조회"
+    )
+    detail = serializers.CharField(allow_null=True, help_text="상태별 사용자 안내 문구")
+
+
 class RecommendationHistoryItemSerializer(serializers.ModelSerializer):
     result_id = serializers.UUIDField(source="id", read_only=True)
     replaces_result_id = serializers.UUIDField(source="replaces_id", read_only=True)

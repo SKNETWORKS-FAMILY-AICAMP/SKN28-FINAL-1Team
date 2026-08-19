@@ -24,10 +24,37 @@ def get_client() -> redis.Redis:
     return redis.Redis.from_url(settings.REDIS_URL, **kwargs)
 
 
+#: 큐 페이로드의 작업 종류. 없으면 코디 이미지 생성이다(하위호환 — 배포 중에
+#: 옛 워커가 집어도 예전과 같이 동작한다).
+KIND_OUTFIT_RENDER = "outfit_render"
+KIND_VIRTUAL_TRY_ON = "virtual_try_on"
+
+
 def enqueue(job) -> None:
     """이미지나 프롬프트 대신 PostgreSQL 작업 UUID만 적재한다."""
     payload = json.dumps({"job_id": str(job.pk)}, separators=(",", ":"))
     get_client().lpush(settings.OUTFIT_RENDER_QUEUE_PENDING_KEY, payload)
+
+
+def enqueue_virtual_try_on(job) -> None:
+    """가상 피팅 작업을 **같은 큐**에 넣는다.
+
+    큐를 새로 만들지 않는 이유: 둘 다 같은 이미지 모델을 부르는 긴 작업이라
+    한 워커가 순서대로 처리하면 되고, 큐를 나누면 워커 컨테이너도 나뉜다.
+    종류는 payload 의 kind 로 가른다.
+    """
+    payload = json.dumps(
+        {"job_id": str(job.pk), "kind": KIND_VIRTUAL_TRY_ON}, separators=(",", ":")
+    )
+    get_client().lpush(settings.OUTFIT_RENDER_QUEUE_PENDING_KEY, payload)
+
+
+def kind_of(raw: str) -> str:
+    """페이로드의 작업 종류. 없으면 코디 이미지 생성(옛 페이로드)."""
+    try:
+        return str(json.loads(raw).get("kind") or KIND_OUTFIT_RENDER)
+    except (ValueError, TypeError):
+        return KIND_OUTFIT_RENDER
 
 
 def fetch(timeout: int | None = None) -> str | None:
