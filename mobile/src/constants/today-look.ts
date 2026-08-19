@@ -43,7 +43,15 @@ export type LookPiece = {
 };
 
 export type LookVariant = {
-  /** 화면 주소에 실리는 값 — `/look-detail?id=daily` */
+  /**
+   * 화면 주소에 실리는 값 — `/look-detail?id=<여기>`.
+   *
+   * ⚠️ **번들 목업의 id 는 실제 라우트의 id 와 겹치면 안 된다.** 오늘의 룩은
+   * `id=daily` 로 열리는데 목업도 같은 id 를 쓰고 있었다. 그래서
+   * `resolveLookVariant('daily')` 가 폴백이 아니라 **정확히 매치**해서 목업을
+   * 돌려줬고, 실데이터가 아직 없는 순간(인증 복원 중)에 로그인 사용자가
+   * '오늘의 룩'이라는 제목의 남의 룩을 보게 됐다.
+   */
   id: string;
   title: string;
   /** 무드·상황. 날씨는 화면에서 실시간 값을 앞에 붙일 수 있다. */
@@ -55,7 +63,8 @@ export type LookVariant = {
 };
 
 export const TODAY_LOOK = {
-  id: 'daily',
+  /* 'daily' 가 아니다 — 그건 실제 오늘의 룩 라우트의 id 다(위 주석 참고). */
+  id: 'mock-daily',
   title: '산뜻한 미니멀 데일리',
   /** 무드·상황. 날씨는 화면에서 실시간 값을 앞에 붙일 수 있다. */
   subtitle: '미니멀 · 데일리',
@@ -218,7 +227,13 @@ export const LOOK_VARIANTS: LookVariant[] = [
   },
 ];
 
-/** id 로 룩을 찾는다. 못 찾으면 오늘의 룩. */
+/**
+ * id 로 **번들 목업** 룩을 찾는다. 못 찾으면 첫 번째 목업.
+ *
+ * 여기서 나오는 것은 언제나 목업이다 — 실제 추천은 dailyLookToVariant 가 만든다.
+ * 그래서 호출부는 "실데이터를 못 쓰는 자리인가"를 먼저 판단하고 불러야 한다.
+ * 로그인 사용자의 오늘의 룩 경로에서 이걸 부르면 그게 곧 목업 노출이다.
+ */
 export function resolveLookVariant(id?: string | null): LookVariant {
   return LOOK_VARIANTS.find((l) => l.id === id) ?? LOOK_VARIANTS[0];
 }

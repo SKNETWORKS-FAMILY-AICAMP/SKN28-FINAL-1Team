@@ -51,7 +51,10 @@ export default function LookDetail() {
     from?: string;
     golden?: string;
   }>();
-  const { isLoggedIn } = useAuth();
+  /* authLoading = 저장된 토큰으로 세션을 복원하는 중(status 'loading').
+     **비회원과 갈라야 한다** — 아래 목업 분기가 이 구간을 게스트로 보면
+     로그인 사용자가 부팅 몇 초 동안 목업을 본다. */
+  const { isLoggedIn, isLoading: authLoading } = useAuth();
   /* 서브텍스트의 날씨는 홈과 같은 출처(useHome)에서 가져와 통일한다. 홈 응답에는
      오늘의 룩 상태도 실려 있어 아래 훅의 시드로 그대로 넘긴다(왕복 0회). */
   const { data: home } = useHome();
@@ -239,7 +242,16 @@ export default function LookDetail() {
      두 화면이 같은 순간에 같은 말을 하게 한다. */
   const isDailyRoute = !discoveryVariant && (!id || id === 'daily');
   const dailyPhase = dailyLookPhase(dailyLook, dailyStalled);
-  if (isLoggedIn && isDailyRoute && dailyPhase !== 'ready') {
+  /* 오늘의 룩 경로에서 실데이터를 그릴 수 없는 동안은 목업으로 물러나지 않는다.
+     두 경우다.
+
+     1. 인증 복원 중(authLoading) — 아직 회원인지 모른다. bootstrap 은 secure store
+        읽기에 `GET /users/me` 왕복까지라 수백 ms~수 초다. 그동안 useDailyLook 도
+        꺼져 있어(enabled=isLoggedIn) 조회가 시작조차 안 된다.
+     2. 로그인 사용자인데 추천이 아직 안 됐다(생성 중·후보 없음·실패).
+
+     비회원은 여기 걸리지 않는다 — 둘러보기로 들어온 사람에게는 샘플 룩이 빈 화면보다 낫다. */
+  if (isDailyRoute && (authLoading || (isLoggedIn && dailyPhase !== 'ready'))) {
     return (
       <View style={styles.container}>
         <SafeAreaView edges={['top']} style={styles.headerSafe}>
@@ -251,8 +263,16 @@ export default function LookDetail() {
             <View style={styles.headerRight} />
           </View>
         </SafeAreaView>
-        {dailyPhase === 'pending' ? (
-          <LoadingState message={dailyLook?.detail ?? '오늘의 룩을 만들고 있어요…'} />
+        {authLoading || dailyPhase === 'pending' ? (
+          /* 인증 복원 중에는 '만들고 있어요'가 사실이 아니다 — 아직 아무것도
+             부르지 않았다. 문구를 갈라 두면 사용자가 기다리는 대상이 정확해진다. */
+          <LoadingState
+            message={
+              authLoading
+                ? '오늘의 룩을 불러오는 중이에요…'
+                : (dailyLook?.detail ?? '오늘의 룩을 만들고 있어요…')
+            }
+          />
         ) : dailyLook?.status === 'EMPTY' ? (
           /* 후보가 없는 것은 오류가 아니다 — 다시 시도해도 같으니 프로필로 보낸다. */
           <ErrorState
