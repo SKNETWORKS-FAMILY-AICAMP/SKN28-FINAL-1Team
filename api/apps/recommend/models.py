@@ -644,6 +644,11 @@ class OutfitComposition(models.Model):
         default=list,
         db_comment="추천은 가능하지만 사용자에게 안내할 검증 경고 JSON 배열",
     )
+    rationale = models.TextField(
+        blank=True,
+        default="",
+        db_comment="사용자에게 보여줄 코디 전체 추천 이유 (없으면 빈 문자열)",
+    )
     created_at = models.DateTimeField(
         auto_now_add=True,
         db_comment="코디 조합 생성 시각",
@@ -802,6 +807,11 @@ class OutfitCompositionItem(models.Model):
     reasons = models.JSONField(
         default=list,
         db_comment="아이템 선택·교체 근거 JSON 배열",
+    )
+    note = models.TextField(
+        blank=True,
+        default="",
+        db_comment="사용자에게 보여줄 개별 아이템 선택 이유 (없으면 빈 문자열)",
     )
     item_snapshot = models.JSONField(
         default=dict,

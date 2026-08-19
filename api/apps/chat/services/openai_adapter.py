@@ -67,7 +67,10 @@ class RecommendationExplanationItem(BaseModel):
 
     item_id: str = Field(min_length=1)
     note: str = Field(min_length=1, max_length=500)
-    attribute_claims: list[str] = Field(max_length=0)
+    attribute_claims: list[str] = Field(
+        description="입력에 없는 속성을 썼다면 기록하며 정상 출력은 반드시 빈 배열",
+        max_length=8,
+    )
 
 
 class RecommendationExplanationOutfit(BaseModel):
@@ -158,7 +161,8 @@ item.note는 한 문장으로 해당 아이템을 고른 이유만 설명하며 
 아이템의 색상·소재·핏·브랜드·가격·사이즈·세탁법·날씨 적합성은 해당 아이템의
 attributes, price, reasons 또는 validation_reasons에 실제 값이나 근거가 있을 때만 언급한다.
 weather와 conditions는 사용자 요청의 확정된 사실이지만, 특정 아이템의 날씨 적합성을
-자동으로 증명하지는 않는다. 입력에 없는 속성을 추론하지 않는다.
+자동으로 증명하지는 않는다. weather.is_stale가 true이면 현재 날씨처럼 표현하지 않는다.
+입력에 없는 속성을 추론하지 않는다.
 모든 item.attribute_claims는 반드시 빈 배열로 둔다. 존재하지 않는 상품이나 조건을 만들지 않는다.
 옷장 기반은 보유 아이템을 활용했다는 점을, 신규 상품 포함 모드는 새 상품 가격을 입력 범위에서만 설명한다.
 친근하고 정중한 해요체로 간결하게 답하며 마크다운 제목·목록·강조 문법(###, -, ** 등)을 사용하지 않는다.

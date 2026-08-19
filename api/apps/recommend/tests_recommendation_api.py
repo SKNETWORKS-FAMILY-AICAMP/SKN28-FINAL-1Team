@@ -67,6 +67,7 @@ class RecommendationApiTests(TestCase):
             total_product_price=49_900,
             validation_reasons=[{"code": "VALID"}],
             warnings=[],
+            rationale="출근 상황에 맞춘 단정한 룩이에요.",
         )
         rejected = OutfitComposition.objects.create(
             result=result,
@@ -88,6 +89,7 @@ class RecommendationApiTests(TestCase):
             image_ref="products/naver-101.jpg",
             price_snapshot=49_900,
             reasons=["스타일과 계절이 일치함"],
+            note="단정한 인상을 만드는 상의로 골랐어요.",
             item_snapshot={
                 "product_name": "아이보리 니트",
                 "category_small": "니트",
@@ -144,7 +146,15 @@ class RecommendationApiTests(TestCase):
 
         self.assertEqual(detail.status_code, status.HTTP_200_OK)
         self.assertEqual(detail.data["cards"][0]["card_id"], str(validated.id))
+        self.assertEqual(
+            detail.data["cards"][0]["rationale"],
+            "출근 상황에 맞춘 단정한 룩이에요.",
+        )
         self.assertEqual(card.status_code, status.HTTP_200_OK)
+        self.assertEqual(
+            card.data["items"][0]["note"],
+            "단정한 인상을 만드는 상의로 골랐어요.",
+        )
 
     def test_card_item_labels_do_not_stringify_empty_arrays(self):
         result, validated, _ = self._result(self.identity)

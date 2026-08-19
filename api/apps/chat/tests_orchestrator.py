@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from types import SimpleNamespace
 from unittest.mock import Mock, patch
 
@@ -23,6 +24,8 @@ from apps.chat.services.openai_adapter import (
     OpenAIChatAdapter,
     RecommendationConditions,
     RecommendationExplanation,
+    RecommendationExplanationItem,
+    RecommendationExplanationOutfit,
     TurnAnalysis,
 )
 from apps.chat.services.orchestrator import (
@@ -37,6 +40,7 @@ from apps.chat.services.recommendation_pipeline import (
 )
 from apps.recommend.models import (
     OutfitComposition as OutfitCompositionModel,
+    OutfitCompositionItem as OutfitCompositionItemModel,
 )
 from apps.recommend.models import (
     RecommendationFeedback,
@@ -435,6 +439,66 @@ class OpenAIChatAdapterTests(SimpleTestCase):
         self.assertIn("test-prompt-v1", kwargs["prompt_cache_key"])
         self.assertEqual(result.usage.cached_input_tokens, 80)
 
+    def test_explanation_input_contains_request_context_and_approved_ids(self):
+        parsed = RecommendationExplanation(
+            opening="추천을 준비했어요.",
+            outfits=[
+                RecommendationExplanationOutfit(
+                    outfit_id="outfit-1",
+                    rationale="출근 조건에 맞춘 룩이에요.",
+                    items=[
+                        RecommendationExplanationItem(
+                            item_id="item-1",
+                            note="단정한 상의로 골랐어요.",
+                            attribute_claims=[],
+                        )
+                    ],
+                )
+            ],
+        )
+        response = SimpleNamespace(
+            id="resp-explanation",
+            output_parsed=parsed,
+            usage=SimpleNamespace(input_tokens=80, output_tokens=15),
+        )
+        client = Mock()
+        client.responses.parse.return_value = response
+        adapter = OpenAIChatAdapter(client=client)
+        approved = {
+            "compositions": [
+                {
+                    "outfit_id": "outfit-1",
+                    "items": [{"item_id": "item-1"}],
+                }
+            ]
+        }
+
+        adapter.explain_recommendation(
+            identity_id="identity-1",
+            persona={"tone": "friendly"},
+            mode="NEW_ITEM",
+            approved_recommendation=approved,
+            current_request="내일 출근룩 추천해줘",
+            recent_messages=[{"role": "user", "content": "검정은 피하고 싶어"}],
+            weather={"temperature": 18},
+            budget=100_000,
+            conditions={"occasion": "출근", "styles": ["미니멀"]},
+            focus_slots=["TOP"],
+        )
+
+        kwargs = client.responses.parse.call_args.kwargs
+        payload = json.loads(kwargs["input"][0]["content"])
+        self.assertIs(kwargs["text_format"], RecommendationExplanation)
+        self.assertEqual(payload["current_request"], "내일 출근룩 추천해줘")
+        self.assertEqual(
+            payload["recent_messages"][0]["content"],
+            "검정은 피하고 싶어",
+        )
+        self.assertEqual(payload["weather"], {"temperature": 18})
+        self.assertEqual(payload["budget"], 100_000)
+        self.assertEqual(payload["focus_slots"], ["TOP"])
+        self.assertEqual(payload["approved_recommendation"], approved)
+
 
 @override_settings(CHAT_SUMMARY_TRIGGER_MESSAGES=100)
 class ChatOrchestratorTests(TestCase):
@@ -533,10 +597,39 @@ class ChatOrchestratorTests(TestCase):
             mode=self.session.mode,
             dataset_version="v1",
         )
+        card = OutfitCompositionModel.objects.create(
+            result=recommendation,
+            rank=1,
+            status=OutfitCompositionModel.Status.VALIDATED,
+            composition_fingerprint="c" * 64,
+            total_product_price=59_000,
+            validation_reasons=[{"code": "VALID"}],
+            warnings=[],
+        )
+        item = OutfitCompositionItemModel.objects.create(
+            composition=card,
+            position=1,
+            slot="TOP",
+            source_type=OutfitCompositionItemModel.SourceType.PRODUCT,
+            source_id="product-1",
+            source_collection="products",
+            source_point_id="product-point-1",
+            template_item_point_id="golden-item-1",
+            replacement_score=0.9,
+            image_ref="products/1.jpg",
+            price_snapshot=59_000,
+            reasons=["대분류 일치"],
+            item_snapshot={"product_name": "아이보리 셔츠"},
+        )
         approved = {
             "result_id": str(recommendation.id),
             "mode": self.session.mode,
-            "compositions": [],
+            "compositions": [
+                {
+                    "outfit_id": str(card.id),
+                    "items": [{"item_id": str(item.id)}],
+                }
+            ],
         }
         self.pipeline.execute.return_value = RecommendationPipelineResult(
             result=recommendation,
@@ -544,7 +637,20 @@ class ChatOrchestratorTests(TestCase):
         )
         self.llm.explain_recommendation.return_value = LLMResult(
             value=RecommendationExplanation(
-                message="### 추천 룩\n- **검증된 출근 코디**예요."
+                opening="### 추천 룩\n- **검증된 출근 코디**예요.",
+                outfits=[
+                    RecommendationExplanationOutfit(
+                        outfit_id=str(card.id),
+                        rationale="**미니멀 출근 스타일**에 맞춘 룩이에요.",
+                        items=[
+                            RecommendationExplanationItem(
+                                item_id=str(item.id),
+                                note="단정한 상의로 골랐어요.",
+                                attribute_claims=[],
+                            )
+                        ],
+                    )
+                ],
             ),
             response_id="resp-explanation",
             usage=LLMUsage(input_tokens=80, output_tokens=15),
@@ -569,6 +675,16 @@ class ChatOrchestratorTests(TestCase):
             self.llm.explain_recommendation.call_args.kwargs["approved_recommendation"],
             approved,
         )
+        explanation_kwargs = self.llm.explain_recommendation.call_args.kwargs
+        self.assertEqual(explanation_kwargs["current_request"], self.message.content)
+        self.assertEqual(explanation_kwargs["recent_messages"], [])
+        self.assertEqual(explanation_kwargs["weather"], {})
+        self.assertEqual(explanation_kwargs["conditions"]["occasion"], "출근")
+        self.assertEqual(explanation_kwargs["focus_slots"], [])
+        card.refresh_from_db()
+        item.refresh_from_db()
+        self.assertEqual(card.rationale, "미니멀 출근 스타일에 맞춘 룩이에요.")
+        self.assertEqual(item.note, "단정한 상의로 골랐어요.")
 
     def test_llm_failure_marks_run_and_request_message_failed(self):
         self.llm.analyze_turn.side_effect = ChatLLMError("provider unavailable")
@@ -668,7 +784,12 @@ class ChatRecommendationPipelineTests(TestCase):
             price=49_000,
             score=0.9,
             reasons=("골든 아이템과 유사",),
-            payload={"title": "미니멀 셔츠", "price": 49_000},
+            payload={
+                "title": "미니멀 셔츠",
+                "price": 49_000,
+                "material": "면",
+                "comfort": "편안함",
+            },
         )
         composition = OutfitComposition(
             mode=RecommendationMode.NEW_ITEM,
@@ -713,6 +834,14 @@ class ChatRecommendationPipelineTests(TestCase):
             output.approved_payload["compositions"][0]["items"][0]["name"],
             "미니멀 셔츠",
         )
+        approved_outfit = output.approved_payload["compositions"][0]
+        approved_item = approved_outfit["items"][0]
+        self.assertEqual(
+            approved_outfit["outfit_id"],
+            str(saved_item.composition_id),
+        )
+        self.assertEqual(approved_item["item_id"], str(saved_item.id))
+        self.assertEqual(approved_item["attributes"], {"material": "면"})
 
     def test_explicit_presentation_group_is_separate_from_profile_gender(self):
         context = self._context()

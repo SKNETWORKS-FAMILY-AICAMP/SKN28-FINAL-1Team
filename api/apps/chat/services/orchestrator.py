@@ -41,12 +41,12 @@ from apps.chat.services.persona_narration import (
 from apps.chat.services.personalization_snapshot import (
     build_personalization_snapshot,
 )
+from apps.chat.services.recommendation_explanations import (
+    apply_recommendation_explanation,
+)
 from apps.chat.services.recommendation_pipeline import (
     ChatRecommendationError,
     ChatRecommendationPipeline,
-)
-from apps.chat.services.recommendation_explanations import (
-    apply_recommendation_explanation,
 )
 from apps.chat.services.reference_recommendation_events import (
     STAGE_SNAPSHOT_VALIDATION,
@@ -521,6 +521,7 @@ class ChatOrchestrator:
                         conditions=analysis.conditions.model_dump(),
                         weather=context.payload["weather"],
                         focus_slots=[],
+                        recent_messages=context.payload["recent_messages"],
                         fallback_reason=explanation_fallback_reason,
                     )
                     response_text = applied_explanation.opening

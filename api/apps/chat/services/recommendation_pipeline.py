@@ -1056,25 +1056,48 @@ class ChatRecommendationPipeline:
     @staticmethod
     def _approved_payload(result: RecommendationResult) -> dict[str, Any]:
         compositions = []
+        attribute_keys = (
+            "category_large",
+            "category_small",
+            "color",
+            "base_color",
+            "style",
+            "fit",
+            "material",
+            "season",
+            "brand",
+        )
         for composition in result.compositions.prefetch_related("items").all():
             compositions.append(
                 {
+                    "outfit_id": str(composition.id),
                     "rank": composition.rank,
                     "total_product_price": composition.total_product_price,
                     "reference_match": composition.reference_match,
                     "warnings": composition.warnings,
+                    "validation_reasons": composition.validation_reasons,
                     "items": [
                         {
-                            "slot": item.slot,
+                            "item_id": str(item.id),
+                            "slot": item.slot.split(":", 1)[0],
                             "source_type": item.source_type,
                             "name": (
-                                item.item_snapshot.get("item_name")
+                                item.item_snapshot.get("display_name")
+                                or item.item_snapshot.get("product_name")
+                                or item.item_snapshot.get("item_name")
                                 or item.item_snapshot.get("name")
                                 or item.item_snapshot.get("title")
-                                or item.slot
+                                or item.item_snapshot.get("category_small")
+                                or item.item_snapshot.get("category_large")
+                                or "구성 아이템"
                             ),
                             "price": item.price_snapshot,
                             "reasons": item.reasons,
+                            "attributes": {
+                                key: item.item_snapshot[key]
+                                for key in attribute_keys
+                                if item.item_snapshot.get(key) not in (None, "", [], {})
+                            },
                         }
                         for item in composition.items.all()
                     ],
