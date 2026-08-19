@@ -159,6 +159,45 @@ class StylistDuplicateResolverTests(SimpleTestCase):
         self.assertIsNone(selection.reason_code)
         self.assertEqual(selection.allowed_duplicate_slots, ("TOP",))
 
+    def test_same_dress_is_a_core_duplicate_even_when_shoes_change(self) -> None:
+        left = self._composition(
+            {"원피스/세트": "shared-dress", "SHOES": "left-shoes"}
+        )
+        right = self._composition(
+            {"DRESS": "shared-dress", "FOOTWEAR": "right-shoes"}
+        )
+
+        self.assertEqual(
+            classify_duplicate(left, right),
+            (DuplicateKind.MAJOR_SLOTS, ("DRESS",)),
+        )
+
+    def test_matching_bag_contributes_to_major_slot_overlap(self) -> None:
+        left = self._composition(
+            {
+                "TOP": "shared-top",
+                "BOTTOM": "shared-bottom",
+                "가방": "shared-bag",
+                "FOOTWEAR": "left-shoes",
+            }
+        )
+        right = self._composition(
+            {
+                "TOP": "shared-top",
+                "BOTTOM": "shared-bottom",
+                "ACCESSORY": "shared-bag",
+                "FOOTWEAR": "right-shoes",
+            }
+        )
+
+        self.assertEqual(
+            classify_duplicate(left, right),
+            (
+                DuplicateKind.MAJOR_SLOTS,
+                ("TOP", "BOTTOM", "ACCESSORY"),
+            ),
+        )
+
     def test_quality_guard_keeps_duplicate_when_distinct_candidate_drops_too_much(
         self,
     ) -> None:

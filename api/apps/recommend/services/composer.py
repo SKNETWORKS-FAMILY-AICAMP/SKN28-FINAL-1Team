@@ -22,6 +22,7 @@ from apps.recommend.services.outfit_types import (
     OutfitSlot,
     RecommendationMode,
 )
+from apps.recommend.services.outfit_slots import is_required_outfit_slot
 from apps.recommend.services.qdrant import GOLDEN_ITEM_COLLECTION
 
 
@@ -87,24 +88,16 @@ def _slot_id(template: TemplateItem) -> str:
     return f"{layer_role}:{template.point_id}" if layer_role else template.point_id
 
 
-#: 후보를 못 채워도 코디가 성립하는 대분류.
-#:
-#: 예전에는 골든 템플릿의 모든 슬롯이 필수였다. 그래서 예산 안에 드는 반지가
-#: 하나도 없으면 상·하의가 멀쩡히 채워진 조합까지 REQUIRED_SLOT_MISSING으로
-#: 전부 탈락했고, 추천 자체가 "검증 가능한 최종 조합 없음"으로 끝났다.
-#: 여기 없는 값(빈 문자열·미지의 분류 포함)은 보수적으로 필수로 본다.
-_OPTIONAL_SLOT_CATEGORIES = frozenset({"아우터", "신발", "가방", "액세서리"})
-
-
 def _outfit_slot(template: TemplateItem) -> OutfitSlot:
     category_large = _payload_text(template.payload, "category_large")
+    layer_role = _payload_text(template.payload, "layer_role")
     return OutfitSlot(
         slot_id=_slot_id(template),
         template_point_id=template.point_id,
         category_large=category_large,
         category_small=_payload_text(template.payload, "category_small"),
-        layer_role=_payload_text(template.payload, "layer_role"),
-        required=category_large not in _OPTIONAL_SLOT_CATEGORIES,
+        layer_role=layer_role,
+        required=is_required_outfit_slot(category_large, layer_role),
     )
 
 

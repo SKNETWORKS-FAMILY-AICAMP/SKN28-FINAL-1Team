@@ -127,6 +127,31 @@ class RecommendationDiversityTests(SimpleTestCase):
 
         self.assertEqual([value.name for value in selected], ["first"])
 
+    def test_dress_variations_are_preserved_as_distinct_outfits(self) -> None:
+        candidates = tuple(
+            candidate(
+                f"dress-{index}",
+                item(
+                    f"dress-{index}",
+                    layer_role="",
+                    category_large="원피스/세트",
+                ),
+                item(
+                    f"shoe-{index}",
+                    layer_role="SHOES",
+                    category_large="신발",
+                ),
+            )
+            for index in range(1, 4)
+        )
+
+        selected = select_diverse_candidates(candidates)
+
+        self.assertEqual(
+            [value.name for value in selected],
+            ["dress-1", "dress-2", "dress-3"],
+        )
+
     def test_injected_outer_slot_ignores_top_changes(self) -> None:
         first = candidate(
             "first",

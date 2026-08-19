@@ -9,48 +9,13 @@ from apps.recommend.services.outfit_types import (
     OutfitComposition,
     OutfitItem,
 )
+from apps.recommend.services.outfit_slots import (
+    CORE_DIVERSITY_SLOTS,
+    canonical_slots,
+    outfit_item_slot,
+)
 
-DEFAULT_CORE_DIVERSITY_SLOTS = frozenset({"TOP", "BOTTOM", "OUTER"})
-
-_SLOT_ALIASES = {
-    "TOP": "TOP",
-    "UPPER": "TOP",
-    "INNER": "TOP",
-    "MID": "TOP",
-    "LAYER": "TOP",
-    "상의": "TOP",
-    "기본상의": "TOP",
-    "기본_상의": "TOP",
-    "레이어드상의": "TOP",
-    "레이어드_상의": "TOP",
-    "이너": "TOP",
-    "BOTTOM": "BOTTOM",
-    "LOWER": "BOTTOM",
-    "하의": "BOTTOM",
-    "OUTER": "OUTER",
-    "OUTERWEAR": "OUTER",
-    "아우터": "OUTER",
-    "겉옷": "OUTER",
-    "DRESS": "DRESS",
-    "원피스": "DRESS",
-    "SHOES": "SHOES",
-    "FOOTWEAR": "SHOES",
-    "신발": "SHOES",
-    "ACCESSORY": "ACCESSORY",
-    "ACCESSORIES": "ACCESSORY",
-    "액세서리": "ACCESSORY",
-    "BAG": "ACCESSORY",
-    "가방": "ACCESSORY",
-    "모자": "ACCESSORY",
-    "주얼리": "ACCESSORY",
-}
-
-
-def _canonical_slot(value: object) -> str | None:
-    if not isinstance(value, str):
-        return None
-    normalized = value.strip().replace("-", "_").replace(" ", "_").upper()
-    return _SLOT_ALIASES.get(normalized)
+DEFAULT_CORE_DIVERSITY_SLOTS = CORE_DIVERSITY_SLOTS
 
 
 class CandidateWithComposition(Protocol):
@@ -61,19 +26,7 @@ CandidateT = TypeVar("CandidateT", bound=CandidateWithComposition)
 
 
 def _item_slot(item: OutfitItem) -> str | None:
-    """레이어 역할을 우선하고 카테고리·슬롯 접두사를 안전망으로 쓴다."""
-
-    slot_prefix = item.slot_id.split(":", 1)[0]
-    for value in (
-        item.layer_role,
-        item.payload.get("layer_role"),
-        item.category_large,
-        item.payload.get("category_large"),
-        slot_prefix,
-    ):
-        if slot := _canonical_slot(value):
-            return slot
-    return None
+    return outfit_item_slot(item)
 
 
 def _core_fingerprint(
@@ -110,11 +63,7 @@ def select_diverse_candidates(
     if not candidates:
         return ()
 
-    normalized_slots = frozenset(
-        slot
-        for raw_slot in diversity_slots
-        if (slot := _canonical_slot(raw_slot)) is not None
-    )
+    normalized_slots = canonical_slots(diversity_slots)
     if not normalized_slots:
         raise ValueError("다양성 판정 슬롯이 하나 이상 필요합니다.")
 
