@@ -74,6 +74,23 @@ export type ApiChatAttachment = {
   created_at: string;
 };
 
+/**
+ * 이 질문이 참고한 공유 옷. 서버가 보여주기용으로만 추린 값이다.
+ *
+ * `image_url` 은 **조회할 때마다 새로 서명된다** — 저장해 두면 만료된다.
+ * 서명에 실패하면 null 로 오고 나머지는 그대로 온다(이미지만 빠지고 말풍선은 살아난다).
+ */
+export type ApiReferenceSummary = {
+  schema_version: string;
+  type: string;
+  shared_item_id: string;
+  item_name: string;
+  category_large: string;
+  owner_name: string;
+  room_name: string;
+  image_url: string | null;
+};
+
 export type ApiChatMessage = {
   id: string;
   sequence: number;
@@ -84,6 +101,8 @@ export type ApiChatMessage = {
   /** 추천이 붙은 답변이면 recommendation_result_id 가 여기 들어온다. */
   metadata: Record<string, unknown>;
   attachments: ApiChatAttachment[];
+  /** 공유 옷을 참고한 질문에만 붙는다. 사용자 메시지가 아니면 null. */
+  reference_summary?: ApiReferenceSummary | null;
   created_at: string;
   updated_at: string;
 };
@@ -129,6 +148,11 @@ export type ApiWardrobeScope = {
   system_categories?: string[];
   hashtag_ids?: string[];
   match_mode?: 'REQUIRED' | 'PREFERRED';
+};
+
+export type ApiMessageOptions = {
+  wardrobeScope?: ApiWardrobeScope;
+  reference?: ApiSharedItemReference;
 };
 
 /** 메시지 전송의 202 응답. events_url 은 신뢰하지 않는다(config.ts 주석 참고). */
@@ -234,19 +258,62 @@ export function searchSessions(
 }
 
 /**
+ * 공유 옷장 아이템을 **참고 이미지**로 지목하는 값.
+ *
+ * ⚠️ `shared_item_id` 는 `SharedWardrobeItem.id` 다 — 내 옷장 아이템 id(`wardrobe_item.id`)를
+ *    여기 넣으면 안 된다. 서버 계약이 공유 아이템만 받는다(`type` 선택지가 이것 하나뿐).
+ * ⚠️ 한 번에 **한 벌만** 보낼 수 있다.
+ * ⚠️ 이 값은 write-only 다. 메시지를 다시 받아와도 무엇을 참고했는지 알 수 없다
+ *    (서버는 ChatRun.reference_snapshot 에 두는데 아직 어떤 응답에도 안 나온다).
+ */
+export type ApiSharedItemReference = {
+  type: 'SHARED_WARDROBE_ITEM';
+  shared_item_id: string;
+};
+
+/**
+ * 공유 옷 참고가 실패한 이유. 서버가 `{ code, detail }` 로 준다
+ * (api/apps/chat/services/shared_reference.py).
+ *
+ * **문자열이 아니라 이 코드로 갈라야 한다** — 안내 문구가 바뀌어도 분기가 안 깨진다.
+ */
+export type ApiReferenceErrorCode =
+  | 'REFERENCE_ITEM_NOT_FOUND'
+  | 'REFERENCE_ITEM_FORBIDDEN'
+  | 'REFERENCE_ITEM_NOT_READY'
+  | 'REFERENCE_ITEM_INVALID';
+
+/** 응답 본문에서 참고 실패 코드를 꺼낸다. 다른 오류면 null. */
+export function referenceErrorCode(error: unknown): ApiReferenceErrorCode | null {
+  if (!(error instanceof ApiError)) return null;
+  const code = (error.data as { code?: string } | null)?.code;
+  return code === 'REFERENCE_ITEM_NOT_FOUND' ||
+    code === 'REFERENCE_ITEM_FORBIDDEN' ||
+    code === 'REFERENCE_ITEM_NOT_READY' ||
+    code === 'REFERENCE_ITEM_INVALID'
+    ? code
+    : null;
+}
+
+/**
  * 질문 전송. **답변은 이 응답에 들어있지 않다** — 202 로 접수만 되고,
  * 실제 답변은 run 을 구독해야 온다(lib/chatStream.ts).
+ *
+ * `reference` 를 함께 보내면 서버가 그 공유 옷을 **참고 이미지**로 삼아,
+ * 비슷한 내 옷(옷장 기반)이나 비슷한 상품(추구미 반영)을 찾는다.
+ * 친구 옷 자체는 최종 코디에 들어가지 않는다.
  */
 export function sendMessage(
   sessionId: string,
   content: string,
   clientMessageId: string,
-  wardrobeScope?: ApiWardrobeScope,
+  options: ApiMessageOptions = {},
 ): Promise<ApiMessageSubmit> {
   return api.post<ApiMessageSubmit>(ChatEndpoints.messages(sessionId), {
     content,
     client_message_id: clientMessageId,
-    ...(wardrobeScope ? { wardrobe_scope: wardrobeScope } : {}),
+    ...(options.wardrobeScope ? { wardrobe_scope: options.wardrobeScope } : {}),
+    ...(options.reference ? { reference: options.reference } : {}),
   });
 }
 

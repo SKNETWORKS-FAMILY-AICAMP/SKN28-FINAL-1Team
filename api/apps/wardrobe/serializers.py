@@ -178,6 +178,8 @@ class WardrobeItemSerializer(serializers.ModelSerializer):
             "category_large", "category_small", "season", "style", "color",
             "pattern", "fit", "material", "sleeve", "length", "usage",
             "layer_role", "layer_order", "seg_meta", "confirmed", "created_at",
+            # 즐겨찾기(별) — 옷장에서 자주 입는 옷만 모아 보는 데 쓴다.
+            "is_favorite",
             # NULL 이면 아직 옷장 밖 — 룩 상세가 '옷장에 추가' 버튼을 그릴지 판단한다.
             "added_to_closet_at",
             # 확정하면 이 방에 공유된다는 예약. 상세 화면이 "확정 시 OO방에 공유" 안내를
@@ -214,7 +216,7 @@ class WardrobeItemUpdateSerializer(serializers.ModelSerializer):
         fields = [
             "item_name", "category_large", "category_small", "season", "style",
             "color", "pattern", "fit", "material", "sleeve", "length", "usage",
-            "layer_role", "layer_order", "confirmed",
+            "layer_role", "layer_order", "confirmed", "is_favorite",
         ]
 
     def validate(self, attrs):

@@ -25,6 +25,7 @@ from apps.style_calendar.services import storage
 from apps.wardrobe.models import WardrobeItem, WardrobeUploadJob
 from apps.wardrobe.services import storage as wardrobe_storage
 from apps.wardrobe.services.items import skipped_categories_for
+from apps.wardrobe.taxonomy import get_slot_key
 
 if TYPE_CHECKING:
     from django.core.files.uploadedfile import UploadedFile
@@ -38,7 +39,18 @@ class WardrobeItemsNotFoundError(Exception):
     """요청 사용자가 소유하지 않은 옷장 아이템이 포함된 경우."""
 
 
+class DuplicateCategorySlotError(Exception):
+    """단일 슬롯 카테고리(하의, 신발, 원피스/세트, 모자) 항목이 중복 선택된 경우."""
+
+    def __init__(self, slot_key: str) -> None:
+        self.slot_key = slot_key
+        super().__init__(
+            f"'{slot_key}' 카테고리 항목은 캘린더 착장당 1개만 선택할 수 있습니다."
+        )
+
+
 class CalendarDateConflictError(Exception):
+
     """사용자의 해당 날짜 캘린더가 이미 존재하는 경우."""
 
 
@@ -285,6 +297,22 @@ def link_wardrobe_items(
     if not new_items:
         return entries_for_user(user=user).get(pk=calendar_id)
 
+    existing_slots: set[str] = set()
+    for link in entry.wardrobe_links.select_related("wardrobe_item").all():
+        if link.wardrobe_item:
+            slot = get_slot_key(
+                link.wardrobe_item.category_large,
+                link.wardrobe_item.category_small,
+            )
+            if slot:
+                existing_slots.add(slot)
+
+    for item in new_items:
+        slot = get_slot_key(item.category_large, item.category_small)
+        if slot and slot in existing_slots:
+            raise DuplicateCategorySlotError(slot)
+
+
     links, destination_keys = _prepare_wardrobe_links(
         entry=entry,
         ordered_items=new_items,
@@ -378,6 +406,17 @@ def _cleanup_wardrobe_s3_objects(keys: Sequence[str]) -> None:
         logger.exception("옷장 S3 객체 정리 실패: object_count=%s", len(keys))
 
 
+def validate_item_slot_conflicts(items: Sequence[WardrobeItem]) -> None:
+    """단일 슬롯 카테고리(하의, 신발, 원피스/세트, 모자) 중복 여부를 검증한다."""
+    seen_slots: set[str] = set()
+    for item in items:
+        slot = get_slot_key(item.category_large, item.category_small)
+        if slot:
+            if slot in seen_slots:
+                raise DuplicateCategorySlotError(slot)
+            seen_slots.add(slot)
+
+
 def _owned_wardrobe_items(
     *,
     user: User,
@@ -390,7 +429,10 @@ def _owned_wardrobe_items(
     item_by_id = {item.pk: item for item in owned_items}
     if len(item_by_id) != len(wardrobe_item_ids):
         raise WardrobeItemsNotFoundError
-    return [item_by_id[item_id] for item_id in wardrobe_item_ids]
+    items = [item_by_id[item_id] for item_id in wardrobe_item_ids]
+    validate_item_slot_conflicts(items)
+    return items
+
 
 
 def _prepare_wardrobe_links(
@@ -723,15 +765,31 @@ def apply_wardrobe_job_success(
         entry.wardrobe_links.values_list("wardrobe_item_id", flat=True)
     )
     skipped = set(entry.skipped_categories or [])
+    existing_slots: set[str] = set()
+    for link in entry.wardrobe_links.select_related("wardrobe_item").all():
+        if link.wardrobe_item:
+            slot = get_slot_key(
+                link.wardrobe_item.category_large,
+                link.wardrobe_item.category_small,
+            )
+            if slot:
+                existing_slots.add(slot)
+
     # 제외는 워커가 열거 직후에 이미 적용한다. 여기 한 겹 더 두는 것은 구버전
     # 워커(exclude_categories 미지원)가 붙어도 입은 옷으로 이미 지정한 부위가
     # 캘린더에 두 번 걸리지 않게 하기 위한 안전망이다 (룩북과 같은 규칙).
     # 옷장 아이템 자체는 지우지 않는다 — 이미 만들어진 사용자 데이터다.
-    new_items = [
-        item
-        for item in created_items
-        if item.pk not in existing_item_ids and item.category_large not in skipped
-    ]
+    new_items: list[WardrobeItem] = []
+    for item in created_items:
+        if item.pk in existing_item_ids or item.category_large in skipped:
+            continue
+        slot = get_slot_key(item.category_large, item.category_small)
+        if slot:
+            if slot in existing_slots:
+                continue
+            existing_slots.add(slot)
+        new_items.append(item)
+
     start_sort_order = entry.wardrobe_links.count()
     links, destination_keys = _prepare_wardrobe_links(
         entry=entry,

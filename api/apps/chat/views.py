@@ -935,7 +935,10 @@ class ChatSessionMessageListView(APIView):
             identity=identity,
             deleted_at__isnull=True,
         )
-        return Response(ChatMessageSerializer(session.messages.all(), many=True).data)
+        messages = session.messages.select_related("run").prefetch_related(
+            "attachments"
+        )
+        return Response(ChatMessageSerializer(messages, many=True).data)
 
     def post(self, request, session_id):
         identity = _identity(request)

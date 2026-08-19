@@ -170,8 +170,10 @@ def page_messages(
     if session is None:
         raise ChatHistorySessionNotFound("채팅 세션을 찾을 수 없습니다.")
 
-    queryset = ChatMessage.objects.filter(session=session).prefetch_related(
-        "attachments"
+    queryset = (
+        ChatMessage.objects.filter(session=session)
+        .select_related("run")
+        .prefetch_related("attachments")
     )
     total_count = queryset.count()
     if cursor:

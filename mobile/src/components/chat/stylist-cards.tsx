@@ -5,7 +5,7 @@ import { Icon, type IconName } from '@/components/icon';
 import { Skeleton, SmartImage } from '@/components/ui';
 import { Editorial, ink, Type } from '@/constants/theme';
 import { isStylistMocked, type StylistId } from '@/lib/stylistApi';
-import type { StylistCard } from '@/state/chat';
+import { STYLE_FALLBACK_NOTE, type StylistCard } from '@/state/chat';
 import { reasonLabel } from '@/state/stylist';
 
 const INK = Editorial.ink;
@@ -132,6 +132,19 @@ function StylistOutfitCard({
         </View>
       ) : (
         <>
+          {/* 공유 옷을 참고했으면 무엇과 비슷한지 먼저 — 기본 추천 카드와 같은 자리·같은 문구. */}
+          {card.referenceBadge ? (
+            <View style={styles.refMatch}>
+              <View style={styles.refBadge}>
+                <Text style={styles.refBadgeText}>{card.referenceBadge.label}</Text>
+              </View>
+              {/* fallback 은 실패가 아니라 정상 결과다 — 경고색·경고아이콘을 쓰지 않는다. */}
+              {card.referenceBadge.isStyleFallback ? (
+                <Text style={styles.refFallback}>{STYLE_FALLBACK_NOTE}</Text>
+              ) : null}
+            </View>
+          ) : null}
+
           {/* 페르소나 관점의 핵심 문장 하나 */}
           {card.message ? <Text style={styles.message}>{card.message}</Text> : null}
 
@@ -299,6 +312,17 @@ const styles = StyleSheet.create({
   failedText: { flex: 1, fontSize: Type.caption, color: Editorial.wine, lineHeight: 18 },
 
   message: { fontSize: Type.footnote, color: INK, lineHeight: 21 },
+  refMatch: { gap: 6 },
+  refBadge: {
+    alignSelf: 'flex-start',
+    paddingHorizontal: 9,
+    paddingVertical: 4,
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: Editorial.line,
+  },
+  refBadgeText: { fontSize: Type.micro, color: Editorial.textCaption, fontWeight: '500' },
+  refFallback: { fontSize: Type.caption, color: Editorial.textSoft, lineHeight: 19 },
 
   items: { flexDirection: 'row', flexWrap: 'wrap', gap: 12 },
   item: { width: 64, gap: 4 },

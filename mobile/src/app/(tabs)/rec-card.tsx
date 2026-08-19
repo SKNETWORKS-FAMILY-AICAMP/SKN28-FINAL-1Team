@@ -7,6 +7,7 @@ import { Icon } from '@/components/icon';
 import { ErrorState, LoadingState, SmartImage, useToast } from '@/components/ui';
 import { ContentMax, Editorial, Fonts, ink, Type } from '@/constants/theme';
 import { useBreakpoint } from '@/hooks/use-breakpoint';
+import { STYLE_FALLBACK_NOTE, toReferenceBadge } from '@/state/chat';
 import { backTo, goBack } from '@/lib/goBack';
 import { mallLabel, openExternal } from '@/lib/mall';
 import {
@@ -29,6 +30,7 @@ const INK = Editorial.ink;
 /** 이미지 생성 상태를 다시 물어보는 간격. 완성까지 보통 수십 초 걸린다. */
 const RENDER_POLL_MS = 3000;
 
+
 /**
  * 추천 코디 상세.
  *
@@ -46,8 +48,9 @@ export default function RecCard() {
     from?: string;
   }>();
   const toast = useToast();
-
   const [card, setCard] = useState<ApiRecommendationCard | null>(null);
+  /** 공유 옷 참고 배지. 참고 안 한 추천이면 null 이라 블록 자체를 그리지 않는다. */
+  const referenceBadge = toReferenceBadge(card?.reference_match);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [render, setRender] = useState<ApiRenderJob | null>(null);
   const [rendering, setRendering] = useState(false);
@@ -207,6 +210,25 @@ export default function RecCard() {
 
             {/* 코디 이미지 — 아이템 사진을 합쳐 한 장으로 만든 것 */}
             <RenderBlock job={render} busy={rendering} onStart={startRender} />
+
+            {/* 공유 옷을 참고한 추천이면 무엇과 비슷한 것인지 구성 아이템 앞에 밝힌다.
+                근거(reasons)는 상세에서만 문장으로 보여준다 — 카드에서는 소음이다.
+                점수는 어디에도 노출하지 않는다(사용자에게 뜻이 없는 숫자다). */}
+            {referenceBadge ? (
+              <View style={styles.refBlock}>
+                <View style={styles.refBadge}>
+                  <Text style={styles.refBadgeText}>{referenceBadge.label}</Text>
+                </View>
+                {referenceBadge.isStyleFallback ? (
+                  <Text style={styles.refFallback}>{STYLE_FALLBACK_NOTE}</Text>
+                ) : null}
+                {referenceBadge.reasons.map((r) => (
+                  <Text key={r} style={styles.refReason}>
+                    · {r}
+                  </Text>
+                ))}
+              </View>
+            ) : null}
 
             <Text style={styles.section}>구성 아이템</Text>
             {card.items.map((item) => {
@@ -422,6 +444,18 @@ const styles = StyleSheet.create({
   },
   renderBtnText: { fontSize: 13, fontWeight: '600', color: '#fff' },
 
+  refBlock: { gap: 7, marginTop: 4 },
+  refBadge: {
+    alignSelf: 'flex-start',
+    paddingHorizontal: 9,
+    paddingVertical: 4,
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: Editorial.line,
+  },
+  refBadgeText: { fontSize: Type.micro, color: Editorial.textCaption, fontWeight: '500' },
+  refFallback: { fontSize: Type.caption, color: Editorial.textSoft, lineHeight: 19 },
+  refReason: { fontSize: Type.caption, color: Editorial.textSoft, lineHeight: 19 },
   section: { marginTop: 12, fontSize: 14, fontWeight: '600', color: INK },
 
   item: {

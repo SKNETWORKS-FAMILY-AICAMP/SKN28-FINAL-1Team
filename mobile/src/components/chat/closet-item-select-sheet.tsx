@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { Modal, Pressable, ScrollView, StyleSheet, Text, View, ActivityIndicator } from 'react-native';
 import { Image } from 'expo-image';
 import { Icon } from '@/components/icon';
-import { listWardrobeItems, listWardrobeFilters, getMySharedRooms, listSharedRoomItems, sharedUserDisplayName } from '@/lib/wardrobeApi';
+import { listWardrobeItems, listWardrobeFilters } from '@/lib/wardrobeApi';
 import { Editorial, ink } from '@/constants/theme';
 
 export function ClosetItemSelectSheet({
@@ -22,53 +22,42 @@ export function ClosetItemSelectSheet({
   const [items, setItems] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
-  const [activeTab, setActiveTab] = useState<'hashtags' | 'mine' | 'shared'>('hashtags');
-  const [sharedItems, setSharedItems] = useState<any[]>([]);
+  const [activeTab, setActiveTab] = useState<'hashtags' | 'mine'>('hashtags');
   const [hashtags, setHashtags] = useState<any[]>([]);
 
   useEffect(() => {
-    if (visible) {
-      setLoading(true);
-      setSelectedIds([]);
-      
-      Promise.all([
+    if (!visible) return;
+    let active = true;
+
+    Promise.resolve()
+      .then(() => {
+        if (!active) return null;
+        setLoading(true);
+        setSelectedIds([]);
+        return Promise.all([
         listWardrobeItems().catch(() => []),
         listWardrobeFilters().then((result) => result.hashtags).catch(() => []),
-        getMySharedRooms()
-          .then(async (rooms) => {
-            const allShared: any[] = [];
-            for (const r of rooms || []) {
-              try {
-                const sItems = await listSharedRoomItems(r.id);
-                sItems.forEach((si: any) => {
-                  allShared.push({
-                    id: si.id,
-                    image: si.wardrobe_item.image_url || si.wardrobe_item.image,
-                    name: si.wardrobe_item.item_name || si.wardrobe_item.category_large,
-                    owner: sharedUserDisplayName(si.registered_by),
-                  });
-                });
-              } catch (e) {
-                console.error(e);
-              }
-            }
-            return allShared;
-          })
-          .catch(() => []),
-      ])
-        .then(([mine, hashtagRows, shared]) => {
-          setItems(
-            mine.map((it: any) => ({
-              id: it.id,
-              image: it.image_url || it.image,
-              name: it.item_name || it.category_large,
-            }))
-          );
-          setSharedItems(shared);
-          setHashtags(hashtagRows);
-        })
-        .finally(() => setLoading(false));
-    }
+        ]);
+      })
+      .then((result) => {
+        if (!active || !result) return;
+        const [mine, hashtagRows] = result;
+        setItems(
+          mine.map((it: any) => ({
+            id: it.id,
+            image: it.image_url || it.image,
+            name: it.item_name || it.category_large,
+          }))
+        );
+        setHashtags(hashtagRows);
+      })
+      .finally(() => {
+        if (active) setLoading(false);
+      });
+
+    return () => {
+      active = false;
+    };
   }, [visible]);
 
   const toggleSelect = (id: string) => {
@@ -89,8 +78,7 @@ export function ClosetItemSelectSheet({
       onClose();
       return;
     }
-    const list = activeTab === 'mine' ? items : sharedItems;
-    const selected = list
+    const selected = items
       .filter((it) => selectedIds.includes(it.id))
       .map((it) => ({
         id: it.id,
@@ -101,7 +89,7 @@ export function ClosetItemSelectSheet({
     onClose();
   };
 
-  const displayList = activeTab === 'hashtags' ? hashtags : activeTab === 'mine' ? items : sharedItems;
+  const displayList = activeTab === 'hashtags' ? hashtags : items;
 
   return (
     <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
@@ -137,17 +125,6 @@ export function ClosetItemSelectSheet({
             >
               <Text style={[styles.tabText, activeTab === 'mine' && styles.tabTextActive]}>
                 내 옷장 ({items.length})
-              </Text>
-            </Pressable>
-            <Pressable
-              style={[styles.tab, activeTab === 'shared' && styles.tabActive]}
-              onPress={() => {
-                setActiveTab('shared');
-                setSelectedIds([]);
-              }}
-            >
-              <Text style={[styles.tabText, activeTab === 'shared' && styles.tabTextActive]}>
-                공유 옷장 ({sharedItems.length})
               </Text>
             </Pressable>
           </View>

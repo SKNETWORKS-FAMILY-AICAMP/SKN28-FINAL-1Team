@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from dataclasses import replace
+
 from django.test import SimpleTestCase
 
 from apps.recommend.services.composer import (
@@ -246,5 +248,57 @@ class OutfitComposerTests(SimpleTestCase):
                 CompositionRequest(
                     mode=RecommendationMode.WARDROBE_BASED,
                     slot_results=(slot, slot),
+                )
+            )
+
+    def test_pinned_candidate_is_selected_even_when_another_scores_higher(self) -> None:
+        pinned = _candidate(ItemSource.WARDROBE, "pinned-owned", score=0.5)
+        slot = replace(
+            _slot(
+                _template(
+                    "golden-top",
+                    layer_role="TOP",
+                    image_ref="golden/top.jpg",
+                ),
+                _candidate(ItemSource.WARDROBE, "higher-owned", score=0.99),
+            ),
+            pinned_candidate=pinned,
+        )
+
+        result = self.composer.compose(
+            CompositionRequest(
+                mode=RecommendationMode.WARDROBE_BASED,
+                slot_results=(slot,),
+            )
+        )
+
+        self.assertEqual([item.source_id for item in result.items], ["pinned-owned"])
+
+    def test_ineligible_pinned_candidate_cannot_be_dropped_as_missing_slot(
+        self,
+    ) -> None:
+        pinned_without_image = _candidate(
+            ItemSource.PRODUCT,
+            "pinned-product",
+            price=30_000,
+            image_ref="",
+        )
+        slot = replace(
+            _slot(
+                _template(
+                    "golden-top",
+                    layer_role="TOP",
+                    image_ref="golden/top.jpg",
+                ),
+                _candidate(ItemSource.PRODUCT, "fallback-product", price=20_000),
+            ),
+            pinned_candidate=pinned_without_image,
+        )
+
+        with self.assertRaises(CompositionError):
+            self.composer.compose(
+                CompositionRequest(
+                    mode=RecommendationMode.NEW_ITEM,
+                    slot_results=(slot,),
                 )
             )

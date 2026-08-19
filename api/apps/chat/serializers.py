@@ -13,6 +13,10 @@ from apps.chat.models import (
     PersonaProfile,
 )
 from apps.chat.services import attachment_storage
+from apps.chat.services.shared_reference import (
+    REFERENCE_SCHEMA_VERSION,
+    REFERENCE_TYPE_SHARED_WARDROBE_ITEM,
+)
 from apps.chat.services.stylist_personas import load_stylist_personas
 from apps.recommend.models import (
     OutfitComposition,
@@ -23,6 +27,7 @@ from apps.recommend.serializers import (
     OutfitRenderJobSerializer,
     RecommendationCardItemSerializer,
 )
+from apps.wardrobe.services import storage as wardrobe_storage
 
 logger = logging.getLogger(__name__)
 
@@ -66,8 +71,20 @@ class ChatAttachmentSerializer(serializers.ModelSerializer):
             return None
 
 
+class ChatReferenceSummarySerializer(serializers.Serializer):
+    schema_version = serializers.CharField(read_only=True)
+    type = serializers.CharField(read_only=True)
+    shared_item_id = serializers.UUIDField(read_only=True)
+    item_name = serializers.CharField(read_only=True, allow_blank=True)
+    category_large = serializers.CharField(read_only=True, allow_blank=True)
+    owner_name = serializers.CharField(read_only=True)
+    room_name = serializers.CharField(read_only=True, allow_blank=True)
+    image_url = serializers.URLField(read_only=True, allow_null=True)
+
+
 class ChatMessageSerializer(serializers.ModelSerializer):
     attachments = ChatAttachmentSerializer(many=True, read_only=True)
+    reference_summary = serializers.SerializerMethodField()
 
     class Meta:
         model = ChatMessage
@@ -80,10 +97,49 @@ class ChatMessageSerializer(serializers.ModelSerializer):
             "client_message_id",
             "metadata",
             "attachments",
+            "reference_summary",
             "created_at",
             "updated_at",
         ]
         read_only_fields = fields
+
+    @extend_schema_field(ChatReferenceSummarySerializer(allow_null=True))
+    def get_reference_summary(self, obj: ChatMessage) -> dict | None:
+        if obj.role != ChatMessage.Role.USER:
+            return None
+        run = getattr(obj, "run", None)
+        snapshot = getattr(run, "reference_snapshot", None)
+        if not isinstance(snapshot, dict) or not snapshot:
+            return None
+        if snapshot.get("type") != REFERENCE_TYPE_SHARED_WARDROBE_ITEM:
+            return None
+
+        shared_item_id = str(snapshot.get("shared_item_id") or "").strip()
+        image_s3_key = str(snapshot.get("image_s3_key") or "").strip()
+        item = snapshot.get("item")
+        if not shared_item_id or not image_s3_key or not isinstance(item, dict):
+            return None
+
+        try:
+            image_url = wardrobe_storage.presigned_get(image_s3_key)
+        except Exception:
+            logger.warning(
+                "공유 옷 레퍼런스 presigned URL 발급 실패: message=%s",
+                obj.pk,
+                exc_info=True,
+            )
+            image_url = None
+
+        return {
+            "schema_version": REFERENCE_SCHEMA_VERSION,
+            "type": REFERENCE_TYPE_SHARED_WARDROBE_ITEM,
+            "shared_item_id": shared_item_id,
+            "item_name": str(item.get("item_name") or ""),
+            "category_large": str(item.get("category_large") or ""),
+            "owner_name": str(snapshot.get("owner_name") or "멤버"),
+            "room_name": str(snapshot.get("room_name") or ""),
+            "image_url": image_url,
+        }
 
 
 class SharedWardrobeItemReferenceSerializer(serializers.Serializer):
@@ -231,6 +287,7 @@ class ChatRunPersonaCardSerializer(serializers.Serializer):
     rank = serializers.IntegerField(read_only=True)
     total_product_price = serializers.IntegerField(read_only=True)
     validation_reasons = serializers.JSONField(read_only=True)
+    reference_match = serializers.JSONField(read_only=True)
     warnings = serializers.JSONField(read_only=True)
     items = RecommendationCardItemSerializer(many=True, read_only=True)
     image = serializers.SerializerMethodField()

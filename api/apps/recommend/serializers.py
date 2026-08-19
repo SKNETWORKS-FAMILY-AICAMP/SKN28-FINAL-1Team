@@ -16,6 +16,7 @@ from .models import (
     RecommendationFeedback,
     RecommendationResult,
     SavedOutfit,
+    WishlistItem,
 )
 from .services import storage, wardrobe_link
 
@@ -662,6 +663,39 @@ class RecommendationCardItemSerializer(serializers.ModelSerializer):
         )
 
 
+class WishlistItemSerializer(serializers.ModelSerializer):
+    """찜 한 줄. 앱은 이 값만으로 목록을 그리고 판매처로 나간다.
+
+    이미지·가격은 담은 시점 스냅샷이다 — 카탈로그 가격이 바뀌어도 담을 때 본 값이
+    목록에 남아야 사용자가 왜 담았는지 알 수 있다.
+    """
+
+    wish_id = serializers.UUIDField(source="id", read_only=True)
+    item_id = serializers.UUIDField(read_only=True, allow_null=True)
+    result_id = serializers.UUIDField(source="result_id_snapshot", read_only=True)
+    card_id = serializers.UUIDField(source="composition_id_snapshot", read_only=True)
+    added_at = serializers.DateTimeField(source="created_at", read_only=True)
+
+    class Meta:
+        model = WishlistItem
+        fields = [
+            "wish_id",
+            "item_id",
+            "result_id",
+            "card_id",
+            "source_collection",
+            "source_id",
+            "display_name",
+            "brand",
+            "price_snapshot",
+            "image_ref",
+            "purchase_url",
+            "slot",
+            "added_at",
+        ]
+        read_only_fields = fields
+
+
 class RecommendationCardSerializer(serializers.ModelSerializer):
     card_id = serializers.UUIDField(source="id", read_only=True)
     items = RecommendationCardItemSerializer(many=True, read_only=True)
@@ -675,6 +709,7 @@ class RecommendationCardSerializer(serializers.ModelSerializer):
             "rank",
             "total_product_price",
             "validation_reasons",
+            "reference_match",
             "warnings",
             "items",
             "feedback",

@@ -91,6 +91,13 @@ const PAD = GridCard.pad;
 /* 카테고리는 백엔드 taxonomy(대분류 8종)를 따른다 — 프론트가 임의 목록을 쓰면 필터가 서버와 어긋난다. */
 const DEFAULT_CATEGORIES = WARDROBE_FILTER_OPTIONS;
 
+/** 옷장의 두 갈래 — 내 것과 함께 쓰는 것. */
+type ClosetTab = 'mine' | 'shared';
+const CLOSET_TABS: { value: ClosetTab; label: string }[] = [
+  { value: 'mine', label: '내 옷장' },
+  { value: 'shared', label: '공유 옷장' },
+];
+
 /** 그리드 카드가 쓰는 최소 형태 — 내 옷장(API)과 공유 옷장(목업)을 한 모양으로 맞춘다. */
 type Card = {
   id: string;
@@ -126,12 +133,12 @@ export default function ClosetScreen() {
 
   const toast = useToast();
   const confirm = useConfirm();
-  const params = useLocalSearchParams<{ tab?: 'mine' | 'shared' }>();
-  const [tab, setTab] = useState<'mine' | 'shared'>('mine');
+  const params = useLocalSearchParams<{ tab?: ClosetTab }>();
+  const [tab, setTab] = useState<ClosetTab>('mine');
 
   // URL 탭 파라미터 감지 및 자동 전환
   useEffect(() => {
-    if (params.tab && (params.tab === 'mine' || params.tab === 'shared')) {
+    if (params.tab && CLOSET_TABS.some((item) => item.value === params.tab)) {
       // eslint-disable-next-line react-hooks/set-state-in-effect
       setTab(params.tab);
     }
@@ -582,7 +589,7 @@ export default function ClosetScreen() {
       : '첫 아이템을 추가해 옷장을 채워보세요.';
   }, [query, label, tab]);
 
-  const handleTabChange = (key: 'mine' | 'shared') => {
+  const handleTabChange = (key: ClosetTab) => {
     setTab(key);
     resetSystemCategories();
     resetHashtags();
@@ -640,10 +647,7 @@ export default function ClosetScreen() {
   const wardrobeToggle = (
     <SegmentedToggle
       value={tab}
-      options={[
-        { value: 'mine', label: '내 옷장' },
-        { value: 'shared', label: '공유 옷장' },
-      ]}
+      options={CLOSET_TABS}
       onChange={handleTabChange}
     />
   );
@@ -680,7 +684,13 @@ export default function ClosetScreen() {
           if (Platform.OS === 'web') {
             event.dataTransfer.setData(
               'text/plain',
-              JSON.stringify({ id: it.id, name: it.name || it.category, image: it.image }),
+              JSON.stringify({
+                id: it.id,
+                name: it.name || it.category,
+                image: it.image,
+                shared: tab === 'shared',
+                owner: it.owner,
+              }),
             );
           }
         },
