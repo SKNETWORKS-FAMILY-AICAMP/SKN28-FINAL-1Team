@@ -4,12 +4,14 @@ import { Modal, Platform, Pressable, ScrollView, StyleSheet, Text, View } from '
 import { Icon } from '@/components/icon';
 import { ErrorState, LoadingState, SmartImage } from '@/components/ui';
 import { ChatPanelWidth, Editorial, ink, SidebarWidth, Type } from '@/constants/theme';
+import { SHARED_ITEM_STATUS_META } from '@/constants/shared-wardrobe';
 import { useBreakpoint } from '@/hooks/use-breakpoint';
 import {
   getMySharedRooms,
   listSharedRoomItems,
   sharedUserDisplayName,
   type SharedReferenceUnavailableReason,
+  type SharedItemStatus,
   type SharedRoomItem,
 } from '@/lib/wardrobeApi';
 import type { SharedReferencePick } from '@/state/chat';
@@ -37,6 +39,7 @@ type LoadState = {
 };
 
 type SharedReferencePickerItem = SharedReferencePick & {
+  status: SharedItemStatus;
   referenceEligible: boolean;
   referenceUnavailableReason: SharedReferenceUnavailableReason | null;
 };
@@ -68,6 +71,7 @@ function toPick(
     ownerName: sharedUserDisplayName(item.registered_by),
     roomId,
     roomName,
+    status: item.status,
     referenceEligible: item.reference_eligible,
     referenceUnavailableReason: item.reference_unavailable_reason,
   };
@@ -237,6 +241,14 @@ export function SharedItemPicker({
                       <View style={styles.imageFrame}>
                         <SmartImage uri={p.imageUrl} width="100%" height={92} radius={10} />
                         {disabled ? <View pointerEvents="none" style={styles.imageVeil} /> : null}
+                        <View
+                          style={[
+                            styles.statusBadge,
+                            p.status === 'borrowed' && styles.statusBadgeBorrowed,
+                            p.status === 'private' && styles.statusBadgePrivate,
+                          ]}>
+                          <Text style={styles.statusText}>{SHARED_ITEM_STATUS_META[p.status].label}</Text>
+                        </View>
                       </View>
                       {on ? (
                         <View style={styles.check}>
@@ -359,6 +371,20 @@ const styles = StyleSheet.create({
     borderRadius: 10,
     backgroundColor: 'rgba(255,255,255,0.48)',
   },
+  statusBadge: {
+    position: 'absolute',
+    left: 6,
+    bottom: 6,
+    paddingHorizontal: 7,
+    paddingVertical: 4,
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: Editorial.line,
+    backgroundColor: 'rgba(255,255,255,0.94)',
+  },
+  statusBadgeBorrowed: { borderColor: Editorial.lineStrong },
+  statusBadgePrivate: { opacity: 0.82 },
+  statusText: { fontSize: 9.5, fontWeight: '600', color: Editorial.ink },
   check: {
     position: 'absolute',
     top: 12,

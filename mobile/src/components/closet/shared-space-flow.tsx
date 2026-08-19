@@ -16,6 +16,7 @@ export type SharedSpace = {
   id: string;
   name: string;
   inviteCode: string;
+  inviteCodeExpiresAt: string | null;
   members: string[];
   role: 'owner' | 'member';
 };
@@ -100,16 +101,48 @@ export function SharedSpaceMembers({
   space,
   onInvite,
   onJoin,
+  onRefreshInviteCode,
 }: {
   space: SharedSpace;
   onInvite: () => void;
   /** 없으면 입력칸을 숨긴다 — 참여 처리를 못 하는 화면에서 입력만 받는 건 거짓말이 된다. */
   onJoin?: (code: string) => Promise<boolean> | boolean;
+  onRefreshInviteCode?: () => void;
 }) {
   const [code, setCode] = useState('');
   const [busy, setBusy] = useState(false);
+  const [inviteCodeExpired, setInviteCodeExpired] = useState(false);
   const trimmed = normalizeJoinCode(code);
   const canSubmit = Boolean(onJoin) && trimmed.length > 0 && !busy;
+
+  useEffect(() => {
+    let expirationTimer: ReturnType<typeof setTimeout> | undefined;
+    const checkExpiration = () => {
+      const expiresAt = space.inviteCodeExpiresAt
+        ? new Date(space.inviteCodeExpiresAt).getTime()
+        : Number.NaN;
+      if (!Number.isFinite(expiresAt)) {
+        setInviteCodeExpired(false);
+        return;
+      }
+
+      const remainingMs = expiresAt - Date.now();
+      if (remainingMs <= 0) {
+        setInviteCodeExpired(true);
+        return;
+      }
+      setInviteCodeExpired(false);
+      /* JS 타이머 최대 범위를 넘는 만료 시각도 단계적으로 다시 확인한다. */
+      expirationTimer = setTimeout(checkExpiration, Math.min(remainingMs + 100, 2_147_483_647));
+    };
+
+    /* effect 본문에서 동기 setState를 하지 않아 첫 렌더와 서버 만료 시각 판정을 분리한다. */
+    const initialTimer = setTimeout(checkExpiration, 0);
+    return () => {
+      clearTimeout(initialTimer);
+      if (expirationTimer) clearTimeout(expirationTimer);
+    };
+  }, [space.inviteCodeExpiresAt]);
 
   const submit = async () => {
     if (!onJoin || !canSubmit) return;
@@ -125,58 +158,76 @@ export function SharedSpaceMembers({
   };
 
   return (
-    <View style={styles.membersRow}>
-      <View style={styles.memberAvatars}>
-        {space.members.map((member, i) => {
-          const ch = member.slice(0, 1);
-          const bgColor = MEMBER_COLORS[i % MEMBER_COLORS.length];
-          return (
-            <View
-              key={`${member}-${i}`}
-              style={[
-                styles.memberDot,
-                i > 0 && styles.memberDotOverlap,
-                { backgroundColor: bgColor },
-              ]}>
-              <Text style={styles.memberInitial}>{ch}</Text>
-            </View>
-          );
-        })}
-      </View>
-      <Text style={styles.memberCount}>{space.members.length}명</Text>
-      <View style={[styles.roleBadge, space.role === 'owner' && styles.roleBadgeOwner]}>
-        <Text style={[styles.roleBadgeText, space.role === 'owner' && styles.roleBadgeTextOwner]}>
-          {space.role === 'owner' ? '방장' : '멤버'}
-        </Text>
-      </View>
-      <Pressable style={styles.inviteChip} onPress={onInvite} hitSlop={6}>
-        <Icon name="plus" tintColor={Editorial.ink} size={14} />
-        <Text style={styles.inviteChipText}>초대</Text>
-      </Pressable>
+    <View style={styles.membersBlock}>
+      <View style={styles.membersRow}>
+        <View style={styles.memberAvatars}>
+          {space.members.map((member, i) => {
+            const ch = member.slice(0, 1);
+            const bgColor = MEMBER_COLORS[i % MEMBER_COLORS.length];
+            return (
+              <View
+                key={`${member}-${i}`}
+                style={[
+                  styles.memberDot,
+                  i > 0 && styles.memberDotOverlap,
+                  { backgroundColor: bgColor },
+                ]}>
+                <Text style={styles.memberInitial}>{ch}</Text>
+              </View>
+            );
+          })}
+        </View>
+        <Text style={styles.memberCount}>{space.members.length}명</Text>
+        <View style={[styles.roleBadge, space.role === 'owner' && styles.roleBadgeOwner]}>
+          <Text style={[styles.roleBadgeText, space.role === 'owner' && styles.roleBadgeTextOwner]}>
+            {space.role === 'owner' ? '방장' : '멤버'}
+          </Text>
+        </View>
+        <Pressable style={styles.inviteChip} onPress={onInvite} hitSlop={6}>
+          <Icon name="plus" tintColor={Editorial.ink} size={14} />
+          <Text style={styles.inviteChipText}>초대</Text>
+        </Pressable>
 
-      {onJoin ? (
-        <View style={styles.joinInline}>
-          <TextInput
-            style={styles.joinInlineInput}
-            placeholder="참여코드"
-            placeholderTextColor={ink(0.3)}
-            value={code}
-            onChangeText={setCode}
-            autoCapitalize="characters"
-            autoCorrect={false}
-            maxLength={6} // 발급 코드가 6자리 고정 (makeInviteCode·서버 모두)
-            editable={!busy}
-            returnKeyType="go"
-            onSubmitEditing={submit}
-            accessibilityLabel="참여코드 입력"
-          />
+        {onJoin ? (
+          <View style={styles.joinInline}>
+            <TextInput
+              style={styles.joinInlineInput}
+              placeholder="참여코드"
+              placeholderTextColor={ink(0.3)}
+              value={code}
+              onChangeText={setCode}
+              autoCapitalize="characters"
+              autoCorrect={false}
+              maxLength={6} // 발급 코드가 6자리 고정 (makeInviteCode·서버 모두)
+              editable={!busy}
+              returnKeyType="go"
+              onSubmitEditing={submit}
+              accessibilityLabel="참여코드 입력"
+            />
+            <Pressable
+              style={[styles.joinInlineBtn, !canSubmit && styles.joinInlineBtnOff]}
+              onPress={submit}
+              disabled={!canSubmit}
+              hitSlop={6}
+              accessibilityLabel="참여코드로 공유 옷장 참여">
+              <Icon name="arrow.right" tintColor={Editorial.surface} size={13} />
+            </Pressable>
+          </View>
+        ) : null}
+      </View>
+
+      {space.role === 'owner' && inviteCodeExpired && onRefreshInviteCode ? (
+        <View style={styles.expiredCodeNotice}>
+          <View style={styles.expiredCodeCopy}>
+            <Text style={styles.expiredCodeTitle}>초대 코드가 만료됐어요</Text>
+            <Text style={styles.expiredCodeDescription}>새 코드를 발급하면 바로 초대할 수 있어요.</Text>
+          </View>
           <Pressable
-            style={[styles.joinInlineBtn, !canSubmit && styles.joinInlineBtnOff]}
-            onPress={submit}
-            disabled={!canSubmit}
-            hitSlop={6}
-            accessibilityLabel="참여코드로 공유 옷장 참여">
-            <Icon name="arrow.right" tintColor={Editorial.surface} size={13} />
+            style={styles.expiredCodeButton}
+            onPress={onRefreshInviteCode}
+            accessibilityRole="button"
+            accessibilityLabel="만료된 초대 코드 새로 발급">
+            <Text style={styles.expiredCodeButtonText}>새 코드 발급</Text>
           </Pressable>
         </View>
       ) : null}
@@ -370,6 +421,7 @@ export function createSharedSpace(name = '우리 옷장'): SharedSpace {
     id: `space-${Date.now()}`,
     name,
     inviteCode: makeInviteCode(),
+    inviteCodeExpiresAt: null,
     members: ['나'],
     role: 'owner',
   };
@@ -426,6 +478,7 @@ const styles = StyleSheet.create({
   },
   secondaryBtnText: { fontSize: Type.footnote, fontWeight: '600', color: Editorial.textSoft },
 
+  membersBlock: { marginBottom: 12 },
   membersRow: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -433,7 +486,6 @@ const styles = StyleSheet.create({
        wrap 을 주면 자리가 모자랄 때 입력칸이 아랫줄로 내려가 온전히 보인다. */
     flexWrap: 'wrap',
     paddingHorizontal: 20,
-    marginBottom: 12,
     gap: 8,
   },
   memberAvatars: { flexDirection: 'row' },
@@ -506,6 +558,29 @@ const styles = StyleSheet.create({
     backgroundColor: Editorial.ink,
   },
   joinInlineBtnOff: { opacity: 0.25 },
+  expiredCodeNotice: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    marginHorizontal: 20,
+    marginTop: 10,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: Editorial.line,
+    backgroundColor: Editorial.surface,
+  },
+  expiredCodeCopy: { flex: 1 },
+  expiredCodeTitle: { fontSize: Type.micro, fontWeight: '700', color: Editorial.ink },
+  expiredCodeDescription: { marginTop: 3, fontSize: Type.micro, color: Editorial.textCaption },
+  expiredCodeButton: {
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 999,
+    backgroundColor: Editorial.ink,
+  },
+  expiredCodeButtonText: { fontSize: Type.micro, fontWeight: '600', color: Editorial.surface },
 
   sheetBackdrop: {
     flex: 1,
