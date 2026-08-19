@@ -30,6 +30,8 @@ def _item(*, embedding_version: str | None = None) -> SimpleNamespace:
         user_id=7,
         s3_key="wardrobe/7/item.webp",
         embedding_version=embedding_version or vectors.EMBEDDING_VERSION,
+        confirmed=True,
+        category_large="상의",
     )
 
 
@@ -45,6 +47,8 @@ def _point(
         "user_id": item.user_id,
         "s3_key": item.s3_key,
         "embedding_version": vectors.EMBEDDING_VERSION,
+        "confirmed": item.confirmed,
+        "category_large": item.category_large,
     }
     payload.update(payload_overrides or {})
     return SimpleNamespace(

@@ -21,6 +21,8 @@ ITEM_ID_MISMATCH = "ITEM_ID_MISMATCH"
 USER_ID_MISMATCH = "USER_ID_MISMATCH"
 S3_KEY_MISMATCH = "S3_KEY_MISMATCH"
 EMBEDDING_VERSION_MISMATCH = "EMBEDDING_VERSION_MISMATCH"
+CONFIRMED_MISMATCH = "CONFIRMED_MISMATCH"
+CATEGORY_LARGE_MISMATCH = "CATEGORY_LARGE_MISMATCH"
 IMAGE_VECTOR_MISSING = "IMAGE_VECTOR_MISSING"
 IMAGE_VECTOR_INVALID = "IMAGE_VECTOR_INVALID"
 TEXT_VECTOR_MISSING = "TEXT_VECTOR_MISSING"
@@ -163,6 +165,10 @@ class WardrobeVectorReconciler:
                 issues.append(S3_KEY_MISMATCH)
             if indexed_version != self.expected_embedding_version:
                 issues.append(EMBEDDING_VERSION_MISMATCH)
+            if payload.get("confirmed") is not item.confirmed:
+                issues.append(CONFIRMED_MISMATCH)
+            if str(payload.get("category_large", "")) != str(item.category_large):
+                issues.append(CATEGORY_LARGE_MISMATCH)
 
         for vector_name in (IMAGE_VECTOR, TEXT_VECTOR):
             issue = _vector_issue(

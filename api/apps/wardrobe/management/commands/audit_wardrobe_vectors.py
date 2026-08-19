@@ -64,6 +64,8 @@ class Command(BaseCommand):
             "user_id",
             "s3_key",
             "embedding_version",
+            "confirmed",
+            "category_large",
         )
         if options.get("user_id") is not None:
             queryset = queryset.filter(user_id=options["user_id"])

@@ -5,6 +5,7 @@ from apps.wardrobe.views import (
     WardrobeBatchDetailView,
     WardrobeBatchView,
     WardrobeCallbackView,
+    WardrobeReindexCallbackView,
     WardrobeFilterListView,
     WardrobeHashtagDetailView,
     WardrobeHashtagItemsView,
@@ -33,6 +34,11 @@ urlpatterns = [
     path("wardrobe/uploads/<uuid:job_id>/", WardrobeUploadJobView.as_view(), name="upload-job"),
     # 이미지 프로세서 콜백 (내부 토큰 인증)
     path("internal/wardrobe/callback/", WardrobeCallbackView.as_view(), name="callback"),
+    path(
+        "internal/wardrobe/reindex-callback/",
+        WardrobeReindexCallbackView.as_view(),
+        name="reindex-callback",
+    ),
     # 고정 기본 카테고리와 개인 옷장 해시태그
     path(
         "wardrobe/categories/",

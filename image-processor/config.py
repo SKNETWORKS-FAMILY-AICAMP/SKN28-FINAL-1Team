@@ -61,6 +61,13 @@ PENDING_KEY = os.getenv("WARDROBE_JOB_QUEUE", "wardrobe:jobs").strip()
 PROCESSING_KEY = f"{PENDING_KEY}:processing"
 DEAD_KEY = f"{PENDING_KEY}:dead"
 RETRY_HASH = f"{PENDING_KEY}:retries"
+REINDEX_PENDING_KEY = os.getenv(
+    "WARDROBE_REINDEX_QUEUE",
+    "wardrobe:reindex",
+).strip()
+REINDEX_PROCESSING_KEY = f"{REINDEX_PENDING_KEY}:processing"
+REINDEX_DEAD_KEY = f"{REINDEX_PENDING_KEY}:dead"
+REINDEX_RETRY_HASH = f"{REINDEX_PENDING_KEY}:retries"
 MAX_RETRIES = int(os.getenv("WORKER_MAX_RETRIES", "3"))
 QUEUE_BLOCK_SEC = int(os.getenv("WORKER_QUEUE_BLOCK_SEC", "5"))
 

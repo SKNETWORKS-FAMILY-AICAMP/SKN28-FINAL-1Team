@@ -10,6 +10,7 @@ Redis 큐에서 옷장 업로드 job을 받아 사진 속 패션 아이템을 �
 
 ```
 worker.py                 # 메인 루프: 큐 → 처리 → S3 → manifest → 콜백 → ack
+reindex_worker.py         # 기존 크롭 이미지·DB 태그 → 임베딩 재생성 전용
 config.py                 # 환경변수 (루트 .env)
 pipeline/
 ├── base.py               # 인터페이스: ItemEnumerator / ProductImageGenerator
@@ -23,6 +24,7 @@ pipeline/
     └── tagger.py         # ③ 태깅: taxonomy enum 강제 + 짝 보정
 services/
 ├── queue.py              # Redis reliable queue (pending/processing/dead)
+├── reindex_queue.py      # 재인덱싱 전용 pending/processing/dead
 ├── s3io.py               # 원본 다운로드, 크롭·manifest 업로드
 └── callback.py           # wardrobe-api 콜백 (X-Internal-Token, 재시도)
 ```
@@ -60,6 +62,8 @@ services/
 | `GEMINI_API_KEY` | (필수) | 열거·생성·태깅 공용 |
 | `REDIS_URL` | redis://localhost:6379/0 | |
 | `WARDROBE_JOB_QUEUE` | wardrobe:jobs | pending 키 (processing/dead는 파생) |
+| `WARDROBE_REINDEX_QUEUE` | wardrobe:reindex | 기존 옷 재인덱싱 전용 pending 키 |
+| `WARDROBE_REINDEX_CALLBACK_URL` | | 재인덱싱 결과를 받을 내부 API 전체 URL |
 | `WARDROBE_INTERNAL_TOKEN` | (필수) | 옷장 callback 인증 — api와 동일 값 |
 | `WARDROBE_CALLBACK_URL` | | 페이로드에 callback_url 없을 때 폴백 |
 | `WORKER_PIPELINE` | gemini-edit | 파이프라인 구현 선택 |
@@ -84,6 +88,7 @@ NO_BUILD=1 ./run.sh      # 재빌드 생략
 # 로컬 (개발)
 pip install -r requirements.txt
 python worker.py
+python reindex_worker.py  # 유료 모델 호출 없이 기존 옷 벡터만 복구
 ```
 
 `.env`는 루트 하나만 쓴다. compose로 띄우면 `env_file: .env`가 값을 컨테이너

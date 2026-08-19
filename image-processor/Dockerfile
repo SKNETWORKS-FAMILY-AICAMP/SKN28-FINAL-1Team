@@ -8,7 +8,7 @@ WORKDIR /app
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-COPY config.py worker.py ./
+COPY config.py worker.py reindex_worker.py ./
 COPY pipeline/ pipeline/
 COPY services/ services/
 

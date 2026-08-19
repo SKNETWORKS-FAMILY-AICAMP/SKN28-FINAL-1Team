@@ -55,6 +55,7 @@ from .serializers import (
     WardrobeItemUpdateSerializer,
     WardrobeJobSerializer,
     WardrobeUploadSerializer,
+    WardrobeReindexCallbackSerializer,
 )
 from .services import hashtags as hashtag_service
 from .services import jobs, storage, vectors
@@ -475,6 +476,53 @@ class WardrobeCallbackView(APIView):
         )
 
 
+class WardrobeReindexCallbackView(APIView):
+    """기존 옷장 아이템 재임베딩 결과를 검증해 Qdrant에 반영한다."""
+
+    authentication_classes: list = []
+    permission_classes = [HasInternalToken]
+
+    def post(self, request):
+        serializer = WardrobeReindexCallbackSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        data = serializer.validated_data
+        item = get_object_or_404(WardrobeItem, pk=data["item_id"])
+
+        if data["status"] == "failed":
+            logger.warning(
+                "옷장 벡터 재인덱싱 실패: item=%s error=%s",
+                item.pk,
+                data["error"],
+            )
+            return Response({"item_id": str(item.pk), "status": "failed"})
+
+        if data["embedding_version"] != vectors.EMBEDDING_VERSION:
+            return Response(
+                {"detail": "워커와 API의 옷장 임베딩 버전이 다릅니다."},
+                status=status.HTTP_409_CONFLICT,
+            )
+        if item.updated_at != data["source_updated_at"]:
+            return Response(
+                {"detail": "큐 적재 후 아이템이 수정되어 결과를 반영하지 않았습니다."},
+                status=status.HTTP_409_CONFLICT,
+            )
+
+        if not vectors.upsert_item(
+            item,
+            data["image_vector"],
+            data["text_vector"],
+        ):
+            return Response(
+                {"detail": "Qdrant 벡터 반영에 실패했습니다."},
+                status=status.HTTP_503_SERVICE_UNAVAILABLE,
+            )
+
+        if item.embedding_version != vectors.EMBEDDING_VERSION:
+            item.embedding_version = vectors.EMBEDDING_VERSION
+            item.save(update_fields=["embedding_version"])
+        return Response({"item_id": str(item.pk), "status": "succeeded"})
+
+
 class WardrobeFilterListView(APIView):
     """GET /api/v1/wardrobe/categories/ — 기본 카테고리와 옷장 해시태그."""
 
@@ -774,6 +822,7 @@ from .serializers import (
     anon_member_label,
 )
 from .services import shared_wardrobe as shared_service
+from .services.reference_eligibility import resolve_reference_eligibilities
 
 # @action에 스키마를 명시하지 않으면 drf-spectacular가 뷰셋의 serializer_class
 # (SharedWardrobeRoomSerializer)로 폴백해서, Swagger에 엉뚱하게 {"title": "..."}
@@ -1103,7 +1152,7 @@ class SharedWardrobeViewSet(viewsets.ModelViewSet):
         
         if request.method == "GET":
             # 이 공유방의 등록된 옷 목록 조회 API
-            items = (
+            items = list(
                 SharedWardrobeItem.objects.filter(room=room)
                 .filter(
                     Q(status__in=[
@@ -1114,7 +1163,14 @@ class SharedWardrobeViewSet(viewsets.ModelViewSet):
                 )
                 .select_related("wardrobe_item", "registered_by")
             )
-            return Response(SharedWardrobeItemSerializer(items, many=True).data)
+            reference_eligibilities = resolve_reference_eligibilities(items)
+            return Response(
+                SharedWardrobeItemSerializer(
+                    items,
+                    many=True,
+                    context={"reference_eligibilities": reference_eligibilities},
+                ).data
+            )
             
         elif request.method == "POST":
             # 내 개인 옷장의 옷을 이 공유방으로 공유 등록 API
