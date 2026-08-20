@@ -97,7 +97,8 @@ export default function AccountScreen() {
                     {PROVIDER_LABEL[a.provider] ?? a.provider}로 로그인
                   </Text>
                   <Text style={styles.rowHint} numberOfLines={1}>
-                    {a.email ?? '이메일 미제공'}
+                    {/* 빈 문자열도 '없음'이다 — `??` 로는 못 걸러 빈 줄이 남는다 */}
+                    {a.email?.trim() || '이메일 미제공'}
                   </Text>
                 </View>
                 {i < accounts.length - 1 ? <View style={styles.line} /> : null}

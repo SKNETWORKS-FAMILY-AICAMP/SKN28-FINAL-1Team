@@ -68,6 +68,18 @@ export function resendVerificationEmail(email: string) {
   );
 }
 
+/**
+ * 로그인 실패가 '이메일 미인증' 때문인가.
+ *
+ * 백엔드(EmailLoginSerializer)는 미인증을 400 + "이메일 인증을 완료해 주세요." 로 막는데,
+ * 응답에 구분 코드가 없어 문구로 알아본다. **문구가 바뀌면 여기도 함께 고쳐야 한다** —
+ * 못 알아보면 예전처럼 안내만 뜨고 인증하러 갈 길이 없어진다.
+ */
+export function isEmailUnverifiedError(error: unknown): boolean {
+  if (!(error instanceof ApiError) || error.status !== 400) return false;
+  return emailAuthErrorMessage(error).includes('이메일 인증');
+}
+
 export function emailAuthErrorMessage(error: unknown): string {
   if (!(error instanceof ApiError)) return '서버에 연결하지 못했어요. 잠시 후 다시 시도해 주세요.';
 

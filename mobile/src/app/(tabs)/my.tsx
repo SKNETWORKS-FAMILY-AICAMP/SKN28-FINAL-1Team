@@ -54,7 +54,10 @@ export default function MyScreen() {
       ? `${profile.pursuitCount}개 선택`
       : '설정하기';
   const name = prefs.nickname || displayName(user?.nickname, user?.email) || '코지';
-  const email = user?.email ?? 'cozy@example.com';
+  /* `??` 는 빈 문자열을 통과시킨다 — 카카오는 이메일 제공 동의를 안 받으면 `""` 를 주므로
+     이름 아래가 빈 줄이 됐다. 값이 '있는지'가 아니라 '보여줄 만한지'로 판단한다.
+     제공받지 못한 경우엔 가짜 주소 대신 사실대로 적는다. */
+  const email = user?.email?.trim() || '이메일 미제공';
 
   const groups: { title: string; rows: Row[] }[] = [
     {
