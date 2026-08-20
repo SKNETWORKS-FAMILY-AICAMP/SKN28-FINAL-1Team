@@ -227,13 +227,23 @@ export default function ClosetScreen() {
     reload: reloadPersonalFilters,
   } = useWardrobeFilters(isLoggedIn);
 
-  const mineCategories = personalFilterData
-    ? ['전체', ...personalFilterData.system_categories.map((category) => category.name)]
-    : DEFAULT_CATEGORIES;
+  /* 서버가 준 모양을 그대로 믿지 않는다 — system_categories 가 빠진 응답 하나로
+     이 화면 전체가 렌더 중 터져 **백지**가 된다(에러 경계가 잡아도 옷장은 못 쓴다).
+     못 받았으면 기본 카테고리로 계속 굴러가는 게 맞다. */
+  const systemCategories = useMemo(
+    () => personalFilterData?.system_categories ?? [],
+    [personalFilterData],
+  );
+  const hashtagRows = useMemo(() => personalFilterData?.hashtags ?? [], [personalFilterData]);
+  const mineCategories = useMemo(
+    () =>
+      systemCategories.length
+        ? ['전체', ...systemCategories.map((category) => category.name)]
+        : DEFAULT_CATEGORIES,
+    [systemCategories],
+  );
   const categories = tab === 'mine' ? mineCategories : DEFAULT_CATEGORIES;
-  const managedHashtag = personalFilterData?.hashtags.find(
-    (hashtag) => hashtag.id === managedHashtagId,
-  ) ?? null;
+  const managedHashtag = hashtagRows.find((hashtag) => hashtag.id === managedHashtagId) ?? null;
 
   useEffect(() => {
     let active = true;
@@ -339,20 +349,20 @@ export default function ClosetScreen() {
   );
 
   const hashtagOrder = useMemo(() => {
-    if (personalFilterData) return personalFilterData.hashtags;
+    if (personalFilterData) return hashtagRows;
     const byId = new Map(
       apiItems.flatMap((item) => item.wardrobe_hashtags).map((hashtag) => [hashtag.id, hashtag]),
     );
     return [...byId.values()].sort(
       (left, right) => left.position - right.position || left.id.localeCompare(right.id),
     );
-  }, [apiItems, personalFilterData]);
+  }, [apiItems, hashtagRows, personalFilterData]);
   const systemCategoryOrder = useMemo(
     () =>
-      personalFilterData
-        ? personalFilterData.system_categories.map((category) => category.name)
+      systemCategories.length
+        ? systemCategories.map((category) => category.name)
         : DEFAULT_CATEGORIES.slice(1),
-    [personalFilterData],
+    [systemCategories],
   );
   const mineSections = useMemo(
     () =>
@@ -409,7 +419,7 @@ export default function ClosetScreen() {
   );
   const items = tab === 'mine' ? mineFilteredItems : sharedFilteredItems;
   const selectedHashtagNames = selectedHashtagIds
-    .map((id) => personalFilterData?.hashtags.find((row) => row.id === id)?.name)
+    .map((id) => hashtagRows.find((row) => row.id === id)?.name)
     .filter((name): name is string => !!name);
   const label = tab === 'shared'
     ? sharedFilterLabel
@@ -419,9 +429,9 @@ export default function ClosetScreen() {
 
   useEffect(() => {
     pruneSystemCategories(mineCategories.slice(1));
-    pruneHashtags((personalFilterData?.hashtags ?? []).map((row) => row.id));
+    pruneHashtags(hashtagRows.map((row) => row.id));
     pruneSharedCategories(DEFAULT_CATEGORIES.slice(1));
-  }, [mineCategories, personalFilterData?.hashtags, pruneHashtags, pruneSharedCategories, pruneSystemCategories]);
+  }, [hashtagRows, mineCategories, pruneHashtags, pruneSharedCategories, pruneSystemCategories]);
 
   const applySharedRoomData = (
     room: SharedRoom,
@@ -982,7 +992,7 @@ export default function ClosetScreen() {
             trailing={wardrobeToggle}
             afterChips={tab === 'mine' ? (
               <HashtagFilterRow
-                hashtags={personalFilterData?.hashtags ?? []}
+                hashtags={hashtagRows}
                 selectedIds={selectedHashtagIds}
                 onToggle={toggleHashtag}
                 onAdd={openNewHashtag}
@@ -1405,7 +1415,7 @@ export default function ClosetScreen() {
           visible={viewSettingsOpen}
           groupMode={groupMode}
           itemSort={itemSort}
-          hashtags={personalFilterData?.hashtags ?? []}
+          hashtags={hashtagRows}
           onClose={() => setViewSettingsOpen(false)}
           onGroupModeChange={setGroupMode}
           onItemSortChange={setItemSort}

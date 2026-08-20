@@ -2,6 +2,7 @@
 // import { EmptyState, useToast, useConfirm } from '@/components/ui';
 export { EmptyState } from './empty-state';
 export { LoadingState, ErrorState, Skeleton } from './state-views';
+export { ErrorBoundary } from './error-boundary';
 export { SmartImage } from './smart-image';
 export { Avatar } from './avatar';
 export { SearchFilterBar } from './search-filter-bar';
