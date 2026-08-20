@@ -28,6 +28,7 @@ import { dailyLookPhase } from '@/lib/dailyLookApi';
 import { DetailTwoPane } from '@/components/detail-two-pane';
 import { useDiscoveryLook } from '@/hooks/use-discovery-look';
 import type { LookVariant } from '@/constants/today-look';
+import { sameSlotSimilarProducts } from '@/lib/discoveryLookApi';
 
 const INK = Editorial.ink;
 const WINE = Editorial.wine;
@@ -89,7 +90,7 @@ export default function LookDetail() {
       link: item.link,
       tone: 0.08,
       mine: false,
-      related: item.similar_products.map((product) => ({
+      related: sameSlotSimilarProducts(item).map((product) => ({
         name: product.name,
         brand: product.brand,
         price: String(product.price),

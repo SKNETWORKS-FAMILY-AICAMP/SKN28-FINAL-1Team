@@ -4,6 +4,8 @@ import { api } from '@/lib/apiClient';
 
 export type ShoppingProductDto = {
   id: string;
+  /** 서버의 서비스 대분류. 누락된 구버전 응답은 슬롯 검증에서 제외한다. */
+  category_large?: string;
   name: string;
   brand: string;
   image: string;
@@ -32,6 +34,16 @@ export type DiscoveryLookDto = {
 
 export type LookGender = 'WOMAN' | 'MAN';
 export type LookGenderFilter = 'ALL' | LookGender;
+
+/** 잘못된 서버 응답이 다른 착장 슬롯에 노출되지 않도록 하는 마지막 화면 안전망. */
+export function sameSlotSimilarProducts(
+  item: DiscoveryLookItemDto,
+): ShoppingProductDto[] {
+  const slot = item.slot.trim();
+  return item.similar_products.filter(
+    (product) => product.category_large?.trim() === slot,
+  );
+}
 
 type DiscoveryLookPage = {
   count: number;

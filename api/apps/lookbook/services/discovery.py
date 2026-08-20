@@ -26,6 +26,7 @@ class DiscoveryQuery:
 def _product(product: NaverProduct) -> dict:
     return {
         "id": str(product.naver_product_id),
+        "category_large": product.category_large,
         "name": product.title,
         "brand": product.brand or product.mall_name or "네이버쇼핑",
         "image": product.image_url or "",
@@ -76,6 +77,7 @@ def _look(look: CuratedLook) -> dict:
             {
                 "id": f"curated-{source.pk}",
                 "slot": source.slot,
+                "category_large": source.slot.strip(),
                 "category_small": source.related_keyword,
                 "name": source.name,
                 "brand": source.brand or "네이버쇼핑",

@@ -105,7 +105,9 @@ class DiscoveryServiceTests(TestCase):
         result = discovery._related(item)
 
         self.assertEqual([product["id"] for product in result], ["same-slot-top"])
+        self.assertEqual(result[0]["category_large"], "상의")
         payload = discovery._look(look)["items"][0]
+        self.assertEqual(payload["category_large"], "상의")
         self.assertEqual(payload["link"], "https://example.com/original")
         self.assertEqual(
             [product["id"] for product in payload["similar_products"]],
