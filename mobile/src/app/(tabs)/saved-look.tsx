@@ -1,6 +1,6 @@
 import { Icon } from '@/components/icon';
 import { router, useLocalSearchParams } from 'expo-router';
-import { backTo, goBack, withReturn } from '@/lib/goBack';
+import { backTo, goBack, withReturn, goTo } from '@/lib/goBack';
 import { useState } from 'react';
 import {
   ActivityIndicator,
@@ -108,7 +108,8 @@ export default function SavedLook() {
       return;
     }
     toast(inWish ? '위시에서 뺐어요' : '내 룩북에서 뺐어요');
-    back();
+    /* 뺀 룩의 상세는 돌아갈 자리가 아니다 — 이력과 무관하게 목록으로 보낸다. */
+    goTo(backTo(from, `/(tabs)/lookbook?tab=${inWish ? 'wish' : 'mine'}`));
   };
 
   const subtitle = look

@@ -10,7 +10,7 @@ import { Icon } from '@/components/icon';
 import { EmptyState, LoadingState } from '@/components/ui';
 import { ChatPanelWidth, ContentMax, Editorial, ink } from '@/constants/theme';
 import { useBreakpoint } from '@/hooks/use-breakpoint';
-import { backTo, goBack } from '@/lib/goBack';
+import { backTo, goBack, goTo } from '@/lib/goBack';
 import { chatStore, CHAT_MODE_META, useChatSession, useChatStatus, useLatestSession } from '@/state/chat';
 
 const INK = Editorial.ink;
@@ -206,7 +206,7 @@ export function ChatRoomView({
         visible={managing}
         session={session}
         onClose={() => setManaging(false)}
-        onDeleted={() => goBack('/(tabs)/chat')}
+        onDeleted={() => goTo('/(tabs)/chat')}
       />
     </View>
   );

@@ -130,6 +130,8 @@ export default function LookbookScreen() {
     error: lookbookError,
     progress: lookbookProgress,
   } = useLookbookLoadState();
+  const [displayedLookbookProgress, setDisplayedLookbookProgress] = useState(0);
+  const [lookbookProgressCycleActive, setLookbookProgressCycleActive] = useState(false);
   const savedLooks = useSavedLooks();
   const likedLooks = useLikedLooks();
   const [query, setQuery] = useState('');
@@ -152,6 +154,38 @@ export default function LookbookScreen() {
   useEffect(() => {
     void loadAll();
   }, [loadAll]);
+
+  useEffect(() => {
+    if (!lookbookLoading && lookbookProgress !== 100) {
+      return;
+    }
+
+    if (lookbookLoading && lookbookProgress <= 8) {
+      setDisplayedLookbookProgress(0);
+      setLookbookProgressCycleActive(true);
+    }
+
+    const targetProgress = lookbookLoading ? lookbookProgress : 100;
+
+    const timer = setInterval(() => {
+      setDisplayedLookbookProgress((current) => {
+        if (current >= targetProgress) return current;
+        const remaining = targetProgress - current;
+        return Math.min(targetProgress, current + Math.max(1, Math.ceil(remaining / 10)));
+      });
+    }, 45);
+
+    return () => clearInterval(timer);
+  }, [lookbookLoading, lookbookProgress]);
+
+  useEffect(() => {
+    if (lookbookLoading || !lookbookProgressCycleActive || displayedLookbookProgress < 100) {
+      return;
+    }
+
+    const timer = setTimeout(() => setLookbookProgressCycleActive(false), 450);
+    return () => clearTimeout(timer);
+  }, [displayedLookbookProgress, lookbookLoading, lookbookProgressCycleActive]);
 
   /* 모드도 내 룩북 안 갈래도 URL 파라미터에서 파생한다(useState+useEffect 동기화는
      불필요한 리렌더를 만들어 지양). 갈래까지 URL 에 두는 이유는 상세에서 뒤로 왔을 때
@@ -334,12 +368,14 @@ export default function LookbookScreen() {
             ) : undefined
           }
           contentContainerStyle={[styles.grid, { paddingBottom: 24 }, contentStyle(ContentMax.wide)]}>
-          {!isMine && lookbookLoading && cards.length === 0 ? (
+          {!isMine &&
+          (lookbookLoading ||
+            lookbookProgressCycleActive) ? (
             <View
               style={styles.empty}
               accessibilityRole="progressbar"
-              accessibilityValue={{ min: 0, max: 100, now: lookbookProgress }}>
-              <Text style={styles.loadingPercent}>{lookbookProgress}%</Text>
+              accessibilityValue={{ min: 0, max: 100, now: displayedLookbookProgress }}>
+              <Text style={styles.loadingPercent}>{displayedLookbookProgress}%</Text>
               <Text style={styles.loadingMessage}>룩북을 불러오는 중입니다.</Text>
             </View>
           ) : !isMine && lookbookError && cards.length === 0 ? (
