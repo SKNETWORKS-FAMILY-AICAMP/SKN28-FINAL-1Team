@@ -248,3 +248,103 @@ class SlotMappingTests(SimpleTestCase):
         from apps.recommend.services.principle_rules import slot_of
 
         self.assertEqual(slot_of({"category_large": "원피스/세트"}), "")
+
+
+class DriftTests(SimpleTestCase):
+    """치환이 골든 원본의 성질을 바꿨는지.
+
+    상품 태그가 비어 있어 "후보가 원칙을 만족하는가"는 대부분 판정 불가다. 골든
+    원본은 이미 그 원칙을 만족하므로, 원본과 달라진 것 자체를 신호로 쓴다.
+    """
+
+    def test_changed_attribute_counts_as_drift(self) -> None:
+        """원칙이 지목한 축이면 두 배로 센다."""
+        from apps.recommend.services.principle_rules import drift_count
+
+        self.assertEqual(
+            drift_count({"패턴": "무지"}, {"패턴": "스트라이프"}, frozenset({"패턴"})), 2
+        )
+
+    def test_same_attribute_is_not_drift(self) -> None:
+        from apps.recommend.services.principle_rules import drift_count
+
+        self.assertEqual(
+            drift_count({"패턴": "무지"}, {"패턴": "무지"}, frozenset({"패턴"})), 0
+        )
+
+    def test_unknown_side_is_not_drift(self) -> None:
+        """한쪽이라도 못 읽으면 세지 않는다. 태깅 없는 상품이 벌점을 받으면 안 된다."""
+        from apps.recommend.services.principle_rules import drift_count
+
+        self.assertEqual(drift_count({"패턴": "무지"}, {}, frozenset({"패턴"})), 0)
+        self.assertEqual(drift_count({}, {"패턴": "무지"}, frozenset({"패턴"})), 0)
+
+    def test_unwatched_attribute_still_counts_once(self) -> None:
+        """원칙 밖의 축도 센다. 다만 가중치가 없다 — 니트가 코튼이 되는 것도 변화다."""
+        from apps.recommend.services.principle_rules import drift_count
+
+        self.assertEqual(
+            drift_count({"소재": "니트"}, {"소재": "코튼"}, frozenset({"패턴"})), 1
+        )
+
+    def test_attributes_in_play_reads_single_conditions(self) -> None:
+        """원칙이 지목한 축. 여기 든 속성만 두 배로 센다."""
+        from apps.recommend.services.principle_rules import attributes_in_play
+
+        rule = _rule(_single("top", "명도", "어두움"), _single("bottom", "핏", "와이드"))
+        self.assertEqual(attributes_in_play([rule], "top"), frozenset({"명도"}))
+        self.assertEqual(attributes_in_play([rule], "bottom"), frozenset({"핏"}))
+        self.assertEqual(attributes_in_play([rule], "shoes"), frozenset())
+
+    def test_attributes_in_play_reads_relations(self) -> None:
+        from apps.recommend.services.principle_rules import attributes_in_play
+
+        rule = _rule(_relation("명도대비", "top", "bottom"))
+        self.assertIn("명도", attributes_in_play([rule], "top"))
+        self.assertIn("명도", attributes_in_play([rule], "bottom"))
+        self.assertNotIn("명도", attributes_in_play([rule], "shoes"))
+
+
+class GeneralDriftTests(SimpleTestCase):
+    """드리프트는 사례별 목록이 아니라 일반 규칙이다.
+
+    "무지가 그래픽이 됐다", "여름 옷이 가을 옷이 됐다"는 각각 특수 처리할 문제가
+    아니라 **원본과 다른 옷이 들어왔다**는 한 문제의 단면이다. 읽을 수 있는 모든
+    속성을 보고, 원칙이 지목한 축만 무겁게 센다.
+    """
+
+    def test_any_readable_attribute_counts_even_without_a_principle(self) -> None:
+        from apps.recommend.services.principle_rules import drift_count
+
+        # 원칙이 패턴을 언급하지 않아도 무지 -> 그래픽은 잡힌다.
+        self.assertEqual(
+            drift_count({"패턴": "무지"}, {"패턴": "그래픽"}, frozenset()), 1
+        )
+
+    def test_principle_attribute_weighs_double(self) -> None:
+        from apps.recommend.services.principle_rules import drift_count
+
+        self.assertEqual(
+            drift_count({"명도": "밝음"}, {"명도": "어두움"}, frozenset({"명도"})), 2
+        )
+
+    def test_overlapping_multivalue_is_not_drift(self) -> None:
+        """봄;가을 과 가을;겨울 은 가을에 함께 입을 수 있다."""
+        from apps.recommend.services.principle_rules import drift_count
+
+        self.assertEqual(
+            drift_count({"계절": "봄;가을"}, {"계절": "가을;겨울"}, frozenset()), 0
+        )
+
+    def test_disjoint_multivalue_is_drift(self) -> None:
+        from apps.recommend.services.principle_rules import drift_count
+
+        self.assertEqual(
+            drift_count({"계절": "봄;가을"}, {"계절": "여름"}, frozenset()), 1
+        )
+
+    def test_season_is_extracted_as_an_ordinary_attribute(self) -> None:
+        from apps.recommend.services.principle_rules import extract_attributes
+
+        attributes = extract_attributes({"season": ["봄", "가을"], "title": ""})
+        self.assertEqual(attributes["계절"], "가을;봄")

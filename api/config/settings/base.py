@@ -437,11 +437,11 @@ PRINCIPLE_RETRIEVAL_TIMEOUT_SECONDS = int(
     os.getenv("PRINCIPLE_RETRIEVAL_TIMEOUT_SECONDS", "6")
 )
 
-# 코디 조합 정렬에 골든셋 원칙을 반영할지. 원칙은 사람이 승인한 지식이지만 "이걸
-# 반영하면 추천이 좋아진다"는 아직 정량으로 검증되지 않았고 잴 장치도 없다. 켜고 끄며
-# 비교할 수 있도록 기본은 꺼 둔다. 꺼져 있으면 정렬 키가 예전과 완전히 같다.
+# 코디 조합 정렬에 골든셋 원칙을 반영할지. 실측에서 코디 14건 중 8건의 조합이 바뀌어
+# 기본을 켰다. 다만 "바뀐 조합이 더 낫다"를 정량으로 잴 장치는 아직 없다. 문제가 보이면
+# 환경변수로 끄면 되고, 꺼진 상태의 정렬 키는 이 기능 이전과 완전히 같다.
 PRINCIPLE_COMPOSITION_ENABLED = (
-    os.getenv("PRINCIPLE_COMPOSITION_ENABLED", "false").strip().lower() == "true"
+    os.getenv("PRINCIPLE_COMPOSITION_ENABLED", "true").strip().lower() == "true"
 )
 TEXT_EMBEDDING_EXPECTED_DIM = int(
     os.getenv("TEXT_EMBEDDING_EXPECTED_DIM", str(QDRANT_TEXT_VECTOR_DIM))

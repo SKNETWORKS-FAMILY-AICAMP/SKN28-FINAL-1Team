@@ -45,6 +45,7 @@ logger = logging.getLogger(__name__)
 #: 조건이 이만큼 맞아야 그 원칙이 이 코디에 관여한다고 본다.
 ENGAGE_MIN = 2
 
+
 SLOTS = ("top", "bottom", "outer", "shoes", "bag", "belt", "accessory")
 
 #: 골든 아이템의 category_large → 조건이 쓰는 슬롯 이름.
@@ -74,6 +75,12 @@ BRIGHTNESS: dict[str, str] = {
     "브라운": "어두움", "카키": "어두움",
     "그레이": "중간", "회색": "중간", "블루": "중간", "청색": "중간",
     "그린": "중간", "레드": "중간", "핑크": "중간", "퍼플": "중간",
+}
+
+#: 관계 이름 → 그 관계가 보는 속성.
+RELATION_ATTRIBUTE = {
+    "명도대비": "명도", "명도통일": "명도", "색대비": "색",
+    "색통일": "색", "기장대비": "기장", "볼륨대비": "핏",
 }
 
 ACHROMATIC = {"화이트", "흰색", "블랙", "검정", "검정색", "그레이", "회색", "차콜", "아이보리"}
@@ -205,6 +212,11 @@ def extract_attributes(payload: dict[str, Any]) -> dict[str, str]:
     if colors and all(name in ACHROMATIC for name in colors):
         attributes["색"] = "무채색"
 
+    for source, name in (("season", "계절"), ("sleeve", "소매")):
+        values = _listed(payload, source)
+        if values:
+            attributes[name] = ";".join(sorted(values))
+
     for attribute, table in _KEYWORDS.items():
         tagged = _listed(payload, {"패턴": "pattern", "기장": "length", "핏": "fit",
                                    "소재": "material", "허리": "rise"}.get(attribute, ""))
@@ -226,17 +238,10 @@ def _check_single(attributes: dict[str, str], condition: Condition) -> bool | No
 def _check_relation(
     a: dict[str, str], b: dict[str, str], relation: str
 ) -> bool | None:
-    pairs = {
-        "명도대비": ("명도", False),
-        "명도통일": ("명도", True),
-        "색대비": ("색", False),
-        "색통일": ("색", True),
-        "기장대비": ("기장", False),
-        "볼륨대비": ("핏", False),
-    }
-    if relation not in pairs:
+    if relation not in RELATION_ATTRIBUTE:
         return None
-    attribute, want_same = pairs[relation]
+    attribute = RELATION_ATTRIBUTE[relation]
+    want_same = relation in ("명도통일", "색통일")
     left, right = a.get(attribute), b.get(attribute)
     if left is None or right is None:
         return None
@@ -343,3 +348,54 @@ def rules_for_styles(styles: Iterable[str]) -> tuple[PrincipleRule, ...]:
     if not wanted:
         return rules
     return tuple(rule for rule in rules if rule.cluster_id in wanted)
+
+
+def attributes_in_play(rules: Iterable[PrincipleRule], slot: str) -> frozenset[str]:
+    """해당 슬롯에 대해 원칙들이 언급하는 속성 이름.
+
+    원칙이 신경 쓰지 않는 속성까지 치환 변화를 벌점으로 세면, 원칙과 무관한 이유로
+    후보가 밀린다. 원칙이 실제로 거론한 속성만 본다.
+    """
+    names: set[str] = set()
+    for rule in rules:
+        for condition in rule.conditions:
+            if condition.kind == "single" and condition.slot == slot:
+                names.add(condition.attribute)
+            elif condition.kind == "relation" and slot in (
+                condition.slot_a,
+                condition.slot_b,
+            ):
+                names.add(RELATION_ATTRIBUTE.get(condition.relation, ""))
+    names.discard("")
+    return frozenset(names)
+
+
+def drift_count(
+    template: dict[str, str],
+    candidate: dict[str, str],
+    watched: frozenset[str],
+) -> int:
+    """치환이 골든 원본의 성질을 바꾼 정도.
+
+    **읽을 수 있는 모든 속성을 본다.** 사례가 나올 때마다 감시 목록에 추가하는 방식은
+    다음 사례를 못 막는다 — 무지가 그래픽이 되는 것도, 여름 옷이 가을 옷이 되는 것도
+    "원본과 다른 옷이 들어왔다"는 한 가지 문제의 단면이다.
+
+    원칙이 지목한 속성은 두 배로 센다. 그 축은 코디가 성립한 이유와 직접 닿아 있다.
+
+    한쪽이라도 못 읽으면 세지 않는다. 상품 태그가 비어 있는 경우가 많아, 모름을
+    벌점으로 주면 태깅 안 된 상품이 일괄로 밀린다.
+
+    계절처럼 값이 여러 개인 속성은 겹치는 게 하나라도 있으면 같은 것으로 본다 —
+    "봄;가을"과 "가을;겨울"은 가을에 함께 입을 수 있다.
+    """
+    changed = 0
+    for name in set(template) & set(candidate):
+        before, after = template[name], candidate[name]
+        if before == after:
+            continue
+        if ";" in before or ";" in after:
+            if set(before.split(";")) & set(after.split(";")):
+                continue
+        changed += 2 if name in watched else 1
+    return changed

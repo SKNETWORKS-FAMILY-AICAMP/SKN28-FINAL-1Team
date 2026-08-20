@@ -67,6 +67,7 @@ from apps.chat.services.stylist_execution import (
 from apps.chat.services.stylist_personas import load_stylist_personas
 from apps.chat.services.wardrobe_scope import build_wardrobe_scope_snapshot
 from apps.recommend.models import OutfitComposition, RecommendationResult
+from apps.recommend.services import principle_rules
 from apps.recommend.services.retriever import retrieve_principles
 
 logger = logging.getLogger(__name__)
@@ -91,6 +92,50 @@ def _principle_styles_from_payload(approved: dict[str, Any]) -> list[str]:
     return styles
 
 
+def _slot_attributes_from_payload(
+    approved: dict[str, Any],
+) -> dict[str, dict[str, str]]:
+    """승인된 코디의 아이템에서 슬롯별 속성을 뽑는다."""
+    slots: dict[str, dict[str, str]] = {}
+    for outfit in approved.get("compositions", []) or []:
+        for item in outfit.get("items", []) or []:
+            payload = dict(item.get("attributes") or {})
+            payload.setdefault("title", item.get("name") or "")
+            slot = principle_rules.slot_of(payload)
+            if slot and slot not in slots:
+                slots[slot] = principle_rules.extract_attributes(payload)
+    return slots
+
+
+def _confirmed_principles(approved: dict[str, Any]) -> list[dict[str, Any]]:
+    """이 코디에 **실제로 해당하는** 원칙. 조건을 대조해 확정한 것만 돌려준다.
+
+    벡터 검색은 "비슷한 원칙"을 주므로 LLM이 다시 판단해야 하고, 실제로 잘 하지
+    못했다. 조건 대조는 해당 여부를 코드가 정하므로 LLM에게 판단을 맡기지 않는다.
+    """
+    try:
+        slots = _slot_attributes_from_payload(approved)
+        if not slots:
+            return []
+        styles = _principle_styles_from_payload(approved)
+        outcomes = principle_rules.evaluate(
+            principle_rules.rules_for_styles(styles), slots
+        )
+        return [
+            {
+                "statement": outcome.rule.statement,
+                "styles": [outcome.rule.cluster_id],
+                "confirmed": True,
+                "matched_conditions": outcome.matched,
+            }
+            for outcome in outcomes
+            if not outcome.violations
+        ][:3]
+    except Exception:
+        logger.warning("원칙 조건 대조 실패, 검색으로 넘어간다.", exc_info=True)
+        return []
+
+
 def _principle_context(
     approved: dict[str, Any],
     current_request: str,
@@ -101,6 +146,9 @@ def _principle_context(
     골든셋은 아직 1차 사이클이라 스타일에 따라 승인된 원칙이 없을 수 있다. 그때
     추천을 막지 않고 원칙 없이 설명하도록, 여기서 예외를 바깥으로 올리지 않는다.
     """
+    confirmed = _confirmed_principles(approved)
+    if confirmed:
+        return confirmed
     try:
         query = " ".join(
             part

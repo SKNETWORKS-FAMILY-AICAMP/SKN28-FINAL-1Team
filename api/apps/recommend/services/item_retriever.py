@@ -124,6 +124,17 @@ def _match_any(field_name: str, values: Iterable[str]) -> qm.FieldCondition:
     )
 
 
+#: 코디에 넣을 수 없는 용도. 겉옷 자리에 실내복·속옷이 들어오는 것을 막는다.
+#:
+#: "에어리즘 민소매 캐미솔 런닝"이 나들이룩 상의로 뽑힌 적이 있다. 이건 치환이 원본과
+#: 달라진 문제가 아니라 애초에 코디 아이템이 아닌 것이라, 후보 단계에서 뺀다.
+_EXCLUDED_USAGE = ("수면", "홈웨어", "언더웨어", "속옷")
+
+
+def _usage_exclusions() -> list[qm.Condition]:
+    return [_match_any("usage", _EXCLUDED_USAGE)]
+
+
 def _vector(point: Any, name: str) -> tuple[float, ...]:
     vectors = getattr(point, "vector", None)
     if not isinstance(vectors, dict):
@@ -450,7 +461,7 @@ class ItemCandidateRetriever:
                         vector_name=vector_name,
                         vector=vector,
                         limit=request.limit_per_source,
-                        must_not=_avoided_conditions(request),
+                        must_not=_avoided_conditions(request) + _usage_exclusions(),
                     ),
                 )
             )

@@ -70,6 +70,10 @@ class _PartialComposition:
     principle_violations: int = 0
     #: 슬롯 -> 속성. 원칙 판정용이며 후보를 담을 때 한 번만 뽑는다.
     slot_attributes: dict[str, dict[str, str]] = field(default_factory=dict)
+    #: 치환이 골든 원본의 속성을 바꾼 누적 횟수.
+    principle_drift: int = 0
+    #: 계절 판정에 쓸 후보 payload. 조합이 완성돼야 충돌을 셀 수 있다.
+    season_payloads: tuple[dict[str, Any], ...] = ()
 
 
 # 이전 호출부가 단계적 마이그레이션 할 수 있도록 이름을 유지한다.
@@ -344,7 +348,7 @@ class CompositionEngine:
                 next_price += price or 0
                 if policy.total_budget is not None and next_price > policy.total_budget:
                     continue
-            slot_attributes, violations = self._principle_state(
+            slot_attributes, drift, payloads, violations = self._principle_state(
                 state, slot_result.template, candidate, policy
             )
             additions.append(
@@ -368,6 +372,8 @@ class CompositionEngine:
                         + (candidate.score if candidate.score is not None else -1.0)
                     ),
                     principle_violations=violations,
+                    principle_drift=drift,
+                    season_payloads=payloads,
                     slot_attributes=slot_attributes,
                 )
             )
@@ -405,21 +411,45 @@ class CompositionEngine:
         template: TemplateItem,
         candidate: ItemCandidate,
         policy: CompositionPolicy,
-    ) -> tuple[dict[str, dict[str, str]], int]:
-        """후보를 담았을 때의 속성 맵과 원칙 어긋남 수.
+    ) -> tuple[dict[str, dict[str, str]], int, tuple[dict[str, Any], ...], int]:
+        """후보를 담았을 때의 (속성 맵, 누적 드리프트, 총 어긋남).
 
         속성 추출은 후보마다 한 번만 한다. 정렬 키에서 매번 상품명을 파싱하면
         beam 폭만큼 곱해져 느려진다.
         """
         if not getattr(settings, "PRINCIPLE_COMPOSITION_ENABLED", False):
-            return state.slot_attributes, 0
+            return state.slot_attributes, 0, (), 0
         slot = principle_rules.slot_of(template.payload)
         if not slot:
-            return state.slot_attributes, state.principle_violations
-        merged = dict(state.slot_attributes)
-        merged[slot] = principle_rules.extract_attributes(candidate.payload)
+            return (
+                state.slot_attributes,
+                state.principle_drift,
+                state.season_payloads,
+                state.principle_violations,
+            )
         rules = principle_rules.rules_for_styles(policy.principle_styles)
-        return merged, principle_rules.violation_count(rules, merged)
+        attributes = principle_rules.extract_attributes(candidate.payload)
+        merged = dict(state.slot_attributes)
+        merged[slot] = attributes
+
+        # 두 신호를 합산한다.
+        #  1) 조합이 원칙 조건을 어겼는가 — 상품 태그가 비어 있어 잡히는 일이 적다.
+        #  2) 치환이 골든 원본의 성질을 바꿨는가 — 원본은 그 원칙을 이미 만족하므로,
+        #     원본과 달라진 것 자체가 원칙에서 멀어졌다는 신호다. 골든 아이템은 명도
+        #     90퍼센트로 잘 읽혀서 실제 신호는 대부분 이쪽에서 나온다.
+        payloads = (*state.season_payloads, candidate.payload)
+        drift = state.principle_drift + principle_rules.drift_count(
+            principle_rules.extract_attributes(template.payload),
+            attributes,
+            principle_rules.attributes_in_play(rules, slot),
+        )
+        return (
+            merged,
+            drift,
+            payloads,
+            principle_rules.violation_count(rules, merged)
+            + drift,
+        )
 
     @staticmethod
     def _state_sort_key(state: _PartialComposition) -> tuple:
