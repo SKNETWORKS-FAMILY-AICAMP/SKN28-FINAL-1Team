@@ -977,6 +977,20 @@ class BodyPhotoTransactionTests(TestCase):
         response = self.client.get(self._tx_url(tx.pk))
         self.assertEqual(response.data["status"], "failed")
         self.assertEqual(response.data["error_message"], "VLM 호출 실패 (HTTP 429)")
+        self.assertIsNone(response.data["error_code"])
+
+    def test_photo_quality_failure_returns_machine_readable_code(self):
+        tx = BodyPhotoTransaction.objects.create(
+            user=self.user,
+            status=BodyPhotoTransaction.Status.FAILED,
+            error_message="사진 인식 실패: 양발이 모두 보이게 촬영해 주세요.",
+            error_code="photo_quality_failed",
+        )
+
+        response = self.client.get(self._tx_url(tx.pk))
+
+        self.assertEqual(response.data["error_code"], "photo_quality_failed")
+        self.assertIn("사진 인식 실패", response.data["error_message"])
 
     def test_failed_transaction_without_error_message_gets_fallback(self):
         tx = BodyPhotoTransaction.objects.create(
@@ -1053,6 +1067,50 @@ class BodyPhotoTransactionTests(TestCase):
         tx.refresh_from_db()
         self.assertEqual(tx.status, BodyPhotoTransaction.Status.FAILED)
         self.assertEqual(tx.error_message, "VLM 타임아웃")
+        self.assertEqual(tx.error_code, "")
+
+    @patch("apps.users.services.body_inference.connections")
+    @patch("apps.users.services.body_inference.close_old_connections")
+    @patch("apps.users.services.body_inference.complete_measurement")
+    def test_run_does_not_overwrite_terminal_transaction_after_error(
+        self, mock_complete, _mock_close_old, _mock_conns
+    ):
+        tx = BodyPhotoTransaction.objects.create(user=self.user)
+
+        def finish_then_raise(*_args, **_kwargs):
+            BodyPhotoTransaction.objects.filter(pk=tx.pk).update(
+                status=BodyPhotoTransaction.Status.SUCCEEDED,
+                error_message="",
+                error_code="",
+            )
+            raise RuntimeError("late worker error")
+
+        mock_complete.side_effect = finish_then_raise
+
+        body_inference._run_measurement(tx.pk, **self._complete_kwargs())
+
+        tx.refresh_from_db()
+        self.assertEqual(tx.status, BodyPhotoTransaction.Status.SUCCEEDED)
+        self.assertEqual(tx.error_message, "")
+
+    @patch("apps.users.services.body_inference.connections")
+    @patch("apps.users.services.body_inference.close_old_connections")
+    @patch("apps.users.services.body_inference.inference.estimate_from_photos")
+    def test_photo_quality_failure_has_machine_readable_code(
+        self, mock_estimate, _mock_close_old, _mock_conns
+    ):
+        mock_estimate.side_effect = body_inference.inference.PhotoValidationError(
+            "feet_not_visible"
+        )
+        tx = BodyPhotoTransaction.objects.create(user=self.user)
+
+        body_inference._run_measurement(tx.pk, **self._complete_kwargs())
+
+        tx.refresh_from_db()
+        self.assertEqual(tx.status, BodyPhotoTransaction.Status.FAILED)
+        self.assertEqual(tx.error_code, "photo_quality_failed")
+        self.assertIn("사진 인식 실패", tx.error_message)
+        self.assertFalse(BodyMeasurement.objects.filter(user=self.user).exists())
 class BudgetViewTests(TestCase):
     def setUp(self):
         self.client = APIClient()

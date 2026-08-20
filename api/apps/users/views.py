@@ -489,6 +489,7 @@ class BodyPhotoTransactionView(APIView):
             measurement=measurement,
             transaction_id=tx.pk,
             error_message=tx.error_message,
+            error_code=tx.error_code,
         )
         return Response(BodyEstimationResultSerializer(result).data)
 

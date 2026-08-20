@@ -313,6 +313,13 @@ class BodyPhotoTransaction(models.Model):
         "실패 사유", blank=True, default="",
         db_comment="측정 실패 사유 (성공/진행중이면 빈 문자열)",
     )
+    error_code = models.CharField(
+        "실패 코드",
+        max_length=50,
+        blank=True,
+        default="",
+        db_comment="클라이언트 분기용 실패 코드 (사진 품질 실패: photo_quality_failed)",
+    )
     created_at = models.DateTimeField(
         "생성 시각", auto_now_add=True, db_comment="접수 시각"
     )

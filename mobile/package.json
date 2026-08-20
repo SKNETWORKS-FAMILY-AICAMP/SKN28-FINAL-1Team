@@ -62,6 +62,7 @@
     "test:discovery-look": "node ./scripts/test-discovery-look-presentation.mjs",
     "test:shared-reference": "node ./scripts/test-shared-reference-regression.mjs",
     "test:kakao-invite-link": "node ./scripts/test-kakao-invite-link.mjs",
+    "test:body-measurement-result": "node ./scripts/test-body-measurement-result.mjs",
     "test:wardrobe-sections": "node ./scripts/test-wardrobe-sections.mjs"
   },
   "private": true

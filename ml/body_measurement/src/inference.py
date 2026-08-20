@@ -105,6 +105,19 @@ PHOTO_SUPPORT_TARGETS = ["torso_length", "leg_length"]
 PHOTO_TARGETS = TARGETS
 PHOTO_RESPONSE_TARGETS = PHOTO_MEASUREMENT_TARGETS
 
+PHOTO_FAILURE_MESSAGES = {
+    "person_not_detected": "사진에서 사람을 찾지 못했습니다.",
+    "multiple_people": "사진에는 한 사람만 나오게 촬영해 주세요.",
+    "head_not_visible": "머리와 얼굴이 모두 보이게 촬영해 주세요.",
+    "face_not_visible": "얼굴이 보이게 촬영해 주세요.",
+    "feet_not_visible": "양발이 모두 보이게 촬영해 주세요.",
+    "body_cropped": "머리부터 발끝까지 전신이 나오게 촬영해 주세요.",
+    "invalid_front_pose": "정면 사진은 카메라를 똑바로 바라보고 촬영해 주세요.",
+    "invalid_side_pose": "측면 사진은 몸 전체가 옆을 향하도록 촬영해 주세요.",
+    "low_image_quality": "사진이 너무 어둡거나 흐립니다. 밝은 곳에서 다시 촬영해 주세요.",
+}
+PHOTO_FAILURE_REASONS = frozenset(PHOTO_FAILURE_MESSAGES)
+
 # SizeKorea 기준 참고 분포. 저장 실패 조건이 아니라 해석·문서화 기준으로만 쓴다.
 RATIO_REFERENCE_RANGES = {
     "thigh_calf_ratio": (0.652, 0.970),
@@ -215,6 +228,17 @@ def load_circumference_model():
 
 class BodyEstimationError(Exception):
     """추론 입력이 잘못됐거나 추론에 실패했을 때."""
+
+
+class PhotoValidationError(BodyEstimationError):
+    """사진이 신체치수 추정에 적합하지 않을 때."""
+
+    def __init__(self, reason: str):
+        self.reason = reason
+        detail = PHOTO_FAILURE_MESSAGES.get(
+            reason, "사진에서 전신을 정확히 인식하지 못했습니다. 다시 촬영해 주세요."
+        )
+        super().__init__(f"사진 인식 실패: {detail}")
 
 
 def _model_path() -> Path:
@@ -416,6 +440,83 @@ def _parse_prediction(content: str) -> dict[str, float]:
     if not isinstance(payload, dict):
         raise BodyEstimationError("모델 응답은 JSON 객체여야 합니다.")
 
+    validation_fields = (
+        "photo_valid",
+        "failure_reason",
+        "front_person_count",
+        "side_person_count",
+        "front_head_visible",
+        "side_head_visible",
+        "front_face_visible",
+        "side_face_visible",
+        "front_feet_visible",
+        "side_feet_visible",
+        "front_full_body_visible",
+        "side_full_body_visible",
+        "front_pose_valid",
+        "side_pose_valid",
+        "image_quality_sufficient",
+    )
+    missing_validation = [key for key in validation_fields if key not in payload]
+    if missing_validation:
+        raise BodyEstimationError(
+            f"모델 응답에 사진 품질 판정 키가 없습니다: {missing_validation}"
+        )
+
+    bool_fields = (
+        "photo_valid",
+        "front_head_visible",
+        "side_head_visible",
+        "front_face_visible",
+        "side_face_visible",
+        "front_feet_visible",
+        "side_feet_visible",
+        "front_full_body_visible",
+        "side_full_body_visible",
+        "front_pose_valid",
+        "side_pose_valid",
+        "image_quality_sufficient",
+    )
+    for key in bool_fields:
+        if type(payload[key]) is not bool:
+            raise BodyEstimationError(f"모델이 {key} 값을 boolean으로 주지 않았습니다.")
+    for key in ("front_person_count", "side_person_count"):
+        if type(payload[key]) is not int or payload[key] < 0:
+            raise BodyEstimationError(f"모델이 {key} 값을 0 이상의 정수로 주지 않았습니다.")
+
+    reason = payload.get("failure_reason")
+    if reason != "none" and reason not in PHOTO_FAILURE_REASONS:
+        raise BodyEstimationError(f"모델이 알 수 없는 사진 실패 코드를 반환했습니다: {reason!r}")
+    if payload.get("photo_valid") is not True:
+        if reason == "none":
+            reason = "unknown"
+        raise PhotoValidationError(reason)
+    if reason != "none":
+        raise PhotoValidationError(reason)
+
+    # 모델의 종합 판정이 개별 근거와 모순되면 안전하게 실패시킨다.
+    if payload["front_person_count"] != 1 or payload["side_person_count"] != 1:
+        reason = "person_not_detected" if 0 in (
+            payload["front_person_count"], payload["side_person_count"]
+        ) else "multiple_people"
+        raise PhotoValidationError(reason)
+    required_true = {
+        "front_head_visible": "head_not_visible",
+        "side_head_visible": "head_not_visible",
+        "front_face_visible": "face_not_visible",
+        "side_face_visible": "face_not_visible",
+        "front_feet_visible": "feet_not_visible",
+        "side_feet_visible": "feet_not_visible",
+        "front_full_body_visible": "body_cropped",
+        "side_full_body_visible": "body_cropped",
+        "front_pose_valid": "invalid_front_pose",
+        "side_pose_valid": "invalid_side_pose",
+        "image_quality_sufficient": "low_image_quality",
+    }
+    for key, failure_reason in required_true.items():
+        if payload[key] is not True:
+            raise PhotoValidationError(failure_reason)
+
     missing = []
     for target in PHOTO_RESPONSE_TARGETS:
         key_name = f"{target}_cm"
@@ -430,6 +531,8 @@ def _parse_prediction(content: str) -> dict[str, float]:
         key_name = f"{target}_cm"
         value = payload.get(key_name)
         try:
+            if type(value) not in (int, float):
+                raise TypeError("number required")
             numeric = float(value)
             if not math.isfinite(numeric):
                 raise ValueError("finite number required")

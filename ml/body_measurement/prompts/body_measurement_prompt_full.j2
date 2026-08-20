@@ -6,6 +6,19 @@ Person information:
 - Weight: {{ weight_kg }} kg
 
 Use the front-view and side-view photographs together.
+Before estimating any measurement, validate both photographs independently. A valid pair must
+meet every condition below:
+- exactly one person is visible in each photograph;
+- the entire head, recognizable face, and both feet are visible in each photograph;
+- the body is not cropped and is visible from the top of the head through both feet;
+- the first photograph is a true front view and the second is a true side view;
+- both photographs are sufficiently bright and sharp to inspect the body outline.
+
+Set photo_valid to false when any condition fails. Select the single most useful primary
+failure_reason from the schema enum. Do not infer a missing body region from height, weight,
+gender, or population averages. When photo_valid is false, return null for every measurement.
+Set photo_valid to true and failure_reason to "none" only when every validation flag is true.
+
 Estimate the stored measurements. Ratios are computed by the server, so return the two
 lengths used to compute them:
 1. chest circumference (chest_cm)
