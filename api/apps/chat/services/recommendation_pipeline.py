@@ -102,6 +102,18 @@ class OutfitCompositionFailed(ChatRecommendationError):
     code = "OUTFIT_COMPOSITION_FAILED"
 
 
+class WardrobeOutfitUnavailable(OutfitCompositionFailed):
+    """옷장 아이템만으로 검증 가능한 코디를 완성할 수 없는 상태."""
+
+    code = "WARDROBE_OUTFIT_UNAVAILABLE"
+
+
+WARDROBE_OUTFIT_UNAVAILABLE_MESSAGE = (
+    "코디를 완성하기에 옷장에 준비된 옷이 부족해요. "
+    "옷을 조금 더 추가하면 어울리는 조합을 추천해드릴게요."
+)
+
+
 @dataclass(frozen=True)
 class RecommendationPipelineResult:
     result: RecommendationResult
@@ -312,6 +324,13 @@ class ChatRecommendationPipeline:
             if user_id is not None
             else None
         )
+        if (
+            session.mode == ChatSession.Mode.WARDROBE_BASED
+            and not allowed_wardrobe_item_ids
+        ):
+            raise WardrobeOutfitUnavailable(
+                WARDROBE_OUTFIT_UNAVAILABLE_MESSAGE
+            )
 
         pursuit = self._merged_pursuit(context, analysis)
         if strategy_plan is not None:
@@ -517,9 +536,17 @@ class ChatRecommendationPipeline:
                 run.pk,
                 detail or "사유 기록 없음",
             )
-            failure = OutfitCompositionFailed(
-                "검색된 골든 코디로 검증 가능한 최종 조합을 만들지 못했습니다."
+            failure_type = (
+                WardrobeOutfitUnavailable
+                if session.mode == ChatSession.Mode.WARDROBE_BASED
+                else OutfitCompositionFailed
             )
+            failure_message = (
+                WARDROBE_OUTFIT_UNAVAILABLE_MESSAGE
+                if session.mode == ChatSession.Mode.WARDROBE_BASED
+                else "검색된 골든 코디로 검증 가능한 최종 조합을 만들지 못했습니다."
+            )
+            failure = failure_type(failure_message)
             failure.detail = detail
             raise failure
         return GeneratedRecommendationCandidates(

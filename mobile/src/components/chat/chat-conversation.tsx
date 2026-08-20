@@ -531,9 +531,20 @@ export function ChatConversation({
              답변인 척하면 실패한 것을 답으로 읽게 된다. */
           if (m.kind === 'error') {
             return (
-              <View key={m.id} style={styles.errorRow}>
-                <Icon name="exclamationmark.triangle" tintColor={Editorial.wine} size={13} />
-                <Text style={styles.errorText}>{m.text}</Text>
+              <View key={m.id} style={styles.errorBlock}>
+                <View style={styles.errorRow}>
+                  <Icon name="exclamationmark.triangle" tintColor={Editorial.wine} size={13} />
+                  <Text style={styles.errorText}>{m.text}</Text>
+                </View>
+                {m.action === 'OPEN_WARDROBE' ? (
+                  <Pressable
+                    style={styles.errorCta}
+                    onPress={() => router.push('/(tabs)/closet')}
+                    accessibilityRole="button">
+                    <Icon name="plus" tintColor="#fff" size={13} />
+                    <Text style={styles.errorCtaText}>옷장에 옷 추가하기</Text>
+                  </Pressable>
+                ) : null}
               </View>
             );
           }
@@ -563,6 +574,8 @@ export function ChatConversation({
                 onAlternative={(personaId) => alternativeCard(m.runId, personaId)}
                 onRetry={(personaId) => retryCard(m.runId, personaId)}
                 onRenderRetry={(personaId) => retryCardRender(m.runId, personaId)}
+                wardrobeBased={session?.mode === 'closet'}
+                onOpenWardrobe={() => router.push('/(tabs)/closet')}
               />
             );
           }
@@ -850,14 +863,28 @@ const styles = StyleSheet.create({
   aiCol: { flex: 1, gap: 10 },
 
   /* 아바타 자리(30) + 간격(8)만큼 들여 코지 말풍선과 왼쪽 선을 맞춘다. */
-  errorRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
+  errorBlock: {
+    gap: 9,
     paddingLeft: 38,
     maxWidth: '90%',
+    alignItems: 'flex-start',
+  },
+  errorRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 6,
   },
   errorText: { flex: 1, fontSize: Type.caption, color: Editorial.wine, lineHeight: 18 },
+  errorCta: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    minHeight: 36,
+    paddingHorizontal: 14,
+    borderRadius: 999,
+    backgroundColor: Editorial.cta,
+  },
+  errorCtaText: { fontSize: Type.caption, color: '#fff', fontWeight: '600' },
   avatar: {
     width: 30,
     height: 30,

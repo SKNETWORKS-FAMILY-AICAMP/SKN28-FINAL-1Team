@@ -19,6 +19,8 @@ from apps.chat.services.openai_adapter import (
 from apps.chat.services.recommendation_pipeline import (
     ChatRecommendationPipeline,
     OutfitCompositionFailed,
+    WARDROBE_OUTFIT_UNAVAILABLE_MESSAGE,
+    WardrobeOutfitUnavailable,
 )
 from apps.recommend.models import (
     GoldenTemplateSnapshot,
@@ -52,7 +54,12 @@ class RecommendationCandidatePipelineTests(TestCase):
             identity_type=ChatIdentity.IdentityType.MEMBER,
         )
 
-    def _run(self, *, stylist: bool = False) -> tuple[ChatRun, ChatRunPersona | None]:
+    def _run(
+        self,
+        *,
+        stylist: bool = False,
+        mode: str = ChatSession.Mode.NEW_ITEM,
+    ) -> tuple[ChatRun, ChatRunPersona | None]:
         persona_ids = ["minimal"] if stylist else []
         response_mode = (
             ChatSession.ResponseMode.STYLIST
@@ -61,7 +68,7 @@ class RecommendationCandidatePipelineTests(TestCase):
         )
         session = ChatSession.objects.create(
             identity=self.identity,
-            mode=ChatSession.Mode.NEW_ITEM,
+            mode=mode,
             response_mode=response_mode,
             selected_persona_ids=persona_ids,
         )
@@ -249,6 +256,21 @@ class RecommendationCandidatePipelineTests(TestCase):
         ]
         self.assertTrue(requests)
         self.assertEqual(requests[0].avoided_tags, {})
+
+    def test_empty_wardrobe_returns_actionable_failure_before_retrieval(self) -> None:
+        run, _ = self._run(mode=ChatSession.Mode.WARDROBE_BASED)
+        pipeline, _ = self._pipeline()
+
+        with self.assertRaises(WardrobeOutfitUnavailable) as raised:
+            pipeline._generate_candidates(
+                run=run,
+                context=self._context(),
+                analysis=self._analysis(),
+            )
+
+        self.assertEqual(raised.exception.code, "WARDROBE_OUTFIT_UNAVAILABLE")
+        self.assertEqual(str(raised.exception), WARDROBE_OUTFIT_UNAVAILABLE_MESSAGE)
+        pipeline.golden_retriever.retrieve.assert_not_called()
 
     @patch("apps.chat.services.recommendation_pipeline.render_jobs.schedule_result")
     def test_generation_does_not_write_and_persistence_saves_only_selection(

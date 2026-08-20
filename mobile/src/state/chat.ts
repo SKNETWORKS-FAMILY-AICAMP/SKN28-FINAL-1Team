@@ -147,7 +147,13 @@ export type ChatMessage =
    * 답변을 못 받은 질문 아래에 남기는 줄.
    * 토스트는 사라지므로, 대화를 다시 열었을 때 "질문만 있고 답이 없는" 상태로 보이지 않게 한다.
    */
-  | { id: string; role: 'ai'; kind: 'error'; text: string }
+  | {
+      id: string;
+      role: 'ai';
+      kind: 'error';
+      text: string;
+      action?: 'OPEN_WARDROBE';
+    }
   /** 추천 코디 카드. 답변 말풍선 뒤에 붙는다. */
   | {
       id: string;
@@ -208,6 +214,7 @@ export type StylistCard = {
   /** '이 코디로 할래요'·'다른 추천'에 필요하다. 아직 결과가 없으면 null. */
   resultId: string | null;
   cardId: string | null;
+  errorCode: string | null;
   errorText: string | null;
   /** 다른 추천을 받는 중. 지금 카드는 남겨 두고 표시만 바꾼다. */
   alternating: boolean;
@@ -417,6 +424,7 @@ function toMessages(
   api: ApiChatMessage,
   cards: ApiRecommendationCard[] = [],
   decisions: Map<string, ApiMoodDecision | null> = new Map(),
+  wardrobeBased = false,
 ): ChatMessage[] {
   if (api.role !== 'USER' && api.role !== 'ASSISTANT') return [];
   const role = api.role === 'USER' ? 'user' : 'ai';
@@ -466,12 +474,21 @@ function toMessages(
      그 표시를 읽어 오류 줄을 만들면 대화를 다시 열어도 남는다.
      사유까지는 run 에만 있어 여기서는 알 수 없다 — 보낸 직후에는 sendText 가 채워 넣는다. */
   if (role === 'user' && api.status === 'FAILED') {
-    out.push({ id: failureLineId(api.id), role: 'ai', kind: 'error', text: GENERIC_FAILURE });
+    out.push({
+      id: failureLineId(api.id),
+      role: 'ai',
+      kind: 'error',
+      text: wardrobeBased ? WARDROBE_UNAVAILABLE_MESSAGE : GENERIC_FAILURE,
+      action: wardrobeBased ? 'OPEN_WARDROBE' : undefined,
+    });
   }
   return out;
 }
 
 const GENERIC_FAILURE = '답변을 만들지 못했어요.';
+export const WARDROBE_UNAVAILABLE_CODE = 'WARDROBE_OUTFIT_UNAVAILABLE';
+export const WARDROBE_UNAVAILABLE_MESSAGE =
+  '코디를 완성하기에 옷장에 준비된 옷이 부족해요. 옷을 조금 더 추가하면 어울리는 조합을 추천해드릴게요.';
 
 function failureLineId(messageId: string): string {
   return `${messageId}-err`;
@@ -586,9 +603,12 @@ function rebuild(id: string): void {
   const list = rawMessages.get(id) ?? [];
   const cards = rawCards.get(id) ?? new Map<string, ApiRecommendationCard[]>();
   const decisions = collectDecisions(list);
+  const wardrobeBased = sessions.find((session) => session.id === id)?.mode === 'closet';
   replaceSession(id, (s) => ({
     ...s,
-    messages: list.flatMap((m) => toMessages(m, cards.get(m.id), decisions)),
+    messages: list.flatMap((m) =>
+      toMessages(m, cards.get(m.id), decisions, wardrobeBased),
+    ),
     messagesLoaded: true,
   }));
 }
@@ -752,6 +772,7 @@ function toStylistCard(r: ApiPersonaResult): StylistCard {
     warnings: card?.warnings ?? [],
     resultId: r.result_id,
     cardId: card?.card_id ?? null,
+    errorCode: r.error?.code || null,
     errorText: r.error?.message || null,
     alternating: r.alternative_status === 'PENDING' || r.alternative_status === 'RUNNING',
     alternativeCount: r.alternative_count,
@@ -777,6 +798,7 @@ function pendingCard(personaId: StylistId): StylistCard {
     warnings: [],
     resultId: null,
     cardId: null,
+    errorCode: null,
     errorText: null,
     alternating: false,
     alternativeCount: 0,
@@ -845,7 +867,12 @@ async function runStylistTurn(
       updateOverlay(sessionId, overlayId, toStylistMessage(overlayId, runId, run));
     } else if (run.status === 'FAILED') {
       // 자리조차 안 생기고 run 이 죽었다 = 스타일리스트 실행 자체가 실패
-      failPendingCards(sessionId, overlayId, run.error_message || GENERIC_FAILURE);
+      failPendingCards(
+        sessionId,
+        overlayId,
+        run.error_message || GENERIC_FAILURE,
+        run.error_code || null,
+      );
     } else {
       /* 결과 자리가 사라졌는데 run 은 정상으로 끝났다 = **되물은 것**이다.
          서버가 되묻기로 방향을 틀 때 아직 시작 안 한 스타일리스트 실행을 지운다
@@ -865,14 +892,19 @@ async function runStylistTurn(
 }
 
 /** 아직 안 끝난 카드들을 실패로 바꾼다. 이미 받은 카드는 건드리지 않는다. */
-function failPendingCards(sessionId: string, overlayId: string, text: string) {
+function failPendingCards(
+  sessionId: string,
+  overlayId: string,
+  text: string,
+  errorCode: string | null = null,
+) {
   const current = overlaysOf(sessionId).find((o) => o.id === overlayId)?.message;
   if (!current || current.kind !== 'stylist') return;
   updateOverlay(sessionId, overlayId, {
     ...current,
     cards: current.cards.map((c) =>
       c.status === 'PENDING' || c.status === 'RUNNING'
-        ? { ...c, status: 'FAILED', errorText: text }
+        ? { ...c, status: 'FAILED', errorCode, errorText: text }
         : c,
     ),
   });
@@ -1205,8 +1237,9 @@ export const chatStore = {
     if (!body) throw new Error('보낼 내용이 없어요');
 
     const session = sessions.find((s) => s.id === id);
+    if (!session) throw new Error('대화를 찾을 수 없어요');
     const stylistMode =
-      session?.responseMode === 'STYLIST' && session.selectedPersonaIds.length > 0;
+      session.responseMode === 'STYLIST' && session.selectedPersonaIds.length > 0;
 
     const draftId = nextMessageId();
     replaceSession(id, (s) => ({
@@ -1284,10 +1317,18 @@ export const chatStore = {
        구체적인 사유를 채워 넣는다 — 다시 열면 일반 문구로 돌아간다(서버가 사유를 모르므로). */
     if (run.status === 'FAILED' && run.error_message) {
       const lineId = failureLineId(submitted.message.id);
+      const wardrobeUnavailable =
+        session.mode === 'closet' && run.error_code === WARDROBE_UNAVAILABLE_CODE;
       replaceSession(id, (s) => ({
         ...s,
         messages: s.messages.map((m) =>
-          m.id === lineId && m.kind === 'error' ? { ...m, text: run.error_message } : m,
+          m.id === lineId && m.kind === 'error'
+            ? {
+                ...m,
+                text: wardrobeUnavailable ? WARDROBE_UNAVAILABLE_MESSAGE : run.error_message,
+                action: wardrobeUnavailable ? 'OPEN_WARDROBE' : undefined,
+              }
+            : m,
         ),
       }));
     }
@@ -1377,7 +1418,12 @@ export const chatStore = {
       updateOverlay(
         sessionId,
         overlayId,
-        patchCard(current, personaId, (c) => ({ ...c, status: 'PENDING', errorText: null })),
+        patchCard(current, personaId, (c) => ({
+          ...c,
+          status: 'PENDING',
+          errorCode: null,
+          errorText: null,
+        })),
       );
     }
 

@@ -5,7 +5,12 @@ import { Icon, type IconName } from '@/components/icon';
 import { Skeleton, SmartImage } from '@/components/ui';
 import { Editorial, ink, Type } from '@/constants/theme';
 import { isStylistMocked, type StylistId } from '@/lib/stylistApi';
-import { STYLE_FALLBACK_NOTE, type StylistCard } from '@/state/chat';
+import {
+  STYLE_FALLBACK_NOTE,
+  WARDROBE_UNAVAILABLE_CODE,
+  WARDROBE_UNAVAILABLE_MESSAGE,
+  type StylistCard,
+} from '@/state/chat';
 import { reasonLabel } from '@/state/stylist';
 
 const INK = Editorial.ink;
@@ -40,12 +45,16 @@ export function StylistCardGroup({
   onAlternative,
   onRetry,
   onRenderRetry,
+  wardrobeBased,
+  onOpenWardrobe,
 }: {
   cards: StylistCard[];
   onSelect: (personaId: StylistId) => void;
   onAlternative: (personaId: StylistId) => void;
   onRetry: (personaId: StylistId) => void;
   onRenderRetry: (personaId: StylistId) => void;
+  wardrobeBased: boolean;
+  onOpenWardrobe: () => void;
 }) {
   /* 목업으로 그리는 중이면 숨기지 않고 말한다. 지어낸 코디를 진짜 추천으로 읽고
      스크린샷이 돌아다니면 그게 더 큰 문제가 된다. (판정은 첫 목록 조회에서 이미 끝나 있어
@@ -70,6 +79,8 @@ export function StylistCardGroup({
           onAlternative={() => onAlternative(card.personaId)}
           onRetry={() => onRetry(card.personaId)}
           onRenderRetry={() => onRenderRetry(card.personaId)}
+          wardrobeBased={wardrobeBased}
+          onOpenWardrobe={onOpenWardrobe}
         />
       ))}
     </View>
@@ -82,15 +93,21 @@ function StylistOutfitCard({
   onAlternative,
   onRetry,
   onRenderRetry,
+  wardrobeBased,
+  onOpenWardrobe,
 }: {
   card: StylistCard;
   onSelect: () => void;
   onAlternative: () => void;
   onRetry: () => void;
   onRenderRetry: () => void;
+  wardrobeBased: boolean;
+  onOpenWardrobe: () => void;
 }) {
   const [openReasons, setOpenReasons] = useState(false);
   const waiting = card.status === 'PENDING' || card.status === 'RUNNING';
+  const wardrobeUnavailable =
+    wardrobeBased && card.errorCode === WARDROBE_UNAVAILABLE_CODE;
 
   return (
     <View style={styles.card}>
@@ -122,13 +139,22 @@ function StylistOutfitCard({
           <View style={styles.failedRow}>
             <Icon name="exclamationmark.triangle" tintColor={Editorial.wine} size={13} />
             <Text style={styles.failedText}>
-              {card.errorText ?? '이 관점에서는 코디를 만들지 못했어요.'}
+              {wardrobeUnavailable
+                ? WARDROBE_UNAVAILABLE_MESSAGE
+                : card.errorText ?? '이 관점에서는 코디를 만들지 못했어요.'}
             </Text>
           </View>
-          <Pressable style={styles.ghostBtn} onPress={onRetry}>
-            <Icon name="arrow.clockwise" tintColor={INK} size={13} />
-            <Text style={styles.ghostText}>이 스타일리스트만 다시</Text>
-          </Pressable>
+          {wardrobeUnavailable ? (
+            <Pressable style={styles.wardrobeBtn} onPress={onOpenWardrobe}>
+              <Icon name="plus" tintColor="#fff" size={13} />
+              <Text style={styles.wardrobeBtnText}>옷장에 옷 추가하기</Text>
+            </Pressable>
+          ) : (
+            <Pressable style={styles.ghostBtn} onPress={onRetry}>
+              <Icon name="arrow.clockwise" tintColor={INK} size={13} />
+              <Text style={styles.ghostText}>이 스타일리스트만 다시</Text>
+            </Pressable>
+          )}
         </View>
       ) : (
         <>
@@ -310,6 +336,18 @@ const styles = StyleSheet.create({
   failed: { gap: 10 },
   failedRow: { flexDirection: 'row', alignItems: 'flex-start', gap: 6 },
   failedText: { flex: 1, fontSize: Type.caption, color: Editorial.wine, lineHeight: 18 },
+  wardrobeBtn: {
+    alignSelf: 'flex-start',
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 5,
+    height: 38,
+    paddingHorizontal: 14,
+    borderRadius: 999,
+    backgroundColor: Editorial.cta,
+  },
+  wardrobeBtnText: { fontSize: Type.caption, color: '#fff', fontWeight: '600' },
 
   message: { fontSize: Type.footnote, color: INK, lineHeight: 21 },
   refMatch: { gap: 6 },
