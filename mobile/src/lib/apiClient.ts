@@ -163,7 +163,15 @@ export async function apiFetch<T = unknown>(
   path: string,
   options: RequestOptions = {},
 ): Promise<T> {
-  const { body, auth = true, headers, _retried, timeoutMs, ...rest } = options;
+  const {
+    body,
+    auth = true,
+    headers,
+    credentials = 'include',
+    _retried,
+    timeoutMs,
+    ...rest
+  } = options;
 
   const token = auth ? await getAccessToken() : null;
 
@@ -176,6 +184,7 @@ export async function apiFetch<T = unknown>(
     (signal) =>
       fetch(`${API_BASE_URL}${path}`, {
         ...rest,
+        credentials,
         signal,
         headers: {
           Accept: 'application/json',

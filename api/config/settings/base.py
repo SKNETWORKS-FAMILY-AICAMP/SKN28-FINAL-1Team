@@ -359,6 +359,11 @@ OAUTH_REQUEST_TIMEOUT = int(os.getenv("OAUTH_REQUEST_TIMEOUT", "10"))
 CORS_ALLOWED_ORIGINS = [
     o.strip() for o in os.getenv("CORS_ALLOWED_ORIGINS", "").split(",") if o.strip()
 ]
+CORS_ALLOW_CREDENTIALS = os.getenv("CORS_ALLOW_CREDENTIALS", "true").lower() in {
+    "1",
+    "true",
+    "yes",
+}
 # ------------------------------------------------------------
 # 옷장 (wardrobe) — S3 / 처리 큐
 # 상세 값은 apps/wardrobe/services/* 에서 환경변수로 직접 읽는다.

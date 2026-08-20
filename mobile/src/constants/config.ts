@@ -383,8 +383,8 @@ export const LookbookEndpoints = {
  * ⚠️ 응답 본문의 `events_url` 을 그대로 쓰지 말 것. 서버가 build_absolute_uri 로 만드는데
  *    터널/프록시 뒤에서는 스킴이 `http://` 로 유실돼, https 로 열린 웹에서 mixed content 로
  *    차단된다. 아래 runEvents() 로 직접 조립한다.
- * ⚠️ 게스트 채팅(/chat/guest/)은 **HttpOnly 쿠키**로 신원을 잡는 방식이라 네이티브·크로스
- *    오리진에서 다루기 까다롭다. 지금은 로그인 사용자만 붙인다.
+ * ⚠️ 게스트 채팅(/chat/guest/)은 **HttpOnly 쿠키**로 신원을 잡는다. apiClient와 multipart
+ *    업로더 모두 자격증명을 포함해야 세션 생성 뒤 메시지·사진 요청에서도 같은 게스트로 이어진다.
  */
 /**
  * 사진 첨부 → 무드 분석 → 반영 여부는 **세 번의 호출**로 나뉜다.
@@ -402,6 +402,7 @@ export const LookbookEndpoints = {
  *    반영되고, 다음 질문부터 그 무드가 조건으로 쓰인다.
  */
 export const ChatEndpoints = {
+  guest: '/api/v1/chat/guest/',
   sessions: '/api/v1/chat/sessions/',
   session: (sessionId: string) => `/api/v1/chat/sessions/${sessionId}/`,
   messages: (sessionId: string) => `/api/v1/chat/sessions/${sessionId}/messages/`,

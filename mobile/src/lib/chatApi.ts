@@ -126,6 +126,11 @@ export type ApiChatSession = {
   persona_selection_updated_at?: string | null;
 };
 
+export type ApiGuestIdentity = {
+  identity_id: string;
+  expires_at: string;
+};
+
 export type ApiChatRun = {
   id: string;
   session_id: string;
@@ -177,7 +182,17 @@ export function listSessions(): Promise<ApiChatSession[]> {
   return api.get<ApiChatSession[]>(ChatEndpoints.sessions);
 }
 
-export function createSession(mode: ApiChatMode, title?: string): Promise<ApiChatSession> {
+export function ensureGuestIdentity(): Promise<ApiGuestIdentity> {
+  return api.post<ApiGuestIdentity>(ChatEndpoints.guest, undefined, { auth: false });
+}
+
+export async function createSession(
+  mode: ApiChatMode,
+  title?: string,
+): Promise<ApiChatSession> {
+  if (!(await getAccessToken())) {
+    await ensureGuestIdentity();
+  }
   return api.post<ApiChatSession>(ChatEndpoints.sessions, { mode, ...(title ? { title } : {}) });
 }
 

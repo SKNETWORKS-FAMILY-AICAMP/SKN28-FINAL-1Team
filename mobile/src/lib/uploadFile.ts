@@ -47,6 +47,8 @@ export function uploadMultipart(
   return new Promise((resolve, reject) => {
     const xhr = new XMLHttpRequest();
     xhr.open('POST', url);
+    // 게스트 채팅은 HttpOnly 쿠키가 신원 증명이다. 웹의 크로스 오리진 업로드에도 포함한다.
+    xhr.withCredentials = true;
     xhr.setRequestHeader('Accept', 'application/json');
     if (options.token) xhr.setRequestHeader('Authorization', `Bearer ${options.token}`);
     // Content-Type 은 직접 넣지 않는다 — boundary 를 XHR 이 붙여야 한다.
