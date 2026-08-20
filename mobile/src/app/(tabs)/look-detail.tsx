@@ -26,7 +26,7 @@ import { useDailyLook } from '@/hooks/use-daily-look';
 import { useHome } from '@/hooks/use-home';
 import { DAILY_LOOK_ONCE_A_DAY, dailyLookPhase } from '@/lib/dailyLookApi';
 import { DetailTwoPane } from '@/components/detail-two-pane';
-import { useDiscoveryLook } from '@/hooks/use-discovery-look';
+import { isDiscoveryLookId, useDiscoveryLook } from '@/hooks/use-discovery-look';
 import type { LookVariant } from '@/constants/today-look';
 import { sameSlotSimilarProducts } from '@/lib/discoveryLookPresentation';
 
@@ -70,7 +70,11 @@ export default function LookDetail() {
     stalled: dailyStalled,
     reload: reloadDailyLook,
   } = useDailyLook(isLoggedIn, home ? home.daily_look : undefined);
-  const discoveryLook = useDiscoveryLook(id);
+  const {
+    look: discoveryLook,
+    failed: discoveryFailed,
+    reload: reloadDiscovery,
+  } = useDiscoveryLook(id);
   const apiVariant = useMemo(
     () => dailyLookToVariant(dailyLook, golden),
     [dailyLook, golden],
@@ -278,6 +282,35 @@ export default function LookDetail() {
      2. 로그인 사용자인데 추천이 아직 안 됐다(생성 중·후보 없음·실패).
 
      비회원은 여기 걸리지 않는다 — 둘러보기로 들어온 사람에게는 샘플 룩이 빈 화면보다 낫다. */
+  /* 둘러보기 룩도 조회가 끝나기 전에는 목업으로 물러나지 않는다.
+     예전에는 useDiscoveryLook 이 로딩 중에도 null 을 줘서 아래 resolveLookVariant 가
+     번들 목업 룩을 그렸다 — 목록에서 고른 것과 다른 사진이 잠깐 떴다가 실제 룩으로
+     바뀌어, 방금 본 것이 가짜였다는 인상만 남았다. 오늘의 룩 경로와 같은 규칙이다. */
+  if (isDiscoveryLookId(id) && !discoveryVariant) {
+    return (
+      <View style={styles.container}>
+        <SafeAreaView edges={['top']} style={styles.headerSafe}>
+          <View style={[styles.header, contentStyle(maxW)]}>
+            <Pressable hitSlop={12} onPress={() => goBack(backTo(from, '/(tabs)/lookbook'))}>
+              <Icon name="chevron.left" tintColor={INK} size={20} />
+            </Pressable>
+            <Text style={styles.headerTitle}>추천 룩</Text>
+            <View style={styles.headerRight} />
+          </View>
+        </SafeAreaView>
+        {discoveryFailed ? (
+          <ErrorState
+            title="룩을 불러오지 못했어요"
+            description="잠시 뒤 다시 시도해 주세요."
+            onRetry={reloadDiscovery}
+          />
+        ) : (
+          <LoadingState message="룩을 불러오는 중이에요…" />
+        )}
+      </View>
+    );
+  }
+
   if (isDailyRoute && (authLoading || (isLoggedIn && dailyPhase !== 'ready'))) {
     return (
       <View style={styles.container}>
