@@ -62,6 +62,15 @@ export type SavedLook = {
    * 뺄 때 그 룩을 못 찾는다. 골든 id 는 그 코디를 가리키는 유일하게 안정된 값이다.
    */
   goldenId?: string;
+  /**
+   * 둘러보기(큐레이션) 룩에서 담았을 때 그 원본 룩 id (`curated-…`).
+   *
+   * goldenId 와 같은 이유로 필요하다 — 저장하면 서버가 사진을 **자기 것으로 복사**해
+   * image 가 원본 커버 주소와 달라진다. 그래서 사진으로 판정하는 keyOf 는 여기서도
+   * 무력했다: 담아 둔 룩을 상세에서 '취소'로 못 찾아 화면만 꺼지고 서버엔 남았고,
+   * 한 번 더 누르면 같은 룩이 두 번 담겼다.
+   */
+  sourceId?: string;
   /** 이 룩을 이룬 옷 — 직접 기록한 룩(origin 'closet')에만 있다 */
   items?: EntryItem[];
   /** 그날의 일정 — '팀 회의', '친구 결혼식' */
@@ -155,6 +164,8 @@ type Overlay = {
   origin?: LookOrigin;
   /** 캘린더 쪽에서 먼저 만든 기록과 이어 붙인 경우 — 서버는 이 연결을 모른다. */
   entryDate?: string;
+  /** 둘러보기 원본 룩 id. 서버 DTO 에 자리가 없어 여기 얹는다(앱을 껐다 켜면 사라진다). */
+  sourceId?: string;
 };
 const overlays: Record<string, Overlay> = {};
 const RECOMMENDATION_CARD_LOOKBOOK_PREFIX = 'recommendation-card:';
@@ -200,6 +211,7 @@ function toLook(dto: LookbookPostDto): SavedLook {
           : 'daily'
         : (overlay.origin ?? (items.length > 0 ? 'closet' : 'ai')),
     goldenId: dto.golden_id || undefined,
+    sourceId: overlay.sourceId,
     items: items.length ? items : undefined,
     note: dto.schedule || undefined,
     entryDate: dto.calendar?.date ?? overlay.entryDate,
@@ -220,6 +232,9 @@ export const savedLookStore = {
   /** 이 골든 코디를 이미 담아 뒀는가. 사진(presigned)이 아니라 코디 id 로 본다. */
   getByGoldenId: (goldenId: string) =>
     goldenId ? savedLooks.find((l) => l.goldenId === goldenId) : undefined,
+  /** 이 둘러보기 룩을 이미 담아 뒀는가. 위와 같은 이유로 사진이 아니라 원본 id 로 본다. */
+  getBySourceId: (sourceId: string) =>
+    sourceId ? savedLooks.find((l) => l.sourceId === sourceId) : undefined,
   /**
    * 저장. 사진이 같은 룩이 이미 있으면 중복 추가하지 않고 기존 것을 돌려준다.
    * origin 기본값이 'ai' 인 이유: 이 함수를 부르는 기존 자리(홈·룩 상세)가 전부 추천 룩 저장이다.
@@ -261,6 +276,8 @@ export const savedLookStore = {
 
   async addLook(input: {
     image?: string;
+    /** 둘러보기 원본 룩 id — 저장 뒤에도 '같은 룩'인지 알아보기 위한 유일한 안정 값 */
+    sourceId?: string;
     asset?: number;
     comment?: string;
     tags?: string[];
@@ -286,6 +303,12 @@ export const savedLookStore = {
     /* 추천 룩 저장은 같은 카드를 여러 번 담지 않도록 사진으로 중복을 막는다.
        반면 직접 기록한 룩은 같은 사진을 다른 날짜에 다시 입을 수 있으므로,
        사진이 같더라도 각각의 착장 기록으로 남겨야 한다. */
+    /* 사진으로 보기 전에 원본 id 로 먼저 본다 — 저장하면 서버가 사진을 자기 것으로
+       복사해 주소가 달라지므로, 사진만 보면 같은 룩을 또 담게 된다. */
+    const bySource = input.sourceId
+      ? savedLooks.find((l) => l.sourceId === input.sourceId)
+      : undefined;
+    if (bySource) return bySource;
     const existing =
       input.origin === 'closet' || key == null
         ? undefined
@@ -325,6 +348,7 @@ export const savedLookStore = {
       reason: input.reason,
       origin,
       entryDate: input.entryDate,
+      sourceId: input.sourceId,
     };
     const look = toLook(dto);
     serverLooks = [look, ...serverLooks];
@@ -431,6 +455,7 @@ export const savedLookStore = {
 function addLocalLook(
   input: {
     image?: string;
+    sourceId?: string;
     asset?: number;
     comment?: string;
     tags?: string[];
@@ -448,6 +473,7 @@ function addLocalLook(
     comment: input.comment,
     reason: input.reason,
     origin,
+    sourceId: input.sourceId,
     items: input.items?.length ? input.items : undefined,
     note: input.note?.trim() || undefined,
     entryDate: input.entryDate,
