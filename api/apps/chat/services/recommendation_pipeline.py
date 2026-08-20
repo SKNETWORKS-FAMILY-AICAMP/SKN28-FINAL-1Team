@@ -469,6 +469,7 @@ class ChatRecommendationPipeline:
                         # 요청 TPO를 아이템 선택까지 내린다. 이게 없으면 출근룩
                         # 액세서리 슬롯이 밀짚모자·라탄백으로 채워진다.
                         occasion_kind=analysis.conditions.occasion_kind,
+                        gender=self._gender(context),
                     )
                     if (
                         scoped_item_ids

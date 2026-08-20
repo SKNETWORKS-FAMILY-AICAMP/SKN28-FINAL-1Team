@@ -6,6 +6,7 @@
 
 from __future__ import annotations
 
+import logging
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass, field, replace
 from enum import StrEnum
@@ -13,6 +14,7 @@ from typing import Any
 
 from qdrant_client import models as qm
 
+from apps.recommend.services.gender import conflicting_item
 from apps.recommend.services.qdrant import (
     GOLDEN_ITEM_COLLECTION,
     IMAGE_VECTOR,
@@ -54,6 +56,9 @@ class ItemRetrievalRequest:
     limit_per_source: int = 10
     #: 사용자가 명시적으로 기피한 태그 (Qdrant 필드명 -> 라벨).
     avoided_tags: Mapping[str, tuple[str, ...]] = field(default_factory=dict)
+    #: 사용자 성별. 골든 코디에만 걸려 있던 성별 충돌 검사를 아이템 치환에도 쓴다 —
+    #: 상품 payload에 성별 필드가 없어 규칙 기반 conflicting_item()으로 판정한다.
+    gender: str = ""
     #: 요청 상황 분류(OccasionKind). 자유 문구가 아니라 표준 분류값이라
     #: 표현이 갈라져도 규칙이 새지 않는다.
     occasion_kind: str = ""
@@ -140,6 +145,9 @@ def _match_any(field_name: str, values: Iterable[str]) -> qm.FieldCondition:
 #:
 #: "에어리즘 민소매 캐미솔 런닝"이 나들이룩 상의로 뽑힌 적이 있다. 이건 치환이 원본과
 #: 달라진 문제가 아니라 애초에 코디 아이템이 아닌 것이라, 후보 단계에서 뺀다.
+logger = logging.getLogger(__name__)
+
+
 _EXCLUDED_USAGE = ("수면", "홈웨어", "언더웨어", "속옷")
 
 #: TPO와 정면으로 어긋나는 용도. 위 _EXCLUDED_USAGE가 "언제든 코디 아이템이 아닌 것"이라면
@@ -271,6 +279,15 @@ _REPLACEMENT_PENALTY = (
     ("fit", 0.15),
 )
 
+#: 색은 별도로 다룬다. 형식이 양쪽에서 다르고(골든은 '브라운', 상품은 ['블랙'])
+#: 상품의 68퍼센트가 비어 있어 단순 문자열 비교가 성립하지 않는다. 교집합으로 본다.
+#:
+#: 감점이 작은 이유는, 색까지 강하게 걸면 같은 종류 후보가 색 때문에 전부 밀려
+#: 후보가 말라붙기 때문이다. 같은 종류·같은 계열이 있으면 그쪽을 고르고, 없으면
+#: 다른 색이라도 쓴다. 출근 코디에 분홍 니트가 1순위로 오던 건 이 축이 아예
+#: 없어서였다 — 종류만 같으면 무슨 색이든 만점이었다.
+_COLOR_PENALTY = 0.10
+
 
 def replacement_fit(
     template_payload: dict[str, Any],
@@ -287,7 +304,35 @@ def replacement_fit(
             continue
         fit -= penalty
         notes.append(f"골든 기준 {field_name} '{origin}' 대신 '{replaced}'")
+
+    origin_colors = _payload_tag_values(template_payload, "color")
+    replaced_colors = _payload_tag_values(candidate_payload, "color")
+    if origin_colors and replaced_colors and not (origin_colors & replaced_colors):
+        fit -= _COLOR_PENALTY
+        notes.append(
+            f"골든 기준 색 '{'/'.join(sorted(origin_colors))}' 대신 "
+            f"'{'/'.join(sorted(replaced_colors))}'"
+        )
     return max(fit, 0.0), tuple(notes)
+
+
+def _drop_gender_conflicts(
+    candidates: list[ItemCandidate],
+    gender: str,
+) -> list[ItemCandidate]:
+    """사용자 성별과 충돌하는 아이템을 후보에서 뺀다.
+
+    전부 걸리면 원본을 그대로 둔다 — 슬롯을 못 채우면 조합 자체가 실패한다.
+    """
+    if not gender:
+        return candidates
+    kept = []
+    for candidate in candidates:
+        if conflict := conflicting_item([candidate.payload], gender):
+            logger.info("성별 충돌로 아이템 후보 제외: %s (%s)", candidate.source_id, conflict)
+            continue
+        kept.append(candidate)
+    return kept or candidates
 
 
 def _rank_by_fit(
@@ -415,7 +460,7 @@ class ItemCandidateRetriever:
             candidate
             for source_type in request.sources
             for candidate in _rank_by_fit(
-                by_source.get(source_type, []),
+                _drop_gender_conflicts(by_source.get(source_type, []), request.gender),
                 request.preferred_tags,
                 template.payload,
             )
