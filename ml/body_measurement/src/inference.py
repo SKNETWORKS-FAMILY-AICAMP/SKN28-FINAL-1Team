@@ -326,7 +326,9 @@ def apply_ratios(measurements: dict[str, float]) -> dict[str, float]:
 def estimate_from_basic(gender: str, height: float, weight: float) -> dict[str, float]:
     """성별·키·몸무게로 치수 12개를 추정하고 비율 2개를 계산한다 (총 14개).
 
-    길이·기본 9개와 둘레 3개는 학습 데이터가 달라 모델이 둘로 나뉘어 있다.
+    학습 데이터가 달라 모델이 셋으로 나뉘어 있다 — 코어 둘레 4개(181 모델),
+    길이 5개(exact_lengths_v2 모델), 부가 둘레 3개(circumference 모델).
+    181 모델은 길이도 함께 내놓지만 옛 랜드마크 정의라 CORE_TARGETS만 취한다.
     길이 모델은 비율 2개도 함께 내놓지만 그 출력은 버리고 계산값으로 대체한다.
     """
     features = _build_features(gender, height, weight)
