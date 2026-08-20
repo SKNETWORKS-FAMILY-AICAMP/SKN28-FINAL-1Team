@@ -1522,13 +1522,16 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     paddingVertical: 8,
     borderRadius: 999,
-    backgroundColor: '#F3F4F6',
+    /* 차가운 회색(#F3F4F6/#E5E7EB)이 박혀 있어 오트 위에서 이 줄만 겉돌았다.
+       다른 칩들과 같이 면은 오트, 경계는 ink 램프를 쓴다. */
+    backgroundColor: Editorial.control,
     borderWidth: 1,
-    borderColor: '#E5E7EB',
+    borderColor: Editorial.line,
   },
   roomTabActive: {
-    backgroundColor: INK,
-    borderColor: INK,
+    /* 선택 상태는 앱 전체가 같은 색을 쓴다 — 여기만 웜블랙이라 검은 버튼으로 튀었다. */
+    backgroundColor: Editorial.selected,
+    borderColor: Editorial.selected,
   },
   roomTabAdd: {
     flexDirection: 'row',
