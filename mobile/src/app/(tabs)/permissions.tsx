@@ -6,6 +6,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { Editorial, ink, Fonts , ContentMax} from '@/constants/theme';
 import { useBreakpoint } from '@/hooks/use-breakpoint';
+import { goBack } from '@/lib/goBack';
 
 const INK = Editorial.ink;
 
@@ -110,13 +111,17 @@ export default function Permissions() {
           <Pressable
             style={[styles.cta, !requiredOk && styles.ctaDisabled]}
             disabled={!requiredOk}
+            /* 온보딩 중이면 다음 단계(체형)로, 아니면 **들어온 자리로 돌아간다.**
+               예전엔 둘 다 push 라, 마이 > 데이터·권한 관리에서 들어와 눌러도
+               난데없이 추구미 설정이 열렸다 — 권한만 보러 온 사람에게는 흐름이 끊긴다. */
             onPress={() =>
               onboarding === '1'
                 ? router.push({ pathname: '/measure-input', params: { returnTo: 'onboarding' } })
-                : router.push('/style-onboarding')
+                : goBack('/(tabs)/my')
             }>
             <Text style={styles.ctaText}>
-              {requiredOk ? '허용하고 계속' : '필수 권한을 켜주세요'}
+              {/* 온보딩이 아니면 '계속'할 다음 단계가 없다. 무엇을 하는 버튼인지 그대로 적는다. */}
+              {!requiredOk ? '필수 권한을 켜주세요' : onboarding === '1' ? '허용하고 계속' : '완료'}
             </Text>
           </Pressable>
         </View>
