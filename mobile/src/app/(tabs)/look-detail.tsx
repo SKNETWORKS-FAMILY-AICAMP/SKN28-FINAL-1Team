@@ -24,7 +24,7 @@ import type { LookRelated } from '@/constants/today-look';
 import { useBreakpoint } from '@/hooks/use-breakpoint';
 import { useDailyLook } from '@/hooks/use-daily-look';
 import { useHome } from '@/hooks/use-home';
-import { dailyLookPhase } from '@/lib/dailyLookApi';
+import { DAILY_LOOK_ONCE_A_DAY, dailyLookPhase } from '@/lib/dailyLookApi';
 import { DetailTwoPane } from '@/components/detail-two-pane';
 import { useDiscoveryLook } from '@/hooks/use-discovery-look';
 import type { LookVariant } from '@/constants/today-look';
@@ -531,6 +531,10 @@ export default function LookDetail() {
             ))}
           </View>
 
+          {/* 하단 [다른 룩]은 오늘 함께 뽑아 둔 후보를 돌려보는 버튼이다 — 새로 만드는 게
+              아니라는 걸 여기서 밝힌다. 홈 카드와 같은 문구를 쓴다. */}
+          <Text style={styles.onceADay}>{DAILY_LOOK_ONCE_A_DAY}</Text>
+
           {/* 피드백 */}
           <View style={styles.feedback}>
             <Text style={styles.feedbackLabel}>이 추천 어떠세요?</Text>
@@ -761,6 +765,8 @@ const styles = StyleSheet.create({
   pinNum: { fontSize: 11, color: '#fff', fontWeight: '700' },
   reasonText: { flex: 1, fontSize: 13.5, color: Editorial.textSoft, lineHeight: 20 },
 
+  /* 추천 이유 아래 한 줄 — 본문보다 낮은 톤으로, 룩을 가리지 않는다. */
+  onceADay: { marginTop: 14, fontSize: 12, lineHeight: 18, color: Editorial.textSoft },
   feedback: { marginTop: 28, alignItems: 'center', gap: 12 },
   feedbackLabel: { fontSize: 13, color: Editorial.textCaption },
   voteRow: { flexDirection: 'row', gap: 10 },
