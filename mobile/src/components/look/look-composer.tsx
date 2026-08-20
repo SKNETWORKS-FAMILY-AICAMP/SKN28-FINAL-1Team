@@ -19,6 +19,7 @@ import { ContentMax, Editorial, ink, Type } from '@/constants/theme';
 import { useBreakpoint } from '@/hooks/use-breakpoint';
 import { goBack } from '@/lib/goBack';
 import { pickFromAlbum, pickFromCamera } from '@/lib/pickItemPhoto';
+import { outfitAnalysisStore } from '@/state/outfit-analysis';
 import {
   calendarErrorMessage,
   calendarStore,
@@ -69,6 +70,9 @@ export function LookComposer({ date }: { date?: string }) {
   const twoCol = primaryWidth >= 560;
 
   const [photo, setPhoto] = useState<string | undefined>(existing?.photo);
+  /* 사진 속 옷을 옷장에도 담을지. 기본은 끔 — 분석에 몇 분이 걸리고, 이미 옷장에 있는
+     옷을 다시 올리는 경우가 더 흔하다. 켠 사람만 태운다. */
+  const [saveToWardrobe, setSaveToWardrobe] = useState(false);
   /* 인사이트에서 옷을 눌러 들어오면 그 옷이 담긴 채로 시작한다.
      기존 기록을 여는 경우엔 그쪽이 먼저다 — 수정하러 왔는데 다른 옷이 끼면 안 된다. */
   const [items, setItems] = useState<EntryItem[]>(
@@ -255,6 +259,7 @@ export function LookComposer({ date }: { date?: string }) {
             : '착장을 기록했어요',
         { variant: 'success' },
       );
+      startWardrobeRegistration();
       goBack('/(tabs)/calendar');
       return;
     }
@@ -287,7 +292,28 @@ export function LookComposer({ date }: { date?: string }) {
     toast(linkOn ? '룩북에 올리고 캘린더에도 기록했어요' : '룩북에 올렸어요', {
       variant: 'success',
     });
+    startWardrobeRegistration();
     router.navigate('/(tabs)/lookbook?tab=mine');
+  };
+
+  /**
+   * 사진 속 옷을 옷장에 담는다 — 착장 분석 파이프라인이 옷을 하나씩 갈라 등록한다.
+   *
+   * 기다리지 않는다(void). 분석은 몇 분 걸리는데 그동안 저장 화면을 붙잡아 두면
+   * 방금 저장한 기록을 보러 갈 수도 없다. 진행 상황은 홈의 분석 카드에서 보인다.
+   * 실패해도 저장은 이미 끝났으므로 알림만 남긴다.
+   */
+  const startWardrobeRegistration = () => {
+    if (!saveToWardrobe || !photo) return;
+    void outfitAnalysisStore
+      .start(photo, true)
+      .then(() => toast('사진 속 옷을 옷장에 담는 중이에요', { variant: 'success' }))
+      .catch((error: unknown) =>
+        toast(
+          error instanceof Error ? error.message : '옷장에 담지 못했어요',
+          { variant: 'error' },
+        ),
+      );
   };
 
   const handleDelete = async () => {
@@ -491,6 +517,25 @@ export function LookComposer({ date }: { date?: string }) {
                     <View style={[styles.knob, linkOn && styles.knobOn]} />
                   </View>
                 </Pressable>
+
+                {/* 사진이 있을 때만 — 옷을 갈라낼 원본이 없으면 켤 수 없는 선택지다.
+                    (착장 분석과 같은 파이프라인을 쓴다: outfit-review 의 같은 선택과 한 짝) */}
+                {photo ? (
+                  <Pressable
+                    style={styles.optionRow}
+                    onPress={() => setSaveToWardrobe((v) => !v)}>
+                    <View style={styles.optionIcon}>
+                      <Icon name="tshirt" tintColor={INK} size={17} />
+                    </View>
+                    <View style={styles.optionBody}>
+                      <Text style={styles.optionTitle}>이 사진 속 옷도 옷장에 등록하기</Text>
+                      <Text style={styles.optionDesc}>옷을 하나씩 분리해 담아요. 몇 분 걸려요</Text>
+                    </View>
+                    <View style={[styles.switch, saveToWardrobe && styles.switchOn]}>
+                      <View style={[styles.knob, saveToWardrobe && styles.knobOn]} />
+                    </View>
+                  </Pressable>
+                ) : null}
 
                 {/* 고른 날짜는 폼에 남겨 둔다 — 토글을 켤 때 시트가 바로 뜨지만, 거기서 그냥 닫으면
                     기본값(오늘)이 조용히 저장된다. 어느 날에 저장되는지는 늘 보여야 하고,
