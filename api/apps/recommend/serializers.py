@@ -23,7 +23,7 @@ from .models import (
     SavedOutfit,
     WishlistItem,
 )
-from .services import storage, wardrobe_link
+from .services import item_images, storage, wardrobe_link
 
 MAX_OUTFIT_IMAGE_SIZE_MB = 15
 ALLOWED_OUTFIT_IMAGE_CONTENT_TYPES = {
@@ -744,6 +744,7 @@ class RecommendationCardItemSerializer(serializers.ModelSerializer):
     category = serializers.SerializerMethodField()
     color = serializers.SerializerMethodField()
     purchase_url = serializers.SerializerMethodField()
+    image_url = serializers.SerializerMethodField()
 
     class Meta:
         model = OutfitCompositionItem
@@ -757,6 +758,7 @@ class RecommendationCardItemSerializer(serializers.ModelSerializer):
             "category",
             "color",
             "image_ref",
+            "image_url",
             "price_snapshot",
             "purchase_url",
             "reasons",
@@ -787,6 +789,11 @@ class RecommendationCardItemSerializer(serializers.ModelSerializer):
 
     def get_color(self, obj: OutfitCompositionItem) -> str | None:
         return _snapshot_label(obj.item_snapshot, "color", "base_color")
+
+    @extend_schema_field(serializers.URLField(allow_null=True))
+    def get_image_url(self, obj: OutfitCompositionItem):
+        """화면에 바로 걸 수 있는 주소. image_ref는 대부분 비공개 S3 키다."""
+        return item_images.image_url_for(obj)
 
     def get_purchase_url(self, obj: OutfitCompositionItem) -> str | None:
         if obj.source_type != OutfitCompositionItem.SourceType.PRODUCT:

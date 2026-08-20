@@ -24,9 +24,15 @@ export type ApiRecommendationItem = {
   color: string | null;
   /**
    * ⚠️ **바로 쓸 수 있는 주소가 아닐 수 있다.** 백엔드 주석이 "S3 키 또는 검증된 URL" 이라,
-   *    옷장 아이템은 키가, 상품은 URL 이 들어오는 식으로 섞인다. imageUrlOf() 로 거른다.
+   *    옷장 아이템은 키가, 상품은 URL 이 들어오는 식으로 섞인다. 화면에는 image_url 을 쓴다.
    */
   image_ref: string;
+  /**
+   * 화면에 바로 걸 수 있는 주소. 서버가 조회 시점에 만들어 주는 presigned URL 이라
+   * **만료된다** — 응답을 오래 들고 있다가 그리지 말고, 캐시에 굽지도 않는다.
+   * 만들 수 없으면 null 이고, 서버가 아직 이 필드를 모르면 undefined 다(구버전 호환).
+   */
+  image_url?: string | null;
   /** 옷장 아이템이면 null (살 필요가 없으므로 가격이 없다) */
   price_snapshot: number | null;
   purchase_url: string | null;
@@ -100,6 +106,19 @@ export type ApiRecommendationResult = {
 export function imageUrlOf(imageRef: string | null | undefined): string | null {
   if (!imageRef) return null;
   return /^https?:\/\//.test(imageRef) ? imageRef : null;
+}
+
+/**
+ * 추천 아이템 사진 주소. 서버가 주는 image_url 을 먼저 쓰고, 없으면 image_ref 로 물러선다.
+ *
+ * image_ref 폴백을 남기는 이유: 이 필드가 없던 시절의 응답(캐시·목업)과, 애초에 http 주소가
+ * 들어 있던 옛 상품 데이터가 아직 있다. 둘 다 아니면 null 이고 자리표시자가 뜬다.
+ */
+export function itemImageUrl(item: {
+  image_url?: string | null;
+  image_ref?: string | null;
+}): string | null {
+  return imageUrlOf(item.image_url) ?? imageUrlOf(item.image_ref);
 }
 
 export function getRecommendationResult(resultId: string): Promise<ApiRecommendationResult> {
