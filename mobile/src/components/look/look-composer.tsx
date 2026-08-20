@@ -17,7 +17,7 @@ import { Icon } from '@/components/icon';
 import { ModalShell, SmartImage, useConfirm, useToast } from '@/components/ui';
 import { ContentMax, Editorial, ink, Type } from '@/constants/theme';
 import { useBreakpoint } from '@/hooks/use-breakpoint';
-import { goBack } from '@/lib/goBack';
+import { goBack, goTo } from '@/lib/goBack';
 import { pickFromAlbum, pickFromCamera } from '@/lib/pickItemPhoto';
 import { outfitAnalysisStore } from '@/state/outfit-analysis';
 import {
@@ -332,7 +332,8 @@ export function LookComposer({ date }: { date?: string }) {
       return;
     }
     toast('기록을 지웠어요');
-    goBack('/(tabs)/calendar');
+    /* 지운 기록의 화면은 돌아갈 자리가 아니다. */
+    goTo('/(tabs)/calendar');
   };
 
   const backTo = mode === 'calendar' ? '/(tabs)/calendar' : '/(tabs)/lookbook';

@@ -1,7 +1,7 @@
 import { Icon } from '@/components/icon';
 import { ErrorState, LoadingState, SmartImage, useConfirm, useToast } from '@/components/ui';
 import { router, useFocusEffect, useLocalSearchParams } from 'expo-router';
-import { goBack } from '@/lib/goBack';
+import { goBack, goTo } from '@/lib/goBack';
 import { useCallback, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -187,7 +187,8 @@ export default function ItemDetail() {
          지운 옷이 그대로 보이지 않도록 목록을 다시 불러오라고 알린다. */
       bumpWardrobeRevision();
       toast('삭제했어요', { variant: 'success' });
-      goBack('/(tabs)/closet');
+      /* 지운 옷의 상세는 돌아갈 자리가 아니다 — 이력과 무관하게 옷장으로 보낸다. */
+      goTo('/(tabs)/closet');
     } catch (e) {
       toast(e instanceof Error ? e.message : '삭제하지 못했어요', { variant: 'error' });
     }
