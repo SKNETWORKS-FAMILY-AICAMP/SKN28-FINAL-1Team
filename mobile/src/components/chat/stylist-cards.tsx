@@ -1,4 +1,3 @@
-import { useState } from 'react';
 import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { Icon, type IconName } from '@/components/icon';
@@ -11,7 +10,6 @@ import {
   WARDROBE_UNAVAILABLE_MESSAGE,
   type StylistCard,
 } from '@/state/chat';
-import { reasonLabel } from '@/state/stylist';
 
 const INK = Editorial.ink;
 
@@ -104,7 +102,6 @@ function StylistOutfitCard({
   wardrobeBased: boolean;
   onOpenWardrobe: () => void;
 }) {
-  const [openReasons, setOpenReasons] = useState(false);
   const waiting = card.status === 'PENDING' || card.status === 'RUNNING';
   const wardrobeUnavailable =
     wardrobeBased && card.errorCode === WARDROBE_UNAVAILABLE_CODE;
@@ -241,35 +238,6 @@ function StylistOutfitCard({
             </View>
           ) : null}
 
-          {/* 점수에 반영된 항목들 — 접어 둔다. 펼치기 전에는 몇 개인지만 알려 준다.
-              '충족한 조건'이 아니라 '따져본 것'이다. 감점된 항목도 섞여 들어오기 때문에
-              충족 표시로 읽히면 안 된다 (state/stylist.ts 의 REASON_LABELS 주석). */}
-          {card.reasonCodes.length > 0 ? (
-            <View style={styles.reasons}>
-              <Pressable
-                style={styles.reasonToggle}
-                onPress={() => setOpenReasons((v) => !v)}
-                accessibilityRole="button"
-                accessibilityState={{ expanded: openReasons }}>
-                <Text style={styles.reasonToggleText}>따져본 것 {card.reasonCodes.length}</Text>
-                <Icon
-                  name={openReasons ? 'chevron.up' : 'chevron.down'}
-                  tintColor={Editorial.textCaption}
-                  size={12}
-                />
-              </Pressable>
-              {openReasons ? (
-                <View style={styles.reasonList}>
-                  {card.reasonCodes.map((code) => (
-                    <Text key={code} style={styles.reasonItem}>
-                      · {reasonLabel(code)}
-                    </Text>
-                  ))}
-                </View>
-              ) : null}
-            </View>
-          ) : null}
-
           <View style={styles.actions}>
             <Pressable
               style={[styles.primaryBtn, card.saved && styles.primaryBtnDone]}
@@ -374,12 +342,6 @@ const styles = StyleSheet.create({
   renderText: { flex: 1, fontSize: Type.caption, color: Editorial.textCaption },
   renderFailed: { gap: 8, paddingVertical: 4 },
   renderError: { fontSize: Type.caption, color: Editorial.wine, lineHeight: 18 },
-
-  reasons: { borderTopWidth: 1, borderTopColor: Editorial.lineSoft, paddingTop: 10, gap: 8 },
-  reasonToggle: { flexDirection: 'row', alignItems: 'center', gap: 5 },
-  reasonToggleText: { fontSize: Type.caption, color: Editorial.textCaption, fontWeight: '500' },
-  reasonList: { gap: 5, paddingLeft: 2 },
-  reasonItem: { fontSize: Type.caption, color: Editorial.textSoft, lineHeight: 19 },
 
   actions: { flexDirection: 'row', gap: 8, marginTop: 2 },
   primaryBtn: {
