@@ -1,9 +1,12 @@
 import logging
+from io import BytesIO
+from pathlib import Path
 
 from django.conf import settings
-from django.core.files.uploadedfile import UploadedFile
+from django.core.files.uploadedfile import SimpleUploadedFile, UploadedFile
 from django.urls import reverse
 from drf_spectacular.utils import extend_schema_field
+from PIL import Image, ImageOps
 from rest_framework import serializers
 
 from apps.lookbook.serializers import LookbookPostSerializer
@@ -27,14 +30,50 @@ ALLOWED_OUTFIT_IMAGE_CONTENT_TYPES = {
     "image/jpeg",
     "image/png",
     "image/webp",
+    "image/heic",
+    "image/heif",
 }
+
+try:
+    from pillow_heif import register_heif_opener
+
+    register_heif_opener()
+except ImportError:
+    logging.getLogger(__name__).warning(
+        "pillow-heif 미설치: iPhone HEIC 착장 사진을 처리할 수 없습니다."
+    )
+
+
+def _normalize_outfit_heic(image: UploadedFile) -> UploadedFile:
+    """인물사진·Live Photo의 정지 HEIC를 옷장 파이프라인 공용 JPEG로 만든다."""
+    position = image.tell()
+    image.seek(0)
+    try:
+        with Image.open(image) as opened:
+            if (opened.format or "").upper() not in {"HEIC", "HEIF"}:
+                image.seek(position)
+                return image
+            normalized = ImageOps.exif_transpose(opened)
+            if normalized.mode != "RGB":
+                normalized = normalized.convert("RGB")
+            buffer = BytesIO()
+            normalized.save(buffer, format="JPEG", quality=90, optimize=True)
+    finally:
+        image.seek(position)
+
+    stem = Path(image.name or "outfit").stem
+    return SimpleUploadedFile(
+        f"{stem}.jpg",
+        buffer.getvalue(),
+        content_type="image/jpeg",
+    )
 
 
 class OutfitAnalysisRequestSerializer(serializers.Serializer):
     """코디 평가 사진과 선택적인 위치를 검증한다."""
 
     image = serializers.ImageField(
-        help_text="평가할 코디 사진 (JPEG, PNG, WebP, 최대 15MB)",
+        help_text="평가할 코디 사진 (JPEG, PNG, WebP, HEIC, 최대 15MB)",
     )
     lat = serializers.FloatField(
         required=False,
@@ -66,9 +105,14 @@ class OutfitAnalysisRequestSerializer(serializers.Serializer):
             )
         if image.content_type not in ALLOWED_OUTFIT_IMAGE_CONTENT_TYPES:
             raise serializers.ValidationError(
-                "지원하지 않는 이미지 형식입니다. JPEG, PNG, WebP만 사용할 수 있습니다."
+                "지원하지 않는 이미지 형식입니다. JPEG, PNG, WebP, HEIC만 사용할 수 있습니다."
             )
-        return image
+        normalized = _normalize_outfit_heic(image)
+        if normalized.size > MAX_OUTFIT_IMAGE_SIZE_MB * 1024 * 1024:
+            raise serializers.ValidationError(
+                f"변환된 이미지는 {MAX_OUTFIT_IMAGE_SIZE_MB}MB 이하여야 합니다."
+            )
+        return normalized
 
     def validate(self, attrs: dict) -> dict:
         if ("lat" in attrs) != ("lon" in attrs):

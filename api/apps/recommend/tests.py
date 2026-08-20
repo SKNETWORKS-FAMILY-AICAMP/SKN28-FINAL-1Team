@@ -14,6 +14,7 @@ from django.test import SimpleTestCase, TestCase, override_settings
 from django.urls import reverse
 from django.utils import timezone
 from PIL import Image
+from pillow_heif import from_pillow
 from rest_framework.test import APIClient
 
 from apps.recommend.models import OutfitAnalysis
@@ -96,6 +97,12 @@ def make_image_file(
     return SimpleUploadedFile(name, make_image_bytes(size), content_type="image/jpeg")
 
 
+def make_heic_file(name: str = "portrait.heic") -> SimpleUploadedFile:
+    buffer = BytesIO()
+    from_pillow(make_image((32, 48))).save(buffer, quality=90)
+    return SimpleUploadedFile(name, buffer.getvalue(), content_type="image/heic")
+
+
 
 def image_part_size(analysis: OutfitAnalysis) -> int:
     """자리표시자에 박아 둔 바이트 수를 되읽어 전송 크기를 확인한다."""
@@ -146,6 +153,32 @@ class OutfitAnalysisAcceptTests(TestCase):
         mock_context.assert_called_once()
         mock_upload.assert_called_once()
         mock_enqueue.assert_called_once()
+
+    @patch(
+        "apps.recommend.services.analysis.build_analysis_context",
+        return_value=CONTEXT,
+    )
+    def test_normalizes_iphone_heic_before_storage(
+        self,
+        _mock_context: Mock,
+        _mock_enqueue: Mock,
+        mock_upload: Mock,
+        _mock_configured: Mock,
+    ) -> None:
+        response = self.client.post(
+            self.url,
+            {"image": make_heic_file()},
+            format="multipart",
+        )
+
+        self.assertEqual(response.status_code, 202)
+        analysis = OutfitAnalysis.objects.get()
+        self.assertEqual(analysis.image_content_type, "image/jpeg")
+        self.assertTrue(analysis.image_s3_key.endswith("/original.jpg"))
+        uploaded, key, content_type = mock_upload.call_args.args
+        self.assertEqual(content_type, "image/jpeg")
+        self.assertEqual(key, analysis.image_s3_key)
+        self.assertEqual(uploaded.read(2), b"\xff\xd8")
 
     @patch("apps.recommend.services.analysis.gemini.evaluate_outfit")
     @patch(
