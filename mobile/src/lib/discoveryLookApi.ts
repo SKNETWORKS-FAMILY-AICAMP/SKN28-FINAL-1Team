@@ -51,7 +51,12 @@ export function getDiscoveryLooks(
   if (query.trim()) params.set('query', query.trim());
   if (tag.trim()) params.set('tag', tag.trim());
   return api.get<DiscoveryLookPage>(`${LookbookEndpoints.discover}?${params}`, { auth: false })
-    .then((page) => ({ ...page, results: page.results.map(normalizeLook) }));
+    .then((page) => ({
+      ...page,
+      /* map 의 콜백은 (값, 인덱스)를 넘긴다 — normalizeLook 을 그대로 건네면 인덱스가
+         coverWidth 자리에 들어가 두 번째 룩부터 ?w=1, ?w=2 … 가 붙는다. 감싸서 막는다. */
+      results: page.results.map((look) => normalizeLook(look, LIST_COVER_WIDTH)),
+    }));
 }
 
 export function getDiscoveryLook(id: string): Promise<DiscoveryLookDto> {
@@ -59,6 +64,21 @@ export function getDiscoveryLook(id: string): Promise<DiscoveryLookDto> {
     .then(normalizeLook);
 }
 
-function normalizeLook(look: DiscoveryLookDto): DiscoveryLookDto {
-  return { ...look, image: look.image.startsWith('/') ? `${API_BASE_URL}${look.image}` : look.image };
+/**
+ * 목록 카드에 쓸 커버 폭(px). 카드 한 칸이 195pt 라 2x 기준 390px 이면 충분하다.
+ *
+ * 서버가 이 파라미터를 받으면 그 폭의 JPEG 축소본을 준다 — 원본은 1080x1350 PNG 로
+ * 장당 약 2MB 라, 목록에서 그대로 받으면 한 화면이 수십 MB 가 된다(w=400 이면 약 37KB).
+ * 서버 화이트리스트에 있는 값이어야 한다(api/apps/lookbook/services/cover_image.py).
+ */
+const LIST_COVER_WIDTH = 400;
+
+/**
+ * 상대 경로로 오는 커버를 절대 주소로 바꾼다.
+ * coverWidth 를 주면 축소본을 요청한다 — 상세는 크게 봐야 하므로 주지 않는다.
+ */
+function normalizeLook(look: DiscoveryLookDto, coverWidth?: number): DiscoveryLookDto {
+  if (!look.image.startsWith('/')) return look;
+  const base = `${API_BASE_URL}${look.image}`;
+  return { ...look, image: coverWidth ? `${base}?w=${coverWidth}` : base };
 }
