@@ -6,6 +6,7 @@ import { useEffect, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
   Modal,
+  Platform,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -29,6 +30,7 @@ type HashtagItemManageSheetProps = {
 const ITEM_COLUMNS = 5;
 const ITEM_GAP = 8;
 const ITEM_COPY_HEIGHT = 42;
+const WEB_SHEET_MAX_WIDTH = 640;
 
 function sameIds(left: Set<string>, right: Set<string>): boolean {
   return left.size === right.size && [...left].every((id) => right.has(id));
@@ -43,7 +45,8 @@ export function HashtagItemManageSheet({
   onDelete,
 }: HashtagItemManageSheetProps) {
   const { width } = useWindowDimensions();
-  const sheetWidth = Math.min(width, GridCard.maxWidth);
+  const sheetMaxWidth = Platform.OS === 'web' ? WEB_SHEET_MAX_WIDTH : GridCard.maxWidth;
+  const sheetWidth = Math.min(width, sheetMaxWidth);
   const cardWidth =
     (sheetWidth - GridCard.pad * 2 - ITEM_GAP * (ITEM_COLUMNS - 1)) / ITEM_COLUMNS;
   const twoRowHeight = (cardWidth + ITEM_COPY_HEIGHT) * 2 + ITEM_GAP;

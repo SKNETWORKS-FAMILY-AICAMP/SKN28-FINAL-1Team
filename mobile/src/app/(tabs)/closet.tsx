@@ -1519,16 +1519,18 @@ const styles = StyleSheet.create({
     marginBottom: 12,
   },
   roomTab: {
-    paddingHorizontal: 16,
-    paddingVertical: 8,
+    height: 36,
+    paddingHorizontal: 15,
+    alignItems: 'center',
+    justifyContent: 'center',
     borderRadius: 999,
-    backgroundColor: '#F3F4F6',
+    backgroundColor: 'transparent',
     borderWidth: 1,
-    borderColor: '#E5E7EB',
+    borderColor: ink(0.12),
   },
   roomTabActive: {
-    backgroundColor: INK,
-    borderColor: INK,
+    backgroundColor: Editorial.selected,
+    borderColor: Editorial.selected,
   },
   roomTabAdd: {
     flexDirection: 'row',
@@ -1539,8 +1541,9 @@ const styles = StyleSheet.create({
   },
   roomTabText: {
     fontSize: 13,
-    fontWeight: '600',
-    color: ink(0.6),
+    lineHeight: 18,
+    fontWeight: '500',
+    color: Editorial.textCaption,
   },
   roomTabTextActive: {
     color: '#FFFFFF',
