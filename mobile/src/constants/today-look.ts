@@ -35,6 +35,10 @@ export type LookPiece = {
   image?: string;
   name: string;
   brand: string;
+  /** 운영자 큐레이션 원본 상품 가격. */
+  price?: string;
+  /** 운영자 큐레이션 원본 상품 상세 주소. */
+  link?: string;
   /** 관련 상품 썸네일 placeholder 농도 */
   tone: number;
   /** true=내 옷장 / false=추천 구매 */

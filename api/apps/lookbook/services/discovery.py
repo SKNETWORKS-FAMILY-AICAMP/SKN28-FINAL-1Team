@@ -72,15 +72,6 @@ def _related(item: CuratedLookItem) -> list[dict]:
 def _look(look: CuratedLook) -> dict:
     items = []
     for source in look.items.all():
-        original_product = {
-            "id": f"original-{source.pk}",
-            "name": source.name,
-            "brand": source.brand or "네이버쇼핑",
-            "image": source.image_url,
-            "price": source.price,
-            "mall_name": "네이버쇼핑 · 원본",
-            "link": source.product_url,
-        }
         items.append(
             {
                 "id": f"curated-{source.pk}",
@@ -92,7 +83,7 @@ def _look(look: CuratedLook) -> dict:
                 "price": source.price,
                 "mall_name": "네이버쇼핑",
                 "link": source.product_url,
-                "similar_products": [original_product, *_related(source)],
+                "similar_products": _related(source),
             }
         )
     return {

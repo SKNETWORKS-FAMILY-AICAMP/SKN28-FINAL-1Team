@@ -105,6 +105,16 @@ class DiscoveryServiceTests(TestCase):
         result = discovery._related(item)
 
         self.assertEqual([product["id"] for product in result], ["same-slot-top"])
+        payload = discovery._look(look)["items"][0]
+        self.assertEqual(payload["link"], "https://example.com/original")
+        self.assertEqual(
+            [product["id"] for product in payload["similar_products"]],
+            ["same-slot-top"],
+        )
+        self.assertNotIn(
+            f"original-{item.pk}",
+            [product["id"] for product in payload["similar_products"]],
+        )
 
     def test_related_products_are_empty_for_unknown_source_slot(self) -> None:
         look = CuratedLook.objects.get(external_id="woman-casual-001")

@@ -85,6 +85,8 @@ export default function LookDetail() {
       image: item.image,
       name: item.name,
       brand: item.brand,
+      price: item.price == null ? undefined : String(item.price),
+      link: item.link,
       tone: 0.08,
       mine: false,
       related: item.similar_products.map((product) => ({
@@ -406,9 +408,9 @@ export default function LookDetail() {
           <Text style={styles.sectionTitle}>구성 아이템</Text>
           <View style={styles.pieces}>
             {PIECES.map((p) => {
-              /* API 룩은 아직 비슷한 상품이 없다(related=[]) — 열어도 빈 서랍이므로
-                 아코디언을 잠그고 화살표도 숨긴다. */
-              const expandable = p.related.length > 0;
+              /* 운영자 룩은 원본 판매처만 있어도 열 수 있다. 유사 후보가 없으면 원본과
+                 빈 상태를 함께 보여 주고, 다른 상품으로 억지로 채우지 않는다. */
+              const expandable = Boolean(p.link) || p.related.length > 0;
               const open = expandable && openSlot === p.slot;
               const related = filterRelated(p.related, p.slot);
               return (
@@ -455,6 +457,44 @@ export default function LookDetail() {
 
                   {open ? (
                     <View style={styles.related}>
+                      {p.link ? (
+                        <>
+                          <Text style={styles.relatedHead}>원본 상품</Text>
+                          <View style={styles.relatedItem}>
+                            <Pressable
+                              style={styles.relatedMain}
+                              onPress={() => openExternal(p.link!)}
+                              accessibilityLabel={`${p.brand} ${p.name} 원본 상품 보기`}>
+                              <View style={styles.relatedThumb}>
+                                <SmartImage
+                                  uri={p.image}
+                                  width={44}
+                                  height={44}
+                                  radius={10}
+                                  contentFit="cover"
+                                />
+                              </View>
+                              <View style={styles.relatedBody}>
+                                <Text style={styles.relatedName} numberOfLines={1}>
+                                  {p.name}
+                                </Text>
+                                <View style={styles.relatedMeta}>
+                                  <Text style={styles.relatedBrand}>{p.brand}</Text>
+                                  <Icon
+                                    name="arrow.up.right.square"
+                                    tintColor={ink(0.32)}
+                                    size={11}
+                                  />
+                                  <Text style={styles.relatedMall}>원본 판매처</Text>
+                                </View>
+                              </View>
+                              {p.price ? (
+                                <Text style={styles.relatedPrice}>{p.price}원</Text>
+                              ) : null}
+                            </Pressable>
+                          </View>
+                        </>
+                      ) : null}
                       <Text style={styles.relatedHead}>{relatedHead(p.slot)}</Text>
                       {related.map((r) => {
                         const budget = categoryBudget(effectiveCategoryBudgets, p.slot);
@@ -500,10 +540,13 @@ export default function LookDetail() {
                       })}
                       {related.length === 0 ? (
                         <Text style={styles.relatedEmpty}>
-                          현재 예산 안의 비슷한 상품을 찾지 못했어요.
+                          {p.related.length === 0
+                            ? '조건에 맞는 비슷한 상품을 찾지 못했어요.'
+                            : '현재 예산 안의 비슷한 상품을 찾지 못했어요.'}
                         </Text>
                       ) : null}
-                      {categoryBudget(effectiveCategoryBudgets, p.slot) == null ? (
+                      {p.related.length > 0 &&
+                      categoryBudget(effectiveCategoryBudgets, p.slot) == null ? (
                         <Pressable
                           style={styles.budgetPrompt}
                           onPress={() => router.push('/budget')}>
