@@ -34,6 +34,7 @@ from . import s3io
 from .config import GoldenSettings, load_project_env
 from .embedding import build_image_backend, build_text_backend
 from .items import VECTOR_OBJECT_NAME
+from .review_publish import ReviewIndex, load_review
 from .qdrant_index import (
     ITEM_COLLECTION,
     ITEM_SUMMARY_FIELDS,
@@ -101,6 +102,7 @@ def build_points(
     item_vectors: dict[str, dict[str, list[float]]],
     image_model: str,
     text_model: str,
+    review: ReviewIndex | None = None,
 ) -> tuple[PointStruct, list[PointStruct]]:
     version = settings.dataset_version
     golden_id = str(manifest["golden_id"])
@@ -149,6 +151,13 @@ def build_points(
         )
 
     source_key = str(manifest.get("source_key", ""))
+    # 사람 검수 결과. golden_id가 아니라 sha256으로 찾는다 — 검수표의 정규화 이름과
+    # S3의 원본 파일명 사이에는 규칙이 없다(review_publish 모듈 설명 참고).
+    human = (
+        review.payload_for(str(manifest.get("image_sha256", "")))
+        if review is not None
+        else {}
+    )
     outfit = PointStruct(
         id=outfit_point_id(version, golden_id),
         vector={"image": image_vector, "text": text_vector},
@@ -167,6 +176,10 @@ def build_points(
             "occasion": tags.get("occasion", []),
             "tag_confidence": tags.get("confidence", 0),
             "tag_schema_version": tags.get("schema_version", ""),
+            # ── 사람 검수 (없으면 키 자체가 없다) ──
+            # 리트리버는 human_score를 유사도 기준선으로 쓴다. 0을 적어 두면
+            # "미검수"와 "최하점"이 같은 값이 되므로 없을 때는 넣지 않는다.
+            **human,
             # ── 원본 참조 ──
             "source_bucket": bucket,
             "source_key": source_key,
@@ -213,6 +226,11 @@ def main() -> None:
         action="store_true",
         help="태그가 없는 코디는 건너뛴다 (기본은 빈 태그로라도 적재)",
     )
+    parser.add_argument(
+        "--human-review",
+        type=Path,
+        help="사람 검수 결과 JSON 경로. 생략하면 S3에서 읽는다 (개발용 우회)",
+    )
     args = parser.parse_args()
 
     logging.basicConfig(
@@ -222,6 +240,8 @@ def main() -> None:
     settings = GoldenSettings.from_env()
     bucket = settings.require_bucket()
     derived = settings.derived_prefix()
+
+    review = load_review(settings=settings, local_path=args.human_review)
 
     manifest_keys = find_manifests(bucket, derived)
     if args.limit:
@@ -251,7 +271,7 @@ def main() -> None:
     pending_outfits: list[PointStruct] = []
     pending_items: list[PointStruct] = []
     written_outfits = written_items = 0
-    untagged = skipped = 0
+    untagged = skipped = matched_reviews = 0
 
     def flush(force: bool = False) -> None:
         nonlocal written_outfits, written_items
@@ -309,7 +329,10 @@ def main() -> None:
                 ),
                 image_model=image_backend.name,
                 text_model=text_backend.name,
+                review=review,
             )
+            if outfit.payload.get("human_review_golden_id"):
+                matched_reviews += 1
             pending_outfits.append(outfit)
             pending_items.extend(items)
             logger.info(
@@ -321,6 +344,18 @@ def main() -> None:
 
         flush(force=True)
 
+    if review and not matched_reviews:
+        # 조인 키가 어긋나면 한 건도 안 붙는데 에러가 나지 않는다. 이 경고가
+        # 없으면 "적재는 성공했는데 점수가 없다"를 한참 뒤에 발견하게 된다.
+        logger.warning(
+            "사람 검수 결과 %d건을 읽었지만 sha256이 일치하는 코디가 없습니다. "
+            "발행에 쓴 metadata CSV가 이 S3 데이터셋과 같은 원본인지 확인하세요.",
+            len(review),
+        )
+    elif review:
+        logger.info(
+            "사람 검수 반영: 코디 %d건 (읽은 검수 %d건)", matched_reviews, len(review)
+        )
     logger.info(
         "완료: 코디 %d / 아이템 %d / 태그 없음 %d / 건너뜀 %d",
         written_outfits or len(pending_outfits),

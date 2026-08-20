@@ -17,6 +17,8 @@ from .principles import apply_principle_reviews, synthesize_principles
 from .qdrant_index import index_run
 from .review import collect_accepted_claims, create_review_templates
 from .review_manifest import build_review_manifest
+from .review_apply import apply_review_payload
+from .review_publish import load_review, publish_review
 from .review_sheets import build_review_sheets
 
 
@@ -130,6 +132,35 @@ def main() -> None:
     fit_anchors.add_argument("--run-dir", type=Path, required=True)
     fit_anchors.add_argument("--pairwise-reviews", type=Path, required=True)
     fit_anchors.add_argument("--observation-reviews", type=Path)
+
+    publish = subparsers.add_parser(
+        "publish-review",
+        help="사람 검수 결과(앵커·승인 이미지)를 S3로 발행 — sha256으로 잇는다",
+    )
+    publish.add_argument("--run-dir", type=Path, required=True)
+    publish.add_argument(
+        "--metadata-csv",
+        type=Path,
+        required=True,
+        help="정규화 golden_id ↔ image_sha256 대응표 (review-manifest 산출)",
+    )
+    publish.add_argument(
+        "--dry-run", action="store_true", help="올리지 않고 요약만 출력"
+    )
+
+    apply_review = subparsers.add_parser(
+        "apply-review",
+        help="재임베딩 없이 코디 payload에만 검수 결과 반영 (GPU 불필요)",
+    )
+    apply_review.add_argument(
+        "--human-review",
+        type=Path,
+        help="검수 결과 JSON 경로. 생략하면 S3에서 읽는다 (개발용 우회)",
+    )
+    apply_review.add_argument("--limit", type=int, help="처리할 최대 코디 수 (시험용)")
+    apply_review.add_argument(
+        "--dry-run", action="store_true", help="쓰지 않고 대상 건수만 출력"
+    )
 
     synthesize = subparsers.add_parser(
         "synthesize-principles",
@@ -277,6 +308,40 @@ def main() -> None:
             run_dir=args.run_dir,
         )
         print(f"점수 앵커: {len(anchors)}건")
+    elif args.command == "publish-review":
+        key, payload = publish_review(
+            run_dir=args.run_dir,
+            metadata_csv=args.metadata_csv,
+            settings=settings,
+            dry_run=args.dry_run,
+        )
+        print(f"코디 {payload['num_images']}건 "
+              f"(검수 통과 {payload['num_verified']} / 앵커 {payload['num_anchored']})")
+        if payload["unmatched_golden_ids"]:
+            print(f"sha256 미확인: {len(payload['unmatched_golden_ids'])}건")
+        if args.dry_run:
+            print(f"dry-run: 올리지 않았습니다. 대상 키 = {key}")
+        else:
+            print(f"발행: s3://{settings.s3_bucket}/{key}")
+    elif args.command == "apply-review":
+        review = load_review(settings=settings, local_path=args.human_review)
+        summary = apply_review_payload(
+            settings=settings,
+            review=review,
+            dry_run=args.dry_run,
+            limit=args.limit,
+        )
+        print(
+            f"S3 코디 {summary['num_manifests']}건 / 검수 {summary['num_reviews_loaded']}건 "
+            f"→ 일치 {summary['num_matched']}건"
+        )
+        if summary["applied"]:
+            print(f"payload 갱신: {summary['num_updated']}건")
+            print(f"검수 키 제거: {summary['num_cleared']}건")
+            if summary["num_not_indexed"]:
+                print(f"미적재라 반영 못 함: {summary['num_not_indexed']}건")
+        else:
+            print(f"dry-run: 쓰지 않았습니다 (제거 대상 후보 {summary['num_cleared_candidates']}건)")
     elif args.command == "synthesize-principles":
         principles = synthesize_principles(
             run_dir=args.run_dir,

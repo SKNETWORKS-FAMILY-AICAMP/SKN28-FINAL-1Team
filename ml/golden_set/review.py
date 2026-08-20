@@ -575,6 +575,106 @@ def read_csv_rows(path: Path) -> list[dict[str, str]]:
         ]
 
 
+#: 축약 검수표(goldenset-review-sheets)가 관찰 판정에 쓰는 단일 열.
+#: 표준 검수표는 `items_complete`·`observation_verdict`를 따로 물었지만, 검수 시간을
+#: 줄이려고 "아이템 목록이 맞는가" 한 질문으로 합쳤다.
+SHEET_ITEMS_CORRECT = "detected_items_correct"
+SHEET_ITEMS_CORRECTION = "corrected_detected_items"
+
+#: 부정 판정. 하나라도 걸리면 claim은 승격되지 않는다.
+NEGATIVE_CLAIM_JUDGMENTS = {"UNSUPPORTED", "INCORRECT"}
+
+
+def sheet_asks(rows: list[dict[str, str]], field: str) -> bool:
+    """이 검수표가 그 열을 물었는지.
+
+    축약 검수표는 `unassessable_complete`·`bbox_grounding_1_3`을 묻지 않는다. 사람이
+    판정하지 않은 항목을 YES로 채워 통과시키면 검수 기록이 거짓말이 되고, 빈 값으로
+    두면 승인 조건이 전 건을 pending으로 떨어뜨린다. 그래서 **열의 유무**로 가른다 —
+    물었으면 검사하고, 묻지 않았으면 그 조건을 빼는 것이 두 검수표에 모두 정직하다.
+    """
+    return any(field in row for row in rows)
+
+
+def normalize_observation_rows(
+    rows: list[dict[str, str]],
+) -> list[dict[str, str]]:
+    """축약 관찰 검수표를 표준 열로 편다.
+
+    `detected_items_correct` 한 열이 표준 검수표의 `items_complete`와
+    `observation_verdict` 두 열을 겸한다. 값이 이미 들어 있으면 덮지 않는다 —
+    표준 검수표로 받은 기존 검수 결과가 이 함수를 그대로 통과해야 한다.
+
+    `NO`인데 고친 목록이 없으면 `items_complete`를 NO로 둔다. 목록이 틀렸다는 것만
+    알고 무엇이 맞는지는 모르는 상태라, 승인해 버리면 틀린 아이템 목록이 그대로
+    원칙 합성 근거가 된다.
+    """
+    normalized: list[dict[str, str]] = []
+    for row in rows:
+        updated = dict(row)
+        answer = row.get(SHEET_ITEMS_CORRECT, "").strip().upper()
+        correction = row.get(SHEET_ITEMS_CORRECTION, "").strip()
+        if answer == "YES":
+            verdict, items_complete = "APPROVE", "YES"
+        elif answer == "NO":
+            verdict = "EDIT"
+            items_complete = "YES" if correction else "NO"
+        elif answer:
+            # UNSURE 등 판단 보류. 승인도 기각도 아니므로 pending으로 남는다.
+            verdict, items_complete = "UNSURE", answer
+        else:
+            normalized.append(updated)
+            continue
+        updated.setdefault("observation_verdict", "")
+        updated.setdefault("items_complete", "")
+        if not updated["observation_verdict"]:
+            updated["observation_verdict"] = verdict
+        if not updated["items_complete"]:
+            updated["items_complete"] = items_complete
+        if correction and not updated.get("missing_observations", ""):
+            updated["missing_observations"] = correction
+        normalized.append(updated)
+    return normalized
+
+
+def normalize_claim_rows(rows: list[dict[str, str]]) -> list[dict[str, str]]:
+    """축약 claim 검수표에 `verdict`를 채운다.
+
+    축약 표는 검수자에게 `verdict`를 따로 묻지 않는다. 근거가 맞는지
+    (`evidence_correct`)와 그 관계가 무엇인지(`human_judgment`)를 물으면 승인 여부는
+    거기서 결정되기 때문이다. 같은 판단을 두 번 적게 하면 두 열이 어긋난 행이 생긴다.
+
+    `DESCRIPTIVE_ONLY`는 REJECT가 아니라 APPROVE로 둔다. 검수 자체는 유효하고,
+    "원칙 근거로 승격하지 않는다"는 처리는 `POSITIVE_CLAIM_JUDGMENTS`가 이미 한다.
+    여기서 기각으로 적으면 '틀린 claim'과 '맞지만 묘사일 뿐인 claim'이 한 덩어리가 된다.
+    """
+    normalized: list[dict[str, str]] = []
+    for row in rows:
+        updated = dict(row)
+        judgment = row.get("human_judgment", "").strip().upper()
+        evidence = row.get("evidence_correct", "").strip().upper()
+        if not judgment:
+            normalized.append(updated)
+            continue
+        if (
+            evidence == "NO"
+            or judgment in NEGATIVE_CLAIM_JUDGMENTS
+            or row.get("overgeneralization_risk", "").strip().upper() == "YES"
+            or row.get("stereotype_risk", "").strip().upper() == "YES"
+        ):
+            verdict = "REJECT"
+        elif evidence == "YES":
+            verdict = "APPROVE"
+        else:
+            # 근거를 확신하지 못한 상태(UNSURE). 2인 승인 수를 채우지 못해 pending이 된다.
+            verdict = "UNSURE"
+        updated.setdefault("verdict", "")
+        if not updated["verdict"]:
+            updated["verdict"] = verdict
+        normalized.append(updated)
+    return normalized
+
+
 def collect_accepted_claims(
     *,
     observation_reviews_csv: Path,
@@ -582,8 +682,11 @@ def collect_accepted_claims(
     run_dir: Path,
     minimum_reviewers: int = 2,
 ) -> tuple[dict[str, list[dict[str, Any]]], dict[str, Any]]:
-    observations = read_csv_rows(observation_reviews_csv)
-    claim_reviews = read_csv_rows(claim_reviews_csv)
+    observations = normalize_observation_rows(read_csv_rows(observation_reviews_csv))
+    claim_reviews = normalize_claim_rows(read_csv_rows(claim_reviews_csv))
+    # 검수표가 묻지 않은 항목은 승인 조건에서 뺀다. 축약 검수표에는 이 두 열이 없다.
+    asks_unassessable = sheet_asks(observations, "unassessable_complete")
+    asks_bbox_grounding = sheet_asks(observations, "bbox_grounding_1_3")
     _assert_unique_reviews(observations, ("golden_id",))
     _assert_unique_reviews(claim_reviews, ("golden_id", "claim_id"))
 
@@ -598,8 +701,14 @@ def collect_accepted_claims(
             if row.get("observation_verdict", "").upper() in {"APPROVE", "EDIT"}
             and row.get("image_assessable", "").upper() == "YES"
             and row.get("items_complete", "").upper() == "YES"
-            and row.get("unassessable_complete", "").upper() == "YES"
-            and _optional_score_at_least(row, "bbox_grounding_1_3", 2)
+            and (
+                not asks_unassessable
+                or row.get("unassessable_complete", "").upper() == "YES"
+            )
+            and (
+                not asks_bbox_grounding
+                or _optional_score_at_least(row, "bbox_grounding_1_3", 2)
+            )
         ]
         rejected = any(
             row.get("observation_verdict", "").upper() == "REJECT" for row in rows
@@ -698,6 +807,9 @@ def collect_accepted_claims(
         "rubric_version": REVIEW_RUBRIC_VERSION,
         "minimum_reviewers": minimum_reviewers,
         "accepted_image_count": len(accepted_images),
+        # 승인된 이미지 목록. 개수만으로는 "어느 코디가 사람 검수를 통과했는지"를
+        # 알 수 없어 Qdrant payload의 human_verified를 만들 수 없다.
+        "accepted_images": sorted(accepted_images),
         "accepted_claim_count": sum(len(rows) for rows in accepted.values()),
         "pending_images": sorted(pending_images),
         "excluded_images": sorted(excluded_images),

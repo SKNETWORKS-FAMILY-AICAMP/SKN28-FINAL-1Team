@@ -8,6 +8,7 @@
 이미지 → VLM 관찰·claim 초안 → 2인 선택형 검수 → 승인 claim
       → 텍스트 LLM 원칙 합성 → 2인 원칙 검수 → 설명 지식 RAG
       └→ 2인 쌍대 비교 → Q 보조 점수 앵커
+                        └→ S3 발행 → 코디 payload(human_score) → 추천 랭킹
 ```
 
 ## 빠른 실행 (컨테이너)
@@ -353,6 +354,32 @@ python -m ml.golden_set validate-reviews `
 `CONTRIBUTES` 또는 `CONTEXT_DEPENDENT`로 2인 승인된 claim만 남는다.
 `DESCRIPTIVE_ONLY`는 관찰 데이터로 보존할 수 있지만 원칙 합성 근거로 승격하지 않는다.
 
+### 4-1. 축약 검수표도 그대로 받는다
+
+검수 시간을 줄이려고 판정 열을 합친 검수표(`goldenset-review-sheets` 스킬 산출)를
+쓸 수 있다. `validate-reviews`가 읽기 전에 표준 열로 펴므로 명령은 같다.
+
+| 축약 열 | 표준 열 | 규칙 |
+|---|---|---|
+| `detected_items_correct=YES` | `observation_verdict`, `items_complete` | APPROVE / YES |
+| `=NO` + `corrected_detected_items` | 〃 + `missing_observations` | EDIT / YES / 수정값 |
+| `=NO` 수정값 없음 | 〃 | EDIT / **NO** |
+| `=UNSURE` | 〃 | UNSURE (pending) |
+| `human_judgment` + `evidence_correct` | `verdict` | 아래 |
+
+`verdict`는 근거·판정에서 유도한다 — 근거 NO거나 `UNSUPPORTED`·`INCORRECT`거나
+과일반화 YES면 REJECT, 근거 YES면 APPROVE, 근거 UNSURE면 UNSURE다.
+`DESCRIPTIVE_ONLY`는 REJECT가 아니라 APPROVE로 둔다. 제외 처리는
+`POSITIVE_CLAIM_JUDGMENTS`가 이미 하므로, 여기서 기각하면 "틀린 claim"과 "맞지만
+묘사일 뿐인 claim"이 한 덩어리가 된다.
+
+값이 이미 있으면 덮지 않아 표준 검수표는 지금까지와 똑같이 동작한다.
+
+**축약 표가 묻지 않는 열은 승인 조건에서 뺀다.** `unassessable_complete`와
+`bbox_grounding_1_3`이 그렇다(둘 다 빈 값이면 전 건이 pending으로 떨어진다).
+사람이 판정하지 않은 항목을 YES로 채워 통과시키면 검수 기록이 거짓말이 되므로,
+**열의 유무**로 가른다.
+
 ## 5. 보조 Q 앵커 계산
 
 ```powershell
@@ -366,6 +393,22 @@ python -m ml.golden_set fit-anchors `
 계산한다. `context_dependent`와 `unassessable` 표는 점수 계산에서 제외한다.
 `anchor_scores.jsonl`의 0~100 점수와 high/mid/low는 파일럿 내부 `Q` 상대값이지
 보편적인 패션 점수나 개인화 점수가 아니다.
+
+### 5-1. `anchor_graph` — 서로 비교하지 않는 묶음
+
+남성 코디와 여성 코디처럼 애초에 맞붙이지 않는 묶음은 한 파일에 담겨도 하나의
+그래프가 아니라 **독립된 그래프 여러 개**다. 합쳐서 계산하면 연결이 끊겨
+`fit-anchors`가 실패한다. 검수표의 `anchor_graph` 열이 그 경계를 적고, 명령은 그
+값으로 나눠 각각 fit한 뒤 한 파일로 합친다. 열이 없는 검수표는 단일 그래프로
+처리돼 이전과 동작이 같다.
+
+⚠️ **그래프가 다르면 점수를 비교하지 마라.** 0~100 환산은 그래프 안에서 최저~최고를
+펴는 것이라 men의 80점과 women의 80점은 같은 뜻이 아니다. `score_band`도 마찬가지다.
+리트리버가 `presentation_group`(성별)으로 먼저 거르기 때문에 실제 랭킹에서는 같은
+그래프끼리만 경쟁하지만, **그 필터를 푸는 순간 이 전제가 조용히 깨진다.**
+
+한 코디가 두 그래프에 걸치면 멈춘다 — 비교 불가능한 점수가 두 개 생기고 적재에서
+뒤쪽이 앞쪽을 덮어써 어느 쪽이 반영됐는지 알 수 없게 된다.
 
 ## 6. 승인 claim으로 원칙 합성
 
@@ -470,6 +513,90 @@ payload의 `outfit_point_id`가 그 역참조다. 아이템 태그 인덱스는
 정보다. 노출 여부는 `GOLDEN_ANCHOR_EXPOSABLE`와 이미지별 `original_exposable`을
 모두 만족할 때만 참이다. `--allow-draft`는 격리된 개발 Qdrant에서만 사용한다.
 
+## 10. 검수 결과를 운영 코디에 반영
+
+앞 단계까지는 run 디렉터리 안의 이야기다. 실제 추천 랭킹을 바꾸려면 검수 결과가
+운영 Qdrant의 코디 payload로 가야 한다. GPU도 모델도 필요 없고 두 단계다.
+
+```powershell
+python -m ml.golden_set publish-review `
+  --run-dir ml/golden_set/runs/main-batch1-v1 `
+  --metadata-csv local/golden-review/metadata.csv `
+  --dry-run
+```
+
+건수를 확인한 뒤 `--dry-run`을 빼면 S3에 올라간다.
+
+```powershell
+python -m ml.golden_set apply-review --dry-run
+```
+
+역시 확인 뒤 `--dry-run`을 빼면 payload가 갱신된다.
+
+### 왜 sha256으로 잇는가
+
+**검수표의 `golden_id`와 S3의 `golden_id`는 다르다.** 검수표는
+`review-manifest`가 만든 정규화 이름(`shj-m-casual-001`)이고, S3는 업로드 당시의
+원본 파일명(`001`, `042-2`, 32자 해시…)이다. 원본 파일명은 수집자 사이에서 겹쳐서
+S3 쪽이 임의로 `-2`를 붙여 갈랐고 그 대응표는 남아 있지 않다.
+
+이름을 맞추려면 S3 전량을 다시 올려야 하는데 코디마다 아이템 이미지가 딸려 있어
+재생성 비용이 크다. 대신 양쪽 모두 같은 원본 사진의 sha256을 들고 있다 — S3는
+`manifest.json`의 `image_sha256`, 로컬은 `metadata.csv`의 같은 열이다. **sha256이
+이름 규칙과 무관하게 같은 사진을 가리키는 유일한 값이라 이걸 조인 키로 쓴다.**
+
+그래서 `publish-review`에 `--metadata-csv`가 필수다. 정규화 이름을 sha로 바꿔 주는
+표가 그것뿐이다.
+
+### 발행 파일
+
+`{GOLDEN_S3_OUTPUT_PREFIX}/{GOLDEN_DATASET_VERSION}/human_review.json` —
+`run_summary.json`과 같은 자리다. 버전이 갈리면 검수 결과도 같이 갈린다.
+
+`anchor_scores.jsonl`(쌍대 비교 앵커)과 `review_validation.json`의
+`accepted_images`(2인 관찰 승인)를 sha256으로 묶어 코디마다 한 줄로 만든다.
+
+### payload에 실리는 것
+
+| 키 | 출처 | 리트리버에서 |
+|---|---|---|
+| `human_score` | 앵커 0~100 | **유사도 기준선.** 없으면 규칙 점수만 남는다 |
+| `score_band` | high/mid/low | 필터 가능 (`keyword` 인덱스) |
+| `score_confidence` | 0~1 | 기록용 |
+| `anchor_graph` | men/women 등 | 점수 비교 범위 표시 |
+| `human_verified` | 2인 관찰 승인 | 태그 신뢰도보다 나은 tiebreak 축 |
+| `human_review_golden_id` | 정규화 이름 | 역추적용 |
+
+**점수가 없는 코디에는 키를 쓰지 않는다.** `human_score=0`을 적으면 리트리버에서
+"미검수"와 "최하점"이 같은 값이 되고, 앵커를 나중에 늘려도 그 차이를 볼 수 없다.
+
+### `apply-review`가 지우는 일까지 하는 이유
+
+`set_payload`는 덮어쓰기만 한다. 검수를 고쳐 다시 발행했을 때 어떤 코디가 승인에서
+빠졌다면 옛 `human_score`가 그대로 남는다 — **검수를 되돌렸는데 랭킹은 안 되돌아가는
+상태**다. 그래서 검수가 없는 코디에서는 검수 키를 명시적으로 지운다.
+
+### 조용한 실패를 막는 장치
+
+이 경로는 어긋나도 에러가 안 나는 자리가 많다. 세 곳에 확인을 넣었다.
+
+- **sha가 하나도 안 맞으면 `apply-review`가 멈춘다.** 발행에 쓴 metadata CSV가 그
+  S3 데이터셋과 다른 원본이면 한 건도 안 붙는데, 그냥 두면 "적재는 성공했는데 점수가
+  없다"를 한참 뒤에 발견한다
+- **`set_payload`는 없는 포인트에 조용히 아무것도 하지 않는다.** 그래서 미리
+  `retrieve`로 적재 여부를 확인하고 미적재 건수를 따로 센다 — `sync_qdrant`를 아직
+  안 돌린 코디가 여기 잡힌다
+- **`metadata.csv`에서 sha를 못 찾은 코디는 `unmatched_golden_ids`에 남긴다** — 버리지
+  않는다
+
+### `sync_qdrant`와의 관계
+
+`sync_qdrant`도 같은 파일을 읽어 payload에 얹으므로 전량 재적재를 하면 검수 결과가
+함께 들어간다. 다만 그쪽은 코디 이미지 벡터를 매번 새로 계산한다(S3에 저장된 적이
+없다). **payload만 바꾸려고 전량 재임베딩을 도는 건 낭비이므로 `apply-review`를 쓴다.**
+
+S3가 없는 개발 환경에서는 두 명령 모두 `--human-review <경로>`로 로컬 JSON을 쓴다.
+
 ## 주요 산출물 계약
 
 ```text
@@ -484,9 +611,10 @@ claim_reviews.csv                         사람 claim 근거·역할 검수
 minimum_edit_reviews.csv                  반례 후보 실험 가설 검수
 pairwise_reviews.csv                      사람 상대 Q 비교
 approved_claims.jsonl                     2인 승인된 합성 입력
-anchor_scores.jsonl                       보조 Q 점수 앵커
+anchor_scores.jsonl                       보조 Q 점수 앵커 (anchor_graph별)
 principles.jsonl                          조건부 원칙과 이미지 claim 근거
 principle_reviews.csv                     사람 원칙 검수
-review_validation.json                    누락·보류·합의 검증 결과
+review_validation.json                    누락·보류·합의 검증 결과 (accepted_images 포함)
+human_review.json                         S3 발행분: 앵커+승인 이미지를 sha256으로 묶은 것
 qdrant_index_plan.json                    파생 적재 전 개수·상태 확인
 ```
