@@ -17,6 +17,11 @@ from django.utils import timezone
 from rest_framework.test import APIClient
 
 from apps.users.constants import category_keys
+from apps.wardrobe.models import (
+    SharedWardrobeMember,
+    SharedWardrobeRoom,
+    WardrobeItem,
+)
 from apps.users.models import (
     BodyMeasurement,
     BodyPhotoTransaction,
@@ -1141,3 +1146,82 @@ class BudgetViewTests(TestCase):
         )
         other_user.refresh_from_db()
         self.assertEqual(other_user.category_budgets, {"아우터": 500_000})
+
+
+class WithdrawTests(TestCase):
+    """회원 탈퇴 — DELETE /api/v1/users/me/.
+
+    S3·Qdrant 는 외부 저장소라 mock 한다(테스트가 네트워크에 기대면 안 된다).
+    파일 삭제는 커밋 뒤에 도는 콜백이라 captureOnCommitCallbacks 로 실행시켜 확인한다.
+    """
+
+    def setUp(self):
+        self.client = APIClient()
+        self.user = User.objects.create(username="kakao_leaver")
+        self.url = reverse("users:me")
+
+    def test_requires_login(self):
+        self.assertEqual(self.client.delete(self.url).status_code, 401)
+
+    @patch("apps.users.services.withdrawal.wardrobe_storage.delete_objects")
+    @patch("apps.users.services.withdrawal.vectors.delete_item")
+    def test_deletes_account_and_owned_data(self, delete_item, delete_objects):
+        item = WardrobeItem.objects.create(
+            user=self.user,
+            s3_key="wardrobe/leaver/shirt.png",
+            item_name="셔츠",
+            category_large="상의",
+            confirmed=True,
+            added_to_closet_at=timezone.now(),
+        )
+        self.client.force_authenticate(self.user)
+
+        with self.captureOnCommitCallbacks(execute=True):
+            response = self.client.delete(self.url)
+
+        self.assertEqual(response.status_code, 204)
+        self.assertFalse(User.objects.filter(pk=self.user.pk).exists())
+        # 옷은 FK CASCADE 로 함께 사라진다
+        self.assertFalse(WardrobeItem.objects.filter(pk=item.pk).exists())
+        # 사진과 벡터는 CASCADE 가 못 따라오므로 직접 지워야 한다
+        delete_item.assert_called_once_with(item.pk)
+        delete_objects.assert_called_once()
+        self.assertIn("wardrobe/leaver/shirt.png", delete_objects.call_args.args[0])
+
+    @patch("apps.users.services.withdrawal.wardrobe_storage.delete_objects")
+    @patch("apps.users.services.withdrawal.vectors.delete_item")
+    def test_owner_withdrawal_hands_room_to_remaining_member(self, _item, _objects):
+        """방장이 탈퇴해도 남은 사람의 공유 옷장은 살아남는다."""
+        room = SharedWardrobeRoom.objects.create(title="우리집 옷장")
+        SharedWardrobeMember.objects.create(
+            room=room, user=self.user, role=SharedWardrobeMember.Role.OWNER
+        )
+        stayer = User.objects.create(username="kakao_stayer")
+        SharedWardrobeMember.objects.create(
+            room=room, user=stayer, role=SharedWardrobeMember.Role.MEMBER
+        )
+        self.client.force_authenticate(self.user)
+
+        with self.captureOnCommitCallbacks(execute=True):
+            response = self.client.delete(self.url)
+
+        self.assertEqual(response.status_code, 204)
+        self.assertTrue(SharedWardrobeRoom.objects.filter(pk=room.pk).exists())
+        remaining = SharedWardrobeMember.objects.get(room=room)
+        self.assertEqual(remaining.user_id, stayer.pk)
+        self.assertEqual(remaining.role, SharedWardrobeMember.Role.OWNER)
+
+    @patch("apps.users.services.withdrawal.wardrobe_storage.delete_objects")
+    @patch("apps.users.services.withdrawal.vectors.delete_item")
+    def test_last_member_withdrawal_closes_room(self, _item, _objects):
+        """혼자 쓰던 방은 탈퇴와 함께 사라진다 — 아무도 못 들어오는 방을 남기지 않는다."""
+        room = SharedWardrobeRoom.objects.create(title="혼자 쓰는 옷장")
+        SharedWardrobeMember.objects.create(
+            room=room, user=self.user, role=SharedWardrobeMember.Role.OWNER
+        )
+        self.client.force_authenticate(self.user)
+
+        with self.captureOnCommitCallbacks(execute=True):
+            self.client.delete(self.url)
+
+        self.assertFalse(SharedWardrobeRoom.objects.filter(pk=room.pk).exists())

@@ -118,6 +118,17 @@ export const authStore = {
     return user;
   },
 
+  /**
+   * 회원 탈퇴 — DELETE /users/me/. 계정과 딸린 데이터가 서버에서 지워진다.
+   *
+   * 서버가 지운 뒤에 로그아웃과 **같은 뒷정리**를 한다(토큰·기기 데이터). 순서를 바꿔
+   * 먼저 로그아웃하면 토큰이 없어져 탈퇴 요청 자체가 401 이 된다.
+   */
+  async withdraw(): Promise<void> {
+    await api.delete(AuthEndpoints.me);
+    await authStore.signOut();
+  },
+
   /** 로그아웃: simplejwt(stateless)라 서버 엔드포인트가 없다 → 클라이언트 토큰 폐기로 처리 */
   async signOut(): Promise<void> {
     await Promise.all([clearTokens(), clearDemoFlag()]);
@@ -151,5 +162,6 @@ export function useAuth() {
     isDemo: snapshot.isDemo,
     signIn: authStore.signIn,
     signOut: authStore.signOut,
+    withdraw: authStore.withdraw,
   };
 }
