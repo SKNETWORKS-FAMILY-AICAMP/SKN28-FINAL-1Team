@@ -11,6 +11,9 @@ from django.utils import timezone
 
 from apps.chat.models import ChatIdentity
 from apps.catalog.models import ElevenProduct, NaverProduct
+from apps.lookbook.contracts import recommendation_card_lookbook_id
+from apps.lookbook.models import LookbookPost
+from apps.lookbook.services import lookbook_service
 from apps.recommend.models import (
     OutfitComposition,
     OutfitCompositionItem,
@@ -23,6 +26,84 @@ from apps.recommend.models import (
 from apps.recommend.services.qdrant import collection_spec
 
 PRODUCT_CLICK_DEDUPLICATION_WINDOW = timedelta(minutes=5)
+
+
+def _snapshot_text(snapshot: dict, *keys: str) -> str:
+    for key in keys:
+        value = snapshot.get(key)
+        if isinstance(value, str) and value.strip():
+            return value.strip()
+        if isinstance(value, (list, tuple)):
+            joined = ", ".join(str(item).strip() for item in value if str(item).strip())
+            if joined:
+                return joined
+    return ""
+
+
+def _item_image(item: OutfitCompositionItem) -> tuple[str, str]:
+    snapshot = item.item_snapshot if isinstance(item.item_snapshot, dict) else {}
+    bucket = _snapshot_text(snapshot, "image_s3_bucket", "s3_bucket")
+    key = _snapshot_text(snapshot, "image_s3_key", "s3_key")
+    if not key and item.image_ref and not item.image_ref.startswith(("http://", "https://")):
+        key = item.image_ref
+    return bucket, key
+
+
+def _save_card_to_lookbook(*, composition: OutfitComposition, user) -> None:
+    """검증 추천 카드의 현재 모습을 실제 룩북 스냅샷으로 멱등 저장한다."""
+
+    items = list(composition.items.all().order_by("position", "created_at"))
+    cover_bucket = ""
+    cover_key = ""
+    try:
+        render = composition.render_job
+    except OutfitComposition.render_job.RelatedObjectDoesNotExist:
+        render = None
+    if render is not None and render.status == render.Status.SUCCEEDED:
+        cover_bucket = render.output_s3_bucket
+        cover_key = render.output_s3_key
+    if not cover_key:
+        for item in items:
+            cover_bucket, cover_key = _item_image(item)
+            if cover_key:
+                break
+
+    snapshots: list[lookbook_service.GoldenLookItem] = []
+    for item in items:
+        raw = item.item_snapshot if isinstance(item.item_snapshot, dict) else {}
+        bucket, key = _item_image(item)
+        snapshots.append(
+            lookbook_service.GoldenLookItem(
+                item_key=str(item.source_id),
+                name=_snapshot_text(
+                    raw,
+                    "display_name",
+                    "product_name",
+                    "item_name",
+                    "name",
+                    "title",
+                ),
+                category=_snapshot_text(raw, "category_large") or item.slot,
+                sub_category=_snapshot_text(raw, "category_small"),
+                layer_role=_snapshot_text(raw, "layer_role"),
+                color=_snapshot_text(raw, "color"),
+                s3_bucket=bucket,
+                s3_key=key,
+            )
+        )
+
+    lookbook_service.create_from_golden_look(
+        user=user,
+        golden_id=recommendation_card_lookbook_id(composition.pk),
+        image_bucket=cover_bucket,
+        image_key=cover_key,
+        schedule=(
+            composition.rationale
+            or composition.result.persona_explanation
+            or "추천받은 코디"
+        ),
+        items=snapshots,
+    )
 
 
 def _public_compositions() -> QuerySet[OutfitComposition]:
@@ -153,6 +234,7 @@ def save_outfit(
         user_id=identity.user_id,
         composition=composition,
     )
+    _save_card_to_lookbook(composition=composition, user=identity.user)
     return saved_outfit, created
 
 
@@ -178,6 +260,10 @@ def delete_saved_outfit(
     SavedOutfit.objects.filter(
         user_id=identity.user_id,
         composition_id=card_id,
+    ).delete()
+    LookbookPost.objects.filter(
+        user_id=identity.user_id,
+        golden_id=recommendation_card_lookbook_id(card_id),
     ).delete()
     return True
 

@@ -157,6 +157,7 @@ type Overlay = {
   entryDate?: string;
 };
 const overlays: Record<string, Overlay> = {};
+const RECOMMENDATION_CARD_LOOKBOOK_PREFIX = 'recommendation-card:';
 
 const listeners = new Set<() => void>();
 
@@ -194,7 +195,9 @@ function toLook(dto: LookbookPostDto): SavedLook {
        걸려 있으면 내가 고른 룩, 사진뿐이면 추천 룩 쪽에 가깝다. */
     origin:
       dto.source_type === 'GOLDEN_LOOK'
-        ? 'daily'
+        ? dto.golden_id.startsWith(RECOMMENDATION_CARD_LOOKBOOK_PREFIX)
+          ? 'ai'
+          : 'daily'
         : (overlay.origin ?? (items.length > 0 ? 'closet' : 'ai')),
     goldenId: dto.golden_id || undefined,
     items: items.length ? items : undefined,

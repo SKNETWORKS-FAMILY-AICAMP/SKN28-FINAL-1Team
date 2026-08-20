@@ -13,6 +13,8 @@ from rest_framework.test import APIClient
 
 from apps.chat.models import ChatMessage, ChatRun, ChatSession
 from apps.chat.services import identity as identity_service
+from apps.lookbook.contracts import recommendation_card_lookbook_id
+from apps.lookbook.models import LookbookPost
 from apps.recommend.models import (
     OutfitComposition,
     OutfitCompositionItem,
@@ -342,14 +344,26 @@ class RecommendationApiTests(TestCase):
         self.assertTrue(created.data["is_saved"])
         self.assertEqual(created.data["card_id"], str(card.id))
         self.assertEqual(SavedOutfit.objects.count(), 1)
+        self.assertEqual(LookbookPost.objects.count(), 1)
+        lookbook = LookbookPost.objects.get()
+        self.assertEqual(
+            lookbook.golden_id,
+            recommendation_card_lookbook_id(card.id),
+        )
+        self.assertEqual(lookbook.schedule, card.rationale)
+        self.assertEqual(lookbook.wardrobe_links.count(), 1)
+        self.assertEqual(
+            lookbook.wardrobe_links.get().snapshot["item_name"],
+            "아이보리 니트",
+        )
         self.assertTrue(card_response.data["is_saved"])
         self.assertTrue(history_response.data["results"][0]["top_card"]["is_saved"])
 
     def test_saved_outfit_delete_is_idempotent_and_updates_card_state(self):
         result, card, _ = self._result(self.identity)
-        SavedOutfit.objects.create(user=self.user, composition=card)
         self.client.force_authenticate(self.user)
         url = reverse("recommend:recommendation-save", args=[result.id, card.id])
+        self.client.put(url, {}, format="json")
 
         first = self.client.delete(url)
         second = self.client.delete(url)
@@ -359,6 +373,25 @@ class RecommendationApiTests(TestCase):
 
         self.assertEqual(first.status_code, status.HTTP_204_NO_CONTENT)
         self.assertEqual(second.status_code, status.HTTP_204_NO_CONTENT)
+        self.assertFalse(SavedOutfit.objects.exists())
+        self.assertFalse(LookbookPost.objects.exists())
+        self.assertFalse(card_response.data["is_saved"])
+
+    def test_deleting_recommendation_lookbook_clears_saved_card_state(self):
+        result, card, _ = self._result(self.identity)
+        self.client.force_authenticate(self.user)
+        save_url = reverse("recommend:recommendation-save", args=[result.id, card.id])
+        self.client.put(save_url, {}, format="json")
+        lookbook = LookbookPost.objects.get()
+
+        deleted = self.client.delete(
+            reverse("lookbook:lookbook-detail", args=[lookbook.id])
+        )
+        card_response = self.client.get(
+            reverse("recommend:recommendation-card-detail", args=[result.id, card.id])
+        )
+
+        self.assertEqual(deleted.status_code, status.HTTP_204_NO_CONTENT)
         self.assertFalse(SavedOutfit.objects.exists())
         self.assertFalse(card_response.data["is_saved"])
 

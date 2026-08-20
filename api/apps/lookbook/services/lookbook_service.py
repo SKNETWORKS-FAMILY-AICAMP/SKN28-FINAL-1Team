@@ -29,6 +29,7 @@ from apps.lookbook.contracts import (
     LookbookProcessingErrorCode,
     LookbookSourceType,
     LookbookStatus,
+    recommendation_card_id_from_lookbook,
 )
 from apps.lookbook.models import LookbookPost, LookbookWardrobeItem
 from apps.lookbook.services import storage
@@ -828,7 +829,16 @@ def delete_post(*, user, lookbook_id: UUID) -> None:
 
     user_id = post.user_id
     post_id = post.pk
+    recommendation_card_id = recommendation_card_id_from_lookbook(post.golden_id)
     post.delete()
+    if recommendation_card_id:
+        # 추천 저장과 룩북이 서로 다른 상태로 남지 않게 룩북 삭제를 북마크에도 반영한다.
+        from apps.recommend.models import SavedOutfit
+
+        SavedOutfit.objects.filter(
+            user_id=user_id,
+            composition_id=recommendation_card_id,
+        ).delete()
     transaction.on_commit(
         lambda: _cleanup_deleted_lookbook_s3(user_id=user_id, lookbook_id=post_id)
     )

@@ -10,6 +10,23 @@
 from enum import StrEnum
 
 
+RECOMMENDATION_CARD_LOOKBOOK_PREFIX = "recommendation-card:"
+
+
+def recommendation_card_lookbook_id(card_id: object) -> str:
+    """추천 카드 스냅샷을 기존 서버 추천 룩 저장 경로에서 구분하는 안정 ID."""
+
+    return f"{RECOMMENDATION_CARD_LOOKBOOK_PREFIX}{card_id}"
+
+
+def recommendation_card_id_from_lookbook(value: str) -> str:
+    """추천 카드 룩북 ID가 아니면 빈 문자열을 반환한다."""
+
+    if not value.startswith(RECOMMENDATION_CARD_LOOKBOOK_PREFIX):
+        return ""
+    return value.removeprefix(RECOMMENDATION_CARD_LOOKBOOK_PREFIX)
+
+
 class LookbookStatus(StrEnum):
     """룩북 이미지 처리 상태."""
 

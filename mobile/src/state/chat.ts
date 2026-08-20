@@ -53,6 +53,7 @@ import {
   type StylistId,
 } from '@/lib/stylistApi';
 import { stylistStore } from '@/state/stylist';
+import { savedLookStore } from '@/state/saved';
 
 /**
  * 채팅 세션 — 목록(C1)·대화(C2)·모드 선택(C3)이 같은 출처를 봐야 하므로 여기로 모았다.
@@ -1517,6 +1518,7 @@ export const chatStore = {
     updateOverlay(sessionId, overlayId, patchCard(current, personaId, (c) => ({ ...c, saved: true })));
     try {
       await apiSaveCard(card.resultId, card.cardId);
+      await savedLookStore.load();
     } catch (e) {
       const reverted = overlaysOf(sessionId).find((o) => o.id === overlayId)?.message;
       if (reverted) {
