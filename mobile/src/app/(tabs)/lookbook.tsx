@@ -1,6 +1,5 @@
 import {
   ErrorState,
-  CategoryEditSheet,
   LoadingState,
   LookbookFilterSheet,
   SearchFilterBar,
@@ -126,9 +125,7 @@ export default function LookbookScreen() {
   const [query, setQuery] = useState('');
   const [gender, setGender] = useState<LookGenderFilter>('ALL');
   const [filterOpen, setFilterOpen] = useState(false);
-  const [categoryEditOpen, setCategoryEditOpen] = useState(false);
-  const [tags, setTags] = useState<string[]>([...LOOKBOOK_FILTER_OPTIONS]);
-  const { toggle, isActive, selected, label, prune } = useMultiSelectFilter();
+  const { toggle, isActive, selected, label } = useMultiSelectFilter();
   const selectedKey = selected.join('|');
 
   /* 둘 다 서버에서 온다 — 내 룩북은 내 목록, 둘러보기는 공개 피드.
@@ -156,10 +153,14 @@ export default function LookbookScreen() {
   const setMode = (m: Mode) => router.setParams({ tab: m === 'mine' ? 'mine' : 'browse' });
   const setMineTab = (t: MineTab) => router.setParams({ tab: t === 'wish' ? 'wish' : 'mine' });
 
-  /* 칩 줄은 모드마다 성격이 다르다 — 둘러보기는 해시태그(여러 개 켜짐, 편집 가능),
-     내 룩북은 갈래(하나만 켜짐, 고정). 같은 자리를 쓰되 배선만 갈아 끼운다. */
+  /* 칩 줄은 모드마다 성격이 다르다 — 둘러보기는 해시태그(여러 개 켜짐),
+     내 룩북은 갈래(하나만 켜짐). 같은 자리를 쓰되 배선만 갈아 끼운다.
+     둘러보기 해시태그는 서버가 정한 고정 목록이다 — 사용자가 편집하지 않는다. */
   const isMine = mode === 'mine';
-  const chipOptions = isMine ? MINE_CHIPS : tags;
+  /* string[] 로 못 박는다 — LOOKBOOK_FILTER_OPTIONS 는 as const 라 리터럴 유니온인데,
+     칩 콜백(chipActive/chipToggle)은 평범한 string 을 받는다. 예전 tags state 가
+     string[] 이었으므로 그 자리를 그대로 잇는다. */
+  const chipOptions: string[] = isMine ? MINE_CHIPS : LOOKBOOK_FILTER_OPTIONS;
   const chipActive = (c: string) => (isMine ? c === (mineTab === 'wish' ? WISH : UPLOADED) : isActive(c));
   const chipToggle = (c: string) =>
     isMine ? setMineTab(c === WISH ? 'wish' : 'uploaded') : toggle(c);
@@ -289,11 +290,6 @@ export default function LookbookScreen() {
     return '아직 올라온 룩이 없어요';
   }, [isMine, mineTab, selected, query, label]);
 
-  const handleSaveTags = (next: string[]) => {
-    setTags(next);
-    /* 지운 태그가 선택에 남아 있으면 아무것도 안 걸리는 필터가 된다 — '전체'는 선택값이 아니라 뺀다. */
-    prune(next.slice(1));
-  };
   return (
     <View style={styles.container}>
       <SafeAreaView edges={['top']} style={styles.safe}>
@@ -425,18 +421,6 @@ export default function LookbookScreen() {
           gender={gender}
           onClose={() => setFilterOpen(false)}
           onApply={selectGender}
-          onManageCategories={() => {
-            setFilterOpen(false);
-            setCategoryEditOpen(true);
-          }}
-        />
-        <CategoryEditSheet
-          visible={categoryEditOpen}
-          title="카테고리 관리"
-          categories={tags}
-          onClose={() => setCategoryEditOpen(false)}
-          onSave={handleSaveTags}
-          addPlaceholder="새 카테고리"
         />
 
         {/* 올리기는 어느 갈래에서든 같은 자리에 있다 — 결과는 늘 내 룩북에 쌓인다. */}
