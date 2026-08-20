@@ -155,6 +155,25 @@ class SharedReferenceVectorLoaderTests(SimpleTestCase):
             ],
         )
 
+    def test_owned_wardrobe_snapshot_uses_the_same_vector_contract(self) -> None:
+        snapshot = _snapshot()
+        snapshot["type"] = "WARDROBE_ITEM"
+        snapshot.pop("shared_item_id")
+        snapshot.pop("room_id")
+        snapshot.pop("source_status")
+
+        basis = load_shared_reference(
+            snapshot,
+            client=FakeQdrantClient(points=[_point(snapshot)]),
+        )
+
+        self.assertIsNone(basis.shared_item_id)
+        self.assertIsNone(basis.room_id)
+        self.assertEqual(
+            basis.exclusions.wardrobe_item_ids,
+            (snapshot["wardrobe_item_id"],),
+        )
+
     def test_reports_snapshot_and_vector_stage_timings(self) -> None:
         snapshot = _snapshot()
         observed: list[tuple[str, float]] = []

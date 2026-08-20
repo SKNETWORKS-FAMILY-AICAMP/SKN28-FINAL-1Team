@@ -11,7 +11,7 @@ from rest_framework.test import APIClient
 
 from apps.users.models import User
 from apps.wardrobe.models import WardrobeItem
-from apps.wardrobe.services import vectors
+from apps.wardrobe.services import vector_reindex_jobs, vectors
 
 
 class ReindexWardrobeVectorsCommandTests(TestCase):
@@ -59,6 +59,50 @@ class ReindexWardrobeVectorsCommandTests(TestCase):
             {item.pk for item in queued_items},
             {self.missing.pk, self.ready.pk},
         )
+
+    @patch.dict(
+        "os.environ",
+        {
+            "WARDROBE_REINDEX_CALLBACK_URL": "",
+            "WARDROBE_CALLBACK_URL": (
+                "https://api.example.com/api/v1/internal/wardrobe/callback/"
+            ),
+        },
+    )
+    def test_reindex_callback_falls_back_to_upload_callback_origin(self) -> None:
+        self.assertEqual(
+            vector_reindex_jobs._callback_url(),
+            "https://api.example.com/api/v1/internal/wardrobe/reindex-callback/",
+        )
+
+    @patch("apps.wardrobe.services.vector_reindex_jobs._redis")
+    @patch.object(
+        vector_reindex_jobs.storage,
+        "BUCKET",
+        "wardrobe-test-bucket",
+    )
+    @patch.dict(
+        "os.environ",
+        {
+            "WARDROBE_REINDEX_CALLBACK_URL": (
+                "https://api.example.com/api/v1/internal/wardrobe/reindex-callback/"
+            )
+        },
+    )
+    def test_enqueue_many_deduplicates_items_in_redis(
+        self,
+        redis_client,
+    ) -> None:
+        pipeline = redis_client.return_value.pipeline.return_value
+        pipeline.execute.return_value = [1, 0]
+
+        enqueued = vector_reindex_jobs.enqueue_many([self.missing, self.ready])
+
+        self.assertEqual(enqueued, 1)
+        self.assertEqual(pipeline.eval.call_count, 2)
+        for call in pipeline.eval.call_args_list:
+            self.assertEqual(call.args[2], vector_reindex_jobs.DEDUP_KEY)
+            self.assertEqual(call.args[3], vector_reindex_jobs.QUEUE_KEY)
 
 
 class WardrobeReindexCallbackTests(TestCase):

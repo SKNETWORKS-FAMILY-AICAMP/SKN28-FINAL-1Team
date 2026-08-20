@@ -24,6 +24,13 @@ class SharedReferenceEligibilityApiTests(APITestCase):
         self.room = shared_service.create_shared_room(self.owner, "참조 가능 테스트")
         self.client.force_authenticate(self.owner)
         self.url = f"/api/v1/shared-wardrobes/{self.room.pk}/items/"
+        enqueue_patcher = patch(
+            "apps.wardrobe.services.reference_eligibility."
+            "vector_reindex_jobs.enqueue_many",
+            return_value=1,
+        )
+        self.enqueue_many = enqueue_patcher.start()
+        self.addCleanup(enqueue_patcher.stop)
 
     def _shared_item(
         self,
@@ -139,6 +146,11 @@ class SharedReferenceEligibilityApiTests(APITestCase):
             response.data[0]["reference_unavailable_reason"],
             "VECTOR_NOT_READY",
         )
+        queued_items = list(self.enqueue_many.call_args.args[0])
+        self.assertEqual(
+            [str(item.pk) for item in queued_items],
+            [str(shared_item.wardrobe_item_id)],
+        )
 
     @patch(
         "apps.wardrobe.services.reference_eligibility.WardrobeVectorReconciler"
@@ -159,4 +171,28 @@ class SharedReferenceEligibilityApiTests(APITestCase):
         self.assertEqual(
             response.data[0]["reference_unavailable_reason"],
             "VECTOR_NOT_READY",
+        )
+        self.enqueue_many.assert_not_called()
+
+    @patch(
+        "apps.wardrobe.services.reference_eligibility.WardrobeVectorReconciler"
+    )
+    def test_missing_db_flag_is_automatically_queued_for_reindex(
+        self,
+        reconciler_class,
+    ) -> None:
+        shared_item = self._shared_item(
+            name="자동 복구 대상",
+            embedding_version="",
+        )
+
+        response = self.client.get(self.url)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertFalse(response.data[0]["reference_eligible"])
+        reconciler_class.assert_not_called()
+        queued_items = list(self.enqueue_many.call_args.args[0])
+        self.assertEqual(
+            [str(item.pk) for item in queued_items],
+            [str(shared_item.wardrobe_item_id)],
         )

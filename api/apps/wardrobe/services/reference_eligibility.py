@@ -10,7 +10,10 @@ import logging
 from collections.abc import Iterable
 from dataclasses import dataclass
 
-from apps.wardrobe.models import SharedWardrobeItem
+import redis
+
+from apps.wardrobe.models import SharedWardrobeItem, WardrobeItem
+from apps.wardrobe.services import vector_reindex_jobs
 from apps.wardrobe.services.vector_reconciliation import (
     WardrobeVectorReconciler,
     WardrobeVectorStoreUnavailable,
@@ -63,16 +66,74 @@ def evaluate_reference_eligibility(
     return ReferenceEligibility(eligible=True)
 
 
+def resolve_wardrobe_vector_readiness(
+    wardrobe_items: Iterable[WardrobeItem],
+    *,
+    reconciler: WardrobeVectorReconciler | None = None,
+    enqueue_missing: bool = False,
+) -> dict[str, bool]:
+    """확정된 옷장 아이템의 실제 Qdrant 벡터 준비 여부를 일괄 판정한다.
+
+    개인 옷과 공유 옷 모두 같은 벡터 계약을 사용한다. Qdrant 장애는 포인트 누락으로
+    단정하지 않으며, 실제 누락 또는 DB 임베딩 플래그 누락만 재인덱싱 큐에 넣는다.
+    """
+
+    unique_items = {
+        str(item.pk): item
+        for item in wardrobe_items
+    }
+    ready = {item_id: False for item_id in unique_items}
+    repair_items = {
+        item_id: item
+        for item_id, item in unique_items.items()
+        if item.confirmed and item.s3_key and not item.embedding_version
+    }
+    candidates = [
+        item
+        for item in unique_items.values()
+        if item.confirmed and item.s3_key and item.embedding_version
+    ]
+
+    audits = []
+    if candidates:
+        try:
+            audits = (reconciler or WardrobeVectorReconciler()).audit(candidates)
+        except WardrobeVectorStoreUnavailable:
+            logger.warning("옷장 참고 가능 여부를 위한 Qdrant 조회 실패")
+            # 저장소 장애를 포인트 누락으로 오인해 전체를 재색인하지 않는다.
+
+    if audits:
+        for audit in audits:
+            ready[audit.item_id] = audit.vector_ready
+            if not audit.vector_ready and audit.item_id in unique_items:
+                repair_items[audit.item_id] = unique_items[audit.item_id]
+
+    if enqueue_missing and repair_items:
+        try:
+            enqueued = vector_reindex_jobs.enqueue_many(repair_items.values())
+            if enqueued:
+                logger.info("옷장 누락 벡터 자동 복구 큐 적재: %s건", enqueued)
+        except (
+            vector_reindex_jobs.ReindexQueueConfigurationError,
+            redis.RedisError,
+        ) as exc:
+            # 목록·채팅 요청은 설정 장애 때문에 500이 되지 않고 준비 중으로 닫힌다.
+            logger.warning("옷장 누락 벡터 자동 복구 요청 실패: %s", exc)
+
+    return ready
+
+
 def resolve_reference_eligibilities(
     shared_items: Iterable[SharedWardrobeItem],
     *,
     reconciler: WardrobeVectorReconciler | None = None,
+    enqueue_missing: bool = False,
 ) -> dict[str, ReferenceEligibility]:
     """공유 옷 목록의 실제 벡터 준비 상태를 Qdrant 한 번에 확인한다.
 
-    비공개·미확정·DB 플래그 미설정 아이템은 기존 판정만 사용한다. DB 기준으로
-    선택 가능한 후보만 Qdrant에서 검증하며, 저장소 장애 시에는 거짓 양성보다
-    안전한 선택 불가 상태로 닫는다. 이 함수는 DB와 Qdrant를 수정하지 않는다.
+    비공개·미확정 아이템은 기존 판정만 사용한다. DB 기준으로 선택 가능한 후보는
+    Qdrant에서 검증하며, 저장소 장애 시에는 거짓 양성보다 안전한 선택 불가 상태로
+    닫는다. ``enqueue_missing``이면 누락 아이템을 멱등 재인덱싱 큐에 적재한다.
     """
 
     items = list(shared_items)
@@ -80,37 +141,28 @@ def resolve_reference_eligibilities(
         str(shared_item.pk): evaluate_reference_eligibility(shared_item)
         for shared_item in items
     }
-    candidates = [
-        shared_item
+    vector_candidates = [
+        shared_item.wardrobe_item
         for shared_item in items
-        if resolved[str(shared_item.pk)].eligible
-    ]
-    if not candidates:
-        return resolved
-
-    wardrobe_items_by_id = {
-        str(shared_item.wardrobe_item_id): shared_item.wardrobe_item
-        for shared_item in candidates
-    }
-    try:
-        audits = (reconciler or WardrobeVectorReconciler()).audit(
-            list(wardrobe_items_by_id.values())
+        if (
+            shared_item.status != SharedWardrobeItem.Status.PRIVATE
+            and shared_item.wardrobe_item.confirmed
         )
-    except WardrobeVectorStoreUnavailable:
-        logger.warning("공유 옷 참고 가능 여부를 위한 Qdrant 조회 실패")
-        for shared_item in candidates:
-            resolved[str(shared_item.pk)] = ReferenceEligibility(
-                eligible=False,
-                unavailable_reason=REFERENCE_UNAVAILABLE_VECTOR_NOT_READY,
-            )
-        return resolved
-
-    readiness_by_item_id = {
-        audit.item_id: audit.vector_ready for audit in audits
-    }
-    for shared_item in candidates:
+    ]
+    readiness_by_item_id = resolve_wardrobe_vector_readiness(
+        vector_candidates,
+        reconciler=reconciler,
+        enqueue_missing=enqueue_missing,
+    )
+    for shared_item in items:
+        shared_id = str(shared_item.pk)
+        if resolved[shared_id].unavailable_reason in {
+            REFERENCE_UNAVAILABLE_PRIVATE,
+            REFERENCE_UNAVAILABLE_NOT_CONFIRMED,
+        }:
+            continue
         if readiness_by_item_id.get(str(shared_item.wardrobe_item_id)) is not True:
-            resolved[str(shared_item.pk)] = ReferenceEligibility(
+            resolved[shared_id] = ReferenceEligibility(
                 eligible=False,
                 unavailable_reason=REFERENCE_UNAVAILABLE_VECTOR_NOT_READY,
             )

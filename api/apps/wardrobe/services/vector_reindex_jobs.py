@@ -14,7 +14,24 @@ from apps.wardrobe.services import storage
 from apps.wardrobe.services.vectors import EMBEDDING_VERSION
 
 QUEUE_KEY = os.getenv("WARDROBE_REINDEX_QUEUE", "wardrobe:reindex")
-CALLBACK_URL = os.getenv("WARDROBE_REINDEX_CALLBACK_URL", "").strip()
+DEDUP_KEY = f"{QUEUE_KEY}:dedupe"
+
+
+def _callback_url() -> str:
+    """재인덱싱 전용 콜백을 우선하고 기존 옷장 콜백에서 안전하게 파생한다."""
+
+    configured = os.getenv("WARDROBE_REINDEX_CALLBACK_URL", "").strip()
+    if configured:
+        return configured
+
+    upload_callback = os.getenv("WARDROBE_CALLBACK_URL", "").strip()
+    suffix = "/internal/wardrobe/callback/"
+    if upload_callback.endswith(suffix):
+        return (
+            upload_callback[: -len(suffix)]
+            + "/internal/wardrobe/reindex-callback/"
+        )
+    return ""
 
 
 class ReindexQueueConfigurationError(RuntimeError):
@@ -55,9 +72,10 @@ def _tags(item: WardrobeItem) -> dict[str, object]:
 def build_payload(item: WardrobeItem) -> dict[str, object]:
     if not storage.BUCKET:
         raise ReindexQueueConfigurationError("WARDROBE_S3_BUCKET이 필요합니다.")
-    if not CALLBACK_URL:
+    callback_url = _callback_url()
+    if not callback_url:
         raise ReindexQueueConfigurationError(
-            "WARDROBE_REINDEX_CALLBACK_URL이 필요합니다."
+            "WARDROBE_REINDEX_CALLBACK_URL 또는 WARDROBE_CALLBACK_URL이 필요합니다."
         )
     return {
         "schema_version": "1.0",
@@ -67,7 +85,7 @@ def build_payload(item: WardrobeItem) -> dict[str, object]:
         "source_updated_at": item.updated_at.isoformat(),
         "embedding_version": EMBEDDING_VERSION,
         "tags": _tags(item),
-        "callback_url": CALLBACK_URL,
+        "callback_url": callback_url,
     }
 
 
@@ -76,8 +94,23 @@ def enqueue_many(items: Iterable[WardrobeItem]) -> int:
     if not payloads:
         return 0
 
+    # 같은 아이템을 공유 목록을 열 때마다 다시 넣지 않는다. 워커가 성공 또는
+    # 최종 실패로 끝낼 때 dedupe set에서 제거하므로 이후에는 다시 복구할 수 있다.
+    script = """
+    if redis.call('SADD', KEYS[1], ARGV[1]) == 1 then
+        redis.call('LPUSH', KEYS[2], ARGV[2])
+        return 1
+    end
+    return 0
+    """
     pipeline = _redis().pipeline(transaction=True)
     for payload in payloads:
-        pipeline.lpush(QUEUE_KEY, json.dumps(payload, ensure_ascii=False))
-    pipeline.execute()
-    return len(payloads)
+        pipeline.eval(
+            script,
+            2,
+            DEDUP_KEY,
+            QUEUE_KEY,
+            str(payload["item_id"]),
+            json.dumps(payload, ensure_ascii=False),
+        )
+    return sum(int(result) for result in pipeline.execute())

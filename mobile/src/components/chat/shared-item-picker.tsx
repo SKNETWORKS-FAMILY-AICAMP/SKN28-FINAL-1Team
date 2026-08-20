@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { Modal, Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 
 import { Icon } from '@/components/icon';
@@ -6,7 +6,11 @@ import { ErrorState, LoadingState, SmartImage } from '@/components/ui';
 import { ChatPanelWidth, Editorial, ink, SidebarWidth, Type } from '@/constants/theme';
 import { SHARED_ITEM_STATUS_META } from '@/constants/shared-wardrobe';
 import { useBreakpoint } from '@/hooks/use-breakpoint';
-import { sharedReferenceUnavailableLabel } from '@/lib/sharedReferencePresentation';
+import {
+  SHARED_REFERENCE_VECTOR_POLL_MS,
+  sharedReferenceUnavailableLabel,
+  shouldPollSharedReferenceVector,
+} from '@/lib/sharedReferencePresentation';
 import {
   getMySharedRooms,
   listSharedRoomItems,
@@ -15,7 +19,7 @@ import {
   type SharedItemStatus,
   type SharedRoomItem,
 } from '@/lib/wardrobeApi';
-import type { SharedReferencePick } from '@/state/chat';
+import type { ChatReferencePick } from '@/state/chat';
 
 const INK = Editorial.ink;
 
@@ -39,7 +43,7 @@ type LoadState = {
   error: string | null;
 };
 
-type SharedReferencePickerItem = SharedReferencePick & {
+type SharedReferencePickerItem = ChatReferencePick & {
   status: SharedItemStatus;
   referenceEligible: boolean;
   referenceUnavailableReason: SharedReferenceUnavailableReason | null;
@@ -56,7 +60,8 @@ function toPick(
 ): SharedReferencePickerItem {
   const w = item.wardrobe_item;
   return {
-    sharedItemId: item.id,
+    referenceType: 'SHARED_WARDROBE_ITEM',
+    referenceItemId: item.id,
     imageUrl: w.image_url ?? null,
     // 이름이 비어 있는 옷이 있어 대분류로 대신한다 (식별에는 쓰지 않는다).
     itemName: w.item_name?.trim() || w.category_large?.trim() || '옷',
@@ -76,12 +81,13 @@ export function SharedItemPicker({
 }: {
   visible: boolean;
   onClose: () => void;
-  onPick: (pick: SharedReferencePick) => void;
+  onPick: (pick: ChatReferencePick) => void;
 }) {
   const { isDesktop, isWide } = useBreakpoint();
   const [state, setState] = useState<LoadState>({ picks: [], failedRooms: 0, error: null });
   const [loading, setLoading] = useState(true);
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const vectorPollCount = useRef(0);
 
   /* 데스크톱 웹에선 대화 열 안에 뜨는 다이얼로그 (session-sheet·stylist-picker 와 같은 규칙). */
   const asDialog = Platform.OS === 'web' && isDesktop;
@@ -137,6 +143,32 @@ export function SharedItemPicker({
     };
   }, [visible, run]);
 
+  const hasVectorPending = state.picks.some(
+    (pick) => pick.referenceUnavailableReason === 'VECTOR_NOT_READY',
+  );
+
+  /* 재인덱싱은 GPU 모델 초기화까지 포함해 수십 초 걸릴 수 있다. 15초 간격으로
+     최대 2분만 조용히 갱신하고, 그 뒤에는 사용자가 수동으로 확인하게 한다. */
+  useEffect(() => {
+    if (!shouldPollSharedReferenceVector({
+      visible,
+      loading,
+      hasVectorPending,
+      pollCount: vectorPollCount.current,
+    })) {
+      return;
+    }
+    let alive = true;
+    const timer = setTimeout(() => {
+      vectorPollCount.current += 1;
+      run(() => alive);
+    }, SHARED_REFERENCE_VECTOR_POLL_MS);
+    return () => {
+      alive = false;
+      clearTimeout(timer);
+    };
+  }, [hasVectorPending, loading, run, visible, state.picks]);
+
   /* 열 때마다 처음 상태로 되돌린다. effect 가 아니라 렌더 중에 맞추므로 옛 선택이
      한 프레임 스치지 않는다 (stylist-picker 와 같은 방식). */
   const openKey = visible ? 'open' : null;
@@ -146,11 +178,12 @@ export function SharedItemPicker({
     if (visible) {
       setSelectedId(null);
       setLoading(true);
+      vectorPollCount.current = 0;
     }
   }
 
   const selected =
-    state.picks.find((p) => p.sharedItemId === selectedId && p.referenceEligible) ?? null;
+    state.picks.find((p) => p.referenceItemId === selectedId && p.referenceEligible) ?? null;
   /* 방이 여럿일 때만 방 이름을 붙인다 — 하나뿐이면 모든 카드에 같은 말이 붙어 소음이 된다. */
   const showRoom = new Set(state.picks.map((p) => p.roomId)).size > 1;
 
@@ -213,19 +246,34 @@ export function SharedItemPicker({
                 </Pressable>
               ) : null}
 
+              {hasVectorPending ? (
+                <Pressable
+                  style={styles.partialRow}
+                  onPress={() => {
+                    vectorPollCount.current = 0;
+                    setLoading(true);
+                    run(() => true);
+                  }}>
+                  <Icon name="arrow.clockwise" tintColor={Editorial.textMuted} size={11} />
+                  <Text style={styles.partialText}>
+                    이미지 분석 상태 새로고침
+                  </Text>
+                </Pressable>
+              ) : null}
+
               <ScrollView contentContainerStyle={styles.grid} showsVerticalScrollIndicator={false}>
                 {state.picks.map((p) => {
                   const disabled = !p.referenceEligible;
                   const reason = unavailableLabel(p);
-                  const on = !disabled && p.sharedItemId === selectedId;
+                  const on = !disabled && p.referenceItemId === selectedId;
                   return (
                     <Pressable
-                      key={p.sharedItemId}
+                      key={p.referenceItemId}
                       style={[styles.card, disabled && styles.cardDisabled, on && styles.cardOn]}
                       disabled={disabled}
                       onPress={() => {
                         if (disabled) return;
-                        setSelectedId(on ? null : p.sharedItemId);
+                        setSelectedId(on ? null : p.referenceItemId);
                       }}
                       accessibilityRole="radio"
                       accessibilityState={{ selected: on, disabled }}

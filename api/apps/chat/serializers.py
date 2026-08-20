@@ -16,6 +16,7 @@ from apps.chat.services import attachment_storage
 from apps.chat.services.shared_reference import (
     REFERENCE_SCHEMA_VERSION,
     REFERENCE_TYPE_SHARED_WARDROBE_ITEM,
+    REFERENCE_TYPE_WARDROBE_ITEM,
 )
 from apps.chat.services.stylist_personas import load_stylist_personas
 from apps.recommend.models import (
@@ -74,7 +75,8 @@ class ChatAttachmentSerializer(serializers.ModelSerializer):
 class ChatReferenceSummarySerializer(serializers.Serializer):
     schema_version = serializers.CharField(read_only=True)
     type = serializers.CharField(read_only=True)
-    shared_item_id = serializers.UUIDField(read_only=True)
+    shared_item_id = serializers.UUIDField(read_only=True, required=False)
+    wardrobe_item_id = serializers.UUIDField(read_only=True, required=False)
     item_name = serializers.CharField(read_only=True, allow_blank=True)
     category_large = serializers.CharField(read_only=True, allow_blank=True)
     owner_name = serializers.CharField(read_only=True)
@@ -111,13 +113,18 @@ class ChatMessageSerializer(serializers.ModelSerializer):
         snapshot = getattr(run, "reference_snapshot", None)
         if not isinstance(snapshot, dict) or not snapshot:
             return None
-        if snapshot.get("type") != REFERENCE_TYPE_SHARED_WARDROBE_ITEM:
+        reference_type = snapshot.get("type")
+        if reference_type not in {
+            REFERENCE_TYPE_SHARED_WARDROBE_ITEM,
+            REFERENCE_TYPE_WARDROBE_ITEM,
+        }:
             return None
 
         shared_item_id = str(snapshot.get("shared_item_id") or "").strip()
+        wardrobe_item_id = str(snapshot.get("wardrobe_item_id") or "").strip()
         image_s3_key = str(snapshot.get("image_s3_key") or "").strip()
         item = snapshot.get("item")
-        if not shared_item_id or not image_s3_key or not isinstance(item, dict):
+        if not wardrobe_item_id or not image_s3_key or not isinstance(item, dict):
             return None
 
         try:
@@ -130,21 +137,50 @@ class ChatMessageSerializer(serializers.ModelSerializer):
             )
             image_url = None
 
-        return {
+        summary = {
             "schema_version": REFERENCE_SCHEMA_VERSION,
-            "type": REFERENCE_TYPE_SHARED_WARDROBE_ITEM,
-            "shared_item_id": shared_item_id,
+            "type": reference_type,
             "item_name": str(item.get("item_name") or ""),
             "category_large": str(item.get("category_large") or ""),
             "owner_name": str(snapshot.get("owner_name") or "멤버"),
             "room_name": str(snapshot.get("room_name") or ""),
             "image_url": image_url,
         }
+        if shared_item_id:
+            summary["shared_item_id"] = shared_item_id
+        if reference_type == REFERENCE_TYPE_WARDROBE_ITEM:
+            summary["wardrobe_item_id"] = wardrobe_item_id
+        return summary
 
 
-class SharedWardrobeItemReferenceSerializer(serializers.Serializer):
-    type = serializers.ChoiceField(choices=["SHARED_WARDROBE_ITEM"])
-    shared_item_id = serializers.UUIDField()
+class ChatItemReferenceSerializer(serializers.Serializer):
+    type = serializers.ChoiceField(
+        choices=["SHARED_WARDROBE_ITEM", "WARDROBE_ITEM"]
+    )
+    shared_item_id = serializers.UUIDField(required=False)
+    wardrobe_item_id = serializers.UUIDField(required=False)
+
+    def validate(self, attrs):
+        reference_type = attrs["type"]
+        required_field = (
+            "shared_item_id"
+            if reference_type == REFERENCE_TYPE_SHARED_WARDROBE_ITEM
+            else "wardrobe_item_id"
+        )
+        forbidden_field = (
+            "wardrobe_item_id"
+            if required_field == "shared_item_id"
+            else "shared_item_id"
+        )
+        if not attrs.get(required_field):
+            raise serializers.ValidationError(
+                {required_field: "참고할 옷 아이템 ID가 필요합니다."}
+            )
+        if attrs.get(forbidden_field):
+            raise serializers.ValidationError(
+                {forbidden_field: "참조 유형과 맞지 않는 ID입니다."}
+            )
+        return attrs
 
 
 class SharedReferenceNotFoundErrorSerializer(serializers.Serializer):
@@ -218,12 +254,13 @@ class ChatMessageCreateSerializer(serializers.Serializer):
         required=False,
         help_text='선택 입력 JSON 객체. Swagger 테스트 예: {"source": "swagger"}',
     )
-    reference = SharedWardrobeItemReferenceSerializer(
+    reference = ChatItemReferenceSerializer(
         required=False,
         write_only=True,
         help_text=(
-            "선택 입력. 공유 옷장 아이템을 추천 결과가 아닌 참고 이미지로 사용할 때 "
-            "type=SHARED_WARDROBE_ITEM, shared_item_id=공유 아이템 UUID를 전달합니다."
+            "선택 입력. 옷장 아이템을 추천 결과가 아닌 참고 이미지로 사용할 때 "
+            "공유 옷은 type=SHARED_WARDROBE_ITEM/shared_item_id, 내 옷은 "
+            "type=WARDROBE_ITEM/wardrobe_item_id를 전달합니다."
         ),
     )
     wardrobe_scope = WardrobeScopeSerializer(

@@ -12,19 +12,38 @@ export type ReferenceMatchLike = {
 };
 
 export type ReferenceSummaryLike = {
-  shared_item_id: string;
   item_name: string;
   category_large: string;
   owner_name: string;
   room_name: string;
   image_url: string | null;
-};
+} & (
+  | { type: 'SHARED_WARDROBE_ITEM'; shared_item_id: string }
+  | { type: 'WARDROBE_ITEM'; wardrobe_item_id: string }
+);
 
 export type ReferenceBadgePresentation = {
   label: string;
   isStyleFallback: boolean;
   reasons: string[];
 };
+
+export const SHARED_REFERENCE_VECTOR_POLL_MS = 15_000;
+export const SHARED_REFERENCE_VECTOR_MAX_POLLS = 8;
+
+export function shouldPollSharedReferenceVector(input: {
+  visible: boolean;
+  loading: boolean;
+  hasVectorPending: boolean;
+  pollCount: number;
+}): boolean {
+  return (
+    input.visible &&
+    !input.loading &&
+    input.hasVectorPending &&
+    input.pollCount < SHARED_REFERENCE_VECTOR_MAX_POLLS
+  );
+}
 
 const UNAVAILABLE_LABELS: Record<SharedReferenceUnavailableReason, string> = {
   PRIVATE: '나만 보기 상태',
@@ -62,10 +81,18 @@ export function buildReferenceBadge(
 }
 
 export function buildReferenceBubble(summary: ReferenceSummaryLike, text: string) {
+  const referenceItemId =
+    summary.type === 'SHARED_WARDROBE_ITEM'
+      ? summary.shared_item_id
+      : summary.wardrobe_item_id;
+  if (!referenceItemId) {
+    throw new Error('참고 옷 식별자가 없습니다.');
+  }
   return {
     kind: 'reference' as const,
     text,
-    sharedItemId: summary.shared_item_id,
+    referenceType: summary.type,
+    referenceItemId,
     imageUrl: summary.image_url,
     itemName: summary.item_name || summary.category_large || '옷',
     ownerName: summary.owner_name,

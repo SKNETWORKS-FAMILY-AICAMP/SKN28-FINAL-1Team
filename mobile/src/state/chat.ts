@@ -126,7 +126,7 @@ export type ChatMessage =
       //decision: ApiMoodDecision;
     }
   /**
-   * 참고할 공유 옷을 함께 보낸 질문.
+   * 참고할 개인·공유 옷을 함께 보낸 질문.
    *
    * 친구 옷은 **참고 대상이지 최종 코디 아이템이 아니다** — 문구에 '포함'을 쓰지 않는다.
    *
@@ -138,7 +138,8 @@ export type ChatMessage =
       role: 'user';
       kind: 'reference';
       text: string;
-      sharedItemId: string;
+      referenceType: 'SHARED_WARDROBE_ITEM' | 'WARDROBE_ITEM';
+      referenceItemId: string;
       imageUrl: string | null;
       itemName: string;
       ownerName: string;
@@ -278,13 +279,14 @@ export function formatRelativeTime(ts: number, now: number = Date.now()): string
    대화가 제목으로만 걸려, 사용자에게는 "분명 그 말을 했는데 안 찾아진다"로 보인다. */
 
 /**
- * 사용자가 고른 참고용 공유 옷. 선택 시트 → 입력창 미리보기 → 전송까지 이 모양으로 들고 다닌다.
+ * 사용자가 고른 참고용 개인·공유 옷. 선택 시트 → 입력창 미리보기 → 전송까지 이 모양으로 들고 다닌다.
  *
- * ⚠️ `sharedItemId` 는 `SharedWardrobeItem.id` 다. 내 옷장 아이템 id 를 넣으면 서버가 못 찾는다.
- *    나머지 필드는 **화면에 보여주기 위한 것**이고 서버 식별에는 쓰지 않는다(이름으로 찾지 않는다).
+ * 식별자는 referenceType에 따라 SharedWardrobeItem.id 또는 WardrobeItem.id다.
+ * 나머지 필드는 **화면에 보여주기 위한 것**이고 서버 식별에는 쓰지 않는다(이름으로 찾지 않는다).
  */
-export type SharedReferencePick = {
-  sharedItemId: string;
+export type ChatReferencePick = {
+  referenceType: 'SHARED_WARDROBE_ITEM' | 'WARDROBE_ITEM';
+  referenceItemId: string;
   imageUrl: string | null;
   itemName: string;
   ownerName: string;
@@ -294,13 +296,13 @@ export type SharedReferencePick = {
 
 export type ChatSendOptions = {
   wardrobeScope?: ApiWardrobeScope;
-  reference?: SharedReferencePick;
+  reference?: ChatReferencePick;
 };
 
 /**
  * 카드에 붙일 '무엇과 비슷한지' 배지.
  *
- * 공유 옷을 참고하지 않은 추천은 서버가 빈 객체를 주므로 여기서 null 이 된다.
+ * 옷장 아이템을 참고하지 않은 추천은 서버가 빈 객체를 주므로 여기서 null 이 된다.
  * **모르는 값이 오면 배지를 만들지 않는다** — 지어내느니 생략하는 쪽이 맞고,
  * 카드 자체는 그대로 그린다(요구사항 7장).
  */
@@ -1259,7 +1261,15 @@ export const chatStore = {
         {
           wardrobeScope: options.wardrobeScope,
           reference: reference
-            ? { type: 'SHARED_WARDROBE_ITEM', shared_item_id: reference.sharedItemId }
+            ? reference.referenceType === 'SHARED_WARDROBE_ITEM'
+              ? {
+                  type: 'SHARED_WARDROBE_ITEM',
+                  shared_item_id: reference.referenceItemId,
+                }
+              : {
+                  type: 'WARDROBE_ITEM',
+                  wardrobe_item_id: reference.referenceItemId,
+                }
             : undefined,
         },
       );
@@ -1289,7 +1299,8 @@ export const chatStore = {
                 role: 'user',
                 kind: 'reference',
                 text: body,
-                sharedItemId: reference.sharedItemId,
+                referenceType: reference.referenceType,
+                referenceItemId: reference.referenceItemId,
                 imageUrl: reference.imageUrl,
                 itemName: reference.itemName,
                 ownerName: reference.ownerName,

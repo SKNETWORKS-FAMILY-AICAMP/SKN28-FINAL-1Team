@@ -8,15 +8,21 @@ from django.conf import settings
 from django.utils import timezone
 
 from apps.chat.models import ChatIdentity
-from apps.wardrobe.models import SharedWardrobeItem, SharedWardrobeMember
+from apps.wardrobe.models import (
+    SharedWardrobeItem,
+    SharedWardrobeMember,
+    WardrobeItem,
+)
 from apps.wardrobe.services.reference_eligibility import (
     REFERENCE_UNAVAILABLE_NOT_CONFIRMED,
     REFERENCE_UNAVAILABLE_PRIVATE,
-    evaluate_reference_eligibility,
+    resolve_reference_eligibilities,
+    resolve_wardrobe_vector_readiness,
 )
 
 REFERENCE_SCHEMA_VERSION = "1.0"
 REFERENCE_TYPE_SHARED_WARDROBE_ITEM = "SHARED_WARDROBE_ITEM"
+REFERENCE_TYPE_WARDROBE_ITEM = "WARDROBE_ITEM"
 AUTO_USERNAME_RE = re.compile(r"^(email|naver|kakao|google|apple)_")
 
 
@@ -53,6 +59,47 @@ def _owner_display_name(user) -> str:
     return "멤버"
 
 
+def _snapshot_item(
+    *,
+    item: WardrobeItem,
+    reference_type: str,
+    owner_name: str,
+    room_name: str = "",
+    extra: dict[str, object] | None = None,
+) -> dict[str, object]:
+    snapshot: dict[str, object] = {
+        "schema_version": REFERENCE_SCHEMA_VERSION,
+        "type": reference_type,
+        "wardrobe_item_id": str(item.pk),
+        "qdrant_collection": settings.QDRANT_WARDROBE_COLLECTION,
+        "qdrant_point_id": str(item.pk),
+        "embedding_version": item.embedding_version,
+        "image_s3_key": item.s3_key,
+        "owner_name": owner_name,
+        "room_name": room_name,
+        "captured_at": timezone.now().isoformat(),
+        "item": {
+            "item_name": item.item_name,
+            "category_large": item.category_large,
+            "category_small": item.category_small,
+            "season": list(item.season),
+            "style": list(item.style),
+            "color": item.color,
+            "pattern": item.pattern,
+            "fit": item.fit,
+            "material": item.material,
+            "sleeve": item.sleeve,
+            "length": item.length,
+            "usage": list(item.usage),
+            "layer_role": item.layer_role,
+            "layer_order": item.layer_order,
+        },
+    }
+    if extra:
+        snapshot.update(extra)
+    return snapshot
+
+
 def build_reference_snapshot(
     *,
     identity: ChatIdentity,
@@ -66,14 +113,46 @@ def build_reference_snapshot(
 
     if not reference:
         return {}
-    if reference.get("type") != REFERENCE_TYPE_SHARED_WARDROBE_ITEM:
+    reference_type = reference.get("type")
+    if reference_type not in {
+        REFERENCE_TYPE_SHARED_WARDROBE_ITEM,
+        REFERENCE_TYPE_WARDROBE_ITEM,
+    }:
         raise SharedReferenceError("지원하지 않는 채팅 참조 유형입니다.")
     if (
         identity.identity_type != ChatIdentity.IdentityType.MEMBER
         or not identity.user_id
     ):
         raise SharedReferenceForbidden(
-            "공유 옷장 아이템은 로그인한 공유방 멤버만 참조할 수 있습니다."
+            "옷장 아이템 참조는 로그인한 회원만 사용할 수 있습니다."
+        )
+
+    if reference_type == REFERENCE_TYPE_WARDROBE_ITEM:
+        item = (
+            WardrobeItem.objects.filter(
+                pk=reference.get("wardrobe_item_id"),
+                user_id=identity.user_id,
+            )
+            .first()
+        )
+        if item is None:
+            raise SharedReferenceNotFound("내 옷장 아이템을 찾을 수 없습니다.")
+        if not item.confirmed:
+            raise SharedReferenceUnavailable(
+                "사용자가 확정한 옷장 아이템만 참조할 수 있습니다."
+            )
+        readiness = resolve_wardrobe_vector_readiness(
+            [item],
+            enqueue_missing=True,
+        )
+        if readiness.get(str(item.pk)) is not True:
+            raise SharedReferenceUnavailable(
+                "옷 이미지의 벡터 처리가 끝난 뒤 다시 시도해 주세요."
+            )
+        return _snapshot_item(
+            item=item,
+            reference_type=REFERENCE_TYPE_WARDROBE_ITEM,
+            owner_name="내 옷",
         )
 
     shared_item_id = reference.get("shared_item_id")
@@ -94,7 +173,10 @@ def build_reference_snapshot(
     ).exists():
         raise SharedReferenceForbidden("참여 중인 공유 옷장의 아이템만 참조할 수 있습니다.")
     item = shared_item.wardrobe_item
-    eligibility = evaluate_reference_eligibility(shared_item)
+    eligibility = resolve_reference_eligibilities(
+        [shared_item],
+        enqueue_missing=True,
+    )[str(shared_item.pk)]
     if eligibility.unavailable_reason == REFERENCE_UNAVAILABLE_PRIVATE:
         raise SharedReferenceForbidden("나만 보기 상태인 공유 옷은 참조할 수 없습니다.")
     if eligibility.unavailable_reason == REFERENCE_UNAVAILABLE_NOT_CONFIRMED:
@@ -104,34 +186,14 @@ def build_reference_snapshot(
             "공유 옷 이미지의 벡터 처리가 끝난 뒤 다시 시도해 주세요."
         )
 
-    return {
-        "schema_version": REFERENCE_SCHEMA_VERSION,
-        "type": REFERENCE_TYPE_SHARED_WARDROBE_ITEM,
-        "shared_item_id": str(shared_item.pk),
-        "room_id": str(shared_item.room_id),
-        "wardrobe_item_id": str(item.pk),
-        "source_status": shared_item.status,
-        "qdrant_collection": settings.QDRANT_WARDROBE_COLLECTION,
-        "qdrant_point_id": str(item.pk),
-        "embedding_version": item.embedding_version,
-        "image_s3_key": item.s3_key,
-        "owner_name": _owner_display_name(shared_item.registered_by),
-        "room_name": shared_item.room.title,
-        "captured_at": timezone.now().isoformat(),
-        "item": {
-            "item_name": item.item_name,
-            "category_large": item.category_large,
-            "category_small": item.category_small,
-            "season": list(item.season),
-            "style": list(item.style),
-            "color": item.color,
-            "pattern": item.pattern,
-            "fit": item.fit,
-            "material": item.material,
-            "sleeve": item.sleeve,
-            "length": item.length,
-            "usage": list(item.usage),
-            "layer_role": item.layer_role,
-            "layer_order": item.layer_order,
+    return _snapshot_item(
+        item=item,
+        reference_type=REFERENCE_TYPE_SHARED_WARDROBE_ITEM,
+        owner_name=_owner_display_name(shared_item.registered_by),
+        room_name=shared_item.room.title,
+        extra={
+            "shared_item_id": str(shared_item.pk),
+            "room_id": str(shared_item.room_id),
+            "source_status": shared_item.status,
         },
-    }
+    )

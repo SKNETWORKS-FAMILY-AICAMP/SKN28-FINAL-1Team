@@ -18,7 +18,9 @@ from apps.recommend.services.qdrant import (
 )
 
 REFERENCE_SCHEMA_VERSION = "1.0"
-REFERENCE_TYPE = "SHARED_WARDROBE_ITEM"
+REFERENCE_TYPE_SHARED = "SHARED_WARDROBE_ITEM"
+REFERENCE_TYPE_OWNED = "WARDROBE_ITEM"
+REFERENCE_TYPES = {REFERENCE_TYPE_SHARED, REFERENCE_TYPE_OWNED}
 _ARRAY_TAGS = ("season", "style", "usage")
 _STRING_TAGS = (
     "item_name",
@@ -117,8 +119,8 @@ class ReferenceSearchExclusions:
 @dataclass(frozen=True)
 class SharedReferenceSearchBasis:
     schema_version: str
-    shared_item_id: str
-    room_id: str
+    shared_item_id: str | None
+    room_id: str | None
     source_wardrobe_item_id: str
     collection_name: str
     point_id: str
@@ -274,13 +276,15 @@ class SharedReferenceVectorLoader:
                 raise ReferenceSnapshotInvalid("공유 옷 참조 스냅샷이 필요합니다.")
             if _required_string(snapshot, "schema_version") != REFERENCE_SCHEMA_VERSION:
                 raise ReferenceSnapshotInvalid("지원하지 않는 참조 스냅샷 버전입니다.")
-            if _required_string(snapshot, "type") != REFERENCE_TYPE:
+            reference_type = _required_string(snapshot, "type")
+            if reference_type not in REFERENCE_TYPES:
                 raise ReferenceSnapshotInvalid("지원하지 않는 참조 유형입니다.")
-            if _required_string(snapshot, "source_status") not in {
-                "available",
-                "borrowed",
-            }:
-                raise ReferenceSnapshotInvalid("참조할 수 없는 공유 옷 상태입니다.")
+            if reference_type == REFERENCE_TYPE_SHARED:
+                if _required_string(snapshot, "source_status") not in {
+                    "available",
+                    "borrowed",
+                }:
+                    raise ReferenceSnapshotInvalid("참조할 수 없는 공유 옷 상태입니다.")
 
             spec = collection_spec("wardrobe")
             collection_name = _required_string(snapshot, "qdrant_collection")
@@ -289,8 +293,16 @@ class SharedReferenceVectorLoader:
                     "참조 스냅샷의 Qdrant 컬렉션이 현재 옷장 인덱스와 다릅니다."
                 )
 
-            shared_item_id = _uuid_string(snapshot, "shared_item_id")
-            room_id = _uuid_string(snapshot, "room_id")
+            shared_item_id = (
+                _uuid_string(snapshot, "shared_item_id")
+                if reference_type == REFERENCE_TYPE_SHARED
+                else None
+            )
+            room_id = (
+                _uuid_string(snapshot, "room_id")
+                if reference_type == REFERENCE_TYPE_SHARED
+                else None
+            )
             wardrobe_item_id = _uuid_string(snapshot, "wardrobe_item_id")
             point_id = _uuid_string(snapshot, "qdrant_point_id")
             if point_id != wardrobe_item_id:

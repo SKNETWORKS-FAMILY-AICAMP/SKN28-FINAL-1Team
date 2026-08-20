@@ -56,6 +56,7 @@ class WardrobeScopeSnapshotApiTests(APITestCase):
 
         self.assertEqual(response.status_code, 202)
         run = ChatRun.objects.get(pk=response.data["run"]["id"])
+        run.full_clean()
         self.assertEqual(run.wardrobe_scope_snapshot["candidate_item_ids"], [str(self.item.pk)])
         self.assertEqual(run.wardrobe_scope_snapshot["hashtags"][0]["name"], "출근룩")
         self.assertEqual(

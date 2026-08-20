@@ -38,6 +38,7 @@ def ack(raw: str, item_id: str) -> None:
     client = _redis()
     client.lrem(config.REINDEX_PROCESSING_KEY, 1, raw)
     client.hdel(config.REINDEX_RETRY_HASH, item_id)
+    client.srem(config.REINDEX_DEDUP_KEY, item_id)
 
 
 def retry_or_dead(raw: str, item_id: str, error: str) -> bool:
@@ -53,6 +54,7 @@ def retry_or_dead(raw: str, item_id: str, error: str) -> bool:
             ),
         )
         client.hdel(config.REINDEX_RETRY_HASH, item_id)
+        client.srem(config.REINDEX_DEDUP_KEY, item_id)
         logger.error(
             "재인덱싱 item %s → dead queue (retries=%s): %s",
             item_id,

@@ -17,12 +17,31 @@ from apps.wardrobe.models import (
     SharedWardrobeRoom,
     WardrobeItem,
 )
+from apps.wardrobe.services.vector_reconciliation import (
+    POINT_MISSING,
+    WardrobeVectorAuditResult,
+)
 
 User = get_user_model()
 
 
 class SharedReferenceSnapshotApiTests(APITestCase):
     def setUp(self) -> None:
+        reconciler_patcher = patch(
+            "apps.wardrobe.services.reference_eligibility.WardrobeVectorReconciler"
+        )
+        self.addCleanup(reconciler_patcher.stop)
+        reconciler_class = reconciler_patcher.start()
+        self.audit_mock = reconciler_class.return_value.audit
+        self.audit_mock.side_effect = self._ready_audits
+
+        enqueue_patcher = patch(
+            "apps.wardrobe.services.reference_eligibility.vector_reindex_jobs.enqueue_many",
+            return_value=0,
+        )
+        self.addCleanup(enqueue_patcher.stop)
+        self.enqueue_mock = enqueue_patcher.start()
+
         self.user = User.objects.create_user(username="reference-member")
         self.friend = User.objects.create_user(
             username="reference-friend",
@@ -66,12 +85,45 @@ class SharedReferenceSnapshotApiTests(APITestCase):
             added_to_closet_at=timezone.now(),
             embedding_version="fashionsiglip-v1",
         )
+        self.own_item = WardrobeItem.objects.create(
+            user=self.user,
+            s3_key="wardrobe/my-shirt.webp",
+            item_name="내 파란 셔츠",
+            category_large="상의",
+            category_small="셔츠",
+            season=["봄", "여름"],
+            style=["캐주얼"],
+            color="파랑",
+            pattern="무지",
+            fit="레귤러핏",
+            material="면",
+            usage=["출근"],
+            layer_role="상의",
+            layer_order=1,
+            confirmed=True,
+            added_to_closet_at=timezone.now(),
+            embedding_version="fashionsiglip-v1",
+        )
         self.shared_item = SharedWardrobeItem.objects.create(
             room=self.room,
             registered_by=self.friend,
             wardrobe_item=self.wardrobe_item,
             status=SharedWardrobeItem.Status.AVAILABLE,
         )
+
+    @staticmethod
+    def _ready_audits(items) -> list[WardrobeVectorAuditResult]:
+        return [
+            WardrobeVectorAuditResult(
+                item_id=str(item.pk),
+                user_id=item.user_id,
+                db_embedding_version=item.embedding_version,
+                indexed_embedding_version="fashionsiglip-v1",
+                expected_embedding_version="fashionsiglip-v1",
+                issues=(),
+            )
+            for item in items
+        ]
 
     def _payload(self, client_message_id: str = "shared-reference-1") -> dict:
         return {
@@ -82,6 +134,97 @@ class SharedReferenceSnapshotApiTests(APITestCase):
                 "shared_item_id": str(self.shared_item.pk),
             },
         }
+
+    def _own_payload(self, client_message_id: str = "owned-reference-1") -> dict:
+        return {
+            "content": "이 옷과 비슷한 느낌으로 추천해줘",
+            "client_message_id": client_message_id,
+            "reference": {
+                "type": "WARDROBE_ITEM",
+                "wardrobe_item_id": str(self.own_item.pk),
+            },
+        }
+
+    @patch("apps.chat.views.ChatEventStore.publish")
+    @patch("apps.chat.views.chat_queue.enqueue")
+    def test_own_wardrobe_reference_is_accepted_in_both_recommendation_modes(
+        self,
+        _enqueue_mock,
+        _publish_mock,
+    ) -> None:
+        wardrobe_response = self.client.post(
+            self.url,
+            self._own_payload("owned-reference-wardrobe"),
+            format="json",
+        )
+        self.assertEqual(wardrobe_response.status_code, status.HTTP_202_ACCEPTED)
+        wardrobe_run = ChatRun.objects.get(pk=wardrobe_response.data["run"]["id"])
+        wardrobe_run.full_clean()
+        self.assertEqual(wardrobe_run.reference_snapshot["type"], "WARDROBE_ITEM")
+        self.assertEqual(
+            wardrobe_run.reference_snapshot["wardrobe_item_id"],
+            str(self.own_item.pk),
+        )
+        self.assertNotIn("shared_item_id", wardrobe_run.reference_snapshot)
+
+        new_item_session = session_service.create_session(
+            identity=self.identity,
+            mode=ChatSession.Mode.NEW_ITEM,
+        )
+        new_item_response = self.client.post(
+            reverse("chat:session-messages", args=[new_item_session.pk]),
+            self._own_payload("owned-reference-product"),
+            format="json",
+        )
+        self.assertEqual(new_item_response.status_code, status.HTTP_202_ACCEPTED)
+        new_item_run = ChatRun.objects.get(pk=new_item_response.data["run"]["id"])
+        self.assertEqual(new_item_run.reference_snapshot["type"], "WARDROBE_ITEM")
+
+    def test_another_users_wardrobe_item_cannot_be_referenced_directly(self) -> None:
+        payload = self._own_payload("owned-reference-forbidden")
+        payload["reference"]["wardrobe_item_id"] = str(self.wardrobe_item.pk)
+
+        response = self.client.post(self.url, payload, format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+        self.assertEqual(response.data["code"], "REFERENCE_ITEM_NOT_FOUND")
+
+    @patch(
+        "apps.chat.serializers.wardrobe_storage.presigned_get",
+        return_value="https://images.example/my-shirt.webp",
+    )
+    @patch("apps.chat.views.ChatEventStore.publish")
+    @patch("apps.chat.views.chat_queue.enqueue")
+    def test_own_wardrobe_reference_is_restored_in_message_history(
+        self,
+        _enqueue_mock,
+        _publish_mock,
+        _presigned_get_mock,
+    ) -> None:
+        created = self.client.post(
+            self.url,
+            self._own_payload("owned-reference-history"),
+            format="json",
+        )
+        self.assertEqual(created.status_code, status.HTTP_202_ACCEPTED)
+
+        response = self.client.get(self.url)
+        user_message = next(
+            item for item in response.data if item["role"] == ChatMessage.Role.USER
+        )
+        self.assertEqual(
+            user_message["reference_summary"],
+            {
+                "schema_version": "1.0",
+                "type": "WARDROBE_ITEM",
+                "wardrobe_item_id": str(self.own_item.pk),
+                "item_name": "내 파란 셔츠",
+                "category_large": "상의",
+                "owner_name": "내 옷",
+                "room_name": "",
+                "image_url": "https://images.example/my-shirt.webp",
+            },
+        )
 
     @patch("apps.chat.views.ChatEventStore.publish")
     @patch("apps.chat.views.chat_queue.enqueue")
@@ -94,6 +237,7 @@ class SharedReferenceSnapshotApiTests(APITestCase):
 
         self.assertEqual(response.status_code, status.HTTP_202_ACCEPTED)
         run = ChatRun.objects.get(pk=response.data["run"]["id"])
+        run.full_clean()
         snapshot = run.reference_snapshot
         self.assertEqual(snapshot["schema_version"], "1.0")
         self.assertEqual(snapshot["type"], "SHARED_WARDROBE_ITEM")
@@ -304,6 +448,53 @@ class SharedReferenceSnapshotApiTests(APITestCase):
 
         self.assertEqual(response.status_code, status.HTTP_409_CONFLICT)
         self.assertEqual(response.data["code"], "REFERENCE_ITEM_NOT_READY")
+
+    def test_own_reference_without_embedding_is_not_ready_and_requeued(self) -> None:
+        self.own_item.embedding_version = ""
+        self.own_item.save(update_fields=["embedding_version"])
+        self.enqueue_mock.return_value = 1
+
+        response = self.client.post(
+            self.url,
+            self._own_payload("owned-reference-not-ready"),
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_409_CONFLICT)
+        self.assertEqual(response.data["code"], "REFERENCE_ITEM_NOT_READY")
+        queued_items = list(self.enqueue_mock.call_args.args[0])
+        self.assertEqual(queued_items, [self.own_item])
+
+    def test_reference_with_missing_qdrant_point_is_not_ready_and_requeued(
+        self,
+    ) -> None:
+        self.audit_mock.side_effect = None
+        self.audit_mock.return_value = [
+            WardrobeVectorAuditResult(
+                item_id=str(self.wardrobe_item.pk),
+                user_id=self.wardrobe_item.user_id,
+                db_embedding_version="fashionsiglip-v1",
+                indexed_embedding_version="",
+                expected_embedding_version="fashionsiglip-v1",
+                issues=(POINT_MISSING,),
+            )
+        ]
+        self.enqueue_mock.return_value = 1
+
+        response = self.client.post(
+            self.url,
+            self._payload("shared-reference-missing-vector"),
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_409_CONFLICT)
+        self.assertEqual(response.data["code"], "REFERENCE_ITEM_NOT_READY")
+        self.enqueue_mock.assert_called_once()
+        queued_items = list(self.enqueue_mock.call_args.args[0])
+        self.assertEqual(queued_items, [self.wardrobe_item])
+        self.assertFalse(
+            ChatRun.objects.filter(session=self.session).exists()
+        )
 
     def test_reference_contract_rejects_unknown_type(self) -> None:
         payload = self._payload()

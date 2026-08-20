@@ -35,7 +35,7 @@ export function ClosetItemSelectSheet({
         setLoading(true);
         setSelectedIds([]);
         return Promise.all([
-        listWardrobeItems().catch(() => []),
+        listWardrobeItems({ confirmed: true }).catch(() => []),
         listWardrobeFilters().then((result) => result.hashtags).catch(() => []),
         ]);
       })
@@ -61,6 +61,10 @@ export function ClosetItemSelectSheet({
   }, [visible]);
 
   const toggleSelect = (id: string) => {
+    if (activeTab === 'mine') {
+      setSelectedIds((prev) => (prev.includes(id) ? [] : [id]));
+      return;
+    }
     setSelectedIds((prev) =>
       prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]
     );
@@ -179,7 +183,9 @@ export function ClosetItemSelectSheet({
             >
               <Text style={styles.confirmText}>
                 {selectedIds.length > 0
-                  ? `${selectedIds.length}개 ${activeTab === 'hashtags' ? '해시태그' : '옷'} 선택 완료`
+                  ? activeTab === 'hashtags'
+                    ? `${selectedIds.length}개 해시태그 선택 완료`
+                    : '이 옷 참고하기'
                   : '선택 완료'}
               </Text>
             </Pressable>

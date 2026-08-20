@@ -202,6 +202,22 @@ _MESSAGE_CREATE_SHARED_REFERENCE_EXAMPLE = OpenApiExample(
     },
     request_only=True,
 )
+_MESSAGE_CREATE_OWN_REFERENCE_EXAMPLE = OpenApiExample(
+    name="내 옷을 참고 이미지로 사용",
+    description=(
+        "wardrobe_item_id는 내 옷장 아이템 응답의 id입니다. 선택한 옷 원본은 최종 "
+        "후보에서 제외하고, 같은 슬롯의 유사한 내 옷 또는 새 상품을 찾습니다."
+    ),
+    value={
+        "content": "이 옷과 비슷한 느낌으로 추천해줘",
+        "client_message_id": "swagger-owned-reference-001",
+        "reference": {
+            "type": "WARDROBE_ITEM",
+            "wardrobe_item_id": "55555555-5555-4555-8555-555555555555",
+        },
+    },
+    request_only=True,
+)
 
 _STYLIST_LIST_RESPONSE_EXAMPLE = OpenApiExample(
     name="스타일리스트 목록과 회원 선택",
@@ -920,6 +936,7 @@ class ChatSessionDeriveView(APIView):
         examples=[
             _MESSAGE_CREATE_EXAMPLE,
             _MESSAGE_CREATE_SHARED_REFERENCE_EXAMPLE,
+            _MESSAGE_CREATE_OWN_REFERENCE_EXAMPLE,
         ],
         responses={
             200: ChatMessageSubmitResponseSerializer,

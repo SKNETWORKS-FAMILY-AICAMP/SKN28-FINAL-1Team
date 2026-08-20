@@ -118,27 +118,17 @@ def validate_personalization_snapshot(value: object) -> None:
 
 
 def validate_reference_snapshot(value: object) -> None:
-    """실행 접수 당시 공유 옷장 참조의 최소 계약을 검증한다."""
+    """실행 접수 당시 개인·공유 옷장 참조의 최소 계약을 검증한다."""
 
     if not isinstance(value, dict):
-        raise ValidationError("공유 옷장 참조 스냅샷은 JSON 객체여야 합니다.")
-
-
-def validate_wardrobe_scope_snapshot(value: object) -> None:
-    if not isinstance(value, dict):
-        raise ValidationError("옷장 추천 범위 스냅샷은 JSON 객체여야 합니다.")
-    if value and not isinstance(value.get("candidate_item_ids"), list):
-        raise ValidationError("옷장 추천 범위 후보 ID는 배열이어야 합니다.")
+        raise ValidationError("옷장 참조 스냅샷은 JSON 객체여야 합니다.")
     if not value:
         return
 
     required_strings = (
         "schema_version",
         "type",
-        "shared_item_id",
-        "room_id",
         "wardrobe_item_id",
-        "source_status",
         "qdrant_collection",
         "qdrant_point_id",
         "embedding_version",
@@ -147,18 +137,33 @@ def validate_wardrobe_scope_snapshot(value: object) -> None:
     )
     for key in required_strings:
         if not isinstance(value.get(key), str) or not value[key].strip():
-            raise ValidationError(f"공유 옷장 참조 스냅샷의 {key} 값이 필요합니다.")
-    if value["type"] != "SHARED_WARDROBE_ITEM":
-        raise ValidationError("지원하지 않는 공유 옷장 참조 유형입니다.")
+            raise ValidationError(f"옷장 참조 스냅샷의 {key} 값이 필요합니다.")
+
+    reference_type = value["type"]
+    if reference_type not in {"SHARED_WARDROBE_ITEM", "WARDROBE_ITEM"}:
+        raise ValidationError("지원하지 않는 옷장 참조 유형입니다.")
+    if reference_type == "SHARED_WARDROBE_ITEM":
+        for key in ("shared_item_id", "room_id", "source_status"):
+            if not isinstance(value.get(key), str) or not value[key].strip():
+                raise ValidationError(
+                    f"공유 옷장 참조 스냅샷의 {key} 값이 필요합니다."
+                )
 
     item = value.get("item")
     if not isinstance(item, dict):
-        raise ValidationError("공유 옷장 참조 스냅샷의 item 객체가 필요합니다.")
+        raise ValidationError("옷장 참조 스냅샷의 item 객체가 필요합니다.")
     for key in ("season", "style", "usage"):
         if not isinstance(item.get(key), list) or any(
             not isinstance(tag, str) for tag in item[key]
         ):
-            raise ValidationError(f"공유 옷장 참조 item.{key}는 문자열 배열이어야 합니다.")
+            raise ValidationError(f"옷장 참조 item.{key}는 문자열 배열이어야 합니다.")
+
+
+def validate_wardrobe_scope_snapshot(value: object) -> None:
+    if not isinstance(value, dict):
+        raise ValidationError("옷장 추천 범위 스냅샷은 JSON 객체여야 합니다.")
+    if value and not isinstance(value.get("candidate_item_ids"), list):
+        raise ValidationError("옷장 추천 범위 후보 ID는 배열이어야 합니다.")
 
 
 def validate_stylist_persona_id(value: object) -> None:

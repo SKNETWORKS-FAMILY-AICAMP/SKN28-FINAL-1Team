@@ -1163,7 +1163,10 @@ class SharedWardrobeViewSet(viewsets.ModelViewSet):
                 )
                 .select_related("wardrobe_item", "registered_by")
             )
-            reference_eligibilities = resolve_reference_eligibilities(items)
+            reference_eligibilities = resolve_reference_eligibilities(
+                items,
+                enqueue_missing=True,
+            )
             return Response(
                 SharedWardrobeItemSerializer(
                     items,

@@ -31,7 +31,7 @@ import {
   STYLE_FALLBACK_NOTE,
   useChatSession,
   type ChatMessage,
-  type SharedReferencePick,
+  type ChatReferencePick,
 } from '@/state/chat';
 import { stylistStore } from '@/state/stylist';
 
@@ -133,7 +133,7 @@ export function ChatConversation({
   const [closetSelectOpen, setClosetSelectOpen] = useState(false);
   const [sharedPickerOpen, setSharedPickerOpen] = useState(false);
   /** 보내기 전에 골라 둔 참고 옷. 전송에 성공하면 비우고, 실패하면 남겨 다시 시도하게 한다. */
-  const [reference, setReference] = useState<SharedReferencePick | null>(null);
+  const [reference, setReference] = useState<ChatReferencePick | null>(null);
 
   /**
    * 스타일리스트 카드가 채워지는 상황 — 진행이 바뀔 때마다 달라지는 짧은 글자로 만든다.
@@ -321,27 +321,32 @@ export function ChatConversation({
   ) => {
     if ((selection.items.length === 0 && selection.hashtagIds.length === 0) || typing) return;
 
+    if (selection.kind === 'items') {
+      const item = selection.items[0];
+      if (!item) return;
+      setReference({
+        referenceType: 'WARDROBE_ITEM',
+        referenceItemId: item.id,
+        imageUrl: item.image ?? null,
+        itemName: item.name || '옷',
+        ownerName: '내 옷',
+      });
+      return;
+    }
+
     setTyping(true);
     try {
-      if (selection.kind === 'hashtags') {
-        const names = selection.hashtagNames.map((name) => `#${name}`).join(', ');
-        await chatStore.sendText(
-          await ensureSession(),
-          `${names} 해시태그에 있는 옷을 기준으로 코디를 추천해줘.`,
-          {
-            wardrobeScope: {
-              hashtag_ids: selection.hashtagIds,
-              match_mode: 'REQUIRED',
-            },
+      const names = selection.hashtagNames.map((name) => `#${name}`).join(', ');
+      await chatStore.sendText(
+        await ensureSession(),
+        `${names} 해시태그에 있는 옷을 기준으로 코디를 추천해줘.`,
+        {
+          wardrobeScope: {
+            hashtag_ids: selection.hashtagIds,
+            match_mode: 'REQUIRED',
           },
-        );
-      } else {
-        const itemNames = selection.items.map((item) => item.name).join(', ');
-        await chatStore.sendText(
-          await ensureSession(),
-          `선택한 옷(${itemNames})을 포함해 코디를 추천해줘.`,
-        );
-      }
+        },
+      );
     } catch (e) {
       toast(e instanceof Error ? e.message : '선택한 옷으로 추천을 요청하지 못했어요', {
         variant: 'error',
@@ -457,7 +462,8 @@ export function ChatConversation({
                 return;
               }
               setReference({
-                sharedItemId: item.id,
+                referenceType: 'SHARED_WARDROBE_ITEM',
+                referenceItemId: item.id,
                 imageUrl: item.image ?? null,
                 itemName: item.name || '옷',
                 ownerName: item.owner || '멤버',
@@ -768,15 +774,22 @@ export function ChatConversation({
           <View style={[styles.refPreview, widthStyle]}>
             <SmartImage uri={reference.imageUrl} width={34} height={34} radius={8} />
             <View style={styles.refPreviewText}>
-              <Text style={styles.refPreviewLabel}>공유 옷 참고</Text>
+              <Text style={styles.refPreviewLabel}>
+                {reference.referenceType === 'WARDROBE_ITEM' ? '내 옷 참고' : '공유 옷 참고'}
+              </Text>
               <Text style={styles.refPreviewName} numberOfLines={1}>
-                {reference.ownerName}님의 {reference.itemName}
+                {reference.referenceType === 'WARDROBE_ITEM'
+                  ? reference.itemName
+                  : `${reference.ownerName}님의 ${reference.itemName}`}
               </Text>
             </View>
             <Pressable
               hitSlop={10}
               disabled={typing}
-              onPress={() => setSharedPickerOpen(true)}
+              onPress={() => {
+                if (reference.referenceType === 'WARDROBE_ITEM') setClosetSelectOpen(true);
+                else setSharedPickerOpen(true);
+              }}
               accessibilityLabel="참고할 옷 바꾸기">
               <Text style={styles.refPreviewAction}>바꾸기</Text>
             </Pressable>
