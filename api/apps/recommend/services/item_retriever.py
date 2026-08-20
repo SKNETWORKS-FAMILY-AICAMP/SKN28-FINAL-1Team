@@ -187,6 +187,7 @@ class ItemCandidateRetriever:
         )
         vector_name, vector = self._select_vector(template)
         common_conditions = self._common_conditions(template.payload)
+        narrow_conditions = self._narrow_conditions(template.payload)
 
         by_source: dict[ItemSource, list[ItemCandidate]] = {}
         for source_type in request.sources:
@@ -194,6 +195,7 @@ class ItemCandidateRetriever:
                 by_source[source_type] = self._retrieve_wardrobe(
                     request,
                     common_conditions,
+                    narrow_conditions,
                     vector_name,
                     vector,
                 )
@@ -201,6 +203,7 @@ class ItemCandidateRetriever:
                 by_source[source_type] = self._retrieve_goldenset(
                     request,
                     common_conditions,
+                    narrow_conditions,
                     vector_name,
                     vector,
                 )
@@ -208,6 +211,7 @@ class ItemCandidateRetriever:
                 by_source[source_type] = self._retrieve_products(
                     request,
                     common_conditions,
+                    narrow_conditions,
                     vector_name,
                     vector,
                     max_price=effective_max_price,
@@ -290,16 +294,70 @@ class ItemCandidateRetriever:
             raise ItemRetrievalError("골든 아이템에 category_large가 없습니다.")
         conditions.append(_match_value("category_large", category_large))
 
-        # 세부 카테고리는 교체 범위를 과도하게 좁힐 수 있어 강제하지 않는다.
-        # 레이어 역할이 제공된 템플릿은 같은 슬롯의 후보만 허용한다.
+        return conditions
+
+    def _search_narrow_then_wide(
+        self,
+        *,
+        base: list[qm.Condition],
+        narrow: list[qm.Condition],
+        want: int,
+        run,
+    ) -> list[ItemCandidate]:
+        """세부 카테고리로 먼저 찾고, 모자라면 그 조건만 빼고 채운다.
+
+        좁힌 결과가 앞이고 넓힌 결과가 뒤다 — 같은 종류의 옷이 늘 더 적절하다.
+        중복은 제거한다.
+        """
+        if not narrow:
+            return run(base)
+        found = run(base + narrow)
+        if len(found) >= want:
+            return found
+        seen = {candidate.point_id for candidate in found}
+        # 전부 푸는 대신 뒤에서부터 하나씩 푼다. category_small(옷 종류)이 layer_role
+        # 보다 뒤에 있어 마지막까지 남는다 — 종류가 바뀌는 쪽이 더 어색하다.
+        for depth in range(len(narrow) - 1, -1, -1):
+            for candidate in run(base + narrow[depth:]):
+                if candidate.point_id not in seen:
+                    found.append(candidate)
+                    seen.add(candidate.point_id)
+                if len(found) >= want:
+                    return found
+        for candidate in run(base):
+            if candidate.point_id not in seen:
+                found.append(candidate)
+                seen.add(candidate.point_id)
+            if len(found) >= want:
+                break
+        return found
+
+    @staticmethod
+    def _narrow_conditions(payload: dict[str, Any]) -> list[qm.Condition]:
+        """세부 카테고리까지 좁히는 조건. 후보가 부족하면 이것만 뺀다.
+
+        예전에는 "교체 범위를 과도하게 좁힌다"는 이유로 category_small을 아예 걸지
+        않았다. 그 결과 민소매 티셔츠가 긴팔 셔츠로, 장갑이 머플러로 바뀌었다. 골든
+        코디가 민소매+셔츠 레이어드였는데 치환 뒤 셔츠 두 장이 되는 식이다.
+
+        좁게 먼저 찾고 모자랄 때만 푸는 방식이면 원래 우려도 함께 해소된다.
+        """
+        conditions: list[qm.Condition] = []
+        # layer_role은 골든 아이템에는 있지만 상품에는 거의 없다(400건 중 4건).
+        # 이걸 무조건 걸면 후보가 4건으로 붕괴하고, 상의 슬롯 둘이 같은 웅덩이에서
+        # 뽑혀 셔츠가 두 장 나오는 일이 생긴다. 그래서 좁은 조건으로 내려 부족하면
+        # 풀리게 한다.
         if layer_role := _single_value(payload, "layer_role"):
             conditions.append(_match_value("layer_role", layer_role))
+        if category_small := _single_value(payload, "category_small"):
+            conditions.append(_match_value("category_small", category_small))
         return conditions
 
     def _retrieve_wardrobe(
         self,
         request: ItemRetrievalRequest,
         common_conditions: list[qm.Condition],
+        narrow_conditions: list[qm.Condition],
         vector_name: str,
         vector: list[float] | None,
     ) -> list[ItemCandidate]:
@@ -326,6 +384,7 @@ class ItemCandidateRetriever:
         self,
         request: ItemRetrievalRequest,
         common_conditions: list[qm.Condition],
+        narrow_conditions: list[qm.Condition],
         vector_name: str,
         vector: list[float] | None,
     ) -> list[ItemCandidate]:
@@ -335,14 +394,19 @@ class ItemCandidateRetriever:
         # golenset_new의 아이템 포인트에는 dataset_status/status가 없고 상태는
         # 부모 outfit_goldenset 포인트가 소유한다. 부모 코디를 승인 상태로
         # 검색한 뒤 전달된 item_point_id이므로 여기서는 버전만 다시 검증한다.
-        candidates = self._retrieve_collection(
-            collection_name=GOLDEN_ITEM_COLLECTION,
-            source_type=ItemSource.GOLDENSET_ITEM,
-            conditions=conditions,
-            vector_name=vector_name,
-            vector=vector,
-            limit=request.limit_per_source + 1,
-            must_not=_avoided_conditions(request),
+        candidates = self._search_narrow_then_wide(
+            base=conditions,
+            narrow=narrow_conditions,
+            want=request.limit_per_source + 1,
+            run=lambda where: self._retrieve_collection(
+                collection_name=GOLDEN_ITEM_COLLECTION,
+                source_type=ItemSource.GOLDENSET_ITEM,
+                conditions=where,
+                vector_name=vector_name,
+                vector=vector,
+                limit=request.limit_per_source + 1,
+                must_not=_avoided_conditions(request),
+            ),
         )
         return [
             candidate
@@ -354,6 +418,7 @@ class ItemCandidateRetriever:
         self,
         request: ItemRetrievalRequest,
         common_conditions: list[qm.Condition],
+        narrow_conditions: list[qm.Condition],
         vector_name: str,
         vector: list[float] | None,
         *,
@@ -374,14 +439,19 @@ class ItemCandidateRetriever:
         candidates: list[ItemCandidate] = []
         for collection_name in product_collection_names():
             candidates.extend(
-                self._retrieve_collection(
-                    collection_name=collection_name,
-                    source_type=ItemSource.PRODUCT,
-                    conditions=conditions,
-                    vector_name=vector_name,
-                    vector=vector,
-                    limit=request.limit_per_source,
-                    must_not=_avoided_conditions(request),
+                self._search_narrow_then_wide(
+                    base=conditions,
+                    narrow=narrow_conditions,
+                    want=request.limit_per_source,
+                    run=lambda where, name=collection_name: self._retrieve_collection(
+                        collection_name=name,
+                        source_type=ItemSource.PRODUCT,
+                        conditions=where,
+                        vector_name=vector_name,
+                        vector=vector,
+                        limit=request.limit_per_source,
+                        must_not=_avoided_conditions(request),
+                    ),
                 )
             )
         candidates.sort(

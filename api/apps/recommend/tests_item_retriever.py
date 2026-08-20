@@ -300,7 +300,10 @@ class ItemCandidateRetrieverUnitTests(SimpleTestCase):
             for condition in call["query_filter"].must
             if getattr(condition, "range", None) is not None
         ]
-        self.assertEqual(ranges, [80_000, 80_000])
+        # 후보가 모자라면 좁은 조건을 하나씩 풀며 다시 찾는다. 호출 수는 그때그때
+        # 달라지지만 가격 상한은 모든 호출에 똑같이 걸려야 한다.
+        self.assertTrue(ranges)
+        self.assertEqual(set(ranges), {80_000})
 
     def test_wardrobe_source_requires_positive_user_id(self) -> None:
         retriever = ItemCandidateRetriever(client=FakeQdrantClient())
@@ -343,7 +346,10 @@ class ItemCandidateRetrieverUnitTests(SimpleTestCase):
         )
 
         self.assertEqual(result.vector_name, "text")
-        self.assertEqual(len(client.query_calls), 2)
+        self.assertTrue(client.query_calls)
+        self.assertTrue(
+            all(call["using"] == "text" for call in client.query_calls)
+        )
         self.assertTrue(all(call["using"] == "text" for call in client.query_calls))
 
     def test_filter_search_is_used_when_template_has_no_vector(self) -> None:
@@ -367,7 +373,7 @@ class ItemCandidateRetrieverUnitTests(SimpleTestCase):
         self.assertEqual(result.vector_name, "filter")
         self.assertIsNone(result.candidates[0].score)
         self.assertIn("태그 조건", result.candidates[0].reasons[-1])
-        self.assertEqual(len(client.scroll_calls), 1)
+        self.assertTrue(client.scroll_calls)
 
 
 class ItemCandidateRetrieverAvoidedTagTests(SimpleTestCase):
