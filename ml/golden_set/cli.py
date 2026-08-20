@@ -213,6 +213,16 @@ def main() -> None:
     synthesize.add_argument("--run-dir", type=Path, required=True)
     synthesize.add_argument("--observation-reviews", type=Path, required=True)
     synthesize.add_argument("--claim-reviews", type=Path, required=True)
+    synthesize.add_argument(
+        "--provider",
+        choices=["gemini", "openai"],
+        default="gemini",
+        help="원칙 합성에 쓸 LLM. openai는 OPENAI_API_KEY를 읽는다",
+    )
+    synthesize.add_argument(
+        "--model",
+        help="공급자 기본 모델을 덮어쓴다 (캐시 키는 GOLDEN_GEMINI_MODEL을 따른다)",
+    )
 
     finalize = subparsers.add_parser(
         "finalize",
@@ -416,11 +426,21 @@ def main() -> None:
         else:
             print(f"dry-run: 쓰지 않았습니다 (제거 대상 후보 {summary['num_cleared_candidates']}건)")
     elif args.command == "synthesize-principles":
+        client = None
+        if args.provider == "openai":
+            from .openai_client import OpenAIPrincipleClient
+
+            client = OpenAIPrincipleClient(
+                model=args.model,
+                timeout_seconds=settings.gemini_timeout_seconds,
+            )
+            print(f"공급자: openai ({client.model})")
         principles = synthesize_principles(
             run_dir=args.run_dir,
             observation_reviews_csv=args.observation_reviews,
             claim_reviews_csv=args.claim_reviews,
             settings=settings,
+            client=client,
         )
         print(f"원칙 초안: {len(principles)}건")
         print(f"원칙 검수표: {args.run_dir / 'principle_reviews.template.csv'}")

@@ -324,7 +324,22 @@ def analysis_prompt(*, metadata_json: str) -> str:
 {metadata_json}"""
 
 
-def principle_prompt(*, cluster_id: str, axis: str, evidence_json: str) -> str:
+def principle_prompt(
+    *,
+    cluster_id: str,
+    axis: str,
+    evidence_json: str,
+    allowed_refs: str = "",
+) -> str:
+    # 쓸 수 있는 근거를 목록으로 못 박는다. evidence_json 안에 있긴 하지만, 그것만으로는
+    # 다른 묶음의 golden_id를 끌어다 쓰는 일이 생긴다(실제로 발생). 목록을 따로 주면
+    # 모델이 대조할 대상이 명확해지고, 어겨도 _validate_principles가 저장 전에 막는다.
+    allowed_block = (
+        "\n\n사용할 수 있는 근거는 다음이 전부입니다. 이 목록 밖의 golden_id나 "
+        f"claim_id를 evidence에 쓰지 마세요.\n{allowed_refs}"
+        if allowed_refs
+        else ""
+    )
     return f"""원칙 합성 버전: {PRINCIPLE_VERSION}
 클러스터: {cluster_id}
 판단 축: {axis}
@@ -337,4 +352,4 @@ def principle_prompt(*, cluster_id: str, axis: str, evidence_json: str) -> str:
 비교·반례가 부족하면 knowledge_role을 NEEDS_COUNTEREXAMPLE로 지정하세요. 하드 규칙은
 생성하지 마세요. 모든 원칙은 원본 golden_id와 claim_id를 포함해야 합니다.
 
-{evidence_json}"""
+{evidence_json}{allowed_block}"""

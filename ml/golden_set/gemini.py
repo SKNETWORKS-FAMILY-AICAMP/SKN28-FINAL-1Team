@@ -18,6 +18,8 @@ class GeminiError(RuntimeError):
 
 class GeminiStructuredClient:
     def __init__(self, settings: GoldenSettings) -> None:
+        #: PrincipleClient 프로토콜이 요구하는 모델 이름.
+        self.model = settings.gemini_model
         if not settings.gemini_api_key:
             raise GeminiError("GEMINI_API_KEY가 없습니다.")
         self.settings = settings

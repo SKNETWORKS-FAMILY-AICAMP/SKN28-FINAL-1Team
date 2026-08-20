@@ -21,6 +21,9 @@ from .review import (
 
 
 class PrincipleClient(Protocol):
+    #: 실제로 호출한 모델 이름. 캐시 키와 산출물 기록에 쓴다.
+    model: str
+
     def generate_text_json(
         self,
         *,
@@ -72,6 +75,11 @@ def synthesize_principles(
             )
 
     api_client = client
+    # 캐시 키와 model_version은 **실제로 부른 모델**을 따라야 한다. 예전에는 공급자를
+    # 바꿔도 settings.gemini_model이 박혀서, 다른 모델의 결과를 캐시에서 그대로
+    # 재사용하고 산출물에도 부르지 않은 모델 이름이 남았다.
+    model_version = getattr(client, "model", None) or settings.gemini_model
+    provider = "openai" if client is not None else "gemini"
     cache_dir = run_dir / "cache" / "principles"
     cache_dir.mkdir(parents=True, exist_ok=True)
     principles: list[dict[str, Any]] = []
@@ -84,7 +92,7 @@ def synthesize_principles(
         evidence_json = json.dumps(evidence, ensure_ascii=False, indent=2)
         cache_key = hashlib.sha256(
             (
-                settings.gemini_model
+                model_version
                 + PRINCIPLE_VERSION
                 + cluster_id
                 + axis
@@ -102,6 +110,10 @@ def synthesize_principles(
                     cluster_id=cluster_id,
                     axis=axis,
                     evidence_json=evidence_json,
+                    allowed_refs="\n".join(
+                        f"- {row['golden_id']} / {row['claim'].get('claim_id', '')}"
+                        for row in evidence
+                    ),
                 ),
                 system_instruction=PRINCIPLE_SYSTEM_INSTRUCTION,
                 schema=PRINCIPLE_SCHEMA,
@@ -161,7 +173,8 @@ def synthesize_principles(
                     "cluster_id": cluster_id,
                     "status": "DRAFT",
                     "version": PRINCIPLE_VERSION,
-                    "model_version": settings.gemini_model,
+                    "model_version": model_version,
+                    "provider": provider,
                     "model_confidence": principle.get("model_confidence", 0.0),
                     "confidence": principle.get("model_confidence", 0.0),
                     "knowledge_role": knowledge_role,
