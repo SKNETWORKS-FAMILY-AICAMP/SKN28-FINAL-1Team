@@ -58,7 +58,8 @@ export const KAKAO_JAVASCRIPT_KEY = process.env.EXPO_PUBLIC_KAKAO_JAVASCRIPT_KEY
  * 그래서 내 컴퓨터에서만 열리는 주소일 때는 이 값으로 바꿔 링크를 만든다.
  */
 export const INVITE_BASE_URL =
-  process.env.EXPO_PUBLIC_INVITE_BASE_URL ?? 'https://skn-1st-mobile.expo.app';
+  process.env.EXPO_PUBLIC_INVITE_BASE_URL?.trim().replace(/\/+$/, '') ||
+  'https://skn-1st-mobile.expo.app';
 
 /**
  * 네이버 로그인 (네이티브 SDK, @react-native-seoul/naver-login).

@@ -18,6 +18,7 @@ import * as Clipboard from 'expo-clipboard';
 import { Platform, Share } from 'react-native';
 
 import { KAKAO_JAVASCRIPT_KEY } from '@/constants/config';
+import { buildKakaoExecutionParams } from '@/lib/kakaoInviteLink';
 
 /** 카카오 JS SDK. 버전을 올릴 때 CDN 경로 형식도 함께 확인한다. */
 const KAKAO_JS_SDK_SRC = 'https://t1.kakaocdn.net/kakao_js_sdk/2.8.0/kakao.min.js';
@@ -58,11 +59,12 @@ export function isKakaoWebConfigured(): boolean {
  * 본문에는 참여 코드만 넣는다. 초대 링크는 카카오 카드 버튼 목적지로만 사용한다.
  * 코드를 눈에 띄게 해 앱의 참여코드 입력 흐름으로 통일한다.
  */
-export function inviteMessage({ roomName, code }: KakaoInvite): string {
+export function inviteMessage({ roomName, code, link }: KakaoInvite): string {
   return [
     `[cozy] '${roomName}' 공유 옷장에 초대합니다!`,
     `참여코드: ${code}`,
-    `앱에서 '참여코드'에 위 코드를 입력하세요`,
+    `초대장 열기: ${link}`,
+    `링크가 열리지 않으면 앱에서 '참여코드'에 위 코드를 입력하세요`,
   ].join('\n');
 }
 
@@ -261,18 +263,33 @@ function isKakaoWebReady(): boolean {
 
 /** 공유 카드 전송. **반드시 동기로** 호출한다 — 팝업이 제스처에 묶여야 한다. */
 function sendKakaoWebFeed(invite: KakaoInvite): void {
+  const webTarget = { mobileWebUrl: invite.link, webUrl: invite.link };
+  const executionParams = buildKakaoExecutionParams(invite.code);
+  const appTarget = {
+    ...webTarget,
+    androidExecutionParams: executionParams,
+    iosExecutionParams: executionParams,
+  };
+
   window.Kakao.Share.sendDefault({
     objectType: 'feed',
     content: {
       title: `${invite.roomName} 공유 옷장 초대`,
       description: `참여코드 ${invite.code}\n눌러서 바로 참여하세요.`,
       imageUrl: INVITE_THUMBNAIL,
-      link: { mobileWebUrl: invite.link, webUrl: invite.link },
+      // 카드 본문은 어느 기기에서 눌러도 웹 초대장을 연다.
+      link: webTarget,
     },
     buttons: [
       {
-        title: '초대 수락하기',
-        link: { mobileWebUrl: invite.link, webUrl: invite.link },
+        title: '앱에서 초대 수락',
+        // 모바일은 설치된 앱을 우선하고, PC에서는 webUrl로 자연스럽게 내려간다.
+        link: appTarget,
+      },
+      {
+        title: '웹 초대장 열기',
+        // 앱 설치 여부와 관계없이 반드시 열 수 있는 명시적 대체 경로다.
+        link: webTarget,
       },
     ],
   });
@@ -336,7 +353,7 @@ export async function shareInviteViaKakao(invite: KakaoInvite): Promise<KakaoSha
    * 링크 목적지.
    * - `mobileWebUrl`/`webUrl` : 앱이 없는 사람 → 웹 초대장(/invite?code=)
    * - `*ExecutionParams`      : 앱이 있는 사람 → 카카오톡이 앱을 직접 실행하고
-   *   이 파라미터를 스킴 쿼리로 넘긴다. 받는 쪽은 hooks/use-kakao-link.ts.
+   *   이 파라미터를 스킴 쿼리로 넘긴다. 받는 쪽은 app/+native-intent.tsx.
    * 둘을 같이 넣어야 "설치자는 앱, 미설치자는 웹"이 한 카드로 갈린다.
    */
   const target = {
@@ -354,7 +371,13 @@ export async function shareInviteViaKakao(invite: KakaoInvite): Promise<KakaoSha
       imageUrl: INVITE_THUMBNAIL,
       link: target,
     },
-    buttons: [{ title: '초대 수락하기', link: target }],
+    buttons: [
+      { title: '앱에서 초대 수락', link: target },
+      {
+        title: '웹 초대장 열기',
+        link: { mobileWebUrl: invite.link, webUrl: invite.link },
+      },
+    ],
   };
 
   try {

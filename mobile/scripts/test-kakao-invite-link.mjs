@@ -40,7 +40,8 @@ function compileInviteLinkModule() {
 }
 
 try {
-  const { parseKakaoInviteCode, redirectKakaoInvitePath } = compileInviteLinkModule();
+  const { buildKakaoExecutionParams, parseKakaoInviteCode, redirectKakaoInvitePath } =
+    compileInviteLinkModule();
 
   const kakaoUrl = 'kakao1366adcd2e8c643a4b5471fabd32b6ea://kakaolink?code=ab12cd';
   assert.equal(parseKakaoInviteCode(kakaoUrl), 'AB12CD');
@@ -54,8 +55,10 @@ try {
   assert.equal(redirectKakaoInvitePath('/home'), '/home');
   assert.equal(redirectKakaoInvitePath('mobile://invite?code=ABC123'), 'mobile://invite?code=ABC123');
   assert.equal(redirectKakaoInvitePath('not a valid url'), 'not a valid url');
+  assert.equal(buildKakaoExecutionParams(' ab12cd '), 'code=AB12CD');
+  assert.equal(buildKakaoExecutionParams('가 나'), 'code=%EA%B0%80+%EB%82%98');
 
-  console.log('카카오 초대 딥링크 회귀 테스트: 6개 시나리오 통과');
+  console.log('카카오 초대 딥링크 회귀 테스트: 8개 시나리오 통과');
 } finally {
   const expectedPrefix = join(tmpdir(), 'cozy-kakao-invite-');
   if (buildDirectory.startsWith(expectedPrefix)) {

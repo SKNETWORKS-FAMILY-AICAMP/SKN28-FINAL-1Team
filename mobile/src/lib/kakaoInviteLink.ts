@@ -25,3 +25,8 @@ export function redirectKakaoInvitePath(path: string): string {
   const code = parseKakaoInviteCode(path);
   return code ? `/invite?code=${encodeURIComponent(code)}` : path;
 }
+
+/** 카카오 JavaScript SDK의 실행 파라미터는 객체가 아니라 query string으로 받는다. */
+export function buildKakaoExecutionParams(code: string): string {
+  return new URLSearchParams({ code: code.trim().toUpperCase() }).toString();
+}
