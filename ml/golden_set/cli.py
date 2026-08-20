@@ -21,6 +21,7 @@ from .review_apply import apply_review_payload
 from .review_intake import prepare_review_run
 from .review_publish import load_review, publish_review
 from .review_sheets import build_review_sheets
+from .style_clusters import build_style_clusters
 
 
 def main() -> None:
@@ -100,6 +101,23 @@ def main() -> None:
             metavar="CSV",
             help=f"{help_text} (검수자마다 하나씩, 반복 지정)",
         )
+
+    style_clusters = subparsers.add_parser(
+        "style-clusters",
+        help="스타일 라벨로 clusters.jsonl 생성 (이미지 임베딩 없이)",
+    )
+    style_clusters.add_argument("--run-dir", type=Path, required=True)
+    style_clusters.add_argument("--metadata-csv", type=Path, required=True)
+    style_clusters.add_argument(
+        "--style-labels",
+        type=Path,
+        help="사람이 채운 style_labels.csv. 비어 있는 style만 메운다",
+    )
+    style_clusters.add_argument(
+        "--out-metadata",
+        type=Path,
+        help="병합 결과를 쓸 경로. 지정하지 않으면 metadata를 건드리지 않는다",
+    )
 
     prepare = subparsers.add_parser(
         "prepare",
@@ -281,6 +299,23 @@ def main() -> None:
         for name, count in result.counts.items():
             labels = ", ".join(result.reviewers.get(name, []))
             print(f"{name}: {count}행 (검수자 {labels})")
+    elif args.command == "style-clusters":
+        report = build_style_clusters(
+            run_dir=args.run_dir,
+            metadata_csv=args.metadata_csv,
+            style_labels_csv=args.style_labels,
+            out_metadata_csv=args.out_metadata,
+        )
+        merge = report.get("merge")
+        if merge:
+            print(f"라벨 {merge['num_labels']}건 중 {merge['num_filled']}건을 채웠다")
+        print(f"묶음 {report['num_clusters']}개 → {report['clusters_jsonl']}")
+        for name, size in sorted(
+            report["cluster_sizes"].items(), key=lambda kv: -kv[1]
+        ):
+            print(f"   {name:<10} {size}장")
+        if report["metadata_csv"] if "metadata_csv" in report else None:
+            print(f"병합 metadata: {report['metadata_csv']}")
     elif args.command == "prepare":
         run_dir = args.run_dir or settings.run_dir
         if args.input_dir is not None:
