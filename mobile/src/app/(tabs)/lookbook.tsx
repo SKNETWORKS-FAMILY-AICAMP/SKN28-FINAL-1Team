@@ -9,7 +9,12 @@ import {
 import { Icon, type IconName } from '@/components/icon';
 import { useMultiSelectFilter } from '@/hooks/useMultiSelectFilter';
 import { useRefresh } from '@/hooks/use-refresh';
-import { LOOKBOOK_FILTER_OPTIONS, lookbookStore, useLookbook } from '@/state/lookbook';
+import {
+  LOOKBOOK_FILTER_OPTIONS,
+  lookbookStore,
+  useLookbook,
+  useLookbookLoadState,
+} from '@/state/lookbook';
 import { useLookVotes } from '@/state/look-votes';
 import type { LookGenderFilter } from '@/lib/discoveryLookApi';
 import { likesStore, useLikedLooks } from '@/state/likes';
@@ -120,6 +125,11 @@ export default function LookbookScreen() {
   const cardH = gridCardImageHeight(cardW);
 
   const allLooks = useLookbook();
+  const {
+    loading: lookbookLoading,
+    error: lookbookError,
+    progress: lookbookProgress,
+  } = useLookbookLoadState();
   const savedLooks = useSavedLooks();
   const likedLooks = useLikedLooks();
   const [query, setQuery] = useState('');
@@ -324,7 +334,22 @@ export default function LookbookScreen() {
             ) : undefined
           }
           contentContainerStyle={[styles.grid, { paddingBottom: 24 }, contentStyle(ContentMax.wide)]}>
-          {usesServer && loading && !loaded ? (
+          {!isMine && lookbookLoading && cards.length === 0 ? (
+            <View
+              style={styles.empty}
+              accessibilityRole="progressbar"
+              accessibilityValue={{ min: 0, max: 100, now: lookbookProgress }}>
+              <Text style={styles.loadingPercent}>{lookbookProgress}%</Text>
+              <Text style={styles.loadingMessage}>룩북을 불러오는 중입니다.</Text>
+            </View>
+          ) : !isMine && lookbookError && cards.length === 0 ? (
+            <ErrorState
+              title="룩북을 불러오지 못했어요"
+              description={lookbookError}
+              onRetry={() => void loadAll()}
+              style={styles.empty}
+            />
+          ) : usesServer && loading && !loaded ? (
             <LoadingState message="룩북을 불러오는 중…" style={styles.empty} />
           ) : usesServer && error && savedLooks.length === 0 ? (
             <ErrorState
@@ -499,6 +524,8 @@ const styles = StyleSheet.create({
   // 취향 추천 — 그리드(row wrap) 안에 끼므로 한 줄을 통째로 차지하게 100% 로 둔다.
 
   empty: { width: '100%', alignItems: 'center', paddingTop: 60, gap: 16 },
+  loadingPercent: { fontSize: 32, fontWeight: '700', color: Editorial.ink },
+  loadingMessage: { fontSize: 13, color: Editorial.textCaption },
   emptyText: { fontSize: 13, color: Editorial.textCaption },
   emptyBtn: {
     paddingHorizontal: 18,

@@ -31,8 +31,8 @@ let publicLooks: LookPost[] = [];
 let looks: LookPost[] = [];
 const listeners = new Set<() => void>();
 let loadSequence = 0;
-type LoadState = { loading: boolean; error: string | null; loaded: boolean };
-let loadState: LoadState = { loading: false, error: null, loaded: false };
+type LoadState = { loading: boolean; error: string | null; loaded: boolean; progress: number };
+let loadState: LoadState = { loading: false, error: null, loaded: false, progress: 0 };
 
 function notify() {
   looks = [...curatedLooks, ...publicLooks];
@@ -58,13 +58,23 @@ export const lookbookStore = {
 
   async load(gender: LookGenderFilter = 'ALL', selectedTags: string[] = []): Promise<void> {
     const sequence = ++loadSequence;
-    loadState = { ...loadState, loading: true, error: null };
+    loadState = { ...loadState, loading: true, error: null, progress: 8 };
     notify();
 
     const loadCurated = async () => {
       if (selectedTags.length > 0) {
+        let completed = 0;
         const pages = await Promise.all(
-          selectedTags.map((tag) => getDiscoveryLooks('', tag, gender, 50)),
+          selectedTags.map(async (tag) => {
+            const page = await getDiscoveryLooks('', tag, gender, 50);
+            completed += 1;
+            loadState = {
+              ...loadState,
+              progress: Math.min(92, 8 + Math.round((completed / selectedTags.length) * 84)),
+            };
+            notify();
+            return page;
+          }),
         );
         const unique = new Map(pages.flatMap((page) => page.results).map((look) => [look.id, look]));
         return [...unique.values()];
@@ -76,6 +86,13 @@ export const lookbookStore = {
         const page = await getDiscoveryLooks('', '', gender, 20, offset);
         if (sequence !== loadSequence) return [...accumulated.values()];
         page.results.forEach((look) => accumulated.set(look.id, look));
+        loadState = {
+          ...loadState,
+          progress: Math.min(
+            92,
+            Math.max(8, Math.round((accumulated.size / Math.max(page.count, 1)) * 92)),
+          ),
+        };
         curatedLooks = [...accumulated.values()].map((look) => ({
           id: look.id,
           variantId: look.id,
@@ -116,6 +133,7 @@ export const lookbookStore = {
       loading: false,
       error: failureCount === 2 ? '둘러보기를 불러오지 못했어요.' : failureCount === 1 ? '일부 룩을 불러오지 못했어요.' : null,
       loaded: curatedResult.status === 'fulfilled' || publicResult.status === 'fulfilled',
+      progress: 100,
     };
     notify();
   },
@@ -128,6 +146,14 @@ export const lookbookStore = {
 
 export function useLookbook() {
   return useSyncExternalStore(lookbookStore.subscribe, lookbookStore.getLooks, lookbookStore.getLooks);
+}
+
+export function useLookbookLoadState() {
+  return useSyncExternalStore(
+    lookbookStore.subscribe,
+    lookbookStore.getLoadState,
+    lookbookStore.getLoadState,
+  );
 }
 
 export const LOOKBOOK_FILTER_OPTIONS = ['전체', ...ALLOWED_HASHTAGS];
