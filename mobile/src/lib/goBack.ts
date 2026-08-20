@@ -26,6 +26,22 @@ export function goBack(fallback: Href = '/(tabs)/home') {
 }
 
 /**
+ * 히스토리를 쓰지 않고 **지정한 자리로 확정 이동**한다.
+ *
+ * 삭제처럼 지금 화면이 사라져야 하는 동작에 쓴다. `goBack` 은 네이티브에서 이력이 있으면
+ * `router.back()` 으로 돌아가는데, 상세 화면들이 (tabs) 안에 등록돼 있어 그 '직전'이
+ * 들어온 자리가 아닐 수 있다(옷 삭제 후 마이로 튀던 이유). 목적지가 정해진 동작은
+ * 이력을 묻지 않는다.
+ *
+ * 웹에서 `router.replace` 를 쓰지 않는 이유는 goBack 주석과 같다 — 특정 탭으로의 replace 가
+ * 조용히 무시된다.
+ */
+export function goTo(dest: Href) {
+  if (Platform.OS === 'web') router.navigate(dest);
+  else router.replace(dest);
+}
+
+/**
  * 여러 화면에서 들어오는 상세로 갈 때, 돌아올 자리를 `from` 으로 함께 넘긴다.
  *
  * 웹의 goBack 은 히스토리를 안 쓰고 fallback 으로 확정 이동하는데, 상세 화면 하나에
