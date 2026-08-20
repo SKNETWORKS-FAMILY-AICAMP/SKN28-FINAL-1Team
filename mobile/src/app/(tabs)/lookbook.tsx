@@ -155,16 +155,21 @@ export default function LookbookScreen() {
   }, [loadAll]);
 
   useEffect(() => {
-    if (!lookbookLoading) {
-      setDisplayedLookbookProgress(lookbookProgress);
+    if (!lookbookLoading && lookbookProgress !== 100) {
       return;
     }
 
+    if (lookbookLoading && lookbookProgress <= 8) {
+      setDisplayedLookbookProgress(0);
+    }
+
+    const targetProgress = lookbookLoading ? lookbookProgress : 100;
+
     const timer = setInterval(() => {
       setDisplayedLookbookProgress((current) => {
-        if (current >= lookbookProgress) return current;
-        const remaining = lookbookProgress - current;
-        return Math.min(lookbookProgress, current + Math.max(1, Math.ceil(remaining / 10)));
+        if (current >= targetProgress) return current;
+        const remaining = targetProgress - current;
+        return Math.min(targetProgress, current + Math.max(1, Math.ceil(remaining / 10)));
       });
     }, 45);
 
@@ -352,7 +357,9 @@ export default function LookbookScreen() {
             ) : undefined
           }
           contentContainerStyle={[styles.grid, { paddingBottom: 24 }, contentStyle(ContentMax.wide)]}>
-          {!isMine && lookbookLoading && cards.length === 0 ? (
+          {!isMine &&
+          (lookbookLoading ||
+            (lookbookProgress === 100 && displayedLookbookProgress < 100)) ? (
             <View
               style={styles.empty}
               accessibilityRole="progressbar"
