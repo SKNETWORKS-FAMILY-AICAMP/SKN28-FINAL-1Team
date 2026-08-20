@@ -36,6 +36,7 @@ from apps.users.services import (
     email_verification,
     oauth,
     pursuit,
+    withdrawal,
 )
 
 logger = logging.getLogger(__name__)
@@ -239,7 +240,7 @@ class SocialLoginView(APIView):
 
 
 class MeView(APIView):
-    """GET/PATCH /api/v1/users/me/ — 내 정보 조회/수정(닉네임, 프로필 이미지)."""
+    """GET/PATCH/DELETE /api/v1/users/me/ — 내 정보 조회·수정, 회원 탈퇴."""
 
     def get(self, request):
         return Response(UserSerializer(request.user).data)
@@ -249,6 +250,15 @@ class MeView(APIView):
         serializer.is_valid(raise_exception=True)
         serializer.save()
         return Response(serializer.data)
+
+    def delete(self, request):
+        """회원 탈퇴. 계정과 딸린 데이터를 지운다 — 되돌릴 수 없다.
+
+        본문 없이 204 로 답한다. 앱은 이 응답을 받은 뒤 토큰을 지우고 로그아웃 상태로 돌아간다.
+        (지운 계정의 토큰은 사용자 조회에서 걸려 어차피 401 이 된다.)
+        """
+        withdrawal.withdraw(request.user)
+        return Response(status=status.HTTP_204_NO_CONTENT)
 
 
 def _save_body_measurement(request, serializer_class, *, partial: bool) -> Response:

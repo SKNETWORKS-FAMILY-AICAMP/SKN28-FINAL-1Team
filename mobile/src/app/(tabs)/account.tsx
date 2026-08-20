@@ -1,7 +1,8 @@
 import { Icon } from '@/components/icon';
 import { useConfirm, useToast } from '@/components/ui';
 import { router } from 'expo-router';
-import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { useState } from 'react';
+import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { ContentMax, Editorial, ink, Type } from '@/constants/theme';
@@ -30,20 +31,20 @@ const DELETED_ON_WITHDRAW = [
 /**
  * 계정 관리 — 연결된 소셜 계정 확인 · 회원 탈퇴.
  *
- * ⚠️ 계정 삭제 API 가 아직 없다(백엔드 `MeView` 는 GET/PATCH 만, DELETE 미구현).
- *    그래서 **탈퇴가 된 척하지 않는다.** 가짜로 완료를 알리면 사용자는 지워진 줄 알고
- *    떠나지만 데이터는 그대로 남는다 — 그건 죽은 버튼보다 나쁘다.
+ * 탈퇴는 DELETE /api/v1/users/me/ 를 부른다. 서버가 옷장·체형·룩·채팅을 지우고,
+ * 공유 옷장은 '방 나가기'와 같은 규칙으로 처리한다(방장이면 남은 사람에게 위임).
  *
  * ⚠️ 비밀번호 변경이 여기 없는 이유: 이 서비스는 소셜 로그인 전용이라 **계정에 비밀번호가 없다.**
  *    이메일·비밀번호 로그인이 생기면 그때 같이 만든다.
  */
 export default function AccountScreen() {
   const { contentStyle } = useBreakpoint();
-  const { user } = useAuth();
+  const { user, withdraw: withdrawAccount } = useAuth();
   const confirm = useConfirm();
   const toast = useToast();
 
   const accounts = user?.social_accounts ?? [];
+  const [leaving, setLeaving] = useState(false);
 
   const withdraw = async () => {
     const ok = await confirm({
@@ -53,8 +54,19 @@ export default function AccountScreen() {
       destructive: true,
     });
     if (!ok) return;
-    /* 여기가 DELETE /api/v1/users/me/ 를 부를 자리다. 서버가 생기면 이 줄만 바꾼다. */
-    toast('계정 삭제는 아직 서버에 연결되지 않았어요', { variant: 'error' });
+    /* 지우는 동안 두 번 누르지 못하게 잠근다 — 두 번째 요청은 이미 사라진 계정이라
+       401 로 떨어지고, 사용자에게는 실패한 것처럼 보인다. */
+    if (leaving) return;
+    setLeaving(true);
+    try {
+      await withdrawAccount();
+      /* 세션이 사라졌으니 탭 화면에 머무를 수 없다. 로그인 화면으로 확정 이동한다. */
+      toast('탈퇴가 완료되었어요', { variant: 'success' });
+      router.replace('/login');
+    } catch (e) {
+      toast(e instanceof Error ? e.message : '탈퇴하지 못했어요', { variant: 'error' });
+      setLeaving(false);
+    }
   };
 
   return (
@@ -116,13 +128,19 @@ export default function AccountScreen() {
           </Text>
         </View>
 
-        <Pressable style={styles.withdrawBtn} onPress={withdraw}>
-          <Text style={styles.withdrawText}>회원 탈퇴</Text>
+        <Pressable
+          style={[styles.withdrawBtn, leaving && styles.withdrawBtnBusy]}
+          disabled={leaving}
+          onPress={withdraw}>
+          {leaving ? (
+            <ActivityIndicator size="small" color={Editorial.wine} />
+          ) : (
+            <Text style={styles.withdrawText}>회원 탈퇴</Text>
+          )}
         </Pressable>
 
         <Text style={styles.note}>
-          지금은 탈퇴 요청이 서버에 전달되지 않아요. 계정을 바로 지워야 한다면 {SUPPORT_EMAIL} 로
-          알려주세요.
+          문제가 생겨 계정을 지우지 못했다면 {SUPPORT_EMAIL} 로 알려주세요.
         </Text>
 
         <Pressable style={styles.logoutLink} onPress={() => router.replace('/(tabs)/my')}>
@@ -199,6 +217,8 @@ const styles = StyleSheet.create({
     paddingBottom: 10,
   },
 
+  /** 지우는 동안 — 눌린 상태가 아니라 '진행 중'으로 보이게 흐리게 둔다. */
+  withdrawBtnBusy: { opacity: 0.6 },
   withdrawBtn: {
     marginTop: 14,
     height: 48,
