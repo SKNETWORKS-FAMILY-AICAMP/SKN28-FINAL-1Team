@@ -470,6 +470,7 @@ class ChatRecommendationPipeline:
                         # 액세서리 슬롯이 밀짚모자·라탄백으로 채워진다.
                         occasion_kind=analysis.conditions.occasion_kind,
                         gender=self._gender(context),
+                        season=analysis.conditions.season,
                     )
                     if (
                         scoped_item_ids

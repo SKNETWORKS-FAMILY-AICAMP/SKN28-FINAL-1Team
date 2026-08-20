@@ -56,6 +56,9 @@ class ItemRetrievalRequest:
     limit_per_source: int = 10
     #: 사용자가 명시적으로 기피한 태그 (Qdrant 필드명 -> 라벨).
     avoided_tags: Mapping[str, tuple[str, ...]] = field(default_factory=dict)
+    #: 요청 계절(봄/여름/가을/겨울/간절기). 상품 season 태그와 맞는 후보를 앞세운다.
+    #: 검증 단계에 SEASON_MISMATCH가 있지만 그건 조합이 만들어진 뒤라 선택을 못 바꾼다.
+    season: str = ""
     #: 사용자 성별. 골든 코디에만 걸려 있던 성별 충돌 검사를 아이템 치환에도 쓴다 —
     #: 상품 payload에 성별 필드가 없어 규칙 기반 conflicting_item()으로 판정한다.
     gender: str = ""
@@ -316,6 +319,20 @@ def replacement_fit(
     return max(fit, 0.0), tuple(notes)
 
 
+def _season_rank(payload: dict[str, Any], season: str) -> float:
+    """계절 적합도. 일치 1.0 > 정보 없음 0.5 > 불일치 0.0.
+
+    "정보 없음"을 불일치와 같이 취급하면 태그가 빈 상품(상당수다)이 전부 뒤로
+    밀려 후보가 왜곡된다 — _score_context와 같은 원칙이다.
+    """
+    if not season:
+        return 0.5
+    values = _payload_tag_values(payload, "season")
+    if not values:
+        return 0.5
+    return 1.0 if season in values else 0.0
+
+
 def _drop_gender_conflicts(
     candidates: list[ItemCandidate],
     gender: str,
@@ -339,6 +356,7 @@ def _rank_by_fit(
     candidates: list[ItemCandidate],
     preferred_tags: Mapping[str, tuple[str, ...]],
     template_payload: dict[str, Any],
+    season: str = "",
 ) -> list[ItemCandidate]:
     """요청 일치 → 교체 적합도 → 유사도 순으로 최종 정렬한다.
 
@@ -346,14 +364,19 @@ def _rank_by_fit(
     말이 되려면 템플릿이 정해 둔 자리의 성격을 지키는 쪽이 우선이다.
     """
 
-    ranked: list[tuple[int, float, float, int, ItemCandidate]] = []
+    ranked: list[tuple[int, float, float, float, int, ItemCandidate]] = []
     for order, candidate in enumerate(candidates):
         fit, notes = replacement_fit(template_payload, candidate.payload)
         matches = len(_requested_matches(candidate.payload, preferred_tags))
+        season_fit = _season_rank(candidate.payload, season)
+        if season_fit == 0.0:
+            notes = notes + (f"{season}과 맞지 않는 계절 태그",)
         enriched = replace(candidate, replacement_fit=fit, reasons=candidate.reasons + notes)
-        ranked.append((matches, fit, candidate.score or 0.0, -order, enriched))
-    ranked.sort(key=lambda row: row[:4], reverse=True)
-    return [row[4] for row in ranked]
+        ranked.append(
+            (matches, season_fit, fit, candidate.score or 0.0, -order, enriched)
+        )
+    ranked.sort(key=lambda row: row[:5], reverse=True)
+    return [row[5] for row in ranked]
 
 
 def _rank_by_request(
@@ -463,6 +486,7 @@ class ItemCandidateRetriever:
                 _drop_gender_conflicts(by_source.get(source_type, []), request.gender),
                 request.preferred_tags,
                 template.payload,
+                request.season,
             )
         )
         return ItemRetrievalResult(
