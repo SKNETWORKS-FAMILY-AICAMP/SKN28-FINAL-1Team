@@ -594,7 +594,14 @@ export function ChatConversation({
                       onPress={() =>
                         router.push({
                           pathname: '/rec-card',
-                          params: { resultId: m.resultId, cardId: m.cardId },
+                          params: {
+                            resultId: m.resultId,
+                            cardId: m.cardId,
+                            /* 돌아올 자리를 함께 넘긴다 — 안 넘기면 상세가 기본값인 대화 '목록'으로
+                               되돌려, 보고 있던 대화방을 한 칸 더 지나친다.
+                               (패널에서 연 대화는 sessionId 가 없어 목록으로 두는 게 맞다) */
+                            ...(activeId ? { from: `/chat-room?id=${activeId}` } : {}),
+                          },
                         })
                       }>
                       <View style={styles.recBody}>
