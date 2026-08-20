@@ -18,6 +18,7 @@ from .qdrant_index import index_run
 from .review import collect_accepted_claims, create_review_templates
 from .review_manifest import build_review_manifest
 from .review_apply import apply_review_payload
+from .review_intake import prepare_review_run
 from .review_publish import load_review, publish_review
 from .review_sheets import build_review_sheets
 
@@ -74,6 +75,31 @@ def main() -> None:
         type=Path,
         help="golden_id별 관찰·claim·최소 수정 JSONL. 미리 채워 둔 내용",
     )
+
+    intake = subparsers.add_parser(
+        "prepare-review-run",
+        help="검수자에게 받은 파일을 run 디렉터리로 들인다 (스키마 변환 + 2인 병합)",
+    )
+    intake.add_argument("--run-dir", type=Path, required=True)
+    intake.add_argument(
+        "--analysis",
+        type=Path,
+        required=True,
+        help="검수표를 만든 analysis.jsonl (스킬 산출)",
+    )
+    for name, help_text in (
+        ("observation", "관찰 검수표"),
+        ("claim", "claim 검수표"),
+        ("pairwise", "쌍대 비교표"),
+    ):
+        intake.add_argument(
+            f"--{name}",
+            type=Path,
+            action="append",
+            default=[],
+            metavar="CSV",
+            help=f"{help_text} (검수자마다 하나씩, 반복 지정)",
+        )
 
     prepare = subparsers.add_parser(
         "prepare",
@@ -243,6 +269,18 @@ def main() -> None:
         for unknown in summary["unknown_styles"]:
             print(f"[taxonomy 밖 값] {unknown}")
         print(f"요약: {summary['out_dir'] / 'inventory_summary.md'}")
+    elif args.command == "prepare-review-run":
+        result = prepare_review_run(
+            run_dir=args.run_dir,
+            analysis_jsonl=args.analysis,
+            observation_csvs=args.observation,
+            claim_csvs=args.claim,
+            pairwise_csvs=args.pairwise,
+        )
+        print(f"분석 초안: {result.num_analyses}건 → {result.run_dir / 'analyses.jsonl'}")
+        for name, count in result.counts.items():
+            labels = ", ".join(result.reviewers.get(name, []))
+            print(f"{name}: {count}행 (검수자 {labels})")
     elif args.command == "prepare":
         run_dir = args.run_dir or settings.run_dir
         if args.input_dir is not None:
