@@ -1,14 +1,16 @@
 import { StyleSheet, Text, View, type ViewStyle } from 'react-native';
 
+import { Icon } from '@/components/icon';
 import { SmartImage } from '@/components/ui/smart-image';
-import { Editorial, Fonts } from '@/constants/theme';
+import { Editorial, Fonts, ink } from '@/constants/theme';
 
 /**
  * 프로필 아바타 — 사진이 있으면 사진, 없으면 이름 첫 글자를 새긴 모노그램.
  *
- * 사진 업로드가 아직 없어 자리를 비워 두면 흰 원만 남아 '깨진 이미지'처럼 보인다.
- * 지금은 화면들이 목업 사진(PROFILE_IMAGE)을 넘겨 쓰고, 업로드가 붙으면 uri 만 바꿔 끼우면 된다.
- * 사진이 없는 계정은 모노그램으로 떨어진다 — 면은 순백이라 원은 테두리로만 그린다.
+ * 사진이 없으면 이름 첫 글자로, **이름도 없으면 사람 아이콘**으로 떨어진다.
+ * 막 가입한 계정은 둘 다 없다 — 그 자리를 목업 사진이나 서비스 이름으로 채우면
+ * 처음 들어온 사람이 남의 얼굴·남의 이름을 자기 프로필로 보게 된다.
+ * 면은 순백이라 원은 테두리로만 그린다.
  */
 export function Avatar({
   name,
@@ -39,10 +41,14 @@ export function Avatar({
     );
   }
 
-  const initial = (name?.trim() || '코').slice(0, 1).toUpperCase();
+  const initial = name?.trim().slice(0, 1).toUpperCase();
   return (
     <View style={[styles.circle, circle, style]}>
-      <Text style={[styles.initial, { fontSize: size * 0.42 }]}>{initial}</Text>
+      {initial ? (
+        <Text style={[styles.initial, { fontSize: size * 0.42 }]}>{initial}</Text>
+      ) : (
+        <Icon name="person" tintColor={ink(0.35)} size={size * 0.46} />
+      )}
     </View>
   );
 }

@@ -122,7 +122,7 @@ export default function HomeScreen() {
     reload: reloadCloset,
   } = useWardrobeItems({}, status === 'authed' && !isDemo);
 
-  /* 소셜로 들어왔으면 provider 닉네임, 아니면 기본 이름. 사진도 같은 출처를 쓴다
+  /* 소셜로 들어왔으면 provider 닉네임. 아직 이름이 없으면 빈 문자열이라 이름 없이 인사한다
      (lib/userProfile.ts 가 유일한 판정 자리다 — 화면마다 다르게 정하지 않는다). */
   const nickname = displayName(user);
   const photo = profilePhoto(user);
@@ -142,7 +142,7 @@ export default function HomeScreen() {
           {/* 헤더: 인사말 + 기록/캘린더/프로필 (한 줄) */}
           <View style={styles.header}>
             <Text style={styles.greeting} numberOfLines={1}>
-              안녕하세요 {nickname}님
+              {nickname ? `안녕하세요 ${nickname}님` : '안녕하세요'}
             </Text>
             <View style={styles.headerRight}>
               {/* 분석 기록은 늘 열 수 있어야 하는 진입점이라 본문이 아니라 헤더에 둔다.

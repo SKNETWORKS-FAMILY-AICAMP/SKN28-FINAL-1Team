@@ -42,6 +42,7 @@ export default function MyScreen() {
     : profile.pursuitCount > 0
       ? `${profile.pursuitCount}개 선택`
       : '설정하기';
+  /* 아직 이름이 없으면 지어내지 않고 비워 둔다 — 아래에서 '이름 설정하기'로 안내한다. */
   const name = prefs.nickname || displayName(user);
   /* `??` 는 빈 문자열을 통과시킨다 — 카카오는 이메일 제공 동의를 안 받으면 `""` 를 주므로
      이름 아래가 빈 줄이 됐다. 값이 '있는지'가 아니라 '보여줄 만한지'로 판단한다.
@@ -106,7 +107,10 @@ export default function MyScreen() {
           <View style={styles.profile}>
             <Avatar name={name} {...profilePhoto(user)} size={52} />
             <View style={styles.profileText}>
-              <Text style={styles.name}>{name}</Text>
+              {/* 이름이 없는 계정(막 가입)은 이름 자리가 그대로 편집 유도가 된다. */}
+              <Text style={[styles.name, !name && styles.namePlaceholder]}>
+                {name || '이름 설정하기'}
+              </Text>
               <Text style={styles.email} numberOfLines={1}>{email}</Text>
             </View>
             <Pressable
@@ -170,6 +174,8 @@ const styles = StyleSheet.create({
   },
   profileText: { flex: 1, minWidth: 0 },
   name: { fontSize: 18, fontWeight: '700', color: INK, letterSpacing: -0.3 },
+  /* 아직 정하지 않은 값이라 본문 이름과 같은 무게로 읽히면 안 된다. */
+  namePlaceholder: { fontWeight: '600', color: Editorial.textCaption },
   email: { fontSize: 12, color: Editorial.textCaption, marginTop: 2 },
   editBtn: {
     flexDirection: 'row',
