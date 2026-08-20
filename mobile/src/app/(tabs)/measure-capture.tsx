@@ -1,14 +1,14 @@
 import { Icon, type IconName } from '@/components/icon';
+import { Image } from 'expo-image';
 import { router, useLocalSearchParams } from 'expo-router';
 import { goBack } from '@/lib/goBack';
-import { useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { Editorial, ink, Fonts , ContentMax} from '@/constants/theme';
 import { useBreakpoint } from '@/hooks/use-breakpoint';
 import { pickBodyPhoto } from '@/lib/pickItemPhoto';
-import { measureStore } from '@/state/measure';
+import { measureStore, useMeasure } from '@/state/measure';
 
 const INK = Editorial.ink;
 const BONE = Editorial.bone;
@@ -34,11 +34,11 @@ const GUIDE: { icon: IconName; text: string }[] = [
 export default function MeasureCapture() {
   const { contentStyle } = useBreakpoint();
   const { returnTo } = useLocalSearchParams<{ returnTo?: string }>();
-  const [shots, setShots] = useState<{ front: boolean; side: boolean }>({
-    front: false,
-    side: false,
-  });
-  const both = shots.front && shots.side;
+  /* 첨부 여부만 로컬 boolean 으로 들고 있으면 "무엇을 붙였는지"를 화면이 알 수 없다.
+     스토어의 photos(uri) 를 그대로 구독해 슬롯에 사진을 띄운다 — 재첨부하면 uri 가 바뀌므로
+     바뀐 사진이 눈에 바로 보이고, 화면을 나갔다 돌아와도 첨부한 사진이 남는다. */
+  const { photos } = useMeasure();
+  const both = Boolean(photos.front && photos.side);
 
   return (
     <View style={styles.container}>
@@ -58,28 +58,39 @@ export default function MeasureCapture() {
           {/* 촬영 슬롯 2컷 */}
           <View style={styles.slots}>
             {(['front', 'side'] as const).map((k) => {
-              const done = shots[k];
+              const uri = photos[k];
               return (
                 <Pressable
                   key={k}
-                  style={styles.slot}
+                  style={[styles.slot, Boolean(uri) && styles.slotFilled]}
                   onPress={async () => {
                     // 앨범에서 전신 사진 1장 선택 (웹은 파일 선택 창). 취소하면 무시.
-                    const uri = await pickBodyPhoto();
-                    if (!uri) return;
-                    setShots((s) => ({ ...s, [k]: true }));
-                    measureStore.setPhoto(k, uri);
+                    const picked = await pickBodyPhoto();
+                    if (!picked) return;
+                    measureStore.setPhoto(k, picked);
                   }}>
                   <View style={styles.silhouette}>
-                    <Icon
-                      name={done ? 'checkmark.circle.fill' : 'camera'}
-                      tintColor={done ? INK : ink(0.35)}
-                      size={26}
-                    />
+                    {uri ? (
+                      <>
+                        {/* key 에 uri 를 넣어 재첨부 때 이미지를 새로 마운트한다 —
+                            이전 사진이 잠깐 남아 보이면 바뀐 건지 확인이 안 된다. */}
+                        <Image
+                          key={uri}
+                          source={{ uri }}
+                          style={StyleSheet.absoluteFill}
+                          contentFit="cover"
+                        />
+                        <View style={styles.doneBadge}>
+                          <Icon name="checkmark.circle.fill" tintColor={INK} size={18} />
+                        </View>
+                      </>
+                    ) : (
+                      <Icon name="camera" tintColor={ink(0.35)} size={26} />
+                    )}
                   </View>
                   <Text style={styles.slotLabel}>{k === 'front' ? '정면' : '측면'}</Text>
-                  <Text style={[styles.slotState, done && styles.slotStateDone]}>
-                    {done ? '첨부 완료' : '탭하여 첨부'}
+                  <Text style={[styles.slotState, Boolean(uri) && styles.slotStateDone]}>
+                    {uri ? '다른 사진으로 바꾸기' : '탭하여 첨부'}
                   </Text>
                 </Pressable>
               );
@@ -166,6 +177,8 @@ const styles = StyleSheet.create({
     borderRadius: 18,
     paddingVertical: 20,
   },
+  // 사진이 들어오면 테두리를 진하게 — 어느 쪽을 채웠는지 카드 단위로도 구분된다.
+  slotFilled: { borderColor: ink(0.28) },
   silhouette: {
     width: 90,
     height: 120,
@@ -174,6 +187,19 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     marginBottom: 4,
+    // 사진이 absoluteFill 로 깔리므로 모서리를 잘라 줘야 둥근 박스가 유지된다.
+    overflow: 'hidden',
+  },
+  doneBadge: {
+    position: 'absolute',
+    top: 5,
+    right: 5,
+    width: 22,
+    height: 22,
+    borderRadius: 11,
+    backgroundColor: Editorial.surface,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   slotLabel: { fontSize: 15, fontWeight: '600', color: INK },
   slotState: { fontSize: 12, color: Editorial.textCaption },
