@@ -61,6 +61,7 @@ body.cozy-landing-fullwidth #root {
 /* 하단 탭바 글래스(프로스티드 유리) 효과 — 스크롤 콘텐츠가 반투명 바 뒤로 비쳐 흐려짐.
    탭바는 app-tabs.web.tsx에서 nativeID="cozy-tabbar" + position:absolute로 콘텐츠 위에 떠 있음. */
 #cozy-tabbar {
-  /* 바가 불투명한 코코아라 backdrop-filter 는 걸어도 보이지 않는다 — 그림자만 남긴다. */
-  box-shadow: 0 -6px 20px rgba(0, 0, 0, 0.08);
+  /* 바가 불투명하고 본문과 밝기 1.6포인트 차이뿐이라, 이 그림자가 헤어라인과 함께
+     경계의 절반을 맡는다. 빼면 바가 본문에 녹아 사라진다. */
+  box-shadow: 0 -6px 20px rgba(28, 25, 23, 0.07);
 }

@@ -4,7 +4,7 @@ import { Tabs, TabList, TabTrigger, TabSlot, TabTriggerSlotProps } from 'expo-ro
 import { Pressable, View, Text, StyleSheet } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import { ChatPanelWidth, Editorial, Fonts, ink, onNav, SidebarWidth } from '@/constants/theme';
+import { ChatPanelWidth, Editorial, Fonts, ink, SidebarWidth } from '@/constants/theme';
 import { useBreakpoint } from '@/hooks/use-breakpoint';
 
 import { ChatConversation } from './chat/chat-conversation';
@@ -195,9 +195,8 @@ function SidebarItem({
   hidden,
   ...props
 }: TabTriggerSlotProps & { icon: IconName; label: string; hidden?: boolean }) {
-  /* 선택 표시는 글자·아이콘의 색과 굵기가 전부 맡는다. 면도 테두리도 쓰지 않는다.
-     바가 어두우므로 ink 계열이 아니라 onNav() 를 쓴다 — 흰색 1.0 / 0.65 로 갈린다. */
-  const color = isFocused ? Editorial.white : onNav(0.65);
+  /* 선택 표시는 글자·아이콘의 색과 굵기가 전부 맡는다. 면도 테두리도 쓰지 않는다. */
+  const color = isFocused ? INK : Editorial.textCaption;
   return (
     <Pressable
       {...props}
@@ -231,7 +230,7 @@ function TabItem({
   hidden,
   ...props
 }: TabTriggerSlotProps & { icon: IconName; label: string; hidden?: boolean }) {
-  const color = isFocused ? Editorial.white : onNav(0.65);
+  const color = isFocused ? INK : ink(0.4);
   return (
     <Pressable {...props} style={[styles.item, hidden && styles.hiddenTrigger]}>
       <Icon name={icon} tintColor={color} size={22} />
@@ -279,8 +278,9 @@ const styles = StyleSheet.create({
   // 데스크톱 사이드바
   sidebar: {
     width: SidebarWidth,
-    /* 테두리를 두지 않는다 — 어두운 면과 오트 본문이 10.1:1 로 갈려 경계가 이미 또렷하다.
-       여기에 선을 더하면 이음새만 두꺼워 보인다. */
+    /* 테두리가 경계의 전부다 — 면 색은 본문과 1.03:1 이라 선을 빼면 사이드바가 사라진다. */
+    borderRightWidth: 1,
+    borderRightColor: ink(0.08),
     backgroundColor: Editorial.nav,
     paddingHorizontal: 16,
     paddingTop: 28,
@@ -292,7 +292,7 @@ const styles = StyleSheet.create({
   sidebarBrand: {
     fontFamily: Fonts.serif,
     fontSize: 24,
-    color: Editorial.white,
+    color: INK,
     paddingHorizontal: 10,
   },
   sidebarNav: { gap: 2 },
@@ -317,10 +317,12 @@ const styles = StyleSheet.create({
     zIndex: 10,
     flexDirection: 'row',
     alignItems: 'center',
-    /* 어두운 면. 불투명하게 둔다 — 반투명이면 뒤로 지나가는 사진이 비쳐 바 색이 흔들린다.
-       (그래서 global.css 의 backdrop-filter 도 함께 걷어냈다.)
-       테두리는 두지 않는다: 오트 본문과 10.1:1 로 갈려 경계가 이미 또렷하다. */
+    /* 본문보다 밝기 1.6포인트만 높은 면이라 색만으로는 구분되지 않는다.
+       위쪽 헤어라인과 global.css 의 그림자가 경계를 만든다 — 둘 다 빼면 바가 사라진다.
+       불투명하게 둔다: 반투명이면 뒤로 지나가는 사진이 비쳐 그 작은 차이마저 없어진다. */
     backgroundColor: Editorial.nav,
+    borderTopWidth: 1,
+    borderTopColor: ink(0.08),
     paddingTop: 8,
   },
   item: { flex: 1, alignItems: 'center', gap: 3, paddingVertical: 2 },
