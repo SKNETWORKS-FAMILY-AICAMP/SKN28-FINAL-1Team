@@ -9,7 +9,6 @@ type LookbookFilterSheetProps = {
   gender: LookGenderFilter;
   onClose: () => void;
   onApply: (gender: LookGenderFilter) => void;
-  onManageCategories?: () => void;
 };
 
 const GENDERS: { label: string; value: LookGenderFilter }[] = [
@@ -23,7 +22,6 @@ export function LookbookFilterSheet({
   gender,
   onClose,
   onApply,
-  onManageCategories,
 }: LookbookFilterSheetProps) {
   const [draft, setDraft] = useState<LookGenderFilter>(gender);
 
@@ -65,12 +63,6 @@ export function LookbookFilterSheet({
               );
             })}
           </View>
-
-          {onManageCategories ? (
-            <Pressable style={styles.manageButton} onPress={onManageCategories}>
-              <Text style={styles.manageButtonText}>룩북 카테고리 직접 편집</Text>
-            </Pressable>
-          ) : null}
 
           <View style={styles.actions}>
             <Pressable style={styles.cancelButton} onPress={onClose}>
@@ -154,23 +146,6 @@ const styles = StyleSheet.create({
   },
   genderOptionTextSelected: { color: Editorial.white },
   actions: { flexDirection: 'row', gap: 10, marginTop: 28 },
-  manageButton: {
-    alignSelf: 'flex-start',
-    marginTop: 18,
-    paddingHorizontal: 16,
-    height: 40,
-    borderRadius: 999,
-    borderWidth: 1,
-    borderColor: Editorial.line,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  manageButtonText: {
-    color: Editorial.ink,
-    fontFamily: Fonts.sans,
-    fontSize: 13,
-    fontWeight: '600',
-  },
   cancelButton: {
     flex: 1,
     height: 50,

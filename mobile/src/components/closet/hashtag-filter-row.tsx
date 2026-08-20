@@ -36,7 +36,7 @@ export function HashtagFilterRow({ hashtags, selectedIds, onToggle, onAdd, onMan
               accessibilityLabel={`${hashtag.name} 해시태그 수정`}>
               <Icon
                 name="pencil"
-                tintColor={active ? ink(0.65) : Editorial.textMuted}
+                tintColor={active ? Editorial.white : Editorial.textMuted}
                 size={11}
               />
             </Pressable>

@@ -68,3 +68,14 @@
 - 운영 GPU 이미지 프로세서를 사용하기로 확정해 로컬 옷 등록용 Gemini 직접 태깅 코드·환경변수·로컬 파일 저장 분기를 제거함. 추천/코디 GPU 워커의 기존 Gemini 서비스는 유지.
 - 로컬 인증 우회 설정(`noauth`, `swagger_noauth`, AutoLoginAuthentication)과 관련 실행·문서 안내를 제거하고 Swagger는 JWT 인증 방식만 유지.
 - 정리 후 공유 옷장·추천 검색 테스트 136개, TypeScript, Expo config, migration 누락 검사, `git diff --check` 통과.
+
+## 2026-08-20
+
+- `feature/shared-wardrobe`에 최신 `origin/main`(`4788688`)을 병합하고 기존 로컬 변경 7개를 stash로 보존·복원함.
+- `api/apps/wardrobe/views.py` 충돌은 공유방 멤버 조회와 최신 reference eligibility 계산을 모두 유지해 해결함.
+- 카카오 네이티브 초대 링크를 `+native-intent.tsx`에서 `/invite?code=...`로 변환하는 수정 반영 확인.
+- 카카오 딥링크 회귀 테스트 6개와 모바일 TypeScript 검사 통과. Docker Desktop 미실행으로 백엔드 컨테이너 테스트는 실행하지 못함.
+- 체형 사진 측정에 사람 1명, 머리·얼굴·양발, 전신 프레이밍, 정면·측면 자세, 화질 VLM 검증을 추가함.
+- 부적합 사진은 치수 저장을 막고 `photo_quality_failed`로 응답하며, 앱에서 `사진 인식 실패`와 재촬영·기본정보 추정 선택지를 표시함.
+- 기본정보 fallback 결과에는 `사진을 인식하지 못해 키·몸무게·성별만으로 추정한 값`임을 명시함.
+- 검증: ML 10개, 모바일 상태·출처 10개, TypeScript, 대상 ESLint, Python compileall, JSON, migration 누락 검사 통과. PostgreSQL/Docker 미실행으로 Django DB 테스트 22개는 실행하지 못함.

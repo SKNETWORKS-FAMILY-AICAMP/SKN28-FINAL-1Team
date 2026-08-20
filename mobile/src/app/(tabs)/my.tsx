@@ -4,7 +4,7 @@ import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { Avatar, LoginGate } from '@/components/ui';
-import { PROFILE_IMAGE } from '@/constants/look-images';
+import { displayName, profilePhoto } from '@/lib/userProfile';
 import { ink, ContentMax, Editorial } from '@/constants/theme';
 import { useBreakpoint } from '@/hooks/use-breakpoint';
 import { useProfileSummary } from '@/hooks/use-profile-summary';
@@ -19,17 +19,6 @@ type Row = {
   hint?: string;
   onPress: () => void;
 };
-
-const AUTO_USERNAME = /^(naver|kakao|google)_/;
-
-function displayName(
-  nickname: string | null | undefined,
-  email: string | null | undefined,
-): string {
-  if (nickname && !AUTO_USERNAME.test(nickname)) return nickname;
-  if (email) return email.split('@')[0];
-  return '회원';
-}
 
 // H1 마이 탭 — 프로필 요약 + 설정 메뉴
 export default function MyScreen() {
@@ -53,8 +42,11 @@ export default function MyScreen() {
     : profile.pursuitCount > 0
       ? `${profile.pursuitCount}개 선택`
       : '설정하기';
-  const name = prefs.nickname || displayName(user?.nickname, user?.email) || '코지';
-  const email = user?.email ?? 'cozy@example.com';
+  const name = prefs.nickname || displayName(user);
+  /* `??` 는 빈 문자열을 통과시킨다 — 카카오는 이메일 제공 동의를 안 받으면 `""` 를 주므로
+     이름 아래가 빈 줄이 됐다. 값이 '있는지'가 아니라 '보여줄 만한지'로 판단한다.
+     제공받지 못한 경우엔 가짜 주소 대신 사실대로 적는다. */
+  const email = user?.email?.trim() || '이메일 미제공';
 
   const groups: { title: string; rows: Row[] }[] = [
     {
@@ -112,7 +104,7 @@ export default function MyScreen() {
           contentContainerStyle={[styles.content, { paddingBottom: 24 }, contentStyle(ContentMax.wide)]}>
           {/* 프로필 — 테두리로 감싸지 않는다. 화면에 하나뿐인 머리라 굳이 구분할 상대가 없다. */}
           <View style={styles.profile}>
-            <Avatar name={name} asset={PROFILE_IMAGE} size={52} />
+            <Avatar name={name} {...profilePhoto(user)} size={52} />
             <View style={styles.profileText}>
               <Text style={styles.name}>{name}</Text>
               <Text style={styles.email} numberOfLines={1}>{email}</Text>

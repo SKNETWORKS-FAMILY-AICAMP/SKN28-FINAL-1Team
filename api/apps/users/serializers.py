@@ -15,6 +15,7 @@ from apps.users.constants import (
     category_keys,
     effective_category_budgets,
 )
+from apps.users.services import profile_image as profile_image_service
 from apps.users.models import (
     BodyMeasurement,
     BodyPhotoTransaction,
@@ -184,11 +185,33 @@ class BudgetSerializer(serializers.ModelSerializer):
 
 class UserSerializer(serializers.ModelSerializer):
     social_accounts = SocialAccountSerializer(many=True, read_only=True)
+    # 직접 올린 사진(S3 key)이 있으면 그것을, 없으면 소셜 provider 가 준 URL 을 준다.
+    # 프론트는 예전과 똑같이 profile_image 한 자리만 읽으면 된다.
+    profile_image = serializers.SerializerMethodField()
+    # 프론트가 '기본으로 되돌리기' 를 보여줄지 정하려면 소셜 사진과 구분해야 한다.
+    # presigned URL 을 문자열로 넘겨짚는 것보다 서버가 사실대로 알려주는 편이 정확하다.
+    profile_image_uploaded = serializers.SerializerMethodField()
 
     class Meta:
         model = User
-        fields = ["id", "username", "email", "nickname", "profile_image", "social_accounts"]
+        fields = [
+            "id", "username", "email", "nickname",
+            "profile_image", "profile_image_uploaded", "social_accounts",
+        ]
         read_only_fields = ["id", "username", "email", "social_accounts"]
+
+    def get_profile_image(self, obj: User) -> str:
+        if obj.profile_image_key:
+            # presigned URL 은 만료된다(기본 1시간). 오래 캐시하지 말 것.
+            try:
+                return profile_image_service.presigned_get(obj.profile_image_key)
+            except profile_image_service.ProfileImageConfigurationError:
+                # S3 가 설정되지 않은 환경(로컬 등)에서 프로필 조회 자체가 실패하면 안 된다.
+                return obj.profile_image or ""
+        return obj.profile_image or ""
+
+    def get_profile_image_uploaded(self, obj: User) -> bool:
+        return bool(obj.profile_image_key)
 
 
 BODY_BASIC_FIELDS = ["gender", "height", "weight"]
@@ -363,6 +386,10 @@ class BodyEstimationResultSerializer(serializers.Serializer):
     error_message = serializers.CharField(
         allow_null=True, help_text="실패했을 때만 사유가 들어간다."
     )
+    error_code = serializers.CharField(
+        allow_null=True,
+        help_text="클라이언트 분기용 실패 코드 (사진 품질 실패: photo_quality_failed).",
+    )
 
 
 class BodyPhotoTransactionSerializer(serializers.ModelSerializer):
@@ -373,7 +400,7 @@ class BodyPhotoTransactionSerializer(serializers.ModelSerializer):
     class Meta:
         model = BodyPhotoTransaction
         fields = [
-            "transaction_id", "status", "error_message", "created_at", "updated_at"
+            "transaction_id", "status", "error_message", "error_code", "created_at", "updated_at"
         ]
         read_only_fields = fields
 

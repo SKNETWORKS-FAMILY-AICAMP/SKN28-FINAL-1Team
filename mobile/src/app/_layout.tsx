@@ -10,6 +10,7 @@ import { clearLegacyPendingShare } from '@/lib/secureStore';
 import { initSocialSDKs } from '@/lib/socialLogin';
 import { authStore } from '@/state/auth';
 import { likesStore } from '@/state/likes';
+import { lookVoteStore } from '@/state/look-votes';
 import { outfitAnalysisStore } from '@/state/outfit-analysis';
 import { outfitClaimStore } from '@/state/outfit-claim';
 import { prefsStore } from '@/state/prefs';
@@ -28,6 +29,8 @@ export default function RootLayout() {
     outfitAnalysisStore.bootstrap();
     /* 룩북 피드에서 하트로 담아 둔 룩(위시)을 되살린다 — 서버에 자리가 없어 기기 보관이다. */
     void likesStore.bootstrap();
+    /* 룩에 남긴 좋아요/별로예요 — 룩북 정렬이 이 값을 쓰므로 목록보다 먼저 준비돼야 한다. */
+    void lookVoteStore.bootstrap();
     /* 두 스토어를 구독하므로 뒤에 둔다 — 비로그인 분석의 claim 토큰을 모았다가 로그인 때 넘긴다. */
     outfitClaimStore.bootstrap();
     /* 공유 예약이 서버로 옮겨가기 전(secureStore) 남은 값을 치운다. 아무도 읽지 않지만

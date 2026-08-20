@@ -496,8 +496,6 @@ const styles = StyleSheet.create({
     backgroundColor: Editorial.ink,
     alignItems: 'center',
     justifyContent: 'center',
-    borderWidth: 2,
-    borderColor: '#fff',
   },
   memberDotOverlap: { marginLeft: -8 },
   memberInitial: { fontSize: 11, fontWeight: '600', color: '#fff' },
@@ -511,11 +509,11 @@ const styles = StyleSheet.create({
     borderColor: Editorial.line,
   },
   roleBadgeOwner: {
-    backgroundColor: Editorial.ink,
-    borderColor: Editorial.ink,
+    backgroundColor: Editorial.selected,
+    borderColor: Editorial.selected,
   },
   roleBadgeText: { fontSize: Type.micro, fontWeight: '600', color: Editorial.textCaption },
-  roleBadgeTextOwner: { color: Editorial.surface },
+  roleBadgeTextOwner: { color: Editorial.white },
   inviteChip: {
     flexDirection: 'row',
     alignItems: 'center',

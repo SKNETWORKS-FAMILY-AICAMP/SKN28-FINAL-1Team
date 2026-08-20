@@ -23,6 +23,8 @@ type ItemsResult = {
   loading: boolean;
   error: string | null;
   reload: () => Promise<void>;
+  /** 로딩 표시 없이 다시 불러온다 — 이미 그려진 목록을 깜빡이지 않고 서버와 맞춘다 */
+  refresh: () => Promise<void>;
   /** 서버 왕복 없이 목록에서 지운다 — 삭제 직후 화면이 먼저 반응하도록 */
   removeLocal: (itemId: string) => void;
   /** 수정 결과를 목록에 반영 */
@@ -74,7 +76,7 @@ export function useWardrobeItems(query: WardrobeItemQuery = {}, enabled = true):
     setItems((prev) => prev.map((i) => (i.id === item.id ? item : i)));
   }, []);
 
-  return { items, loading, error, reload, removeLocal, replaceLocal };
+  return { items, loading, error, reload, refresh: load, removeLocal, replaceLocal };
 }
 
 type CategoriesResult = {

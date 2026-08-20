@@ -1,4 +1,4 @@
-# 신체측정 데이터 정의 (11개 저장 항목)
+# 신체측정 데이터 정의 (14개 저장 항목)
 
 ## 1. 데이터 출처와 보관 위치
 
@@ -9,7 +9,7 @@
 | 정확 길이 Hist | `ml/body_measurement/data/hist/models/hist_gradient_boosting_exact_lengths_v2.joblib` | 성별·키·몸무게 → 길이 5개 |
 | 학습 계약·분포 | `ml/body_measurement/data/hist/manifest_exact_lengths_v2.json` | 정의, 표본, 성별 분포, 모델 해시 |
 | Hist 행별 결과 | `ml/body_measurement/data/hist/predictions/*.csv` | 실제값·예측값·오차를 행 단위로 저장 |
-| VLM | `ml/body_measurement/data/vlm/` | 새 11개 프롬프트 실행 결과를 저장할 위치 |
+| VLM | `ml/body_measurement/data/vlm/` | 사진 프롬프트 실행 결과를 저장할 위치 |
 | 과거 7개/둘레 기준 자료 | `ml/body_measurement/data/archive/legacy_7target_vlm/` | 현재 계약에는 사용하지 않는 참고용 보관 |
 
 원본 3D 추출값은 길이·둘레가 mm, 몸무게가 kg이므로 학습 데이터에서는 cm/kg로 변환한다.

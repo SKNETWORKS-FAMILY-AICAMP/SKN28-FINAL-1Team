@@ -257,15 +257,14 @@ class SharedReferenceVectorLoaderTests(SimpleTestCase):
 
         self.assertEqual(basis.tags.season, ("가을", "봄"))
 
-    def test_private_source_status_is_rejected_before_query(self) -> None:
+    def test_legacy_private_source_status_does_not_break_existing_snapshot(self) -> None:
         snapshot = _snapshot()
         snapshot["source_status"] = "private"
-        client = FakeQdrantClient()
+        client = FakeQdrantClient(points=[_point(snapshot)])
 
-        with self.assertRaises(ReferenceSnapshotInvalid):
-            load_shared_reference(snapshot, client=client)
+        basis = load_shared_reference(snapshot, client=client)
 
-        self.assertEqual(client.retrieve_calls, [])
+        self.assertEqual(basis.source_wardrobe_item_id, snapshot["wardrobe_item_id"])
 
     def test_invalid_snapshot_is_rejected(self) -> None:
         snapshot = _snapshot()

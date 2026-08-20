@@ -142,7 +142,7 @@ def accessible_item_ids(user) -> list[str]:
 
     격리 규칙 (Confluence §4-2 / shared-wardrobe-spec.md):
     - 내 옷: user=user, confirmed=True
-    - 공유방 옷: room__members__user=user, status=AVAILABLE, wardrobe_item__confirmed=True
+    - 공유방 옷: room__members__user=user, wardrobe_item__confirmed=True
     - 상한: settings.RETRIEVER_WARDROBE_ID_CAP
     - 정열: created_at 내림차순 (결정적 필터링)
     """
@@ -161,7 +161,6 @@ def accessible_item_ids(user) -> list[str]:
     shared_items = list(
         SharedWardrobeItem.objects.filter(
             room__members__user=user,
-            status=SharedWardrobeItem.Status.AVAILABLE,
             wardrobe_item__confirmed=True,
         )
         .order_by("-created_at")

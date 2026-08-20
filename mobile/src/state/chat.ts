@@ -28,7 +28,7 @@ import {
 import { isAnswered, waitForRun, waitForStylistRun } from '@/lib/chatStream';
 import {
   getRecommendationResult,
-  imageUrlOf,
+  itemImageUrl,
   type ApiRecommendationCard,
   type ApiReferenceMatch,
   type ApiRenderJob,
@@ -98,7 +98,7 @@ export type RecItem = {
   id: string;
   name: string;
   category: string | null;
-  /** 걸 수 있는 주소일 때만 채운다 (S3 키는 걸러진다 — lib/recommendApi 의 imageUrlOf). */
+  /** 걸 수 있는 주소일 때만 채운다 (S3 키는 걸러진다 — lib/recommendApi 의 itemImageUrl). */
   imageUrl: string | null;
   /** 새로 사야 하는 상품만 가격이 있다. 옷장에 있는 옷은 null. */
   price: number | null;
@@ -364,7 +364,7 @@ function toRecMessage(
       id: i.item_id,
       name: i.display_name,
       category: i.category,
-      imageUrl: imageUrlOf(i.image_ref),
+      imageUrl: itemImageUrl(i),
       price: i.price_snapshot,
       fromWardrobe: i.source_type !== 'PRODUCT',
     })),
@@ -767,7 +767,7 @@ function toStylistCard(r: ApiPersonaResult): StylistCard {
         id: i.item_id,
         name: i.display_name,
         category: i.category,
-        imageUrl: imageUrlOf(i.image_ref),
+        imageUrl: itemImageUrl(i),
         price: i.price_snapshot,
         fromWardrobe: i.source_type !== 'PRODUCT',
       })) ?? [],
@@ -1101,6 +1101,29 @@ async function syncSessionList(): Promise<void> {
 
 export const chatStore = {
   getSessions: () => sessions,
+
+  /**
+   * 로그아웃·탈퇴 때 기기에 남은 대화 흔적을 지운다.
+   *
+   * 목록과 주고받은 내용은 **메모리에만** 있어서, 지우지 않으면 다음 사람(게스트 포함)이
+   * 채팅에 들어갔을 때 방금 나간 사람의 대화 목록이 그대로 보인다. 서버에서 새로
+   * 받아오기 전까지 남아 있기 때문이다.
+   *
+   * loadedOnce 도 되돌린다 — 남겨 두면 빈 목록이 '정말 대화가 없음'으로 읽혀
+   * 로그인 직후 한 프레임 "대화가 없어요"가 번쩍인다.
+   */
+  reset(): void {
+    sessions = [];
+    loading = false;
+    loadedOnce = false;
+    error = null;
+    rawMessages.clear();
+    rawCards.clear();
+    overlays.clear();
+    setStatus();
+    notify();
+  },
+
   getSession: (id: string | undefined) =>
     id ? sessions.find((s) => s.id === id) : undefined,
   getStatus: () => status,

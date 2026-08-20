@@ -1,7 +1,6 @@
 /** 공유 옷 레퍼런스의 선택 상태와 결과 표시를 화면용 값으로 변환한다. */
 
 export type SharedReferenceUnavailableReason =
-  | 'PRIVATE'
   | 'NOT_CONFIRMED'
   | 'VECTOR_NOT_READY';
 
@@ -46,7 +45,6 @@ export function shouldPollSharedReferenceVector(input: {
 }
 
 const UNAVAILABLE_LABELS: Record<SharedReferenceUnavailableReason, string> = {
-  PRIVATE: '나만 보기 상태',
   VECTOR_NOT_READY: '이미지 분석 중',
   NOT_CONFIRMED: '옷 정보 확인 필요',
 };

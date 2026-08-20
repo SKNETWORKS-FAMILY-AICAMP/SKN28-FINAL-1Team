@@ -15,7 +15,6 @@ from apps.wardrobe.models import (
 )
 from apps.wardrobe.services.reference_eligibility import (
     REFERENCE_UNAVAILABLE_NOT_CONFIRMED,
-    REFERENCE_UNAVAILABLE_PRIVATE,
     resolve_reference_eligibilities,
     resolve_wardrobe_vector_readiness,
 )
@@ -177,8 +176,6 @@ def build_reference_snapshot(
         [shared_item],
         enqueue_missing=True,
     )[str(shared_item.pk)]
-    if eligibility.unavailable_reason == REFERENCE_UNAVAILABLE_PRIVATE:
-        raise SharedReferenceForbidden("나만 보기 상태인 공유 옷은 참조할 수 없습니다.")
     if eligibility.unavailable_reason == REFERENCE_UNAVAILABLE_NOT_CONFIRMED:
         raise SharedReferenceUnavailable("사용자가 확정한 공유 옷만 참조할 수 있습니다.")
     if not eligibility.eligible:

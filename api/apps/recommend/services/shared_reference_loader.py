@@ -280,11 +280,9 @@ class SharedReferenceVectorLoader:
             if reference_type not in REFERENCE_TYPES:
                 raise ReferenceSnapshotInvalid("지원하지 않는 참조 유형입니다.")
             if reference_type == REFERENCE_TYPE_SHARED:
-                if _required_string(snapshot, "source_status") not in {
-                    "available",
-                    "borrowed",
-                }:
-                    raise ReferenceSnapshotInvalid("참조할 수 없는 공유 옷 상태입니다.")
+                # 공유 상태 기능은 제거됐다. 과거 스냅샷의 값은 구조 확인에만 쓰고,
+                # borrowed/private 같은 레거시 값으로 기존 대화를 차단하지 않는다.
+                _required_string(snapshot, "source_status")
 
             spec = collection_spec("wardrobe")
             collection_name = _required_string(snapshot, "qdrant_collection")

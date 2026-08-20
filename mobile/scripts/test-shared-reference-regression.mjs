@@ -84,13 +84,6 @@ try {
   assert.equal(
     sharedReferenceUnavailableLabel({
       referenceEligible: false,
-      referenceUnavailableReason: 'PRIVATE',
-    }),
-    '나만 보기 상태',
-  );
-  assert.equal(
-    sharedReferenceUnavailableLabel({
-      referenceEligible: false,
       referenceUnavailableReason: 'VECTOR_NOT_READY',
     }),
     '이미지 분석 중',

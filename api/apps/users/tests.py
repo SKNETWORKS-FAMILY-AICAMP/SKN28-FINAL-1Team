@@ -17,6 +17,13 @@ from django.utils import timezone
 from rest_framework.test import APIClient
 
 from apps.users.constants import category_keys
+from apps.users.serializers import UserSerializer
+from apps.users.services import profile_image
+from apps.wardrobe.models import (
+    SharedWardrobeMember,
+    SharedWardrobeRoom,
+    WardrobeItem,
+)
 from apps.users.models import (
     BodyMeasurement,
     BodyPhotoTransaction,
@@ -970,6 +977,20 @@ class BodyPhotoTransactionTests(TestCase):
         response = self.client.get(self._tx_url(tx.pk))
         self.assertEqual(response.data["status"], "failed")
         self.assertEqual(response.data["error_message"], "VLM 호출 실패 (HTTP 429)")
+        self.assertIsNone(response.data["error_code"])
+
+    def test_photo_quality_failure_returns_machine_readable_code(self):
+        tx = BodyPhotoTransaction.objects.create(
+            user=self.user,
+            status=BodyPhotoTransaction.Status.FAILED,
+            error_message="사진 인식 실패: 양발이 모두 보이게 촬영해 주세요.",
+            error_code="photo_quality_failed",
+        )
+
+        response = self.client.get(self._tx_url(tx.pk))
+
+        self.assertEqual(response.data["error_code"], "photo_quality_failed")
+        self.assertIn("사진 인식 실패", response.data["error_message"])
 
     def test_failed_transaction_without_error_message_gets_fallback(self):
         tx = BodyPhotoTransaction.objects.create(
@@ -1046,6 +1067,50 @@ class BodyPhotoTransactionTests(TestCase):
         tx.refresh_from_db()
         self.assertEqual(tx.status, BodyPhotoTransaction.Status.FAILED)
         self.assertEqual(tx.error_message, "VLM 타임아웃")
+        self.assertEqual(tx.error_code, "")
+
+    @patch("apps.users.services.body_inference.connections")
+    @patch("apps.users.services.body_inference.close_old_connections")
+    @patch("apps.users.services.body_inference.complete_measurement")
+    def test_run_does_not_overwrite_terminal_transaction_after_error(
+        self, mock_complete, _mock_close_old, _mock_conns
+    ):
+        tx = BodyPhotoTransaction.objects.create(user=self.user)
+
+        def finish_then_raise(*_args, **_kwargs):
+            BodyPhotoTransaction.objects.filter(pk=tx.pk).update(
+                status=BodyPhotoTransaction.Status.SUCCEEDED,
+                error_message="",
+                error_code="",
+            )
+            raise RuntimeError("late worker error")
+
+        mock_complete.side_effect = finish_then_raise
+
+        body_inference._run_measurement(tx.pk, **self._complete_kwargs())
+
+        tx.refresh_from_db()
+        self.assertEqual(tx.status, BodyPhotoTransaction.Status.SUCCEEDED)
+        self.assertEqual(tx.error_message, "")
+
+    @patch("apps.users.services.body_inference.connections")
+    @patch("apps.users.services.body_inference.close_old_connections")
+    @patch("apps.users.services.body_inference.inference.estimate_from_photos")
+    def test_photo_quality_failure_has_machine_readable_code(
+        self, mock_estimate, _mock_close_old, _mock_conns
+    ):
+        mock_estimate.side_effect = body_inference.inference.PhotoValidationError(
+            "feet_not_visible"
+        )
+        tx = BodyPhotoTransaction.objects.create(user=self.user)
+
+        body_inference._run_measurement(tx.pk, **self._complete_kwargs())
+
+        tx.refresh_from_db()
+        self.assertEqual(tx.status, BodyPhotoTransaction.Status.FAILED)
+        self.assertEqual(tx.error_code, "photo_quality_failed")
+        self.assertIn("사진 인식 실패", tx.error_message)
+        self.assertFalse(BodyMeasurement.objects.filter(user=self.user).exists())
 class BudgetViewTests(TestCase):
     def setUp(self):
         self.client = APIClient()
@@ -1141,3 +1206,234 @@ class BudgetViewTests(TestCase):
         )
         other_user.refresh_from_db()
         self.assertEqual(other_user.category_budgets, {"아우터": 500_000})
+
+
+class WithdrawTests(TestCase):
+    """회원 탈퇴 — DELETE /api/v1/users/me/.
+
+    S3·Qdrant 는 외부 저장소라 mock 한다(테스트가 네트워크에 기대면 안 된다).
+    파일 삭제는 커밋 뒤에 도는 콜백이라 captureOnCommitCallbacks 로 실행시켜 확인한다.
+    """
+
+    def setUp(self):
+        self.client = APIClient()
+        self.user = User.objects.create(username="kakao_leaver")
+        self.url = reverse("users:me")
+
+    def test_requires_login(self):
+        self.assertEqual(self.client.delete(self.url).status_code, 401)
+
+    @patch("apps.users.services.withdrawal.wardrobe_storage.delete_objects")
+    @patch("apps.users.services.withdrawal.vectors.delete_item")
+    def test_deletes_account_and_owned_data(self, delete_item, delete_objects):
+        item = WardrobeItem.objects.create(
+            user=self.user,
+            s3_key="wardrobe/leaver/shirt.png",
+            item_name="셔츠",
+            category_large="상의",
+            confirmed=True,
+            added_to_closet_at=timezone.now(),
+        )
+        self.client.force_authenticate(self.user)
+
+        with self.captureOnCommitCallbacks(execute=True):
+            response = self.client.delete(self.url)
+
+        self.assertEqual(response.status_code, 204)
+        self.assertFalse(User.objects.filter(pk=self.user.pk).exists())
+        # 옷은 FK CASCADE 로 함께 사라진다
+        self.assertFalse(WardrobeItem.objects.filter(pk=item.pk).exists())
+        # 사진과 벡터는 CASCADE 가 못 따라오므로 직접 지워야 한다
+        delete_item.assert_called_once_with(item.pk)
+        delete_objects.assert_called_once()
+        self.assertIn("wardrobe/leaver/shirt.png", delete_objects.call_args.args[0])
+
+    @patch("apps.users.services.withdrawal.wardrobe_storage.delete_objects")
+    @patch("apps.users.services.withdrawal.vectors.delete_item")
+    def test_owner_withdrawal_hands_room_to_remaining_member(self, _item, _objects):
+        """방장이 탈퇴해도 남은 사람의 공유 옷장은 살아남는다."""
+        room = SharedWardrobeRoom.objects.create(title="우리집 옷장")
+        SharedWardrobeMember.objects.create(
+            room=room, user=self.user, role=SharedWardrobeMember.Role.OWNER
+        )
+        stayer = User.objects.create(username="kakao_stayer")
+        SharedWardrobeMember.objects.create(
+            room=room, user=stayer, role=SharedWardrobeMember.Role.MEMBER
+        )
+        self.client.force_authenticate(self.user)
+
+        with self.captureOnCommitCallbacks(execute=True):
+            response = self.client.delete(self.url)
+
+        self.assertEqual(response.status_code, 204)
+        self.assertTrue(SharedWardrobeRoom.objects.filter(pk=room.pk).exists())
+        remaining = SharedWardrobeMember.objects.get(room=room)
+        self.assertEqual(remaining.user_id, stayer.pk)
+        self.assertEqual(remaining.role, SharedWardrobeMember.Role.OWNER)
+
+    @patch("apps.users.services.withdrawal.wardrobe_storage.delete_objects")
+    @patch("apps.users.services.withdrawal.vectors.delete_item")
+    def test_last_member_withdrawal_closes_room(self, _item, _objects):
+        """혼자 쓰던 방은 탈퇴와 함께 사라진다 — 아무도 못 들어오는 방을 남기지 않는다."""
+        room = SharedWardrobeRoom.objects.create(title="혼자 쓰는 옷장")
+        SharedWardrobeMember.objects.create(
+            room=room, user=self.user, role=SharedWardrobeMember.Role.OWNER
+        )
+        self.client.force_authenticate(self.user)
+
+        with self.captureOnCommitCallbacks(execute=True):
+            self.client.delete(self.url)
+
+        self.assertFalse(SharedWardrobeRoom.objects.filter(pk=room.pk).exists())
+
+
+def _png_bytes(width: int = 1200, height: int = 900) -> bytes:
+    buffer = BytesIO()
+    Image.new("RGB", (width, height), (120, 90, 60)).save(buffer, format="PNG")
+    return buffer.getvalue()
+
+
+class ProfileImageNormalizeTests(TestCase):
+    """올라온 파일을 원형 아바타에 맞게 정규화하는 규칙."""
+
+    def test_output_is_square_jpeg_at_max_edge(self):
+        with Image.open(BytesIO(profile_image.normalize(_png_bytes(1200, 900)))) as out:
+            self.assertEqual(out.format, "JPEG")
+            # 가운데를 정사각으로 잘라야 원형 아바타에서 인물이 치우치지 않는다.
+            self.assertEqual(out.size, (profile_image.MAX_EDGE, profile_image.MAX_EDGE))
+
+    def test_alpha_input_becomes_rgb(self):
+        buffer = BytesIO()
+        Image.new("RGBA", (600, 600), (10, 20, 30, 128)).save(buffer, format="PNG")
+
+        with Image.open(BytesIO(profile_image.normalize(buffer.getvalue()))) as out:
+            self.assertEqual(out.mode, "RGB")
+
+    def test_output_is_much_smaller_than_source(self):
+        source = _png_bytes(3000, 2000)
+
+        self.assertLess(len(profile_image.normalize(source)), len(source) / 5)
+
+    def test_oversized_upload_is_rejected_before_decoding(self):
+        with self.assertRaises(profile_image.ProfileImageInvalidError):
+            profile_image.normalize(b"x" * (profile_image.MAX_UPLOAD_BYTES + 1))
+
+    def test_non_image_is_rejected(self):
+        with self.assertRaises(profile_image.ProfileImageInvalidError):
+            profile_image.normalize(b"this is not an image")
+
+
+class ProfileImagePriorityTests(TestCase):
+    """직접 올린 사진이 소셜 사진보다 앞서고, 지우면 소셜로 되돌아간다."""
+
+    def setUp(self):
+        self.user = User.objects.create_user(
+            username="kakao_1", email="u@example.com", password="pw"
+        )
+        self.user.profile_image = "https://provider.example/photo.jpg"
+        self.user.save(update_fields=["profile_image"])
+
+    def test_social_url_is_used_when_no_upload(self):
+        self.assertEqual(
+            UserSerializer(self.user).data["profile_image"],
+            "https://provider.example/photo.jpg",
+        )
+
+    def test_uploaded_key_wins_over_social_url(self):
+        self.user.profile_image_key = "users/1/profile/abc.jpg"
+        self.user.save(update_fields=["profile_image_key"])
+
+        with patch.object(profile_image, "presigned_get", return_value="https://s3/signed"):
+            self.assertEqual(
+                UserSerializer(self.user).data["profile_image"], "https://s3/signed"
+            )
+
+    def test_uploaded_flag_distinguishes_upload_from_social_photo(self):
+        """프론트가 '기본으로 되돌리기' 를 보여줄지 정하는 근거다."""
+        self.assertFalse(UserSerializer(self.user).data["profile_image_uploaded"])
+
+        self.user.profile_image_key = "users/1/profile/abc.jpg"
+        self.user.save(update_fields=["profile_image_key"])
+        with patch.object(profile_image, "presigned_get", return_value="https://s3/x"):
+            self.assertTrue(UserSerializer(self.user).data["profile_image_uploaded"])
+
+    def test_falls_back_to_social_url_when_storage_is_unconfigured(self):
+        self.user.profile_image_key = "users/1/profile/abc.jpg"
+        self.user.save(update_fields=["profile_image_key"])
+
+        with patch.object(
+            profile_image,
+            "presigned_get",
+            side_effect=profile_image.ProfileImageConfigurationError,
+        ):
+            self.assertEqual(
+                UserSerializer(self.user).data["profile_image"],
+                "https://provider.example/photo.jpg",
+            )
+
+
+class ProfileImageEndpointTests(TestCase):
+    def setUp(self):
+        self.client = APIClient()
+        self.user = User.objects.create_user(
+            username="u", email="u@example.com", password="pw"
+        )
+        self.client.force_authenticate(self.user)
+
+    def test_upload_stores_key_and_returns_user(self):
+        upload = SimpleUploadedFile("me.png", _png_bytes(), content_type="image/png")
+
+        with patch.object(
+            profile_image, "store", return_value="users/1/profile/new.jpg"
+        ) as store, patch.object(
+            profile_image, "presigned_get", return_value="https://s3/new"
+        ):
+            response = self.client.post(
+                "/api/v1/users/me/profile-image/", {"image": upload}, format="multipart"
+            )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data["profile_image"], "https://s3/new")
+        self.user.refresh_from_db()
+        self.assertEqual(self.user.profile_image_key, "users/1/profile/new.jpg")
+        store.assert_called_once()
+
+    def test_upload_replaces_and_removes_previous_object(self):
+        self.user.profile_image_key = "users/1/profile/old.jpg"
+        self.user.save(update_fields=["profile_image_key"])
+        upload = SimpleUploadedFile("me.png", _png_bytes(), content_type="image/png")
+
+        with patch.object(profile_image, "store", return_value="users/1/profile/new.jpg"), \
+             patch.object(profile_image, "presigned_get", return_value="https://s3/new"), \
+             patch.object(profile_image, "delete") as remove:
+            self.client.post(
+                "/api/v1/users/me/profile-image/", {"image": upload}, format="multipart"
+            )
+
+        remove.assert_called_once_with("users/1/profile/old.jpg")
+
+    def test_upload_without_file_is_rejected(self):
+        response = self.client.post(
+            "/api/v1/users/me/profile-image/", {}, format="multipart"
+        )
+
+        self.assertEqual(response.status_code, 400)
+
+    def test_delete_clears_key_and_removes_object(self):
+        self.user.profile_image_key = "users/1/profile/old.jpg"
+        self.user.save(update_fields=["profile_image_key"])
+
+        with patch.object(profile_image, "delete") as remove:
+            response = self.client.delete("/api/v1/users/me/profile-image/")
+
+        self.assertEqual(response.status_code, 200)
+        self.user.refresh_from_db()
+        self.assertEqual(self.user.profile_image_key, "")
+        remove.assert_called_once_with("users/1/profile/old.jpg")
+
+    def test_anonymous_cannot_upload(self):
+        response = APIClient().post(
+            "/api/v1/users/me/profile-image/", {}, format="multipart"
+        )
+
+        self.assertIn(response.status_code, (401, 403))

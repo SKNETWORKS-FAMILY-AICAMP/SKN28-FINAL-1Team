@@ -13,7 +13,6 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { MeasureGuideSheet } from '@/components/measure/measure-guide-sheet';
 import { ErrorState, LoadingState, useToast } from '@/components/ui';
-import { useBottomTabInset } from '@/hooks/use-bottom-tab-inset';
 import {
   BODY_MEASURES,
   EDITABLE_MEASURES,
@@ -25,6 +24,7 @@ import {
 import { ContentMax, Editorial, Fonts, ink, Type } from '@/constants/theme';
 import { useBreakpoint } from '@/hooks/use-breakpoint';
 import { ApiError } from '@/lib/apiClient';
+import { measurementResultDescription } from '@/lib/bodyMeasurementResult';
 import { measureStore, useMeasure, type Measurement } from '@/state/measure';
 
 const INK = Editorial.ink;
@@ -48,11 +48,10 @@ function isValid(spec: BodyMeasureSpec, raw: string | undefined): boolean {
 // G3 치수 결과·사이즈 매칭 — measureStore 결과를 구독. 완료 시 측정 플로우 닫기
 export default function MeasureResult() {
   const { contentStyle } = useBreakpoint();
-  const tabInset = useBottomTabInset();
   /* guide 파라미터로 '재는 법'을 바로 열 수 있다 (mobile:///measure-result?guide=shoulder).
      화면을 거치지 않고 특정 항목 안내로 보낼 때 쓴다 — 도움말 링크·QA 확인용. */
   const { returnTo, guide } = useLocalSearchParams<{ returnTo?: string; guide?: string }>();
-  const { status, result, photos, error, needsInput } = useMeasure();
+  const { status, result, photos, error, needsInput, photoQualityFailed } = useMeasure();
   const toast = useToast();
   const [savingDone, setSavingDone] = useState(false);
   /** '재는 법' 시트에서 처음 보여줄 항목. null 이면 닫힌 상태 */
@@ -107,7 +106,32 @@ export default function MeasureResult() {
             <Steps active={2} />
             {/* 입력이 없어서 못 한 것과 그 밖의 실패(로그인 만료·서버 장애)는 갈 곳이 다르다 —
                 전자만 STEP1 로 돌려보내고, 나머지는 그 자리에서 다시 시도하게 한다. */}
-            {status === 'error' && needsInput ? (
+            {status === 'error' && photoQualityFailed ? (
+              <View style={[styles.photoFailure, styles.stateFill]}>
+                <View style={styles.failureIcon}>
+                  <Icon name="exclamationmark.triangle" tintColor={Editorial.wine} size={24} />
+                </View>
+                <Text style={styles.failureTitle}>사진 인식 실패</Text>
+                <Text style={styles.failureDescription}>
+                  {error ?? '얼굴부터 발끝까지 보이도록 정면·측면 사진을 다시 촬영해 주세요.'}
+                </Text>
+                <Pressable
+                  style={styles.failurePrimary}
+                  onPress={() =>
+                    router.replace({
+                      pathname: '/measure-capture',
+                      params: returnTo ? { returnTo } : undefined,
+                    })
+                  }>
+                  <Icon name="camera" tintColor="#fff" size={16} />
+                  <Text style={styles.failurePrimaryText}>다시 촬영</Text>
+                </Pressable>
+                <Pressable style={styles.failureSecondary} onPress={() => measureStore.estimate(true)}>
+                  <Icon name="figure.stand" tintColor={INK} size={16} />
+                  <Text style={styles.failureSecondaryText}>키·몸무게·성별로만 측정하기</Text>
+                </Pressable>
+              </View>
+            ) : status === 'error' && needsInput ? (
               <ErrorState
                 title="추정할 정보가 없어요"
                 description={error ?? '키·몸무게를 입력하거나 사진을 등록해 주세요.'}
@@ -195,9 +219,7 @@ export default function MeasureResult() {
             </View>
             <Text style={styles.title}>치수 측정 완료</Text>
             <Text style={styles.lead}>
-              {result.usedPhotos
-                ? '사진과 입력 정보로 추정한 결과예요.'
-                : '키·몸무게로 추정한 결과예요.'}
+              {measurementResultDescription(result)}
             </Text>
             {result.bodyTypeLabel ? (
               <Text style={styles.bodyType}>{result.bodyTypeLabel}입니다</Text>
@@ -345,6 +367,49 @@ const styles = StyleSheet.create({
   content: { paddingHorizontal: 24, paddingTop: 12, paddingBottom: 24 },
   stateWrap: { flex: 1, paddingHorizontal: 24, paddingTop: 12 },
   stateFill: { flex: 1 },
+  photoFailure: { alignItems: 'center', justifyContent: 'center', paddingHorizontal: 32 },
+  failureIcon: {
+    width: 60,
+    height: 60,
+    borderRadius: 30,
+    backgroundColor: Editorial.accent,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 16,
+  },
+  failureTitle: { fontSize: Type.label, fontWeight: '600', color: INK },
+  failureDescription: {
+    marginTop: 7,
+    marginBottom: 24,
+    fontSize: Type.footnote,
+    lineHeight: 20,
+    color: Editorial.textCaption,
+    textAlign: 'center',
+  },
+  failurePrimary: {
+    width: '100%',
+    height: 48,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    borderRadius: 8,
+    backgroundColor: INK,
+  },
+  failurePrimaryText: { fontSize: Type.footnote, fontWeight: '600', color: '#fff' },
+  failureSecondary: {
+    width: '100%',
+    height: 48,
+    marginTop: 10,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: ink(0.15),
+  },
+  failureSecondaryText: { fontSize: Type.footnote, fontWeight: '600', color: INK },
 
   steps: { flexDirection: 'row', gap: 6, marginBottom: 28 },
   step: { flex: 1, height: 3, borderRadius: 2, backgroundColor: ink(0.1) },
@@ -361,7 +426,12 @@ const styles = StyleSheet.create({
     marginBottom: 6,
   },
   title: { fontFamily: Fonts.serif, fontSize: 26, color: INK },
-  lead: { fontSize: Type.footnote, color: Editorial.textCaption },
+  lead: {
+    fontSize: Type.footnote,
+    lineHeight: 20,
+    color: Editorial.textCaption,
+    textAlign: 'center',
+  },
   bodyType: { marginTop: 8, fontSize: Type.body, fontWeight: '600', color: INK },
 
   sectionTitle: { fontSize: Type.label, fontWeight: '600', color: INK, marginTop: 30, marginBottom: 12 },

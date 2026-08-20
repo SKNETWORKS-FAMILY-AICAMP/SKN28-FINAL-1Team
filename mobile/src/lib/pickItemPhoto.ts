@@ -1,4 +1,5 @@
 import * as ImagePicker from 'expo-image-picker';
+import { Platform } from 'react-native';
 
 async function ensurePermission(kind: 'library' | 'camera'): Promise<boolean> {
   const request =
@@ -38,7 +39,18 @@ export async function pickBodyPhoto(): Promise<string | null> {
 
 /** 착장 분석용 전신 사진 1장 선택. 전신 비율을 보존해야 해 크롭을 강제하지 않는다. */
 export async function pickOutfitPhoto(): Promise<string | null> {
-  return pickBodyPhoto();
+  if (!(await ensurePermission('library'))) return null;
+  const result = await ImagePicker.launchImageLibraryAsync({
+    mediaTypes: Platform.OS === 'ios' ? ['images', 'livePhotos'] : ['images'],
+    quality: 0.9,
+    /* 인물사진 HEIC와 Live Photo는 영상이 아니라 현재 대표 정지 프레임만 받는다.
+       Compatible은 iOS가 업로드 가능한 표현(JPEG 등)을 우선 반환하게 한다. */
+    preferredAssetRepresentationMode:
+      ImagePicker.UIImagePickerPreferredAssetRepresentationMode.Compatible,
+    presentationStyle: ImagePicker.UIImagePickerPresentationStyle.FULL_SCREEN,
+  });
+  if (result.canceled || !result.assets[0]) return null;
+  return result.assets[0].uri;
 }
 
 /**
@@ -63,6 +75,22 @@ export async function pickFromCamera(): Promise<string | null> {
   const result = await ImagePicker.launchCameraAsync({
     allowsEditing: true,
     aspect: [4, 5],
+    quality: 0.9,
+  });
+  if (result.canceled || !result.assets[0]) return null;
+  return result.assets[0].uri;
+}
+
+/**
+ * 프로필 사진 1장 선택. 원형 아바타로 잘려 나가므로 1:1 크롭을 강제한다 —
+ * 자유 비율로 두면 사용자가 맞춰 둔 구도가 원 안에서 잘려 얼굴이 치우친다.
+ */
+export async function pickProfilePhoto(): Promise<string | null> {
+  if (!(await ensurePermission('library'))) return null;
+  const result = await ImagePicker.launchImageLibraryAsync({
+    mediaTypes: ['images'],
+    allowsEditing: true,
+    aspect: [1, 1],
     quality: 0.9,
   });
   if (result.canceled || !result.assets[0]) return null;

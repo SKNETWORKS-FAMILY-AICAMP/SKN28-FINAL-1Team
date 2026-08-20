@@ -4,7 +4,7 @@ import { Tabs, TabList, TabTrigger, TabSlot, TabTriggerSlotProps } from 'expo-ro
 import { Pressable, View, Text, StyleSheet } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import { ChatPanelWidth, Editorial, Fonts, ink, SidebarWidth } from '@/constants/theme';
+import { ChatPanelWidth, Editorial, Fonts, ink, onNav, SidebarWidth } from '@/constants/theme';
 import { useBreakpoint } from '@/hooks/use-breakpoint';
 
 import { ChatConversation } from './chat/chat-conversation';
@@ -196,7 +196,7 @@ function SidebarItem({
   ...props
 }: TabTriggerSlotProps & { icon: IconName; label: string; hidden?: boolean }) {
   /* 선택 표시는 글자·아이콘의 색과 굵기가 전부 맡는다. 면도 테두리도 쓰지 않는다. */
-  const color = isFocused ? INK : Editorial.textCaption;
+  const color = isFocused ? Editorial.white : onNav(0.78);
   return (
     <Pressable
       {...props}
@@ -230,7 +230,7 @@ function TabItem({
   hidden,
   ...props
 }: TabTriggerSlotProps & { icon: IconName; label: string; hidden?: boolean }) {
-  const color = isFocused ? INK : ink(0.4);
+  const color = isFocused ? Editorial.white : onNav(0.78);
   return (
     <Pressable {...props} style={[styles.item, hidden && styles.hiddenTrigger]}>
       <Icon name={icon} tintColor={color} size={22} />
@@ -278,9 +278,9 @@ const styles = StyleSheet.create({
   // 데스크톱 사이드바
   sidebar: {
     width: SidebarWidth,
-    borderRightWidth: 1,
-    borderRightColor: ink(0.08),
-    backgroundColor: Editorial.page,
+    /* 테두리를 두지 않는다 — 어두운 면과 오트 본문이 6.4:1 로 갈려 경계가 이미 또렷하다.
+       여기에 선을 더하면 이음새만 두꺼워 보인다. */
+    backgroundColor: Editorial.nav,
     paddingHorizontal: 16,
     paddingTop: 28,
     gap: 8,
@@ -291,7 +291,7 @@ const styles = StyleSheet.create({
   sidebarBrand: {
     fontFamily: Fonts.serif,
     fontSize: 24,
-    color: INK,
+    color: Editorial.white,
     paddingHorizontal: 10,
   },
   sidebarNav: { gap: 2 },
@@ -316,9 +316,9 @@ const styles = StyleSheet.create({
     zIndex: 10,
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: 'rgba(255, 255, 255, 0.6)',
-    borderTopWidth: 1,
-    borderTopColor: ink(0.06),
+    /* 어두운 면. 불투명하게 둔다 — 반투명이면 뒤로 지나가는 사진이 비쳐 바 색이 흔들린다.
+       테두리는 두지 않는다: 오트 본문과 6.4:1 로 갈려 경계가 이미 또렷하다. */
+    backgroundColor: Editorial.nav,
     paddingTop: 8,
   },
   item: { flex: 1, alignItems: 'center', gap: 3, paddingVertical: 2 },

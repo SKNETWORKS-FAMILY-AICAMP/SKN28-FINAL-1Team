@@ -26,7 +26,8 @@ import { useDailyLook } from '@/hooks/use-daily-look';
 import { useHome } from '@/hooks/use-home';
 import { DAILY_LOOK_ONCE_A_DAY, dailyLookPhase } from '@/lib/dailyLookApi';
 import { DetailTwoPane } from '@/components/detail-two-pane';
-import { useDiscoveryLook } from '@/hooks/use-discovery-look';
+import { isDiscoveryLookId, useDiscoveryLook } from '@/hooks/use-discovery-look';
+import { lookVoteStore, useLookVotes } from '@/state/look-votes';
 import type { LookVariant } from '@/constants/today-look';
 import { sameSlotSimilarProducts } from '@/lib/discoveryLookPresentation';
 
@@ -35,6 +36,19 @@ const WINE = Editorial.wine;
 const BONE = Editorial.bone;
 
 /** 저장 시 태그 — 무드·상황 서브텍스트에서 뽑는다('미니멀 · 데일리' → ['미니멀','데일리']) */
+/**
+ * 하늘 상태 → 이모지. 서버가 주는 값은 다섯 가지뿐이다
+ * (weather/services.py: 맑음·구름많음·흐림 + 강수형태를 합친 비·눈).
+ * 모르는 값이면 아무것도 붙이지 않는다 — 틀린 그림보다 없는 편이 낫다.
+ */
+const SKY_EMOJI: Record<string, string> = {
+  맑음: '☀️',
+  구름많음: '⛅',
+  흐림: '☁️',
+  비: '🌧️',
+  눈: '❄️',
+};
+
 function tagsOf(subtitle: string): string[] {
   return subtitle.split('·').map((s) => s.trim()).filter(Boolean);
 }
@@ -70,7 +84,11 @@ export default function LookDetail() {
     stalled: dailyStalled,
     reload: reloadDailyLook,
   } = useDailyLook(isLoggedIn, home ? home.daily_look : undefined);
-  const discoveryLook = useDiscoveryLook(id);
+  const {
+    look: discoveryLook,
+    failed: discoveryFailed,
+    reload: reloadDiscovery,
+  } = useDiscoveryLook(id);
   const apiVariant = useMemo(
     () => dailyLookToVariant(dailyLook, golden),
     [dailyLook, golden],
@@ -122,16 +140,24 @@ export default function LookDetail() {
      내 추천을 보러 온 사람에게 남의 룩 사진을 보여주는 셈이고, 진짜 이미지가
      들어오는 순간 방금 본 것이 가짜였다는 인상만 남는다. */
   const renderPending = Boolean(serverGoldenId) && !look.image;
-  const savedKey = serverGoldenId || (look.image ?? `asset:${TODAY_LOOK_IMAGE}`);
+  /* 둘러보기 룩의 원본 id. 저장하면 서버가 사진을 자기 것으로 복사해 주소가 달라지므로,
+     '같은 룩인가'는 사진이 아니라 이 값으로 본다(오늘의 룩의 serverGoldenId 와 같은 역할). */
+  const sourceId = isDiscoveryLookId(id) ? id! : '';
+  const savedKey = serverGoldenId || sourceId || (look.image ?? `asset:${TODAY_LOOK_IMAGE}`);
   const [savedOverrides, setSavedOverrides] = useState<Record<string, boolean>>({});
   const saved =
     savedOverrides[savedKey] ??
     (serverGoldenId
       ? savedLookStore.getByGoldenId(serverGoldenId) != null
-      : savedLookStore.isSaved(lookKey));
+      : sourceId
+        ? savedLookStore.getBySourceId(sourceId) != null
+        : savedLookStore.isSaved(lookKey));
   const setSaved = (next: boolean) =>
     setSavedOverrides((prev) => ({ ...prev, [savedKey]: next }));
-  const [vote, setVote] = useState<'up' | 'down' | null>(null);
+  /* 평가는 화면 밖(기기)에 남긴다 — 뒤로 나갔다 들어와도 유지되고, 룩북 목록이
+     '별로예요' 한 룩을 뒤로 미는 데 쓴다(state/look-votes.ts). */
+  const votes = useLookVotes();
+  const vote = votes[look.id] ?? null;
   const [openSlot, setOpenSlot] = useState<string | null>(null);
   const toast = useToast();
   const { effectiveCategoryBudgets } = usePrefs();
@@ -184,7 +210,6 @@ export default function LookDetail() {
       router.setParams({ id: next.id });
     }
     setOpenSlot(null);
-    setVote(null);
   };
 
   /**
@@ -217,6 +242,7 @@ export default function LookDetail() {
       }
       await savedLookStore.addLook({
         ...lookKey,
+        sourceId: sourceId || undefined,
         comment: look.title,
         tags: lookTags,
         reason: look.reasons[0],
@@ -231,19 +257,30 @@ export default function LookDetail() {
 
   const toggleSave = async () => {
     if (saved) {
+      /* 사진으로 찾는 건 마지막 수단이다 — 저장하면 서버가 사진을 자기 것으로 복사해
+         주소가 달라진다. 안정된 id(골든/둘러보기 원본)를 먼저 보고, 그것도 없는
+         예전 저장분만 사진으로 훑는다. */
+      const byPhoto = () =>
+        savedLookStore
+          .getLooks()
+          .find((l) => (look.image ? l.image === look.image : l.asset === TODAY_LOOK_IMAGE));
       const found = serverGoldenId
         ? savedLookStore.getByGoldenId(serverGoldenId)
-        : savedLookStore
-            .getLooks()
-            .find((l) => (look.image ? l.image === look.image : l.asset === TODAY_LOOK_IMAGE));
+        : (sourceId ? savedLookStore.getBySourceId(sourceId) : undefined) ?? byPhoto();
+
+      /* 못 찾았는데 화면만 끄면 안 된다 — 서버엔 그대로 남아 있어서, 한 번 더 누르면
+         같은 룩이 또 담긴다(실제로 그렇게 두 번 저장됐다). 상태를 지키고 사실대로 알린다. */
+      if (!found) {
+        toast('담아 둔 룩을 찾지 못했어요. 룩북에서 빼 주세요', { variant: 'error' });
+        return;
+      }
+
       setSaved(false);
-      if (found) {
-        try {
-          await savedLookStore.removeLook(found.id);
-        } catch (error) {
-          setSaved(true);
-          toast(error instanceof Error ? error.message : '빼지 못했어요', { variant: 'error' });
-        }
+      try {
+        await savedLookStore.removeLook(found.id);
+      } catch (error) {
+        setSaved(true);
+        toast(error instanceof Error ? error.message : '빼지 못했어요', { variant: 'error' });
       }
       return;
     }
@@ -263,11 +300,23 @@ export default function LookDetail() {
   const w = home?.weather;
   const weatherPart = w && w.temperature != null ? `${w.region ?? '서울'} ${w.temperature}°` : null;
   const subtitle = [weatherPart, look.subtitle].filter(Boolean).join(' · ');
+  /* 둘러보기 룩의 머리글은 날씨다. 룩 이름('남성 나들이 룩 01')은 운영자가 붙인 일련번호라
+     사용자에게 알려주는 것이 없다 — 그 자리를 지금 날씨로 바꾸고 해시태그를 아래에 둔다.
+     날씨를 못 받아왔으면 머리글을 비우고 해시태그만 남긴다(빈 줄을 만들지 않는다). */
+  const skyEmoji = w?.sky_state ? (SKY_EMOJI[w.sky_state] ?? '') : '';
+  const discoveryHead = [weatherPart, skyEmoji].filter(Boolean).join(' ');
+  /* 해시태그는 서버가 준 tags 를 그대로 쓴다 — subtitle 을 '·' 로 쪼개 만든 lookTags 는
+     오늘의 룩 표기를 위한 것이라 둘러보기 룩에서는 한 개로 뭉뚱그려질 때가 있다. */
+  const discoveryTags = discoveryLook?.tags?.length ? discoveryLook.tags : lookTags;
 
   /* 로그인 사용자가 '오늘의 룩'을 열었는데 아직 완성 전이면, 목업 룩을 그리는 대신
      지금 무슨 일이 벌어지는지 보여준다. 홈 카드와 같은 판정(dailyLookPhase)을 써서
      두 화면이 같은 순간에 같은 말을 하게 한다. */
   const isDailyRoute = !discoveryVariant && (!id || id === 'daily');
+  /* 룩북(둘러보기) 룩인가. 오늘의 룩과 성격이 다르다 — 개인 추천이 아니라 운영자가
+     미리 만들어 둔 룩이라, 가상 피팅도 '왜 이 룩일까요'도 여기에는 해당하지 않는다.
+     한 화면이 두 성격을 겸하고 있어서 판정을 여기 한 번만 두고 아래에서 갈라 쓴다. */
+  const isDiscovery = Boolean(discoveryVariant);
   const dailyPhase = dailyLookPhase(dailyLook, dailyStalled);
   /* 오늘의 룩 경로에서 실데이터를 그릴 수 없는 동안은 목업으로 물러나지 않는다.
      두 경우다.
@@ -278,6 +327,36 @@ export default function LookDetail() {
      2. 로그인 사용자인데 추천이 아직 안 됐다(생성 중·후보 없음·실패).
 
      비회원은 여기 걸리지 않는다 — 둘러보기로 들어온 사람에게는 샘플 룩이 빈 화면보다 낫다. */
+  /* 둘러보기 룩도 조회가 끝나기 전에는 목업으로 물러나지 않는다.
+     예전에는 useDiscoveryLook 이 로딩 중에도 null 을 줘서 아래 resolveLookVariant 가
+     번들 목업 룩을 그렸다 — 목록에서 고른 것과 다른 사진이 잠깐 떴다가 실제 룩으로
+     바뀌어, 방금 본 것이 가짜였다는 인상만 남았다. 오늘의 룩 경로와 같은 규칙이다. */
+  if (isDiscoveryLookId(id) && !discoveryVariant) {
+    return (
+      <View style={styles.container}>
+        <SafeAreaView edges={['top']} style={styles.headerSafe}>
+          <View style={[styles.header, contentStyle(maxW)]}>
+            <Pressable hitSlop={12} onPress={() => goBack(backTo(from, '/(tabs)/lookbook'))}>
+              <Icon name="chevron.left" tintColor={INK} size={20} />
+            </Pressable>
+            {/* 홈의 오늘의 룩과 같은 화면을 쓰지만 성격이 다르다 — 이름으로 갈라 준다 */}
+          <Text style={styles.headerTitle}>{isDiscovery ? '둘러보기' : '추천 룩'}</Text>
+            <View style={styles.headerRight} />
+          </View>
+        </SafeAreaView>
+        {discoveryFailed ? (
+          <ErrorState
+            title="룩을 불러오지 못했어요"
+            description="잠시 뒤 다시 시도해 주세요."
+            onRetry={reloadDiscovery}
+          />
+        ) : (
+          <LoadingState message="룩을 불러오는 중이에요…" />
+        )}
+      </View>
+    );
+  }
+
   if (isDailyRoute && (authLoading || (isLoggedIn && dailyPhase !== 'ready'))) {
     return (
       <View style={styles.container}>
@@ -301,11 +380,13 @@ export default function LookDetail() {
             }
           />
         ) : dailyLook?.status === 'EMPTY' ? (
-          /* 후보가 없는 것은 오류가 아니다 — 다시 시도해도 같으니 프로필로 보낸다. */
+          /* 후보가 없는 것은 오류가 아니다 — 다시 시도해도 같으니 프로필로 보낸다.
+             (홈의 같은 버튼과 마찬가지로, 이름만 바꾸는 edit-profile 이 아니라
+             체형·추구미 입력이 모여 있는 마이 탭이 목적지다.) */
           <ErrorState
             title="오늘 추천할 룩을 찾지 못했어요"
             description={dailyLook?.detail ?? '체형·추구미를 채우면 그에 맞는 코디를 찾아드릴 수 있어요.'}
-            onRetry={() => router.push('/edit-profile')}
+            onRetry={() => router.push('/(tabs)/my')}
             retryLabel="프로필 채우기"
             retryIcon="person"
           />
@@ -327,10 +408,14 @@ export default function LookDetail() {
         <View style={[styles.header, contentStyle(maxW)]}>
           {/* 들어온 자리(from)로 돌아간다. 없으면 홈.
               ⚠️ router.replace 를 직접 쓰지 말 것 — 웹에서 조용히 무시돼 버튼이 먹통이 된다(lib/goBack.ts). */}
-          <Pressable hitSlop={12} onPress={() => goBack(backTo(from, '/(tabs)/home'))}>
+          {/* from 이 없을 때 돌아갈 자리도 갈라 준다 — 둘러보기 룩을 홈으로 돌려보내면
+              방금 보던 목록이 아니라 남의 화면이 열린다. */}
+          <Pressable
+            hitSlop={12}
+            onPress={() => goBack(backTo(from, isDiscovery ? '/(tabs)/lookbook' : '/(tabs)/home'))}>
             <Icon name="chevron.left" tintColor={INK} size={20} />
           </Pressable>
-          <Text style={styles.headerTitle}>추천 룩</Text>
+          <Text style={styles.headerTitle}>{isDiscovery ? '둘러보기' : '추천 룩'}</Text>
           <Pressable
             style={styles.headerRight}
             hitSlop={12}
@@ -355,8 +440,9 @@ export default function LookDetail() {
             <Pressable
               style={styles.fitting}
               /* 준비 중에는 눌리지 않는다 — 없는 착용 이미지를 두고 '가상으로
-                 입어보기'로 보내면 버튼이 약속한 것과 다른 화면이 열린다. */
-              disabled={renderPending}
+                 입어보기'로 보내면 버튼이 약속한 것과 다른 화면이 열린다.
+                 둘러보기 룩은 넘길 look_id 가 없어 애초에 입어볼 수 없다. */
+              disabled={renderPending || isDiscovery}
               onPress={openVirtualTryOn}>
           {renderPending ? (
             <>
@@ -388,22 +474,41 @@ export default function LookDetail() {
             contentFit="cover"
             style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0 }}
           />
-          <View style={styles.fittingBadge}>
-            <Icon name="figure.stand" tintColor="#fff" size={12} />
-            <Text style={styles.fittingBadgeText}>내 체형 반영</Text>
-          </View>
-          <View style={styles.fittingCta}>
-            <Icon name="sparkles" tintColor={INK} size={13} />
-            <Text style={styles.fittingCtaText}>가상으로 입어보기</Text>
-          </View>
+          {/* 가상 피팅은 오늘의 룩 전용이다. 둘러보기 룩에 이 배지·버튼을 두면
+              눌러도 아무 일이 안 일어나거나 남의 룩을 입어보게 된다. */}
+          {isDiscovery ? null : (
+            <>
+              <View style={styles.fittingBadge}>
+                <Icon name="figure.stand" tintColor="#fff" size={12} />
+                <Text style={styles.fittingBadgeText}>내 체형 반영</Text>
+              </View>
+              <View style={styles.fittingCta}>
+                <Icon name="sparkles" tintColor={INK} size={13} />
+                <Text style={styles.fittingCtaText}>가상으로 입어보기</Text>
+              </View>
+            </>
+          )}
             </>
           )}
             </Pressable>
           }
           details={
             <View style={styles.body}>
-          <Text style={styles.title}>{look.title}</Text>
-          <Text style={styles.subtitle}>{subtitle}</Text>
+          {isDiscovery ? (
+            <>
+              {discoveryHead ? <Text style={styles.title}>{discoveryHead}</Text> : null}
+              {discoveryTags.length > 0 ? (
+                <Text style={[styles.subtitle, discoveryHead ? null : styles.subtitleLead]}>
+                  {discoveryTags.map((tag) => `#${tag}`).join(' ')}
+                </Text>
+              ) : null}
+            </>
+          ) : (
+            <>
+              <Text style={styles.title}>{look.title}</Text>
+              <Text style={styles.subtitle}>{subtitle}</Text>
+            </>
+          )}
 
           {/* 구성 아이템 — 탭하면 비슷한/대체 상품 아코디언 */}
           <Text style={styles.sectionTitle}>구성 아이템</Text>
@@ -562,22 +667,28 @@ export default function LookDetail() {
             })}
           </View>
 
-          {/* 추천 이유 */}
-          <Text style={styles.sectionTitle}>왜 이 룩일까요?</Text>
-          <View style={styles.reasonCard}>
-            {look.reasons.map((r, i) => (
-              <View key={i} style={styles.reasonRow}>
-                <View style={styles.pin}>
-                  <Text style={styles.pinNum}>{i + 1}</Text>
-                </View>
-                <Text style={styles.reasonText}>{r}</Text>
+          {/* 추천 이유 — 오늘의 룩에만. 둘러보기 룩의 reasons 는 모든 룩에 똑같이 붙는
+              안내문("운영자가 선별한 …")이라, '왜 이 룩일까요?' 아래 두면 개인에게 맞춘
+              추천처럼 읽힌다. 개수 안내(하루 한 번)도 오늘의 룩 이야기다. */}
+          {isDiscovery ? null : (
+            <>
+              <Text style={styles.sectionTitle}>왜 이 룩일까요?</Text>
+              <View style={styles.reasonCard}>
+                {look.reasons.map((r, i) => (
+                  <View key={i} style={styles.reasonRow}>
+                    <View style={styles.pin}>
+                      <Text style={styles.pinNum}>{i + 1}</Text>
+                    </View>
+                    <Text style={styles.reasonText}>{r}</Text>
+                  </View>
+                ))}
               </View>
-            ))}
-          </View>
 
-          {/* 하단 [다른 룩]은 오늘 함께 뽑아 둔 후보를 돌려보는 버튼이다 — 새로 만드는 게
-              아니라는 걸 여기서 밝힌다. 홈 카드와 같은 문구를 쓴다. */}
-          <Text style={styles.onceADay}>{DAILY_LOOK_ONCE_A_DAY}</Text>
+              {/* 하단 [다른 룩]은 오늘 함께 뽑아 둔 후보를 돌려보는 버튼이다 — 새로 만드는 게
+                  아니라는 걸 여기서 밝힌다. 홈 카드와 같은 문구를 쓴다. */}
+              <Text style={styles.onceADay}>{DAILY_LOOK_ONCE_A_DAY}</Text>
+            </>
+          )}
 
           {/* 피드백 */}
           <View style={styles.feedback}>
@@ -585,7 +696,7 @@ export default function LookDetail() {
             <View style={styles.voteRow}>
               <Pressable
                 style={[styles.voteBtn, vote === 'up' && styles.voteUpOn]}
-                onPress={() => setVote('up')}>
+                onPress={() => lookVoteStore.toggle(look.id, 'up')}>
                 <Icon
                   name="hand.thumbsup"
                   tintColor={vote === 'up' ? '#fff' : ink(0.6)}
@@ -595,7 +706,7 @@ export default function LookDetail() {
               </Pressable>
               <Pressable
                 style={[styles.voteBtn, vote === 'down' && styles.voteDownOn]}
-                onPress={() => setVote('down')}>
+                onPress={() => lookVoteStore.toggle(look.id, 'down')}>
                 <Icon
                   name="hand.thumbsdown"
                   tintColor={vote === 'down' ? '#fff' : ink(0.6)}
@@ -613,9 +724,14 @@ export default function LookDetail() {
       {/* 하단 바 */}
       <View style={styles.bottomDivider} />
       <View style={[styles.bottomBar, { paddingBottom: 12 }, contentStyle(maxW)]}>
-        <Pressable style={styles.altBtn} onPress={showAnotherLook}>
-          <Text style={styles.altText}>다른 룩</Text>
-        </Pressable>
+        {/* '다른 룩'은 오늘 함께 뽑아 둔 **후보를 돌려보는** 버튼이다. 둘러보기 룩에는
+            돌려볼 후보가 없어 번들 목업(LOOK_VARIANTS)으로 튄다 — 목록에서 고른 룩과
+            상관없는 사진이 열리므로 아예 두지 않는다. */}
+        {isDiscovery ? null : (
+          <Pressable style={styles.altBtn} onPress={showAnotherLook}>
+            <Text style={styles.altText}>다른 룩</Text>
+          </Pressable>
+        )}
         <Pressable style={styles.saveBtn} onPress={saveAndGoLookbook}>
           <Icon name="bookmark.fill" tintColor="#fff" size={15} />
           <Text style={styles.saveText}>룩북에 저장</Text>
@@ -708,6 +824,8 @@ const styles = StyleSheet.create({
   body: { paddingHorizontal: 20, paddingTop: 22 },
   title: { fontFamily: Fonts.serif, fontSize: 24, color: INK },
   subtitle: { fontSize: 13, color: Editorial.textCaption, marginTop: 6 },
+  /** 머리글(날씨) 없이 해시태그만 남을 때 — 위 여백을 지운다 */
+  subtitleLead: { marginTop: 0 },
 
   sectionTitle: { fontSize: 13, fontWeight: '600', color: INK, marginTop: 28, marginBottom: 12 },
 

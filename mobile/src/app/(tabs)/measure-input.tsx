@@ -86,6 +86,17 @@ export default function MeasureInput() {
     });
   };
 
+  /* 건너뛰기의 뜻이 진입 경로마다 다르다.
+     가입 직후 온보딩에서는 체형을 통째로 넘기는 것이므로 다음 단계(추구미)로 보내고,
+     그 밖(마이 등)에서는 예전처럼 입력만 생략하고 사진 촬영으로 이어 간다. */
+  const skip = () => {
+    if (returnTo === 'onboarding') {
+      router.navigate({ pathname: '/style-onboarding', params: { returnTo: 'onboarding' } });
+      return;
+    }
+    goCapture();
+  };
+
   return (
     <View style={styles.container}>
       <SafeAreaView edges={['top']} style={styles.safe}>
@@ -181,11 +192,11 @@ export default function MeasureInput() {
             <Text style={styles.sexHint}>성별까지 골라야 저장돼요</Text>
           ) : null}
 
-          {returnTo !== 'onboarding' ? (
-            <Pressable style={styles.skipWrap} hitSlop={8} onPress={goCapture}>
-              <Text style={styles.skipText}>입력 없이 건너뛰기</Text>
-            </Pressable>
-          ) : null}
+          <Pressable style={styles.skipWrap} hitSlop={8} onPress={skip}>
+            <Text style={styles.skipText}>
+              {returnTo === 'onboarding' ? '나중에 할게요' : '입력 없이 건너뛰기'}
+            </Text>
+          </Pressable>
         </ScrollView>
 
         <View style={[styles.bottomBar, { paddingBottom: 12 }, contentStyle(ContentMax.narrow)]}>

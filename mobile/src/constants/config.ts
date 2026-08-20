@@ -126,6 +126,8 @@ export const isGoogleConfigured = (): boolean =>
  *     is_new_user=true 는 가입 후 첫 로그인 → 온보딩(권한 → 체형 측정 → 추구미)으로 보낸다.
  */
 export const AuthEndpoints = {
+  /** 프로필 사진 올리기(POST multipart {image}) · 지우기(DELETE). 둘 다 갱신된 사용자를 돌려준다. */
+  profileImage: '/api/v1/users/me/profile-image/',
   signup: '/api/v1/auth/signup/',
   login: '/api/v1/auth/login/',
   verifyEmail: '/api/v1/auth/email/verify/',

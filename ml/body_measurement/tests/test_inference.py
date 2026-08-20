@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import unittest
 from unittest.mock import Mock, patch
 
@@ -30,6 +31,105 @@ class BasicInferenceModelCompositionTests(unittest.TestCase):
         self.assertEqual(result["thigh_calf_ratio"], 0.861)
         self.assertEqual(result["chest"], 85.0)
         self.assertEqual(result["thigh"], 54.0)
+
+
+class PhotoValidationTests(unittest.TestCase):
+    def _payload(self) -> dict:
+        payload = {
+            "photo_valid": True,
+            "failure_reason": "none",
+            "front_person_count": 1,
+            "side_person_count": 1,
+            "front_head_visible": True,
+            "side_head_visible": True,
+            "front_face_visible": True,
+            "side_face_visible": True,
+            "front_feet_visible": True,
+            "side_feet_visible": True,
+            "front_full_body_visible": True,
+            "side_full_body_visible": True,
+            "front_pose_valid": True,
+            "side_pose_valid": True,
+            "image_quality_sufficient": True,
+        }
+        payload.update(
+            {f"{target}_cm": 40.0 for target in inference.PHOTO_RESPONSE_TARGETS}
+        )
+        return payload
+
+    def test_rejects_invalid_photo_before_measurement_parsing(self) -> None:
+        payload = self._payload()
+        payload.update(
+            photo_valid=False,
+            failure_reason="feet_not_visible",
+            front_feet_visible=False,
+        )
+        for target in inference.PHOTO_RESPONSE_TARGETS:
+            payload[f"{target}_cm"] = None
+
+        with self.assertRaisesRegex(
+            inference.PhotoValidationError, "사진 인식 실패.*양발"
+        ):
+            inference._parse_prediction(json.dumps(payload))
+
+    def test_rejects_inconsistent_valid_flag(self) -> None:
+        payload = self._payload()
+        payload["side_full_body_visible"] = False
+
+        with self.assertRaisesRegex(
+            inference.PhotoValidationError, "사진 인식 실패.*전신"
+        ):
+            inference._parse_prediction(json.dumps(payload))
+
+    def test_rejects_valid_photo_with_failure_reason(self) -> None:
+        payload = self._payload()
+        payload["failure_reason"] = "feet_not_visible"
+
+        with self.assertRaisesRegex(
+            inference.PhotoValidationError, "사진 인식 실패.*양발"
+        ):
+            inference._parse_prediction(json.dumps(payload))
+
+    def test_rejects_unknown_failure_reason(self) -> None:
+        payload = self._payload()
+        payload["failure_reason"] = "invented_reason"
+
+        with self.assertRaisesRegex(inference.BodyEstimationError, "알 수 없는"):
+            inference._parse_prediction(json.dumps(payload))
+
+    def test_rejects_boolean_person_count(self) -> None:
+        payload = self._payload()
+        payload["front_person_count"] = True
+
+        with self.assertRaisesRegex(inference.BodyEstimationError, "0 이상의 정수"):
+            inference._parse_prediction(json.dumps(payload))
+
+    def test_rejects_non_boolean_validation_flag(self) -> None:
+        payload = self._payload()
+        payload["front_head_visible"] = 1
+
+        with self.assertRaisesRegex(inference.BodyEstimationError, "boolean"):
+            inference._parse_prediction(json.dumps(payload))
+
+    def test_rejects_string_measurement(self) -> None:
+        payload = self._payload()
+        payload["chest_cm"] = "40.0"
+
+        with self.assertRaisesRegex(inference.BodyEstimationError, "숫자로"):
+            inference._parse_prediction(json.dumps(payload))
+
+    def test_rejects_boolean_measurement(self) -> None:
+        payload = self._payload()
+        payload["chest_cm"] = True
+
+        with self.assertRaisesRegex(inference.BodyEstimationError, "숫자로"):
+            inference._parse_prediction(json.dumps(payload))
+
+    def test_accepts_valid_full_body_pair(self) -> None:
+        result = inference._parse_prediction(json.dumps(self._payload()))
+
+        self.assertEqual(result["chest"], 40.0)
+        self.assertEqual(result["thigh_calf_ratio"], 1.0)
 
 
 if __name__ == "__main__":

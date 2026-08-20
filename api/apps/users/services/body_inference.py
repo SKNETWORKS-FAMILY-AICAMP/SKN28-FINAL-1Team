@@ -34,6 +34,7 @@ DETAIL_FIELDS = inference.PHOTO_TARGETS
 
 SOURCE_BASIC = "basic_info"
 SOURCE_PHOTO = "photo"
+ERROR_CODE_PHOTO_QUALITY_FAILED = "photo_quality_failed"
 
 # 이 시간이 지나도 '진행중'인 트랜잭션은 죽은 것으로 본다.
 # 배포·크래시로 백그라운드 스레드가 사라지면 상태를 바꿔줄 주체가 없어지는데,
@@ -49,6 +50,10 @@ RATIO_LIMITS = {
 
 class BodyEstimationError(Exception):
     """추정에 필요한 입력이 없거나 추론이 실패했을 때."""
+
+
+class BodyPhotoQualityError(BodyEstimationError):
+    """사진 구도·인원·화질이 측정 기준을 충족하지 못했을 때."""
 
 
 def _to_decimal(value: float, field_name: str = "measurement") -> Decimal:
@@ -197,6 +202,7 @@ def expire_stale_transactions(user) -> int:
     ).update(
         status=BodyPhotoTransaction.Status.FAILED,
         error_message="측정이 시간 내에 끝나지 않았습니다. 다시 시도해주세요.",
+        error_code="",
     )
 
 
@@ -238,9 +244,17 @@ def _run_measurement(transaction_id: uuid.UUID, **kwargs) -> None:
     except Exception as error:
         logger.exception("사진 측정 실패 (tx=%s)", transaction_id)
         error_message = str(error).strip() or "사진 측정 중 알 수 없는 오류가 발생했습니다."
-        BodyPhotoTransaction.objects.filter(pk=transaction_id).update(
+        BodyPhotoTransaction.objects.filter(
+            pk=transaction_id,
+            status=BodyPhotoTransaction.Status.IN_PROGRESS,
+        ).update(
             status=BodyPhotoTransaction.Status.FAILED,
             error_message=error_message[:500],
+            error_code=(
+                ERROR_CODE_PHOTO_QUALITY_FAILED
+                if isinstance(error, BodyPhotoQualityError)
+                else ""
+            ),
         )
     finally:
         connections.close_all()
@@ -265,6 +279,8 @@ def complete_measurement(
         estimated = inference.estimate_from_photos(
             gender, float(height), float(weight), front_image, side_image
         )
+    except inference.PhotoValidationError as error:
+        raise BodyPhotoQualityError(str(error)) from error
     except inference.BodyEstimationError as error:
         raise BodyEstimationError(str(error)) from error
     except Exception as error:
@@ -290,7 +306,8 @@ def complete_measurement(
 
         tx.status = BodyPhotoTransaction.Status.SUCCEEDED
         tx.error_message = ""
-        tx.save(update_fields=["status", "error_message", "updated_at"])
+        tx.error_code = ""
+        tx.save(update_fields=["status", "error_message", "error_code", "updated_at"])
 
 
 # ---------------------------------------------------------------------------
@@ -305,6 +322,7 @@ def build_result(
     measurement: BodyMeasurement | None,
     transaction_id: uuid.UUID | None = None,
     error_message: str = "",
+    error_code: str = "",
 ) -> dict:
     """무사진 추정과 사진 측정 조회가 공유하는 결과 payload를 만든다."""
     if status == BodyPhotoTransaction.Status.FAILED and not error_message:
@@ -316,4 +334,5 @@ def build_result(
         "transaction_id": transaction_id,
         "measurement": measurement or BodyMeasurement(),
         "error_message": error_message or None,
+        "error_code": error_code or None,
     }

@@ -14,7 +14,6 @@ import {
 import { saveTodayLook } from '@/lib/dailyLookApi';
 import { addWardrobeItemToCloset } from '@/lib/wardrobeApi';
 import { authStore } from '@/state/auth';
-import { CLOSET_ITEMS } from '@/constants/wardrobe';
 import type { EntryItem } from '@/state/calendar';
 
 /**
@@ -26,7 +25,7 @@ import type { EntryItem } from '@/state/calendar';
  * 앱을 껐다 켜면 사라지는 값이라는 뜻이다.
  *
  * 서버에 올릴 수 없는 룩(번들 목업 이미지만 있는 것)은 예전처럼 로컬에만 담는다.
- * 비로그인은 서버를 부르지 않는다 — 시드가 그대로 보인다.
+ * 비로그인은 서버를 부르지 않는다 — 이 기기에 담은 것만 보인다.
  */
 
 /**
@@ -62,6 +61,15 @@ export type SavedLook = {
    * 뺄 때 그 룩을 못 찾는다. 골든 id 는 그 코디를 가리키는 유일하게 안정된 값이다.
    */
   goldenId?: string;
+  /**
+   * 둘러보기(큐레이션) 룩에서 담았을 때 그 원본 룩 id (`curated-…`).
+   *
+   * goldenId 와 같은 이유로 필요하다 — 저장하면 서버가 사진을 **자기 것으로 복사**해
+   * image 가 원본 커버 주소와 달라진다. 그래서 사진으로 판정하는 keyOf 는 여기서도
+   * 무력했다: 담아 둔 룩을 상세에서 '취소'로 못 찾아 화면만 꺼지고 서버엔 남았고,
+   * 한 번 더 누르면 같은 룩이 두 번 담겼다.
+   */
+  sourceId?: string;
   /** 이 룩을 이룬 옷 — 직접 기록한 룩(origin 'closet')에만 있다 */
   items?: EntryItem[];
   /** 그날의 일정 — '팀 회의', '친구 결혼식' */
@@ -89,52 +97,10 @@ function keyOf(look: { image?: string; asset?: number }): string | null {
   return null;
 }
 
-// 데모용 시드 — 이전에 저장해 둔 룩(피드와 같은 사진을 써서 로드 보장).
-const SEED_SAVED: SavedLook[] = [
-  {
-    id: 's1',
-    image: 'https://i.pinimg.com/736x/c1/ae/c8/c1aec88282cee841eca0f6e0da5d1174.jpg',
-    comment: '차분한 출근 룩',
-    memo: '회사 발표 있는 날 입기 좋았음. 로퍼 대신 부츠도 잘 어울릴 듯.',
-    reason: '8도의 쌀쌀한 날씨에 맞춰 니트와 코트로 보온성을 확보하고, 미니멀 무드에 맞게 톤을 절제한 오피스 코디예요.',
-    origin: 'ai',
-    tags: ['출근', '미니멀'],
-    savedAt: 2,
-  },
-  {
-    id: 's2',
-    image: 'https://i.pinimg.com/736x/32/7a/f3/327af326d108881015d4eea726f1cb51.jpg',
-    comment: '포근한 데일리',
-    origin: 'ai',
-    tags: ['출근'],
-    savedAt: 1,
-  },
-  /* 내 옷장 옷으로 직접 기록한 룩 — 캘린더 7/7 기록과 서로를 가리킨다(state/calendar.ts SEED_ENTRIES). */
-  {
-    id: 's3',
-    image: 'https://i.pinimg.com/736x/55/26/0d/55260de328aec1e50740655fd4b5fdc5.jpg',
-    comment: '기념일 저녁 약속',
-    origin: 'closet',
-    note: '기념일 저녁 약속',
-    entryDate: '2026-07-07',
-    items: CLOSET_ITEMS.filter((i) => ['1', '4', '6'].includes(i.id)).map((i) => ({
-      id: i.id,
-      source: 'closet' as const,
-      name: i.name,
-      image: i.image,
-    })),
-    tags: ['데이트'],
-    savedAt: 3,
-  },
-];
-
-/** 데모 시드의 id — 서버 룩을 받아 오면 이것들만 걷어낸다. */
-const SEED_IDS = new Set(SEED_SAVED.map((l) => l.id));
-
 /** 서버에서 받은 룩. 로그인 상태에서만 채워진다. */
 let serverLooks: SavedLook[] = [];
-/** 서버에 올릴 수 없어 이 기기에만 남는 룩 — 번들 목업 이미지만 있는 추천 룩과 비로그인 시드. */
-let localLooks: SavedLook[] = [...SEED_SAVED];
+/** 서버에 올릴 수 없어 이 기기에만 남는 룩 — 번들 목업 이미지만 있는 추천 룩과 비로그인 저장분. */
+let localLooks: SavedLook[] = [];
 /** 둘을 합쳐 최신순으로 세운 것. useSyncExternalStore 가 같은 참조를 받아야 해서 캐시한다. */
 let savedLooks: SavedLook[] = [...localLooks];
 
@@ -155,6 +121,8 @@ type Overlay = {
   origin?: LookOrigin;
   /** 캘린더 쪽에서 먼저 만든 기록과 이어 붙인 경우 — 서버는 이 연결을 모른다. */
   entryDate?: string;
+  /** 둘러보기 원본 룩 id. 서버 DTO 에 자리가 없어 여기 얹는다(앱을 껐다 켜면 사라진다). */
+  sourceId?: string;
 };
 const overlays: Record<string, Overlay> = {};
 const RECOMMENDATION_CARD_LOOKBOOK_PREFIX = 'recommendation-card:';
@@ -200,6 +168,7 @@ function toLook(dto: LookbookPostDto): SavedLook {
           : 'daily'
         : (overlay.origin ?? (items.length > 0 ? 'closet' : 'ai')),
     goldenId: dto.golden_id || undefined,
+    sourceId: overlay.sourceId,
     items: items.length ? items : undefined,
     note: dto.schedule || undefined,
     entryDate: dto.calendar?.date ?? overlay.entryDate,
@@ -220,16 +189,14 @@ export const savedLookStore = {
   /** 이 골든 코디를 이미 담아 뒀는가. 사진(presigned)이 아니라 코디 id 로 본다. */
   getByGoldenId: (goldenId: string) =>
     goldenId ? savedLooks.find((l) => l.goldenId === goldenId) : undefined,
+  /** 이 둘러보기 룩을 이미 담아 뒀는가. 위와 같은 이유로 사진이 아니라 원본 id 로 본다. */
+  getBySourceId: (sourceId: string) =>
+    sourceId ? savedLooks.find((l) => l.sourceId === sourceId) : undefined,
   /**
    * 저장. 사진이 같은 룩이 이미 있으면 중복 추가하지 않고 기존 것을 돌려준다.
    * origin 기본값이 'ai' 인 이유: 이 함수를 부르는 기존 자리(홈·룩 상세)가 전부 추천 룩 저장이다.
    */
-  /**
-   * 내 룩북을 서버에서 받아 온다. 비로그인·데모 세션은 서버를 부르지 않고 시드를 그대로 둔다.
-   *
-   * 한 번 받아 오면 데모 시드는 걷어낸다 — 내 룩과 남의 데모 룩이 한 그리드에 섞이면
-   * 어느 것이 진짜 내 기록인지 읽히지 않는다.
-   */
+  /** 내 룩북을 서버에서 받아 온다. 비로그인·데모 세션은 서버를 부르지 않는다. */
   async load(): Promise<void> {
     if (!isAuthed()) {
       loadState = { loading: false, error: null, loaded: true };
@@ -241,7 +208,6 @@ export const savedLookStore = {
     try {
       const page = await listLookbooks({ limit: 100 });
       serverLooks = page.results.map(toLook);
-      if (!loadState.loaded) localLooks = localLooks.filter((l) => !SEED_IDS.has(l.id));
       loadState = { loading: false, error: null, loaded: true };
       notify();
       /* 앱을 껐다 켜거나 한참 만에 들어오면 아직 처리 중인 룩이 있을 수 있다 —
@@ -261,6 +227,8 @@ export const savedLookStore = {
 
   async addLook(input: {
     image?: string;
+    /** 둘러보기 원본 룩 id — 저장 뒤에도 '같은 룩'인지 알아보기 위한 유일한 안정 값 */
+    sourceId?: string;
     asset?: number;
     comment?: string;
     tags?: string[];
@@ -286,6 +254,12 @@ export const savedLookStore = {
     /* 추천 룩 저장은 같은 카드를 여러 번 담지 않도록 사진으로 중복을 막는다.
        반면 직접 기록한 룩은 같은 사진을 다른 날짜에 다시 입을 수 있으므로,
        사진이 같더라도 각각의 착장 기록으로 남겨야 한다. */
+    /* 사진으로 보기 전에 원본 id 로 먼저 본다 — 저장하면 서버가 사진을 자기 것으로
+       복사해 주소가 달라지므로, 사진만 보면 같은 룩을 또 담게 된다. */
+    const bySource = input.sourceId
+      ? savedLooks.find((l) => l.sourceId === input.sourceId)
+      : undefined;
+    if (bySource) return bySource;
     const existing =
       input.origin === 'closet' || key == null
         ? undefined
@@ -325,6 +299,7 @@ export const savedLookStore = {
       reason: input.reason,
       origin,
       entryDate: input.entryDate,
+      sourceId: input.sourceId,
     };
     const look = toLook(dto);
     serverLooks = [look, ...serverLooks];
@@ -431,6 +406,7 @@ export const savedLookStore = {
 function addLocalLook(
   input: {
     image?: string;
+    sourceId?: string;
     asset?: number;
     comment?: string;
     tags?: string[];
@@ -448,6 +424,7 @@ function addLocalLook(
     comment: input.comment,
     reason: input.reason,
     origin,
+    sourceId: input.sourceId,
     items: input.items?.length ? input.items : undefined,
     note: input.note?.trim() || undefined,
     entryDate: input.entryDate,

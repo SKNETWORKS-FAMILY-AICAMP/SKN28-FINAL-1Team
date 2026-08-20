@@ -69,8 +69,8 @@ class SharedReferenceEligibilityApiTests(APITestCase):
             name="대여 중",
             status=SharedWardrobeItem.Status.BORROWED,
         )
-        private = self._shared_item(
-            name="나만 보기",
+        legacy_private = self._shared_item(
+            name="과거 나만 보기 값",
             status=SharedWardrobeItem.Status.PRIVATE,
         )
         unconfirmed = self._shared_item(name="미확정", confirmed=False)
@@ -103,10 +103,10 @@ class SharedReferenceEligibilityApiTests(APITestCase):
         )
         self.assertEqual(
             (
-                by_id[str(private.pk)]["reference_eligible"],
-                by_id[str(private.pk)]["reference_unavailable_reason"],
+                by_id[str(legacy_private.pk)]["reference_eligible"],
+                by_id[str(legacy_private.pk)]["reference_unavailable_reason"],
             ),
-            (False, "PRIVATE"),
+            (True, None),
         )
         self.assertEqual(
             (

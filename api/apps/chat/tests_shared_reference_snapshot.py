@@ -345,34 +345,31 @@ class SharedReferenceSnapshotApiTests(APITestCase):
         run.refresh_from_db()
         self.assertEqual(run.reference_snapshot, original_snapshot)
 
-    @patch("apps.chat.services.reference_recommendation_events.logger.info")
-    def test_private_shared_item_is_rejected_without_partial_message(
+    @patch("apps.chat.views.ChatEventStore.publish")
+    @patch("apps.chat.views.chat_queue.enqueue")
+    def test_legacy_private_shared_item_can_still_be_used_as_reference(
         self,
-        event_log: Mock,
+        _enqueue_mock,
+        _publish_mock,
     ) -> None:
         self.shared_item.status = SharedWardrobeItem.Status.PRIVATE
         self.shared_item.save(update_fields=["status"])
 
         response = self.client.post(self.url, self._payload(), format="json")
 
-        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
-        self.assertEqual(response.data["code"], "REFERENCE_ITEM_FORBIDDEN")
-        self.assertFalse(
-            ChatMessage.objects.filter(
-                session=self.session,
-                client_message_id="shared-reference-1",
-            ).exists()
+        self.assertEqual(response.status_code, status.HTTP_202_ACCEPTED)
+        run = ChatRun.objects.get(pk=response.data["run"]["id"])
+        self.assertEqual(
+            run.reference_snapshot["source_status"],
+            SharedWardrobeItem.Status.PRIVATE,
         )
-        self.assertFalse(ChatRun.objects.filter(session=self.session).exists())
-        metric = event_log.call_args.kwargs["extra"]
-        self.assertEqual(metric["failure_code"], "REFERENCE_ITEM_FORBIDDEN")
-        self.assertEqual(metric["match_result"], "NO_CANDIDATE")
-        self.assertGreater(metric["stage_durations_ms"]["SNAPSHOT_VALIDATION"], 0)
 
-    @patch("apps.chat.services.reference_recommendation_events.logger.info")
-    def test_reference_is_revalidated_when_status_changes_after_selection(
+    @patch("apps.chat.views.ChatEventStore.publish")
+    @patch("apps.chat.views.chat_queue.enqueue")
+    def test_legacy_status_change_after_selection_does_not_block_reference(
         self,
-        event_log: Mock,
+        _enqueue_mock,
+        _publish_mock,
     ) -> None:
         listed = self.client.get(
             f"/api/v1/shared-wardrobes/{self.room.pk}/items/"
@@ -392,18 +389,11 @@ class SharedReferenceSnapshotApiTests(APITestCase):
             format="json",
         )
 
-        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
-        self.assertEqual(response.data["code"], "REFERENCE_ITEM_FORBIDDEN")
-        self.assertFalse(
-            ChatMessage.objects.filter(
-                session=self.session,
-                client_message_id="shared-reference-race",
-            ).exists()
-        )
-        self.assertFalse(ChatRun.objects.filter(session=self.session).exists())
+        self.assertEqual(response.status_code, status.HTTP_202_ACCEPTED)
+        run = ChatRun.objects.get(pk=response.data["run"]["id"])
         self.assertEqual(
-            event_log.call_args.kwargs["extra"]["failure_code"],
-            "REFERENCE_ITEM_FORBIDDEN",
+            run.reference_snapshot["source_status"],
+            SharedWardrobeItem.Status.PRIVATE,
         )
 
     def test_non_member_cannot_reference_shared_item(self) -> None:

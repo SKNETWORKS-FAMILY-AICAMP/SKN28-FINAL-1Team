@@ -24,6 +24,14 @@ class User(AbstractUser):
     profile_image = models.URLField(
         "프로필 이미지", blank=True, db_comment="프로필 이미지 URL (소셜 프로필에서 초기화)"
     )
+    # 사용자가 직접 올린 사진은 우리 S3 에 있고 presigned URL 로만 꺼낼 수 있어,
+    # 만료되는 URL 대신 key 를 저장한다. 값이 있으면 위 profile_image(소셜 URL)보다 앞선다.
+    profile_image_key = models.CharField(
+        "프로필 이미지 S3 키",
+        max_length=255,
+        blank=True,
+        db_comment="사용자가 올린 프로필 사진의 S3 key (있으면 profile_image URL 보다 우선)",
+    )
 
     legacy_monthly_budget = models.PositiveIntegerField(
         "이전 월 의류 구매 예산",
@@ -304,6 +312,13 @@ class BodyPhotoTransaction(models.Model):
     error_message = models.TextField(
         "실패 사유", blank=True, default="",
         db_comment="측정 실패 사유 (성공/진행중이면 빈 문자열)",
+    )
+    error_code = models.CharField(
+        "실패 코드",
+        max_length=50,
+        blank=True,
+        default="",
+        db_comment="클라이언트 분기용 실패 코드 (사진 품질 실패: photo_quality_failed)",
     )
     created_at = models.DateTimeField(
         "생성 시각", auto_now_add=True, db_comment="접수 시각"

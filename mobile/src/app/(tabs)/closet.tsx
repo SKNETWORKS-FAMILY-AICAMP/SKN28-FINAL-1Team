@@ -6,7 +6,6 @@ import {
   type SharedSpace,
 } from '@/components/closet/shared-space-flow';
 import { SharedItemAddSheet } from '@/components/closet/shared-item-add-sheet';
-import { SharedItemStatusSheet } from '@/components/closet/shared-item-status-sheet';
 import { PhotoSourceSheet } from '@/components/closet/photo-source-sheet';
 import { HashtagItemManageSheet } from '@/components/closet/category-item-manage-sheet';
 import { HashtagFilterRow } from '@/components/closet/hashtag-filter-row';
@@ -30,7 +29,6 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { ContentMax, Editorial, GridCard, gridCardImageHeight, gridCardWidth, ink } from '@/constants/theme';
-import { SHARED_ITEM_STATUS_META } from '@/constants/shared-wardrobe';
 import { WARDROBE_FILTER_OPTIONS } from '@/constants/wardrobe-taxonomy';
 import { useBreakpoint } from '@/hooks/use-breakpoint';
 import { useRefresh } from '@/hooks/use-refresh';
@@ -57,14 +55,13 @@ import {
   type SharedRoom,
   type SharedRoomItem,
   type SharedRoomMember,
-  type SharedItemStatus,
   unregisterItemFromSharedRoom,
-  updateSharedItemStatus,
   updateWardrobeHashtagItems,
 } from '@/lib/wardrobeApi';
 import {
   buildWardrobeSections,
   uniqueWardrobeItemCount,
+  wardrobeSectionCountLabel,
   type WardrobeGroupMode,
   type WardrobeItemSort,
 } from '@/lib/wardrobeSections';
@@ -82,8 +79,8 @@ import {
   useImportBatches,
   useUploadCompleted,
   useUploadJobs,
-  useWardrobeRevision,
 } from '@/state/upload-jobs';
+import { useWardrobeRevision } from '@/state/wardrobe-revision';
 
 const INK = Editorial.ink;
 
@@ -137,8 +134,6 @@ type Card = {
   filterCategories: string[];
   image?: string;
   owner?: string;
-  sharedStatus?: SharedItemStatus;
-  isMySharedItem?: boolean;
 };
 
 function matchesQuery(item: Card, query: string): boolean {
@@ -177,8 +172,6 @@ export default function ClosetScreen() {
   const [manageRoom, setManageRoom] = useState<ManagedRoom | null>(null);
   const [deleteRoom, setDeleteRoom] = useState<{ id: string; title: string } | null>(null);
   const [leaveRoom, setLeaveRoom] = useState<{ id: string; title: string } | null>(null);
-  const [statusItem, setStatusItem] = useState<Card | null>(null);
-  const [statusSaving, setStatusSaving] = useState(false);
   const [createOpen, setCreateOpen] = useState(false);
   const [createDraftTitle, setCreateDraftTitle] = useState('공유 옷장');
   const [viewSettingsOpen, setViewSettingsOpen] = useState(false);
@@ -221,7 +214,13 @@ export default function ClosetScreen() {
      확정 여부로 거르지 않는다. 예전엔 confirmed=true 만 받았는데, 그러면 백엔드에서
      직접 넣은 옷처럼 확인 단계를 거치지 않은 아이템이 옷장에 영영 안 보인다.
      대신 미확인 아이템에는 배지를 달아 구분한다. */
-  const { items: apiItems, loading, error, reload: reloadItems } = useWardrobeItems({}, isLoggedIn);
+  const {
+    items: apiItems,
+    loading,
+    error,
+    reload: reloadItems,
+    refresh: refreshItems,
+  } = useWardrobeItems({}, isLoggedIn);
   const {
     data: personalFilterData,
     reload: reloadPersonalFilters,
@@ -322,16 +321,18 @@ export default function ClosetScreen() {
     }
   };
 
-  /* 가져오기(일괄 등록)는 옷이 여러 벌 들어온다 — 한 벌마다 토스트를 띄우면 시끄러우니
-     목록만 조용히 갱신하고, 진행 상황은 아래 줄이 대신 말해준다. */
+  /* 목록이 서버와 어긋났다는 신호(일괄 등록으로 옷이 들어옴 · 상세에서 삭제함)를 받으면
+     조용히 다시 불러온다. 로딩 표시를 켜지 않는 이유는 이미 그려진 목록이 통째로
+     깜빡이기 때문 — 바뀐 부분만 슬며시 갱신되는 게 맞다.
+     가져오기 진행 상황은 아래 줄이 대신 말해주므로 토스트도 띄우지 않는다. */
   const batches = useImportBatches();
   const revision = useWardrobeRevision();
   const seenRevision = useRef(revision);
   useEffect(() => {
     if (revision === seenRevision.current) return;
     seenRevision.current = revision;
-    reloadItems();
-  }, [revision, reloadItems]);
+    void refreshItems();
+  }, [revision, refreshItems]);
 
   const myItems = useMemo<Card[]>(
     () =>
@@ -465,8 +466,6 @@ export default function ClosetScreen() {
         category: sharedItem.wardrobe_item.category_large,
         filterCategories: [sharedItem.wardrobe_item.category_large],
         image: sharedItem.wardrobe_item.image_url,
-        sharedStatus: sharedItem.status,
-        isMySharedItem: sharedItem.registered_by?.id === me?.id,
         owner:
           sharedItem.registered_by?.id === me?.id
             ? '나'
@@ -536,45 +535,6 @@ export default function ClosetScreen() {
       return null;
     } finally {
       setSharedRefreshing(false);
-    }
-  };
-
-  const handleSharedStatusChange = async (status: SharedItemStatus) => {
-    if (!sharedSpace || !statusItem?.isMySharedItem || !statusItem.sharedStatus || statusSaving) {
-      return;
-    }
-    if (status === statusItem.sharedStatus) {
-      setStatusItem(null);
-      return;
-    }
-
-    setStatusSaving(true);
-    try {
-      const updated = await updateSharedItemStatus(sharedSpace.id, statusItem.id, status);
-      setSharedItems((items) =>
-        items.map((item) =>
-          item.id === statusItem.id ? { ...item, sharedStatus: updated.status } : item,
-        ),
-      );
-      setStatusItem(null);
-      toast(
-        status === 'private'
-          ? '나만 보기로 바꿨어요. 채팅 참고 대상에서도 제외됐어요.'
-          : status === 'borrowed'
-            ? '대여 중으로 바꿨어요. 채팅 참고는 계속 가능해요.'
-            : '공유 가능 상태로 바꿨어요.',
-        { variant: 'success' },
-      );
-      /* 서버가 계산한 reference_eligible까지 다시 읽는다. PRIVATE 해제 시에도
-         벡터 준비·확정 여부에 따라 선택 가능 상태가 달라질 수 있기 때문이다. */
-      await refreshSharedCloset(sharedSpace.id);
-    } catch (err) {
-      console.error('공유 아이템 상태 변경 실패:', err);
-      toast(err instanceof Error ? err.message : '공유 상태를 바꾸지 못했어요.', {
-        variant: 'error',
-      });
-    } finally {
-      setStatusSaving(false);
     }
   };
 
@@ -931,30 +891,6 @@ export default function ClosetScreen() {
             </Text>
           </View>
         ) : null}
-        {tab === 'shared' && it.sharedStatus ? (
-          <Pressable
-            style={[
-              styles.sharedStatusBadge,
-              it.sharedStatus === 'borrowed' && styles.sharedStatusBadgeBorrowed,
-              it.sharedStatus === 'private' && styles.sharedStatusBadgePrivate,
-            ]}
-            disabled={!it.isMySharedItem}
-            onPress={(event) => {
-              event.stopPropagation();
-              if (it.isMySharedItem) setStatusItem(it);
-            }}
-            accessibilityRole={it.isMySharedItem ? 'button' : undefined}
-            accessibilityLabel={`${SHARED_ITEM_STATUS_META[it.sharedStatus].label}${
-              it.isMySharedItem ? ', 눌러서 상태 변경' : ''
-            }`}>
-            <Text style={styles.sharedStatusText}>
-              {SHARED_ITEM_STATUS_META[it.sharedStatus].label}
-            </Text>
-            {it.isMySharedItem ? (
-              <Icon name="chevron.down" tintColor={Editorial.textCaption} size={9} />
-            ) : null}
-          </Pressable>
-        ) : null}
         {tab === 'shared' && it.owner === '나' ? (
           <Pressable
             style={styles.unshareBtn}
@@ -1071,7 +1007,11 @@ export default function ClosetScreen() {
           : null}
 
         {tab === 'shared' && sharedRooms.length > 0 ? (
-          <View style={styles.roomTabsWrap}>
+          <ScrollView
+            horizontal
+            style={styles.roomTabsScroll}
+            contentContainerStyle={styles.roomTabsWrap}
+            showsHorizontalScrollIndicator={false}>
             {/* 추가 버튼은 맨 앞 — 방이 많아지면 끝의 버튼은 가로 스크롤에 묻혀
                 '방을 더 만들 수 있다'는 사실 자체가 안 보인다. */}
             <Pressable
@@ -1115,7 +1055,7 @@ export default function ClosetScreen() {
             })}
             {/* '코드로 참여'는 멤버 줄의 [초대] 옆 입력칸으로 옮겼다 —
                 가로 스크롤 끝에 묻혀 있어 눈에 띄지 않았다. */}
-          </View>
+          </ScrollView>
         ) : null}
 
         {tab === 'shared' && sharedSpace ? (
@@ -1208,7 +1148,7 @@ export default function ClosetScreen() {
                     ]}>
                     <View style={styles.sectionHeader}>
                       <Text style={styles.sectionTitle}>{section.title}</Text>
-                      <Text style={styles.sectionCount}>{section.items.length}벌</Text>
+                      <Text style={styles.sectionCount}>{wardrobeSectionCountLabel(section)}</Text>
                     </View>
                     <View style={styles.grid}>
                       {section.items.map((item) => {
@@ -1452,18 +1392,6 @@ export default function ClosetScreen() {
             }}
           />
         ) : null}
-        {statusItem?.sharedStatus ? (
-          <SharedItemStatusSheet
-            visible
-            itemName={statusItem.name}
-            value={statusItem.sharedStatus}
-            saving={statusSaving}
-            onChange={handleSharedStatusChange}
-            onClose={() => {
-              if (!statusSaving) setStatusItem(null);
-            }}
-          />
-        ) : null}
       </SafeAreaView>
     </View>
   );
@@ -1551,23 +1479,6 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     zIndex: 10,
   },
-  sharedStatusBadge: {
-    position: 'absolute',
-    left: 10,
-    bottom: 10,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-    paddingHorizontal: 9,
-    paddingVertical: 5,
-    borderRadius: 999,
-    borderWidth: 1,
-    borderColor: Editorial.line,
-    backgroundColor: 'rgba(255,255,255,0.94)',
-  },
-  sharedStatusBadgeBorrowed: { borderColor: ink(0.24) },
-  sharedStatusBadgePrivate: { opacity: 0.78 },
-  sharedStatusText: { fontSize: 11, fontWeight: '600', color: Editorial.ink },
   cardMeta: {
     flexDirection: 'row',
     alignItems: 'baseline',
@@ -1602,26 +1513,30 @@ const styles = StyleSheet.create({
   },
 
   // ── 공유방 탭 스타일 (한눈에 나열) ──
+  roomTabsScroll: {
+    flexGrow: 0,
+    marginBottom: 12,
+  },
   roomTabsWrap: {
     flexDirection: 'row',
-    flexWrap: 'wrap',
     alignItems: 'center',
     paddingHorizontal: PAD,
     gap: 8,
     marginTop: 0,
-    marginBottom: 12,
   },
   roomTab: {
-    paddingHorizontal: 16,
-    paddingVertical: 8,
+    height: 36,
+    paddingHorizontal: 15,
+    alignItems: 'center',
+    justifyContent: 'center',
     borderRadius: 999,
-    backgroundColor: '#F3F4F6',
+    backgroundColor: 'transparent',
     borderWidth: 1,
-    borderColor: '#E5E7EB',
+    borderColor: ink(0.12),
   },
   roomTabActive: {
-    backgroundColor: INK,
-    borderColor: INK,
+    backgroundColor: Editorial.selected,
+    borderColor: Editorial.selected,
   },
   roomTabAdd: {
     flexDirection: 'row',
@@ -1632,8 +1547,9 @@ const styles = StyleSheet.create({
   },
   roomTabText: {
     fontSize: 13,
-    fontWeight: '600',
-    color: ink(0.6),
+    lineHeight: 18,
+    fontWeight: '500',
+    color: Editorial.textCaption,
   },
   roomTabTextActive: {
     color: '#FFFFFF',
@@ -1676,9 +1592,12 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: Editorial.line,
   },
-  dialogRoleBadgeOwner: { backgroundColor: Editorial.ink, borderColor: Editorial.ink },
+  dialogRoleBadgeOwner: {
+    backgroundColor: Editorial.selected,
+    borderColor: Editorial.selected,
+  },
   dialogRoleText: { fontSize: 11, fontWeight: '700', color: Editorial.textCaption },
-  dialogRoleTextOwner: { color: Editorial.surface },
+  dialogRoleTextOwner: { color: Editorial.white },
   dialogInput: {
     height: 48,
     marginTop: 20,
