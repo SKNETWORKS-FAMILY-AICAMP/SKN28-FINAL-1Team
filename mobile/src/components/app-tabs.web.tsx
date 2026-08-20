@@ -4,7 +4,7 @@ import { Tabs, TabList, TabTrigger, TabSlot, TabTriggerSlotProps } from 'expo-ro
 import { Pressable, View, Text, StyleSheet } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import { ChatPanelWidth, Editorial, Fonts, ink, paper, SidebarWidth } from '@/constants/theme';
+import { ChatPanelWidth, Editorial, Fonts, ink, onNav, SidebarWidth } from '@/constants/theme';
 import { useBreakpoint } from '@/hooks/use-breakpoint';
 
 import { ChatConversation } from './chat/chat-conversation';
@@ -195,8 +195,9 @@ function SidebarItem({
   hidden,
   ...props
 }: TabTriggerSlotProps & { icon: IconName; label: string; hidden?: boolean }) {
-  /* 선택 표시는 글자·아이콘의 색과 굵기가 전부 맡는다. 면도 테두리도 쓰지 않는다. */
-  const color = isFocused ? INK : Editorial.textCaption;
+  /* 선택 표시는 글자·아이콘의 색과 굵기가 전부 맡는다. 면도 테두리도 쓰지 않는다.
+     바가 어두우므로 ink 계열이 아니라 onNav() 를 쓴다 — 흰색 1.0 / 0.65 로 갈린다. */
+  const color = isFocused ? Editorial.white : onNav(0.65);
   return (
     <Pressable
       {...props}
@@ -230,7 +231,7 @@ function TabItem({
   hidden,
   ...props
 }: TabTriggerSlotProps & { icon: IconName; label: string; hidden?: boolean }) {
-  const color = isFocused ? INK : ink(0.4);
+  const color = isFocused ? Editorial.white : onNav(0.65);
   return (
     <Pressable {...props} style={[styles.item, hidden && styles.hiddenTrigger]}>
       <Icon name={icon} tintColor={color} size={22} />
@@ -278,9 +279,9 @@ const styles = StyleSheet.create({
   // 데스크톱 사이드바
   sidebar: {
     width: SidebarWidth,
-    borderRightWidth: 1,
-    borderRightColor: ink(0.08),
-    backgroundColor: Editorial.page,
+    /* 테두리를 두지 않는다 — 어두운 면과 오트 본문이 10.1:1 로 갈려 경계가 이미 또렷하다.
+       여기에 선을 더하면 이음새만 두꺼워 보인다. */
+    backgroundColor: Editorial.nav,
     paddingHorizontal: 16,
     paddingTop: 28,
     gap: 8,
@@ -291,7 +292,7 @@ const styles = StyleSheet.create({
   sidebarBrand: {
     fontFamily: Fonts.serif,
     fontSize: 24,
-    color: INK,
+    color: Editorial.white,
     paddingHorizontal: 10,
   },
   sidebarNav: { gap: 2 },
@@ -316,12 +317,10 @@ const styles = StyleSheet.create({
     zIndex: 10,
     flexDirection: 'row',
     alignItems: 'center',
-    /* 본문과 같은 면 색. 하드코딩 흰색을 쓰면 면 색이 바뀔 때 여기만 흰 판으로 남는다.
-       완전 불투명으로 두지 않는 건 global.css 의 backdrop-filter(글래스) 때문이다 —
-       콘텐츠가 바 뒤로 지나갈 때 은은하게 비쳐야 떠 있는 면으로 읽힌다. */
-    backgroundColor: paper(0.6),
-    borderTopWidth: 1,
-    borderTopColor: ink(0.06),
+    /* 어두운 면. 불투명하게 둔다 — 반투명이면 뒤로 지나가는 사진이 비쳐 바 색이 흔들린다.
+       (그래서 global.css 의 backdrop-filter 도 함께 걷어냈다.)
+       테두리는 두지 않는다: 오트 본문과 10.1:1 로 갈려 경계가 이미 또렷하다. */
+    backgroundColor: Editorial.nav,
     paddingTop: 8,
   },
   item: { flex: 1, alignItems: 'center', gap: 3, paddingVertical: 2 },
