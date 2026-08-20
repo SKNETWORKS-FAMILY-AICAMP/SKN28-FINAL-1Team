@@ -83,6 +83,8 @@ class ItemCandidate:
     score: float | None
     reasons: tuple[str, ...]
     payload: dict[str, Any] = field(default_factory=dict)
+    #: 템플릿 아이템 대비 교체 적합도 (1.0이면 같은 성격의 자리로 교체).
+    replacement_fit: float = 1.0
 
     @property
     def is_owned(self) -> bool:
@@ -249,6 +251,66 @@ def _requested_matches(
     return tuple(dict.fromkeys(matched))
 
 
+#: 교체가 템플릿에서 얼마나 벗어났는지 잴 축과 감점.
+#:
+#: category_small이 주 신호다 — 골든·상품 양쪽 다 채워져 있고, 여기가 어긋났다는 건
+#: _search_narrow_then_wide가 좁은 조건으로 못 찾아 범위를 넓혔다는 뜻이다.
+#: 로퍼 자리에 미들힐, 셔츠 자리에 반팔티가 들어오는 경로가 정확히 이것이다.
+#:
+#: sleeve·length·fit은 보조다. 상품의 8할이 값이 비어 있어(sleeve 77퍼센트,
+#: length 73퍼센트, fit 82퍼센트) 주 신호로 쓸 수 없다. **양쪽 다 값이 있을 때만**
+#: 본다 — "정보 없음"과 "안 맞음"은 다르다(_score_context와 같은 원칙).
+#:
+#: ⚠️ 어휘가 완전히 통일돼 있지 않다(상품에 '롱슬리브'·'5부'·'부츠컷' 등 골든셋에
+#:    없는 값이 있다). 정확히 일치할 때만 신뢰하고, 정규화는 태깅 쪽 과제로 남긴다.
+_REPLACEMENT_PENALTY = (
+    ("category_small", 0.40),
+    ("layer_role", 0.20),
+    ("sleeve", 0.15),
+    ("length", 0.15),
+    ("fit", 0.15),
+)
+
+
+def replacement_fit(
+    template_payload: dict[str, Any],
+    candidate_payload: dict[str, Any],
+) -> tuple[float, tuple[str, ...]]:
+    """템플릿 아이템 대비 교체 적합도(0~1)와 어긋난 축 설명."""
+
+    fit = 1.0
+    notes: list[str] = []
+    for field_name, penalty in _REPLACEMENT_PENALTY:
+        origin = _single_value(template_payload, field_name)
+        replaced = _single_value(candidate_payload, field_name)
+        if not origin or not replaced or origin == replaced:
+            continue
+        fit -= penalty
+        notes.append(f"골든 기준 {field_name} '{origin}' 대신 '{replaced}'")
+    return max(fit, 0.0), tuple(notes)
+
+
+def _rank_by_fit(
+    candidates: list[ItemCandidate],
+    preferred_tags: Mapping[str, tuple[str, ...]],
+    template_payload: dict[str, Any],
+) -> list[ItemCandidate]:
+    """요청 일치 → 교체 적합도 → 유사도 순으로 최종 정렬한다.
+
+    유사도만 보면 "이미지가 닮았지만 종류가 다른 옷"이 1순위가 된다. 코디가
+    말이 되려면 템플릿이 정해 둔 자리의 성격을 지키는 쪽이 우선이다.
+    """
+
+    ranked: list[tuple[int, float, float, int, ItemCandidate]] = []
+    for order, candidate in enumerate(candidates):
+        fit, notes = replacement_fit(template_payload, candidate.payload)
+        matches = len(_requested_matches(candidate.payload, preferred_tags))
+        enriched = replace(candidate, replacement_fit=fit, reasons=candidate.reasons + notes)
+        ranked.append((matches, fit, candidate.score or 0.0, -order, enriched))
+    ranked.sort(key=lambda row: row[:4], reverse=True)
+    return [row[4] for row in ranked]
+
+
 def _rank_by_request(
     candidates: list[ItemCandidate],
     preferred_tags: Mapping[str, tuple[str, ...]],
@@ -347,11 +409,16 @@ class ItemCandidateRetriever:
                     max_price=effective_max_price,
                 )
 
-        # 호출부가 지정한 출처 순서를 유지한다. 출처 내부에서는 유사도 순이다.
+        # 호출부가 지정한 출처 순서를 유지한다. 출처 내부에서는
+        # 요청 일치 → 교체 적합도 → 유사도 순이다.
         candidates = tuple(
             candidate
             for source_type in request.sources
-            for candidate in by_source.get(source_type, [])
+            for candidate in _rank_by_fit(
+                by_source.get(source_type, []),
+                request.preferred_tags,
+                template.payload,
+            )
         )
         return ItemRetrievalResult(
             template=template,
