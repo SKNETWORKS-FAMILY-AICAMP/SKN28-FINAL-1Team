@@ -561,7 +561,8 @@ DAILY_LOOK_RENDER_GEMINI_MIME_TYPE = os.getenv(
 
 # ── 채팅 추천·혼합 출처 렌더링 ─────────────────────────────
 # main의 오늘의 룩 렌더 설정은 그대로 두고, 채팅 추천 카드용 비동기 렌더가
-# 같은 Qwen 모델과 결과 저장소를 독립된 작업 큐로 사용한다.
+# 같은 결과 저장소를 독립된 작업 큐로 사용한다. 어떤 이미지 모델을 부를지는
+# 아래 OUTFIT_RENDER_BACKEND가 정한다.
 OUTFIT_RENDER_ENABLED = os.getenv("OUTFIT_RENDER_ENABLED", "1").strip().lower() in {
     "1", "true", "yes", "y",
 }
@@ -569,6 +570,27 @@ OUTFIT_RENDER_MODEL = os.getenv(
     "OUTFIT_RENDER_MODEL", DAILY_LOOK_RENDER_MODEL
 ).strip()
 OUTFIT_RENDER_URL = os.getenv("OUTFIT_RENDER_URL", DAILY_LOOK_RENDER_URL).strip()
+# 채팅 추천 카드 이미지를 만들 백엔드. gemini(기본) | openrouter
+#
+# 기본을 Gemini로 둔 이유: Qwen(OpenRouter)은 참조 이미지가 4장까지라 아이템이
+# 다섯 이상인 코디를 통째로 넣을 수 없다. 채팅 카드는 아이템 수가 들쭉날쭉해
+# 백엔드가 코디마다 갈리면 결과 톤도 갈리므로 한쪽으로 고정한다.
+# 되돌릴 때는 이 값만 openrouter로 바꾸고 워커를 재시작한다 (Qwen 경로는 그대로 산다).
+#
+# ⚠️ 위 OUTFIT_RENDER_MODEL/URL은 openrouter 백엔드와 **가상 착장**이 계속 쓴다.
+# 가상 착장은 이 스위치의 영향을 받지 않는다.
+OUTFIT_RENDER_BACKEND = os.getenv("OUTFIT_RENDER_BACKEND", "gemini").strip().lower()
+# Gemini 백엔드의 모델·엔드포인트·출력 형식. 오늘의 룩 렌더 설정을 기본값으로
+# 물려받아, 따로 지정하지 않으면 두 경로가 같은 모델을 본다.
+OUTFIT_RENDER_GEMINI_MODEL = os.getenv(
+    "OUTFIT_RENDER_GEMINI_MODEL", DAILY_LOOK_RENDER_GEMINI_MODEL
+).strip()
+OUTFIT_RENDER_GEMINI_URL = os.getenv(
+    "OUTFIT_RENDER_GEMINI_URL", DAILY_LOOK_RENDER_GEMINI_URL
+).strip()
+OUTFIT_RENDER_GEMINI_MIME_TYPE = os.getenv(
+    "OUTFIT_RENDER_GEMINI_MIME_TYPE", DAILY_LOOK_RENDER_GEMINI_MIME_TYPE
+).strip()
 OUTFIT_RENDER_ASPECT_RATIO = os.getenv(
     "OUTFIT_RENDER_ASPECT_RATIO", DAILY_LOOK_RENDER_ASPECT_RATIO
 ).strip()

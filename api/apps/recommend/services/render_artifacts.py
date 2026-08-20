@@ -13,6 +13,7 @@ from apps.recommend.services.mixed_outfit_render import (
     OutfitRenderRequest,
     OutfitRenderService,
     RenderInputError,
+    active_model,
 )
 from apps.recommend.services.render_cache import RenderCacheEntry, RenderResultCache
 
@@ -22,7 +23,9 @@ def fingerprint(composition_fingerprint: str, subject_presentation: str = "") ->
         (
             composition_fingerprint.strip().lower(),
             subject_presentation.strip().lower(),
-            settings.OUTFIT_RENDER_MODEL,
+            # 백엔드를 바꾸면 모델 id가 바뀌고 지문도 갈린다 — 예전 모델로 만든
+            # 이미지를 새 모델 결과로 재사용하지 않기 위해서다.
+            active_model(),
             PROMPT_VERSION,
             settings.OUTFIT_RENDER_ASPECT_RATIO,
             settings.OUTFIT_RENDER_RESOLUTION,
@@ -92,8 +95,8 @@ def find_cached(
             output_s3_key=key,
             output_media_type=metadata["content_type"],
             output_bytes=metadata["content_length"],
-            provider="openrouter",
-            model=settings.OUTFIT_RENDER_MODEL,
+            provider=settings.OUTFIT_RENDER_BACKEND,
+            model=active_model(),
             prompt_version=PROMPT_VERSION,
             reference_count=0,
             usage={},

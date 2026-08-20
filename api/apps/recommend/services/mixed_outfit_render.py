@@ -25,6 +25,10 @@ from apps.recommend.services import storage
 logger = logging.getLogger(__name__)
 
 PROMPT_VERSION = "mixed-outfit-render-v2"
+
+#: 이미지 생성 백엔드. 설정으로 고르고, 프롬프트는 두 백엔드가 같은 것을 쓴다.
+BACKEND_GEMINI = "gemini"
+BACKEND_OPENROUTER = "openrouter"
 BASE_PROMPT = (
     "첨부한 참조 이미지들은 한 벌의 코디에 최종 선택된 개별 의상입니다.\n"
     "참조 이미지의 의상을 모두 착용하고 정면을 바라보는 한 사람의 전신 패션 사진을 "
@@ -275,6 +279,10 @@ class OpenRouterQwenImageProvider:
     def __init__(self, *, session: requests.Session | None = None) -> None:
         self.session = session or requests.Session()
 
+    @property
+    def model_name(self) -> str:
+        return settings.OUTFIT_RENDER_MODEL
+
     def generate(
         self,
         *,
@@ -329,24 +337,140 @@ class OpenRouterQwenImageProvider:
             raise RenderProviderError("이미지 생성 응답 형식이 올바르지 않습니다.")
 
         image = _extract_generated_image(payload)
-        if image is None:
-            raise RenderProviderError(
-                "이미지 생성 응답에서 이미지 데이터를 찾지 못했습니다. "
-                f"(model={settings.OUTFIT_RENDER_MODEL})"
-            )
-        if len(image) > settings.OUTFIT_RENDER_MAX_OUTPUT_BYTES:
-            raise RenderProviderError(
-                "생성 이미지가 허용 크기를 초과합니다: "
-                f"{len(image)} > {settings.OUTFIT_RENDER_MAX_OUTPUT_BYTES} bytes"
-            )
+        return _finalize_generated_image(image, payload, model=self.model_name)
+
+
+class GeminiImageProvider:
+    """Gemini 이미지 모델로 코디 착장 이미지를 만든다.
+
+    OpenRouter가 아니라 Google API를 직접 부르고, generateContent가 아니라
+    Interactions API를 쓴다 — 화면비·해상도를 response_format으로 지정할 수 있어야
+    전신 9:16을 강제할 수 있기 때문이다 (오늘의 룩 outfit_render와 같은 이유).
+
+    프롬프트는 OpenRouter 경로와 **같은 것**을 받는다. 백엔드가 바뀌어도 코디를
+    설명하는 계약은 그대로여야 캐시 지문(PROMPT_VERSION)의 의미가 유지된다.
+    """
+
+    provider_name = BACKEND_GEMINI
+
+    def __init__(self, *, session: requests.Session | None = None) -> None:
+        self.session = session or requests.Session()
+
+    @property
+    def model_name(self) -> str:
+        return settings.OUTFIT_RENDER_GEMINI_MODEL
+
+    def generate(
+        self,
+        *,
+        prompt: str,
+        references: tuple[LoadedReferenceImage, ...],
+    ) -> tuple[bytes, str, dict[str, Any]]:
+        api_key = settings.GEMINI_API_KEY
+        if not api_key:
+            raise RenderProviderError("GEMINI_API_KEY가 설정되지 않았습니다.")
+
+        payload_input: list[dict[str, Any]] = [{"type": "text", "text": prompt}]
+        payload_input.extend(
+            {
+                "type": "image",
+                # 입력 형식은 바이트로 판단한 값을 그대로 쓴다. 헤더와 실제가
+                # 어긋나면 Gemini가 400을 준다.
+                "mime_type": reference.media_type,
+                "data": base64.b64encode(reference.content).decode("ascii"),
+            }
+            for reference in references
+        )
+        body = {
+            "model": settings.OUTFIT_RENDER_GEMINI_MODEL,
+            "input": payload_input,
+            "response_format": {
+                "type": "image",
+                # 출력은 JPEG만 받는다 (image/png은 400).
+                "mime_type": settings.OUTFIT_RENDER_GEMINI_MIME_TYPE,
+                "aspect_ratio": settings.OUTFIT_RENDER_ASPECT_RATIO,
+                "image_size": settings.OUTFIT_RENDER_RESOLUTION,
+            },
+        }
         try:
-            media_type = _detect_media_type(image)
-        except ReferenceImageError as exc:
-            raise RenderProviderError(
-                "생성 결과가 지원하는 이미지 형식이 아닙니다."
-            ) from exc
-        usage = payload.get("usage")
-        return image, media_type, usage if isinstance(usage, dict) else {}
+            response = self.session.post(
+                settings.OUTFIT_RENDER_GEMINI_URL,
+                headers={
+                    "x-goog-api-key": api_key,
+                    "Content-Type": "application/json",
+                },
+                json=body,
+                timeout=settings.OUTFIT_RENDER_TIMEOUT_SECONDS,
+            )
+        except requests.RequestException as exc:
+            raise RenderProviderError(f"이미지 생성 요청 실패: {exc}") from exc
+
+        try:
+            if response.status_code >= 400:
+                raise RenderProviderError(
+                    f"이미지 생성 실패 HTTP {response.status_code}: {response.text[:500]}"
+                )
+            try:
+                payload = response.json()
+            except ValueError as exc:
+                raise RenderProviderError(
+                    "이미지 생성 응답이 JSON이 아닙니다."
+                ) from exc
+        finally:
+            response.close()
+        if not isinstance(payload, dict):
+            raise RenderProviderError("이미지 생성 응답 형식이 올바르지 않습니다.")
+
+        image = _extract_gemini_image(payload)
+        return _finalize_generated_image(image, payload, model=self.model_name)
+
+
+#: 설정이 고른 백엔드의 provider 타입 (가상 착장은 Qwen provider를 직접 쓴다).
+ImageProvider = GeminiImageProvider | OpenRouterQwenImageProvider
+
+
+def build_provider() -> ImageProvider:
+    if settings.OUTFIT_RENDER_BACKEND == BACKEND_GEMINI:
+        return GeminiImageProvider()
+    return OpenRouterQwenImageProvider()
+
+
+def active_model() -> str:
+    """지금 설정이 실제로 부르는 이미지 모델 id.
+
+    렌더 결과 캐시 지문에 들어가므로, 백엔드를 바꾸면 지문도 함께 바뀌어야
+    예전 모델로 만든 이미지를 새 모델 결과로 오해하지 않는다.
+    """
+    if settings.OUTFIT_RENDER_BACKEND == BACKEND_GEMINI:
+        return settings.OUTFIT_RENDER_GEMINI_MODEL
+    return settings.OUTFIT_RENDER_MODEL
+
+
+def _finalize_generated_image(
+    image: bytes | None,
+    payload: dict[str, Any],
+    *,
+    model: str,
+) -> tuple[bytes, str, dict[str, Any]]:
+    """백엔드 공통의 생성 결과 검증. 크기 한도와 지원 형식만 본다."""
+    if image is None:
+        raise RenderProviderError(
+            "이미지 생성 응답에서 이미지 데이터를 찾지 못했습니다. "
+            f"(model={model})"
+        )
+    if len(image) > settings.OUTFIT_RENDER_MAX_OUTPUT_BYTES:
+        raise RenderProviderError(
+            "생성 이미지가 허용 크기를 초과합니다: "
+            f"{len(image)} > {settings.OUTFIT_RENDER_MAX_OUTPUT_BYTES} bytes"
+        )
+    try:
+        media_type = _detect_media_type(image)
+    except ReferenceImageError as exc:
+        raise RenderProviderError(
+            "생성 결과가 지원하는 이미지 형식이 아닙니다."
+        ) from exc
+    usage = payload.get("usage") or payload.get("usageMetadata")
+    return image, media_type, usage if isinstance(usage, dict) else {}
 
 
 class OutfitRenderService:
@@ -356,10 +480,10 @@ class OutfitRenderService:
         self,
         *,
         loader: ReferenceImageLoader | None = None,
-        provider: OpenRouterQwenImageProvider | None = None,
+        provider: ImageProvider | None = None,
     ) -> None:
         self.loader = loader or ReferenceImageLoader()
-        self.provider = provider or OpenRouterQwenImageProvider()
+        self.provider = provider or build_provider()
 
     def build_request(self, composition: OutfitComposition) -> OutfitRenderRequest:
         if composition.status != OutfitComposition.Status.VALIDATED:
@@ -418,7 +542,7 @@ class OutfitRenderService:
             content=content,
             media_type=media_type,
             provider=self.provider.provider_name,
-            model=settings.OUTFIT_RENDER_MODEL,
+            model=self.provider.model_name,
             prompt_version=PROMPT_VERSION,
             composition_fingerprint=request.composition_fingerprint,
             reference_count=len(references),
@@ -516,6 +640,43 @@ def _extract_generated_image(payload: dict[str, Any]) -> bytes | None:
                 url = nested.get("url") if isinstance(nested, dict) else ""
                 if decoded := _decode_data_url(str(url)):
                     return decoded
+    return None
+
+
+def _extract_gemini_image(payload: dict[str, Any]) -> bytes | None:
+    """Gemini 응답에서 이미지를 꺼낸다. 두 API 모양을 모두 본다.
+
+    Interactions API:
+        {"steps": [{"content": [{"type": "image", "data": "<b64>"}]}]}
+    generateContent:
+        {"candidates": [{"content": {"parts": [{"inlineData": {"data": "<b64>"}}]}}]}
+
+    문서는 Interactions 쪽을 표준으로 안내하지만 두 경로가 함께 살아 있어서,
+    엔드포인트 설정(OUTFIT_RENDER_GEMINI_URL)만 바꿔도 동작하게 둔다.
+    """
+    for step in payload.get("steps") or []:
+        if not isinstance(step, dict):
+            continue
+        for part in step.get("content") or []:
+            if not isinstance(part, dict):
+                continue
+            if decoded := _decode_base64(str(part.get("data") or "")):
+                return decoded
+
+    for candidate in payload.get("candidates") or []:
+        if not isinstance(candidate, dict):
+            continue
+        content = candidate.get("content") or {}
+        if not isinstance(content, dict):
+            continue
+        for part in content.get("parts") or []:
+            if not isinstance(part, dict):
+                continue
+            inline = part.get("inlineData") or part.get("inline_data") or {}
+            if not isinstance(inline, dict):
+                continue
+            if decoded := _decode_base64(str(inline.get("data") or "")):
+                return decoded
     return None
 
 
