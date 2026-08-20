@@ -78,6 +78,7 @@ class DiscoveryServiceTests(TestCase):
         item = CuratedLookItem.objects.create(
             look=look,
             slot="상의",
+            category_small="티셔츠",
             name="블랙 반팔 티셔츠",
             product_url="https://example.com/original",
             image_url="https://example.com/original.jpg",
@@ -144,6 +145,7 @@ class DiscoveryServiceTests(TestCase):
         item = CuratedLookItem.objects.create(
             look=look,
             slot="액세서리",
+            category_small="주얼리",
             name="블랙 진주 헤어핀",
             product_url="https://example.com/original",
             related_keyword="블랙 진주 헤어핀",
@@ -178,17 +180,18 @@ class DiscoveryServiceTests(TestCase):
         item = CuratedLookItem.objects.create(
             look=look,
             slot="신발",
+            category_small="부츠",
             name="블랙 버클 워커 미들부츠",
             product_url="https://example.com/original",
             related_keyword="블랙 버클 워커 미들부츠",
         )
         NaverProduct.objects.create(
             naver_product_id="cheap-two-matches",
-            title="블랙 버클 로퍼",
+            title="블랙 버클 첼시부츠",
             image_url="https://example.com/loafer.jpg",
             lprice=1_000,
             category_large="신발",
-            category_small="구두/로퍼",
+            category_small="부츠",
             collected_at=timezone.now(),
         )
         NaverProduct.objects.create(
@@ -213,6 +216,7 @@ class DiscoveryServiceTests(TestCase):
         item = CuratedLookItem.objects.create(
             look=look,
             slot="액세서리",
+            category_small="헤어 액세서리",
             name="블랙 퍼 머리띠",
             product_url="https://example.com/original",
             related_keyword="블랙 퍼 머리띠",
@@ -236,3 +240,100 @@ class DiscoveryServiceTests(TestCase):
 
         self.assertEqual([product["id"] for product in result], ["same-slot-hairband"])
         self.assertEqual(len(result), 1, "후보가 부족해도 다른 슬롯으로 채우면 안 된다.")
+
+    def test_related_products_are_hidden_until_small_category_is_reviewed(self) -> None:
+        look = CuratedLook.objects.get(external_id="woman-casual-001")
+        item = CuratedLookItem.objects.create(
+            look=look,
+            slot="아우터",
+            category_small="",
+            name="브라운 가디건",
+            product_url="https://example.com/original",
+            related_keyword="브라운 니트 가디건",
+        )
+        NaverProduct.objects.create(
+            naver_product_id="unreviewed-cardigan",
+            title="브라운 니트 가디건",
+            image_url="https://example.com/cardigan.jpg",
+            link="https://example.com/cardigan",
+            lprice=30_000,
+            category_large="아우터",
+            category_small="가디건",
+            collected_at=timezone.now(),
+        )
+
+        self.assertEqual(discovery._related(item), [])
+
+    def test_related_products_require_exact_reviewed_small_category(self) -> None:
+        look = CuratedLook.objects.get(external_id="woman-casual-001")
+        item = CuratedLookItem.objects.create(
+            look=look,
+            slot="아우터",
+            category_small="가디건",
+            name="블랙 니트 가디건",
+            product_url="https://example.com/original",
+            related_keyword="블랙 니트 가디건",
+        )
+        for product_id, category_small in (
+            ("matching-cardigan", "가디건"),
+            ("wrong-padding", "패딩"),
+        ):
+            NaverProduct.objects.create(
+                naver_product_id=product_id,
+                title="블랙 니트 가디건",
+                image_url=f"https://example.com/{product_id}.jpg",
+                link=f"https://example.com/{product_id}",
+                lprice=30_000,
+                category_large="아우터",
+                category_small=category_small,
+                collected_at=timezone.now(),
+            )
+
+        self.assertEqual(
+            [product["id"] for product in discovery._related(item)],
+            ["matching-cardigan"],
+        )
+
+    def test_original_product_and_feed_duplicates_are_excluded(self) -> None:
+        woman_look = CuratedLook.objects.get(external_id="woman-casual-001")
+        man_look = CuratedLook.objects.get(external_id="man-casual-001")
+        for look in (woman_look, man_look):
+            CuratedLookItem.objects.create(
+                look=look,
+                slot="아우터",
+                category_small="가디건",
+                name="블랙 니트 가디건",
+                product_url="https://example.com/original",
+                related_keyword="블랙 니트 가디건",
+            )
+        NaverProduct.objects.create(
+            naver_product_id="original-product",
+            title="블랙 니트 가디건",
+            image_url="https://example.com/original.jpg",
+            link="https://example.com/original",
+            lprice=20_000,
+            category_large="아우터",
+            category_small="가디건",
+            collected_at=timezone.now(),
+        )
+        NaverProduct.objects.create(
+            naver_product_id="shared-related-product",
+            title="블랙 니트 가디건",
+            image_url="https://example.com/shared.jpg",
+            link="https://example.com/shared",
+            lprice=30_000,
+            category_large="아우터",
+            category_small="가디건",
+            collected_at=timezone.now(),
+        )
+
+        result = discovery.list_looks(discovery.DiscoveryQuery(limit=50))
+        related_ids = [
+            product["id"]
+            for look in result["results"]
+            for item in look["items"]
+            for product in item["similar_products"]
+        ]
+
+        self.assertNotIn("original-product", related_ids)
+        self.assertEqual(related_ids.count("shared-related-product"), 1)

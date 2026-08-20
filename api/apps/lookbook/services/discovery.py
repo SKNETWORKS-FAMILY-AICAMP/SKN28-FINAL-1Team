@@ -8,7 +8,7 @@ from django.db.models import Case, IntegerField, Q, Value, When
 
 from apps.catalog.models import NaverProduct
 from apps.lookbook.models import CuratedLook, CuratedLookItem
-from apps.wardrobe.taxonomy import CATEGORY_LARGE
+from apps.wardrobe.taxonomy import CATEGORY_LARGE, is_valid_pair
 
 MAX_RELATED = 3
 MIN_RELATED_KEYWORD_MATCHES = 2
@@ -36,9 +36,13 @@ def _product(product: NaverProduct) -> dict:
     }
 
 
-def _related(item: CuratedLookItem) -> list[dict]:
+def _related(
+    item: CuratedLookItem,
+    excluded_product_ids: set[str] | None = None,
+) -> list[dict]:
     slot = item.slot.strip()
-    if slot not in CATEGORY_LARGE:
+    category_small = item.category_small.strip()
+    if slot not in CATEGORY_LARGE or not is_valid_pair(slot, category_small):
         return []
 
     words = tuple(
@@ -60,17 +64,30 @@ def _related(item: CuratedLookItem) -> list[dict]:
         )
 
     products = (
-        NaverProduct.objects.filter(category_large=slot, lprice__gt=0)
+        NaverProduct.objects.filter(
+            category_large=slot,
+            category_small=category_small,
+            lprice__gt=0,
+        )
         .exclude(image_url__isnull=True)
         .exclude(image_url="")
+        .exclude(link=item.product_url)
         .annotate(keyword_matches=keyword_matches)
         .filter(keyword_matches__gte=MIN_RELATED_KEYWORD_MATCHES)
-        .order_by("-keyword_matches", "lprice", "id")[:MAX_RELATED]
+        .order_by("-keyword_matches", "lprice", "id")
     )
-    return [_product(product) for product in products]
+    if excluded_product_ids:
+        products = products.exclude(naver_product_id__in=excluded_product_ids)
+    selected = list(products[:MAX_RELATED])
+    if excluded_product_ids is not None:
+        excluded_product_ids.update(str(product.naver_product_id) for product in selected)
+    return [_product(product) for product in selected]
 
 
-def _look(look: CuratedLook) -> dict:
+def _look(
+    look: CuratedLook,
+    used_related_product_ids: set[str] | None = None,
+) -> dict:
     items = []
     for source in look.items.all():
         items.append(
@@ -78,14 +95,14 @@ def _look(look: CuratedLook) -> dict:
                 "id": f"curated-{source.pk}",
                 "slot": source.slot,
                 "category_large": source.slot.strip(),
-                "category_small": source.related_keyword,
+                "category_small": source.category_small,
                 "name": source.name,
                 "brand": source.brand or "네이버쇼핑",
                 "image": source.image_url,
                 "price": source.price,
                 "mall_name": "네이버쇼핑",
                 "link": source.product_url,
-                "similar_products": _related(source),
+                "similar_products": _related(source, used_related_product_ids),
             }
         )
     return {
@@ -119,8 +136,13 @@ def list_looks(params: DiscoveryQuery) -> dict:
     return {
         "count": total,
         "next_offset": params.offset + params.limit if params.offset + params.limit < total else None,
-        "results": [_look(look) for look in page],
+        "results": _looks_without_duplicate_related_products(page),
     }
+
+
+def _looks_without_duplicate_related_products(looks) -> list[dict]:
+    used_related_product_ids: set[str] = set()
+    return [_look(look, used_related_product_ids) for look in looks]
 
 
 def get_look(look_id: str) -> dict | None:
@@ -130,4 +152,4 @@ def get_look(look_id: str) -> dict | None:
         .prefetch_related("items")
         .first()
     )
-    return _look(look) if look else None
+    return _look(look, set()) if look else None

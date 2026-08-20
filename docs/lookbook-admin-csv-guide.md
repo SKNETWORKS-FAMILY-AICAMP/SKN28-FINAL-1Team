@@ -148,10 +148,10 @@ data/lookbook/images/street-vintage-001.png
 룩 하나에 보통 3~4줄을 작성한다. 상의·하의·신발은 기본이며 액세서리가 있으면 한 줄을 추가한다.
 
 ```csv
-look_external_id,slot,name,brand,price,product_url,image_url,related_keyword,sort_order
-street-vintage-001,상의,[당일출고]miami 빈티지 프린팅 셔링 반팔티 4color,이너니티,28000,https://shopping.naver.com/window-products/style/13623253921,https://shop-phinf.pstatic.net/20260605_110/1780622711630YoYFX_JPEG/66518542615495680_1437778376.jpeg?type=m450,버건디 빈티지 프린팅 슬림 반팔티,0
-street-vintage-001,하의,[당일출고] 빈티지 캣워싱 구제 버뮤다 데님팬츠 3color,이너니티,38400,https://shopping.naver.com/window-products/style/12054419153,https://shop-phinf.pstatic.net/20260602_140/1780387751097TObMB_JPEG/45982200158121192_928421875.jpg?type=m450,블랙 구제 워싱 버뮤다 데님팬츠,1
-street-vintage-001,신발,당일출고 [5cm] 블레이드 버클 워커 미들부츠,이너니티,38000,https://shopping.naver.com/window-products/style/13523565054,https://shop-phinf.pstatic.net/20260513_59/1778664849693vdoIN_JPEG/7782086749186374_1675422145.jpeg?type=m450,블랙 버클 워커 미들부츠,2
+look_external_id,slot,category_small,name,brand,price,product_url,image_url,related_keyword,sort_order
+street-vintage-001,상의,티셔츠,[당일출고]miami 빈티지 프린팅 셔링 반팔티 4color,이너니티,28000,https://shopping.naver.com/window-products/style/13623253921,https://shop-phinf.pstatic.net/20260605_110/1780622711630YoYFX_JPEG/66518542615495680_1437778376.jpeg?type=m450,버건디 빈티지 프린팅 슬림 반팔티,0
+street-vintage-001,하의,데님 팬츠,[당일출고] 빈티지 캣워싱 구제 버뮤다 데님팬츠 3color,이너니티,38400,https://shopping.naver.com/window-products/style/12054419153,https://shop-phinf.pstatic.net/20260602_140/1780387751097TObMB_JPEG/45982200158121192_928421875.jpg?type=m450,블랙 구제 워싱 버뮤다 데님팬츠,1
+street-vintage-001,신발,부츠,당일출고 [5cm] 블레이드 버클 워커 미들부츠,이너니티,38000,https://shopping.naver.com/window-products/style/13523565054,https://shop-phinf.pstatic.net/20260513_59/1778664849693vdoIN_JPEG/7782086749186374_1675422145.jpeg?type=m450,블랙 버클 워커 미들부츠,2
 ```
 
 이 세 행은 사용자가 최초 테스트용으로 제공한 상의·하의·신발 네이버 쇼핑 링크를 연결한 완성 예시다. 세 행의 `look_external_id`가 모두 `street-vintage-001`이기 때문에 위의 룩 한 개 아래에 구성 상품으로 묶인다.
@@ -160,6 +160,7 @@ street-vintage-001,신발,당일출고 [5cm] 블레이드 버클 워커 미들�
 |---|---|---|
 | `look_external_id` | 필수 | `admin_looks.csv`의 `external_id`와 완전히 동일 |
 | `slot` | 필수 | `상의`, `하의`, `신발`, `액세서리` 중 하나 |
+| `category_small` | 필수 | 관리자가 실물을 검수해 아래 공식 소분류 중 하나를 정확히 입력 |
 | `name` | 필수 | 실제 상품명. 쉼표가 있으면 전체 값을 큰따옴표로 감쌈 |
 | `brand` | 선택 | 브랜드 또는 판매처 이름 |
 | `price` | 선택 | 쉼표와 `원` 없이 숫자만 입력. 예: `28000` |
@@ -169,6 +170,23 @@ street-vintage-001,신발,당일출고 [5cm] 블레이드 버클 워커 미들�
 | `sort_order` | 필수 | 상의 `0`, 하의 `1`, 신발 `2`, 액세서리 `3` 권장 |
 
 한 룩 안에서 동일한 `slot`을 두 번 사용할 수 없다. 상품이 두 개인 경우 `액세서리`를 임의로 반복하지 말고, 데이터 구조 확장 여부를 개발자와 먼저 확인한다.
+
+### 관리자 검수용 대분류·소분류 표
+
+`slot`은 시스템의 대분류이며 `category_small`은 관리자가 상품 사진과 상세페이지를 보고 확정하는 소분류다. 표에 없는 표현이나 대분류와 맞지 않는 조합은 CSV 가져오기 단계에서 거부된다.
+
+| `slot`(대분류) | 허용되는 `category_small`(소분류) |
+|---|---|
+| 상의 | 티셔츠, 셔츠/블라우스, 니트/스웨터, 후드/맨투맨, 민소매 |
+| 하의 | 데님 팬츠, 슬랙스, 코튼 팬츠, 트레이닝 팬츠, 숏팬츠, 스커트, 레깅스 |
+| 아우터 | 자켓, 코트, 패딩, 점퍼/블루종, 가디건, 후드집업, 베스트 |
+| 원피스/세트 | 원피스, 점프수트/오버롤, 셋업, 파자마/홈웨어 세트 |
+| 신발 | 스니커즈, 구두/로퍼, 부츠, 샌들/슬리퍼, 플랫/단화 |
+| 가방 | 백팩, 크로스백, 숄더백, 토트백, 에코백, 클러치/파우치, 지갑 |
+| 액세서리 | 모자, 벨트, 주얼리, 머플러/스카프, 양말, 안경/선글라스, 헤어 액세서리 |
+| 언더웨어/이너웨어 | 브라, 팬티/드로즈, 런닝/캐미솔, 속바지, 보정속옷, 내복/발열 이너 |
+
+예를 들어 원본이 가디건이라면 `아우터,가디건`으로 입력한다. `아우터,패딩` 후보는 비슷한 상품에서 제외된다. 기존 DB 행은 마이그레이션 후 소분류가 공란이므로, 관리자가 검수해 CSV로 다시 등록하기 전까지 해당 행의 비슷한 상품은 노출되지 않는다.
 
 ### 연관 검색어 작성 요령
 

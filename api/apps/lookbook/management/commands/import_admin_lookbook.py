@@ -8,6 +8,7 @@ from django.core.management.base import BaseCommand, CommandError
 from django.db import transaction
 
 from apps.lookbook.models import CuratedLook, CuratedLookItem
+from apps.wardrobe.taxonomy import is_valid_pair
 
 LOOK_COLUMNS = {
     "external_id",
@@ -22,6 +23,7 @@ LOOK_COLUMNS = {
 ITEM_COLUMNS = {
     "look_external_id",
     "slot",
+    "category_small",
     "name",
     "brand",
     "price",
@@ -114,6 +116,26 @@ class Command(BaseCommand):
         unknown = {row["look_external_id"] for row in items} - known
         if unknown:
             raise CommandError("존재하지 않는 룩 ID: " + ", ".join(sorted(unknown)))
+        missing_categories = [
+            f"{row['look_external_id']}:{row['slot']}"
+            for row in items
+            if not row["category_small"].strip()
+        ]
+        if missing_categories:
+            raise CommandError(
+                "관리자 검수 소분류(category_small) 누락: "
+                + ", ".join(missing_categories)
+            )
+        invalid_categories = [
+            f"{row['look_external_id']}:{row['slot']}>{row['category_small']}"
+            for row in items
+            if not is_valid_pair(row["slot"].strip(), row["category_small"].strip())
+        ]
+        if invalid_categories:
+            raise CommandError(
+                "대분류와 맞지 않는 관리자 검수 소분류: "
+                + ", ".join(invalid_categories)
+            )
 
         if options["dry_run"]:
             self.stdout.write(self.style.SUCCESS(f"검증 완료: 룩 {len(looks)}개, 아이템 {len(items)}개"))
@@ -141,6 +163,7 @@ class Command(BaseCommand):
                 look=look_map[row["look_external_id"]],
                 slot=row["slot"],
                 defaults={
+                    "category_small": row["category_small"].strip(),
                     "name": row["name"],
                     "brand": row["brand"],
                     "price": int(row["price"]) if row["price"] else None,

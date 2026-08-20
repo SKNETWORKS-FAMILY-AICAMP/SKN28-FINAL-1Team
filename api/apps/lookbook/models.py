@@ -327,6 +327,12 @@ class CuratedLookItem(models.Model):
         db_comment="운영자 룩 FK",
     )
     slot = models.CharField(max_length=30, db_comment="구성 위치 (상의/하의/신발/액세서리)")
+    category_small = models.CharField(
+        max_length=50,
+        blank=True,
+        default="",
+        db_comment="관리자가 검수·확정한 서비스 소분류 (가디건/패딩/셔츠 등, 공란이면 유사상품 미노출)",
+    )
     name = models.CharField(max_length=500, db_comment="원본 상품명")
     brand = models.CharField(max_length=200, blank=True, db_comment="원본 상품 브랜드 또는 판매처")
     price = models.PositiveIntegerField(null=True, blank=True, db_comment="원본 판매가 (원)")
