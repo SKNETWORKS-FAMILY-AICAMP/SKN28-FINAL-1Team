@@ -4,7 +4,7 @@ import { Tabs, TabList, TabTrigger, TabSlot, TabTriggerSlotProps } from 'expo-ro
 import { Pressable, View, Text, StyleSheet } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import { ChatPanelWidth, Editorial, Fonts, ink, SidebarWidth } from '@/constants/theme';
+import { ChatPanelWidth, Editorial, Fonts, ink, paper, SidebarWidth } from '@/constants/theme';
 import { useBreakpoint } from '@/hooks/use-breakpoint';
 
 import { ChatConversation } from './chat/chat-conversation';
@@ -280,8 +280,7 @@ const styles = StyleSheet.create({
     width: SidebarWidth,
     borderRightWidth: 1,
     borderRightColor: ink(0.08),
-    /* 내비게이션 면은 본문(오트)보다 한 단계 밝은 순백 — Editorial.chrome 주석 참고 */
-    backgroundColor: Editorial.chrome,
+    backgroundColor: Editorial.page,
     paddingHorizontal: 16,
     paddingTop: 28,
     gap: 8,
@@ -317,9 +316,10 @@ const styles = StyleSheet.create({
     zIndex: 10,
     flexDirection: 'row',
     alignItems: 'center',
-    /* 순백이되 살짝 비치게 둔다 — 0.6 이면 오트 본문이 비쳐 흰색으로 안 읽히고,
-       완전 불투명이면 global.css 의 backdrop-filter(글래스)가 의미를 잃는다. */
-    backgroundColor: 'rgba(255, 255, 255, 0.92)',
+    /* 본문과 같은 면 색. 하드코딩 흰색을 쓰면 면 색이 바뀔 때 여기만 흰 판으로 남는다.
+       완전 불투명으로 두지 않는 건 global.css 의 backdrop-filter(글래스) 때문이다 —
+       콘텐츠가 바 뒤로 지나갈 때 은은하게 비쳐야 떠 있는 면으로 읽힌다. */
+    backgroundColor: paper(0.6),
     borderTopWidth: 1,
     borderTopColor: ink(0.06),
     paddingTop: 8,
