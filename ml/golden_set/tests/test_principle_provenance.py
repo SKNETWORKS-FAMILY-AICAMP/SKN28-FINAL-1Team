@@ -162,3 +162,99 @@ class ProvenanceTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class MinimumReviewerTests(unittest.TestCase):
+    """검수자 수를 낮춰 승인하는 경로.
+
+    원래 승인 근거는 "서로 다른 두 사람이 독립적으로 같은 판단을 내렸다"였다. 1명으로
+    낮추면 그 교차 검증이 사라지므로 기본값은 2를 유지하고, 낮추는 것은 호출자가
+    명시적으로 선택해야 한다. 기본값이 조용히 1이 되면 검증 없는 원칙이 적재된다.
+    """
+
+    def _apply(self, run_dir: Path, rows, minimum_reviewers: int):
+        from ml.golden_set.principles import (
+            apply_principle_reviews,
+            create_principle_review_template,
+        )
+
+        run_dir.mkdir(parents=True, exist_ok=True)
+        principle = {
+            "principle_key": "캐주얼:A1_COLOR_HARMONY:p01",
+            "cluster_id": "캐주얼",
+            "axis": "A1_COLOR_HARMONY",
+            "statement": "문장",
+            "applies_when": {"style_intents": ["캐주얼"]},
+            "exceptions": ["예외"],
+            "status": "DRAFT",
+            "knowledge_role": "NEEDS_COUNTEREXAMPLE",
+            "support_image_count": 3,
+            "comparison_evidence_count": 0,
+            "reviewer_count": 2,
+            "eligible_for_scoring": False,
+            "evidence": [],
+        }
+        (run_dir / "principles.jsonl").write_text(
+            json.dumps(principle, ensure_ascii=False) + "\n", encoding="utf-8"
+        )
+        path = create_principle_review_template(run_dir=run_dir, principles=[principle])
+        import csv
+
+        existing = list(csv.DictReader(path.open(encoding="utf-8-sig")))
+        fields = list(existing[0].keys())
+        with path.open("w", encoding="utf-8-sig", newline="") as handle:
+            writer = csv.DictWriter(handle, fieldnames=fields)
+            writer.writeheader()
+            for reviewer, verdict, role in rows:
+                writer.writerow(
+                    {
+                        **existing[0],
+                        "reviewer_label": reviewer,
+                        "verdict": verdict,
+                        "knowledge_role": role,
+                    }
+                )
+        return apply_principle_reviews(
+            run_dir=run_dir,
+            principle_reviews_csv=path,
+            minimum_reviewers=minimum_reviewers,
+        )
+
+    def test_one_reviewer_is_not_enough_by_default(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            result = self._apply(
+                Path(tmp) / "run",
+                [("전하영", "APPROVE", "EXPLANATION_ONLY")],
+                minimum_reviewers=2,
+            )
+        self.assertEqual(result[0]["status"], "DRAFT")
+
+    def test_one_reviewer_approves_when_explicitly_lowered(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            result = self._apply(
+                Path(tmp) / "run",
+                [("전하영", "APPROVE", "EXPLANATION_ONLY")],
+                minimum_reviewers=1,
+            )
+        self.assertEqual(result[0]["status"], "APPROVED")
+        self.assertEqual(result[0]["knowledge_role"], "EXPLANATION_ONLY")
+
+    def test_a_single_reject_still_wins(self) -> None:
+        """1명으로 낮춰도 기각은 그대로 기각이다."""
+        with tempfile.TemporaryDirectory() as tmp:
+            result = self._apply(
+                Path(tmp) / "run",
+                [("전하영", "REJECT", "DISCARD")],
+                minimum_reviewers=1,
+            )
+        self.assertEqual(result[0]["status"], "REJECTED")
+
+    def test_needs_counterexample_stays_draft_even_when_approved(self) -> None:
+        """승인해도 역할이 '반례 필요'면 적재 대상이 아니다."""
+        with tempfile.TemporaryDirectory() as tmp:
+            result = self._apply(
+                Path(tmp) / "run",
+                [("전하영", "APPROVE", "NEEDS_COUNTEREXAMPLE")],
+                minimum_reviewers=1,
+            )
+        self.assertEqual(result[0]["status"], "DRAFT")

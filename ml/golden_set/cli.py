@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 from pathlib import Path
 
 from .analysis import analyze_run
@@ -14,7 +15,7 @@ from .embedding import embed_manifest_images
 from .items import extract_items
 from .manifest import build_manifest, build_manifest_from_s3
 from .principles import apply_principle_reviews, synthesize_principles
-from .qdrant_index import index_run
+from .qdrant_index import index_principles_only, index_run
 from .review import collect_accepted_claims, create_review_templates
 from .review_manifest import build_review_manifest
 from .review_apply import apply_review_payload
@@ -233,9 +234,15 @@ def main() -> None:
     finalize.add_argument("--claim-reviews", type=Path, required=True)
     finalize.add_argument("--pairwise-reviews", type=Path, required=True)
 
-    approve = subparsers.add_parser("approve", help="원칙 2인 검수 결과 반영")
+    approve = subparsers.add_parser("approve", help="원칙 검수 결과 반영")
     approve.add_argument("--run-dir", type=Path, required=True)
     approve.add_argument("--principle-reviews", type=Path, required=True)
+    approve.add_argument(
+        "--minimum-reviewers",
+        type=int,
+        default=2,
+        help="승인에 필요한 검수자 수 (기본 2). 1로 낮추면 교차 검증이 사라진다",
+    )
 
     index = subparsers.add_parser("index", help="Qdrant 파생 컬렉션 적재")
     index.add_argument("--run-dir", type=Path, required=True)
@@ -246,6 +253,11 @@ def main() -> None:
     )
     index.add_argument("--allow-draft", action="store_true")
     index.add_argument("--dry-run", action="store_true")
+    index.add_argument(
+        "--only",
+        choices=["knowledge"],
+        help="원칙만 적재한다. 이미지 임베딩·아이템 산출물이 없어도 된다",
+    )
 
     args = parser.parse_args()
     load_project_env()
@@ -460,12 +472,39 @@ def main() -> None:
         print(f"원칙 초안: {len(principles)}건")
         print(f"원칙 검수표: {args.run_dir / 'principle_reviews.template.csv'}")
     elif args.command == "approve":
+        if args.minimum_reviewers < 2:
+            print(
+                f"주의: 검수자 {args.minimum_reviewers}명으로 승인한다. "
+                "두 사람이 독립적으로 같은 판단을 내렸는지가 원래의 승인 근거였고, "
+                "그 교차 검증이 사라진다."
+            )
         principles = apply_principle_reviews(
             run_dir=args.run_dir,
             principle_reviews_csv=args.principle_reviews,
+            minimum_reviewers=args.minimum_reviewers,
         )
-        approved_count = sum(row.get("status") == "APPROVED" for row in principles)
+        counts: dict[str, int] = {}
+        for row in principles:
+            status = str(row.get("status", "DRAFT"))
+            counts[status] = counts.get(status, 0) + 1
+        approved_count = counts.get("APPROVED", 0)
         print(f"원칙 검수 반영: {len(principles)}건, 승인 {approved_count}건")
+        for status, count in sorted(counts.items()):
+            print(f"   {status:<10} {count}건")
+        if not approved_count:
+            print(
+                "승인 0건 — index가 APPROVED만 적재하므로 knowledge에 아무것도 "
+                "들어가지 않는다. 검수표의 knowledge_role을 확인하라."
+            )
+    elif args.command == "index" and args.only == "knowledge":
+        summary = index_principles_only(
+            run_dir=args.run_dir,
+            settings=settings,
+            text_backend_name=args.text_backend,
+            allow_draft=args.allow_draft,
+            dry_run=args.dry_run,
+        )
+        print(json.dumps(summary, ensure_ascii=False, indent=2))
     elif args.command == "index":
         summary = index_run(
             run_dir=args.run_dir,

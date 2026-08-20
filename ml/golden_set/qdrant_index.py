@@ -16,6 +16,9 @@
 
 from __future__ import annotations
 
+import logging
+import re
+
 import os
 from pathlib import Path
 from typing import Any
@@ -26,9 +29,12 @@ from qdrant_client.models import PointStruct
 
 from .artifacts import read_json, read_jsonl, write_json
 from .config import GoldenSettings, normalize_dataset_status
+from .review_manifest import _taxonomy_styles
 from .embedding import build_text_backend, load_embeddings
 from .items import load_item_vectors
 from .point_ids import point_id
+
+logger = logging.getLogger("golden_set.qdrant_index")
 
 KNOWLEDGE_COLLECTION = "knowledge"
 OUTFIT_COLLECTION = "outfit_goldenset"
@@ -452,18 +458,57 @@ def _outfit_text(
     )
 
 
+#: 임베딩 클러스터가 만든 합성 id. 스타일 이름이 아니라 필터 키로 쓸 수 없다.
+_SYNTHETIC_CLUSTER = re.compile(r"^cluster-\d+$")
+
+
 def _principle_styles(row: dict[str, Any]) -> list[str]:
+    """payload의 `style`. 리트리버가 **필터 키**로 쓰므로 taxonomy 값이어야 한다.
+
+    LLM이 `style_intents`에 스타일 이름 대신 효과 설명을 채우는 일이 잦다 —
+    댄디 클러스터의 원칙에 `['단조로움 피하기', '시각적 대비감 부여']`가 들어가는 식.
+    실제로 승인된 원칙 53건에서 고유값 66개 중 taxonomy 안에 있는 건 6개뿐이었다.
+    그대로 실으면 "댄디"로 거를 때 댄디 원칙이 하나도 안 잡힌다.
+
+    그래서 스타일 라벨링으로 만든 `cluster_id`를 1순위로 쓴다. 사람이 붙인 라벨에서
+    온 값이라 항상 taxonomy 안에 있다. `style_intents`는 taxonomy에 있는 것만 더한다.
+
+    걸러진 문장은 버려지지 않는다 — payload의 `applies_when`에 원본 그대로 남는다.
+    필터 키에서만 빠질 뿐이라 설명·표시에는 계속 쓸 수 있다.
+    """
+    allowed = _taxonomy_styles()
+    values: list[str] = []
+
+    cluster = str(row.get("cluster_id", "")).strip()
+    if cluster and not _SYNTHETIC_CLUSTER.match(cluster):
+        if allowed is None or cluster in allowed:
+            values.append(cluster)
+
     applies_when = row.get("applies_when", {})
     if isinstance(applies_when, dict):
-        return [str(value) for value in applies_when.get("style_intents", [])]
-    values = []
-    for condition in applies_when:
-        if isinstance(condition, str) and condition.startswith("style:"):
-            values.extend(
-                value.strip()
-                for value in condition.removeprefix("style:").split(",")
-                if value.strip()
+        intents = [str(value).strip() for value in applies_when.get("style_intents", [])]
+    else:
+        intents = []
+        for condition in applies_when:
+            if isinstance(condition, str) and condition.startswith("style:"):
+                intents.extend(
+                    value.strip()
+                    for value in condition.removeprefix("style:").split(",")
+                    if value.strip()
+                )
+    if allowed is None:
+        # 검증할 수 없으면 intents를 싣지 않는다. 필터 키에 자유문장이 들어가는 쪽이
+        # 몇 건 놓치는 것보다 나쁘다 — 조용히 검색에서 빠지기 때문이다.
+        if intents:
+            logger.warning(
+                "taxonomy STYLES를 읽을 수 없어 style_intents %d건을 필터 키에서 "
+                "제외한다. applies_when에는 그대로 남는다.",
+                len(intents),
             )
+        return values
+    for value in intents:
+        if value and value in allowed and value not in values:
+            values.append(value)
     return values
 
 
@@ -552,3 +597,113 @@ def _assert_collections(client: QdrantClient) -> None:
             "Qdrant 컬렉션이 없습니다. 먼저 Django의 init_qdrant를 실행하세요: "
             + ", ".join(missing)
         )
+
+
+def index_principles_only(
+    *,
+    run_dir: Path,
+    settings: GoldenSettings,
+    text_backend_name: str = "bge",
+    allow_draft: bool = False,
+    dry_run: bool = False,
+    client: QdrantClient | None = None,
+) -> dict[str, Any]:
+    """승인된 원칙만 `knowledge` 컬렉션에 적재한다.
+
+    `index_run`은 코디·아이템·원칙을 한 번에 처리하느라 `images.jsonl`,
+    `image_embeddings.npz`, `items.jsonl`을 요구한다. 검수 경로(`review-intake`)로
+    만든 run에는 그 산출물이 없다 — 검수에 필요한 것만 들어 있기 때문이다.
+
+    원칙은 텍스트 임베딩만 쓰고 이미지 벡터와 무관하다. 그래서 이미지 파이프라인을
+    다 돌리지 않고도 원칙을 검색 가능하게 만들 수 있다. 이 함수는 그 경로다.
+
+    `dataset_version`은 `run_manifest.json`이 없으면 run 디렉터리 이름에서 얻는다.
+    포인트 id가 이 값으로 결정되므로, 나중에 같은 run을 본 파이프라인으로 다시
+    적재해도 같은 id를 덮어쓴다.
+    """
+    manifest_path = run_dir / "run_manifest.json"
+    if manifest_path.exists():
+        run_manifest = read_json(manifest_path)
+        version = str(run_manifest["dataset_version"])
+        dataset_status = normalize_dataset_status(
+            run_manifest.get("dataset_status"), default=settings.dataset_status
+        )
+    else:
+        version = run_dir.name
+        dataset_status = normalize_dataset_status(None, default=settings.dataset_status)
+
+    principles = read_jsonl(run_dir / "principles.jsonl")
+    allowed_statuses = {"APPROVED", "DRAFT"} if allow_draft else {"APPROVED"}
+    eligible = [row for row in principles if row.get("status") in allowed_statuses]
+    if not eligible:
+        raise ValueError(
+            "적재할 원칙이 없습니다. approve를 먼저 실행했는지, "
+            "knowledge_role이 NEEDS_COUNTEREXAMPLE로만 남지 않았는지 확인하세요."
+        )
+
+    text_backend = build_text_backend(settings, text_backend_name)
+    vectors = text_backend.encode_texts([_principle_text(row) for row in eligible])
+    points = [
+        PointStruct(
+            id=principle_point_id(version, row["principle_key"]),
+            vector={"text": vectors[index].tolist()},
+            payload={
+                "knowledge_type": "golden_principle",
+                "dimension": row.get("axis") or row.get("dimension", ""),
+                "axis": row.get("axis") or row.get("dimension", ""),
+                "status": row.get("status", "DRAFT"),
+                "knowledge_role": row.get("knowledge_role", "NEEDS_COUNTEREXAMPLE"),
+                "principle_type": row.get("principle_type", "SOFT_PRINCIPLE"),
+                "eligible_for_scoring": bool(row.get("eligible_for_scoring", False)),
+                "source": "team_golden_set",
+                "dataset_version": version,
+                "dataset_status": dataset_status,
+                "style": _principle_styles(row),
+                "principle_key": row["principle_key"],
+                "statement": row.get("statement", ""),
+                "applies_when": row.get("applies_when", []),
+                "exceptions": row.get("exceptions", []),
+                "confidence": row.get("confidence", 0.0),
+                "support_image_count": int(row.get("support_image_count", 0)),
+                "comparison_evidence_count": int(
+                    row.get("comparison_evidence_count", 0)
+                ),
+                "reviewer_count": int(row.get("reviewer_count", 0)),
+                "reviewer_agreement": float(row.get("reviewer_agreement", 0.0)),
+                "evidence": row.get("evidence", []),
+                "embedding_version": text_backend.name,
+            },
+        )
+        for index, row in enumerate(eligible)
+    ]
+
+    summary: dict[str, Any] = {
+        "dataset_version": version,
+        "dataset_status": dataset_status,
+        "principle_points": len(points),
+        "principle_statuses": sorted(
+            {str(row.get("status", "DRAFT")) for row in eligible}
+        ),
+        "knowledge_roles": sorted(
+            {str(row.get("knowledge_role", "")) for row in eligible}
+        ),
+        "styles": sorted({s for row in eligible for s in _principle_styles(row)}),
+        "text_embedding_version": text_backend.name,
+        "dry_run": dry_run,
+        "only": "knowledge",
+    }
+    write_json(run_dir / "qdrant_index_plan.knowledge.json", summary)
+    if dry_run:
+        return summary
+
+    if text_backend.name.startswith("deterministic-"):
+        raise RuntimeError(
+            "deterministic 테스트 벡터는 실제 Qdrant에 적재할 수 없습니다. "
+            "--text-backend bge로 다시 실행하세요."
+        )
+
+    qdrant = client or build_client()
+    _assert_collections(qdrant)
+    qdrant.upsert(collection_name=KNOWLEDGE_COLLECTION, points=points, wait=True)
+    summary["upserted"] = {KNOWLEDGE_COLLECTION: len(points)}
+    return summary
