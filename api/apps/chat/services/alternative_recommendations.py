@@ -244,6 +244,56 @@ def mark_alternative_enqueue_failed(*, run_id, persona_id: str) -> None:
 
 
 @transaction.atomic
+def mark_alternative_processing_failed(*, run_id, persona_id: str) -> bool:
+    """워커 예외가 오케스트레이터 복구 전에 나도 기존 카드를 다시 쓸 수 있게 한다."""
+
+    execution = (
+        ChatRunPersona.objects.select_for_update()
+        .filter(
+            run_id=run_id,
+            persona_id=persona_id,
+            status__in=(
+                ChatRunPersona.Status.PENDING,
+                ChatRunPersona.Status.RUNNING,
+            ),
+            alternative_status__in=(
+                ChatRunPersona.AlternativeStatus.PENDING,
+                ChatRunPersona.AlternativeStatus.RUNNING,
+            ),
+        )
+        .first()
+    )
+    if execution is None:
+        return False
+    now = timezone.now()
+    execution.status = ChatRunPersona.Status.SUCCEEDED
+    execution.alternative_status = ChatRunPersona.AlternativeStatus.FAILED
+    execution.alternative_error_code = "STYLIST_ALTERNATIVE_FAILED"
+    execution.alternative_error_message = (
+        "다른 추천을 받지 못했어요. 잠시 후 다시 시도해 주세요."
+    )
+    execution.completed_at = now
+    execution.save(
+        update_fields=[
+            "status",
+            "alternative_status",
+            "alternative_error_code",
+            "alternative_error_message",
+            "completed_at",
+            "updated_at",
+        ]
+    )
+    ChatRun.objects.filter(pk=run_id).update(
+        status=ChatRun.Status.SUCCEEDED,
+        error_code="",
+        error_message="",
+        completed_at=now,
+        updated_at=now,
+    )
+    return True
+
+
+@transaction.atomic
 def reset_interrupted_alternative(*, run_id, persona_id: str) -> bool:
     execution = (
         ChatRunPersona.objects.select_for_update()

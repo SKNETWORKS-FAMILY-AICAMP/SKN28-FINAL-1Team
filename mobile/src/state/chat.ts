@@ -1417,24 +1417,43 @@ export const chatStore = {
         patchCard(current, personaId, (c) => ({ ...c, alternating: true })),
       );
     }
+    try {
+      const accepted = await apiRequestAlternative(runId, personaId);
+      applyRunProgress(sessionId, runId, accepted.run);
+      const target = accepted.run.results.find((r) => r.persona_id === personaId);
+      const expected = target?.alternative_count ?? 0;
 
-    const accepted = await apiRequestAlternative(runId, personaId);
-    applyRunProgress(sessionId, runId, accepted.run);
-    const target = accepted.run.results.find((r) => r.persona_id === personaId);
-    const expected = target?.alternative_count ?? 0;
-
-    await waitForStylistRun(runId, {
-      onProgress: (run) => applyRunProgress(sessionId, runId, run),
-      until: (run) => {
-        const r = run.results.find((x) => x.persona_id === personaId);
-        if (!r) return true;
-        return (
-          r.alternative_count >= expected &&
-          r.alternative_status !== 'PENDING' &&
-          r.alternative_status !== 'RUNNING'
+      const completed = await waitForStylistRun(runId, {
+        onProgress: (run) => applyRunProgress(sessionId, runId, run),
+        until: (run) => {
+          const r = run.results.find((x) => x.persona_id === personaId);
+          if (!r) return true;
+          return (
+            r.alternative_count >= expected &&
+            r.alternative_status !== 'PENDING' &&
+            r.alternative_status !== 'RUNNING'
+          );
+        },
+      });
+      const completedTarget = completed.results.find((r) => r.persona_id === personaId);
+      if (!completedTarget) throw new Error('다른 추천 상태를 확인하지 못했어요');
+      if (completedTarget.alternative_status === 'FAILED') {
+        throw new Error(
+          completedTarget.alternative_error_message ||
+            '다른 추천을 받지 못했어요. 잠시 후 다시 시도해 주세요.',
         );
-      },
-    });
+      }
+    } finally {
+      // 요청 거절·네트워크 오류·폴링 시간 초과에서도 현재 카드를 다시 조작할 수 있어야 한다.
+      const latest = overlaysOf(sessionId).find((o) => o.id === overlayId)?.message;
+      if (latest) {
+        updateOverlay(
+          sessionId,
+          overlayId,
+          patchCard(latest, personaId, (c) => ({ ...c, alternating: false })),
+        );
+      }
+    }
   },
 
   /** 고른 코디를 저장한 뒤 해당 카드 한 장의 이미지 생성만 접수한다. */

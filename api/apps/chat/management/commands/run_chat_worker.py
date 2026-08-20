@@ -20,6 +20,7 @@ from apps.chat.services import queue
 from apps.chat.services.alternative_recommendations import (
     finalize_persisted_alternative,
     mark_alternative_enqueue_failed,
+    mark_alternative_processing_failed,
     reset_interrupted_alternative,
 )
 from apps.chat.services.events import ChatEventStore
@@ -375,6 +376,12 @@ class Command(BaseCommand):
                 "스타일리스트 다른 추천 실패: run=%s persona=%s",
                 run_id,
                 persona_id,
+            )
+            # 시작 단계의 DB 잠금 오류처럼 오케스트레이터 내부 복구 전에 난 예외도
+            # PENDING/RUNNING으로 남기지 않는다. 현재 카드는 그대로 보존한다.
+            mark_alternative_processing_failed(
+                run_id=run_id,
+                persona_id=persona_id,
             )
             current = ChatRun.objects.select_related("response_message").get(pk=run_id)
             self._publish_terminal(current)

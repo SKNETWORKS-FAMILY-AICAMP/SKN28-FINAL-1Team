@@ -159,3 +159,60 @@ class AlternativeRecommendationQueueContractTests(SimpleTestCase):
             raw,
             "run-1:practical:PERSONA_ALTERNATIVE:3",
         )
+
+    def test_worker_recovers_unexpected_alternative_failure_before_ack(self) -> None:
+        payload = {
+            "task": queue.PERSONA_ALTERNATIVE_TASK,
+            "run_id": "run-1",
+            "persona_id": "minimal",
+            "source_result_id": "result-1",
+            "generation": 2,
+        }
+        raw = json.dumps(payload)
+        current = SimpleNamespace(
+            pk="run-1",
+            status="SUCCEEDED",
+            response_message_id=None,
+        )
+        command = Command()
+
+        with (
+            patch(
+                "apps.chat.management.commands.run_chat_worker."
+                "finalize_persisted_alternative",
+                return_value=False,
+            ),
+            patch(
+                "apps.chat.management.commands.run_chat_worker.ChatRun.objects.filter"
+            ) as run_filter_mock,
+            patch(
+                "apps.chat.management.commands.run_chat_worker.ChatRun.objects."
+                "select_related"
+            ) as run_select_mock,
+            patch(
+                "apps.chat.management.commands.run_chat_worker.ChatOrchestrator"
+            ) as orchestrator_mock,
+            patch(
+                "apps.chat.management.commands.run_chat_worker."
+                "mark_alternative_processing_failed"
+            ) as recover_mock,
+            patch(
+                "apps.chat.management.commands.run_chat_worker.queue.ack"
+            ) as ack_mock,
+            patch.object(command, "_publish"),
+            patch.object(command, "_publish_terminal") as terminal_mock,
+        ):
+            run_filter_mock.return_value.exists.return_value = True
+            run_select_mock.return_value.get.return_value = current
+            orchestrator_mock.return_value.process_persona_alternative.side_effect = (
+                RuntimeError("database failure")
+            )
+
+            command._handle_persona_alternative(raw, payload)
+
+        recover_mock.assert_called_once_with(
+            run_id="run-1",
+            persona_id="minimal",
+        )
+        terminal_mock.assert_called_once_with(current)
+        ack_mock.assert_called_once_with(raw, "run-1:minimal:PERSONA_ALTERNATIVE:2")
