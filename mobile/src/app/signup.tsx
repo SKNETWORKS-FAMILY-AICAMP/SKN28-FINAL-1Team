@@ -33,16 +33,43 @@ const TERMS: { key: TermKey; label: string; required: boolean }[] = [
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const MIN_PW = 8;
 
-/* 비밀번호 규칙 안내 — 백엔드 AUTH_PASSWORD_VALIDATORS(api/config/settings/base.py)와 1:1로 맞춘다.
-   길이와 '숫자로만' 여부는 앱에서 서버와 똑같이 판정할 수 있어 실시간 체크로 보여준다.
-   나머지 둘(이메일 유사도는 SequenceMatcher, 흔한 비밀번호는 2만 건 목록)은 서버만 정확히
-   판정할 수 있다 — 지킬 수 없는 ✓ 를 미리 켜 두면 통과한 줄 알았다가 거절당하므로,
-   이 둘은 체크 대신 안내로 두고 서버가 거절하면 그 자리에 사유를 붙인다. */
-const PW_RULES: { label: string; ok: (pw: string) => boolean }[] = [
+/* 비밀번호 규칙 안내 — 기준은 백엔드 AUTH_PASSWORD_VALIDATORS(api/config/settings/base.py)지만,
+   앱에서 **정확히 판정할 수 있는 것만** 체크(✓)로 보여준다.
+
+   '영문·숫자 함께'는 서버(NumericPasswordValidator)보다 한 칸 엄격하다. 서버는 '숫자로만'이
+   아니면 통과시키는데, 그 문구는 무엇을 쓰라는 말인지 알려주지 못한다. 더 엄격한 쪽이라
+   이 화면을 통과하면 서버도 반드시 통과한다.
+
+   '이메일 아이디 그대로 쓰지 않기'는 본래 서버 몫(UserAttributeSimilarityValidator)인데,
+   가입 시리얼라이저가 validate_password(value) 를 **user 없이** 부르고 있어 서버에는
+   비교할 대상이 없다 — 이메일을 그대로 비밀번호로 써도 통과한다. 서버가 고쳐질 때까지
+   앱이 막는다(서버가 고쳐져도 이 규칙은 그대로 맞는 말이라 그냥 둬도 된다).
+
+   흔한 비밀번호(2만 건 목록)만은 서버만 판정할 수 있어 체크 대신 안내로 두고, 거절당하면
+   그 자리에 사유를 붙인다 — 지킬 수 없는 ✓ 를 미리 켜 두면 통과한 줄 알았다가 거절당한다. */
+type PwRule = { label: string; ok: (pw: string, email: string) => boolean };
+
+const PW_RULES: PwRule[] = [
   { label: `${MIN_PW}자 이상`, ok: (pw) => pw.length >= MIN_PW },
-  { label: '숫자로만 이루어지지 않기', ok: (pw) => !/^\d+$/.test(pw) },
+  { label: '영문과 숫자 함께 쓰기', ok: (pw) => /[A-Za-z]/.test(pw) && /\d/.test(pw) },
+  { label: '이메일 아이디를 그대로 쓰지 않기', ok: (pw, email) => !reusesEmail(pw, email) },
 ];
-const PW_SERVER_RULE = '이메일과 비슷하거나 흔히 쓰이는 비밀번호가 아닐 것 (가입할 때 확인해요)';
+const PW_SERVER_RULE = '흔히 쓰이는 비밀번호가 아닐 것 (가입할 때 확인해요)';
+
+/* 빈칸에는 어떤 ✓ 도 켜지 않는다. 한 글자도 안 썼는데 만족한 것처럼 보이면 남은 조건만
+   맞추면 되는 줄 안다 (예전 '숫자로만 이루어지지 않기'가 빈칸에서 켜져 있던 문제). */
+const ruleMet = (rule: PwRule, pw: string, email: string) => pw.length > 0 && rule.ok(pw, email);
+
+/** 이메일이나 그 앞 아이디를 그대로 비밀번호로 쓰는 경우. */
+function reusesEmail(pw: string, email: string): boolean {
+  const p = pw.toLowerCase();
+  const e = email.trim().toLowerCase();
+  if (!p || !e) return false;
+  if (p === e) return true;
+  const id = e.split('@')[0];
+  /* 짧은 아이디(예: 'kim')까지 '포함'으로 막으면 멀쩡한 비밀번호가 애먼 이유로 걸린다. */
+  return id.length >= 4 && p.includes(id);
+}
 
 // A4 회원가입 — 이메일/비밀번호 + 약관 동의 → 권한 동의(A6)로 진입
 export default function Signup() {
@@ -82,7 +109,7 @@ export default function Signup() {
       : null;
   const pwError = !pw
     ? '비밀번호를 입력해 주세요'
-    : PW_RULES.every((rule) => rule.ok(pw))
+    : PW_RULES.every((rule) => ruleMet(rule, pw, email))
       ? null
       : '아래 조건을 모두 만족해야 해요';
   const pw2Error = pw2 !== pw ? '비밀번호가 일치하지 않아요' : null;
@@ -169,7 +196,7 @@ export default function Signup() {
             {/* 규칙은 입력 전부터 띄운다 — 무엇을 요구하는지 먼저 알아야 한 번에 통과한다. */}
             <View style={styles.pwRules}>
               {PW_RULES.map((rule) => {
-                const ok = rule.ok(pw);
+                const ok = ruleMet(rule, pw, email);
                 return (
                   <View key={rule.label} style={styles.pwRuleRow}>
                     <Text style={[styles.pwRuleMark, ok && styles.pwRuleMarkOn]}>
