@@ -392,8 +392,6 @@ const styles = StyleSheet.create({
     borderRadius: 14,
     alignItems: 'center',
     justifyContent: 'center',
-    borderWidth: 2,
-    borderColor: '#FFFFFF',
   },
   memberDotOverlap: { marginLeft: -8 },
   memberInitial: { fontSize: 11, fontWeight: '600', color: '#FFFFFF' },

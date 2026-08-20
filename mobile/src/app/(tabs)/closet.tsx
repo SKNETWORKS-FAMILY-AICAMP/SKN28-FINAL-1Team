@@ -1592,9 +1592,12 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: Editorial.line,
   },
-  dialogRoleBadgeOwner: { backgroundColor: Editorial.ink, borderColor: Editorial.ink },
+  dialogRoleBadgeOwner: {
+    backgroundColor: Editorial.selected,
+    borderColor: Editorial.selected,
+  },
   dialogRoleText: { fontSize: 11, fontWeight: '700', color: Editorial.textCaption },
-  dialogRoleTextOwner: { color: Editorial.surface },
+  dialogRoleTextOwner: { color: Editorial.white },
   dialogInput: {
     height: 48,
     marginTop: 20,
