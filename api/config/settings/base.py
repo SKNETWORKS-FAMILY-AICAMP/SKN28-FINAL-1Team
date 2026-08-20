@@ -468,6 +468,13 @@ RETRIEVER_SCROLL_CAP = int(os.getenv("RETRIEVER_SCROLL_CAP", "2000"))
 RETRIEVER_SCROLL_PAGE = int(os.getenv("RETRIEVER_SCROLL_PAGE", "256"))
 RETRIEVER_WARDROBE_ID_CAP = int(os.getenv("RETRIEVER_WARDROBE_ID_CAP", "1000"))
 
+#: 사람 쌍대 비교 앵커(human_score)를 규칙 가감점으로 환산할 때의 최대 폭.
+#: 중앙값 50을 0으로 두고 ±이 값 범위로 옮긴 뒤 score_confidence로 줄인다.
+#: rule_prefer(15)·context_match(10)와 같은 척도이며, 0이면 앵커를 쓰지 않는다.
+RETRIEVER_HUMAN_SCORE_WEIGHT = float(
+    os.getenv("RETRIEVER_HUMAN_SCORE_WEIGHT", "15")
+)
+
 # 코디 payload의 아이템 요약에는 fit·length·pattern이 없다. 체형 규칙은 정확히
 # 그 축으로 조건을 걸기 때문에, 붙이지 않으면 모든 체형 규칙이 0점이 된다.
 # 태그는 아이템 컬렉션(goldenset_items)에 이미 있으므로 조회 시점에 합친다.
