@@ -14,7 +14,6 @@ import {
 import { saveTodayLook } from '@/lib/dailyLookApi';
 import { addWardrobeItemToCloset } from '@/lib/wardrobeApi';
 import { authStore } from '@/state/auth';
-import { CLOSET_ITEMS } from '@/constants/wardrobe';
 import type { EntryItem } from '@/state/calendar';
 
 /**
@@ -26,7 +25,7 @@ import type { EntryItem } from '@/state/calendar';
  * 앱을 껐다 켜면 사라지는 값이라는 뜻이다.
  *
  * 서버에 올릴 수 없는 룩(번들 목업 이미지만 있는 것)은 예전처럼 로컬에만 담는다.
- * 비로그인은 서버를 부르지 않는다 — 시드가 그대로 보인다.
+ * 비로그인은 서버를 부르지 않는다 — 이 기기에 담은 것만 보인다.
  */
 
 /**
@@ -98,52 +97,10 @@ function keyOf(look: { image?: string; asset?: number }): string | null {
   return null;
 }
 
-// 데모용 시드 — 이전에 저장해 둔 룩(피드와 같은 사진을 써서 로드 보장).
-const SEED_SAVED: SavedLook[] = [
-  {
-    id: 's1',
-    image: 'https://i.pinimg.com/736x/c1/ae/c8/c1aec88282cee841eca0f6e0da5d1174.jpg',
-    comment: '차분한 출근 룩',
-    memo: '회사 발표 있는 날 입기 좋았음. 로퍼 대신 부츠도 잘 어울릴 듯.',
-    reason: '8도의 쌀쌀한 날씨에 맞춰 니트와 코트로 보온성을 확보하고, 미니멀 무드에 맞게 톤을 절제한 오피스 코디예요.',
-    origin: 'ai',
-    tags: ['출근', '미니멀'],
-    savedAt: 2,
-  },
-  {
-    id: 's2',
-    image: 'https://i.pinimg.com/736x/32/7a/f3/327af326d108881015d4eea726f1cb51.jpg',
-    comment: '포근한 데일리',
-    origin: 'ai',
-    tags: ['출근'],
-    savedAt: 1,
-  },
-  /* 내 옷장 옷으로 직접 기록한 룩 — 캘린더 7/7 기록과 서로를 가리킨다(state/calendar.ts SEED_ENTRIES). */
-  {
-    id: 's3',
-    image: 'https://i.pinimg.com/736x/55/26/0d/55260de328aec1e50740655fd4b5fdc5.jpg',
-    comment: '기념일 저녁 약속',
-    origin: 'closet',
-    note: '기념일 저녁 약속',
-    entryDate: '2026-07-07',
-    items: CLOSET_ITEMS.filter((i) => ['1', '4', '6'].includes(i.id)).map((i) => ({
-      id: i.id,
-      source: 'closet' as const,
-      name: i.name,
-      image: i.image,
-    })),
-    tags: ['데이트'],
-    savedAt: 3,
-  },
-];
-
-/** 데모 시드의 id — 서버 룩을 받아 오면 이것들만 걷어낸다. */
-const SEED_IDS = new Set(SEED_SAVED.map((l) => l.id));
-
 /** 서버에서 받은 룩. 로그인 상태에서만 채워진다. */
 let serverLooks: SavedLook[] = [];
-/** 서버에 올릴 수 없어 이 기기에만 남는 룩 — 번들 목업 이미지만 있는 추천 룩과 비로그인 시드. */
-let localLooks: SavedLook[] = [...SEED_SAVED];
+/** 서버에 올릴 수 없어 이 기기에만 남는 룩 — 번들 목업 이미지만 있는 추천 룩과 비로그인 저장분. */
+let localLooks: SavedLook[] = [];
 /** 둘을 합쳐 최신순으로 세운 것. useSyncExternalStore 가 같은 참조를 받아야 해서 캐시한다. */
 let savedLooks: SavedLook[] = [...localLooks];
 
@@ -239,12 +196,7 @@ export const savedLookStore = {
    * 저장. 사진이 같은 룩이 이미 있으면 중복 추가하지 않고 기존 것을 돌려준다.
    * origin 기본값이 'ai' 인 이유: 이 함수를 부르는 기존 자리(홈·룩 상세)가 전부 추천 룩 저장이다.
    */
-  /**
-   * 내 룩북을 서버에서 받아 온다. 비로그인·데모 세션은 서버를 부르지 않고 시드를 그대로 둔다.
-   *
-   * 한 번 받아 오면 데모 시드는 걷어낸다 — 내 룩과 남의 데모 룩이 한 그리드에 섞이면
-   * 어느 것이 진짜 내 기록인지 읽히지 않는다.
-   */
+  /** 내 룩북을 서버에서 받아 온다. 비로그인·데모 세션은 서버를 부르지 않는다. */
   async load(): Promise<void> {
     if (!isAuthed()) {
       loadState = { loading: false, error: null, loaded: true };
@@ -256,7 +208,6 @@ export const savedLookStore = {
     try {
       const page = await listLookbooks({ limit: 100 });
       serverLooks = page.results.map(toLook);
-      if (!loadState.loaded) localLooks = localLooks.filter((l) => !SEED_IDS.has(l.id));
       loadState = { loading: false, error: null, loaded: true };
       notify();
       /* 앱을 껐다 켜거나 한참 만에 들어오면 아직 처리 중인 룩이 있을 수 있다 —
