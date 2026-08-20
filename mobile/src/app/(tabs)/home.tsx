@@ -1,6 +1,6 @@
 import { Icon } from '@/components/icon';
-import { router } from 'expo-router';
-import { useCallback, useMemo, useState } from 'react';
+import { router, useFocusEffect } from 'expo-router';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ActivityIndicator, Pressable, RefreshControl, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
@@ -15,6 +15,7 @@ import { useHome, type HomeData, type HomeWeather } from '@/hooks/use-home';
 import { useRefresh } from '@/hooks/use-refresh';
 import { useWardrobeItems } from '@/hooks/use-wardrobe';
 import {
+  DAILY_LOOK_EMPTY_RETRY,
   DAILY_LOOK_ONCE_A_DAY,
   dailyLookPhase,
   type DailyLook,
@@ -82,6 +83,30 @@ export default function HomeScreen() {
   /* 추천 카드가 그려야 할 단계. 이 세 갈래를 구분하지 않으면 "아직 없음"이
      "완성됨"과 같은 모양으로 나가고, 그게 목업이 진짜 추천처럼 보이던 원인이었다. */
   const lookPhase: DailyLookPhase = dailyLookPhase(dailyLook, dailyStalled);
+
+  /* 프로필을 채우고 돌아온 사용자를 위해, 추천이 '준비 안 됨'일 때만 복귀 시 다시 묻는다.
+
+     서버는 EMPTY 로 끝난 오늘의 룩을 체형·추구미가 바뀌었으면 그 자리에서 다시 만든다
+     (ensure_today_look). 그런데 홈은 탭 스택에 얹혀 한 번 뜨면 언마운트되지 않아,
+     '프로필 채우기'로 나갔다 돌아와도 홈 API 를 다시 부르지 않는다 — 그러면 서버에게
+     다시 만들 기회 자체가 없고, 안내대로 한 사용자는 종일 같은 화면을 본다.
+
+     완성·생성중일 때는 부르지 않는다. 생성은 하루 한 번이라 결과가 같고, 탭을 오갈
+     때마다 왕복만 는다. 판단값을 ref 로 읽는 이유는 useFocusEffect 의 콜백 신원이
+     바뀌면 (포커스를 잃지 않았어도) 정리 후 다시 실행되기 때문이다 — 의존성에 상태를
+     넣으면 화면에 머무는 동안에도 재조회가 돈다. */
+  const recheckLookRef = useRef(false);
+  useEffect(() => {
+    recheckLookRef.current = status === 'authed' && !isDemo && lookPhase === 'unavailable';
+  }, [status, isDemo, lookPhase]);
+  const focusedOnceRef = useRef(false);
+  useFocusEffect(
+    useCallback(() => {
+      // 첫 포커스는 마운트 직후라 이미 불러오고 있다.
+      if (focusedOnceRef.current && recheckLookRef.current) void reloadAll();
+      focusedOnceRef.current = true;
+    }, [reloadAll]),
+  );
 
   /* 옷장이 비었는지는 **실제 옷장**에 물어본다.
      홈 API 의 closet_count 는 백엔드가 아직 고정값(MOCK_CLOSET_COUNT)을 주기 때문에,
@@ -499,9 +524,11 @@ function UnavailableLook({
         onPress={() => (empty ? router.push('/edit-profile') : onRetry())}>
         <Text style={styles.unavailableBtnText}>{empty ? '프로필 채우기' : '다시 시도'}</Text>
       </Pressable>
-      {/* 여기서 특히 필요한 안내다 — 프로필을 채우거나 다시 시도해도 오늘 것은 이미
-          만들어진 뒤라, 채운 내용은 내일 룩부터 반영된다. */}
-      <Text style={styles.onceADay}>{DAILY_LOOK_ONCE_A_DAY}</Text>
+      {/* EMPTY 는 '오늘 것은 이미 만들어졌다'가 적용되지 않는 유일한 상태다 —
+          서버가 프로필 변경을 보고 다시 만들어 준다. 그래서 안내도 갈라 놓는다. */}
+      <Text style={styles.onceADay}>
+        {empty ? DAILY_LOOK_EMPTY_RETRY : DAILY_LOOK_ONCE_A_DAY}
+      </Text>
     </View>
   );
 }
