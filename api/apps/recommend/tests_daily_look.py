@@ -5,6 +5,7 @@
 
 - 하루 1건 멱등성 (여러 기기 동시 로그인)
 - '생성 중'과 '후보 없음'의 구분 (폴링할지 말지가 갈린다)
+- '후보 없음'이 프로필을 채우면 풀리는지 (안 풀리면 안내가 거짓말이 된다)
 - 큐가 죽었을 때 행이 고아로 남지 않는지
 - LLM이 후보에 없는 코디를 지어내지 않는지
 - 카드 태그가 룩북과 같은 어휘인지 (어휘가 갈리면 필터와 이어지지 않는다)
@@ -18,6 +19,7 @@ from unittest.mock import patch
 
 from django.contrib.auth import get_user_model
 from django.test import TestCase
+from django.utils import timezone
 from django.urls import reverse
 from rest_framework.test import APIClient
 
@@ -112,6 +114,110 @@ class EnsureTodayLookTests(TestCase):
         look, created = service.ensure_today_look(self.user)
         self.assertTrue(created)
         self.assertEqual(look.status, DailyLook.Status.QUEUED)
+
+
+class EmptyRequeueTests(TestCase):
+    """EMPTY로 끝난 그날의 룩을, 프로필을 채우고 돌아오면 다시 걸어 주는지.
+
+    행은 (user, look_date) 하루 한 건이라 여기가 막히면 사용자는 화면이 안내한
+    대로 프로필을 채우고 홈에 돌아와도 종일 같은 "추천 없음"을 본다. 반대로
+    조건 없이 다시 걸면 홈에 들어올 때마다 리트리버가 도므로, 두 방향을 모두
+    고정한다.
+    """
+
+    def setUp(self):
+        self.user = User.objects.create(username="u5")
+
+    def _empty_look(self, **snapshot):
+        return DailyLook.objects.create(
+            user=self.user,
+            look_date=service.today(),
+            status=DailyLook.Status.EMPTY,
+            error="조건에 맞는 골든 코디 후보가 없습니다",
+            finished_at=timezone.now(),
+            candidates=[{"golden_id": "001"}],
+            **snapshot,
+        )
+
+    @patch("apps.recommend.services.daily_look.queue_service.push")
+    @patch("apps.recommend.services.daily_look.build_analysis_context", return_value=CONTEXT)
+    @patch(
+        "apps.recommend.services.daily_look.build_profile_context",
+        return_value={"body": CONTEXT["body"], "pursuit": CONTEXT["pursuit"]},
+    )
+    def test_filled_profile_requeues_the_same_row(self, _profile, _ctx, push):
+        look = self._empty_look(body=None, pursuit=None)
+
+        returned, created = service.ensure_today_look(self.user)
+
+        self.assertFalse(created)  # 행을 새로 만든 것은 아니다
+        self.assertEqual(returned.pk, look.pk)
+        self.assertEqual(returned.status, DailyLook.Status.QUEUED)
+        # 호출부는 이 인스턴스를 그대로 직렬화한다. 갱신 전 값을 들고 있으면
+        # 방금 다시 건 룩이 화면에는 계속 EMPTY로 보인다.
+        self.assertEqual(returned.body, CONTEXT["body"])
+        self.assertEqual(returned.error, "")
+        self.assertIsNone(returned.finished_at)
+        self.assertEqual(returned.candidates, [])
+        self.assertIsNotNone(returned.enqueued_at)
+        self.assertEqual(push.call_count, 1)
+        self.assertEqual(DailyLook.objects.filter(user=self.user).count(), 1)
+
+    @patch("apps.recommend.services.daily_look.queue_service.push")
+    @patch("apps.recommend.services.daily_look.build_analysis_context", return_value=CONTEXT)
+    @patch(
+        "apps.recommend.services.daily_look.build_profile_context",
+        return_value={"body": CONTEXT["body"], "pursuit": CONTEXT["pursuit"]},
+    )
+    def test_unchanged_profile_is_left_alone(self, _profile, _ctx, push):
+        """입력이 그대로면 결과도 그대로다 — 홈 진입마다 리트리버를 돌리지 않는다."""
+        self._empty_look(body=CONTEXT["body"], pursuit=CONTEXT["pursuit"])
+
+        returned, created = service.ensure_today_look(self.user)
+
+        self.assertFalse(created)
+        self.assertEqual(returned.status, DailyLook.Status.EMPTY)
+        self.assertEqual(push.call_count, 0)
+
+    @patch("apps.recommend.services.daily_look.queue_service.push")
+    @patch("apps.recommend.services.daily_look.build_analysis_context", return_value=CONTEXT)
+    @patch(
+        "apps.recommend.services.daily_look.build_profile_context",
+        return_value={"body": CONTEXT["body"], "pursuit": CONTEXT["pursuit"]},
+    )
+    def test_requeue_happens_once_even_if_home_is_opened_again(self, _profile, _ctx, push):
+        """재큐잉 직후 다시 홈을 열어도 두 번 걸리지 않는다 (QUEUED는 대상이 아니다)."""
+        self._empty_look(body=None, pursuit=None)
+
+        service.ensure_today_look(self.user)
+        second, _ = service.ensure_today_look(self.user)
+
+        self.assertEqual(second.status, DailyLook.Status.QUEUED)
+        self.assertEqual(push.call_count, 1)
+
+    @patch("apps.recommend.services.daily_look.queue_service.push")
+    @patch("apps.recommend.services.daily_look.build_analysis_context", return_value=CONTEXT)
+    @patch(
+        "apps.recommend.services.daily_look.build_profile_context",
+        return_value={"body": CONTEXT["body"], "pursuit": CONTEXT["pursuit"]},
+    )
+    def test_terminal_rows_other_than_empty_are_untouched(self, _profile, _ctx, push):
+        """성공한 룩은 하루 한 벌이고, FAILED는 사용자가 '다시 시도'를 누르는 자리다."""
+        for status in (DailyLook.Status.SUCCEEDED, DailyLook.Status.FAILED):
+            with self.subTest(status=status):
+                DailyLook.objects.filter(user=self.user).delete()
+                DailyLook.objects.create(
+                    user=self.user,
+                    look_date=service.today(),
+                    status=status,
+                    body=None,
+                    pursuit=None,
+                )
+
+                returned, _ = service.ensure_today_look(self.user)
+
+                self.assertEqual(returned.status, status)
+                self.assertEqual(push.call_count, 0)
 
 
 class RunTests(TestCase):
@@ -349,7 +455,14 @@ class TodayLookApiTests(TestCase):
 
     @patch("apps.recommend.services.daily_look.queue_service.push")
     @patch("apps.recommend.services.daily_look.build_analysis_context", return_value=CONTEXT)
-    def test_empty_look_tells_frontend_to_stop_polling(self, _ctx, _push):
+    # 프로필이 그대로여야 EMPTY가 유지된다. 바뀌었으면 조회 시점에 재생성이
+    # 걸려 QUEUED가 되는 것이 맞다(EmptyRequeueTests). 이 픽스처의 사용자는
+    # DB에 체형 행이 없어 실제 프로필과 CONTEXT가 어긋나므로 함께 고정한다.
+    @patch(
+        "apps.recommend.services.daily_look.build_profile_context",
+        return_value={"body": CONTEXT["body"], "pursuit": CONTEXT["pursuit"]},
+    )
+    def test_empty_look_tells_frontend_to_stop_polling(self, _profile, _ctx, _push):
         look, _ = service.ensure_today_look(self.user)
         look.status = DailyLook.Status.EMPTY
         look.save()

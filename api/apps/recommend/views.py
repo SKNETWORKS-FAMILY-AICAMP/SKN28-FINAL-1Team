@@ -1744,7 +1744,8 @@ class DailyLookTodayView(APIView):
             "**상태별 프론트 동작**\n"
             "- `QUEUED` / `PROCESSING`: `poll_after_ms` 뒤에 다시 호출\n"
             "- `SUCCEEDED`: `result` 표시\n"
-            "- `EMPTY`: 폴링하지 말 것. 프로필 입력 안내\n"
+            "- `EMPTY`: 폴링하지 말 것. 프로필 입력 안내. 체형·추구미를 저장한 뒤 "
+            "다시 호출하면 그 프로필로 재생성이 걸려 `QUEUED`로 바뀐다\n"
             "- `FAILED`: 다음 호출에서 자동 재시도되지 않는다. 사용자에게 알린다\n\n"
             "코디 선택은 검색 단계에서 결정적으로 끝난다. 문장 생성(LLM)이 실패해도 "
             "`SUCCEEDED`이며, 그때는 `result.generated_by`가 `template`이다.\n\n"
@@ -1758,7 +1759,8 @@ class DailyLookTodayView(APIView):
             "`SUCCEEDED`인데 `render_image_url`이 null이면, 잠시 뒤 다시 조회할 때 "
             "값이 생길 수 있다 — 폴링을 계속할 필요는 없고 다음 진입에서 채워진다.\n\n"
             "위경도를 주면 그 위치의 날씨로 추천한다. 생성은 하루 한 번뿐이라 "
-            "이미 만들어진 뒤의 좌표는 반영되지 않는다."
+            "이미 만들어진 뒤의 좌표는 반영되지 않는다(`EMPTY` 재생성은 예외 — "
+            "그때는 그 시점 날씨로 다시 만든다)."
         ),
         parameters=[
             OpenApiParameter(

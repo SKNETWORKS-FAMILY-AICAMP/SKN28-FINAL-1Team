@@ -1,6 +1,7 @@
 """오늘의 룩 생성 서비스.
 
     ensure_today_look()  홈 진입·조회 시점: 그날 행이 없으면 만들고 큐에 넣는다
+                         (EMPTY로 끝난 행은 프로필이 바뀌었으면 다시 큐에 넣는다)
     claim() / run()      워커에서: 리트리버 → Gemini → 결과 기록
 
 코디 평가(services/analysis.py)와 뼈대는 같지만 시작점이 다르다. 저쪽은 사용자가
@@ -37,7 +38,10 @@ from apps.recommend.services.mixed_outfit_render import (
     RenderItemReference,
     RenderSource,
 )
-from apps.recommend.services.outfit_context import build_analysis_context
+from apps.recommend.services.outfit_context import (
+    build_analysis_context,
+    build_profile_context,
+)
 from apps.recommend.services.retriever import RetrievalRequest, retrieve_outfits
 from apps.recommend.services.style_rules import load_body_rules
 from apps.recommend.services import vocabulary
@@ -99,11 +103,17 @@ def _recent_golden_ids(user, look_date: date) -> frozenset[str]:
 def ensure_today_look(user, *, lat: float | None = None, lon: float | None = None):
     """그날 행이 없으면 만들고 큐에 넣는다. 이미 있으면 그대로 돌려준다.
 
+    예외가 하나 있다. EMPTY로 끝난 행은 프로필이 그 뒤로 바뀌었으면 다시 큐에
+    넣는다(_requeue_if_profile_changed). created는 그때도 False다 — 행을 새로
+    만든 것은 아니기 때문이다.
+
     Returns: (DailyLook, created)
     """
     look_date = today(user)
     existing = DailyLook.objects.filter(user=user, look_date=look_date).first()
     if existing is not None:
+        if existing.status == DailyLook.Status.EMPTY:
+            _requeue_if_profile_changed(existing, lat=lat, lon=lon)
         return existing, False
 
     context = build_analysis_context(user, lat=lat, lon=lon)
@@ -137,6 +147,87 @@ def ensure_today_look(user, *, lat: float | None = None, lon: float | None = Non
     except Exception:  # noqa: BLE001 — 큐가 죽어도 행은 남기고 워커가 쓸어담는다
         logger.exception("오늘의 룩 %s 큐 적재 실패", look.pk)
     return look, True
+
+
+def _profile_fingerprint(body: Any, pursuit: Any) -> str:
+    """체형·추구미 스냅샷의 지문. 값이 같으면 같은 문자열이 나온다."""
+    payload = json.dumps(
+        {"body": body, "pursuit": pursuit},
+        sort_keys=True,
+        ensure_ascii=False,
+        default=str,
+    )
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
+
+def _requeue_if_profile_changed(
+    look: DailyLook,
+    *,
+    lat: float | None,
+    lon: float | None,
+) -> bool:
+    """EMPTY로 끝난 그날의 룩을, 프로필이 바뀌었으면 다시 큐에 넣는다.
+
+    Returns: 다시 걸었으면 True.
+
+    EMPTY의 원인은 대개 미완성 프로필이다 — 성별이 없으면 run()이 아예 만들지
+    않고, 조건이 좁으면 후보가 0건이다. 그런데 행은 (user, look_date)에 하루
+    한 건이라, 화면이 안내한 대로 프로필을 채우고 홈에 돌아와도 종일 같은 EMPTY
+    행이 나갔다. 사용자 입장에서는 하라는 대로 했는데 화면이 그대로다.
+
+    조건은 "프로필이 바뀌었는가" 하나로 둔다.
+    - EMPTY라고 무조건 다시 돌리면 홈에 들어올 때마다 리트리버가 도는데,
+      입력이 그대로면 결과도 그대로다(비용만 든다).
+    - '성별이 채워졌는가'로 좁히면 성별은 있는데 후보가 0건이라 EMPTY가 된
+      사용자가 추구미의 기피축을 풀어도 다음 날까지 기다리게 된다.
+    - 날씨는 판단에서 뺀다. 분 단위로 바뀌므로 넣으면 매 진입이 곧 재큐잉이다.
+      다만 **다시 걸 때는** 그 시점 날씨로 스냅샷을 갱신한다 — 아침에 EMPTY가
+      난 룩을 저녁에 다시 만드는데 아침 기온을 쓸 이유가 없다.
+
+    SUCCEEDED·FAILED는 건드리지 않는다. 성공한 룩은 하루 한 벌이라는 약속이
+    있고, FAILED는 조회 API 문서가 "자동 재시도하지 않는다"고 못박은 상태다
+    (사용자가 '다시 시도'를 누르는 자리가 따로 있다).
+    """
+    profile = build_profile_context(look.user)
+    if _profile_fingerprint(profile["body"], profile["pursuit"]) == _profile_fingerprint(
+        look.body, look.pursuit
+    ):
+        return False
+
+    context = build_analysis_context(look.user, lat=lat, lon=lon)
+    body = context.get("body")
+    now = timezone.now()
+    # 상태 조건을 건 update로 바꾼다. 여러 기기에서 동시에 홈을 열면 같은 행을
+    # 두 번 걸 수 있는데, 그러면 워커가 같은 작업을 두 번 돌린다. 생성 때 유니크
+    # 제약이 하던 역할을 여기서는 이 조건이 한다.
+    changed = DailyLook.objects.filter(
+        pk=look.pk, status=DailyLook.Status.EMPTY
+    ).update(
+        status=DailyLook.Status.QUEUED,
+        weather=context.get("weather") or {},
+        body=body,
+        body_profile=_profile_snapshot(build_profile(body)),
+        pursuit=context.get("pursuit"),
+        candidates=[],
+        error="",
+        finished_at=None,
+        enqueued_at=None,
+        updated_at=now,
+    )
+    if not changed:
+        return False
+
+    try:
+        queue_service.push({"look_id": str(look.pk)}, spec=queue_service.DAILY_LOOK)
+        DailyLook.objects.filter(pk=look.pk).update(enqueued_at=now, updated_at=now)
+    except Exception:  # noqa: BLE001 — 행은 QUEUED로 남고 워커 --sweep이 주워간다
+        logger.exception("오늘의 룩 %s 재적재 실패", look.pk)
+
+    # 호출부(홈·조회 API)는 이 인스턴스를 그대로 직렬화한다. 갱신 전 값을 들고
+    # 있으면 방금 다시 건 룩이 화면에는 계속 EMPTY로 보인다.
+    look.refresh_from_db()
+    logger.info("오늘의 룩 %s: 프로필 변경으로 재생성 접수", look.pk)
+    return True
 
 
 def _profile_snapshot(profile) -> dict[str, Any]:

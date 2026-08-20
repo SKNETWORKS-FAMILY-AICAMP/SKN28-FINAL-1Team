@@ -86,6 +86,16 @@ export type DailyLook = {
 export const DAILY_LOOK_ONCE_A_DAY =
   '오늘의 룩은 하루에 한 번 만들어져요. 새 룩은 내일 도착해요.';
 
+/**
+ * 후보를 못 찾아(EMPTY) 안내를 띄울 때의 문구.
+ *
+ * 여기서는 위의 '내일 도착' 이 거짓말이 된다 — 서버는 EMPTY 로 끝난 오늘의 룩만은
+ * 체형·추구미가 바뀌면 그 자리에서 다시 만든다(ensure_today_look). "내일부터 반영"
+ * 이라고 적어 두면 방금 프로필을 채운 사용자가 홈으로 돌아올 이유를 잃는다.
+ */
+export const DAILY_LOOK_EMPTY_RETRY =
+  '프로필을 채우고 홈으로 돌아오면 오늘 것부터 다시 만들어 드려요.';
+
 /** 아직 결과가 없어 폴링을 계속해야 하는 상태 */
 export function isDailyLookPending(look: DailyLook | null): boolean {
   return look?.status === 'QUEUED' || look?.status === 'PROCESSING';
