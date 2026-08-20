@@ -559,11 +559,19 @@ def _forced_point_ids(run_dir: Path, dataset_version: str) -> set[str]:
 
 
 def build_client() -> QdrantClient:
-    """환경변수로 Qdrant 클라이언트를 만든다 (index_run과 preflight 공용)."""
+    """환경변수로 Qdrant 클라이언트를 만든다 (index_run과 preflight 공용).
+
+    `port=None`은 필수다. 이걸 빼면 qdrant-client가 URL에 포트가 없을 때 **스킴과
+    무관하게 6333**을 붙여서, 443만 열린 엔드포인트(Cloudflare 터널 등)에서 TCP
+    타임아웃이 난다. `healthz`는 붙는데 클라이언트만 죽어 원인을 찾기 어렵다.
+    api/apps/recommend/services/qdrant.py도 같은 이유로 같은 인자를 쓴다.
+    """
     return QdrantClient(
         url=os.getenv("QDRANT_URL", "http://localhost:6333"),
         api_key=os.getenv("QDRANT_API_KEY") or None,
         timeout=int(os.getenv("QDRANT_TIMEOUT", "30")),
+        port=None,
+        prefer_grpc=False,
     )
 
 
