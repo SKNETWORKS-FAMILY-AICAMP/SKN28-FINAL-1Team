@@ -28,8 +28,8 @@ _IMAGE_KEYS = ("image_s3_key", "s3_key")
 #: 우리 버킷에서 못 찾았을 때 마지막으로 볼 원본 주소.
 _URL_KEYS = ("image_url", "thumbnail_url")
 
-#: 스냅샷에 버킷이 없을 때 쓰는 출처별 기본 버킷. 렌더러와 같은 규칙이다
-#: (mixed_outfit_render._default_bucket) — 같은 이미지를 가리켜야 하기 때문이다.
+#: 출처별 버킷. 렌더러와 같은 규칙이다 (mixed_outfit_render._default_bucket)
+#: — 같은 이미지를 가리켜야 하기 때문이다.
 _DEFAULT_BUCKETS = {
     "WARDROBE": "OUTFIT_RENDER_WARDROBE_BUCKET",
     "PRODUCT": "OUTFIT_RENDER_PRODUCT_BUCKET",
@@ -61,6 +61,13 @@ def image_url_for(item) -> str | None:
     1. `image_ref`가 이미 http(s)면 그대로 (옛 데이터·외부 URL)
     2. 스냅샷/참조의 S3 키 → presigned URL (우리가 복사해 둔 사본이라 가장 안정적)
     3. 스냅샷의 원본 쇼핑몰 이미지 주소 (S3 사본이 없는 상품)
+
+    ⚠️ **버킷은 지금 설정이 이긴다.** 스냅샷의 `image_s3_bucket`은 상품을
+    인덱싱하던 시점의 인덱서 env가 Qdrant payload를 거쳐 박힌 값이라, 버킷을
+    옮기면 그 즉시 낡은 값이 된다(예: 이미지는 skn28-cozy3에 있는데 skn28-cozy로 서명 → 404).
+    키는 그대로 쓰고 버킷만 현재 환경 값으로 갈아끼운다 — 이미지가 어느 버킷에
+    있는지는 배포 환경이 알지, 예전 추천 기록이 알 수 없다. 설정이 비었을 때만
+    스냅샷 버킷으로 물러선다.
     """
     ref = (item.image_ref or "").strip()
     if _is_url(ref):
@@ -68,7 +75,7 @@ def image_url_for(item) -> str | None:
 
     snapshot = item.item_snapshot if isinstance(item.item_snapshot, dict) else {}
     key = _text(snapshot, *_IMAGE_KEYS) or ref
-    bucket = _text(snapshot, *_BUCKET_KEYS) or _default_bucket(item.source_type)
+    bucket = _default_bucket(item.source_type) or _text(snapshot, *_BUCKET_KEYS)
     if key and bucket:
         try:
             return storage.presigned_get_for(

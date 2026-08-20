@@ -58,21 +58,42 @@ class ItemImageUrlTests(SimpleTestCase):
         )
         self.assertTrue(url.startswith("https://s3.test/golden-bucket/"))
 
-    def test_snapshot_bucket_and_key_win_over_the_ref(self) -> None:
-        """상품 인덱서가 적어 둔 사본 위치가 가장 정확하다."""
+    def test_snapshot_key_wins_but_the_bucket_comes_from_settings(self) -> None:
+        """키는 스냅샷이, **버킷은 지금 설정이** 이긴다.
+
+        스냅샷의 image_s3_bucket은 그 상품을 인덱싱하던 인덱서 env가 Qdrant
+        payload를 거쳐 박아 둔 값이다. 버킷을 옮기고 나면 그 값으로 서명한 URL은
+        404가 된다 — 실제로 그렇게 깨졌다(skn28-cozy → skn28-cozy3).
+        """
         url = image_url_for(
             _item(
                 source_type="PRODUCT",
                 image_ref="products/legacy.jpg",
                 snapshot={
-                    "image_s3_bucket": "snapshot-bucket",
+                    "image_s3_bucket": "old-indexer-bucket",
                     "image_s3_key": "products/2026/xyz.jpg",
                     "image_url": "https://shop.test/xyz.jpg",
                 },
             )
         )
         self.assertEqual(
-            url, "https://s3.test/snapshot-bucket/products/2026/xyz.jpg?ttl=3600"
+            url, "https://s3.test/product-bucket/products/2026/xyz.jpg?ttl=3600"
+        )
+
+    @override_settings(OUTFIT_RENDER_PRODUCT_BUCKET="")
+    def test_snapshot_bucket_is_the_fallback_when_unset(self) -> None:
+        """설정이 비었을 때만 스냅샷 버킷으로 물러선다."""
+        url = image_url_for(
+            _item(
+                source_type="PRODUCT",
+                snapshot={
+                    "image_s3_bucket": "old-indexer-bucket",
+                    "image_s3_key": "products/2026/xyz.jpg",
+                },
+            )
+        )
+        self.assertEqual(
+            url, "https://s3.test/old-indexer-bucket/products/2026/xyz.jpg?ttl=3600"
         )
 
     def test_falls_back_to_the_original_shop_url(self) -> None:
