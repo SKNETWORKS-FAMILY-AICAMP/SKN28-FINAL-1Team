@@ -16,7 +16,7 @@ import {
   FEEDBACK_REASONS,
   getCardRender,
   getRecommendationCard,
-  imageUrlOf,
+  itemImageUrl,
   isRenderTerminal,
   putCardFeedback,
   requestCardRender,
@@ -233,7 +233,7 @@ export default function RecCard() {
 
             <Text style={styles.section}>구성 아이템</Text>
             {card.items.map((item) => {
-              const image = imageUrlOf(item.image_ref);
+              const image = itemImageUrl(item);
               const fromWardrobe = item.source_type !== 'PRODUCT';
               const buyUrl = item.purchase_url;
               const meta = recommendationItemMeta(item);

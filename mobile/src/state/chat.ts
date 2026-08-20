@@ -28,7 +28,7 @@ import {
 import { isAnswered, waitForRun, waitForStylistRun } from '@/lib/chatStream';
 import {
   getRecommendationResult,
-  imageUrlOf,
+  itemImageUrl,
   type ApiRecommendationCard,
   type ApiReferenceMatch,
   type ApiRenderJob,
@@ -98,7 +98,7 @@ export type RecItem = {
   id: string;
   name: string;
   category: string | null;
-  /** 걸 수 있는 주소일 때만 채운다 (S3 키는 걸러진다 — lib/recommendApi 의 imageUrlOf). */
+  /** 걸 수 있는 주소일 때만 채운다 (S3 키는 걸러진다 — lib/recommendApi 의 itemImageUrl). */
   imageUrl: string | null;
   /** 새로 사야 하는 상품만 가격이 있다. 옷장에 있는 옷은 null. */
   price: number | null;
@@ -362,7 +362,7 @@ function toRecMessage(
       id: i.item_id,
       name: i.display_name,
       category: i.category,
-      imageUrl: imageUrlOf(i.image_ref),
+      imageUrl: itemImageUrl(i),
       price: i.price_snapshot,
       fromWardrobe: i.source_type !== 'PRODUCT',
     })),
@@ -765,7 +765,7 @@ function toStylistCard(r: ApiPersonaResult): StylistCard {
         id: i.item_id,
         name: i.display_name,
         category: i.category,
-        imageUrl: imageUrlOf(i.image_ref),
+        imageUrl: itemImageUrl(i),
         price: i.price_snapshot,
         fromWardrobe: i.source_type !== 'PRODUCT',
       })) ?? [],
