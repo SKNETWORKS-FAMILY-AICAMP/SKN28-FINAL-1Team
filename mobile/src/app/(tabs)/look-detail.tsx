@@ -140,13 +140,18 @@ export default function LookDetail() {
      내 추천을 보러 온 사람에게 남의 룩 사진을 보여주는 셈이고, 진짜 이미지가
      들어오는 순간 방금 본 것이 가짜였다는 인상만 남는다. */
   const renderPending = Boolean(serverGoldenId) && !look.image;
-  const savedKey = serverGoldenId || (look.image ?? `asset:${TODAY_LOOK_IMAGE}`);
+  /* 둘러보기 룩의 원본 id. 저장하면 서버가 사진을 자기 것으로 복사해 주소가 달라지므로,
+     '같은 룩인가'는 사진이 아니라 이 값으로 본다(오늘의 룩의 serverGoldenId 와 같은 역할). */
+  const sourceId = isDiscoveryLookId(id) ? id! : '';
+  const savedKey = serverGoldenId || sourceId || (look.image ?? `asset:${TODAY_LOOK_IMAGE}`);
   const [savedOverrides, setSavedOverrides] = useState<Record<string, boolean>>({});
   const saved =
     savedOverrides[savedKey] ??
     (serverGoldenId
       ? savedLookStore.getByGoldenId(serverGoldenId) != null
-      : savedLookStore.isSaved(lookKey));
+      : sourceId
+        ? savedLookStore.getBySourceId(sourceId) != null
+        : savedLookStore.isSaved(lookKey));
   const setSaved = (next: boolean) =>
     setSavedOverrides((prev) => ({ ...prev, [savedKey]: next }));
   /* 평가는 화면 밖(기기)에 남긴다 — 뒤로 나갔다 들어와도 유지되고, 룩북 목록이
@@ -237,6 +242,7 @@ export default function LookDetail() {
       }
       await savedLookStore.addLook({
         ...lookKey,
+        sourceId: sourceId || undefined,
         comment: look.title,
         tags: lookTags,
         reason: look.reasons[0],
@@ -251,19 +257,30 @@ export default function LookDetail() {
 
   const toggleSave = async () => {
     if (saved) {
+      /* 사진으로 찾는 건 마지막 수단이다 — 저장하면 서버가 사진을 자기 것으로 복사해
+         주소가 달라진다. 안정된 id(골든/둘러보기 원본)를 먼저 보고, 그것도 없는
+         예전 저장분만 사진으로 훑는다. */
+      const byPhoto = () =>
+        savedLookStore
+          .getLooks()
+          .find((l) => (look.image ? l.image === look.image : l.asset === TODAY_LOOK_IMAGE));
       const found = serverGoldenId
         ? savedLookStore.getByGoldenId(serverGoldenId)
-        : savedLookStore
-            .getLooks()
-            .find((l) => (look.image ? l.image === look.image : l.asset === TODAY_LOOK_IMAGE));
+        : (sourceId ? savedLookStore.getBySourceId(sourceId) : undefined) ?? byPhoto();
+
+      /* 못 찾았는데 화면만 끄면 안 된다 — 서버엔 그대로 남아 있어서, 한 번 더 누르면
+         같은 룩이 또 담긴다(실제로 그렇게 두 번 저장됐다). 상태를 지키고 사실대로 알린다. */
+      if (!found) {
+        toast('담아 둔 룩을 찾지 못했어요. 룩북에서 빼 주세요', { variant: 'error' });
+        return;
+      }
+
       setSaved(false);
-      if (found) {
-        try {
-          await savedLookStore.removeLook(found.id);
-        } catch (error) {
-          setSaved(true);
-          toast(error instanceof Error ? error.message : '빼지 못했어요', { variant: 'error' });
-        }
+      try {
+        await savedLookStore.removeLook(found.id);
+      } catch (error) {
+        setSaved(true);
+        toast(error instanceof Error ? error.message : '빼지 못했어요', { variant: 'error' });
       }
       return;
     }
