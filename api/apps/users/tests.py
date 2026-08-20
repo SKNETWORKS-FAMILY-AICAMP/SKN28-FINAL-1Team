@@ -109,6 +109,22 @@ class EmailAuthTests(TestCase):
         self.assertEqual(response.status_code, 400)
         self.assertIn("password", response.data)
 
+    def test_signup_rejects_password_similar_to_email(self):
+        """이메일을 그대로 비밀번호로 쓰면 거절한다.
+
+        앱 가입 화면이 "이메일과 비슷하지 않을 것"이라 안내하는데, 검증에 user를 넘기지
+        않던 동안은 그대로 통과했다.
+        """
+        response = self.client.post(
+            self.signup_url,
+            {"email": "member@example.com", "password": "member@example.com"},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("password", response.data)
+        self.assertFalse(User.objects.filter(email="member@example.com").exists())
+
     def test_first_login_after_signup_is_flagged_new(self):
         """앱은 is_new_user로 온보딩(권한→체형 측정→추구미) 진입을 분기한다."""
         self._verify()
