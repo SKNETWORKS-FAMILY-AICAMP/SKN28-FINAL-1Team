@@ -19,6 +19,8 @@ const OUTFIT_CLAIM_KEY = 'outfit_claim_tokens';
 const PENDING_SHARE_KEY = 'wardrobe_pending_share';
 /* 룩북 위시(하트로 담은 룩) — 서버에 자리가 없어 기기에 둔다(아래 저장 함수 주석 참고). */
 const WISHLIST_KEY = 'wishlist_v1';
+/** 룩에 남긴 좋아요/별로예요. 서버에 자리가 없어 기기에 둔다(위시와 같은 처지). */
+const LOOK_VOTES_KEY = 'look_votes_v1';
 
 const isWeb = Platform.OS === 'web';
 
@@ -159,4 +161,12 @@ export function saveWishlist(value: string): Promise<void> {
 
 export function getWishlist(): Promise<string | null> {
   return getItem(WISHLIST_KEY);
+}
+
+export function saveLookVotes(value: string): Promise<void> {
+  return setItem(LOOK_VOTES_KEY, value);
+}
+
+export function getLookVotes(): Promise<string | null> {
+  return getItem(LOOK_VOTES_KEY);
 }

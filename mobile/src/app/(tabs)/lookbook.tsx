@@ -11,6 +11,7 @@ import { Icon, type IconName } from '@/components/icon';
 import { useMultiSelectFilter } from '@/hooks/useMultiSelectFilter';
 import { useRefresh } from '@/hooks/use-refresh';
 import { LOOKBOOK_FILTER_OPTIONS, lookbookStore, useLookbook } from '@/state/lookbook';
+import { useLookVotes } from '@/state/look-votes';
 import type { LookGenderFilter } from '@/lib/discoveryLookApi';
 import { likesStore, useLikedLooks } from '@/state/likes';
 import { savedLookStore, useSavedLooks, useSavedLooksState, type LookOrigin } from '@/state/saved';
@@ -217,7 +218,18 @@ export default function LookbookScreen() {
     [allLooks, gender, selected, query],
   );
 
-  const cards: CardData[] = !isMine ? feedCards : mineTab === 'wish' ? wishCards : uploadedCards;
+  /* '별로예요' 한 룩은 목록 뒤로 민다 — **지우지는 않는다.** 마음이 바뀌거나 비슷한 룩을
+     다시 찾아볼 수 있는데, 목록에서 사라지면 되돌릴 길이 없다.
+     좋아요는 순서를 건드리지 않는다: 위로 끌어올리면 이미 본 룩으로 앞이 채워져
+     '둘러보기'가 아니라 '다시 보기'가 된다. */
+  const votes = useLookVotes();
+  const cards: CardData[] = useMemo(() => {
+    const base = !isMine ? feedCards : mineTab === 'wish' ? wishCards : uploadedCards;
+    const disliked = (card: CardData) => votes[card.variantId ?? card.id] === 'down';
+    // 하나도 없으면 원래 배열을 그대로 돌려준다(새 배열을 만들면 아래 memo 들이 헛돈다).
+    if (!base.some(disliked)) return base;
+    return [...base.filter((card) => !disliked(card)), ...base.filter(disliked)];
+  }, [isMine, mineTab, feedCards, wishCards, uploadedCards, votes]);
 
   /* 지금 그리는 카드 수. 갈래·필터·검색이 바뀌면 목록이 통째로 달라지므로 처음으로 되돌린다
      (안 그러면 새 목록을 이전 스크롤만큼 펼친 채 시작해 이미지를 또 왕창 받는다). */

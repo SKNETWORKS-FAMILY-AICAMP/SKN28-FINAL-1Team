@@ -27,6 +27,7 @@ import { useHome } from '@/hooks/use-home';
 import { DAILY_LOOK_ONCE_A_DAY, dailyLookPhase } from '@/lib/dailyLookApi';
 import { DetailTwoPane } from '@/components/detail-two-pane';
 import { isDiscoveryLookId, useDiscoveryLook } from '@/hooks/use-discovery-look';
+import { lookVoteStore, useLookVotes } from '@/state/look-votes';
 import type { LookVariant } from '@/constants/today-look';
 import { sameSlotSimilarProducts } from '@/lib/discoveryLookPresentation';
 
@@ -148,7 +149,10 @@ export default function LookDetail() {
       : savedLookStore.isSaved(lookKey));
   const setSaved = (next: boolean) =>
     setSavedOverrides((prev) => ({ ...prev, [savedKey]: next }));
-  const [vote, setVote] = useState<'up' | 'down' | null>(null);
+  /* 평가는 화면 밖(기기)에 남긴다 — 뒤로 나갔다 들어와도 유지되고, 룩북 목록이
+     '별로예요' 한 룩을 뒤로 미는 데 쓴다(state/look-votes.ts). */
+  const votes = useLookVotes();
+  const vote = votes[look.id] ?? null;
   const [openSlot, setOpenSlot] = useState<string | null>(null);
   const toast = useToast();
   const { effectiveCategoryBudgets } = usePrefs();
@@ -201,7 +205,6 @@ export default function LookDetail() {
       router.setParams({ id: next.id });
     }
     setOpenSlot(null);
-    setVote(null);
   };
 
   /**
@@ -674,7 +677,7 @@ export default function LookDetail() {
             <View style={styles.voteRow}>
               <Pressable
                 style={[styles.voteBtn, vote === 'up' && styles.voteUpOn]}
-                onPress={() => setVote('up')}>
+                onPress={() => lookVoteStore.toggle(look.id, 'up')}>
                 <Icon
                   name="hand.thumbsup"
                   tintColor={vote === 'up' ? '#fff' : ink(0.6)}
@@ -684,7 +687,7 @@ export default function LookDetail() {
               </Pressable>
               <Pressable
                 style={[styles.voteBtn, vote === 'down' && styles.voteDownOn]}
-                onPress={() => setVote('down')}>
+                onPress={() => lookVoteStore.toggle(look.id, 'down')}>
                 <Icon
                   name="hand.thumbsdown"
                   tintColor={vote === 'down' ? '#fff' : ink(0.6)}
