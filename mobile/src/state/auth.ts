@@ -11,6 +11,7 @@ import {
   saveDemoFlag,
   saveTokens,
 } from '@/lib/secureStore';
+import { chatStore } from '@/state/chat';
 import { outfitAnalysisStore } from '@/state/outfit-analysis';
 
 /**
@@ -136,6 +137,9 @@ export const authStore = {
        (서버 데이터가 새는 건 아니지만, 로그아웃 후에도 홈에 그 사람 분석 카드가 남는다)
        claim 토큰은 비로그인으로 접수한 건이라 다음 로그인 때 넘겨야 하므로 남긴다. */
     await outfitAnalysisStore.clear();
+    /* 대화 목록·내용은 메모리에만 있다. 안 지우면 로그아웃한 뒤 게스트로 채팅에 들어갔을 때
+       방금 나간 사람의 대화 목록이 그대로 보인다. */
+    chatStore.reset();
     setState({ status: 'guest', user: null, isDemo: false });
   },
 };
@@ -144,6 +148,8 @@ export const authStore = {
 // 데모 세션은 애초에 토큰이 없어 401 이 정상이므로 강등하지 않는다 — 화면별 에러로만 드러난다.
 onUnauthorized(() => {
   if (state.isDemo) return;
+  // 세션 만료도 로그아웃과 같다 — 남은 대화를 지우지 않으면 게스트 화면에 그대로 비친다.
+  chatStore.reset();
   setState({ status: 'guest', user: null, isDemo: false });
 });
 
