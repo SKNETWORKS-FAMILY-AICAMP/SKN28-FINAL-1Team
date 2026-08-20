@@ -56,18 +56,49 @@ export const lookbookStore = {
   getLooks: () => looks,
   getLoadState: () => loadState,
 
-  async load(gender: LookGenderFilter = 'ALL'): Promise<void> {
+  async load(gender: LookGenderFilter = 'ALL', selectedTags: string[] = []): Promise<void> {
     const sequence = ++loadSequence;
     loadState = { ...loadState, loading: true, error: null };
     notify();
+
+    const loadCurated = async () => {
+      if (selectedTags.length > 0) {
+        const pages = await Promise.all(
+          selectedTags.map((tag) => getDiscoveryLooks('', tag, gender, 50)),
+        );
+        const unique = new Map(pages.flatMap((page) => page.results).map((look) => [look.id, look]));
+        return [...unique.values()];
+      }
+
+      const accumulated = new Map<string, Awaited<ReturnType<typeof getDiscoveryLooks>>['results'][number]>();
+      let offset = 0;
+      while (true) {
+        const page = await getDiscoveryLooks('', '', gender, 20, offset);
+        if (sequence !== loadSequence) return [...accumulated.values()];
+        page.results.forEach((look) => accumulated.set(look.id, look));
+        curatedLooks = [...accumulated.values()].map((look) => ({
+          id: look.id,
+          variantId: look.id,
+          image: look.image,
+          tags: look.tags.filter(isAllowedHashtag),
+          price: `₩${look.total_price.toLocaleString('ko-KR')}`,
+          gender: look.gender,
+          createdAt: 0,
+        }));
+        notify();
+        if (page.next_offset == null) return [...accumulated.values()];
+        offset = page.next_offset;
+      }
+    };
+
     const [curatedResult, publicResult] = await Promise.allSettled([
-      getDiscoveryLooks('', '', gender),
+      loadCurated(),
       listPublicLookbooks({ limit: 60 }),
     ]);
     if (sequence !== loadSequence) return;
 
     if (curatedResult.status === 'fulfilled') {
-      curatedLooks = curatedResult.value.results.map((look) => ({
+      curatedLooks = curatedResult.value.map((look) => ({
         id: look.id,
         variantId: look.id,
         image: look.image,

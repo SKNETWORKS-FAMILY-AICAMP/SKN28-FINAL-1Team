@@ -129,13 +129,17 @@ export default function LookbookScreen() {
   const [categoryEditOpen, setCategoryEditOpen] = useState(false);
   const [tags, setTags] = useState<string[]>([...LOOKBOOK_FILTER_OPTIONS]);
   const { toggle, isActive, selected, label, prune } = useMultiSelectFilter();
+  const selectedKey = selected.join('|');
 
   /* 둘 다 서버에서 온다 — 내 룩북은 내 목록, 둘러보기는 공개 피드.
      세그먼트를 오갈 때마다 기다리게 하지 않으려고 화면에 들어올 때 함께 받는다. */
   const { loading, error, loaded } = useSavedLooksState();
   const loadAll = useCallback(
-    () => Promise.all([savedLookStore.load(), lookbookStore.load(gender)]).then(() => undefined),
-    [gender],
+    () => Promise.all([
+      savedLookStore.load(),
+      lookbookStore.load(gender, selectedKey ? selectedKey.split('|') : []),
+    ]).then(() => undefined),
+    [gender, selectedKey],
   );
   const { refreshing, onRefresh } = useRefresh(loadAll);
   useEffect(() => {
@@ -236,7 +240,6 @@ export default function LookbookScreen() {
   const [shown, setShown] = useState(GRID_PAGE);
   /* 스크롤 영역의 높이. 아래 '화면을 다 못 채웠으면 더 그린다' 판정에 쓴다. */
   const [gridH, setGridH] = useState(0);
-  const selectedKey = selected.join('|');
   useEffect(() => {
     setShown(GRID_PAGE);
   }, [mode, mineTab, gender, query, selectedKey]);

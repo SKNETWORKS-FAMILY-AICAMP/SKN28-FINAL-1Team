@@ -1,5 +1,4 @@
-import { LookbookEndpoints } from '@/constants/config';
-import { API_BASE_URL } from '@/constants/config';
+import { API_BASE_URL, LookbookEndpoints } from '@/constants/config';
 import { api } from '@/lib/apiClient';
 
 export type ShoppingProductDto = {
@@ -45,8 +44,10 @@ export function getDiscoveryLooks(
   query = '',
   tag = '',
   gender: LookGenderFilter = 'ALL',
+  limit = 20,
+  offset = 0,
 ): Promise<DiscoveryLookPage> {
-  const params = new URLSearchParams({ limit: '50' });
+  const params = new URLSearchParams({ limit: String(limit), offset: String(offset) });
   if (gender !== 'ALL') params.set('gender', gender);
   if (query.trim()) params.set('query', query.trim());
   if (tag.trim()) params.set('tag', tag.trim());
