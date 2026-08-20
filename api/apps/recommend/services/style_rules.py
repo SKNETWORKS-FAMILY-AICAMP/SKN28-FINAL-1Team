@@ -82,6 +82,11 @@ class AxisRules:
 @dataclass(frozen=True)
 class Weights:
     preference_match: int = 30
+    #: 이번 발화에서 사용자가 **직접 말한** 조건이 맞을 때의 가산.
+    #: preference_match(축적된 취향)보다 훨씬 커야 한다 — 둘이 같은 무게면
+    #: "이번엔 러블리로"라고 바꿔 말해도 기존 취향으로 이미 점수를 받은 코디의
+    #: 서열이 뒤집히지 않아, 방금 한 말이 결과에 반영되지 않는다.
+    request_match: int = 80
     preference_avoid: int = -60
     rule_prefer: int = 15
     rule_avoid: int = -20

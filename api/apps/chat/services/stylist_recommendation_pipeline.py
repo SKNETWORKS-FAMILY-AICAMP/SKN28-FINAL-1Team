@@ -139,6 +139,9 @@ class StylistRecommendationPipeline:
             context=context,
             analysis=analysis,
             strategy_plan=plan,
+            # 직전 턴에 쓴 골든 템플릿은 뺀다. 현재 실행은 제외 대상이 아니라
+            # 페르소나끼리는 서로를 막지 않는다 (recent_golden_ids 주석 참고).
+            exclude_golden_ids=self.recommendation_pipeline.recent_golden_ids(run),
         )
         candidate_views = tuple(
             build_strategy_candidate_view(

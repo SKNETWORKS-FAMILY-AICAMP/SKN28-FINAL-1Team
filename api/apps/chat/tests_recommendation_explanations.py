@@ -77,11 +77,11 @@ class RecommendationExplanationTests(TestCase):
             opening="### 추천 룩\n- **출근용으로 정리했어요.**",
             outfits=[
                 RecommendationExplanationOutfit(
-                    outfit_id=str(self.card.id),
+                    outfit_index=1,
                     rationale="**미니멀한 출근 분위기**에 맞는 룩이에요.",
                     items=[
                         RecommendationExplanationItem(
-                            item_id=str(self.item.id),
+                            item_index=1,
                             note="단정한 인상을 만드는 상의로 골랐어요.",
                             attribute_claims=[],
                         )
@@ -113,16 +113,16 @@ class RecommendationExplanationTests(TestCase):
             "단정한 인상을 만드는 상의로 골랐어요.",
         )
 
-    def test_mismatched_item_id_uses_rule_fallback_for_whole_result(self) -> None:
+    def test_mismatched_item_index_uses_rule_fallback_for_whole_result(self) -> None:
         explanation = RecommendationExplanation(
             opening="준비했어요.",
             outfits=[
                 RecommendationExplanationOutfit(
-                    outfit_id=str(self.card.id),
+                    outfit_index=1,
                     rationale="모델이 만든 설명",
                     items=[
                         RecommendationExplanationItem(
-                            item_id="unknown-item",
+                            item_index=2,
                             note="모델이 만든 아이템 설명",
                             attribute_claims=[],
                         )
@@ -177,11 +177,11 @@ class RecommendationExplanationTests(TestCase):
             opening="준비했어요.",
             outfits=[
                 RecommendationExplanationOutfit(
-                    outfit_id=str(self.card.id),
+                    outfit_index=1,
                     rationale="출근용 룩이에요.",
                     items=[
                         RecommendationExplanationItem(
-                            item_id=str(self.item.id),
+                            item_index=1,
                             note="울 소재라서 골랐어요.",
                             attribute_claims=["울 소재"],
                         )

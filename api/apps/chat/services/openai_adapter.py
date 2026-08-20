@@ -65,7 +65,11 @@ class ConversationSummary(BaseModel):
 class RecommendationExplanationItem(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    item_id: str = Field(min_length=1)
+    #: 입력 payload에 실린 1부터 시작하는 순번. UUID를 그대로 복사시키던 계약을
+    #: 대체한다 — 36자 ID를 코디·아이템마다 정확히 되뱉게 하는 것은 모델 크기에
+    #: 따라 확률적으로 깨졌고, 한 글자만 어긋나도 설명 전체가 규칙 폴백으로
+    #: 떨어졌다. 순번은 서버가 순서로 되돌릴 수 있어 검증이 결정적이다.
+    item_index: int = Field(ge=1)
     note: str = Field(min_length=1, max_length=500)
     attribute_claims: list[str] = Field(
         description="입력에 없는 속성을 썼다면 기록하며 정상 출력은 반드시 빈 배열",
@@ -76,7 +80,7 @@ class RecommendationExplanationItem(BaseModel):
 class RecommendationExplanationOutfit(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    outfit_id: str = Field(min_length=1)
+    outfit_index: int = Field(ge=1)
     rationale: str = Field(min_length=1, max_length=1000)
     items: list[RecommendationExplanationItem] = Field(min_length=1, max_length=8)
 
@@ -153,8 +157,10 @@ _EXPLAIN_INSTRUCTIONS = """
 검증을 통과한 패션 추천 결과를 사용자에게 설명한다.
 opening은 1~3줄로 작성한다. recent_messages에 이전 사용자 발화가 없으면 짧게 인사하고,
 그 외에는 current_request를 어떻게 이해했는지 친근하게 답한다. 아이템을 나열하지 않는다.
-approved_recommendation의 코디마다 같은 outfit_id로 outfits 항목을 정확히 하나 만들고,
-각 코디의 모든 아이템에 같은 item_id로 items 항목을 정확히 하나 만든다. ID를 만들거나 바꾸지 않는다.
+approved_recommendation.compositions를 실린 순서 그대로 훑어, 코디마다 그 코디의
+outfit_index 값으로 outfits 항목을 정확히 하나 만든다. 각 코디의 items도 실린 순서대로
+그 아이템의 item_index 값으로 items 항목을 정확히 하나 만든다.
+순번을 건너뛰거나 순서를 바꾸거나 입력에 없는 번호를 만들지 않는다.
 rationale은 1~3문장으로 요청 스타일·TPO·날씨·예산 중 입력으로 확인된 사실을 종합해
 룩 전체를 추천한 이유를 설명한다.
 item.note는 한 문장으로 해당 아이템을 고른 이유만 설명하며 룩 전체 rationale을 반복하지 않는다.
@@ -395,11 +401,29 @@ class OpenAIChatAdapter:
         except ChatLLMError:
             raise
         except Exception as exc:
-            logger.warning("OpenAI 채팅 호출 실패: %s", type(exc).__name__)
+            # 예외 이름만 남기면 400이 스키마 문제인지 파라미터 문제인지
+            # 컨텍스트 초과인지 구분할 수 없어, 운영에서 원인 추적이 막힌다.
+            # 메시지는 제공자가 준 설명이라 자격증명이 들어가지 않지만,
+            # 로그가 부풀지 않도록 잘라서 남긴다.
+            logger.warning(
+                "OpenAI 채팅 호출 실패: %s schema=%s model=%s 상세=%s",
+                type(exc).__name__,
+                schema.__name__,
+                settings.CHAT_OPENAI_MODEL,
+                str(exc)[:500],
+            )
             raise ChatLLMError("OpenAI 응답을 받을 수 없습니다.") from exc
 
         parsed = getattr(response, "output_parsed", None)
         if parsed is None:
+            # status/incomplete_details가 있으면 "출력 토큰 한도로 잘림"과
+            # "거부/필터"를 바로 가른다. 없으면 그대로 비워 둔다.
+            logger.warning(
+                "OpenAI 구조화 응답 없음: schema=%s status=%s incomplete=%s",
+                schema.__name__,
+                getattr(response, "status", None),
+                getattr(response, "incomplete_details", None),
+            )
             raise ChatLLMError("OpenAI 구조화 응답이 비어 있습니다.")
         return LLMResult(
             value=parsed,

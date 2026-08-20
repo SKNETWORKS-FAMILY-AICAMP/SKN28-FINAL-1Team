@@ -241,6 +241,9 @@ class SharedReferenceRecommendationPipelineTests(SimpleTestCase):
                 run = SimpleNamespace(
                     pk=_id(),
                     session=session,
+                    # 최근 골든 템플릿 제외 조회가 세션 단위라 실제 ChatRun처럼
+                    # session_id를 갖춰야 한다.
+                    session_id=session.pk,
                     response_mode=response_mode,
                     reference_snapshot={"type": "SHARED_WARDROBE_ITEM"},
                 )
@@ -320,6 +323,7 @@ class SharedReferenceRecommendationPipelineTests(SimpleTestCase):
         run = SimpleNamespace(
             pk=_id(),
             session=session,
+            session_id=session.pk,
             response_mode=ChatSession.ResponseMode.DEFAULT,
             reference_snapshot={"type": "SHARED_WARDROBE_ITEM"},
         )

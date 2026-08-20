@@ -629,6 +629,30 @@ class ChatOrchestrator:
                         recent_messages=context.payload["recent_messages"],
                         fallback_reason=explanation_fallback_reason,
                     )
+                    # 설명이 규칙 폴백으로 떨어져도 런은 SUCCEEDED다. 그래서
+                    # 예전에는 10번 중 10번 폴백이 나도 지표상 정상으로 보였고,
+                    # 화면을 직접 볼 때까지 아무도 몰랐다. 실행에 남겨 셀 수
+                    # 있게 한다 — ChatRunSerializer 필드 목록에 없으므로
+                    # 클라이언트 응답에는 실리지 않는다.
+                    if applied_explanation.fallback_used:
+                        run.degradation = {
+                            **(run.degradation or {}),
+                            "explanation_fallback": True,
+                            "explanation_fallback_reason": (
+                                applied_explanation.fallback_reason
+                            ),
+                        }
+                        run.save(update_fields=["degradation", "updated_at"])
+                        logger.warning(
+                            "일반 추천 설명이 규칙 폴백으로 나갔습니다: run=%s reason=%s",
+                            run.pk,
+                            applied_explanation.fallback_reason,
+                            extra={
+                                "run_id": str(run.pk),
+                                "session_id": str(run.session_id),
+                                "fallback_reason": applied_explanation.fallback_reason,
+                            },
+                        )
                     response_text = applied_explanation.opening
                     recommendation_result_id = str(pipeline_result.result.id)
                     recommendation_result_ids = (recommendation_result_id,)

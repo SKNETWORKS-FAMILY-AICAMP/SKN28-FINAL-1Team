@@ -444,11 +444,11 @@ class OpenAIChatAdapterTests(SimpleTestCase):
             opening="추천을 준비했어요.",
             outfits=[
                 RecommendationExplanationOutfit(
-                    outfit_id="outfit-1",
+                    outfit_index=1,
                     rationale="출근 조건에 맞춘 룩이에요.",
                     items=[
                         RecommendationExplanationItem(
-                            item_id="item-1",
+                            item_index=1,
                             note="단정한 상의로 골랐어요.",
                             attribute_claims=[],
                         )
@@ -467,8 +467,8 @@ class OpenAIChatAdapterTests(SimpleTestCase):
         approved = {
             "compositions": [
                 {
-                    "outfit_id": "outfit-1",
-                    "items": [{"item_id": "item-1"}],
+                    "outfit_index": 1,
+                    "items": [{"item_index": 1}],
                 }
             ]
         }
@@ -624,8 +624,8 @@ class ChatOrchestratorTests(TestCase):
             "mode": self.session.mode,
             "compositions": [
                 {
-                    "outfit_id": str(card.id),
-                    "items": [{"item_id": str(item.id)}],
+                    "outfit_index": 1,
+                    "items": [{"item_index": 1}],
                 }
             ],
         }
@@ -638,11 +638,11 @@ class ChatOrchestratorTests(TestCase):
                 opening="### 추천 룩\n- **검증된 출근 코디**예요.",
                 outfits=[
                     RecommendationExplanationOutfit(
-                        outfit_id=str(card.id),
+                        outfit_index=1,
                         rationale="**미니멀 출근 스타일**에 맞춘 룩이에요.",
                         items=[
                             RecommendationExplanationItem(
-                                item_id=str(item.id),
+                                item_index=1,
                                 note="단정한 상의로 골랐어요.",
                                 attribute_claims=[],
                             )
@@ -823,6 +823,8 @@ class ChatRecommendationPipelineTests(TestCase):
         golden_request = golden.retrieve.call_args.args[0]
         self.assertEqual(golden_request.season, "가을")
         self.assertFalse(golden_request.exposable_only)
+        # 발화 조건은 축적된 취향(pursuit)과 분리된 축으로 실려야 한다.
+        self.assertIsNotNone(golden_request.requested)
         self.assertEqual(output.result.run, run)
         saved_item = output.result.compositions.get().items.get()
         self.assertEqual(saved_item.source_type, "PRODUCT")
@@ -833,12 +835,57 @@ class ChatRecommendationPipelineTests(TestCase):
         )
         approved_outfit = output.approved_payload["compositions"][0]
         approved_item = approved_outfit["items"][0]
-        self.assertEqual(
-            approved_outfit["outfit_id"],
-            str(saved_item.composition_id),
-        )
-        self.assertEqual(approved_item["item_id"], str(saved_item.id))
+        # 설명 계약은 UUID가 아니라 payload 순번이다 (1부터).
+        self.assertEqual(approved_outfit["outfit_index"], 1)
+        self.assertEqual(approved_item["item_index"], 1)
         self.assertEqual(approved_item["attributes"], {"material": "면"})
+
+    def test_requested_style_reaches_item_search_not_only_golden_search(self):
+        """발화 조건이 아이템 후보 검색까지 도달하는지 본다.
+
+        예전에는 기피 태그만 여기까지 오고 요청 스타일은 골든 코디 검색에서
+        끝났다. 그래서 같은 템플릿이 걸리면 "러블리로 바꿔줘"라고 해도 슬롯을
+        채우는 옷이 그대로였다.
+        """
+        run = self._run(member=False, mode=ChatSession.Mode.NEW_ITEM)
+        candidate = OutfitCandidate(
+            point_id="outfit-1",
+            golden_id="golden-1",
+            score=91.0,
+            similarity=0.91,
+            reasons=(),
+            payload={"item_point_ids": ["template-top"], "dataset_version": "v1"},
+        )
+        golden = Mock()
+        golden.retrieve.return_value = RetrievalResult(
+            candidates=(candidate,), search_mode="text"
+        )
+        item_retriever = Mock()
+        item_retriever.retrieve.return_value = object()
+        composer = Mock()
+        composer.compose.side_effect = RuntimeError("조합은 이 테스트의 관심사가 아니다")
+        pipeline = ChatRecommendationPipeline(
+            golden_retriever=golden,
+            item_retriever=item_retriever,
+            wardrobe_composer=Mock(),
+            new_item_composer=composer,
+            validator=Mock(),
+        )
+        turn = analysis(action="RECOMMEND")
+        turn.conditions.styles = ["러블리"]
+
+        with self.assertRaises(Exception):
+            pipeline.execute(run=run, context=self._context(), analysis=turn)
+
+        item_request = item_retriever.retrieve.call_args.args[0]
+        self.assertIn(
+            "러블리",
+            [
+                label
+                for labels in item_request.preferred_tags.values()
+                for label in labels
+            ],
+        )
 
     def test_explicit_presentation_group_is_separate_from_profile_gender(self):
         context = self._context()
@@ -857,13 +904,19 @@ class ChatRecommendationPipelineTests(TestCase):
         self.assertEqual(profile_default, ())
         self.assertEqual(ChatRecommendationPipeline._gender(context), "female")
 
-    def test_turn_fit_condition_is_merged_into_retriever_preferences(self):
+    def test_turn_condition_is_separate_axis_from_accumulated_pursuit(self):
+        """발화 조건은 pursuit에 섞이지 않고 requested 축으로 간다.
+
+        섞으면 이번에 말한 조건이 축적된 취향과 같은 무게가 돼 서열을 못 바꾼다.
+        """
         turn = analysis()
         turn.conditions.fits = ["레귤러핏"]
 
         pursuit = ChatRecommendationPipeline._merged_pursuit(self._context(), turn)
+        requested = ChatRecommendationPipeline._requested_conditions(turn)
 
-        self.assertEqual(pursuit["preferred"]["fits"], ["레귤러핏"])
+        self.assertNotIn("레귤러핏", pursuit["preferred"].get("fits", []))
+        self.assertEqual(requested["preferred"]["fits"], ["레귤러핏"])
 
     def test_guest_cannot_run_wardrobe_mode_without_member_wardrobe(self):
         run = self._run(member=False, mode=ChatSession.Mode.WARDROBE_BASED)

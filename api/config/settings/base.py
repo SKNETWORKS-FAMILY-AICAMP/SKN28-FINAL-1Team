@@ -804,6 +804,12 @@ CHAT_OPENAI_MAX_OUTPUT_TOKENS = int(
     os.getenv("CHAT_OPENAI_MAX_OUTPUT_TOKENS", "1200")
 )
 CHAT_PROMPT_VERSION = os.getenv("CHAT_PROMPT_VERSION", "chat-orchestrator-v1").strip()
+# 같은 세션에서 직전 실행이 쓴 골든 템플릿을 몇 개까지 검색에서 뺄지.
+# 0이면 제외하지 않는다(기존 동작). 골든셋이 작을수록 크게 잡으면 후보가
+# 말라붙으므로 기본은 보수적으로 3이다.
+CHAT_RECENT_GOLDEN_EXCLUSION_LIMIT = int(
+    os.getenv("CHAT_RECENT_GOLDEN_EXCLUSION_LIMIT", "3")
+)
 PERSONA_LLM_PROVIDER = os.getenv("PERSONA_LLM_PROVIDER", "openai").strip().lower()
 _PERSONA_LLM_DEFAULT_MODEL = (
     GEMINI_MODEL if PERSONA_LLM_PROVIDER == "gemini" else CHAT_OPENAI_MODEL

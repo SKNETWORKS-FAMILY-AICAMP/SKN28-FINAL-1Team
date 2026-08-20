@@ -152,20 +152,24 @@ def _validated_values(
     cards: list[OutfitComposition],
     explanation: RecommendationExplanation,
 ) -> tuple[str, dict[str, tuple[str, dict[str, str]]]]:
-    expected_outfit_ids = [str(card.id) for card in cards]
-    actual_outfit_ids = [outfit.outfit_id for outfit in explanation.outfits]
-    if actual_outfit_ids != expected_outfit_ids:
+    # 계약은 순번이다 — payload에 실린 순서(1부터)를 그대로 되돌려받는지만 본다.
+    # 순번은 _approved_payload가 같은 쿼리·같은 정렬로 매기므로 서버가 카드로
+    # 되돌릴 수 있고, 모델이 긴 UUID를 옮겨 적다 틀릴 여지가 없다.
+    expected_outfit_indexes = list(range(1, len(cards) + 1))
+    actual_outfit_indexes = [outfit.outfit_index for outfit in explanation.outfits]
+    if actual_outfit_indexes != expected_outfit_indexes:
         raise RecommendationExplanationContractError(
-            "설명 출력의 코디 ID 또는 순서가 저장된 추천과 다릅니다."
+            "설명 출력의 코디 순번 또는 순서가 저장된 추천과 다릅니다."
         )
 
     values: dict[str, tuple[str, dict[str, str]]] = {}
     for card, outfit in zip(cards, explanation.outfits, strict=True):
-        expected_item_ids = [str(item.id) for item in card.items.all()]
-        actual_item_ids = [item.item_id for item in outfit.items]
-        if actual_item_ids != expected_item_ids:
+        card_items = list(card.items.all())
+        expected_item_indexes = list(range(1, len(card_items) + 1))
+        actual_item_indexes = [item.item_index for item in outfit.items]
+        if actual_item_indexes != expected_item_indexes:
             raise RecommendationExplanationContractError(
-                f"코디 {card.id}의 아이템 ID 또는 순서가 다릅니다."
+                f"코디 {card.id}의 아이템 순번 또는 순서가 다릅니다."
             )
         if any(item.attribute_claims for item in outfit.items):
             raise RecommendationExplanationContractError(
@@ -174,8 +178,8 @@ def _validated_values(
         values[str(card.id)] = (
             _required_text(outfit.rationale, field="outfit.rationale"),
             {
-                item.item_id: _required_text(item.note, field="item.note")
-                for item in outfit.items
+                str(card_item.id): _required_text(item.note, field="item.note")
+                for card_item, item in zip(card_items, outfit.items, strict=True)
             },
         )
     return _required_text(explanation.opening, field="opening"), values

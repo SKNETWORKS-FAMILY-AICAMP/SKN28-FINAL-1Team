@@ -7,7 +7,7 @@
 from __future__ import annotations
 
 from collections.abc import Iterable, Mapping
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from enum import StrEnum
 from typing import Any
 
@@ -54,6 +54,13 @@ class ItemRetrievalRequest:
     limit_per_source: int = 10
     #: 사용자가 명시적으로 기피한 태그 (Qdrant 필드명 -> 라벨).
     avoided_tags: Mapping[str, tuple[str, ...]] = field(default_factory=dict)
+    #: 사용자가 이번 발화에서 요청한 태그 (Qdrant 필드명 -> 라벨).
+    #:
+    #: 예전에는 기피 태그만 여기까지 왔고 선호·요청 조건은 골든 코디 검색에서
+    #: 끝났다. 그래서 아이템은 오직 템플릿 아이템 벡터와의 유사도로만 뽑혔고,
+    #: 같은 템플릿이 걸리면 "러블리로 바꿔줘"라고 해도 코디가 통째로 그대로
+    #: 재현됐다. 요청 조건이 마지막 선택 단계까지 도달해야 한다.
+    preferred_tags: Mapping[str, tuple[str, ...]] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
@@ -159,6 +166,62 @@ def _avoided_conditions(request: ItemRetrievalRequest) -> list[qm.Condition]:
         for tag_field, labels in request.avoided_tags.items()
         if labels
     ]
+
+
+def _payload_tag_values(payload: dict[str, Any], field_name: str) -> set[str]:
+    """태그 필드는 단일 문자열일 수도 배열일 수도 있어 집합으로 통일한다."""
+
+    value = payload.get(field_name)
+    if isinstance(value, str):
+        return {value} if value else set()
+    if isinstance(value, (list, tuple)):
+        return {str(entry) for entry in value if entry}
+    return set()
+
+
+def _requested_matches(
+    payload: dict[str, Any],
+    preferred_tags: Mapping[str, tuple[str, ...]],
+) -> tuple[str, ...]:
+    """아이템이 요청 조건 중 무엇을 만족하는지 라벨로 돌려준다."""
+
+    matched: list[str] = []
+    for tag_field, labels in preferred_tags.items():
+        if not labels:
+            continue
+        matched.extend(sorted(set(labels) & _payload_tag_values(payload, tag_field)))
+    return tuple(dict.fromkeys(matched))
+
+
+def _rank_by_request(
+    candidates: list[ItemCandidate],
+    preferred_tags: Mapping[str, tuple[str, ...]],
+) -> list[ItemCandidate]:
+    """요청 조건을 만족하는 아이템을 앞으로 당기고 근거를 남긴다.
+
+    유사도(score)는 건드리지 않는다 — 검증·조합 단계가 그 값을 그대로 쓰고,
+    의미가 '템플릿 아이템과 얼마나 닮았나'라서 요청 일치와 섞으면 안 된다.
+    순서와 reasons에만 반영해, 왜 골랐는지가 설명에도 남게 한다.
+    """
+
+    if not preferred_tags:
+        return candidates
+    ranked: list[tuple[int, float, int, ItemCandidate]] = []
+    for order, candidate in enumerate(candidates):
+        matched = _requested_matches(candidate.payload, preferred_tags)
+        enriched = (
+            replace(
+                candidate,
+                reasons=candidate.reasons
+                + tuple(f"요청한 '{label}' 일치" for label in matched),
+            )
+            if matched
+            else candidate
+        )
+        # order를 3번째 키로 둬 동점일 때 원래 유사도 순서를 보존한다.
+        ranked.append((len(matched), candidate.score or 0.0, -order, enriched))
+    ranked.sort(key=lambda row: (row[0], row[1], row[2]), reverse=True)
+    return [row[3] for row in ranked]
 
 
 def _single_value(payload: dict[str, Any], field_name: str) -> str:
@@ -381,14 +444,17 @@ class ItemCandidateRetriever:
             conditions.append(
                 qm.HasIdCondition(has_id=list(request.allowed_wardrobe_item_ids))
             )
-        return self._retrieve_collection(
-            collection_name=collection_spec("wardrobe").name,
-            source_type=ItemSource.WARDROBE,
-            conditions=conditions,
-            vector_name=vector_name,
-            vector=vector,
-            limit=request.limit_per_source,
-            must_not=_avoided_conditions(request),
+        return _rank_by_request(
+            self._retrieve_collection(
+                collection_name=collection_spec("wardrobe").name,
+                source_type=ItemSource.WARDROBE,
+                conditions=conditions,
+                vector_name=vector_name,
+                vector=vector,
+                limit=request.limit_per_source,
+                must_not=_avoided_conditions(request),
+            ),
+            request.preferred_tags,
         )
 
     def _retrieve_goldenset(
@@ -419,11 +485,14 @@ class ItemCandidateRetriever:
                 must_not=_avoided_conditions(request),
             ),
         )
-        return [
-            candidate
-            for candidate in candidates
-            if candidate.point_id != request.template_item_point_id
-        ][: request.limit_per_source]
+        return _rank_by_request(
+            [
+                candidate
+                for candidate in candidates
+                if candidate.point_id != request.template_item_point_id
+            ],
+            request.preferred_tags,
+        )[: request.limit_per_source]
 
     def _retrieve_products(
         self,
@@ -472,7 +541,11 @@ class ItemCandidateRetriever:
             ),
             reverse=True,
         )
-        return candidates[: request.limit_per_source]
+        # 자르기 **전에** 요청 조건을 반영한다. 뒤에서 정렬하면 요청에 맞는
+        # 상품이 유사도 컷에 먼저 잘려 나가 반영할 대상 자체가 없어진다.
+        return _rank_by_request(candidates, request.preferred_tags)[
+            : request.limit_per_source
+        ]
 
     def _retrieve_collection(
         self,

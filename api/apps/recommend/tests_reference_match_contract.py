@@ -127,11 +127,27 @@ class ReferenceMatchContractTests(SimpleTestCase):
         reference_match = ChatRecommendationPipeline._reference_match(_composition())
 
         class Related:
+            """_approved_payload가 쓰는 쿼리셋 흉내.
+
+            filter/order_by까지 받는 이유는 설명 계약이 검증부와 **같은 필터·
+            같은 정렬**을 보도록 바뀌었기 때문이다. 여기서는 스텁이라 조건을
+            무시하고 자기 자신을 돌려준다.
+            """
+
             def __init__(self, values):
                 self.values = values
 
             def prefetch_related(self, *_args):
                 return self
+
+            def filter(self, **_kwargs):
+                return self
+
+            def order_by(self, *_args):
+                return self
+
+            def __iter__(self):
+                return iter(self.values)
 
             def all(self):
                 return self.values
@@ -148,6 +164,7 @@ class ReferenceMatchContractTests(SimpleTestCase):
             total_product_price=50_000,
             reference_match=reference_match,
             warnings=[],
+            validation_reasons=[],
             items=Related([item]),
         )
         result = SimpleNamespace(

@@ -228,6 +228,7 @@ class ChatRecommendationPipeline:
             analysis=analysis,
             # 기존 기본 추천은 첫 번째로 성공한 골든 템플릿의 조합만 저장했다.
             max_validated_templates=1,
+            exclude_golden_ids=self.recent_golden_ids(run),
         )
         selected = select_diverse_candidates(
             generated.candidates,
@@ -257,8 +258,14 @@ class ChatRecommendationPipeline:
         analysis: TurnAnalysis,
         max_validated_templates: int | None = None,
         strategy_plan: StrategyPlan | None = None,
+        exclude_golden_ids: frozenset[str] | None = None,
     ) -> GeneratedRecommendationCandidates:
-        """레퍼런스 추천이면 성공·실패를 포함한 운영 이벤트를 실행당 한 번 남긴다."""
+        """레퍼런스 추천이면 성공·실패를 포함한 운영 이벤트를 실행당 한 번 남긴다.
+
+        exclude_golden_ids: 검색에서 뺄 골든 코디 id. 호출부가 조회해 넘긴다 —
+        파이프라인이 직접 DB를 읽으면 스타일리스트가 페르소나마다 같은 질의를
+        반복하고, DB 없이 도는 단위 테스트도 못 쓰게 된다.
+        """
 
         recorder = (
             ReferenceRecommendationEventRecorder(
@@ -279,6 +286,7 @@ class ChatRecommendationPipeline:
                 max_validated_templates=max_validated_templates,
                 strategy_plan=strategy_plan,
                 event_recorder=recorder,
+                exclude_golden_ids=exclude_golden_ids or frozenset(),
             )
         except Exception as exc:
             if recorder is not None:
@@ -297,6 +305,7 @@ class ChatRecommendationPipeline:
         max_validated_templates: int | None = None,
         strategy_plan: StrategyPlan | None = None,
         event_recorder: ReferenceRecommendationEventRecorder | None = None,
+        exclude_golden_ids: frozenset[str] = frozenset(),
     ) -> GeneratedRecommendationCandidates:
         """Retriever·Composer·Validator를 실행하고 DB 저장 전 후보를 반환한다."""
 
@@ -335,6 +344,7 @@ class ChatRecommendationPipeline:
         pursuit = self._merged_pursuit(context, analysis)
         if strategy_plan is not None:
             pursuit = self._apply_strategy_preferences(pursuit, strategy_plan)
+        requested = self._requested_conditions(analysis)
         candidate_limit = strategy_plan.candidate_limit if strategy_plan else 5
         body = build_profile(context.get("profile", {}).get("body"))
         category_budgets = context.get("profile", {}).get("category_budgets", {})
@@ -355,6 +365,7 @@ class ChatRecommendationPipeline:
             RetrievalRequest(
                 body=body,
                 pursuit=pursuit,
+                requested=requested,
                 weather=context.get("weather"),
                 gender=self._gender(context),
                 occasion=analysis.conditions.occasion,
@@ -382,6 +393,13 @@ class ChatRecommendationPipeline:
                 dataset_statuses=settings.CHAT_GOLDENSET_DATASET_STATUSES,
                 limit=candidate_limit,
                 hard_filter=True,
+                # 같은 세션에서 직전에 쓴 골든 템플릿은 뺀다. 요청 스타일은
+                # 하드 필터가 아니라 가산점이라(style_rules.preference_match),
+                # 스타일만 바꿔 다시 물으면 같은 템플릿이 그대로 1위로 남고
+                # 아이템 검색은 템플릿 아이템 벡터만 보므로 코디가 통째로
+                # 재현됐다. 후보가 전부 제외되면 retriever가 제외를 풀고
+                # 돌려주므로 '추천 없음'으로 떨어지지는 않는다.
+                exclude_golden_ids=exclude_golden_ids,
                 # 골든 코디는 내부 조합 템플릿이다. 원본 이미지 노출 권한은
                 # 결과 표출·렌더링 경계에서 별도로 검사한다.
                 exposable_only=False,
@@ -390,11 +408,23 @@ class ChatRecommendationPipeline:
         if not retrieval.candidates:
             raise GoldenOutfitNotFound("조건에 맞는 골든 코디를 찾지 못했습니다.")
 
-        # 골든 코디 검색에만 걸려 있던 기피 조건을 아이템 후보 검색에도 넘긴다.
+        # 골든 코디 검색에만 걸려 있던 조건을 아이템 후보 검색에도 넘긴다.
+        # 기피는 축적·발화 양쪽을 합친다 — 어느 쪽이든 "빼달라"는 말이다.
+        avoided_labels: dict[str, set[str]] = {}
+        for source in (pursuit.get("avoided"), requested.get("avoided")):
+            for tag_field, labels in vocabulary.translate(source).tags.items():
+                avoided_labels.setdefault(tag_field, set()).update(labels)
         avoided_tags = {
             tag_field: tuple(sorted(labels))
+            for tag_field, labels in avoided_labels.items()
+        }
+        # 요청 조건은 아이템 선택 단계까지 가야 한다. 여기까지 오지 않으면
+        # 아이템은 템플릿 벡터 유사도로만 뽑혀, 골든 코디가 바뀌어도 슬롯을
+        # 채우는 옷은 요청과 무관하게 정해진다.
+        requested_tags = {
+            tag_field: tuple(sorted(labels))
             for tag_field, labels in vocabulary.translate(
-                pursuit.get("avoided")
+                requested.get("preferred")
             ).tags.items()
         }
 
@@ -419,6 +449,7 @@ class ChatRecommendationPipeline:
                         dataset_statuses=settings.CHAT_GOLDENSET_DATASET_STATUSES,
                         limit_per_source=10,
                         avoided_tags=avoided_tags,
+                        preferred_tags=requested_tags,
                     )
                     if (
                         scoped_item_ids
@@ -558,6 +589,27 @@ class ChatRecommendationPipeline:
             search_mode=retrieval.search_mode,
             candidates=tuple(generated),
         )
+
+    @staticmethod
+    def recent_golden_ids(run: ChatRun) -> frozenset[str]:
+        """같은 세션의 최근 실행이 쓴 골든 템플릿 id.
+
+        현재 실행은 뺀다 — 스타일리스트는 한 실행에서 페르소나별로 여러 번
+        검색하므로, 현재 실행까지 제외하면 두 번째 페르소나부터 자기 자신이
+        만든 템플릿을 피하려다 후보가 말라붙는다.
+
+        한도가 0이면 조회 자체를 하지 않는다(기능 끄기).
+        """
+        limit = settings.CHAT_RECENT_GOLDEN_EXCLUSION_LIMIT
+        if limit <= 0:
+            return frozenset()
+        recent = (
+            GoldenTemplateSnapshot.objects.filter(result__session_id=run.session_id)
+            .exclude(result__run_id=run.pk)
+            .order_by("-result__created_at")
+            .values_list("golden_id", flat=True)[:limit]
+        )
+        return frozenset(value for value in recent if value)
 
     def _resolve_reference_anchor(
         self,
@@ -874,6 +926,14 @@ class ChatRecommendationPipeline:
 
     @staticmethod
     def _merged_pursuit(context: dict, analysis: TurnAnalysis) -> dict:
+        """축적된 취향(온보딩·행동)만 담는다.
+
+        예전에는 이번 발화 조건을 여기에 합쳐 넣었다. 그러면 "이번엔 러블리로"가
+        기존 취향과 **같은 무게의 가산점 하나**가 돼, 예전 취향으로 이미 점수를
+        받은 코디의 서열을 못 바꿨다. 사용자가 방금 한 말이 결과에 반영되지 않는
+        원인이었다. 발화 조건은 _requested_conditions()가 따로 들고 간다.
+        """
+        del analysis  # 발화 조건은 여기 섞지 않는다 (위 주석 참고)
         source = context.get("profile", {}).get("pursuit") or {}
         preferred = {
             key: list(values) for key, values in (source.get("preferred") or {}).items()
@@ -881,26 +941,26 @@ class ChatRecommendationPipeline:
         avoided = {
             key: list(values) for key, values in (source.get("avoided") or {}).items()
         }
-        preferred["styles"] = list(
-            dict.fromkeys([*preferred.get("styles", []), *analysis.conditions.styles])
-        )
-        preferred["colors"] = list(
-            dict.fromkeys([*preferred.get("colors", []), *analysis.conditions.colors])
-        )
-        preferred["fits"] = list(
-            dict.fromkeys([*preferred.get("fits", []), *analysis.conditions.fits])
-        )
-        avoided["styles"] = list(
-            dict.fromkeys(
-                [*avoided.get("styles", []), *analysis.conditions.avoided_styles]
-            )
-        )
-        avoided["colors"] = list(
-            dict.fromkeys(
-                [*avoided.get("colors", []), *analysis.conditions.avoided_colors]
-            )
-        )
         return {"preferred": preferred, "avoided": avoided}
+
+    @staticmethod
+    def _requested_conditions(analysis: TurnAnalysis) -> dict[str, dict[str, list[str]]]:
+        """이번 발화에서 사용자가 직접 말한 조건만 담는다.
+
+        pursuit과 모양은 같지만 축이 다르다 — 검색은 preferred를
+        Weights.request_match로 크게 가산하고, avoided는 하드 필터로 건다.
+        """
+        return {
+            "preferred": {
+                "styles": list(dict.fromkeys(analysis.conditions.styles)),
+                "colors": list(dict.fromkeys(analysis.conditions.colors)),
+                "fits": list(dict.fromkeys(analysis.conditions.fits)),
+            },
+            "avoided": {
+                "styles": list(dict.fromkeys(analysis.conditions.avoided_styles)),
+                "colors": list(dict.fromkeys(analysis.conditions.avoided_colors)),
+            },
+        }
 
     @staticmethod
     def _apply_strategy_preferences(
@@ -1149,10 +1209,19 @@ class ChatRecommendationPipeline:
             "season",
             "brand",
         )
-        for composition in result.compositions.prefetch_related("items").all():
+        # 설명 생성의 ID 계약은 이 순서가 기준이다. 검증부
+        # (recommendation_explanations.apply_recommendation_explanation)와 반드시
+        # 같은 필터·같은 정렬이어야 한다 — 한쪽만 상태로 거르면 모델은 받은 대로
+        # 답했는데 계약 위반으로 처리돼 설명 전체가 규칙 폴백으로 떨어진다.
+        approved = (
+            result.compositions.filter(status=OutfitCompositionModel.Status.VALIDATED)
+            .prefetch_related("items")
+            .order_by("rank", "created_at")
+        )
+        for outfit_index, composition in enumerate(approved, start=1):
             compositions.append(
                 {
-                    "outfit_id": str(composition.id),
+                    "outfit_index": outfit_index,
                     "rank": composition.rank,
                     "total_product_price": composition.total_product_price,
                     "reference_match": composition.reference_match,
@@ -1160,7 +1229,7 @@ class ChatRecommendationPipeline:
                     "validation_reasons": composition.validation_reasons,
                     "items": [
                         {
-                            "item_id": str(item.id),
+                            "item_index": item_index,
                             "slot": item.slot.split(":", 1)[0],
                             "source_type": item.source_type,
                             "name": (
@@ -1181,7 +1250,9 @@ class ChatRecommendationPipeline:
                                 if item.item_snapshot.get(key) not in (None, "", [], {})
                             },
                         }
-                        for item in composition.items.all()
+                        for item_index, item in enumerate(
+                            composition.items.all(), start=1
+                        )
                     ],
                 }
             )

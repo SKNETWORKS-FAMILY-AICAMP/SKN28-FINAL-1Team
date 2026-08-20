@@ -872,6 +872,14 @@ class ChatRun(models.Model):
             "(범위가 없거나 기존 실행이면 빈 객체)"
         ),
     )
+    degradation = models.JSONField(
+        default=dict,
+        blank=True,
+        db_comment=(
+            "응답 품질 저하 기록 JSON (설명 LLM 실패로 규칙 문구를 쓴 경우의 여부·사유 등, "
+            "운영 관측용이며 사용자에게 노출하지 않음)"
+        ),
+    )
     enqueued_at = models.DateTimeField(
         null=True,
         blank=True,

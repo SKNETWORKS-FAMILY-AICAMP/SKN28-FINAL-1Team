@@ -84,8 +84,17 @@ class RetrievalRequest:
     """세 기능이 공유하는 입력. 채우지 않은 축은 그냥 반영되지 않는다."""
 
     body: BodyProfile | None = None
-    #: users/services/pursuit.get_pursuit() 의 payload 그대로
+    #: users/services/pursuit.get_pursuit() 의 payload 그대로.
+    #: **축적된 취향**이다 — 온보딩·행동에서 쌓인 것이라 이번 발화와 무관하게
+    #: 항상 얹힌다.
     pursuit: dict[str, dict[str, list[str]]] | None = None
+    #: 사용자가 **이번 발화에서 직접 말한** 조건. pursuit과 같은 모양
+    #: ({"preferred": {...}, "avoided": {...}})이지만 축을 나눠 둔 이유가 있다.
+    #: 한 자루에 담으면 "이번엔 러블리로"가 기존 취향과 같은 무게의 가산점
+    #: 하나가 돼 서열을 못 바꾼다 — 방금 한 말이 무시되는 것처럼 보인다.
+    #: preferred는 Weights.request_match로 크게 가산하고, avoided는 pursuit과
+    #: 마찬가지로 하드 필터다.
+    requested: dict[str, dict[str, list[str]]] | None = None
     weather: dict[str, Any] | None = None
     #: 사용자 성별 (BodyMeasurement.gender: "male" | "female" | ""). 값이 있으면
     #: 성별 표현이 다른 코디를 검색에서 즉시 탈락시킨다 — 가이드 6장의 하드 필터.
@@ -260,22 +269,66 @@ def build_filter(
 
     if request.pursuit:
         preferred = vocabulary.translate(request.pursuit.get("preferred"))
-        avoided = vocabulary.translate(request.pursuit.get("avoided"))
+        avoided = _resolve_avoided_conflict(
+            vocabulary.translate(request.pursuit.get("avoided")).tags,
+            request,
+        )
         # 선호 스타일은 좁히는 조건이 아니라 넓히는 조건이라 must에 넣지 않는다.
         # 반면 기피 스타일은 사용자가 명시적으로 거부한 것이라 즉시 탈락시킨다.
         if request.hard_filter:
-            for tag_field, labels in avoided.tags.items():
+            for tag_field, labels in avoided.items():
                 if tag_field in OUTFIT_FILTER_FIELDS and labels:
                     must_not.append(_any_of(tag_field, labels))
-        if preferred.unmapped or avoided.unmapped:
+        if preferred.unmapped:
             logger.info(
                 "검색에 반영하지 못한 선호 항목: %s",
-                sorted(set(preferred.unmapped) | set(avoided.unmapped)),
+                sorted(set(preferred.unmapped)),
             )
+
+    if request.requested and request.hard_filter:
+        # 이번 발화의 기피는 축적된 기피와 같게 다룬다 — "검정은 빼줘"는
+        # 가산점 문제가 아니라 즉시 탈락 조건이다.
+        requested_avoided = vocabulary.translate(request.requested.get("avoided"))
+        for tag_field, labels in requested_avoided.tags.items():
+            if tag_field in OUTFIT_FILTER_FIELDS and labels:
+                must_not.append(_any_of(tag_field, labels))
 
     if not must and not must_not:
         return None
     return qm.Filter(must=must or None, must_not=must_not or None)
+
+
+def _resolve_avoided_conflict(
+    avoided_tags: dict[str, set[str]],
+    request: RetrievalRequest,
+) -> dict[str, set[str]]:
+    """이번 발화에서 **직접 요청한** 라벨은 축적된 기피에서 뺀다.
+
+    온보딩에서 "러블리는 싫다"고 했더라도 지금 "러블리로 추천해줘"라고 말했다면
+    이번 턴은 요청이 이겨야 한다. 예전에는 축적된 기피가 하드 필터라 항상 이겨서,
+    요청한 스타일이 must_not에 걸려 후보가 0건이 되고 추천 자체가 실패했다.
+
+    발화의 기피(requested.avoided)는 그대로 둔다 — 방금 "빼달라"고 한 것이라
+    충돌 대상이 아니다.
+    """
+    requested_preferred = (
+        vocabulary.translate((request.requested or {}).get("preferred")).tags
+        if request.requested
+        else {}
+    )
+    if not requested_preferred:
+        return {field: set(labels) for field, labels in avoided_tags.items()}
+    resolved: dict[str, set[str]] = {}
+    for tag_field, labels in avoided_tags.items():
+        kept = set(labels) - requested_preferred.get(tag_field, set())
+        if dropped := set(labels) - kept:
+            logger.info(
+                "이번 발화 요청이 축적된 기피를 덮어씀: %s=%s",
+                tag_field,
+                sorted(dropped),
+            )
+        resolved[tag_field] = kept
+    return resolved
 
 
 def _season_from_weather(weather: dict[str, Any] | None) -> str:
@@ -498,6 +551,7 @@ def _score_items(
     preferred_tags: dict[str, set[str]],
     avoided_tags: dict[str, set[str]],
     weights,
+    requested_tags: dict[str, set[str]] | None = None,
 ) -> tuple[float, list[Reason]]:
     """코디에 속한 아이템들을 규칙·취향에 비추어 점수화한다.
 
@@ -533,6 +587,9 @@ def _score_items(
         for tag_field, labels in preferred_tags.items():
             for value in sorted(labels & _tag_values(item, tag_field)):
                 add(weights.preference_match, "preference", f"선호 항목 '{value}' 일치")
+        for tag_field, labels in (requested_tags or {}).items():
+            for value in sorted(labels & _tag_values(item, tag_field)):
+                add(weights.request_match, "request", f"요청한 '{value}' 일치")
 
         for rule in rules_avoid:
             if rule.matches(item):
@@ -706,9 +763,19 @@ def retrieve_outfits(
         if request.pursuit
         else {}
     )
+    # 점수화도 필터와 같은 규칙을 써야 한다. 한쪽만 충돌을 풀면 필터는 통과시키고
+    # 점수는 -60을 때려, 요청한 스타일이 살아남고도 꼴찌로 밀린다.
     avoided = (
-        vocabulary.translate((request.pursuit or {}).get("avoided")).tags
+        _resolve_avoided_conflict(
+            vocabulary.translate((request.pursuit or {}).get("avoided")).tags,
+            request,
+        )
         if request.pursuit
+        else {}
+    )
+    requested = (
+        vocabulary.translate((request.requested or {}).get("preferred")).tags
+        if request.requested
         else {}
     )
 
@@ -744,6 +811,7 @@ def retrieve_outfits(
             rules_avoid=axis.avoid,
             preferred_tags=preferred,
             avoided_tags=avoided,
+            requested_tags=requested,
             weights=weights,
         )
         context_delta, context_reasons = _score_context(
