@@ -5,7 +5,7 @@ import { useColorScheme } from 'react-native';
 
 import { AnimatedSplashOverlay } from '@/components/animated-icon';
 import { DevReset } from '@/components/dev-reset';
-import { ConfirmProvider, ToastProvider } from '@/components/ui';
+import { ConfirmProvider, ErrorBoundary, ToastProvider } from '@/components/ui';
 import { useKakaoInviteLink } from '@/hooks/use-kakao-link';
 import { clearLegacyPendingShare } from '@/lib/secureStore';
 import { initSocialSDKs } from '@/lib/socialLogin';
@@ -45,6 +45,9 @@ export default function RootLayout() {
       <ConfirmProvider>
         <ToastProvider>
           <AnimatedSplashOverlay />
+          {/* 화면 하나가 터져도 앱 전체가 백지가 되지 않게 감싼다 (ErrorBoundary 주석 참고).
+              토스트·확인창 바깥에 두지 않는 이유 — 오류 화면에서도 그 둘은 살아 있어야 한다. */}
+          <ErrorBoundary>
           {/* 헤더는 전 화면 숨김. 진입 흐름(스플래시/온보딩/인증)은 파일명 그대로 자동 등록됨 */}
           <Stack screenOptions={{ headerShown: false }}>
             {/* 메인 앱 = 홈 · 옷장 · 질문(+) · 룩북 · 마이 */}
@@ -58,6 +61,7 @@ export default function RootLayout() {
             <Stack.Screen name="outfit-review" options={{ presentation: 'modal' }} />
             <Stack.Screen name="edit-profile" options={{ presentation: 'modal' }} />
           </Stack>
+          </ErrorBoundary>
           {/* 개발 전용: 어디서든 스플래시로 돌아가는 단축 버튼 (배포 빌드엔 안 뜸) */}
           <DevReset />
         </ToastProvider>

@@ -9,6 +9,7 @@ import {
   type WardrobeItem,
   type WardrobeSource,
 } from '@/constants/wardrobe';
+import { useSharedWardrobeItems } from '@/hooks/use-shared-wardrobe';
 import { useWardrobeItems } from '@/hooks/use-wardrobe';
 import { itemDisplayName } from '@/lib/wardrobeApi';
 import { entryItemKey, toEntryItem, type EntryItem } from '@/state/calendar';
@@ -18,7 +19,7 @@ const GAP = 10;
 const COLUMNS = 3;
 
 /**
- * 옷 고르기 — 소스(내 옷장 / 앱 추천)를 탭으로 전환하는 단일 시트.
+ * 옷 고르기 — 소스(내 옷장 / 공유 옷장 / 앱 추천)를 탭으로 전환하는 단일 시트.
  *
  * 소스를 화면 분기로 두지 않는 이유: 한 착장에 여러 소스의 옷이 섞이는 게 정상이라
  * 소스마다 화면을 나가고 들어오면 한 벌을 꾸리는 데 왕복이 너무 많아진다.
@@ -47,9 +48,14 @@ export function ItemPickerSheet({
     if (visible) setDraft(selected);
   }
 
-  /* '내 옷장'은 서버가 출처다. 공유 옷장도 실 API가 있지만 캘린더 기록에 친구 옷을
-     연결하는 계약은 없으므로 가짜 목록으로 대신하지 않는다. 앱 추천만 로컬 카탈로그를 쓴다. */
+  /* '내 옷장'·'공유 옷장'은 서버가 출처다. 목업으로 대신하지 않는다 —
+     옷장에 없는 옷이 기록에 남는다. '앱 추천'만 아직 서버 계약이 없어 로컬 카탈로그를 쓴다.
+
+     친구 옷은 캘린더 기록의 서버 필드에 넣을 자리가 없지만, 그건 저장 쪽이 이미
+     처리한다 — 내 옷이 아닌 것은 오버레이로 따로 보관한다(state/calendar.ts 의
+     isServerItem). 앱 추천이 지금도 그렇게 저장되고 있다. */
   const { items: apiItems, loading, error, reload } = useWardrobeItems({}, visible);
+  const shared = useSharedWardrobeItems(visible);
 
   const closetItems = useMemo<WardrobeItem[]>(
     () =>
@@ -67,9 +73,10 @@ export function ItemPickerSheet({
   const sources = useMemo(
     () => [
       { key: 'closet' as WardrobeSource, label: '내 옷장', items: closetItems },
+      { key: 'shared' as WardrobeSource, label: '공유 옷장', items: shared.items },
       { key: 'library' as WardrobeSource, label: '앱 추천', items: LIBRARY_ITEMS },
     ],
-    [closetItems],
+    [closetItems, shared.items],
   );
 
   const source = sources.find((s) => s.key === tab)!;
@@ -107,7 +114,7 @@ export function ItemPickerSheet({
             })}
           </View>
 
-          {/* 내 옷장만 서버에서 온다 */}
+          {/* 앱 추천만 로컬이고 나머지 둘은 서버에서 온다 */}
           {tab === 'closet' && loading ? (
             <LoadingState message="옷장을 불러오는 중…" style={styles.state} />
           ) : tab === 'closet' && error ? (
@@ -117,12 +124,26 @@ export function ItemPickerSheet({
               onRetry={reload}
               style={styles.state}
             />
+          ) : tab === 'shared' && shared.loading ? (
+            <LoadingState message="공유 옷장을 불러오는 중…" style={styles.state} />
+          ) : tab === 'shared' && shared.error ? (
+            <ErrorState
+              title="공유 옷장을 불러오지 못했어요"
+              description={shared.error}
+              onRetry={shared.reload}
+              style={styles.state}
+            />
           ) : source.items.length === 0 ? (
             <View style={styles.state}>
               <Text style={styles.emptyText}>
                 {tab === 'closet'
                   ? '옷장에 등록한 옷이 없어요.'
-                  : '고를 수 있는 옷이 없어요.'}
+                  : tab === 'shared'
+                    ? /* 방이 없는 것과 방은 있는데 빈 것은 다음 할 일이 다르다 */
+                      shared.hasRoom
+                      ? '공유 옷장에 올라온 옷이 없어요.'
+                      : '참여 중인 공유 옷장이 없어요.'
+                    : '고를 수 있는 옷이 없어요.'}
               </Text>
             </View>
           ) : (
