@@ -323,7 +323,7 @@ export default function LookDetail() {
               <Icon name="chevron.left" tintColor={INK} size={20} />
             </Pressable>
             {/* 홈의 오늘의 룩과 같은 화면을 쓰지만 성격이 다르다 — 이름으로 갈라 준다 */}
-          <Text style={styles.headerTitle}>{isDiscovery ? '둘러보기 룩' : '추천 룩'}</Text>
+          <Text style={styles.headerTitle}>{isDiscovery ? '둘러보기' : '추천 룩'}</Text>
             <View style={styles.headerRight} />
           </View>
         </SafeAreaView>
@@ -396,7 +396,7 @@ export default function LookDetail() {
             onPress={() => goBack(backTo(from, isDiscovery ? '/(tabs)/lookbook' : '/(tabs)/home'))}>
             <Icon name="chevron.left" tintColor={INK} size={20} />
           </Pressable>
-          <Text style={styles.headerTitle}>{isDiscovery ? '둘러보기 룩' : '추천 룩'}</Text>
+          <Text style={styles.headerTitle}>{isDiscovery ? '둘러보기' : '추천 룩'}</Text>
           <Pressable
             style={styles.headerRight}
             hitSlop={12}
