@@ -363,11 +363,13 @@ export default function LookDetail() {
             }
           />
         ) : dailyLook?.status === 'EMPTY' ? (
-          /* 후보가 없는 것은 오류가 아니다 — 다시 시도해도 같으니 프로필로 보낸다. */
+          /* 후보가 없는 것은 오류가 아니다 — 다시 시도해도 같으니 프로필로 보낸다.
+             (홈의 같은 버튼과 마찬가지로, 이름만 바꾸는 edit-profile 이 아니라
+             체형·추구미 입력이 모여 있는 마이 탭이 목적지다.) */
           <ErrorState
             title="오늘 추천할 룩을 찾지 못했어요"
             description={dailyLook?.detail ?? '체형·추구미를 채우면 그에 맞는 코디를 찾아드릴 수 있어요.'}
-            onRetry={() => router.push('/edit-profile')}
+            onRetry={() => router.push('/(tabs)/my')}
             retryLabel="프로필 채우기"
             retryIcon="person"
           />

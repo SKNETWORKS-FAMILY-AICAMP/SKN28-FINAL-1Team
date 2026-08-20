@@ -496,7 +496,9 @@ function UnavailableLook({
       </Text>
       <Pressable
         style={styles.unavailableBtn}
-        onPress={() => (empty ? router.push('/edit-profile') : onRetry())}>
+        /* edit-profile 은 표시 이름만 바꾸는 모달이라 여기서 열면 채울 것이 없다.
+           체형·추구미 입력 진입점이 모인 마이 탭으로 보낸다. */
+        onPress={() => (empty ? router.push('/(tabs)/my') : onRetry())}>
         <Text style={styles.unavailableBtnText}>{empty ? '프로필 채우기' : '다시 시도'}</Text>
       </Pressable>
       {/* 여기서 특히 필요한 안내다 — 프로필을 채우거나 다시 시도해도 오늘 것은 이미
