@@ -188,12 +188,12 @@ class WardrobeItemSerializer(serializers.ModelSerializer):
             "added_to_closet_at",
             # 확정하면 이 방에 공유된다는 예약. 상세 화면이 "확정 시 OO방에 공유" 안내를
             # 그릴 수 있어야 사용자가 등록할 때 켠 토글을 확정 직전에 다시 확인할 수 있다.
-            "pending_share_room", "pending_share_status",
+            "pending_share_room",
             "wardrobe_hashtags",
         ]
         read_only_fields = [
             "id", "job", "s3_key", "seg_meta", "created_at", "added_to_closet_at",
-            "pending_share_room", "pending_share_status",
+            "pending_share_room",
         ]
 
     def get_image_url(self, obj) -> str:
@@ -373,14 +373,6 @@ class SharedWardrobeMemberSerializer(serializers.ModelSerializer):
 class SharedWardrobeItemSerializer(serializers.ModelSerializer):
     wardrobe_item = WardrobeItemSerializer(read_only=True)
     registered_by = UserSimpleSerializer(read_only=True)
-    status = serializers.ChoiceField(
-        choices=SharedWardrobeItem.Status.choices,
-        read_only=True,
-        help_text=(
-            "공유 상태. AVAILABLE은 공유 가능, BORROWED는 대여 중이지만 채팅 참고 가능, "
-            "PRIVATE는 소유자만 볼 수 있고 채팅 참고 불가"
-        ),
-    )
     reference_eligible = serializers.SerializerMethodField(
         help_text=(
             "현재 채팅 추천의 공유 옷 레퍼런스로 선택할 수 있는지 여부. "
@@ -389,7 +381,7 @@ class SharedWardrobeItemSerializer(serializers.ModelSerializer):
     )
     reference_unavailable_reason = serializers.SerializerMethodField(
         help_text=(
-            "선택 불가 사유 코드. PRIVATE, NOT_CONFIRMED, VECTOR_NOT_READY 중 "
+            "선택 불가 사유 코드. NOT_CONFIRMED, VECTOR_NOT_READY 중 "
             "하나이며 선택 가능하면 null"
         ),
     )
@@ -400,7 +392,6 @@ class SharedWardrobeItemSerializer(serializers.ModelSerializer):
             "id",
             "registered_by",
             "wardrobe_item",
-            "status",
             "reference_eligible",
             "reference_unavailable_reason",
             "created_at",
@@ -430,10 +421,6 @@ class SharedWardrobeLeaveSerializer(serializers.Serializer):
 
 class SharedWardrobeItemRegisterSerializer(serializers.Serializer):
     wardrobe_item_id = serializers.UUIDField()
-    status = serializers.ChoiceField(
-        choices=SharedWardrobeItem.Status.choices,
-        default=SharedWardrobeItem.Status.AVAILABLE
-    )
 
 
 class SharedWardrobeCategorySerializer(serializers.ModelSerializer):

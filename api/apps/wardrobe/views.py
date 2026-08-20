@@ -280,9 +280,6 @@ class WardrobeUploadView(APIView):
         shared_room_id = (request.data.get("shared_room_id") or "").strip()
         if shared_room_id and shared_service.is_room_member(request.user, shared_room_id):
             job.shared_room_id = shared_room_id
-            shared_status = (request.data.get("shared_status") or "").strip()
-            if shared_status in SharedWardrobeItem.Status.values:
-                job.shared_status = shared_status
         key = storage.original_key(request.user.pk, job.pk, image.name)
         try:
             storage.upload_fileobj(image, key, image.content_type)
@@ -310,7 +307,6 @@ class WardrobeUploadView(APIView):
                 added_to_closet_at=timezone.now(),
                 seg_meta={"processing": "skipped", "source": "library"},
                 pending_share_room_id=job.shared_room_id,
-                pending_share_status=job.shared_status,
             )
             # 카탈로그 경로는 그 자리에서 confirmed=True 다 — 확정을 기다릴 이유가 없어
             # 예약을 즉시 소진한다. (사진 경로는 사용자가 태그를 확인할 때 소진된다.)
@@ -442,7 +438,6 @@ class WardrobeCallbackView(APIView):
                     # 등록 시 켠 '공유 옷장' 예약을 job → 아이템으로 옮긴다.
                     # 여기서 바로 공유하지 않는 이유: 이 옷은 아직 confirmed=False 다.
                     pending_share_room_id=job.shared_room_id,
-                    pending_share_status=job.shared_status,
                     **item_data,
                 )
                 created.append((item, image_vec, text_vec))
@@ -692,13 +687,7 @@ class WardrobeItemDetailView(APIView):
         queryset = (
             WardrobeItem.objects.filter(
                 Q(user=request.user)
-                | Q(
-                    shared_instances__room__members__user=request.user,
-                    shared_instances__status__in=[
-                        SharedWardrobeItem.Status.AVAILABLE,
-                        SharedWardrobeItem.Status.BORROWED,
-                    ],
-                )
+                | Q(shared_instances__room__members__user=request.user)
             )
             .prefetch_related("wardrobe_hashtags")
             .distinct()
@@ -1051,9 +1040,9 @@ class SharedWardrobeViewSet(viewsets.ModelViewSet):
         summary="공유 옷장에 등록된 옷 목록",
         description=(
             "각 아이템의 `reference_eligible`과 `reference_unavailable_reason`으로 "
-            "채팅 참고 가능 상태를 함께 반환합니다. 선택 불가 사유는 PRIVATE, "
-            "NOT_CONFIRMED, VECTOR_NOT_READY이며, BORROWED는 준비 상태가 충족되면 "
-            "참고할 수 있습니다. 프론트는 Qdrant를 직접 확인하지 않습니다."
+            "채팅 참고 가능 상태를 함께 반환합니다. 선택 불가 사유는 NOT_CONFIRMED, "
+            "VECTOR_NOT_READY이며, 방에 등록된 옷은 멤버 전원에게 보입니다. "
+            "프론트는 Qdrant를 직접 확인하지 않습니다."
         ),
         responses=SharedWardrobeItemSerializer(many=True),
     )
@@ -1065,17 +1054,6 @@ class SharedWardrobeViewSet(viewsets.ModelViewSet):
         responses={
             201: SharedWardrobeItemSerializer,
             400: OpenApiResponse(description="내 옷이 아니거나 이미 등록된 아이템"),
-        },
-    )
-    @extend_schema(
-        methods=["PATCH"],
-        summary="공유 옷 상태 변경",
-        description="item_id(또는 wardrobe_item_id)와 available/borrowed/private 상태를 전달합니다.",
-        request=SharedWardrobeItemRegisterSerializer,
-        responses={
-            200: SharedWardrobeItemSerializer,
-            400: OpenApiResponse(description="필수값 누락 또는 잘못된 상태"),
-            403: OpenApiResponse(description="아이템 소유자나 방장이 아님"),
         },
     )
     @extend_schema(
@@ -1097,53 +1075,29 @@ class SharedWardrobeViewSet(viewsets.ModelViewSet):
             400: OpenApiResponse(description="wardrobe_item_id 누락"),
         },
     )
-    @action(detail=True, methods=["get", "post", "patch", "delete"], url_path="items")
+    @action(detail=True, methods=["get", "post", "delete"], url_path="items")
     def items(self, request, pk=None):
         room = get_object_or_404(SharedWardrobeRoom, pk=pk, members__user=request.user)
-        
+
         if request.method == "GET":
-            # 이 공유방의 등록된 옷 목록 조회 API
+            # 이 공유방의 등록된 옷 목록 조회 API — 방에 올라온 옷은 멤버 전원이 본다
             items = (
                 SharedWardrobeItem.objects.filter(room=room)
-                .filter(
-                    Q(status__in=[
-                        SharedWardrobeItem.Status.AVAILABLE,
-                        SharedWardrobeItem.Status.BORROWED,
-                    ])
-                    | Q(registered_by=request.user)
-                )
                 .select_related("wardrobe_item", "registered_by")
             )
             return Response(SharedWardrobeItemSerializer(items, many=True).data)
-            
+
         elif request.method == "POST":
             # 내 개인 옷장의 옷을 이 공유방으로 공유 등록 API
             serializer = SharedWardrobeItemRegisterSerializer(data=request.data)
             serializer.is_valid(raise_exception=True)
             item_id = serializer.validated_data["wardrobe_item_id"]
-            item_status = serializer.validated_data["status"]
-            
+
             try:
                 shared_item = shared_service.register_item_to_shared_room(
-                    request.user, pk, str(item_id), item_status
+                    request.user, pk, str(item_id)
                 )
                 return Response(SharedWardrobeItemSerializer(shared_item).data, status=status.HTTP_201_CREATED)
-            except ValueError as e:
-                return Response({"detail": str(e)}, status=status.HTTP_400_BAD_REQUEST)
-
-        elif request.method == "PATCH":
-            # 공유 옷장에 등록된 옷 상태(available/borrowed/private) 변경 API
-            item_id = request.data.get("item_id") or request.data.get("wardrobe_item_id")
-            item_status = request.data.get("status")
-            if not item_id or not item_status:
-                return Response({"detail": "item_id와 status가 필요합니다."}, status=status.HTTP_400_BAD_REQUEST)
-            try:
-                updated_item = shared_service.update_shared_item_status(
-                    request.user, pk, str(item_id), item_status
-                )
-                return Response(SharedWardrobeItemSerializer(updated_item).data, status=status.HTTP_200_OK)
-            except PermissionError as e:
-                return Response({"detail": str(e)}, status=status.HTTP_403_FORBIDDEN)
             except ValueError as e:
                 return Response({"detail": str(e)}, status=status.HTTP_400_BAD_REQUEST)
 
@@ -1218,13 +1172,7 @@ class SharedWardrobeViewSet(viewsets.ModelViewSet):
         items_payload = []
         if not expired:
             shared_items = (
-                SharedWardrobeItem.objects.filter(
-                    room=room,
-                    status__in=[
-                        SharedWardrobeItem.Status.AVAILABLE,
-                        SharedWardrobeItem.Status.BORROWED,
-                    ],
-                )
+                SharedWardrobeItem.objects.filter(room=room)
                 .select_related("wardrobe_item")
                 .order_by("-created_at")
             )

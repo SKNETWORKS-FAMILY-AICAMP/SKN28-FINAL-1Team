@@ -142,10 +142,9 @@ export async function uploadWardrobePhoto(
     skipProcessing?: boolean;
     itemName?: string;
     category?: string;
-    /* '공유 옷장' 토글로 고른 방·상태. 업로드 시작 시점에 서버로 넘겨 예약으로 남긴다 —
+    /* '공유 옷장' 토글로 고른 방. 업로드 시작 시점에 서버로 넘겨 예약으로 남긴다 —
        기기에 들고 있으면 PC 에서 올리고 폰에서 확정할 때 공유가 사라진다. */
     sharedRoomId?: string;
-    sharedStatus?: SharedItemStatus;
   } = {},
 ): Promise<{ job_id: string; status: UploadJobStatus }> {
   const name = opts.name ?? guessFileName(uri, 'wardrobe.jpg');
@@ -162,7 +161,6 @@ export async function uploadWardrobePhoto(
     if (opts.itemName) form.append('item_name', opts.itemName);
     if (opts.category) form.append('category_large', opts.category);
     if (opts.sharedRoomId) form.append('shared_room_id', opts.sharedRoomId);
-    if (opts.sharedStatus) form.append('shared_status', opts.sharedStatus);
     return apiFetch<{ job_id: string; status: UploadJobStatus }>(WardrobeEndpoints.uploads, {
       method: 'POST',
       body: form,
@@ -183,7 +181,6 @@ export async function uploadWardrobePhoto(
         ...(opts.itemName ? { item_name: opts.itemName } : {}),
         ...(opts.category ? { category_large: opts.category } : {}),
         ...(opts.sharedRoomId ? { shared_room_id: opts.sharedRoomId } : {}),
-        ...(opts.sharedStatus ? { shared_status: opts.sharedStatus } : {}),
       },
       headers: {
         Accept: 'application/json',
@@ -449,11 +446,7 @@ export function itemDisplayName(item: WardrobeApiItem): string {
    백엔드가 확장자·content-type 으로 형식을 거르므로(jpeg/png/webp/heic) 최소한은 맞춰 보낸다. */
 
 // ── 공유 옷장 (Shared Wardrobe) API ──
-/** 공유 옷의 상태. 서버 `SharedWardrobeItem.Status` 와 값이 1:1 로 맞아야 한다. */
-export type SharedItemStatus = 'available' | 'borrowed' | 'private';
-
 export type SharedReferenceUnavailableReason =
-  | 'PRIVATE'
   | 'NOT_CONFIRMED'
   | 'VECTOR_NOT_READY';
 
@@ -499,7 +492,6 @@ export type SharedRoomItem = {
   id: string;
   registered_by: SharedRoomUser | null;
   wardrobe_item: WardrobeApiItem;
-  status: 'available' | 'borrowed' | 'private';
   reference_eligible: boolean;
   reference_unavailable_reason: SharedReferenceUnavailableReason | null;
   created_at: string;
@@ -574,21 +566,9 @@ export function listSharedRoomItems(roomId: string): Promise<SharedRoomItem[]> {
   return api.get<SharedRoomItem[]>(`/api/v1/shared-wardrobes/${roomId}/items/`);
 }
 
-export function registerItemToSharedRoom(roomId: string, wardrobeItemId: string, status: SharedItemStatus = 'available'): Promise<SharedRoomItem> {
+export function registerItemToSharedRoom(roomId: string, wardrobeItemId: string): Promise<SharedRoomItem> {
   return api.post<SharedRoomItem>(`/api/v1/shared-wardrobes/${roomId}/items/`, {
     wardrobe_item_id: wardrobeItemId,
-    status
-  });
-}
-
-export function updateSharedItemStatus(
-  roomId: string,
-  itemId: string,
-  status: 'available' | 'borrowed' | 'private',
-): Promise<SharedRoomItem> {
-  return api.patch<SharedRoomItem>(`/api/v1/shared-wardrobes/${roomId}/items/`, {
-    item_id: itemId,
-    status,
   });
 }
 

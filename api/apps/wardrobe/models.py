@@ -111,6 +111,7 @@ class WardrobeUploadJob(models.Model):
         related_name="pending_jobs",
         db_comment="등록 시 지정한 공유 예약 방 FK (NULL: 공유 안 함, 방 삭제 시 NULL)",
     )
+    # UI/API 에서 제거됨 — 공유는 항상 available 로 동작한다. 레거시 값 보존용 컬럼.
     shared_status = models.CharField(
         "공유 예약 상태",
         max_length=15,
@@ -371,6 +372,7 @@ class WardrobeItem(models.Model):
         related_name="pending_items",
         db_comment="확정 시 공유할 예약 방 FK (NULL: 예약 없음, 방 삭제 시 NULL)",
     )
+    # UI/API 에서 제거됨 — 공유는 항상 available 로 동작한다. 레거시 값 보존용 컬럼.
     pending_share_status = models.CharField(
         "공유 예약 상태",
         max_length=15,
@@ -566,6 +568,7 @@ class SharedWardrobeItem(models.Model):
         related_name="shared_instances",
         db_comment="원본 옷장 아이템 FK"
     )
+    # UI/API 에서 제거됨 — 항상 available 로 동작한다. 과거 borrowed/private 행 보존용 컬럼.
     status = models.CharField(
         "공유상태", max_length=15, choices=Status.choices, default=Status.AVAILABLE, db_comment="공유 대여 가능 상태"
     )

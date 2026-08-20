@@ -156,7 +156,7 @@ def leave_shared_room(user, room_id: str, delete_my_items: bool = True) -> None:
 
 
 @transaction.atomic
-def register_item_to_shared_room(user, room_id: str, wardrobe_item_id: str, status: str = "available") -> SharedWardrobeItem:
+def register_item_to_shared_room(user, room_id: str, wardrobe_item_id: str) -> SharedWardrobeItem:
     """개인 옷장에서 보유하고 있는 내 옷(confirmed=True인 옷만 가능)을 공유 옷장에 정식으로 등록(공유)합니다."""
     try:
         room = SharedWardrobeRoom.objects.get(pk=room_id)
@@ -177,44 +177,9 @@ def register_item_to_shared_room(user, room_id: str, wardrobe_item_id: str, stat
     shared_item, _ = SharedWardrobeItem.objects.get_or_create(
         room=room,
         wardrobe_item=wardrobe_item,
-        defaults={"registered_by": user, "status": status},
+        defaults={"registered_by": user},
     )
     return shared_item
-
-
-@transaction.atomic
-def update_shared_item_status(user, room_id: str, item_id: str, status: str) -> SharedWardrobeItem:
-    """공유 옷장에 등록된 아이템의 상태(available / borrowed / private)를 변경합니다.
-    방 멤버이면서 본인이 등록했거나 방장(owner)인 유저가 변경할 수 있습니다.
-    """
-    try:
-        room = SharedWardrobeRoom.objects.get(pk=room_id)
-        membership = SharedWardrobeMember.objects.get(room=room, user=user)
-    except (SharedWardrobeRoom.DoesNotExist, SharedWardrobeMember.DoesNotExist, ValidationError):
-        raise ValueError("공유 옷장 참여 멤버만 상태를 변경할 수 있습니다.")
-
-    try:
-        shared_item = SharedWardrobeItem.objects.filter(room=room, wardrobe_item_id=item_id).first()
-        if not shared_item:
-            shared_item = SharedWardrobeItem.objects.filter(room=room, pk=item_id).first()
-    except ValidationError:
-        # item_id 가 UUID 형식이 아님 — 못 찾은 것과 같게 취급한다(500 방지)
-        shared_item = None
-
-    if not shared_item:
-        raise ValueError("공유 옷장에서 아이템을 찾을 수 없습니다.")
-
-    if shared_item.registered_by != user and membership.role != SharedWardrobeMember.Role.OWNER:
-        raise PermissionError("아이템 상태를 변경할 권한이 없습니다.")
-
-    valid_statuses = [choice[0] for choice in SharedWardrobeItem.Status.choices]
-    if status not in valid_statuses:
-        raise ValueError(f"유효하지 않은 상태값입니다: {status}. 사용 가능한 상태: {valid_statuses}")
-
-    shared_item.status = status
-    shared_item.save(update_fields=["status"])
-    return shared_item
-
 
 
 def is_room_member(user, room_id: str) -> bool:
@@ -244,15 +209,15 @@ def redeem_pending_share(item: WardrobeItem) -> SharedWardrobeItem | None:
     if not room_id:
         return None
 
-    status = item.pending_share_status or SharedWardrobeItem.Status.AVAILABLE
     item.pending_share_room = None
+    # 공유 상태 기능은 없어졌지만, 레거시 행에 남은 예약 상태는 여기서 비운다.
     item.pending_share_status = ""
     item.save(update_fields=["pending_share_room", "pending_share_status"])
 
     try:
         # register_* 도 atomic 이라 여기서는 savepoint 로 중첩된다 —
         # ValueError 로 빠져도 바깥(예약 비우기)은 살아서 커밋된다.
-        return register_item_to_shared_room(item.user, str(room_id), str(item.pk), status)
+        return register_item_to_shared_room(item.user, str(room_id), str(item.pk))
     except ValueError:
         # 방을 나갔거나 방이 지워진 뒤 확정한 경우. 확정 자체를 실패시키지 않는다.
         return None
