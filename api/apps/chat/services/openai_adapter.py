@@ -36,8 +36,24 @@ class ChatLLMConfigurationError(ChatLLMError):
     code = "CHAT_LLM_NOT_CONFIGURED"
 
 
+#: 요청 상황의 표준 분류. occasion 자유 문구와 별도로 두는 이유는, 한국어 표현이
+#: "출근할 때"·"회사 가는 날"·"사무실"·"출장"처럼 끝없이 갈라져 코드의 키워드 매칭이
+#: 항상 새는 탓이다. 분류는 모델이 하고, 코드는 분류값만 보고 결정한다.
+OccasionKind = Literal[
+    "FORMAL",   # 출근·회사·미팅·면접·발표·상견례 등 격식과 업무
+    "EVENT",    # 결혼식·장례식·행사처럼 격식이 더 강한 자리
+    "DATE",     # 데이트·소개팅
+    "DAILY",    # 등교·장보기·동네 외출 등 일상
+    "ACTIVE",   # 운동·등산·러닝
+    "RESORT",   # 휴양지·바다·수영장·여행
+    "HOME",     # 집·홈웨어
+    "UNKNOWN",  # 판단 근거가 없을 때. 코드는 아무 제약도 걸지 않는다.
+]
+
+
 class RecommendationConditions(BaseModel):
     occasion: str
+    occasion_kind: OccasionKind
     season: str
     presentation_groups: list[Literal["women", "men", "woman", "man", "unisex"]]
     styles: list[str]
@@ -131,6 +147,10 @@ _ANALYZE_INSTRUCTIONS = """
 사용자 발화에서 스타일·계절·TPO·핏·예산·기피 조건을 구조화한다.
 사용자가 성별 표현을 직접 요청한 경우에만 presentation_groups를 women, men,
 unisex 중 하나 이상으로 채우고, 명시하지 않았으면 빈 배열로 둔다.
+occasion_kind는 occasion을 표준 분류로 옮긴 값이다. 예를 들어 출근·회사·미팅·면접은
+FORMAL, 결혼식·장례식은 EVENT, 데이트·소개팅은 DATE, 등교·장보기는 DAILY,
+운동·등산은 ACTIVE, 휴양지·바다·여행은 RESORT, 집에서 입을 옷은 HOME으로 고른다.
+상황을 알 수 없으면 UNKNOWN으로 두고 임의로 추측하지 않는다.
 스타일·색상·핏은 서비스 태그와 동일한 한국어 표준값을 사용한다. 예를 들어
 미니멀, 캐주얼 / 블랙, 레드 / 오버핏, 레귤러핏, 슬림핏, 와이드핏처럼 쓴다.
 추천에 필수인 조건이 모호하거나 이전 조건과 충돌할 때만 CLARIFY를 선택한다.

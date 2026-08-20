@@ -70,6 +70,7 @@ class StylistOrchestratorResponseTests(TestCase):
                 search_query="출근 코디",
                 conditions=RecommendationConditions(
                     occasion="출근",
+                    occasion_kind="FORMAL",
                     season="가을",
                     presentation_groups=[],
                     styles=[],

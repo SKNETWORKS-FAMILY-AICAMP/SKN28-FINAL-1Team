@@ -44,6 +44,7 @@ from apps.recommend.services.item_retriever import (
     ItemCandidateRetriever,
     ItemRetrievalRequest,
     ItemSource,
+    occasion_skipped_smalls,
 )
 from apps.recommend.services.new_item_composer import (
     NewItemCompositionRequest,
@@ -57,6 +58,7 @@ from apps.recommend.services.outfit_types import (
 )
 from apps.recommend.services.retriever import (
     GoldenOutfitRetriever,
+    occasion_kind_tags,
     OutfitCandidate,
     RetrievalRequest,
     RetrievalResult,
@@ -400,9 +402,12 @@ class ChatRecommendationPipeline:
                 # 재현됐다. 후보가 전부 제외되면 retriever가 제외를 풀고
                 # 돌려주므로 '추천 없음'으로 떨어지지는 않는다.
                 exclude_golden_ids=exclude_golden_ids,
-                # 후보가 이 수 미만이면 온보딩 기피를 필터에서만 푼다. 점수의
-                # -60은 남으므로 기피 코디는 뒤로 밀릴 뿐이다.
-                relax_avoided_below=settings.CHAT_GOLDEN_RELAX_AVOIDED_BELOW,
+                # 요청 TPO를 골든 코디 선택의 실질 조건으로 건다. 예전에는 맞으면
+                # +10, 틀려도 감점 0이라 출근 요청에 휴양 코디가 1순위로 올라왔다.
+                occasion_kinds=occasion_kind_tags(analysis.conditions.occasion_kind),
+                # 후보가 이 수 미만이면 완화 사다리를 오른다(최근 제외 → TPO →
+                # 축적 기피 순). 성별·발화 조건·예산은 풀지 않는다.
+                relax_below=settings.CHAT_GOLDEN_RELAX_AVOIDED_BELOW,
                 # 골든 코디는 내부 조합 템플릿이다. 원본 이미지 노출 권한은
                 # 결과 표출·렌더링 경계에서 별도로 검사한다.
                 exposable_only=False,
@@ -438,6 +443,14 @@ class ChatRecommendationPipeline:
         failure_reasons: Counter[str] = Counter()
         for template_rank, candidate in enumerate(retrieval.candidates, start=1):
             template_ids = self._template_item_ids(candidate)
+            # 격식 자리에서는 모자·선글라스 슬롯을 **검색조차 하지 않는다.**
+            # 채우면 반드시 무언가가 들어가므로, 안 어울리는 자리에서는 자리를
+            # 없애는 것이 유일하게 확실한 방법이다 (usage 태그로는 못 막는다).
+            template_ids = self._drop_skipped_slots(
+                candidate,
+                template_ids,
+                occasion_skipped_smalls(analysis.conditions.occasion_kind),
+            )
             if not template_ids:
                 continue
             try:
@@ -453,6 +466,9 @@ class ChatRecommendationPipeline:
                         limit_per_source=10,
                         avoided_tags=avoided_tags,
                         preferred_tags=requested_tags,
+                        # 요청 TPO를 아이템 선택까지 내린다. 이게 없으면 출근룩
+                        # 액세서리 슬롯이 밀짚모자·라탄백으로 채워진다.
+                        occasion_kind=analysis.conditions.occasion_kind,
                     )
                     if (
                         scoped_item_ids
@@ -926,6 +942,31 @@ class ChatRecommendationPipeline:
             if value not in (None, ""):
                 values.append(str(value))
         return tuple(dict.fromkeys(values))
+
+    @staticmethod
+    def _drop_skipped_slots(
+        candidate: OutfitCandidate,
+        template_ids: tuple[str, ...],
+        skipped_smalls: Collection[str],
+    ) -> tuple[str, ...]:
+        """건너뛸 소분류의 슬롯을 템플릿에서 뺀다.
+
+        전부 빠지는 경우에는 원본을 그대로 둔다 — 액세서리만 있는 템플릿에서
+        슬롯이 0개가 되면 코디가 성립하지 않는다.
+        """
+        if not skipped_smalls:
+            return template_ids
+        drop = {
+            str(item.get("item_point_id") or item.get("point_id") or "")
+            for item in candidate.items
+            if isinstance(item, dict)
+            and str(item.get("category_small") or "") in skipped_smalls
+        }
+        drop.discard("")
+        if not drop:
+            return template_ids
+        kept = tuple(pid for pid in template_ids if pid not in drop)
+        return kept or template_ids
 
     @staticmethod
     def _merged_pursuit(context: dict, analysis: TurnAnalysis) -> dict:

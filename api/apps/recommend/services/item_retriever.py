@@ -54,6 +54,9 @@ class ItemRetrievalRequest:
     limit_per_source: int = 10
     #: 사용자가 명시적으로 기피한 태그 (Qdrant 필드명 -> 라벨).
     avoided_tags: Mapping[str, tuple[str, ...]] = field(default_factory=dict)
+    #: 요청 상황 분류(OccasionKind). 자유 문구가 아니라 표준 분류값이라
+    #: 표현이 갈라져도 규칙이 새지 않는다.
+    occasion_kind: str = ""
     #: 사용자가 이번 발화에서 요청한 태그 (Qdrant 필드명 -> 라벨).
     #:
     #: 예전에는 기피 태그만 여기까지 왔고 선호·요청 조건은 골든 코디 검색에서
@@ -137,9 +140,62 @@ def _match_any(field_name: str, values: Iterable[str]) -> qm.FieldCondition:
 #: 달라진 문제가 아니라 애초에 코디 아이템이 아닌 것이라, 후보 단계에서 뺀다.
 _EXCLUDED_USAGE = ("수면", "홈웨어", "언더웨어", "속옷")
 
+#: TPO와 정면으로 어긋나는 용도. 위 _EXCLUDED_USAGE가 "언제든 코디 아이템이 아닌 것"이라면
+#: 이쪽은 "이 자리에는 아닌 것"이라 요청에 따라 켜고 끈다.
+#:
+#: 출근룩 요청에 밀짚모자·라탄백이 들어가던 문제 때문에 넣었다. 골든 템플릿의 75퍼센트가
+#: 액세서리 슬롯을 갖고 있고 그 슬롯은 대분류·소분류·벡터 유사도로만 채워지므로,
+#: 요청한 TPO가 아이템 선택에 개입할 통로가 여기 말고는 없다.
+#:
+#: ⚠️ 이걸로 선글라스는 걸리지 않는다. 상품 태깅상 선글라스는 '외출'이라 근거가 없다
+#:    (레이밴·페라가모·헌터 전부 usage=['외출']). 그건 슬롯을 비우는 쪽으로 풀어야 한다.
+_TPO_EXCLUDED_USAGE = ("휴양지", "수영", "수영장", "여행", "운동")
 
-def _usage_exclusions() -> list[qm.Condition]:
-    return [_match_any("usage", _EXCLUDED_USAGE)]
+#: 분류별 배제 용도. 자유 문구를 키워드로 훑지 않고 **분류값만** 본다 —
+#: "출근할 때"·"사무실"·"출장"처럼 표현이 갈라져도 분류는 FORMAL 하나로 모이므로
+#: 규칙이 새지 않는다. 분류는 요청 분석 단계(OccasionKind)가 책임진다.
+#:
+#: RESORT·ACTIVE·HOME은 그 용도가 곧 요청이라 아무것도 빼지 않는다.
+#: UNKNOWN도 마찬가지다 — 근거 없이 후보를 줄이지 않는다.
+_OCCASION_KIND_EXCLUDED_USAGE = {
+    "FORMAL": _TPO_EXCLUDED_USAGE,
+    "EVENT": _TPO_EXCLUDED_USAGE,
+    "DATE": _TPO_EXCLUDED_USAGE,
+    "DAILY": ("휴양지", "수영", "수영장"),
+}
+
+
+def occasion_excluded_usages(occasion_kind: str) -> tuple[str, ...]:
+    """요청 상황 분류에서 배제할 용도 태그. 해당 없으면 빈 튜플."""
+
+    return _OCCASION_KIND_EXCLUDED_USAGE.get((occasion_kind or "").strip().upper(), ())
+
+
+#: 격식 있는 자리에 어울리지 않아 **슬롯 자체를 건너뛰는** 액세서리 소분류.
+#:
+#: usage 태그로는 막을 수 없어서 둔다. 확인된 선글라스는 레이밴·페라가모·헌터 모두
+#: usage=['외출']이라 배제 근거가 없고, 버킷햇도 상당수가 '외출'·'데일리'다.
+#: 골든 템플릿의 75퍼센트가 액세서리 슬롯을 갖고 그중 선글라스 슬롯이 116개라,
+#: 슬롯을 채우는 한 출근룩에 선글라스가 계속 들어간다. 안 채우는 쪽이 확실하다.
+_OCCASION_KIND_SKIPPED_SMALLS = {
+    "FORMAL": frozenset({"모자", "안경/선글라스"}),
+    "EVENT": frozenset({"모자", "안경/선글라스"}),
+}
+
+
+def occasion_skipped_smalls(occasion_kind: str) -> frozenset[str]:
+    """이 상황에서는 채우지 않을 아이템 소분류. 해당 없으면 빈 집합."""
+
+    return _OCCASION_KIND_SKIPPED_SMALLS.get(
+        (occasion_kind or "").strip().upper(), frozenset()
+    )
+
+
+def _usage_exclusions(request: "ItemRetrievalRequest | None" = None) -> list[qm.Condition]:
+    labels = _EXCLUDED_USAGE + occasion_excluded_usages(
+        request.occasion_kind if request is not None else ""
+    )
+    return [_match_any("usage", labels)]
 
 
 def _vector(point: Any, name: str) -> tuple[float, ...]:
@@ -530,7 +586,7 @@ class ItemCandidateRetriever:
                         vector_name=vector_name,
                         vector=vector,
                         limit=request.limit_per_source,
-                        must_not=_avoided_conditions(request) + _usage_exclusions(),
+                        must_not=_avoided_conditions(request) + _usage_exclusions(request),
                     ),
                 )
             )

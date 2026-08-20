@@ -146,6 +146,7 @@ class StylistRecommendationPipelineTests(TestCase):
             search_query="비 오는 가을 출근 캐주얼 코디",
             conditions=RecommendationConditions(
                 occasion="출근",
+                occasion_kind="FORMAL",
                 season="가을",
                 presentation_groups=[],
                 styles=["캐주얼"],

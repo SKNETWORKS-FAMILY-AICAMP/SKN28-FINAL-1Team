@@ -93,6 +93,7 @@ def analysis(
         search_query="가을 출근 미니멀 코디",
         conditions=RecommendationConditions(
             occasion="출근",
+            occasion_kind="FORMAL",
             season="가을",
             presentation_groups=list(presentation_groups or []),
             styles=["미니멀"],

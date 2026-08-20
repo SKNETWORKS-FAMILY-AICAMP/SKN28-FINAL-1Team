@@ -106,6 +106,7 @@ class SharedReferenceRecommendationPipelineTests(SimpleTestCase):
             search_query="친구 재킷 같은 출근 코디",
             conditions=RecommendationConditions(
                 occasion="출근",
+                occasion_kind="FORMAL",
                 season="가을",
                 presentation_groups=[],
                 styles=["미니멀"],

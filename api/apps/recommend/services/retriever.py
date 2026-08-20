@@ -126,15 +126,19 @@ class RetrievalRequest:
     exclude_golden_ids: frozenset[str] = frozenset()
     #: 축적된 기피(pursuit.avoided)를 **하드 필터에서만** 뺀다. 점수의
     #: preference_avoid(-60)는 그대로 살아 있어 기피는 여전히 존중된다.
-    #: 리트리버가 후보 부족을 감지해 스스로 한 번 켜는 값이라 호출부가 지정할 일은 없다.
-    relax_pursuit_avoided: bool = False
-    #: 후보가 이 수 **미만**이면 위 완화를 발동한다. 기본 1은 "0건일 때만".
+    #: 요구할 골든셋 occasion 태그(데이트/나들이/데일리/출근/여행/모임/행사/운동/홈웨어).
+    #: 자유 문구가 아니라 닫힌 어휘라 완전 일치가 성립한다 — 분석기의 OccasionKind를
+    #: occasion_kind_tags()로 옮겨서 넘긴다.
+    occasion_kinds: tuple[str, ...] = ()
+    #: 후보 부족으로 이미 푼 제약. 리트리버가 사다리를 오르며 스스로 채운다.
+    relaxed: frozenset[str] = frozenset()
+    #: 후보가 이 수 **미만**이면 사다리를 한 칸 오른다. 기본 1은 "0건일 때만".
     #:
     #: limit(골든 템플릿 후보 수, 기본 5)을 기준으로 삼으면 안 된다 — 일반 모드는
     #: max_validated_templates=1이라 템플릿 하나만 통과해도 사용자에게 보여줄 카드
     #: 3장이 나온다. limit 기준으로 걸면 골든셋이 작은 동안 거의 매번 발동해
-    #: 기피 필터가 사실상 사라진다.
-    relax_avoided_below: int = 1
+    #: 필터가 사실상 사라진다.
+    relax_below: int = 1
 
 
 @dataclass(frozen=True)
@@ -286,7 +290,7 @@ def build_filter(
         )
         # 선호 스타일은 좁히는 조건이 아니라 넓히는 조건이라 must에 넣지 않는다.
         # 반면 기피 스타일은 사용자가 명시적으로 거부한 것이라 즉시 탈락시킨다.
-        if request.hard_filter and not request.relax_pursuit_avoided:
+        if request.hard_filter and "pursuit_avoided" not in request.relaxed:
             for tag_field, labels in avoided.items():
                 if tag_field in OUTFIT_FILTER_FIELDS and labels:
                     must_not.append(_any_of(tag_field, labels))
@@ -295,6 +299,9 @@ def build_filter(
                 "검색에 반영하지 못한 선호 항목: %s",
                 sorted(set(preferred.unmapped)),
             )
+
+    if request.occasion_kinds and "occasion" not in request.relaxed:
+        must.append(_any_of("occasion", request.occasion_kinds))
 
     if request.requested and request.hard_filter:
         # 이번 발화의 기피는 축적된 기피와 같게 다룬다 — "검정은 빼줘"는
@@ -307,6 +314,52 @@ def build_filter(
     if not must and not must_not:
         return None
     return qm.Filter(must=must or None, must_not=must_not or None)
+
+
+#: 분석기의 OccasionKind → 골든셋 occasion 태그. 골든셋 어휘는 아래 9개로 닫혀 있어
+#: 자유 문구("놀러가기")로는 한 건도 안 맞는다. 분류를 거쳐야 매칭이 성립한다.
+_OCCASION_KIND_TAGS = {
+    "FORMAL": ("출근",),
+    "EVENT": ("행사", "모임"),
+    "DATE": ("데이트",),
+    "DAILY": ("데일리", "나들이"),
+    "ACTIVE": ("운동",),
+    "RESORT": ("여행",),
+    "HOME": ("홈웨어",),
+}
+
+#: 후보가 부족할 때 푸는 순서. **덜 중요한 것부터, 사용자가 직접 말한 것은 끝까지 지킨다.**
+#:
+#: 이 사다리가 필요한 이유는 필터가 계속 쌓여 왔기 때문이다. 성별·데이터셋·기피
+#: 스타일·TPO·예산·계절이 각각은 타당한데 곱해지면 후보가 0이 되고, 그게 "조건을
+#: 충족 못 해 추천이 안 뜬다"는 오래된 증상의 정체다. 같은 아이디어가 이미
+#: exclude_golden_ids와 _search_narrow_then_wide에 따로 구현돼 있었다.
+#:
+#: 성별·발화에서 직접 말한 조건·예산은 사다리에 없다 — 절대 풀지 않는다.
+RELAXATION_LADDER = ("recent", "occasion", "pursuit_avoided")
+
+
+def occasion_kind_tags(occasion_kind: str) -> tuple[str, ...]:
+    """분석기 분류값을 골든셋 occasion 태그로 옮긴다. 모르면 빈 튜플(제약 없음)."""
+
+    return _OCCASION_KIND_TAGS.get((occasion_kind or "").strip().upper(), ())
+
+
+def _relaxable(request: RetrievalRequest, step: str) -> bool:
+    """그 제약이 실제로 걸려 있을 때만 사다리를 한 칸 쓴다."""
+
+    if step in request.relaxed:
+        return False
+    if step == "recent":
+        return bool(request.exclude_golden_ids)
+    if step == "occasion":
+        return bool(request.occasion_kinds)
+    if step == "pursuit_avoided":
+        if not request.hard_filter:
+            return False
+        avoided = vocabulary.translate((request.pursuit or {}).get("avoided")).tags
+        return any(avoided.values())
+    return False
 
 
 def _resolve_avoided_conflict(
@@ -915,7 +968,7 @@ def retrieve_outfits(
     # 다음 순위가 채워 top k가 온전히 '새 코디'로 만들어진다. 점수화 앞에서 빼지
     # 않는 이유는 없음: 결과가 같고, 여기 두면 "몇 건이 걸러졌는지"를 한 곳에서
     # 셀 수 있다.
-    if request.exclude_golden_ids:
+    if request.exclude_golden_ids and "recent" not in request.relaxed:
         fresh = [
             c for c in candidates if c.golden_id not in request.exclude_golden_ids
         ]
@@ -1112,28 +1165,30 @@ class GoldenOutfitRetriever:
             client=self.client,
             rules=self.body_rules,
         )
-        # 온보딩 기피가 하드 필터라 후보가 통째로 사라질 수 있다. 골든셋이 작을수록
-        # 흔하고, 그러면 추천이 아예 실패한다(GOLDEN_OUTFIT_NOT_FOUND).
-        # 0건일 때만 **필터에서** 기피를 풀고 다시 찾는다 — 점수의 -60은 남아 있어
-        # 기피 코디는 뒤로 밀릴 뿐, 존중은 유지된다. exclude_golden_ids가 "후보가
-        # 전부 걸리면 제외를 푼다"와 같은 방침이다.
-        threshold = max(resolved.relax_avoided_below, 1)
-        if len(candidates) < threshold and not resolved.relax_pursuit_avoided:
-            avoided_labels = vocabulary.translate(
-                (resolved.pursuit or {}).get("avoided")
-            ).tags
-            if any(avoided_labels.values()):
-                logger.warning(
-                    "축적된 기피로 골든 후보가 %d건(<%d)이라 필터를 풀고 재검색한다: %s",
-                    len(candidates),
-                    threshold,
-                    {f: sorted(v) for f, v in avoided_labels.items() if v},
-                )
-                candidates = retrieve_outfits(
-                    replace(resolved, relax_pursuit_avoided=True),
-                    client=self.client,
-                    rules=self.body_rules,
-                )
+        # 후보가 부족하면 사다리를 한 칸씩 오르며 제약을 푼다. 한 번에 다 풀지 않는
+        # 이유는 어떤 제약이 병목이었는지 로그에 남기기 위해서다 — 지금까지는 0건이
+        # 되면 이유를 알 수 없어 매번 수동으로 파야 했다.
+        threshold = max(resolved.relax_below, 1)
+        relaxed: set[str] = set(resolved.relaxed)
+        for step in RELAXATION_LADDER:
+            if len(candidates) >= threshold:
+                break
+            probe = replace(resolved, relaxed=frozenset(relaxed))
+            if not _relaxable(probe, step):
+                continue
+            relaxed.add(step)
+            logger.warning(
+                "골든 후보 %d건(<%d)이라 제약 '%s'을 풀고 재검색한다 (누적 완화: %s)",
+                len(candidates),
+                threshold,
+                step,
+                sorted(relaxed),
+            )
+            candidates = retrieve_outfits(
+                replace(resolved, relaxed=frozenset(relaxed)),
+                client=self.client,
+                rules=self.body_rules,
+            )
         return RetrievalResult(
             candidates=tuple(candidates),
             search_mode=search_mode,

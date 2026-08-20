@@ -348,6 +348,7 @@ class ChatMoodWorkerTests(APITestCase):
             search_query="비슷한 룩",
             conditions=RecommendationConditions(
                 occasion="",
+                occasion_kind="UNKNOWN",
                 season="",
                 presentation_groups=[],
                 styles=[],
