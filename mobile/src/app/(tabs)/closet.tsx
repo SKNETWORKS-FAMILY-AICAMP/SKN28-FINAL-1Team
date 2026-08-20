@@ -79,8 +79,8 @@ import {
   useImportBatches,
   useUploadCompleted,
   useUploadJobs,
-  useWardrobeRevision,
 } from '@/state/upload-jobs';
+import { useWardrobeRevision } from '@/state/wardrobe-revision';
 
 const INK = Editorial.ink;
 
@@ -214,7 +214,13 @@ export default function ClosetScreen() {
      확정 여부로 거르지 않는다. 예전엔 confirmed=true 만 받았는데, 그러면 백엔드에서
      직접 넣은 옷처럼 확인 단계를 거치지 않은 아이템이 옷장에 영영 안 보인다.
      대신 미확인 아이템에는 배지를 달아 구분한다. */
-  const { items: apiItems, loading, error, reload: reloadItems } = useWardrobeItems({}, isLoggedIn);
+  const {
+    items: apiItems,
+    loading,
+    error,
+    reload: reloadItems,
+    refresh: refreshItems,
+  } = useWardrobeItems({}, isLoggedIn);
   const {
     data: personalFilterData,
     reload: reloadPersonalFilters,
@@ -315,16 +321,18 @@ export default function ClosetScreen() {
     }
   };
 
-  /* 가져오기(일괄 등록)는 옷이 여러 벌 들어온다 — 한 벌마다 토스트를 띄우면 시끄러우니
-     목록만 조용히 갱신하고, 진행 상황은 아래 줄이 대신 말해준다. */
+  /* 목록이 서버와 어긋났다는 신호(일괄 등록으로 옷이 들어옴 · 상세에서 삭제함)를 받으면
+     조용히 다시 불러온다. 로딩 표시를 켜지 않는 이유는 이미 그려진 목록이 통째로
+     깜빡이기 때문 — 바뀐 부분만 슬며시 갱신되는 게 맞다.
+     가져오기 진행 상황은 아래 줄이 대신 말해주므로 토스트도 띄우지 않는다. */
   const batches = useImportBatches();
   const revision = useWardrobeRevision();
   const seenRevision = useRef(revision);
   useEffect(() => {
     if (revision === seenRevision.current) return;
     seenRevision.current = revision;
-    reloadItems();
-  }, [revision, reloadItems]);
+    void refreshItems();
+  }, [revision, refreshItems]);
 
   const myItems = useMemo<Card[]>(
     () =>
