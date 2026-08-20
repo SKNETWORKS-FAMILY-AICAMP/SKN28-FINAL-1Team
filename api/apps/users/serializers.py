@@ -386,6 +386,10 @@ class BodyEstimationResultSerializer(serializers.Serializer):
     error_message = serializers.CharField(
         allow_null=True, help_text="실패했을 때만 사유가 들어간다."
     )
+    error_code = serializers.CharField(
+        allow_null=True,
+        help_text="클라이언트 분기용 실패 코드 (사진 품질 실패: photo_quality_failed).",
+    )
 
 
 class BodyPhotoTransactionSerializer(serializers.ModelSerializer):
@@ -396,7 +400,7 @@ class BodyPhotoTransactionSerializer(serializers.ModelSerializer):
     class Meta:
         model = BodyPhotoTransaction
         fields = [
-            "transaction_id", "status", "error_message", "created_at", "updated_at"
+            "transaction_id", "status", "error_message", "error_code", "created_at", "updated_at"
         ]
         read_only_fields = fields
 

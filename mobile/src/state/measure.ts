@@ -8,6 +8,11 @@ import {
 } from '@/constants/body-measures';
 import { API_BASE_URL, BodyEndpoints } from '@/constants/config';
 import { ApiError, api } from '@/lib/apiClient';
+import {
+  measurementRequestFailureState,
+  measurementResultSource,
+  photoMeasurementFailureState,
+} from '@/lib/bodyMeasurementResult';
 import { getAccessToken } from '@/lib/secureStore';
 import { uploadMultipart } from '@/lib/uploadFile';
 
@@ -45,6 +50,7 @@ export type MeasureResult = {
   measures: Measurement;
   sizes: SizeMatch[];
   usedPhotos: boolean; // 사진을 써서 추정했는지 (안내문 분기용)
+  photoFallback: boolean; // 사진 인식 실패 후 기본 정보만으로 추정했는지
   bodyType: string | null;
   bodyTypeLabel: string | null;
 };
@@ -57,6 +63,7 @@ type MeasureState = {
   status: EstimateStatus;
   result: MeasureResult | null;
   error: string | null;
+  photoQualityFailed: boolean;
   /* 실패 원인이 "추정할 기본 정보가 없다"인지. 화면이 안내를 갈라 쓴다
      (입력하러 보내기 vs 다시 시도). 로그인 만료·서버 장애를 "정보가 없어요"로
      보여주면 사용자가 엉뚱한 곳으로 간다. */
@@ -69,6 +76,7 @@ const EMPTY: MeasureState = {
   status: 'idle',
   result: null,
   error: null,
+  photoQualityFailed: false,
   needsInput: false,
 };
 
@@ -108,6 +116,7 @@ type BodyEstimationResult = {
   status: 'pending' | 'processing' | 'succeeded' | 'failed';
   measurement: BodyDto;
   error_message?: string | null;
+  error_code?: string | null;
 };
 
 function toNum(v: unknown): number | null {
@@ -149,13 +158,17 @@ function isMissingBasicInfo(error: unknown, input: MeasureInput | null): boolean
 }
 
 /** 추정 결과 → 스토어 결과. 치수가 덜 왔으면 null (호출부가 실패로 알린다). */
-function toResult(outcome: BodyEstimationResult, usedPhotos: boolean): MeasureResult | null {
+function toResult(
+  outcome: BodyEstimationResult,
+  usedPhotos: boolean,
+  photoFallback = false,
+): MeasureResult | null {
   const measures = toMeasurement(outcome.measurement);
   if (!measures) return null;
   return {
     measures,
     sizes: mockSizes(measures.chest),
-    usedPhotos,
+    ...measurementResultSource(usedPhotos, photoFallback),
     bodyType: outcome.measurement.body_type,
     bodyTypeLabel: outcome.measurement.body_type_label,
   };
@@ -335,8 +348,14 @@ export const measureStore = {
    * STEP2 "사진 없이 진행할게요" 와 결과 화면 직접 진입에서 호출하고, 결과는 STEP3 가 구독한다.
    * 화면이 언마운트돼도 이 스토어에 결과가 남으므로, 나갔다 돌아와도 결과가 유지된다.
    */
-  async estimate(): Promise<void> {
-    setState({ status: 'loading', error: null, result: null, needsInput: false });
+  async estimate(photoFallback = false): Promise<void> {
+    setState({
+      status: 'loading',
+      error: null,
+      result: null,
+      needsInput: false,
+      photoQualityFailed: false,
+    });
     try {
       /* 이번 플로우에서 받은 입력이 있으면 그 값으로 추정한다(저장도 함께 된다).
          없으면 본문을 비워 서버가 저장해 둔 기본 정보를 쓰게 한다 —
@@ -351,12 +370,13 @@ export const measureStore = {
 
       /* 사진을 쓰지 않는 경로다. 촬영까지 갔다가 실패해 되돌아오면 photos 는 남아 있는데,
          그걸 보고 usedPhotos 를 켜면 사진으로 잰 적 없는 값이 "사진 기반 결과"로 표시된다. */
-      const result = toResult(outcome, false);
+      const result = toResult(outcome, false, photoFallback);
       if (!result) {
         setState({
           status: 'error',
           error: '치수를 받지 못했어요. 다시 시도해주세요.',
           needsInput: false,
+          ...measurementRequestFailureState(),
         });
         return;
       }
@@ -369,6 +389,7 @@ export const measureStore = {
       setState({
         status: 'error',
         needsInput,
+        ...measurementRequestFailureState(),
         error: needsInput
           ? '키·몸무게와 성별을 확인해주세요. 입력이 없거나 범위를 벗어났어요.'
           : e instanceof ApiError
@@ -391,10 +412,17 @@ export const measureStore = {
         result: null,
         error: '정면·측면 사진이 모두 필요해요.',
         needsInput: true,
+        photoQualityFailed: false,
       });
       return;
     }
-    setState({ status: 'loading', error: null, result: null, needsInput: false });
+    setState({
+      status: 'loading',
+      error: null,
+      result: null,
+      needsInput: false,
+      photoQualityFailed: false,
+    });
     try {
       // 앞선 시도가 상한만 넘긴 거라면 그 트랜잭션을 이어서 기다린다.
       const transactionId =
@@ -407,6 +435,7 @@ export const measureStore = {
         setState({
           status: 'error',
           error: '측정이 아직 끝나지 않았어요. 잠시 후 다시 시도해주세요.',
+          photoQualityFailed: false,
         });
         return;
       }
@@ -416,6 +445,7 @@ export const measureStore = {
         setState({
           status: 'error',
           error: outcome.error_message ?? '사진 측정에 실패했어요. 다시 시도해주세요.',
+          ...photoMeasurementFailureState(outcome.error_code),
         });
         return;
       }
@@ -427,6 +457,7 @@ export const measureStore = {
           status: 'error',
           error: '치수를 받지 못했어요. 다시 시도해주세요.',
           needsInput: false,
+          photoQualityFailed: false,
         });
         return;
       }
@@ -443,6 +474,7 @@ export const measureStore = {
             : '사진 측정에 실패했어요. 다시 시도해주세요.',
         // 업로드 400 도 기본 정보 부족이 원인일 수 있다 (서버가 저장된 값을 못 찾은 경우).
         needsInput: isMissingBasicInfo(e, state.input),
+        photoQualityFailed: false,
       });
     }
   },

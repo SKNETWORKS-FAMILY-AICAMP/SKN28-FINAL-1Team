@@ -75,3 +75,7 @@
 - `api/apps/wardrobe/views.py` 충돌은 공유방 멤버 조회와 최신 reference eligibility 계산을 모두 유지해 해결함.
 - 카카오 네이티브 초대 링크를 `+native-intent.tsx`에서 `/invite?code=...`로 변환하는 수정 반영 확인.
 - 카카오 딥링크 회귀 테스트 6개와 모바일 TypeScript 검사 통과. Docker Desktop 미실행으로 백엔드 컨테이너 테스트는 실행하지 못함.
+- 체형 사진 측정에 사람 1명, 머리·얼굴·양발, 전신 프레이밍, 정면·측면 자세, 화질 VLM 검증을 추가함.
+- 부적합 사진은 치수 저장을 막고 `photo_quality_failed`로 응답하며, 앱에서 `사진 인식 실패`와 재촬영·기본정보 추정 선택지를 표시함.
+- 기본정보 fallback 결과에는 `사진을 인식하지 못해 키·몸무게·성별만으로 추정한 값`임을 명시함.
+- 검증: ML 10개, 모바일 상태·출처 10개, TypeScript, 대상 ESLint, Python compileall, JSON, migration 누락 검사 통과. PostgreSQL/Docker 미실행으로 Django DB 테스트 22개는 실행하지 못함.
