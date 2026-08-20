@@ -85,7 +85,16 @@ class EmailSignupSerializer(serializers.Serializer):
         return email
 
     def validate_password(self, value: str) -> str:
-        validate_password(value)
+        """이메일과 비슷한 비밀번호까지 걸러낸다.
+
+        `validate_password(value)` 만 부르면 user=None 이라 UserAttributeSimilarityValidator가
+        비교할 대상이 없어 **이메일을 그대로 비밀번호로 써도 통과**한다(앱 가입 화면은
+        "이메일과 비슷하지 않을 것"이라 안내하고 있어 말과 동작이 달랐다).
+        가입 시점에는 아직 저장된 인스턴스가 없으므로, 제출된 이메일만 담은 임시 User로
+        대신한다 — 저장하지 않고 검증에만 쓴다.
+        """
+        email = str(self.initial_data.get("email") or "").strip().lower()
+        validate_password(value, User(email=email) if email else None)
         return value
 
     @transaction.atomic

@@ -15,6 +15,7 @@ import { useHome, type HomeData, type HomeWeather } from '@/hooks/use-home';
 import { useRefresh } from '@/hooks/use-refresh';
 import { useWardrobeItems } from '@/hooks/use-wardrobe';
 import {
+  DAILY_LOOK_ONCE_A_DAY,
   dailyLookPhase,
   type DailyLook,
   type DailyLookPhase,
@@ -422,6 +423,9 @@ function ReadyLook({
             </Pressable>
           ) : null}
         </View>
+        {/* '다른 룩'은 오늘 함께 뽑아 둔 후보를 돌려보는 것이지 새로 만드는 게 아니다.
+            그 차이를 적어 두지 않으면 눌러도 안 바뀌는 고장으로 읽힌다. */}
+        <Text style={styles.onceADay}>{DAILY_LOOK_ONCE_A_DAY}</Text>
       </View>
     </>
   );
@@ -493,6 +497,9 @@ function UnavailableLook({
         onPress={() => (empty ? router.push('/edit-profile') : onRetry())}>
         <Text style={styles.unavailableBtnText}>{empty ? '프로필 채우기' : '다시 시도'}</Text>
       </Pressable>
+      {/* 여기서 특히 필요한 안내다 — 프로필을 채우거나 다시 시도해도 오늘 것은 이미
+          만들어진 뒤라, 채운 내용은 내일 룩부터 반영된다. */}
+      <Text style={styles.onceADay}>{DAILY_LOOK_ONCE_A_DAY}</Text>
     </View>
   );
 }
@@ -598,6 +605,8 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   unavailableBtnText: { color: '#ffffff', fontSize: 14, fontWeight: '600' },
+  /* 규칙 안내는 추천 본문보다 한 단계 낮게 — 읽히되 룩을 가리지 않는다. */
+  onceADay: { fontSize: 12, lineHeight: 18, color: Editorial.textSoft },
   lookText: { fontSize: 17, fontWeight: '500', color: Editorial.ink },
   tagRow: { flexDirection: 'row', gap: 8, alignItems: 'center' },
   tag: {

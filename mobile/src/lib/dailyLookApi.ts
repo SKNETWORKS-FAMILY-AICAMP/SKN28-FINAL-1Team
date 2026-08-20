@@ -76,6 +76,16 @@ export type DailyLook = {
   updated_at: string;
 };
 
+/**
+ * 생성 정책 안내 문구 — 화면마다 다르게 쓰면 같은 규칙이 두 말이 된다.
+ *
+ * 서버는 그날 첫 조회에서 한 번만 만들고(DailyLookTodayView), 같은 날의 이후 조회는
+ * 만들어 둔 것을 그대로 돌려준다. '다른 룩'도 그때 함께 뽑아 둔 후보다. 이 사실을
+ * 적어 두지 않으면 사용자에게는 "새로고침해도 그대로인" 고장으로만 보인다.
+ */
+export const DAILY_LOOK_ONCE_A_DAY =
+  '오늘의 룩은 하루에 한 번 만들어져요. 새 룩은 내일 도착해요.';
+
 /** 아직 결과가 없어 폴링을 계속해야 하는 상태 */
 export function isDailyLookPending(look: DailyLook | null): boolean {
   return look?.status === 'QUEUED' || look?.status === 'PROCESSING';
