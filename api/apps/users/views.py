@@ -12,6 +12,7 @@ from rest_framework_simplejwt.tokens import RefreshToken
 
 from apps.chat.services import identity as chat_identity
 from apps.users.models import BodyMeasurement, BodyPhotoTransaction, SocialAccount
+from apps.users.services import profile_image as profile_image_service
 from apps.users.serializers import (
     BodyBasicInputSerializer,
     BodyDetailInputSerializer,
@@ -268,6 +269,47 @@ def _save_body_measurement(request, serializer_class, *, partial: bool) -> Respo
     serializer.is_valid(raise_exception=True)
     serializer.save()
     return Response(BodyMeasurementSerializer(measurement).data)
+
+
+class ProfileImageView(APIView):
+    """POST/DELETE /api/v1/users/me/profile-image/ — 프로필 사진 올리기·지우기.
+
+    소셜 사진(profile_image URL)은 건드리지 않는다 — 올린 사진을 지우면 그리로 되돌아간다.
+    """
+
+    parser_classes = (MultiPartParser, FormParser)
+
+    def post(self, request):
+        upload = request.FILES.get("image")
+        if upload is None:
+            return Response(
+                {"image": ["사진 파일이 필요합니다."]}, status=status.HTTP_400_BAD_REQUEST
+            )
+        try:
+            key = profile_image_service.store(request.user.id, upload.read())
+        except profile_image_service.ProfileImageInvalidError as error:
+            return Response({"image": [str(error)]}, status=status.HTTP_400_BAD_REQUEST)
+        except profile_image_service.ProfileImageConfigurationError:
+            logger.exception("프로필 사진 저장소가 설정되지 않았습니다")
+            return Response(
+                {"detail": "지금은 사진을 올릴 수 없어요. 잠시 뒤 다시 시도해 주세요."},
+                status=status.HTTP_503_SERVICE_UNAVAILABLE,
+            )
+
+        previous = request.user.profile_image_key
+        request.user.profile_image_key = key
+        request.user.save(update_fields=["profile_image_key"])
+        # 새 key 로 바꾼 뒤에 지운다 — 먼저 지우면 실패 시 사진이 없는 순간이 생긴다.
+        profile_image_service.delete(previous)
+        return Response(UserSerializer(request.user).data)
+
+    def delete(self, request):
+        previous = request.user.profile_image_key
+        if previous:
+            request.user.profile_image_key = ""
+            request.user.save(update_fields=["profile_image_key"])
+            profile_image_service.delete(previous)
+        return Response(UserSerializer(request.user).data)
 
 
 class BodyMeasurementView(APIView):

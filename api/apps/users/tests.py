@@ -17,6 +17,8 @@ from django.utils import timezone
 from rest_framework.test import APIClient
 
 from apps.users.constants import category_keys
+from apps.users.serializers import UserSerializer
+from apps.users.services import profile_image
 from apps.wardrobe.models import (
     SharedWardrobeMember,
     SharedWardrobeRoom,
@@ -1225,3 +1227,155 @@ class WithdrawTests(TestCase):
             self.client.delete(self.url)
 
         self.assertFalse(SharedWardrobeRoom.objects.filter(pk=room.pk).exists())
+
+
+def _png_bytes(width: int = 1200, height: int = 900) -> bytes:
+    buffer = BytesIO()
+    Image.new("RGB", (width, height), (120, 90, 60)).save(buffer, format="PNG")
+    return buffer.getvalue()
+
+
+class ProfileImageNormalizeTests(TestCase):
+    """올라온 파일을 원형 아바타에 맞게 정규화하는 규칙."""
+
+    def test_output_is_square_jpeg_at_max_edge(self):
+        with Image.open(BytesIO(profile_image.normalize(_png_bytes(1200, 900)))) as out:
+            self.assertEqual(out.format, "JPEG")
+            # 가운데를 정사각으로 잘라야 원형 아바타에서 인물이 치우치지 않는다.
+            self.assertEqual(out.size, (profile_image.MAX_EDGE, profile_image.MAX_EDGE))
+
+    def test_alpha_input_becomes_rgb(self):
+        buffer = BytesIO()
+        Image.new("RGBA", (600, 600), (10, 20, 30, 128)).save(buffer, format="PNG")
+
+        with Image.open(BytesIO(profile_image.normalize(buffer.getvalue()))) as out:
+            self.assertEqual(out.mode, "RGB")
+
+    def test_output_is_much_smaller_than_source(self):
+        source = _png_bytes(3000, 2000)
+
+        self.assertLess(len(profile_image.normalize(source)), len(source) / 5)
+
+    def test_oversized_upload_is_rejected_before_decoding(self):
+        with self.assertRaises(profile_image.ProfileImageInvalidError):
+            profile_image.normalize(b"x" * (profile_image.MAX_UPLOAD_BYTES + 1))
+
+    def test_non_image_is_rejected(self):
+        with self.assertRaises(profile_image.ProfileImageInvalidError):
+            profile_image.normalize(b"this is not an image")
+
+
+class ProfileImagePriorityTests(TestCase):
+    """직접 올린 사진이 소셜 사진보다 앞서고, 지우면 소셜로 되돌아간다."""
+
+    def setUp(self):
+        self.user = User.objects.create_user(
+            username="kakao_1", email="u@example.com", password="pw"
+        )
+        self.user.profile_image = "https://provider.example/photo.jpg"
+        self.user.save(update_fields=["profile_image"])
+
+    def test_social_url_is_used_when_no_upload(self):
+        self.assertEqual(
+            UserSerializer(self.user).data["profile_image"],
+            "https://provider.example/photo.jpg",
+        )
+
+    def test_uploaded_key_wins_over_social_url(self):
+        self.user.profile_image_key = "users/1/profile/abc.jpg"
+        self.user.save(update_fields=["profile_image_key"])
+
+        with patch.object(profile_image, "presigned_get", return_value="https://s3/signed"):
+            self.assertEqual(
+                UserSerializer(self.user).data["profile_image"], "https://s3/signed"
+            )
+
+    def test_uploaded_flag_distinguishes_upload_from_social_photo(self):
+        """프론트가 '기본으로 되돌리기' 를 보여줄지 정하는 근거다."""
+        self.assertFalse(UserSerializer(self.user).data["profile_image_uploaded"])
+
+        self.user.profile_image_key = "users/1/profile/abc.jpg"
+        self.user.save(update_fields=["profile_image_key"])
+        with patch.object(profile_image, "presigned_get", return_value="https://s3/x"):
+            self.assertTrue(UserSerializer(self.user).data["profile_image_uploaded"])
+
+    def test_falls_back_to_social_url_when_storage_is_unconfigured(self):
+        self.user.profile_image_key = "users/1/profile/abc.jpg"
+        self.user.save(update_fields=["profile_image_key"])
+
+        with patch.object(
+            profile_image,
+            "presigned_get",
+            side_effect=profile_image.ProfileImageConfigurationError,
+        ):
+            self.assertEqual(
+                UserSerializer(self.user).data["profile_image"],
+                "https://provider.example/photo.jpg",
+            )
+
+
+class ProfileImageEndpointTests(TestCase):
+    def setUp(self):
+        self.client = APIClient()
+        self.user = User.objects.create_user(
+            username="u", email="u@example.com", password="pw"
+        )
+        self.client.force_authenticate(self.user)
+
+    def test_upload_stores_key_and_returns_user(self):
+        upload = SimpleUploadedFile("me.png", _png_bytes(), content_type="image/png")
+
+        with patch.object(
+            profile_image, "store", return_value="users/1/profile/new.jpg"
+        ) as store, patch.object(
+            profile_image, "presigned_get", return_value="https://s3/new"
+        ):
+            response = self.client.post(
+                "/api/v1/users/me/profile-image/", {"image": upload}, format="multipart"
+            )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data["profile_image"], "https://s3/new")
+        self.user.refresh_from_db()
+        self.assertEqual(self.user.profile_image_key, "users/1/profile/new.jpg")
+        store.assert_called_once()
+
+    def test_upload_replaces_and_removes_previous_object(self):
+        self.user.profile_image_key = "users/1/profile/old.jpg"
+        self.user.save(update_fields=["profile_image_key"])
+        upload = SimpleUploadedFile("me.png", _png_bytes(), content_type="image/png")
+
+        with patch.object(profile_image, "store", return_value="users/1/profile/new.jpg"), \
+             patch.object(profile_image, "presigned_get", return_value="https://s3/new"), \
+             patch.object(profile_image, "delete") as remove:
+            self.client.post(
+                "/api/v1/users/me/profile-image/", {"image": upload}, format="multipart"
+            )
+
+        remove.assert_called_once_with("users/1/profile/old.jpg")
+
+    def test_upload_without_file_is_rejected(self):
+        response = self.client.post(
+            "/api/v1/users/me/profile-image/", {}, format="multipart"
+        )
+
+        self.assertEqual(response.status_code, 400)
+
+    def test_delete_clears_key_and_removes_object(self):
+        self.user.profile_image_key = "users/1/profile/old.jpg"
+        self.user.save(update_fields=["profile_image_key"])
+
+        with patch.object(profile_image, "delete") as remove:
+            response = self.client.delete("/api/v1/users/me/profile-image/")
+
+        self.assertEqual(response.status_code, 200)
+        self.user.refresh_from_db()
+        self.assertEqual(self.user.profile_image_key, "")
+        remove.assert_called_once_with("users/1/profile/old.jpg")
+
+    def test_anonymous_cannot_upload(self):
+        response = APIClient().post(
+            "/api/v1/users/me/profile-image/", {}, format="multipart"
+        )
+
+        self.assertIn(response.status_code, (401, 403))
