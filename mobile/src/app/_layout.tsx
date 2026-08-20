@@ -6,7 +6,6 @@ import { useColorScheme } from 'react-native';
 import { AnimatedSplashOverlay } from '@/components/animated-icon';
 import { DevReset } from '@/components/dev-reset';
 import { ConfirmProvider, ErrorBoundary, ToastProvider } from '@/components/ui';
-import { useKakaoInviteLink } from '@/hooks/use-kakao-link';
 import { clearLegacyPendingShare } from '@/lib/secureStore';
 import { initSocialSDKs } from '@/lib/socialLogin';
 import { authStore } from '@/state/auth';
@@ -19,10 +18,6 @@ SplashScreen.preventAutoHideAsync();
 
 export default function RootLayout() {
   const colorScheme = useColorScheme();
-
-  /* 카카오 초대 카드로 앱이 열리면 초대장 화면으로 보낸다. 최상위에 둬야
-     앱이 꺼져 있다 켜진 경우(getInitialURL)도 놓치지 않는다. */
-  useKakaoInviteLink();
 
   // 앱 시작 시: 소셜 SDK 초기화(카카오/네이버/구글) + 저장된 토큰으로 세션 복원
   useEffect(() => {

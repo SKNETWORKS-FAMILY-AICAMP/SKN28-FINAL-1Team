@@ -61,6 +61,7 @@
     "test:recommendation-presentation": "node ./scripts/test-recommendation-presentation.mjs",
     "test:discovery-look": "node ./scripts/test-discovery-look-presentation.mjs",
     "test:shared-reference": "node ./scripts/test-shared-reference-regression.mjs",
+    "test:kakao-invite-link": "node ./scripts/test-kakao-invite-link.mjs",
     "test:wardrobe-sections": "node ./scripts/test-wardrobe-sections.mjs"
   },
   "private": true
