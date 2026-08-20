@@ -1007,7 +1007,11 @@ export default function ClosetScreen() {
           : null}
 
         {tab === 'shared' && sharedRooms.length > 0 ? (
-          <View style={styles.roomTabsWrap}>
+          <ScrollView
+            horizontal
+            style={styles.roomTabsScroll}
+            contentContainerStyle={styles.roomTabsWrap}
+            showsHorizontalScrollIndicator={false}>
             {/* 추가 버튼은 맨 앞 — 방이 많아지면 끝의 버튼은 가로 스크롤에 묻혀
                 '방을 더 만들 수 있다'는 사실 자체가 안 보인다. */}
             <Pressable
@@ -1051,7 +1055,7 @@ export default function ClosetScreen() {
             })}
             {/* '코드로 참여'는 멤버 줄의 [초대] 옆 입력칸으로 옮겼다 —
                 가로 스크롤 끝에 묻혀 있어 눈에 띄지 않았다. */}
-          </View>
+          </ScrollView>
         ) : null}
 
         {tab === 'shared' && sharedSpace ? (
@@ -1509,14 +1513,16 @@ const styles = StyleSheet.create({
   },
 
   // ── 공유방 탭 스타일 (한눈에 나열) ──
+  roomTabsScroll: {
+    flexGrow: 0,
+    marginBottom: 12,
+  },
   roomTabsWrap: {
     flexDirection: 'row',
-    flexWrap: 'wrap',
     alignItems: 'center',
     paddingHorizontal: PAD,
     gap: 8,
     marginTop: 0,
-    marginBottom: 12,
   },
   roomTab: {
     height: 36,
