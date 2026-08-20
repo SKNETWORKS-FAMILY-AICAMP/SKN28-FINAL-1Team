@@ -25,8 +25,12 @@ import {
  * 로그인 콜백은 "로그인하고 있어요…" 에서 멈춰 사용자 눈에는 아무것도 안 뜨는 화면이다.
  * (2026-08-20 실제로 겪음: dev 서버가 간헐적으로 30초 이상 응답하지 않았다.)
  * 기다리다 실패로 끝나야 화면이 "다시 시도"를 보여줄 수 있다.
+ *
+ * ⚠️ 넉넉해야 한다. 짧게 잡으면 **느리지만 성공하던 요청까지 실패로 바꾼다** —
+ * 20초로 뒀다가 룩북 둘러보기(응답 22~42초)가 통째로 빈 화면이 됐다.
+ * 지금 dev 백엔드의 실측 최악값(로그인 37초·둘러보기 42초)을 담고도 남게 잡는다.
  */
-const DEFAULT_TIMEOUT_MS = 20_000;
+const DEFAULT_TIMEOUT_MS = 45_000;
 /** 사진 업로드는 느린 게 정상이라 따로 길게 둔다. */
 const UPLOAD_TIMEOUT_MS = 120_000;
 
@@ -163,15 +167,7 @@ export async function apiFetch<T = unknown>(
   path: string,
   options: RequestOptions = {},
 ): Promise<T> {
-  const {
-    body,
-    auth = true,
-    headers,
-    credentials = 'include',
-    _retried,
-    timeoutMs,
-    ...rest
-  } = options;
+  const { body, auth = true, headers, _retried, timeoutMs, ...rest } = options;
 
   const token = auth ? await getAccessToken() : null;
 
@@ -184,7 +180,6 @@ export async function apiFetch<T = unknown>(
     (signal) =>
       fetch(`${API_BASE_URL}${path}`, {
         ...rest,
-        credentials,
         signal,
         headers: {
           Accept: 'application/json',
