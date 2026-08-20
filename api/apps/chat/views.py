@@ -908,11 +908,10 @@ class ChatSessionDeriveView(APIView):
             "있습니다. Swagger에서는 먼저 run 상태 조회를 반복하는 방식이 가장 "
             "간단합니다.\n\n"
             "**공유 옷 레퍼런스:** 공유 아이템 목록의 `reference_eligible=true`인 "
-            "아이템 UUID만 전송합니다. `BORROWED`는 참고 가능하고 `PRIVATE`, "
-            "미확정, 벡터 미준비 아이템은 불가합니다. 목록 조회 뒤 상태가 바뀔 수 "
-            "있으므로 서버는 접수 시 다시 검증합니다.\n\n"
+            "아이템 UUID만 전송합니다. 미확정·벡터 미준비 아이템은 불가합니다. "
+            "목록 조회 뒤 상태가 바뀔 수 있으므로 서버는 접수 시 다시 검증합니다.\n\n"
             "- `REFERENCE_ITEM_NOT_FOUND` (404): 공유 아이템이 존재하지 않음\n"
-            "- `REFERENCE_ITEM_FORBIDDEN` (403): 방 멤버가 아니거나 PRIVATE 등 권한 없음\n"
+            "- `REFERENCE_ITEM_FORBIDDEN` (403): 참여 중이지 않은 공유방의 아이템\n"
             "- `REFERENCE_ITEM_NOT_READY` (409): 옷 확정 또는 임베딩 처리가 완료되지 않음"
         ),
         parameters=[_SESSION_ID_PARAMETER],

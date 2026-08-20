@@ -434,8 +434,8 @@ BODY_DETAIL_DESCRIPTION = """상세 치수와 체형 지표를 저장합니다. 
 - `torso_length`는 사진상 어깨선에서 골반점까지의 상체 길이감입니다.
 - `leg_length`는 사진상 샅선/인심 라인에서 복사뼈/발목 라인까지의 하체 길이감입니다.
 - `neck_length`는 정면 기준 턱밑/턱끝 라인에서 목앞/쇄골 라인까지 보이는 목 길이감입니다.
-- `thigh_calf_ratio`는 허벅지 길이감 / 종아리 길이감입니다 (SizeKorea 평균 `0.823`, 참고 분포 약 `0.506~1.026`).
-- `torso_leg_ratio`는 상체 길이감 / 하체 길이감입니다 (SizeKorea 평균 `0.660`, 참고 분포 약 `0.339~0.920`).
+- `thigh_calf_ratio`는 허벅지 길이감 / 종아리 길이감입니다 (정확 3D 랜드마크 SizeKorea 평균 `0.823`, p01~p99 약 `0.652~0.970`).
+- `torso_leg_ratio`는 상체 길이감 / 하체 길이감입니다 (정확 3D 랜드마크 SizeKorea 평균 `0.546`, p01~p99 약 `0.466~0.637`).
 """
 
 BODY_PHOTOS_DESCRIPTION = """정면/측면 전신 사진을 접수하고 **신체 측정을 비동기로 시작**합니다 (multipart/form-data).

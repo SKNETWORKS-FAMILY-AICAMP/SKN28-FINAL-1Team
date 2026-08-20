@@ -8,7 +8,6 @@ import {
   uploadWardrobePhoto,
   type WardrobeBatchCreated,
   type WardrobeBatchItemInput,
-  type SharedItemStatus,
   type WardrobeBatchStatus,
 } from '@/lib/wardrobeApi';
 
@@ -136,7 +135,7 @@ export const uploadJobs = {
   getRevision: () => revision,
 
   /** 사진 한 장을 올리고 처리가 끝날 때까지 따라간다. 화면이 닫혀도 계속된다. */
-  start(uri: string, opts?: { name?: string; mimeType?: string; sharedRoomId?: string; sharedRoomIds?: string[]; sharedStatus?: SharedItemStatus; skipProcessing?: boolean; itemName?: string; category?: string }): Promise<void> {
+  start(uri: string, opts?: { name?: string; mimeType?: string; sharedRoomId?: string; sharedRoomIds?: string[]; skipProcessing?: boolean; itemName?: string; category?: string }): Promise<void> {
     return new Promise<void>((resolve) => {
       const key = `u${++seq}`;
       jobs = [...jobs, { key, phase: 'uploading' }];
@@ -159,7 +158,6 @@ export const uploadJobs = {
             category: opts?.category,
             /* 첫 번째 방은 백엔드 pending_share_room 예약으로 넘긴다 */
             sharedRoomId: primaryRoomId,
-            sharedStatus: opts?.sharedStatus,
           })).job_id;
         } catch (e) {
           update(key, {
@@ -182,7 +180,7 @@ export const uploadJobs = {
                 for (const item of job.items) {
                   for (const rId of extraRoomIds) {
                     try {
-                      await registerItemToSharedRoom(rId, item.id, opts?.sharedStatus ?? 'available');
+                      await registerItemToSharedRoom(rId, item.id);
                     } catch (e) {
                       if (__DEV__) console.warn('추가 방 공유 실패:', rId, e);
                     }

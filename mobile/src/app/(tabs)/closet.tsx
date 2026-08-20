@@ -6,7 +6,6 @@ import {
   type SharedSpace,
 } from '@/components/closet/shared-space-flow';
 import { SharedItemAddSheet } from '@/components/closet/shared-item-add-sheet';
-import { SharedItemStatusSheet } from '@/components/closet/shared-item-status-sheet';
 import { PhotoSourceSheet } from '@/components/closet/photo-source-sheet';
 import { HashtagItemManageSheet } from '@/components/closet/category-item-manage-sheet';
 import { HashtagFilterRow } from '@/components/closet/hashtag-filter-row';
@@ -30,7 +29,6 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { ContentMax, Editorial, GridCard, gridCardImageHeight, gridCardWidth, ink } from '@/constants/theme';
-import { SHARED_ITEM_STATUS_META } from '@/constants/shared-wardrobe';
 import { WARDROBE_FILTER_OPTIONS } from '@/constants/wardrobe-taxonomy';
 import { useBreakpoint } from '@/hooks/use-breakpoint';
 import { useRefresh } from '@/hooks/use-refresh';
@@ -57,9 +55,7 @@ import {
   type SharedRoom,
   type SharedRoomItem,
   type SharedRoomMember,
-  type SharedItemStatus,
   unregisterItemFromSharedRoom,
-  updateSharedItemStatus,
   updateWardrobeHashtagItems,
 } from '@/lib/wardrobeApi';
 import {
@@ -137,8 +133,6 @@ type Card = {
   filterCategories: string[];
   image?: string;
   owner?: string;
-  sharedStatus?: SharedItemStatus;
-  isMySharedItem?: boolean;
 };
 
 function matchesQuery(item: Card, query: string): boolean {
@@ -177,8 +171,6 @@ export default function ClosetScreen() {
   const [manageRoom, setManageRoom] = useState<ManagedRoom | null>(null);
   const [deleteRoom, setDeleteRoom] = useState<{ id: string; title: string } | null>(null);
   const [leaveRoom, setLeaveRoom] = useState<{ id: string; title: string } | null>(null);
-  const [statusItem, setStatusItem] = useState<Card | null>(null);
-  const [statusSaving, setStatusSaving] = useState(false);
   const [createOpen, setCreateOpen] = useState(false);
   const [createDraftTitle, setCreateDraftTitle] = useState('공유 옷장');
   const [viewSettingsOpen, setViewSettingsOpen] = useState(false);
@@ -465,8 +457,6 @@ export default function ClosetScreen() {
         category: sharedItem.wardrobe_item.category_large,
         filterCategories: [sharedItem.wardrobe_item.category_large],
         image: sharedItem.wardrobe_item.image_url,
-        sharedStatus: sharedItem.status,
-        isMySharedItem: sharedItem.registered_by?.id === me?.id,
         owner:
           sharedItem.registered_by?.id === me?.id
             ? '나'
@@ -536,45 +526,6 @@ export default function ClosetScreen() {
       return null;
     } finally {
       setSharedRefreshing(false);
-    }
-  };
-
-  const handleSharedStatusChange = async (status: SharedItemStatus) => {
-    if (!sharedSpace || !statusItem?.isMySharedItem || !statusItem.sharedStatus || statusSaving) {
-      return;
-    }
-    if (status === statusItem.sharedStatus) {
-      setStatusItem(null);
-      return;
-    }
-
-    setStatusSaving(true);
-    try {
-      const updated = await updateSharedItemStatus(sharedSpace.id, statusItem.id, status);
-      setSharedItems((items) =>
-        items.map((item) =>
-          item.id === statusItem.id ? { ...item, sharedStatus: updated.status } : item,
-        ),
-      );
-      setStatusItem(null);
-      toast(
-        status === 'private'
-          ? '나만 보기로 바꿨어요. 채팅 참고 대상에서도 제외됐어요.'
-          : status === 'borrowed'
-            ? '대여 중으로 바꿨어요. 채팅 참고는 계속 가능해요.'
-            : '공유 가능 상태로 바꿨어요.',
-        { variant: 'success' },
-      );
-      /* 서버가 계산한 reference_eligible까지 다시 읽는다. PRIVATE 해제 시에도
-         벡터 준비·확정 여부에 따라 선택 가능 상태가 달라질 수 있기 때문이다. */
-      await refreshSharedCloset(sharedSpace.id);
-    } catch (err) {
-      console.error('공유 아이템 상태 변경 실패:', err);
-      toast(err instanceof Error ? err.message : '공유 상태를 바꾸지 못했어요.', {
-        variant: 'error',
-      });
-    } finally {
-      setStatusSaving(false);
     }
   };
 
@@ -930,30 +881,6 @@ export default function ClosetScreen() {
               {it.owner}
             </Text>
           </View>
-        ) : null}
-        {tab === 'shared' && it.sharedStatus ? (
-          <Pressable
-            style={[
-              styles.sharedStatusBadge,
-              it.sharedStatus === 'borrowed' && styles.sharedStatusBadgeBorrowed,
-              it.sharedStatus === 'private' && styles.sharedStatusBadgePrivate,
-            ]}
-            disabled={!it.isMySharedItem}
-            onPress={(event) => {
-              event.stopPropagation();
-              if (it.isMySharedItem) setStatusItem(it);
-            }}
-            accessibilityRole={it.isMySharedItem ? 'button' : undefined}
-            accessibilityLabel={`${SHARED_ITEM_STATUS_META[it.sharedStatus].label}${
-              it.isMySharedItem ? ', 눌러서 상태 변경' : ''
-            }`}>
-            <Text style={styles.sharedStatusText}>
-              {SHARED_ITEM_STATUS_META[it.sharedStatus].label}
-            </Text>
-            {it.isMySharedItem ? (
-              <Icon name="chevron.down" tintColor={Editorial.textCaption} size={9} />
-            ) : null}
-          </Pressable>
         ) : null}
         {tab === 'shared' && it.owner === '나' ? (
           <Pressable
@@ -1452,18 +1379,6 @@ export default function ClosetScreen() {
             }}
           />
         ) : null}
-        {statusItem?.sharedStatus ? (
-          <SharedItemStatusSheet
-            visible
-            itemName={statusItem.name}
-            value={statusItem.sharedStatus}
-            saving={statusSaving}
-            onChange={handleSharedStatusChange}
-            onClose={() => {
-              if (!statusSaving) setStatusItem(null);
-            }}
-          />
-        ) : null}
       </SafeAreaView>
     </View>
   );
@@ -1551,23 +1466,6 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     zIndex: 10,
   },
-  sharedStatusBadge: {
-    position: 'absolute',
-    left: 10,
-    bottom: 10,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-    paddingHorizontal: 9,
-    paddingVertical: 5,
-    borderRadius: 999,
-    borderWidth: 1,
-    borderColor: Editorial.line,
-    backgroundColor: 'rgba(255,255,255,0.94)',
-  },
-  sharedStatusBadgeBorrowed: { borderColor: ink(0.24) },
-  sharedStatusBadgePrivate: { opacity: 0.78 },
-  sharedStatusText: { fontSize: 11, fontWeight: '600', color: Editorial.ink },
   cardMeta: {
     flexDirection: 'row',
     alignItems: 'baseline',
