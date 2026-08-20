@@ -8,6 +8,7 @@ from django.db.models import Q
 
 from apps.catalog.models import NaverProduct
 from apps.lookbook.models import CuratedLook, CuratedLookItem
+from apps.wardrobe.taxonomy import CATEGORY_LARGE
 
 MAX_RELATED = 3
 
@@ -34,6 +35,10 @@ def _product(product: NaverProduct) -> dict:
 
 
 def _related(item: CuratedLookItem) -> list[dict]:
+    slot = item.slot.strip()
+    if slot not in CATEGORY_LARGE:
+        return []
+
     words = [word for word in item.related_keyword.split() if len(word) >= 2]
     query = Q()
     for word in words:
@@ -41,7 +46,7 @@ def _related(item: CuratedLookItem) -> list[dict]:
     if not query:
         return []
     products = (
-        NaverProduct.objects.filter(query, lprice__gt=0)
+        NaverProduct.objects.filter(query, category_large=slot, lprice__gt=0)
         .exclude(image_url__isnull=True)
         .exclude(image_url="")
         .order_by("lprice", "id")[:MAX_RELATED]

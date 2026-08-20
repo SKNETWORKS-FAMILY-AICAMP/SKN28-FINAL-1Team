@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 from django.test import TestCase
+from django.utils import timezone
 
-from apps.lookbook.models import CuratedLook
+from apps.catalog.models import NaverProduct
+from apps.lookbook.models import CuratedLook, CuratedLookItem
 from apps.lookbook.services import discovery
 
 
@@ -70,3 +72,57 @@ class DiscoveryServiceTests(TestCase):
         )
 
         self.assertEqual(result, {"count": 0, "next_offset": None, "results": []})
+
+    def test_related_products_are_limited_to_the_source_slot(self) -> None:
+        look = CuratedLook.objects.get(external_id="woman-casual-001")
+        item = CuratedLookItem.objects.create(
+            look=look,
+            slot="상의",
+            name="블랙 반팔 티셔츠",
+            product_url="https://example.com/original",
+            image_url="https://example.com/original.jpg",
+            related_keyword="블랙 반팔 티셔츠",
+        )
+        NaverProduct.objects.create(
+            naver_product_id="same-slot-top",
+            title="블랙 반팔 티셔츠",
+            image_url="https://example.com/top.jpg",
+            lprice=20_000,
+            category_large="상의",
+            category_small="티셔츠",
+            collected_at=timezone.now(),
+        )
+        NaverProduct.objects.create(
+            naver_product_id="wrong-slot-drawers",
+            title="블랙 남성 드로즈",
+            image_url="https://example.com/drawers.jpg",
+            lprice=1_000,
+            category_large="언더웨어/이너웨어",
+            category_small="팬티/드로즈",
+            collected_at=timezone.now(),
+        )
+
+        result = discovery._related(item)
+
+        self.assertEqual([product["id"] for product in result], ["same-slot-top"])
+
+    def test_related_products_are_empty_for_unknown_source_slot(self) -> None:
+        look = CuratedLook.objects.get(external_id="woman-casual-001")
+        item = CuratedLookItem.objects.create(
+            look=look,
+            slot="알 수 없는 슬롯",
+            name="블랙 아이템",
+            product_url="https://example.com/original",
+            related_keyword="블랙 아이템",
+        )
+        NaverProduct.objects.create(
+            naver_product_id="fallback-top",
+            title="블랙 아이템 티셔츠",
+            image_url="https://example.com/top.jpg",
+            lprice=10_000,
+            category_large="상의",
+            category_small="티셔츠",
+            collected_at=timezone.now(),
+        )
+
+        self.assertEqual(discovery._related(item), [])
