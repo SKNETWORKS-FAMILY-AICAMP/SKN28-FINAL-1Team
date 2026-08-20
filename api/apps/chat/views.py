@@ -125,7 +125,7 @@ _PERSONA_ID_PARAMETER = OpenApiParameter(
         "재실행할 선택형 스타일리스트 ID. "
         "minimal, experimental, practical 중 원본 run에 포함된 FAILED 값"
     ),
-    examples=[OpenApiExample(name="실험형 재실행", value="experimental")],
+    examples=[OpenApiExample(name="모험 재실행", value="experimental")],
 )
 
 _SEARCH_QUERY_PARAMETER = OpenApiParameter(
@@ -238,7 +238,7 @@ _STYLIST_LIST_RESPONSE_EXAMPLE = OpenApiExample(
             },
             {
                 "id": "experimental",
-                "display_name": "실험형",
+                "display_name": "모험",
                 "description": (
                     "최근 추천과 다른 관계를 탐색해 부담 없는 변화를 제안합니다."
                 ),
@@ -246,7 +246,7 @@ _STYLIST_LIST_RESPONSE_EXAMPLE = OpenApiExample(
             },
             {
                 "id": "practical",
-                "display_name": "실용형",
+                "display_name": "데일리",
                 "description": (
                     "날씨와 활동성, 관리 편의를 고려해 실제로 입기 좋은 코디를 "
                     "제안합니다."
@@ -332,7 +332,7 @@ _STYLIST_RUN_RESPONSE_EXAMPLE = OpenApiExample(
             },
             {
                 "persona_id": "experimental",
-                "display_name": "실험형",
+                "display_name": "모험",
                 "display_order": 2,
                 "status": "RUNNING",
                 "result_id": None,
@@ -422,7 +422,7 @@ class ChatSessionResponseModeView(APIView):
         request={"application/json": ChatSessionResponseModeUpdateSerializer},
         examples=[
             OpenApiExample(
-                name="미니멀·실용형 활성화",
+                name="미니멀·데일리 활성화",
                 value={
                     "response_mode": "STYLIST",
                     "selected_persona_ids": ["minimal", "practical"],
@@ -1489,7 +1489,7 @@ class ChatRunPersonaRetryView(APIView):
                 description="개별 스타일리스트 재실행 접수 완료",
                 examples=[
                     OpenApiExample(
-                        name="실험형 재실행 접수",
+                        name="모험 재실행 접수",
                         value={
                             "run": {
                                 "id": "33333333-3333-4333-8333-333333333333",

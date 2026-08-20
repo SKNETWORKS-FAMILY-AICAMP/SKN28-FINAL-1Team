@@ -43,13 +43,13 @@ const CATALOG: ApiStylistCatalog = {
     },
     {
       id: 'experimental',
-      display_name: '실험형',
+      display_name: '모험',
       description: '최근 추천과 다른 관계를 탐색해 부담 없는 변화를 제안합니다.',
       display_order: 2,
     },
     {
       id: 'practical',
-      display_name: '실용형',
+      display_name: '데일리',
       description: '날씨와 활동성, 관리 편의를 고려해 실제로 입기 좋은 코디를 제안합니다.',
       display_order: 3,
     },

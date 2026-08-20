@@ -19,7 +19,7 @@ class StylistResultSerializerTests(SimpleTestCase):
 
         payload = ChatRunPersonaResultSerializer(execution).data
 
-        self.assertEqual(payload["display_name"], "실험형")
+        self.assertEqual(payload["display_name"], "모험")
         self.assertIsNone(payload["result_id"])
         self.assertEqual(payload["message"], "")
         self.assertEqual(payload["validated_reason_codes"], [])
