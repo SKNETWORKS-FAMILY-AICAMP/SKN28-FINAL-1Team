@@ -36,6 +36,13 @@ export type WardrobeSection<T extends WardrobeSectionItem = WardrobeSectionItem>
 
 export const UNCATEGORIZED_SECTION_ID = 'virtual:uncategorized';
 
+export function wardrobeSectionCountLabel(
+  section: Pick<WardrobeSection, 'id' | 'items'>,
+): string {
+  const unit = section.id === 'system:가방' ? '개' : '벌';
+  return `${section.items.length}${unit}`;
+}
+
 const colorRank = new Map<string, number>(COLORS.map((color, index) => [color, index]));
 
 function displayName(item: WardrobeSectionItem): string {

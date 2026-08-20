@@ -61,6 +61,7 @@ import {
 import {
   buildWardrobeSections,
   uniqueWardrobeItemCount,
+  wardrobeSectionCountLabel,
   type WardrobeGroupMode,
   type WardrobeItemSort,
 } from '@/lib/wardrobeSections';
@@ -1135,7 +1136,7 @@ export default function ClosetScreen() {
                     ]}>
                     <View style={styles.sectionHeader}>
                       <Text style={styles.sectionTitle}>{section.title}</Text>
-                      <Text style={styles.sectionCount}>{section.items.length}벌</Text>
+                      <Text style={styles.sectionCount}>{wardrobeSectionCountLabel(section)}</Text>
                     </View>
                     <View style={styles.grid}>
                       {section.items.map((item) => {

@@ -76,6 +76,7 @@ try {
     buildWardrobeSections,
     UNCATEGORIZED_SECTION_ID,
     uniqueWardrobeItemCount,
+    wardrobeSectionCountLabel,
   } = compileWardrobeSections();
 
   const work = hashtag('hashtag-work', '출근룩', 0);
@@ -105,6 +106,14 @@ try {
     '기본 카테고리 순서대로 비어 있지 않은 섹션만 보여야 한다.',
   );
   assert.deepEqual(sectionIds(systemSections)[0], ['top-new', 'top-old']);
+  assert.equal(
+    wardrobeSectionCountLabel({ id: 'system:가방', items: [item('bag-1'), item('bag-2')] }),
+    '2개',
+  );
+  assert.equal(
+    wardrobeSectionCountLabel({ id: 'system:상의', items: [item('top-1'), item('top-2')] }),
+    '2벌',
+  );
 
   const hashtagSections = buildWardrobeSections(
     [
