@@ -198,6 +198,33 @@ class StylistDuplicateResolverTests(SimpleTestCase):
             ),
         )
 
+    def test_high_item_overlap_is_duplicate_when_core_overlap_is_below_threshold(
+        self,
+    ) -> None:
+        left = self._composition(
+            {
+                "TOP": "left-top",
+                "BOTTOM": "shared-bottom",
+                "FOOTWEAR": "shared-footwear",
+                "MISC_A": "shared-hat",
+                "MISC_B": "shared-bag",
+            }
+        )
+        right = self._composition(
+            {
+                "TOP": "right-top",
+                "BOTTOM": "shared-bottom",
+                "FOOTWEAR": "shared-footwear",
+                "MISC_A": "shared-hat",
+                "MISC_B": "shared-bag",
+            }
+        )
+
+        self.assertEqual(
+            classify_duplicate(left, right),
+            (DuplicateKind.HIGH_ITEM_OVERLAP, ()),
+        )
+
     def test_quality_guard_keeps_duplicate_when_distinct_candidate_drops_too_much(
         self,
     ) -> None:
@@ -224,6 +251,32 @@ class StylistDuplicateResolverTests(SimpleTestCase):
         )
         self.assertEqual(selection.score_drop, 9)
         self.assertEqual(selection.duplicate_matches[0].kind, DuplicateKind.EXACT)
+
+    def test_default_policy_prefers_distinct_valid_candidate_over_score_drop(
+        self,
+    ) -> None:
+        shared = self._major_items("shared")
+        minimal = self._result("minimal", [(100, shared)])
+        experimental = self._result(
+            "experimental",
+            [
+                (99, shared),
+                (90, self._major_items("distinct")),
+            ],
+        )
+
+        selection = (
+            StylistDuplicateResolver()
+            .resolve((minimal, experimental))
+            .get("experimental")
+        )
+
+        self.assertEqual(selection.selected_rank, 2)
+        self.assertEqual(
+            selection.reason_code,
+            DiversityReasonCode.DUPLICATE_REPLACED,
+        )
+        self.assertEqual(selection.score_drop, 9)
 
     def test_candidate_exhaustion_allows_duplicate_and_cross_run_is_rejected(
         self,

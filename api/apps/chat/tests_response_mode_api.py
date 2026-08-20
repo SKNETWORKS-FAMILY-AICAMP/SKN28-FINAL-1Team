@@ -52,6 +52,26 @@ class ChatSessionResponseModeApiTests(APITestCase):
             ["minimal", "practical"],
         )
 
+    def test_stylist_mode_normalizes_click_order_before_saving(self) -> None:
+        response = self.client.patch(
+            self.url,
+            {
+                "response_mode": "STYLIST",
+                "selected_persona_ids": ["practical", "minimal", "experimental"],
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        expected = ["minimal", "experimental", "practical"]
+        self.assertEqual(response.data["selected_persona_ids"], expected)
+        self.session.refresh_from_db()
+        self.assertEqual(self.session.selected_persona_ids, expected)
+        self.assertEqual(
+            MemberStylistSelection.objects.get(user=self.user).last_selected_persona_ids,
+            expected,
+        )
+
     def test_first_stylist_activation_without_ids_uses_minimal(self) -> None:
         response = self.client.patch(
             self.url,
@@ -149,7 +169,6 @@ class ChatSessionResponseModeApiTests(APITestCase):
             [],
             ["unknown"],
             ["minimal", "minimal"],
-            ["practical", "minimal"],
             ["minimal", "experimental", "practical", "unknown"],
         )
 

@@ -19,6 +19,11 @@ let catalog: ApiStylistCatalog | null = null;
 let loading = false;
 let error: string | null = null;
 const listeners = new Set<() => void>();
+const FALLBACK_DISPLAY_ORDER: Record<StylistId, number> = {
+  minimal: 1,
+  experimental: 2,
+  practical: 3,
+};
 
 function notify() {
   listeners.forEach((l) => l());
@@ -87,9 +92,11 @@ export const stylistStore = {
     return ids.map((id) => stylistStore.displayName(id));
   },
 
-  /** 목록을 아직 못 받았으면 99 — 그때는 고른 순서가 그대로 유지된다. */
+  /** catalog 응답 전에도 서버 저장 계약과 같은 고정 순서를 사용한다. */
   displayOrder(id: StylistId): number {
-    return catalog?.stylists.find((s) => s.id === id)?.display_order ?? 99;
+    return (
+      catalog?.stylists.find((s) => s.id === id)?.display_order ?? FALLBACK_DISPLAY_ORDER[id] ?? 99
+    );
   },
 
   /** 카드 순서 고정용. 고른 순서가 아니라 정해진 순서로 늘어놓는다. */

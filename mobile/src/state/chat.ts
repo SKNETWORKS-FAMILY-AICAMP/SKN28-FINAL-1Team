@@ -1411,7 +1411,9 @@ export const chatStore = {
     personaIds?: StylistId[],
   ): Promise<void> {
     const before = sessions.find((s) => s.id === id);
-    const updated = await apiUpdateResponseMode(id, mode, personaIds);
+    const normalizedPersonaIds =
+      mode === 'STYLIST' && personaIds ? stylistStore.sortIds(personaIds) : personaIds;
+    const updated = await apiUpdateResponseMode(id, mode, normalizedPersonaIds);
     const nextIds = updated.selected_persona_ids ?? [];
 
     const changed =

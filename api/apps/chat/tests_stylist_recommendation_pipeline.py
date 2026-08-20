@@ -217,6 +217,37 @@ class StylistRecommendationPipelineTests(TestCase):
             total_product_price=50_000,
         )
 
+    @staticmethod
+    def _multi_item_composition(items: dict[str, str]) -> OutfitComposition:
+        return OutfitComposition(
+            mode=RecommendationMode.NEW_ITEM,
+            items=tuple(
+                OutfitItem(
+                    slot_id=slot,
+                    template_point_id=f"template-{slot.lower()}",
+                    category_large=slot,
+                    layer_role="",
+                    source_type=ItemSource.PRODUCT,
+                    source_id=source_id,
+                    source_collection="products_naver_v1",
+                    point_id=f"point-{source_id}",
+                    image_ref=f"https://example.com/{source_id}.jpg",
+                    price=10_000,
+                    score=0.9,
+                    reasons=("골든 아이템과 유사",),
+                    payload={
+                        "title": source_id,
+                        "styles": ["캐주얼"],
+                        "colors": ["네이비"],
+                        "fits": ["레귤러핏"],
+                    },
+                )
+                for slot, source_id in items.items()
+            ),
+            missing_slot_ids=(),
+            total_product_price=len(items) * 10_000,
+        )
+
     def _service(self) -> tuple[StylistRecommendationPipeline, Mock, Mock, Mock]:
         active_personas: list[str] = []
         golden = Mock()
@@ -388,4 +419,61 @@ class StylistRecommendationPipelineTests(TestCase):
         self.assertEqual(
             experimental.hypothesis_snapshot["source"],
             "RULE_FALLBACK",
+        )
+
+    def test_persona_top_k_keeps_core_distinct_candidate_not_accessory_variants(
+        self,
+    ) -> None:
+        context = self._context()
+        analysis = self._analysis()
+        service, _golden, composer, _validator = self._service()
+        composer.compose.side_effect = None
+        composer.compose.return_value = CompositionBatch(
+            mode=RecommendationMode.NEW_ITEM,
+            compositions=(
+                self._multi_item_composition(
+                    {
+                        "TOP": "shared-top",
+                        "BOTTOM": "shared-bottom",
+                        "ACCESSORY": "accessory-1",
+                    }
+                ),
+                self._multi_item_composition(
+                    {
+                        "TOP": "shared-top",
+                        "BOTTOM": "shared-bottom",
+                        "ACCESSORY": "accessory-2",
+                    }
+                ),
+                self._multi_item_composition(
+                    {
+                        "TOP": "shared-top",
+                        "BOTTOM": "shared-bottom",
+                        "ACCESSORY": "accessory-3",
+                    }
+                ),
+                self._multi_item_composition(
+                    {
+                        "TOP": "distinct-top",
+                        "BOTTOM": "distinct-bottom",
+                        "ACCESSORY": "accessory-4",
+                    }
+                ),
+            ),
+        )
+
+        result = service.execute_persona(
+            run=self.run,
+            persona_execution=self.executions["minimal"],
+            context=context,
+            analysis=analysis,
+        )
+
+        self.assertEqual(len(result.ranked_candidates), 2)
+        self.assertEqual(
+            [
+                row.candidate.composition.items[0].source_id
+                for row in result.ranked_candidates
+            ],
+            ["shared-top", "distinct-top"],
         )

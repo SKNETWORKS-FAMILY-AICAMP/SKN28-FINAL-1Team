@@ -17,6 +17,7 @@ from apps.chat.services.experimental_stylist_strategy import (
 )
 from apps.chat.services.minimal_stylist_strategy import MinimalStylistStrategy
 from apps.chat.services.openai_adapter import LLMUsage, TurnAnalysis
+from apps.chat.services.recommendation_diversity import select_diverse_candidates
 from apps.chat.services.practical_stylist_strategy import PracticalStylistStrategy
 from apps.chat.services.recommendation_pipeline import (
     ChatRecommendationPipeline,
@@ -36,6 +37,7 @@ from apps.chat.services.stylist_strategy import (
     StylistStrategyContractError,
     StylistStrategyRunner,
 )
+from apps.recommend.services.outfit_types import OutfitComposition
 
 STYLIST_VALIDATED_TOP_K = 3
 
@@ -50,6 +52,12 @@ class RankedValidatedCandidate:
 
     candidate: ValidatedRecommendationCandidate
     evaluation: CandidateStrategyEvaluation
+
+    @property
+    def composition(self) -> OutfitComposition:
+        """공통 핵심 슬롯 다양성 선택기가 읽는 조합 계약."""
+
+        return self.candidate.composition
 
     @property
     def reason_codes(self) -> tuple[str, ...]:
@@ -170,7 +178,14 @@ class StylistRecommendationPipeline:
                 candidate=candidate_by_ordinal[evaluation.candidate_ordinal],
                 evaluation=evaluation,
             )
-            for evaluation in strategy_result.ranked_candidates[:top_k]
+            for evaluation in strategy_result.ranked_candidates
+        )
+        # 전략 점수 상위가 같은 골든 템플릿의 액세서리 변형으로 몰리면 persona 간
+        # 중복 해소기가 볼 수 있는 대안도 사라진다. 전체 전략 순위를 유지하면서
+        # 핵심 슬롯이 다른 후보를 Top-K에 먼저 남긴다.
+        ranked = select_diverse_candidates(
+            ranked,
+            limit=top_k,
         )
         return PersonaRecommendationCandidates(
             persona_id=persona_execution.persona_id,

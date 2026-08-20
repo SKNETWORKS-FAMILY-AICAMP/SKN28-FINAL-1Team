@@ -20,7 +20,11 @@ from apps.recommend.services.outfit_slots import (
     outfit_item_slot,
 )
 
-MAX_DIVERSITY_SCORE_DROP = 5.0
+# 기본 실행은 validator를 통과한 서로 다른 후보가 있으면 persona 차이를 우선한다.
+# 명시적으로 더 작은 값을 주입하는 테스트·운영 정책에서는 품질 guard를 쓸 수 있다.
+MAX_DIVERSITY_SCORE_DROP = 1_000.0
+HIGH_ITEM_OVERLAP_THRESHOLD = 0.75
+HIGH_ITEM_OVERLAP_MIN_SHARED = 3
 _MAJOR_SLOT_ORDER = DUPLICATE_SLOT_ORDER
 
 
@@ -30,6 +34,7 @@ class StylistDuplicateResolutionError(ValueError):
 
 class DuplicateKind(StrEnum):
     EXACT = "EXACT"
+    HIGH_ITEM_OVERLAP = "HIGH_ITEM_OVERLAP"
     MAJOR_SLOTS = "MAJOR_SLOTS"
 
 
@@ -218,6 +223,18 @@ def classify_duplicate(
     # 원피스는 상·하의를 함께 대체하므로 같은 원피스 자체가 핵심 중복이다.
     if len(matching) >= 3 or DRESS in matching:
         return DuplicateKind.MAJOR_SLOTS, matching
+
+    # 상의 하나만 달라지고 하의·신발·가방·액세서리가 같은 코디처럼 사용자가
+    # 사실상 동일하게 느끼는 결과도 중복으로 본다. 작은 코디의 75% 이상이 겹치고
+    # 공통 아이템이 최소 3개일 때만 적용해 1~2개 우연한 공유는 허용한다.
+    shared_count = len(left_ids & right_ids)
+    smaller_size = min(len(left_ids), len(right_ids))
+    if (
+        shared_count >= HIGH_ITEM_OVERLAP_MIN_SHARED
+        and smaller_size > 0
+        and shared_count / smaller_size >= HIGH_ITEM_OVERLAP_THRESHOLD
+    ):
+        return DuplicateKind.HIGH_ITEM_OVERLAP, ()
     return None
 
 

@@ -13,6 +13,7 @@ from apps.chat.models import (
     validate_member_last_selected_persona_ids,
 )
 from apps.chat.services import member_stylist_selections
+from apps.chat.services.stylist_personas import load_stylist_personas
 
 
 class ChatResponseModeError(RuntimeError):
@@ -31,7 +32,23 @@ def _validate_persona_ids(persona_ids: Sequence[str]) -> list[str]:
         raise ChatResponseModeError(
             "스타일리스트 선택값은 문자열 배열이어야 합니다."
         )
-    normalized_ids = list(persona_ids)
+    raw_ids = list(persona_ids)
+    if any(not isinstance(persona_id, str) for persona_id in raw_ids):
+        raise ChatResponseModeError("스타일리스트 ID는 문자열이어야 합니다.")
+
+    # 선택 UI의 클릭 순서는 저장 계약이 아니다. 구버전 클라이언트가 사용자가
+    # 누른 순서대로 보내더라도 서버 경계에서 catalog 순서로 정규화한 뒤 저장한다.
+    # 모델 validator는 canonical order invariant를 계속 지킨다.
+    order = {
+        persona_id: index
+        for index, persona_id in enumerate(
+            load_stylist_personas().supported_persona_ids
+        )
+    }
+    normalized_ids = sorted(
+        raw_ids,
+        key=lambda persona_id: order.get(persona_id, len(order)),
+    )
     try:
         validate_member_last_selected_persona_ids(normalized_ids)
     except ValidationError as exc:
