@@ -126,3 +126,72 @@ class DiscoveryServiceTests(TestCase):
         )
 
         self.assertEqual(discovery._related(item), [])
+
+    def test_related_products_require_at_least_two_keyword_matches(self) -> None:
+        look = CuratedLook.objects.get(external_id="woman-casual-001")
+        item = CuratedLookItem.objects.create(
+            look=look,
+            slot="액세서리",
+            name="블랙 진주 헤어핀",
+            product_url="https://example.com/original",
+            related_keyword="블랙 진주 헤어핀",
+        )
+        NaverProduct.objects.create(
+            naver_product_id="one-keyword-match",
+            title="블랙 가죽 벨트",
+            image_url="https://example.com/belt.jpg",
+            lprice=1_000,
+            category_large="액세서리",
+            category_small="벨트",
+            collected_at=timezone.now(),
+        )
+        NaverProduct.objects.create(
+            naver_product_id="two-keyword-matches",
+            title="블랙 진주 귀걸이",
+            image_url="https://example.com/earrings.jpg",
+            lprice=20_000,
+            category_large="액세서리",
+            category_small="주얼리",
+            collected_at=timezone.now(),
+        )
+
+        result = discovery._related(item)
+
+        self.assertEqual(
+            [product["id"] for product in result], ["two-keyword-matches"]
+        )
+
+    def test_related_products_rank_keyword_matches_before_price(self) -> None:
+        look = CuratedLook.objects.get(external_id="woman-casual-001")
+        item = CuratedLookItem.objects.create(
+            look=look,
+            slot="신발",
+            name="블랙 버클 워커 미들부츠",
+            product_url="https://example.com/original",
+            related_keyword="블랙 버클 워커 미들부츠",
+        )
+        NaverProduct.objects.create(
+            naver_product_id="cheap-two-matches",
+            title="블랙 버클 로퍼",
+            image_url="https://example.com/loafer.jpg",
+            lprice=1_000,
+            category_large="신발",
+            category_small="구두/로퍼",
+            collected_at=timezone.now(),
+        )
+        NaverProduct.objects.create(
+            naver_product_id="expensive-four-matches",
+            title="블랙 버클 워커 미들부츠",
+            image_url="https://example.com/boots.jpg",
+            lprice=40_000,
+            category_large="신발",
+            category_small="부츠",
+            collected_at=timezone.now(),
+        )
+
+        result = discovery._related(item)
+
+        self.assertEqual(
+            [product["id"] for product in result],
+            ["expensive-four-matches", "cheap-two-matches"],
+        )
