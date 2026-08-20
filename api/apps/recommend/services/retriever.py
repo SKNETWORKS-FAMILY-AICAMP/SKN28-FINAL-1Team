@@ -1163,8 +1163,10 @@ def retrieve_principles(
     text = (query or "").strip()
     if not text:
         return ()
+    timeout = int(getattr(settings, "PRINCIPLE_RETRIEVAL_TIMEOUT_SECONDS", 4))
     try:
-        embedding = (embedding_client or get_text_embedding_client()).embed(text)
+        embedder = embedding_client or get_text_embedding_client(timeout=timeout)
+        embedding = embedder.embed(text)
     except TextEmbeddingError:
         logger.warning("원칙 검색용 질의 임베딩 실패, 원칙 없이 진행한다.", exc_info=True)
         return ()
@@ -1172,7 +1174,12 @@ def retrieve_principles(
     qdrant = client or get_client()
     vector = list(embedding.vector)
 
-    def _search(search_filter: qm.Filter, count: int) -> list[Any]:
+    def _search(search_filter: qm.Filter, count: int) -> list[Any] | None:
+        """검색 결과. 실패하면 None — 빈 목록(찾았는데 0건)과 구분해야 한다.
+
+        이 둘을 같이 다루면, 좁힌 검색이 타임아웃으로 실패했을 때 "결과가 부족하다"로
+        읽혀 넓힌 검색을 또 시도하고 타임아웃을 두 번 낸다.
+        """
         # query_points/search 분기는 _fetch와 같다. 최신 qdrant-client는 search를
         # 없앴고, 구버전은 query_points가 없다.
         try:
@@ -1184,6 +1191,7 @@ def retrieve_principles(
                     query_filter=search_filter,
                     limit=count,
                     with_payload=True,
+                    timeout=timeout,
                 ).points
             return qdrant.search(
                 collection_name=GOLDEN_KNOWLEDGE_COLLECTION,
@@ -1191,28 +1199,32 @@ def retrieve_principles(
                 query_filter=search_filter,
                 limit=count,
                 with_payload=True,
+                timeout=timeout,
             )
         except Exception:
             logger.warning("원칙 검색 실패, 원칙 없이 진행한다.", exc_info=True)
-            return []
+            return None
 
     style_values = [str(value).strip() for value in styles if str(value).strip()]
     if not style_values:
-        return tuple(
-            _to_principle(record, widened=True)
-            for record in _search(_principle_filter(()), limit)
-        )
+        records = _search(_principle_filter(()), limit)
+        if not records:
+            return ()
+        return tuple(_to_principle(record, widened=True) for record in records)
 
-    found = [
-        _to_principle(record, widened=False)
-        for record in _search(_principle_filter(style_values), limit)
-    ]
+    narrow = _search(_principle_filter(style_values), limit)
+    if narrow is None:
+        # 좁힌 검색이 실패했다. 넓혀도 같은 이유로 실패할 가능성이 높고, 그러면
+        # 타임아웃을 두 번 낸다. 원칙은 없어도 되는 정보라 여기서 접는다.
+        return ()
+
+    found = [_to_principle(record, widened=False) for record in narrow]
     if len(found) >= PRINCIPLE_WIDEN_THRESHOLD:
         return tuple(found[:limit])
 
     # 스타일로 좁힌 결과가 부족하다. 필터를 풀어 채우되 중복은 뺀다.
     seen = {item.principle_key for item in found}
-    for record in _search(_principle_filter(()), limit * 2):
+    for record in _search(_principle_filter(()), limit * 2) or []:
         principle = _to_principle(record, widened=True)
         if principle.principle_key in seen:
             continue

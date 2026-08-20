@@ -213,3 +213,83 @@ class OrchestratorWiringTests(SimpleTestCase):
         from apps.chat.services import orchestrator
 
         self.assertEqual(orchestrator._principle_context({}, "", {}), [])
+
+
+class PrincipleTimeoutTests(SimpleTestCase):
+    """원칙 조회는 짧게 끊는다.
+
+    없어도 추천이 성립하는 부가 정보라, 본 검색과 같은 15초를 기다리면 임베딩
+    서비스가 죽었을 때 사용자가 그만큼 더 기다리게 된다.
+    """
+
+    def test_default_is_shorter_than_the_main_search(self) -> None:
+        from django.conf import settings
+
+        self.assertLess(
+            settings.PRINCIPLE_RETRIEVAL_TIMEOUT_SECONDS,
+            settings.TEXT_EMBEDDING_TIMEOUT_SECONDS,
+        )
+
+    def test_timeout_reaches_both_clients(self) -> None:
+        from django.conf import settings
+        from apps.recommend.services import retriever
+
+        seen: dict[str, object] = {}
+
+        class RecordingQdrant(FakeQdrant):
+            def query_points(self, **kwargs):
+                seen["qdrant"] = kwargs.get("timeout")
+                return super().query_points(**kwargs)
+
+        def fake_factory(*, timeout=None):
+            seen["embedding"] = timeout
+            return FakeEmbedding()
+
+        with patch.object(retriever, "get_text_embedding_client", fake_factory):
+            retrieve_principles(
+                query="가을 데이트룩",
+                styles=["댄디"],
+                client=RecordingQdrant([_hit("p1", "댄디", 0.5)], []),
+            )
+        expected = settings.PRINCIPLE_RETRIEVAL_TIMEOUT_SECONDS
+        self.assertEqual(seen["embedding"], expected)
+        self.assertEqual(seen["qdrant"], expected)
+
+
+class SlowPathTests(SimpleTestCase):
+    """느리거나 죽은 의존을 만났을 때 얼마나 기다리는가.
+
+    타임아웃은 **호출당** 상한이라, 실패한 검색을 다시 시도하면 사용자가 두 배로
+    기다린다. 원칙은 없어도 되는 정보이므로 그런 재시도를 하지 않는다.
+    """
+
+    def test_a_failed_narrow_search_does_not_trigger_a_second_call(self) -> None:
+        class Failing:
+            def __init__(self) -> None:
+                self.calls = 0
+
+            def query_points(self, **kwargs):
+                self.calls += 1
+                raise RuntimeError("타임아웃")
+
+        client = Failing()
+        result = retrieve_principles(
+            query="가을 데이트룩",
+            styles=["댄디"],
+            client=client,
+            embedding_client=FakeEmbedding(),
+        )
+        self.assertEqual(result, ())
+        self.assertEqual(client.calls, 1)
+
+    def test_an_empty_but_successful_search_still_widens(self) -> None:
+        """찾았는데 0건인 것은 실패가 아니다. 넓혀서 채운다."""
+        client = FakeQdrant([], [_hit("w1", "포멀", 0.5)])
+        result = retrieve_principles(
+            query="가을 데이트룩",
+            styles=["베이직"],
+            client=client,
+            embedding_client=FakeEmbedding(),
+        )
+        self.assertEqual([row.principle_key for row in result], ["w1"])
+        self.assertEqual(client.calls, [True, False])

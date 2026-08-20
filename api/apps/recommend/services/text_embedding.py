@@ -130,10 +130,13 @@ def _error_detail(response: requests.Response) -> str:
 
 
 @lru_cache(maxsize=1)
-def get_text_embedding_client() -> TextEmbeddingClient:
+def get_text_embedding_client(
+    *, timeout: int | None = None
+) -> TextEmbeddingClient:
+    """기본 타임아웃은 설정값. 없어도 되는 조회는 `timeout`으로 짧게 끊는다."""
     return TextEmbeddingClient(
         url=settings.TEXT_EMBEDDING_API_URL,
         token=settings.TEXT_EMBEDDING_API_TOKEN,
-        timeout=settings.TEXT_EMBEDDING_TIMEOUT_SECONDS,
+        timeout=timeout or settings.TEXT_EMBEDDING_TIMEOUT_SECONDS,
         expected_dimension=settings.TEXT_EMBEDDING_EXPECTED_DIM,
     )

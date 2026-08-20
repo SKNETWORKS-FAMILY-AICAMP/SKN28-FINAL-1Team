@@ -429,6 +429,13 @@ SHARED_REFERENCE_STYLE_MIN_SCORE = float(
 TEXT_EMBEDDING_API_URL = os.getenv("TEXT_EMBEDDING_API_URL", "").strip()
 TEXT_EMBEDDING_API_TOKEN = os.getenv("TEXT_EMBEDDING_API_TOKEN", "").strip()
 TEXT_EMBEDDING_TIMEOUT_SECONDS = int(os.getenv("TEXT_EMBEDDING_TIMEOUT_SECONDS", "15"))
+# 원칙(knowledge) 조회는 없어도 추천이 성립하는 부가 정보라 본 검색(15초)보다 짧게
+# 끊는다. 다만 이 값은 **호출당** 상한이고 조회는 임베딩 1회 + Qdrant 1~2회이므로,
+# 사용자가 실제로 더 기다릴 수 있는 시간은 이 값의 두 배 남짓이다. 정상 응답은 보통
+# 1초 안쪽이라 6초면 느린 날에도 결과를 버리지 않으면서 지연을 통제할 수 있다.
+PRINCIPLE_RETRIEVAL_TIMEOUT_SECONDS = int(
+    os.getenv("PRINCIPLE_RETRIEVAL_TIMEOUT_SECONDS", "6")
+)
 TEXT_EMBEDDING_EXPECTED_DIM = int(
     os.getenv("TEXT_EMBEDDING_EXPECTED_DIM", str(QDRANT_TEXT_VECTOR_DIM))
 )
