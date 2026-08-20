@@ -280,7 +280,8 @@ const styles = StyleSheet.create({
     width: SidebarWidth,
     borderRightWidth: 1,
     borderRightColor: ink(0.08),
-    backgroundColor: Editorial.page,
+    /* 내비게이션 면은 본문(오트)보다 한 단계 밝은 순백 — Editorial.chrome 주석 참고 */
+    backgroundColor: Editorial.chrome,
     paddingHorizontal: 16,
     paddingTop: 28,
     gap: 8,
@@ -316,7 +317,9 @@ const styles = StyleSheet.create({
     zIndex: 10,
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: 'rgba(255, 255, 255, 0.6)',
+    /* 순백이되 살짝 비치게 둔다 — 0.6 이면 오트 본문이 비쳐 흰색으로 안 읽히고,
+       완전 불투명이면 global.css 의 backdrop-filter(글래스)가 의미를 잃는다. */
+    backgroundColor: 'rgba(255, 255, 255, 0.92)',
     borderTopWidth: 1,
     borderTopColor: ink(0.06),
     paddingTop: 8,
