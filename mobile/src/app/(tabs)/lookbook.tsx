@@ -130,6 +130,7 @@ export default function LookbookScreen() {
     error: lookbookError,
     progress: lookbookProgress,
   } = useLookbookLoadState();
+  const [displayedLookbookProgress, setDisplayedLookbookProgress] = useState(0);
   const savedLooks = useSavedLooks();
   const likedLooks = useLikedLooks();
   const [query, setQuery] = useState('');
@@ -152,6 +153,23 @@ export default function LookbookScreen() {
   useEffect(() => {
     void loadAll();
   }, [loadAll]);
+
+  useEffect(() => {
+    if (!lookbookLoading) {
+      setDisplayedLookbookProgress(lookbookProgress);
+      return;
+    }
+
+    const timer = setInterval(() => {
+      setDisplayedLookbookProgress((current) => {
+        if (current >= lookbookProgress) return current;
+        const remaining = lookbookProgress - current;
+        return Math.min(lookbookProgress, current + Math.max(1, Math.ceil(remaining / 10)));
+      });
+    }, 45);
+
+    return () => clearInterval(timer);
+  }, [lookbookLoading, lookbookProgress]);
 
   /* 모드도 내 룩북 안 갈래도 URL 파라미터에서 파생한다(useState+useEffect 동기화는
      불필요한 리렌더를 만들어 지양). 갈래까지 URL 에 두는 이유는 상세에서 뒤로 왔을 때
@@ -338,8 +356,8 @@ export default function LookbookScreen() {
             <View
               style={styles.empty}
               accessibilityRole="progressbar"
-              accessibilityValue={{ min: 0, max: 100, now: lookbookProgress }}>
-              <Text style={styles.loadingPercent}>{lookbookProgress}%</Text>
+              accessibilityValue={{ min: 0, max: 100, now: displayedLookbookProgress }}>
+              <Text style={styles.loadingPercent}>{displayedLookbookProgress}%</Text>
               <Text style={styles.loadingMessage}>룩북을 불러오는 중입니다.</Text>
             </View>
           ) : !isMine && lookbookError && cards.length === 0 ? (
