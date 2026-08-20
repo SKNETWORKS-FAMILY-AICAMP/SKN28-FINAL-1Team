@@ -810,6 +810,12 @@ CHAT_PROMPT_VERSION = os.getenv("CHAT_PROMPT_VERSION", "chat-orchestrator-v1").s
 CHAT_RECENT_GOLDEN_EXCLUSION_LIMIT = int(
     os.getenv("CHAT_RECENT_GOLDEN_EXCLUSION_LIMIT", "3")
 )
+# 온보딩 기피를 하드 필터에서 풀 골든 후보 임계값. 후보가 이 수 미만이면 완화한다.
+# 기본 2 = "0건이거나 1건일 때". 1로 낮추면 0건일 때만, 0/1 외로 올리면 기피가
+# 자주 풀린다 — 골든셋 커버리지가 늘면 다시 낮춘다.
+CHAT_GOLDEN_RELAX_AVOIDED_BELOW = int(
+    os.getenv("CHAT_GOLDEN_RELAX_AVOIDED_BELOW", "2")
+)
 PERSONA_LLM_PROVIDER = os.getenv("PERSONA_LLM_PROVIDER", "openai").strip().lower()
 _PERSONA_LLM_DEFAULT_MODEL = (
     GEMINI_MODEL if PERSONA_LLM_PROVIDER == "gemini" else CHAT_OPENAI_MODEL

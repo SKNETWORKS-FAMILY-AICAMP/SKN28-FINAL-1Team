@@ -124,6 +124,17 @@ class RetrievalRequest:
     #: **전부** 여기 걸리면 제외를 풀고 그대로 돌려준다 — 골든셋이 작을 때
     #: 반복 추천이 '추천 없음'보다 낫다.
     exclude_golden_ids: frozenset[str] = frozenset()
+    #: 축적된 기피(pursuit.avoided)를 **하드 필터에서만** 뺀다. 점수의
+    #: preference_avoid(-60)는 그대로 살아 있어 기피는 여전히 존중된다.
+    #: 리트리버가 후보 부족을 감지해 스스로 한 번 켜는 값이라 호출부가 지정할 일은 없다.
+    relax_pursuit_avoided: bool = False
+    #: 후보가 이 수 **미만**이면 위 완화를 발동한다. 기본 1은 "0건일 때만".
+    #:
+    #: limit(골든 템플릿 후보 수, 기본 5)을 기준으로 삼으면 안 된다 — 일반 모드는
+    #: max_validated_templates=1이라 템플릿 하나만 통과해도 사용자에게 보여줄 카드
+    #: 3장이 나온다. limit 기준으로 걸면 골든셋이 작은 동안 거의 매번 발동해
+    #: 기피 필터가 사실상 사라진다.
+    relax_avoided_below: int = 1
 
 
 @dataclass(frozen=True)
@@ -275,7 +286,7 @@ def build_filter(
         )
         # 선호 스타일은 좁히는 조건이 아니라 넓히는 조건이라 must에 넣지 않는다.
         # 반면 기피 스타일은 사용자가 명시적으로 거부한 것이라 즉시 탈락시킨다.
-        if request.hard_filter:
+        if request.hard_filter and not request.relax_pursuit_avoided:
             for tag_field, labels in avoided.items():
                 if tag_field in OUTFIT_FILTER_FIELDS and labels:
                     must_not.append(_any_of(tag_field, labels))
@@ -1101,6 +1112,28 @@ class GoldenOutfitRetriever:
             client=self.client,
             rules=self.body_rules,
         )
+        # 온보딩 기피가 하드 필터라 후보가 통째로 사라질 수 있다. 골든셋이 작을수록
+        # 흔하고, 그러면 추천이 아예 실패한다(GOLDEN_OUTFIT_NOT_FOUND).
+        # 0건일 때만 **필터에서** 기피를 풀고 다시 찾는다 — 점수의 -60은 남아 있어
+        # 기피 코디는 뒤로 밀릴 뿐, 존중은 유지된다. exclude_golden_ids가 "후보가
+        # 전부 걸리면 제외를 푼다"와 같은 방침이다.
+        threshold = max(resolved.relax_avoided_below, 1)
+        if len(candidates) < threshold and not resolved.relax_pursuit_avoided:
+            avoided_labels = vocabulary.translate(
+                (resolved.pursuit or {}).get("avoided")
+            ).tags
+            if any(avoided_labels.values()):
+                logger.warning(
+                    "축적된 기피로 골든 후보가 %d건(<%d)이라 필터를 풀고 재검색한다: %s",
+                    len(candidates),
+                    threshold,
+                    {f: sorted(v) for f, v in avoided_labels.items() if v},
+                )
+                candidates = retrieve_outfits(
+                    replace(resolved, relax_pursuit_avoided=True),
+                    client=self.client,
+                    rules=self.body_rules,
+                )
         return RetrievalResult(
             candidates=tuple(candidates),
             search_mode=search_mode,

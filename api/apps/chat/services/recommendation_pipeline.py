@@ -400,6 +400,9 @@ class ChatRecommendationPipeline:
                 # 재현됐다. 후보가 전부 제외되면 retriever가 제외를 풀고
                 # 돌려주므로 '추천 없음'으로 떨어지지는 않는다.
                 exclude_golden_ids=exclude_golden_ids,
+                # 후보가 이 수 미만이면 온보딩 기피를 필터에서만 푼다. 점수의
+                # -60은 남으므로 기피 코디는 뒤로 밀릴 뿐이다.
+                relax_avoided_below=settings.CHAT_GOLDEN_RELAX_AVOIDED_BELOW,
                 # 골든 코디는 내부 조합 템플릿이다. 원본 이미지 노출 권한은
                 # 결과 표출·렌더링 경계에서 별도로 검사한다.
                 exposable_only=False,
