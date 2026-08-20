@@ -7,9 +7,12 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any
 
+from django.conf import settings
+
+from apps.recommend.services import principle_rules
 from apps.recommend.services.item_retriever import (
     ItemCandidate,
     ItemRetrievalResult,
@@ -40,6 +43,8 @@ class CompositionPolicy:
     require_image: bool = True
     candidates_per_slot: int = 6
     minimum_source_counts: tuple[tuple[ItemSource, int], ...] = ()
+    #: 이 코디의 골든셋 스타일. 원칙 대조 범위를 그 스타일로 좁힌다.
+    principle_styles: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -61,6 +66,10 @@ class _PartialComposition:
     total_product_price: int = 0
     priority_cost: int = 0
     similarity_sum: float = 0.0
+    #: 지금까지 담은 아이템으로 판정한 원칙 어긋남 수. 적을수록 좋다.
+    principle_violations: int = 0
+    #: 슬롯 -> 속성. 원칙 판정용이며 후보를 담을 때 한 번만 뽑는다.
+    slot_attributes: dict[str, dict[str, str]] = field(default_factory=dict)
 
 
 # 이전 호출부가 단계적 마이그레이션 할 수 있도록 이름을 유지한다.
@@ -335,6 +344,9 @@ class CompositionEngine:
                 next_price += price or 0
                 if policy.total_budget is not None and next_price > policy.total_budget:
                     continue
+            slot_attributes, violations = self._principle_state(
+                state, slot_result.template, candidate, policy
+            )
             additions.append(
                 _PartialComposition(
                     items=(
@@ -355,6 +367,8 @@ class CompositionEngine:
                         state.similarity_sum
                         + (candidate.score if candidate.score is not None else -1.0)
                     ),
+                    principle_violations=violations,
+                    slot_attributes=slot_attributes,
                 )
             )
         return additions
@@ -386,9 +400,35 @@ class CompositionEngine:
         )
 
     @staticmethod
+    def _principle_state(
+        state: _PartialComposition,
+        template: TemplateItem,
+        candidate: ItemCandidate,
+        policy: CompositionPolicy,
+    ) -> tuple[dict[str, dict[str, str]], int]:
+        """후보를 담았을 때의 속성 맵과 원칙 어긋남 수.
+
+        속성 추출은 후보마다 한 번만 한다. 정렬 키에서 매번 상품명을 파싱하면
+        beam 폭만큼 곱해져 느려진다.
+        """
+        if not getattr(settings, "PRINCIPLE_COMPOSITION_ENABLED", False):
+            return state.slot_attributes, 0
+        slot = principle_rules.slot_of(template.payload)
+        if not slot:
+            return state.slot_attributes, state.principle_violations
+        merged = dict(state.slot_attributes)
+        merged[slot] = principle_rules.extract_attributes(candidate.payload)
+        rules = principle_rules.rules_for_styles(policy.principle_styles)
+        return merged, principle_rules.violation_count(rules, merged)
+
+    @staticmethod
     def _state_sort_key(state: _PartialComposition) -> tuple:
+        # 원칙 어긋남은 슬롯 누락 다음, 출처 우선순위 앞이다. 옷장/상품 우선순위보다
+        # "코디가 성립하는가"가 앞선다고 본 것이다. 플래그가 꺼져 있으면 이 값이 늘
+        # 0이라 정렬이 예전과 완전히 같다.
         return (
             len(state.missing_slot_ids),
+            state.principle_violations,
             state.priority_cost,
             -state.similarity_sum,
             tuple(item.identity for item in state.items),

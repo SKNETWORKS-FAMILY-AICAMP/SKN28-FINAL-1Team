@@ -436,6 +436,13 @@ TEXT_EMBEDDING_TIMEOUT_SECONDS = int(os.getenv("TEXT_EMBEDDING_TIMEOUT_SECONDS",
 PRINCIPLE_RETRIEVAL_TIMEOUT_SECONDS = int(
     os.getenv("PRINCIPLE_RETRIEVAL_TIMEOUT_SECONDS", "6")
 )
+
+# 코디 조합 정렬에 골든셋 원칙을 반영할지. 원칙은 사람이 승인한 지식이지만 "이걸
+# 반영하면 추천이 좋아진다"는 아직 정량으로 검증되지 않았고 잴 장치도 없다. 켜고 끄며
+# 비교할 수 있도록 기본은 꺼 둔다. 꺼져 있으면 정렬 키가 예전과 완전히 같다.
+PRINCIPLE_COMPOSITION_ENABLED = (
+    os.getenv("PRINCIPLE_COMPOSITION_ENABLED", "false").strip().lower() == "true"
+)
 TEXT_EMBEDDING_EXPECTED_DIM = int(
     os.getenv("TEXT_EMBEDDING_EXPECTED_DIM", str(QDRANT_TEXT_VECTOR_DIM))
 )

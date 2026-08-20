@@ -181,3 +181,70 @@ class EngagementTests(SimpleTestCase):
 
     def test_threshold_is_the_documented_value(self) -> None:
         self.assertEqual(ENGAGE_MIN, 2)
+
+
+class ConditionLoaderTests(SimpleTestCase):
+    """조건 파일 로딩. 실패해도 추천이 죽으면 안 된다."""
+
+    def test_loads_the_shipped_conditions(self) -> None:
+        from apps.recommend.services.principle_rules import load_principle_rules
+
+        rules = load_principle_rules()
+        self.assertGreater(len(rules), 0)
+        self.assertTrue(all(rule.conditions for rule in rules))
+
+    def test_styles_narrow_the_rule_set(self) -> None:
+        from apps.recommend.services.principle_rules import (
+            load_principle_rules,
+            rules_for_styles,
+        )
+
+        everything = load_principle_rules()
+        dandy = rules_for_styles(["댄디"])
+        self.assertTrue(all(rule.cluster_id == "댄디" for rule in dandy))
+        self.assertLess(len(dandy), len(everything))
+
+    def test_no_style_returns_everything(self) -> None:
+        from apps.recommend.services.principle_rules import (
+            load_principle_rules,
+            rules_for_styles,
+        )
+
+        self.assertEqual(len(rules_for_styles([])), len(load_principle_rules()))
+
+    def test_missing_file_returns_empty_instead_of_raising(self) -> None:
+        from unittest.mock import patch
+        from pathlib import Path
+        from apps.recommend.services import principle_rules as module
+
+        module.load_principle_rules.cache_clear()
+        try:
+            with patch.object(module, "_conditions_path", return_value=Path("없는파일.json")):
+                self.assertEqual(module.load_principle_rules(), ())
+        finally:
+            module.load_principle_rules.cache_clear()
+
+
+class SlotMappingTests(SimpleTestCase):
+    def test_category_maps_to_slot(self) -> None:
+        from apps.recommend.services.principle_rules import slot_of
+
+        self.assertEqual(slot_of({"category_large": "상의"}), "top")
+        self.assertEqual(slot_of({"category_large": "하의"}), "bottom")
+        self.assertEqual(slot_of({"category_large": "신발"}), "shoes")
+
+    def test_belt_is_split_out_of_accessory(self) -> None:
+        """액세서리에는 벨트와 그 외가 섞여 있다. 조건은 둘을 구분한다."""
+        from apps.recommend.services.principle_rules import slot_of
+
+        self.assertEqual(
+            slot_of({"category_large": "액세서리", "title": "블랙 레더 벨트"}), "belt"
+        )
+        self.assertEqual(
+            slot_of({"category_large": "액세서리", "title": "골드 목걸이"}), "accessory"
+        )
+
+    def test_unknown_category_is_blank(self) -> None:
+        from apps.recommend.services.principle_rules import slot_of
+
+        self.assertEqual(slot_of({"category_large": "원피스/세트"}), "")

@@ -32,9 +32,12 @@
 
 from __future__ import annotations
 
+import json
 import logging
-from dataclasses import dataclass, field
 import re
+from dataclasses import dataclass
+from functools import lru_cache
+from pathlib import Path
 from typing import Any, Iterable, Literal
 
 logger = logging.getLogger(__name__)
@@ -43,6 +46,24 @@ logger = logging.getLogger(__name__)
 ENGAGE_MIN = 2
 
 SLOTS = ("top", "bottom", "outer", "shoes", "bag", "belt", "accessory")
+
+#: 골든 아이템의 category_large → 조건이 쓰는 슬롯 이름.
+#: 액세서리는 벨트와 그 외가 섞여 있어 상품명으로 한 번 더 가른다.
+CATEGORY_SLOT = {
+    "상의": "top", "하의": "bottom", "아우터": "outer",
+    "신발": "shoes", "가방": "bag", "액세서리": "accessory",
+}
+
+
+def slot_of(payload: dict[str, Any]) -> str:
+    """아이템이 어느 슬롯인지. 알 수 없으면 빈 문자열."""
+    category = payload.get("category_large") or ""
+    if isinstance(category, list):
+        category = category[0] if category else ""
+    slot = CATEGORY_SLOT.get(str(category).strip(), "")
+    if slot == "accessory" and "벨트" in _texts(payload):
+        return "belt"
+    return slot
 
 #: 색 이름 → 명도. 상품 color 태그는 19퍼센트만 채워져 있어 상품명에서도 찾는다.
 BRIGHTNESS: dict[str, str] = {
@@ -261,3 +282,64 @@ def violation_count(
 ) -> int:
     """조합 정렬에 쓸 어긋남 수. 적을수록 좋은 조합이다."""
     return sum(len(outcome.violations) for outcome in evaluate(rules, slot_attributes))
+
+
+def _conditions_path() -> Path:
+    return Path(__file__).resolve().parent.parent / "data" / "principle_conditions.json"
+
+
+@lru_cache(maxsize=1)
+def load_principle_rules() -> tuple[PrincipleRule, ...]:
+    """사람이 승인한 원칙의 적용 조건. 파일이 없거나 깨져 있으면 빈 튜플.
+
+    조건은 골든셋 사이클마다 갱신되는 정적 데이터라 DB가 아니라 파일로 둔다.
+    프로세스당 한 번만 읽는다 — 조합마다 파일을 여는 일이 없어야 한다.
+
+    **읽기에 실패해도 예외를 올리지 않는다.** 원칙은 없어도 추천이 성립하는
+    부가 정보이고, 데이터 파일 하나 때문에 추천 전체가 죽으면 안 된다.
+    """
+    path = _conditions_path()
+    try:
+        rows = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        logger.warning("원칙 조건 파일을 읽지 못했다: %s", path, exc_info=True)
+        return ()
+
+    rules: list[PrincipleRule] = []
+    for row in rows:
+        conditions: list[Condition] = []
+        for raw in row.get("conditions", []):
+            kind = raw.get("kind")
+            if kind == "relation":
+                if raw.get("relation") and raw.get("slot_a") and raw.get("slot_b"):
+                    conditions.append(Condition(
+                        kind="relation", relation=raw["relation"],
+                        slot_a=raw["slot_a"], slot_b=raw["slot_b"],
+                    ))
+            elif kind == "single":
+                if raw.get("slot") and raw.get("attribute") and raw.get("value"):
+                    conditions.append(Condition(
+                        kind="single", slot=raw["slot"],
+                        attribute=raw["attribute"], value=raw["value"],
+                    ))
+        if conditions:
+            rules.append(PrincipleRule(
+                principle_key=str(row.get("principle_key", "")),
+                cluster_id=str(row.get("cluster_id", "")),
+                statement=str(row.get("statement", "")),
+                conditions=tuple(conditions),
+            ))
+    return tuple(rules)
+
+
+def rules_for_styles(styles: Iterable[str]) -> tuple[PrincipleRule, ...]:
+    """해당 스타일의 원칙만. 스타일을 모르면 전부 돌려준다.
+
+    골든 코디의 스타일과 무관한 원칙까지 대조하면, 다른 스타일에서만 참인 조건이
+    이 코디를 어긋난 것으로 만든다.
+    """
+    wanted = {str(value).strip() for value in styles if str(value).strip()}
+    rules = load_principle_rules()
+    if not wanted:
+        return rules
+    return tuple(rule for rule in rules if rule.cluster_id in wanted)
