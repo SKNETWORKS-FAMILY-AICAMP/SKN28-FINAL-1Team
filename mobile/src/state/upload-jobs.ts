@@ -1,5 +1,7 @@
 import { useSyncExternalStore } from 'react';
 
+import { bumpWardrobeRevision } from '@/state/wardrobe-revision';
+
 import {
   createWardrobeBatch,
   getUploadJob,
@@ -58,11 +60,6 @@ let jobs: UploadJobState[] = [];
 let batches: ImportBatchState[] = [];
 /** 하나 끝날 때마다 증가. 옷장이 이 값을 보고 목록을 다시 불러오고 성공 토스트를 띄운다. */
 let completed = 0;
-/**
- * 목록만 조용히 다시 불러올 신호. 배치는 옷이 여러 벌 들어와서
- * completed 를 쓰면 한 건마다 토스트가 떠 시끄럽다 — 진행 표시는 배치 자체가 한다.
- */
-let revision = 0;
 let seq = 0;
 
 const listeners = new Set<() => void>();
@@ -105,11 +102,10 @@ function trackBatch(batchId: string, firstDelayMs: number) {
         failed: batch.counts.failed,
         error: undefined,
       });
-      // 새 옷이 들어왔으면 옷장 목록을 다시 불러오게 한다(토스트는 띄우지 않는다)
-      if (batch.counts.done > before) {
-        revision += 1;
-        notify();
-      }
+      /* 새 옷이 들어왔으면 옷장 목록만 조용히 다시 불러오게 한다. 배치는 옷이 여러 벌 들어와서
+         completed 를 쓰면 한 건마다 토스트가 떠 시끄럽다 — 진행 표시는 배치 자체가 한다.
+         신호는 삭제 등 다른 경로와 공유한다(state/wardrobe-revision.ts). */
+      if (batch.counts.done > before) bumpWardrobeRevision();
       if (batch.poll_after_ms === null) return; // 종료 — 더 묻지 않는다
       if (Date.now() > deadline) {
         updateBatch(batchId, {
@@ -132,7 +128,6 @@ export const uploadJobs = {
   getJobs: () => jobs,
   getBatches: () => batches,
   getCompleted: () => completed,
-  getRevision: () => revision,
 
   /** 사진 한 장을 올리고 처리가 끝날 때까지 따라간다. 화면이 닫혀도 계속된다. */
   start(uri: string, opts?: { name?: string; mimeType?: string; sharedRoomId?: string; sharedRoomIds?: string[]; skipProcessing?: boolean; itemName?: string; category?: string }): Promise<void> {
@@ -280,11 +275,6 @@ export function useImportBatches(): ImportBatchState[] {
 /** 등록이 하나 끝날 때마다 값이 바뀐다 — 목록을 다시 불러올 신호. */
 export function useUploadCompleted(): number {
   return useSyncExternalStore(uploadJobs.subscribe, uploadJobs.getCompleted, uploadJobs.getCompleted);
-}
-
-/** 배치로 옷이 들어올 때마다 값이 바뀐다 — 토스트 없이 목록만 다시 불러올 신호. */
-export function useWardrobeRevision(): number {
-  return useSyncExternalStore(uploadJobs.subscribe, uploadJobs.getRevision, uploadJobs.getRevision);
 }
 
 /** 아직 처리 중인 배치인지 */

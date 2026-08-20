@@ -10,6 +10,7 @@ import { ItemTagSheet } from '@/components/closet/item-tag-sheet';
 import { ItemHashtagEditSheet } from '@/components/closet/item-category-edit-sheet';
 import { DetailTwoPane } from '@/components/detail-two-pane';
 import { Editorial, ink, Fonts, Type } from '@/constants/theme';
+import { bumpWardrobeRevision } from '@/state/wardrobe-revision';
 import { useBreakpoint } from '@/hooks/use-breakpoint';
 import { confirmWardrobeItem, useWardrobeItem } from '@/hooks/use-wardrobe';
 import {
@@ -182,6 +183,9 @@ export default function ItemDetail() {
     if (!ok) return;
     try {
       await deleteWardrobeItem(item.id);
+      /* 옷장 화면은 탭 스택에 남아 있어 돌아가도 다시 마운트되지 않는다 —
+         지운 옷이 그대로 보이지 않도록 목록을 다시 불러오라고 알린다. */
+      bumpWardrobeRevision();
       toast('삭제했어요', { variant: 'success' });
       goBack('/(tabs)/closet');
     } catch (e) {
