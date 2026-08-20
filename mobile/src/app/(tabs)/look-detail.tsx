@@ -28,7 +28,7 @@ import { dailyLookPhase } from '@/lib/dailyLookApi';
 import { DetailTwoPane } from '@/components/detail-two-pane';
 import { useDiscoveryLook } from '@/hooks/use-discovery-look';
 import type { LookVariant } from '@/constants/today-look';
-import { sameSlotSimilarProducts } from '@/lib/discoveryLookApi';
+import { sameSlotSimilarProducts } from '@/lib/discoveryLookPresentation';
 
 const INK = Editorial.ink;
 const WINE = Editorial.wine;

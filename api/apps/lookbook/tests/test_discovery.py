@@ -207,3 +207,32 @@ class DiscoveryServiceTests(TestCase):
             [product["id"] for product in result],
             ["expensive-four-matches", "cheap-two-matches"],
         )
+
+    def test_accessory_results_do_not_fill_with_bag_or_underwear(self) -> None:
+        look = CuratedLook.objects.get(external_id="woman-casual-001")
+        item = CuratedLookItem.objects.create(
+            look=look,
+            slot="액세서리",
+            name="블랙 퍼 머리띠",
+            product_url="https://example.com/original",
+            related_keyword="블랙 퍼 머리띠",
+        )
+        for product_id, category_large, category_small, price in (
+            ("same-slot-hairband", "액세서리", "헤어 액세서리", 20_000),
+            ("wrong-slot-bag", "가방", "토트백", 1_000),
+            ("wrong-slot-underwear", "언더웨어/이너웨어", "팬티/드로즈", 2_000),
+        ):
+            NaverProduct.objects.create(
+                naver_product_id=product_id,
+                title="블랙 퍼 머리띠",
+                image_url=f"https://example.com/{product_id}.jpg",
+                lprice=price,
+                category_large=category_large,
+                category_small=category_small,
+                collected_at=timezone.now(),
+            )
+
+        result = discovery._related(item)
+
+        self.assertEqual([product["id"] for product in result], ["same-slot-hairband"])
+        self.assertEqual(len(result), 1, "후보가 부족해도 다른 슬롯으로 채우면 안 된다.")

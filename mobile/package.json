@@ -59,6 +59,7 @@
     "lint": "expo lint",
     "test:chat-input": "node ./scripts/test-chat-input-keypress.mjs",
     "test:recommendation-presentation": "node ./scripts/test-recommendation-presentation.mjs",
+    "test:discovery-look": "node ./scripts/test-discovery-look-presentation.mjs",
     "test:shared-reference": "node ./scripts/test-shared-reference-regression.mjs",
     "test:wardrobe-sections": "node ./scripts/test-wardrobe-sections.mjs"
   },
