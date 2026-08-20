@@ -1,9 +1,10 @@
 import { Icon } from '@/components/icon';
 import { Avatar, ModalShell, useToast } from '@/components/ui';
-import { PROFILE_IMAGE } from '@/constants/look-images';
+import { profilePhoto } from '@/lib/userProfile';
+import { pickProfilePhoto } from '@/lib/pickItemPhoto';
 import { goBack } from '@/lib/goBack';
 import { useState } from 'react';
-import { Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
+import { ActivityIndicator, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { ContentMax, Editorial, ink, Type } from '@/constants/theme';
@@ -33,6 +34,36 @@ export default function EditProfileScreen() {
   const email = user?.email ?? 'cozy@example.com';
 
   const [saving, setSaving] = useState(false);
+  const [photoBusy, setPhotoBusy] = useState(false);
+
+  /* 올린 사진이 있는지는 서버가 알려준다 — profile_image 만 보면 소셜 사진과 구분되지 않는다. */
+  const hasUploadedPhoto = Boolean(user?.profile_image_uploaded);
+
+  const changePhoto = async () => {
+    const uri = await pickProfilePhoto();
+    if (!uri) return;
+    setPhotoBusy(true);
+    try {
+      await authStore.uploadProfileImage(uri);
+      toast('프로필 사진을 바꿨어요');
+    } catch {
+      toast('사진을 올리지 못했어요. 잠시 뒤 다시 시도해 주세요', { variant: 'error' });
+    } finally {
+      setPhotoBusy(false);
+    }
+  };
+
+  const removePhoto = async () => {
+    setPhotoBusy(true);
+    try {
+      await authStore.removeProfileImage();
+      toast('기본 사진으로 되돌렸어요');
+    } catch {
+      toast('사진을 지우지 못했어요', { variant: 'error' });
+    } finally {
+      setPhotoBusy(false);
+    }
+  };
 
   /**
    * 이름 저장 — 로컬에 먼저 반영하고 서버에도 남긴다.
@@ -72,7 +103,37 @@ export default function EditProfileScreen() {
           </View>
 
           <View style={[styles.body, contentStyle(ContentMax.card)]}>
-            <Avatar name={name} asset={PROFILE_IMAGE} size={84} style={styles.avatar} />
+            <View style={styles.avatarBlock}>
+              <Pressable
+                onPress={changePhoto}
+                disabled={photoBusy}
+                accessibilityLabel="프로필 사진 바꾸기"
+                style={styles.avatarPress}>
+                <Avatar name={name} {...profilePhoto(user)} size={84} />
+                {/* 사진을 바꿀 수 있다는 걸 아바타만 보고는 알 수 없다 — 배지로 알린다. */}
+                <View style={styles.avatarBadge}>
+                  {photoBusy ? (
+                    <ActivityIndicator size="small" color={Editorial.white} />
+                  ) : (
+                    <Icon name="camera" tintColor={Editorial.white} size={14} />
+                  )}
+                </View>
+              </Pressable>
+              <View style={styles.avatarActions}>
+                <Pressable hitSlop={8} onPress={changePhoto} disabled={photoBusy}>
+                  <Text style={styles.avatarAction}>사진 바꾸기</Text>
+                </Pressable>
+                {/* 올린 사진이 있을 때만 지울 수 있다. 소셜 사진은 우리가 지울 대상이 아니다. */}
+                {hasUploadedPhoto ? (
+                  <>
+                    <Text style={styles.avatarDivider}>·</Text>
+                    <Pressable hitSlop={8} onPress={removePhoto} disabled={photoBusy}>
+                      <Text style={styles.avatarAction}>기본으로</Text>
+                    </Pressable>
+                  </>
+                ) : null}
+              </View>
+            </View>
 
             <Text style={styles.label}>이름</Text>
             <TextInput
@@ -126,7 +187,25 @@ const styles = StyleSheet.create({
   headerSpacer: { width: 22 },
 
   body: { flex: 1, paddingHorizontal: 20, paddingTop: 16 },
-  avatar: { alignSelf: 'center', marginBottom: 28 },
+  avatarBlock: { alignItems: 'center', marginBottom: 28, gap: 10 },
+  avatarPress: { position: 'relative' },
+  avatarBadge: {
+    position: 'absolute',
+    right: -2,
+    bottom: -2,
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    backgroundColor: Editorial.cta,
+    alignItems: 'center',
+    justifyContent: 'center',
+    /* 사진 위에 겹치므로 면 색 테두리로 한 겹 띄운다 */
+    borderWidth: 2,
+    borderColor: Editorial.page,
+  },
+  avatarActions: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  avatarAction: { fontSize: Type.caption, fontWeight: '600', color: Editorial.textSoft },
+  avatarDivider: { fontSize: Type.caption, color: Editorial.textMuted },
 
   label: { fontSize: Type.caption, fontWeight: '600', color: Editorial.textCaption, marginBottom: 8 },
   labelSpaced: { marginTop: 22 },

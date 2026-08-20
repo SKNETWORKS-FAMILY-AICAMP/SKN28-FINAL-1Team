@@ -9,6 +9,7 @@ from apps.users.views import (
     BodyPhotoTransactionView,
     BodyPhotoView,
     MeView,
+    ProfileImageView,
     PreferenceOptionsView,
     PursuitView,
     SocialLoginView,
@@ -30,6 +31,11 @@ urlpatterns = [
     path("auth/<str:provider>/login/", SocialLoginView.as_view(), name="social-login"),
     path("auth/token/refresh/", TokenRefreshView.as_view(), name="token-refresh"),
     path("users/me/", MeView.as_view(), name="me"),
+    path(
+        "users/me/profile-image/",
+        ProfileImageView.as_view(),
+        name="profile-image",
+    ),
     # 설정 페이지 — 신체치수
     path("users/me/body/", BodyMeasurementView.as_view(), name="body"),
     path("users/me/body/basic/", BodyBasicView.as_view(), name="body-basic"),

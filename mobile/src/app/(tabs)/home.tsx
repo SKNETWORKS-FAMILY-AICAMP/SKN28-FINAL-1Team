@@ -8,7 +8,7 @@ import { HomeStatusSlot } from '@/components/home/home-status-slot';
 import { Avatar, ErrorState, LoadingState, Skeleton, SmartImage, useToast } from '@/components/ui';
 import { DEMO_HOME, DEMO_LOOKS } from '@/constants/demo';
 import { Editorial, ink, Fonts , ContentMax} from '@/constants/theme';
-import { PROFILE_IMAGE } from '@/constants/look-images';
+import { displayName, profilePhoto } from '@/lib/userProfile';
 import { useBreakpoint } from '@/hooks/use-breakpoint';
 import { useDailyLook } from '@/hooks/use-daily-look';
 import { useHome, type HomeData, type HomeWeather } from '@/hooks/use-home';
@@ -51,7 +51,7 @@ function weatherLabel(w: HomeWeather): string {
 // 홈 탭 (Figma B1) — GET /api/v1/home/ 연동
 export default function HomeScreen() {
   const { contentStyle } = useBreakpoint();
-  const { status, isDemo } = useAuth();
+  const { status, isDemo, user } = useAuth();
   /* 비회원은 부를 것이 없어(토큰도, 옷장도 없다) 온보딩 전용 홈을 즉시 보여준다.
      데모 세션도 부른다 — 토큰이 없을 뿐 요청은 통과한다(dev 서버가 무토큰 요청을 허용).
      그래야 발표에서 진짜 날씨가 뜬다. 예전엔 여기서 막아 두어 고정 목업만 보였다. */
@@ -97,8 +97,10 @@ export default function HomeScreen() {
     reload: reloadCloset,
   } = useWardrobeItems({}, status === 'authed' && !isDemo);
 
-  /* 서비스 페르소나 이름으로 부른다. 백엔드 nickname 은 개발용 계정명이라 그대로 쓰지 않는다. */
-  const nickname = '코지';
+  /* 소셜로 들어왔으면 provider 닉네임, 아니면 기본 이름. 사진도 같은 출처를 쓴다
+     (lib/userProfile.ts 가 유일한 판정 자리다 — 화면마다 다르게 정하지 않는다). */
+  const nickname = displayName(user);
+  const photo = profilePhoto(user);
 
   return (
     <View style={styles.container}>
@@ -128,7 +130,7 @@ export default function HomeScreen() {
               </Pressable>
               {/* 옆의 캘린더 아이콘은 눌리는데 아바타만 안 눌리면 어긋난다 → 마이로 보낸다 */}
               <Pressable hitSlop={10} onPress={() => router.push('/my')}>
-                <Avatar name={nickname} asset={PROFILE_IMAGE} size={40} />
+                <Avatar name={nickname} {...photo} size={40} />
               </Pressable>
             </View>
           </View>
