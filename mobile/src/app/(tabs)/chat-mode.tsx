@@ -106,7 +106,7 @@ export default function ChatMode() {
     }
     setStarting(mode);
     try {
-      const session = await chatStore.createSession(mode);
+      const session = await chatStore.createSession(mode, { asGuest: !hasMemberSession });
       router.replace({
         pathname: '/chat-room',
         params: { id: session.id, ...(from ? { from } : {}) },

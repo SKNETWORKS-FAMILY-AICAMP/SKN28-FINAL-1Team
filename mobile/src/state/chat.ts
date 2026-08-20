@@ -63,7 +63,7 @@ import { savedLookStore } from '@/state/saved';
  *
  * ⚠️ **답변은 동기로 오지 않는다.** 질문을 보내면 서버는 202 로 접수만 하고 run 을 만든다.
  *    답변이 생길 때까지 기다리는 일은 lib/chatStream.ts 가 맡는다.
- * ⚠️ 로그인 사용자 전용이다. 게스트 채팅은 쿠키 신원 방식이라 아직 붙이지 않았다.
+ * 회원은 JWT, 게스트는 HttpOnly 쿠키 신원으로 같은 채팅 API를 사용한다.
  */
 
 /** 추천 방식. chat-mode 화면의 두 카드와 1:1 대응한다. */
@@ -1182,8 +1182,8 @@ export const chatStore = {
    * 새 대화. 서버가 인사 메시지를 sequence 1 로 미리 넣어 주므로 여기서 만들지 않는다.
    * 제목도 서버가 첫 질문을 보고 정한다 — 그래서 만들 때는 비워 둔다.
    */
-  async createSession(mode: ChatMode): Promise<ChatSession> {
-    const created = await apiCreateSession(toApiMode(mode));
+  async createSession(mode: ChatMode, options: { asGuest?: boolean } = {}): Promise<ChatSession> {
+    const created = await apiCreateSession(toApiMode(mode), undefined, options);
     const session = toSession(created);
     sessions = [session, ...sessions];
     notify();
