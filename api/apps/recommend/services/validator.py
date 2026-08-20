@@ -433,7 +433,14 @@ class OutfitValidator:
         selected = {item.slot_id for item in composition.items}
         required = {slot.slot_id for slot in composition.slots if slot.required}
         required.update(context.required_slot_ids)
-        missing = set(composition.missing_slot_ids) | (required - selected)
+        # 선택 슬롯이 비는 건 경고지 실패가 아니다. slots가 비어 있는 조합
+        # (옷장 Composer 등)에서는 optional도 비어 예전 동작이 그대로 유지된다.
+        optional = {
+            slot.slot_id
+            for slot in composition.slots
+            if not slot.required and slot.slot_id not in context.required_slot_ids
+        }
+        missing = (set(composition.missing_slot_ids) | (required - selected)) - optional
         for slot_id in sorted(missing):
             issues.append(
                 ValidationIssue(

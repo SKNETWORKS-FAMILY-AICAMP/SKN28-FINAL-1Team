@@ -12,6 +12,7 @@ from rest_framework_simplejwt.tokens import RefreshToken
 
 from apps.chat.services import identity as chat_identity
 from apps.users.models import BodyMeasurement, BodyPhotoTransaction, SocialAccount
+from apps.users.services import profile_image as profile_image_service
 from apps.users.serializers import (
     BodyBasicInputSerializer,
     BodyDetailInputSerializer,
@@ -36,6 +37,7 @@ from apps.users.services import (
     email_verification,
     oauth,
     pursuit,
+    withdrawal,
 )
 
 logger = logging.getLogger(__name__)
@@ -239,7 +241,7 @@ class SocialLoginView(APIView):
 
 
 class MeView(APIView):
-    """GET/PATCH /api/v1/users/me/ — 내 정보 조회/수정(닉네임, 프로필 이미지)."""
+    """GET/PATCH/DELETE /api/v1/users/me/ — 내 정보 조회·수정, 회원 탈퇴."""
 
     def get(self, request):
         return Response(UserSerializer(request.user).data)
@@ -250,6 +252,15 @@ class MeView(APIView):
         serializer.save()
         return Response(serializer.data)
 
+    def delete(self, request):
+        """회원 탈퇴. 계정과 딸린 데이터를 지운다 — 되돌릴 수 없다.
+
+        본문 없이 204 로 답한다. 앱은 이 응답을 받은 뒤 토큰을 지우고 로그아웃 상태로 돌아간다.
+        (지운 계정의 토큰은 사용자 조회에서 걸려 어차피 401 이 된다.)
+        """
+        withdrawal.withdraw(request.user)
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
 
 def _save_body_measurement(request, serializer_class, *, partial: bool) -> Response:
     """신체치수 upsert 공통 처리. 저장 후 전체 치수를 응답한다."""
@@ -258,6 +269,47 @@ def _save_body_measurement(request, serializer_class, *, partial: bool) -> Respo
     serializer.is_valid(raise_exception=True)
     serializer.save()
     return Response(BodyMeasurementSerializer(measurement).data)
+
+
+class ProfileImageView(APIView):
+    """POST/DELETE /api/v1/users/me/profile-image/ — 프로필 사진 올리기·지우기.
+
+    소셜 사진(profile_image URL)은 건드리지 않는다 — 올린 사진을 지우면 그리로 되돌아간다.
+    """
+
+    parser_classes = (MultiPartParser, FormParser)
+
+    def post(self, request):
+        upload = request.FILES.get("image")
+        if upload is None:
+            return Response(
+                {"image": ["사진 파일이 필요합니다."]}, status=status.HTTP_400_BAD_REQUEST
+            )
+        try:
+            key = profile_image_service.store(request.user.id, upload.read())
+        except profile_image_service.ProfileImageInvalidError as error:
+            return Response({"image": [str(error)]}, status=status.HTTP_400_BAD_REQUEST)
+        except profile_image_service.ProfileImageConfigurationError:
+            logger.exception("프로필 사진 저장소가 설정되지 않았습니다")
+            return Response(
+                {"detail": "지금은 사진을 올릴 수 없어요. 잠시 뒤 다시 시도해 주세요."},
+                status=status.HTTP_503_SERVICE_UNAVAILABLE,
+            )
+
+        previous = request.user.profile_image_key
+        request.user.profile_image_key = key
+        request.user.save(update_fields=["profile_image_key"])
+        # 새 key 로 바꾼 뒤에 지운다 — 먼저 지우면 실패 시 사진이 없는 순간이 생긴다.
+        profile_image_service.delete(previous)
+        return Response(UserSerializer(request.user).data)
+
+    def delete(self, request):
+        previous = request.user.profile_image_key
+        if previous:
+            request.user.profile_image_key = ""
+            request.user.save(update_fields=["profile_image_key"])
+            profile_image_service.delete(previous)
+        return Response(UserSerializer(request.user).data)
 
 
 class BodyMeasurementView(APIView):

@@ -615,6 +615,42 @@ def _score_context(
     return total, reasons
 
 
+def _score_human_review(payload: dict[str, Any], *, weight: float):
+    """사람 쌍대 비교 앵커를 규칙 가감점과 같은 단위로 환산한다.
+
+    `human_score`는 **그래프 안에서 최저 0 최고 100으로 편 상대값**이다(남성·여성이
+    각각 별도 그래프다). 절대 품질 점수가 아니므로 그대로 더하면 앵커가 있는 코디가
+    없는 코디를 압도한다. 그래서 중앙값 50을 0으로 두고 ±weight 범위로 옮긴다 —
+    중앙보다 잘 만든 코디는 가산, 못 만든 코디는 감산이다.
+
+    `score_confidence`로 한 번 더 줄인다. 비교 횟수가 적거나 검수자 판정이 갈린
+    앵커는 점수 자체가 덜 미더운데, 그 사정을 무시하고 같은 크기로 밀면 표본이
+    얇은 코디가 순위를 흔든다. 이 값을 만들어 둔 이유가 그것이다.
+
+    검수를 안 거친 코디는 0이다. **감산이 아니라 무가감이어야 한다** — 미검수는
+    "나쁘다"가 아니라 "모른다"이고, 골든셋 645건 중 검수분은 아직 일부다.
+    """
+    if weight <= 0 or "human_score" not in payload:
+        return 0.0, []
+    try:
+        human_score = float(payload.get("human_score") or 0.0)
+    except (TypeError, ValueError):
+        return 0.0, []
+    confidence = min(1.0, max(0.0, float(payload.get("score_confidence") or 1.0)))
+    centered = (human_score - 50.0) / 50.0
+    delta = centered * weight * confidence
+    if abs(delta) < 0.01:
+        return 0.0, []
+    band = str(payload.get("score_band") or "")
+    return delta, [
+        Reason(
+            source="human_review",
+            delta=round(delta, 2),
+            text=f"사람 검수 상대 평가 {band or '중간'}".strip(),
+        )
+    ]
+
+
 def retrieve_outfits(
     request: RetrievalRequest,
     *,
@@ -721,6 +757,17 @@ def retrieve_outfits(
         )
         delta += weather_delta
         reasons.extend(weather_reasons)
+
+        # 사람 검수 앵커. 예전에는 필터 검색 경로에서만 human_score가 기준선으로
+        # 쓰였고 벡터 검색 경로에서는 **아예 읽히지 않았다.** 채팅은 질의 임베딩을
+        # 쓰므로 사실상 사람 검수가 랭킹에 반영되지 않았다는 뜻이다. 이제 경로와
+        # 무관하게 여기 한 곳에서만 반영한다.
+        human_delta, human_reasons = _score_human_review(
+            payload, weight=settings.RETRIEVER_HUMAN_SCORE_WEIGHT
+        )
+        delta += human_delta
+        reasons.extend(human_reasons)
+
         # 유사도(0~1)를 100점 척도로 올려 규칙 가감점과 같은 단위에 둔다.
         base = similarity * 100
         candidates.append(
@@ -767,12 +814,17 @@ def retrieve_outfits(
         )
 
     # 동점일 때 무엇이 1등인지 못 박는다. 예전에는 파이썬의 안정 정렬 때문에
-    # **스크롤 순서 1등이 그대로 1등**이었다. 유사도 기준선이 0인 지금(적재된
-    # 코디에 human_score가 없다) 동점은 흔하다. 태그 신뢰도를 2순위로 두고,
-    # 그것도 같으면 golden_id로 갈라 조회 순서와 무관하게 재현되게 한다.
+    # **스크롤 순서 1등이 그대로 1등**이었다. 필터 검색 경로에는 유사도가 없어
+    # 동점이 흔하다.
+    #
+    # 2순위는 사람이 관찰 검수를 통과시킨 코디다. tag_confidence는 LLM이 자기
+    # 태깅에 매긴 확신이라 틀린 태그에도 높게 나올 수 있는 반면, human_verified는
+    # 사람이 아이템 목록을 직접 맞다고 판정한 것이라 더 믿을 만하다. 그것도 같으면
+    # 태그 신뢰도, 마지막은 golden_id로 갈라 조회 순서와 무관하게 재현되게 한다.
     candidates.sort(
         key=lambda c: (
             -c.score,
+            not bool(c.payload.get("human_verified")),
             -float(c.payload.get("tag_confidence") or 0),
             c.golden_id,
         )
@@ -847,17 +899,13 @@ def _fetch(
     # `fetch`는 무시한다. 그 값은 "상위 N의 재정렬 여유"를 뜻하는데, 순서가
     # 없는 스크롤에는 상위라는 개념이 없다.
     points = _scroll_all(client, search_filter)
-    # 사람 점수(human_score)가 있으면 0~1로 정규화해 기준선으로 쓰고, 없으면
-    # 0으로 두어 규칙 점수만 남긴다. sync_qdrant로 적재한 코디에는 이 값이
-    # 없으므로 사실상 규칙 점수가 순위를 정한다.
-    return [
-        (
-            str(point.id),
-            float((point.payload or {}).get("human_score", 0.0)) / 100.0,
-            point.payload or {},
-        )
-        for point in points
-    ]
+    # 스크롤에는 유사도가 없으므로 기준선은 0이고 점수는 가감점이 정한다.
+    #
+    # 예전에는 여기서 human_score를 유사도 자리에 넣었다. 그러면 같은 값이 이
+    # 경로에서만, 그것도 0~100 원값 그대로 반영돼 벡터 검색 경로와 규모가 달랐다.
+    # 사람 검수는 이제 _score_human_review()가 모든 경로에서 같은 방식으로 다룬다 —
+    # 여기서 또 더하면 이중 계산이다.
+    return [(str(point.id), 0.0, point.payload or {}) for point in points]
 
 
 def _scroll_all(client, search_filter) -> list[Any]:

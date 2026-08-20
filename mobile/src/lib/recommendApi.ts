@@ -31,6 +31,8 @@ export type ApiRecommendationItem = {
   price_snapshot: number | null;
   purchase_url: string | null;
   reasons: string[];
+  /** 상세 화면에서 보여줄 개별 아이템 선택 이유. 기존 추천이면 빈 문자열이다. */
+  note: string;
 };
 
 /** 검증기가 남긴 한 줄. severity 는 INFO/WARNING 계열 문자열이다. */
@@ -72,6 +74,8 @@ export type ApiRecommendationCard = {
   /** 새로 사야 하는 상품들의 합. 옷장 옷만으로 짠 코디면 0 이다. */
   total_product_price: number | null;
   warnings: string[];
+  /** 채팅 카드 바로 아래에서 보여줄 코디 전체 추천 이유. */
+  rationale: string;
   /** 공유 옷 참고 결과. 참고 안 했으면 빈 객체다. 서버가 이 필드를 아예 안 줄 수도 있다. */
   reference_match?: ApiReferenceMatch;
   items: ApiRecommendationItem[];

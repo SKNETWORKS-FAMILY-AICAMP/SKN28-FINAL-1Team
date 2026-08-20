@@ -34,6 +34,7 @@ import {
   type ApiRenderJob,
   type ApiRenderStatus,
 } from '@/lib/recommendApi';
+import { recommendationCategoryTags } from '@/lib/recommendationPresentation';
 import {
   buildReferenceBadge,
   buildReferenceBubble,
@@ -52,6 +53,7 @@ import {
   type StylistId,
 } from '@/lib/stylistApi';
 import { stylistStore } from '@/state/stylist';
+import { savedLookStore } from '@/state/saved';
 
 /**
  * 채팅 세션 — 목록(C1)·대화(C2)·모드 선택(C3)이 같은 출처를 봐야 하므로 여기로 모았다.
@@ -61,7 +63,7 @@ import { stylistStore } from '@/state/stylist';
  *
  * ⚠️ **답변은 동기로 오지 않는다.** 질문을 보내면 서버는 202 로 접수만 하고 run 을 만든다.
  *    답변이 생길 때까지 기다리는 일은 lib/chatStream.ts 가 맡는다.
- * ⚠️ 로그인 사용자 전용이다. 게스트 채팅은 쿠키 신원 방식이라 아직 붙이지 않았다.
+ * 회원은 JWT, 게스트는 HttpOnly 쿠키 신원으로 같은 채팅 API를 사용한다.
  */
 
 /** 추천 방식. chat-mode 화면의 두 카드와 1:1 대응한다. */
@@ -146,7 +148,13 @@ export type ChatMessage =
    * 답변을 못 받은 질문 아래에 남기는 줄.
    * 토스트는 사라지므로, 대화를 다시 열었을 때 "질문만 있고 답이 없는" 상태로 보이지 않게 한다.
    */
-  | { id: string; role: 'ai'; kind: 'error'; text: string }
+  | {
+      id: string;
+      role: 'ai';
+      kind: 'error';
+      text: string;
+      action?: 'OPEN_WARDROBE';
+    }
   /** 추천 코디 카드. 답변 말풍선 뒤에 붙는다. */
   | {
       id: string;
@@ -161,6 +169,8 @@ export type ChatMessage =
       /** 새로 사야 하는 상품 합계. 옷장 옷만으로 짠 코디면 0 이라 표시하지 않는다. */
       totalPrice: number | null;
       warnings: string[];
+      /** 카드 아래에서만 보여주는 룩 전체 추천 이유. */
+      rationale: string;
       /** 공유 옷을 참고한 추천일 때만. 아니면 null 이라 배지를 안 그린다. */
       referenceBadge: ReferenceBadge | null;
     }
@@ -205,6 +215,7 @@ export type StylistCard = {
   /** '이 코디로 할래요'·'다른 추천'에 필요하다. 아직 결과가 없으면 null. */
   resultId: string | null;
   cardId: string | null;
+  errorCode: string | null;
   errorText: string | null;
   /** 다른 추천을 받는 중. 지금 카드는 남겨 두고 표시만 바꾼다. */
   alternating: boolean;
@@ -346,7 +357,7 @@ function toRecMessage(
     /* 서버가 코디에 이름을 붙이지 않는다. 없는 이름을 지어내면 추천마다 다른 작명 규칙이
        생기므로 순위를 그대로 쓴다. */
     title: `추천 코디 ${card.rank}`,
-    tags: card.items.map((i) => i.category || i.slot).filter(Boolean),
+    tags: recommendationCategoryTags(card.items),
     items: card.items.map((i) => ({
       id: i.item_id,
       name: i.display_name,
@@ -357,6 +368,7 @@ function toRecMessage(
     })),
     totalPrice: card.total_product_price,
     warnings: card.warnings ?? [],
+    rationale: card.rationale ?? '',
     referenceBadge: toReferenceBadge(card.reference_match),
   };
 }
@@ -413,6 +425,7 @@ function toMessages(
   api: ApiChatMessage,
   cards: ApiRecommendationCard[] = [],
   decisions: Map<string, ApiMoodDecision | null> = new Map(),
+  wardrobeBased = false,
 ): ChatMessage[] {
   if (api.role !== 'USER' && api.role !== 'ASSISTANT') return [];
   const role = api.role === 'USER' ? 'user' : 'ai';
@@ -462,12 +475,21 @@ function toMessages(
      그 표시를 읽어 오류 줄을 만들면 대화를 다시 열어도 남는다.
      사유까지는 run 에만 있어 여기서는 알 수 없다 — 보낸 직후에는 sendText 가 채워 넣는다. */
   if (role === 'user' && api.status === 'FAILED') {
-    out.push({ id: failureLineId(api.id), role: 'ai', kind: 'error', text: GENERIC_FAILURE });
+    out.push({
+      id: failureLineId(api.id),
+      role: 'ai',
+      kind: 'error',
+      text: wardrobeBased ? WARDROBE_UNAVAILABLE_MESSAGE : GENERIC_FAILURE,
+      action: wardrobeBased ? 'OPEN_WARDROBE' : undefined,
+    });
   }
   return out;
 }
 
 const GENERIC_FAILURE = '답변을 만들지 못했어요.';
+export const WARDROBE_UNAVAILABLE_CODE = 'WARDROBE_OUTFIT_UNAVAILABLE';
+export const WARDROBE_UNAVAILABLE_MESSAGE =
+  '코디를 완성하기에 옷장에 준비된 옷이 부족해요. 옷을 조금 더 추가하면 어울리는 조합을 추천해드릴게요.';
 
 function failureLineId(messageId: string): string {
   return `${messageId}-err`;
@@ -582,9 +604,12 @@ function rebuild(id: string): void {
   const list = rawMessages.get(id) ?? [];
   const cards = rawCards.get(id) ?? new Map<string, ApiRecommendationCard[]>();
   const decisions = collectDecisions(list);
+  const wardrobeBased = sessions.find((session) => session.id === id)?.mode === 'closet';
   replaceSession(id, (s) => ({
     ...s,
-    messages: list.flatMap((m) => toMessages(m, cards.get(m.id), decisions)),
+    messages: list.flatMap((m) =>
+      toMessages(m, cards.get(m.id), decisions, wardrobeBased),
+    ),
     messagesLoaded: true,
   }));
 }
@@ -748,6 +773,7 @@ function toStylistCard(r: ApiPersonaResult): StylistCard {
     warnings: card?.warnings ?? [],
     resultId: r.result_id,
     cardId: card?.card_id ?? null,
+    errorCode: r.error?.code || null,
     errorText: r.error?.message || null,
     alternating: r.alternative_status === 'PENDING' || r.alternative_status === 'RUNNING',
     alternativeCount: r.alternative_count,
@@ -773,6 +799,7 @@ function pendingCard(personaId: StylistId): StylistCard {
     warnings: [],
     resultId: null,
     cardId: null,
+    errorCode: null,
     errorText: null,
     alternating: false,
     alternativeCount: 0,
@@ -841,7 +868,12 @@ async function runStylistTurn(
       updateOverlay(sessionId, overlayId, toStylistMessage(overlayId, runId, run));
     } else if (run.status === 'FAILED') {
       // 자리조차 안 생기고 run 이 죽었다 = 스타일리스트 실행 자체가 실패
-      failPendingCards(sessionId, overlayId, run.error_message || GENERIC_FAILURE);
+      failPendingCards(
+        sessionId,
+        overlayId,
+        run.error_message || GENERIC_FAILURE,
+        run.error_code || null,
+      );
     } else {
       /* 결과 자리가 사라졌는데 run 은 정상으로 끝났다 = **되물은 것**이다.
          서버가 되묻기로 방향을 틀 때 아직 시작 안 한 스타일리스트 실행을 지운다
@@ -861,14 +893,19 @@ async function runStylistTurn(
 }
 
 /** 아직 안 끝난 카드들을 실패로 바꾼다. 이미 받은 카드는 건드리지 않는다. */
-function failPendingCards(sessionId: string, overlayId: string, text: string) {
+function failPendingCards(
+  sessionId: string,
+  overlayId: string,
+  text: string,
+  errorCode: string | null = null,
+) {
   const current = overlaysOf(sessionId).find((o) => o.id === overlayId)?.message;
   if (!current || current.kind !== 'stylist') return;
   updateOverlay(sessionId, overlayId, {
     ...current,
     cards: current.cards.map((c) =>
       c.status === 'PENDING' || c.status === 'RUNNING'
-        ? { ...c, status: 'FAILED', errorText: text }
+        ? { ...c, status: 'FAILED', errorCode, errorText: text }
         : c,
     ),
   });
@@ -1062,6 +1099,29 @@ async function syncSessionList(): Promise<void> {
 
 export const chatStore = {
   getSessions: () => sessions,
+
+  /**
+   * 로그아웃·탈퇴 때 기기에 남은 대화 흔적을 지운다.
+   *
+   * 목록과 주고받은 내용은 **메모리에만** 있어서, 지우지 않으면 다음 사람(게스트 포함)이
+   * 채팅에 들어갔을 때 방금 나간 사람의 대화 목록이 그대로 보인다. 서버에서 새로
+   * 받아오기 전까지 남아 있기 때문이다.
+   *
+   * loadedOnce 도 되돌린다 — 남겨 두면 빈 목록이 '정말 대화가 없음'으로 읽혀
+   * 로그인 직후 한 프레임 "대화가 없어요"가 번쩍인다.
+   */
+  reset(): void {
+    sessions = [];
+    loading = false;
+    loadedOnce = false;
+    error = null;
+    rawMessages.clear();
+    rawCards.clear();
+    overlays.clear();
+    setStatus();
+    notify();
+  },
+
   getSession: (id: string | undefined) =>
     id ? sessions.find((s) => s.id === id) : undefined,
   getStatus: () => status,
@@ -1145,8 +1205,8 @@ export const chatStore = {
    * 새 대화. 서버가 인사 메시지를 sequence 1 로 미리 넣어 주므로 여기서 만들지 않는다.
    * 제목도 서버가 첫 질문을 보고 정한다 — 그래서 만들 때는 비워 둔다.
    */
-  async createSession(mode: ChatMode): Promise<ChatSession> {
-    const created = await apiCreateSession(toApiMode(mode));
+  async createSession(mode: ChatMode, options: { asGuest?: boolean } = {}): Promise<ChatSession> {
+    const created = await apiCreateSession(toApiMode(mode), undefined, options);
     const session = toSession(created);
     sessions = [session, ...sessions];
     notify();
@@ -1201,8 +1261,9 @@ export const chatStore = {
     if (!body) throw new Error('보낼 내용이 없어요');
 
     const session = sessions.find((s) => s.id === id);
+    if (!session) throw new Error('대화를 찾을 수 없어요');
     const stylistMode =
-      session?.responseMode === 'STYLIST' && session.selectedPersonaIds.length > 0;
+      session.responseMode === 'STYLIST' && session.selectedPersonaIds.length > 0;
 
     const draftId = nextMessageId();
     replaceSession(id, (s) => ({
@@ -1280,10 +1341,18 @@ export const chatStore = {
        구체적인 사유를 채워 넣는다 — 다시 열면 일반 문구로 돌아간다(서버가 사유를 모르므로). */
     if (run.status === 'FAILED' && run.error_message) {
       const lineId = failureLineId(submitted.message.id);
+      const wardrobeUnavailable =
+        session.mode === 'closet' && run.error_code === WARDROBE_UNAVAILABLE_CODE;
       replaceSession(id, (s) => ({
         ...s,
         messages: s.messages.map((m) =>
-          m.id === lineId && m.kind === 'error' ? { ...m, text: run.error_message } : m,
+          m.id === lineId && m.kind === 'error'
+            ? {
+                ...m,
+                text: wardrobeUnavailable ? WARDROBE_UNAVAILABLE_MESSAGE : run.error_message,
+                action: wardrobeUnavailable ? 'OPEN_WARDROBE' : undefined,
+              }
+            : m,
         ),
       }));
     }
@@ -1373,7 +1442,12 @@ export const chatStore = {
       updateOverlay(
         sessionId,
         overlayId,
-        patchCard(current, personaId, (c) => ({ ...c, status: 'PENDING', errorText: null })),
+        patchCard(current, personaId, (c) => ({
+          ...c,
+          status: 'PENDING',
+          errorCode: null,
+          errorText: null,
+        })),
       );
     }
 
@@ -1413,24 +1487,43 @@ export const chatStore = {
         patchCard(current, personaId, (c) => ({ ...c, alternating: true })),
       );
     }
+    try {
+      const accepted = await apiRequestAlternative(runId, personaId);
+      applyRunProgress(sessionId, runId, accepted.run);
+      const target = accepted.run.results.find((r) => r.persona_id === personaId);
+      const expected = target?.alternative_count ?? 0;
 
-    const accepted = await apiRequestAlternative(runId, personaId);
-    applyRunProgress(sessionId, runId, accepted.run);
-    const target = accepted.run.results.find((r) => r.persona_id === personaId);
-    const expected = target?.alternative_count ?? 0;
-
-    await waitForStylistRun(runId, {
-      onProgress: (run) => applyRunProgress(sessionId, runId, run),
-      until: (run) => {
-        const r = run.results.find((x) => x.persona_id === personaId);
-        if (!r) return true;
-        return (
-          r.alternative_count >= expected &&
-          r.alternative_status !== 'PENDING' &&
-          r.alternative_status !== 'RUNNING'
+      const completed = await waitForStylistRun(runId, {
+        onProgress: (run) => applyRunProgress(sessionId, runId, run),
+        until: (run) => {
+          const r = run.results.find((x) => x.persona_id === personaId);
+          if (!r) return true;
+          return (
+            r.alternative_count >= expected &&
+            r.alternative_status !== 'PENDING' &&
+            r.alternative_status !== 'RUNNING'
+          );
+        },
+      });
+      const completedTarget = completed.results.find((r) => r.persona_id === personaId);
+      if (!completedTarget) throw new Error('다른 추천 상태를 확인하지 못했어요');
+      if (completedTarget.alternative_status === 'FAILED') {
+        throw new Error(
+          completedTarget.alternative_error_message ||
+            '다른 추천을 받지 못했어요. 잠시 후 다시 시도해 주세요.',
         );
-      },
-    });
+      }
+    } finally {
+      // 요청 거절·네트워크 오류·폴링 시간 초과에서도 현재 카드를 다시 조작할 수 있어야 한다.
+      const latest = overlaysOf(sessionId).find((o) => o.id === overlayId)?.message;
+      if (latest) {
+        updateOverlay(
+          sessionId,
+          overlayId,
+          patchCard(latest, personaId, (c) => ({ ...c, alternating: false })),
+        );
+      }
+    }
   },
 
   /** 고른 코디를 저장한 뒤 해당 카드 한 장의 이미지 생성만 접수한다. */
@@ -1448,6 +1541,7 @@ export const chatStore = {
     updateOverlay(sessionId, overlayId, patchCard(current, personaId, (c) => ({ ...c, saved: true })));
     try {
       await apiSaveCard(card.resultId, card.cardId);
+      await savedLookStore.load();
     } catch (e) {
       const reverted = overlaysOf(sessionId).find((o) => o.id === overlayId)?.message;
       if (reverted) {

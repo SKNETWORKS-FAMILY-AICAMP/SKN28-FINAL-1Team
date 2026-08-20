@@ -1,12 +1,15 @@
-import { useState } from 'react';
 import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { Icon, type IconName } from '@/components/icon';
 import { Skeleton, SmartImage } from '@/components/ui';
 import { Editorial, ink, Type } from '@/constants/theme';
 import { isStylistMocked, type StylistId } from '@/lib/stylistApi';
-import { STYLE_FALLBACK_NOTE, type StylistCard } from '@/state/chat';
-import { reasonLabel } from '@/state/stylist';
+import {
+  STYLE_FALLBACK_NOTE,
+  WARDROBE_UNAVAILABLE_CODE,
+  WARDROBE_UNAVAILABLE_MESSAGE,
+  type StylistCard,
+} from '@/state/chat';
 
 const INK = Editorial.ink;
 
@@ -40,12 +43,16 @@ export function StylistCardGroup({
   onAlternative,
   onRetry,
   onRenderRetry,
+  wardrobeBased,
+  onOpenWardrobe,
 }: {
   cards: StylistCard[];
   onSelect: (personaId: StylistId) => void;
   onAlternative: (personaId: StylistId) => void;
   onRetry: (personaId: StylistId) => void;
   onRenderRetry: (personaId: StylistId) => void;
+  wardrobeBased: boolean;
+  onOpenWardrobe: () => void;
 }) {
   /* 목업으로 그리는 중이면 숨기지 않고 말한다. 지어낸 코디를 진짜 추천으로 읽고
      스크린샷이 돌아다니면 그게 더 큰 문제가 된다. (판정은 첫 목록 조회에서 이미 끝나 있어
@@ -70,6 +77,8 @@ export function StylistCardGroup({
           onAlternative={() => onAlternative(card.personaId)}
           onRetry={() => onRetry(card.personaId)}
           onRenderRetry={() => onRenderRetry(card.personaId)}
+          wardrobeBased={wardrobeBased}
+          onOpenWardrobe={onOpenWardrobe}
         />
       ))}
     </View>
@@ -82,15 +91,20 @@ function StylistOutfitCard({
   onAlternative,
   onRetry,
   onRenderRetry,
+  wardrobeBased,
+  onOpenWardrobe,
 }: {
   card: StylistCard;
   onSelect: () => void;
   onAlternative: () => void;
   onRetry: () => void;
   onRenderRetry: () => void;
+  wardrobeBased: boolean;
+  onOpenWardrobe: () => void;
 }) {
-  const [openReasons, setOpenReasons] = useState(false);
   const waiting = card.status === 'PENDING' || card.status === 'RUNNING';
+  const wardrobeUnavailable =
+    wardrobeBased && card.errorCode === WARDROBE_UNAVAILABLE_CODE;
 
   return (
     <View style={styles.card}>
@@ -122,13 +136,22 @@ function StylistOutfitCard({
           <View style={styles.failedRow}>
             <Icon name="exclamationmark.triangle" tintColor={Editorial.wine} size={13} />
             <Text style={styles.failedText}>
-              {card.errorText ?? '이 관점에서는 코디를 만들지 못했어요.'}
+              {wardrobeUnavailable
+                ? WARDROBE_UNAVAILABLE_MESSAGE
+                : card.errorText ?? '이 관점에서는 코디를 만들지 못했어요.'}
             </Text>
           </View>
-          <Pressable style={styles.ghostBtn} onPress={onRetry}>
-            <Icon name="arrow.clockwise" tintColor={INK} size={13} />
-            <Text style={styles.ghostText}>이 스타일리스트만 다시</Text>
-          </Pressable>
+          {wardrobeUnavailable ? (
+            <Pressable style={styles.wardrobeBtn} onPress={onOpenWardrobe}>
+              <Icon name="plus" tintColor="#fff" size={13} />
+              <Text style={styles.wardrobeBtnText}>옷장에 옷 추가하기</Text>
+            </Pressable>
+          ) : (
+            <Pressable style={styles.ghostBtn} onPress={onRetry}>
+              <Icon name="arrow.clockwise" tintColor={INK} size={13} />
+              <Text style={styles.ghostText}>이 스타일리스트만 다시</Text>
+            </Pressable>
+          )}
         </View>
       ) : (
         <>
@@ -215,35 +238,6 @@ function StylistOutfitCard({
             </View>
           ) : null}
 
-          {/* 점수에 반영된 항목들 — 접어 둔다. 펼치기 전에는 몇 개인지만 알려 준다.
-              '충족한 조건'이 아니라 '따져본 것'이다. 감점된 항목도 섞여 들어오기 때문에
-              충족 표시로 읽히면 안 된다 (state/stylist.ts 의 REASON_LABELS 주석). */}
-          {card.reasonCodes.length > 0 ? (
-            <View style={styles.reasons}>
-              <Pressable
-                style={styles.reasonToggle}
-                onPress={() => setOpenReasons((v) => !v)}
-                accessibilityRole="button"
-                accessibilityState={{ expanded: openReasons }}>
-                <Text style={styles.reasonToggleText}>따져본 것 {card.reasonCodes.length}</Text>
-                <Icon
-                  name={openReasons ? 'chevron.up' : 'chevron.down'}
-                  tintColor={Editorial.textCaption}
-                  size={12}
-                />
-              </Pressable>
-              {openReasons ? (
-                <View style={styles.reasonList}>
-                  {card.reasonCodes.map((code) => (
-                    <Text key={code} style={styles.reasonItem}>
-                      · {reasonLabel(code)}
-                    </Text>
-                  ))}
-                </View>
-              ) : null}
-            </View>
-          ) : null}
-
           <View style={styles.actions}>
             <Pressable
               style={[styles.primaryBtn, card.saved && styles.primaryBtnDone]}
@@ -310,6 +304,18 @@ const styles = StyleSheet.create({
   failed: { gap: 10 },
   failedRow: { flexDirection: 'row', alignItems: 'flex-start', gap: 6 },
   failedText: { flex: 1, fontSize: Type.caption, color: Editorial.wine, lineHeight: 18 },
+  wardrobeBtn: {
+    alignSelf: 'flex-start',
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 5,
+    height: 38,
+    paddingHorizontal: 14,
+    borderRadius: 999,
+    backgroundColor: Editorial.cta,
+  },
+  wardrobeBtnText: { fontSize: Type.caption, color: '#fff', fontWeight: '600' },
 
   message: { fontSize: Type.footnote, color: INK, lineHeight: 21 },
   refMatch: { gap: 6 },
@@ -336,12 +342,6 @@ const styles = StyleSheet.create({
   renderText: { flex: 1, fontSize: Type.caption, color: Editorial.textCaption },
   renderFailed: { gap: 8, paddingVertical: 4 },
   renderError: { fontSize: Type.caption, color: Editorial.wine, lineHeight: 18 },
-
-  reasons: { borderTopWidth: 1, borderTopColor: Editorial.lineSoft, paddingTop: 10, gap: 8 },
-  reasonToggle: { flexDirection: 'row', alignItems: 'center', gap: 5 },
-  reasonToggleText: { fontSize: Type.caption, color: Editorial.textCaption, fontWeight: '500' },
-  reasonList: { gap: 5, paddingLeft: 2 },
-  reasonItem: { fontSize: Type.caption, color: Editorial.textSoft, lineHeight: 19 },
 
   actions: { flexDirection: 'row', gap: 8, marginTop: 2 },
   primaryBtn: {

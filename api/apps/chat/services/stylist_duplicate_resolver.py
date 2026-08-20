@@ -12,44 +12,16 @@ from apps.chat.services.stylist_recommendation_pipeline import (
     RankedValidatedCandidate,
 )
 from apps.recommend.services.outfit_types import OutfitComposition, OutfitItem
+from apps.recommend.services.outfit_slots import (
+    DRESS,
+    DUPLICATE_SLOT_ORDER,
+    canonical_slot,
+    normalize_slot,
+    outfit_item_slot,
+)
 
 MAX_DIVERSITY_SCORE_DROP = 5.0
-_MAJOR_SLOT_ORDER = ("TOP", "BOTTOM", "OUTER", "FOOTWEAR")
-_MAJOR_SLOT_DETECTION_ORDER = ("OUTER", "FOOTWEAR", "BOTTOM", "TOP")
-_MAJOR_SLOT_ALIASES = {
-    "OUTER": ("OUTER", "JACKET", "COAT", "CARDIGAN", "아우터", "재킷", "코트"),
-    "FOOTWEAR": (
-        "FOOTWEAR",
-        "SHOE",
-        "SNEAKER",
-        "BOOT",
-        "BOOTS",
-        "신발",
-        "슈즈",
-        "운동화",
-    ),
-    "BOTTOM": (
-        "BOTTOM",
-        "PANTS",
-        "TROUSER",
-        "SKIRT",
-        "하의",
-        "바지",
-        "치마",
-    ),
-    "TOP": (
-        "TOP",
-        "SHIRT",
-        "BLOUSE",
-        "KNIT",
-        "SWEATER",
-        "TEE",
-        "상의",
-        "셔츠",
-        "블라우스",
-        "니트",
-    ),
-}
+_MAJOR_SLOT_ORDER = DUPLICATE_SLOT_ORDER
 
 
 class StylistDuplicateResolutionError(ValueError):
@@ -151,21 +123,19 @@ class _AllowedSlots:
             major is not None and major in self.major
         )
 
+    def contains_item(self, item: OutfitItem) -> bool:
+        canonical = outfit_item_slot(item)
+        return self.contains(item.slot_id) or (
+            canonical is not None and canonical in self.major
+        )
+
 
 def _normalize_slot(value: str) -> str:
-    return value.strip().upper().replace("-", "_").replace(" ", "_")
+    return normalize_slot(value)
 
 
 def _major_slot(value: str) -> str | None:
-    normalized = _normalize_slot(value)
-    return next(
-        (
-            major
-            for major in _MAJOR_SLOT_DETECTION_ORDER
-            if any(alias.upper() in normalized for alias in _MAJOR_SLOT_ALIASES[major])
-        ),
-        None,
-    )
+    return canonical_slot(value)
 
 
 def _allowed_slots(values: tuple[str, ...]) -> _AllowedSlots:
@@ -206,7 +176,7 @@ def _all_item_ids(
     return frozenset(
         _identity(item)
         for item in composition.items
-        if not allowed.contains(item.slot_id)
+        if not allowed.contains_item(item)
     )
 
 
@@ -216,9 +186,9 @@ def _major_items(
 ) -> dict[str, set[tuple[str, str, str]]]:
     result: dict[str, set[tuple[str, str, str]]] = {}
     for item in composition.items:
-        if allowed.contains(item.slot_id):
+        if allowed.contains_item(item):
             continue
-        major = _major_slot(item.slot_id)
+        major = outfit_item_slot(item)
         if major is not None:
             result.setdefault(major, set()).add(_identity(item))
     return result
@@ -230,7 +200,7 @@ def classify_duplicate(
     *,
     allowed_duplicate_slots: tuple[str, ...] = (),
 ) -> tuple[DuplicateKind, tuple[str, ...]] | None:
-    """고정 슬롯을 제외한 완전 중복과 3개 이상 주요 슬롯 중복을 판정한다."""
+    """고정 슬롯을 제외한 완전 중복과 체감상 핵심 슬롯 중복을 판정한다."""
 
     allowed = _allowed_slots(allowed_duplicate_slots)
     left_ids = _all_item_ids(left, allowed)
@@ -245,7 +215,8 @@ def classify_duplicate(
         for slot in _MAJOR_SLOT_ORDER
         if left_major.get(slot, set()) & right_major.get(slot, set())
     )
-    if len(matching) >= 3:
+    # 원피스는 상·하의를 함께 대체하므로 같은 원피스 자체가 핵심 중복이다.
+    if len(matching) >= 3 or DRESS in matching:
         return DuplicateKind.MAJOR_SLOTS, matching
     return None
 

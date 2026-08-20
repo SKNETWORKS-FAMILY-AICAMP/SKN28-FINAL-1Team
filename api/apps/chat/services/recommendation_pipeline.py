@@ -5,7 +5,8 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
-from collections.abc import Mapping, Sequence
+from collections import Counter
+from collections.abc import Collection, Mapping, Sequence
 from contextlib import nullcontext
 from dataclasses import dataclass, replace
 from typing import Any
@@ -16,6 +17,10 @@ from django.db.models import Max
 
 from apps.chat.models import ChatRun, ChatRunPersona, ChatSession
 from apps.chat.services.openai_adapter import TurnAnalysis
+from apps.chat.services.recommendation_diversity import (
+    DEFAULT_CORE_DIVERSITY_SLOTS,
+    select_diverse_candidates,
+)
 from apps.chat.services.reference_recommendation_events import (
     STAGE_COMPOSER,
     STAGE_VALIDATOR,
@@ -64,11 +69,13 @@ from apps.recommend.services.shared_reference_anchor import (
     pin_reference_anchor,
 )
 from apps.recommend.services.text_embedding import TextEmbeddingConfigurationError
+from apps.recommend.services import vocabulary
 from apps.recommend.services.validator import (
     OutfitValidationResult,
     OutfitValidator,
     ReferenceValidationContract,
     ValidationContext,
+    ValidationSeverity,
 )
 from apps.recommend.services.wardrobe_composer import (
     WardrobeCompositionRequest,
@@ -93,6 +100,18 @@ class GoldenOutfitNotFound(ChatRecommendationError):
 
 class OutfitCompositionFailed(ChatRecommendationError):
     code = "OUTFIT_COMPOSITION_FAILED"
+
+
+class WardrobeOutfitUnavailable(OutfitCompositionFailed):
+    """옷장 아이템만으로 검증 가능한 코디를 완성할 수 없는 상태."""
+
+    code = "WARDROBE_OUTFIT_UNAVAILABLE"
+
+
+WARDROBE_OUTFIT_UNAVAILABLE_MESSAGE = (
+    "코디를 완성하기에 옷장에 준비된 옷이 부족해요. "
+    "옷을 조금 더 추가하면 어울리는 조합을 추천해드릴게요."
+)
 
 
 @dataclass(frozen=True)
@@ -138,6 +157,7 @@ class ChatRecommendationPipeline:
         new_item_composer: NewItemOutfitComposer | None = None,
         validator: OutfitValidator | None = None,
         reference_anchor_resolver: SharedReferenceAnchorResolver | None = None,
+        diversity_slots: Collection[str] = DEFAULT_CORE_DIVERSITY_SLOTS,
     ) -> None:
         self.golden_retriever = golden_retriever or GoldenOutfitRetriever()
         self.item_retriever = item_retriever or ItemCandidateRetriever()
@@ -147,6 +167,7 @@ class ChatRecommendationPipeline:
         self.reference_anchor_resolver = (
             reference_anchor_resolver or SharedReferenceAnchorResolver()
         )
+        self.diversity_slots = tuple(diversity_slots)
 
     def _retrieve_golden(self, request: RetrievalRequest) -> RetrievalResult:
         """골든 코디를 찾는다. 질의 임베딩을 못 쓰면 필터 검색으로 내려간다.
@@ -184,7 +205,7 @@ class ChatRecommendationPipeline:
         context: dict[str, Any],
         analysis: TurnAnalysis,
     ) -> RecommendationPipelineResult:
-        """기본 응답의 기존 동작을 보존하는 생성·저장 호환 진입점."""
+        """일반 모드 후보를 생성하고 핵심 슬롯 다양성을 적용해 저장한다."""
 
         if run.response_mode != ChatSession.ResponseMode.DEFAULT:
             raise OutfitCompositionFailed(
@@ -208,10 +229,24 @@ class ChatRecommendationPipeline:
             # 기존 기본 추천은 첫 번째로 성공한 골든 템플릿의 조합만 저장했다.
             max_validated_templates=1,
         )
+        selected = select_diverse_candidates(
+            generated.candidates,
+            diversity_slots=self.diversity_slots,
+            limit=3,
+        )
+        if len(selected) < min(3, len(generated.candidates)):
+            logger.info(
+                "핵심 슬롯이 같은 일반 추천 후보를 제외함: "
+                "run=%s generated=%s selected=%s slots=%s",
+                run.pk,
+                len(generated.candidates),
+                len(selected),
+                self.diversity_slots,
+            )
         return self.persist_candidates(
             run=run,
             generated=generated,
-            selected=generated.candidates[:3],
+            selected=selected,
         )
 
     def generate_candidates(
@@ -289,6 +324,13 @@ class ChatRecommendationPipeline:
             if user_id is not None
             else None
         )
+        if (
+            session.mode == ChatSession.Mode.WARDROBE_BASED
+            and not allowed_wardrobe_item_ids
+        ):
+            raise WardrobeOutfitUnavailable(
+                WARDROBE_OUTFIT_UNAVAILABLE_MESSAGE
+            )
 
         pursuit = self._merged_pursuit(context, analysis)
         if strategy_plan is not None:
@@ -296,10 +338,11 @@ class ChatRecommendationPipeline:
         candidate_limit = strategy_plan.candidate_limit if strategy_plan else 5
         body = build_profile(context.get("profile", {}).get("body"))
         category_budgets = context.get("profile", {}).get("category_budgets", {})
+        total_budget = analysis.conditions.budget
         reference_anchor = self._resolve_reference_anchor(
             run=run,
             user_id=user_id,
-            total_budget=analysis.conditions.budget,
+            total_budget=total_budget,
             category_budgets=category_budgets,
             event_recorder=event_recorder,
         )
@@ -347,8 +390,19 @@ class ChatRecommendationPipeline:
         if not retrieval.candidates:
             raise GoldenOutfitNotFound("조건에 맞는 골든 코디를 찾지 못했습니다.")
 
+        # 골든 코디 검색에만 걸려 있던 기피 조건을 아이템 후보 검색에도 넘긴다.
+        avoided_tags = {
+            tag_field: tuple(sorted(labels))
+            for tag_field, labels in vocabulary.translate(
+                pursuit.get("avoided")
+            ).tags.items()
+        }
+
         generated: list[ValidatedRecommendationCandidate] = []
         validated_template_count = 0
+        # 어느 단계에서 몇 건이 떨어졌는지 남긴다. 이게 없으면 실패가
+        # "조합을 만들지 못했습니다" 한 줄로만 남아 원인을 추적할 수 없다.
+        failure_reasons: Counter[str] = Counter()
         for template_rank, candidate in enumerate(retrieval.candidates, start=1):
             template_ids = self._template_item_ids(candidate)
             if not template_ids:
@@ -359,11 +413,12 @@ class ChatRecommendationPipeline:
                         template_item_point_id=point_id,
                         sources=self._sources(session.mode, user_id),
                         user_id=user_id,
-                        max_price=analysis.conditions.budget,
+                        max_price=total_budget,
                         category_budgets=category_budgets,
                         dataset_version=settings.CHAT_GOLDENSET_DATASET_VERSION,
                         dataset_statuses=settings.CHAT_GOLDENSET_DATASET_STATUSES,
                         limit_per_source=10,
+                        avoided_tags=avoided_tags,
                     )
                     if (
                         scoped_item_ids
@@ -398,10 +453,11 @@ class ChatRecommendationPipeline:
                     batch = self._compose(
                         session.mode,
                         slot_results,
-                        budget=analysis.conditions.budget,
+                        budget=total_budget,
                         category_budgets=category_budgets,
                     )
-            except (ValueError, RuntimeError):
+            except (ValueError, RuntimeError) as exc:
+                failure_reasons[type(exc).__name__] += 1
                 continue
 
             template_candidates: list[ValidatedRecommendationCandidate] = []
@@ -441,6 +497,12 @@ class ChatRecommendationPipeline:
                             reference_anchor=reference_anchor,
                         ),
                     )
+                if not validation.valid:
+                    failure_reasons.update(
+                        issue.code
+                        for issue in validation.issues
+                        if issue.severity is ValidationSeverity.ERROR
+                    )
                 if validation.valid:
                     template_candidates.append(
                         ValidatedRecommendationCandidate(
@@ -464,9 +526,29 @@ class ChatRecommendationPipeline:
                     break
 
         if not generated:
-            raise OutfitCompositionFailed(
-                "검색된 골든 코디로 검증 가능한 최종 조합을 만들지 못했습니다."
+            detail = ", ".join(
+                f"{reason}x{count}" for reason, count in failure_reasons.most_common(3)
             )
+            # 사용자 메시지에는 내부 코드를 싣지 않는다. 운영자는 로그로 본다.
+            logger.warning(
+                "골든 코디 %d건에서 유효 조합 0건 (run=%s, 사유=%s)",
+                len(retrieval.candidates),
+                run.pk,
+                detail or "사유 기록 없음",
+            )
+            failure_type = (
+                WardrobeOutfitUnavailable
+                if session.mode == ChatSession.Mode.WARDROBE_BASED
+                else OutfitCompositionFailed
+            )
+            failure_message = (
+                WARDROBE_OUTFIT_UNAVAILABLE_MESSAGE
+                if session.mode == ChatSession.Mode.WARDROBE_BASED
+                else "검색된 골든 코디로 검증 가능한 최종 조합을 만들지 못했습니다."
+            )
+            failure = failure_type(failure_message)
+            failure.detail = detail
+            raise failure
         return GeneratedRecommendationCandidates(
             run_id=str(run.pk),
             session_id=str(session.pk),
@@ -1056,25 +1138,48 @@ class ChatRecommendationPipeline:
     @staticmethod
     def _approved_payload(result: RecommendationResult) -> dict[str, Any]:
         compositions = []
+        attribute_keys = (
+            "category_large",
+            "category_small",
+            "color",
+            "base_color",
+            "style",
+            "fit",
+            "material",
+            "season",
+            "brand",
+        )
         for composition in result.compositions.prefetch_related("items").all():
             compositions.append(
                 {
+                    "outfit_id": str(composition.id),
                     "rank": composition.rank,
                     "total_product_price": composition.total_product_price,
                     "reference_match": composition.reference_match,
                     "warnings": composition.warnings,
+                    "validation_reasons": composition.validation_reasons,
                     "items": [
                         {
-                            "slot": item.slot,
+                            "item_id": str(item.id),
+                            "slot": item.slot.split(":", 1)[0],
                             "source_type": item.source_type,
                             "name": (
-                                item.item_snapshot.get("item_name")
+                                item.item_snapshot.get("display_name")
+                                or item.item_snapshot.get("product_name")
+                                or item.item_snapshot.get("item_name")
                                 or item.item_snapshot.get("name")
                                 or item.item_snapshot.get("title")
-                                or item.slot
+                                or item.item_snapshot.get("category_small")
+                                or item.item_snapshot.get("category_large")
+                                or "구성 아이템"
                             ),
                             "price": item.price_snapshot,
                             "reasons": item.reasons,
+                            "attributes": {
+                                key: item.item_snapshot[key]
+                                for key in attribute_keys
+                                if item.item_snapshot.get(key) not in (None, "", [], {})
+                            },
                         }
                         for item in composition.items.all()
                     ],

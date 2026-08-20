@@ -1,3 +1,6 @@
+from types import SimpleNamespace
+from unittest.mock import patch
+
 from django.contrib.auth import get_user_model
 from django.utils import timezone
 from rest_framework.test import APITestCase
@@ -8,6 +11,9 @@ from apps.wardrobe.models import (
     WardrobeItem,
 )
 from apps.wardrobe.services import shared_wardrobe as shared_service
+from apps.wardrobe.services.vector_reconciliation import (
+    WardrobeVectorStoreUnavailable,
+)
 
 User = get_user_model()
 
@@ -44,7 +50,13 @@ class SharedReferenceEligibilityApiTests(APITestCase):
             status=status,
         )
 
-    def test_shared_item_list_exposes_reference_eligibility_contract(self) -> None:
+    @patch(
+        "apps.wardrobe.services.reference_eligibility.WardrobeVectorReconciler"
+    )
+    def test_shared_item_list_exposes_reference_eligibility_contract(
+        self,
+        reconciler_class,
+    ) -> None:
         available = self._shared_item(name="사용 가능")
         borrowed = self._shared_item(
             name="대여 중",
@@ -59,6 +71,10 @@ class SharedReferenceEligibilityApiTests(APITestCase):
             name="벡터 준비 중",
             embedding_version="",
         )
+        reconciler_class.return_value.audit.side_effect = lambda items: [
+            SimpleNamespace(item_id=str(item.pk), vector_ready=True)
+            for item in items
+        ]
 
         response = self.client.get(self.url)
 
@@ -98,4 +114,49 @@ class SharedReferenceEligibilityApiTests(APITestCase):
                 by_id[str(vector_not_ready.pk)]["reference_unavailable_reason"],
             ),
             (False, "VECTOR_NOT_READY"),
+        )
+
+    @patch(
+        "apps.wardrobe.services.reference_eligibility.WardrobeVectorReconciler"
+    )
+    def test_db_flag_does_not_claim_eligibility_when_qdrant_point_is_missing(
+        self,
+        reconciler_class,
+    ) -> None:
+        shared_item = self._shared_item(name="실제 벡터 없음")
+        reconciler_class.return_value.audit.return_value = [
+            SimpleNamespace(
+                item_id=str(shared_item.wardrobe_item_id),
+                vector_ready=False,
+            )
+        ]
+
+        response = self.client.get(self.url)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertFalse(response.data[0]["reference_eligible"])
+        self.assertEqual(
+            response.data[0]["reference_unavailable_reason"],
+            "VECTOR_NOT_READY",
+        )
+
+    @patch(
+        "apps.wardrobe.services.reference_eligibility.WardrobeVectorReconciler"
+    )
+    def test_qdrant_outage_fails_closed_without_breaking_the_list_api(
+        self,
+        reconciler_class,
+    ) -> None:
+        self._shared_item(name="저장소 장애")
+        reconciler_class.return_value.audit.side_effect = (
+            WardrobeVectorStoreUnavailable("offline")
+        )
+
+        response = self.client.get(self.url)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertFalse(response.data[0]["reference_eligible"])
+        self.assertEqual(
+            response.data[0]["reference_unavailable_reason"],
+            "VECTOR_NOT_READY",
         )

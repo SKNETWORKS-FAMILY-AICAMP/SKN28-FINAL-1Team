@@ -19,6 +19,8 @@ from apps.chat.services.openai_adapter import (
 from apps.chat.services.recommendation_pipeline import (
     ChatRecommendationPipeline,
     OutfitCompositionFailed,
+    WARDROBE_OUTFIT_UNAVAILABLE_MESSAGE,
+    WardrobeOutfitUnavailable,
 )
 from apps.recommend.models import (
     GoldenTemplateSnapshot,
@@ -52,7 +54,12 @@ class RecommendationCandidatePipelineTests(TestCase):
             identity_type=ChatIdentity.IdentityType.MEMBER,
         )
 
-    def _run(self, *, stylist: bool = False) -> tuple[ChatRun, ChatRunPersona | None]:
+    def _run(
+        self,
+        *,
+        stylist: bool = False,
+        mode: str = ChatSession.Mode.NEW_ITEM,
+    ) -> tuple[ChatRun, ChatRunPersona | None]:
         persona_ids = ["minimal"] if stylist else []
         response_mode = (
             ChatSession.ResponseMode.STYLIST
@@ -61,7 +68,7 @@ class RecommendationCandidatePipelineTests(TestCase):
         )
         session = ChatSession.objects.create(
             identity=self.identity,
-            mode=ChatSession.Mode.NEW_ITEM,
+            mode=mode,
             response_mode=response_mode,
             selected_persona_ids=persona_ids,
         )
@@ -146,7 +153,11 @@ class RecommendationCandidatePipelineTests(TestCase):
             total_product_price=price,
         )
 
-    def _pipeline(self) -> tuple[ChatRecommendationPipeline, Mock]:
+    def _pipeline(
+        self,
+        *,
+        diversity_slots: tuple[str, ...] = ("TOP", "BOTTOM", "OUTER"),
+    ) -> tuple[ChatRecommendationPipeline, Mock]:
         first = OutfitCandidate(
             point_id="outfit-1",
             golden_id="golden-1",
@@ -200,9 +211,66 @@ class RecommendationCandidatePipelineTests(TestCase):
                 wardrobe_composer=Mock(),
                 new_item_composer=composer,
                 validator=validator,
+                diversity_slots=diversity_slots,
             ),
             composer,
         )
+
+    def test_avoided_condition_reaches_item_candidate_search(self) -> None:
+        """기피 조건을 검색에 안 넘기면 조합까지 만든 뒤 Validator가 버린다."""
+
+        run, _ = self._run()
+        pipeline, _ = self._pipeline()
+        analysis = self._analysis().model_copy(
+            update={
+                "conditions": self._analysis().conditions.model_copy(
+                    update={"avoided_styles": ["캐주얼"]}
+                )
+            }
+        )
+
+        pipeline._generate_candidates(
+            run=run,
+            context=self._context(),
+            analysis=analysis,
+        )
+
+        requests = [
+            call.args[0] for call in pipeline.item_retriever.retrieve.call_args_list
+        ]
+        self.assertTrue(requests)
+        self.assertEqual(requests[0].avoided_tags, {"style": ("캐주얼",)})
+
+    def test_no_avoided_condition_sends_empty_filter(self) -> None:
+        run, _ = self._run()
+        pipeline, _ = self._pipeline()
+
+        pipeline._generate_candidates(
+            run=run,
+            context=self._context(),
+            analysis=self._analysis(),
+        )
+
+        requests = [
+            call.args[0] for call in pipeline.item_retriever.retrieve.call_args_list
+        ]
+        self.assertTrue(requests)
+        self.assertEqual(requests[0].avoided_tags, {})
+
+    def test_empty_wardrobe_returns_actionable_failure_before_retrieval(self) -> None:
+        run, _ = self._run(mode=ChatSession.Mode.WARDROBE_BASED)
+        pipeline, _ = self._pipeline()
+
+        with self.assertRaises(WardrobeOutfitUnavailable) as raised:
+            pipeline._generate_candidates(
+                run=run,
+                context=self._context(),
+                analysis=self._analysis(),
+            )
+
+        self.assertEqual(raised.exception.code, "WARDROBE_OUTFIT_UNAVAILABLE")
+        self.assertEqual(str(raised.exception), WARDROBE_OUTFIT_UNAVAILABLE_MESSAGE)
+        pipeline.golden_retriever.retrieve.assert_not_called()
 
     @patch("apps.chat.services.recommendation_pipeline.render_jobs.schedule_result")
     def test_generation_does_not_write_and_persistence_saves_only_selection(
@@ -283,6 +351,25 @@ class RecommendationCandidatePipelineTests(TestCase):
             ["product-a", "product-b"],
         )
         self.assertEqual(output.result.golden_template.golden_id, "golden-1")
+        self.assertEqual(composer.compose.call_count, 1)
+
+    def test_default_execute_uses_injected_diversity_slots_after_generation(
+        self,
+    ) -> None:
+        run, _ = self._run()
+        pipeline, composer = self._pipeline(diversity_slots=("OUTER",))
+
+        output = pipeline.execute(
+            run=run,
+            context=self._context(),
+            analysis=self._analysis(),
+        )
+
+        self.assertEqual(output.result.compositions.count(), 1)
+        self.assertEqual(
+            output.result.compositions.get().items.get().source_id,
+            "product-a",
+        )
         self.assertEqual(composer.compose.call_count, 1)
 
     @patch("apps.chat.services.recommendation_pipeline.render_jobs.schedule_result")

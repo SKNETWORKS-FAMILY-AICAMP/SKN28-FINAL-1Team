@@ -6,7 +6,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Iterable
+from collections.abc import Iterable, Mapping
 from dataclasses import dataclass, field
 from enum import StrEnum
 from typing import Any
@@ -52,6 +52,8 @@ class ItemRetrievalRequest:
     dataset_version: str = ""
     dataset_statuses: tuple[str, ...] = ()
     limit_per_source: int = 10
+    #: 사용자가 명시적으로 기피한 태그 (Qdrant 필드명 -> 라벨).
+    avoided_tags: Mapping[str, tuple[str, ...]] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
@@ -132,6 +134,22 @@ def _vector(point: Any, name: str) -> tuple[float, ...]:
     return tuple(float(value) for value in raw)
 
 
+def _avoided_conditions(request: ItemRetrievalRequest) -> list[qm.Condition]:
+    """기피 태그를 가진 아이템은 후보 검색 단계에서 제외한다.
+
+    예전에는 이 조건이 골든 코디 검색에만 걸리고 아이템 후보 검색에는 없었다.
+    그래서 기피 태그를 가진 아이템이 후보로 올라와 조합까지 만들어진 뒤에야
+    Validator가 EXPLICIT_TAG_EXCLUDED로 떨어뜨렸고, 후보를 다 소진할 때까지
+    반복하다 추천 전체가 실패했다. 걸러야 할 것은 검색에서 거른다.
+    """
+
+    return [
+        _match_any(tag_field, labels)
+        for tag_field, labels in request.avoided_tags.items()
+        if labels
+    ]
+
+
 def _single_value(payload: dict[str, Any], field_name: str) -> str:
     value = payload.get(field_name)
     if isinstance(value, str):
@@ -152,10 +170,19 @@ class ItemCandidateRetriever:
         effective_max_price = (
             min(
                 price
-                for price in (request.max_price, category_budget)
+                for price in (
+                    request.max_price,
+                    category_budget,
+                )
                 if price is not None
             )
-            if request.max_price is not None or category_budget is not None
+            if any(
+                price is not None
+                for price in (
+                    request.max_price,
+                    category_budget,
+                )
+            )
             else None
         )
         vector_name, vector = self._select_vector(template)
@@ -229,7 +256,6 @@ class ItemCandidateRetriever:
             for category, amount in request.category_budgets.items()
         ):
             raise ValueError("category_budgets는 대분류별 0 이상의 정수여야 합니다.")
-
     def _load_template(self, point_id: str) -> TemplateItem:
         points = self.client.retrieve(
             collection_name=GOLDEN_ITEM_COLLECTION,
@@ -293,6 +319,7 @@ class ItemCandidateRetriever:
             vector_name=vector_name,
             vector=vector,
             limit=request.limit_per_source,
+            must_not=_avoided_conditions(request),
         )
 
     def _retrieve_goldenset(
@@ -315,6 +342,7 @@ class ItemCandidateRetriever:
             vector_name=vector_name,
             vector=vector,
             limit=request.limit_per_source + 1,
+            must_not=_avoided_conditions(request),
         )
         return [
             candidate
@@ -353,6 +381,7 @@ class ItemCandidateRetriever:
                     vector_name=vector_name,
                     vector=vector,
                     limit=request.limit_per_source,
+                    must_not=_avoided_conditions(request),
                 )
             )
         candidates.sort(
@@ -373,8 +402,9 @@ class ItemCandidateRetriever:
         vector_name: str,
         vector: list[float] | None,
         limit: int,
+        must_not: list[qm.Condition] | None = None,
     ) -> list[ItemCandidate]:
-        query_filter = qm.Filter(must=conditions or None)
+        query_filter = qm.Filter(must=conditions or None, must_not=must_not or None)
         if vector is None:
             points, _ = self.client.scroll(
                 collection_name=collection_name,

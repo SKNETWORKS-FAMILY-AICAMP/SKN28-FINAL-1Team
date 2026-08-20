@@ -10,6 +10,7 @@ import { useBreakpoint } from '@/hooks/use-breakpoint';
 import { STYLE_FALLBACK_NOTE, toReferenceBadge } from '@/state/chat';
 import { backTo, goBack } from '@/lib/goBack';
 import { mallLabel, openExternal } from '@/lib/mall';
+import { recommendationItemMeta } from '@/lib/recommendationPresentation';
 import {
   deleteCardFeedback,
   FEEDBACK_REASONS,
@@ -35,7 +36,7 @@ const RENDER_POLL_MS = 3000;
  * 추천 코디 상세.
  *
  * 채팅 답변에 붙은 카드를 눌러 들어온다. 채팅 카드에는 이름·가격·썸네일만 있고,
- * **구매 링크 · 고른 근거 · 코디 이미지 · 피드백**은 전부 여기에 있다.
+ * **구매 링크 · 코디 이미지 · 피드백**은 전부 여기에 있다.
  *
  * ⚠️ /look-detail 과 다른 화면이다. 그쪽은 번들 목업(오늘의 룩) 기준이라 방금 받은
  *    추천을 그릴 수 없다. 이 화면은 추천 결과 API만 본다.
@@ -235,6 +236,7 @@ export default function RecCard() {
               const image = imageUrlOf(item.image_ref);
               const fromWardrobe = item.source_type !== 'PRODUCT';
               const buyUrl = item.purchase_url;
+              const meta = recommendationItemMeta(item);
               return (
                 <View key={item.item_id} style={styles.item}>
                   <SmartImage uri={image} width={72} height={72} radius={12} />
@@ -242,9 +244,7 @@ export default function RecCard() {
                     <Text style={styles.itemName} numberOfLines={2}>
                       {item.display_name}
                     </Text>
-                    <Text style={styles.itemMeta}>
-                      {[item.slot, item.category, item.color].filter(Boolean).join(' · ')}
-                    </Text>
+                    {meta ? <Text style={styles.itemMeta}>{meta}</Text> : null}
                     {/* 옷장 옷은 살 필요가 없다는 것이 가격보다 중요한 정보다 */}
                     <Text style={styles.itemPrice}>
                       {fromWardrobe
@@ -253,13 +253,7 @@ export default function RecCard() {
                           ? `${item.price_snapshot.toLocaleString()}원`
                           : '새 상품'}
                     </Text>
-
-                    {/* 왜 이걸 골랐는지 — 채팅 카드에는 자리가 없어 여기서만 보여준다 */}
-                    {item.reasons.map((reason) => (
-                      <Text key={reason} style={styles.itemReason}>
-                        · {reason}
-                      </Text>
-                    ))}
+                    {item.note ? <Text style={styles.itemNote}>💬 {item.note}</Text> : null}
 
                     {buyUrl ? (
                       <Pressable style={styles.buy} onPress={() => openExternal(buyUrl)}>
@@ -277,18 +271,6 @@ export default function RecCard() {
                 새로 사면 {card.total_product_price.toLocaleString()}원
               </Text>
             ) : null}
-
-            {card.warnings.map((w) => (
-              <Text key={w} style={styles.warning}>
-                {w}
-              </Text>
-            ))}
-            {/* 검증기가 남긴 참고 사항. 통과한 카드라 막는 내용은 아니다. */}
-            {card.validation_reasons.map((reason) => (
-              <Text key={`${reason.code}-${reason.slot ?? ''}`} style={styles.reason}>
-                {reason.message}
-              </Text>
-            ))}
 
             <Text style={styles.section}>이 추천 어땠나요?</Text>
             <View style={styles.reactions}>
@@ -471,13 +453,16 @@ const styles = StyleSheet.create({
   itemName: { fontSize: 14, fontWeight: '500', color: INK },
   itemMeta: { fontSize: Type.caption, color: Editorial.textCaption },
   itemPrice: { fontSize: Type.caption, fontWeight: '600', color: INK },
-  itemReason: { fontSize: Type.caption, color: Editorial.textSoft, lineHeight: 18 },
+  itemNote: {
+    marginTop: 4,
+    fontSize: Type.caption,
+    color: Editorial.textSoft,
+    lineHeight: 18,
+  },
   buy: { flexDirection: 'row', alignItems: 'center', gap: 5, marginTop: 6 },
   buyText: { fontSize: 13, fontWeight: '600', color: INK },
 
   total: { marginTop: 4, fontSize: 14, fontWeight: '600', color: INK },
-  warning: { fontSize: Type.caption, color: Editorial.wine, lineHeight: 18 },
-  reason: { fontSize: Type.caption, color: Editorial.textCaption, lineHeight: 18 },
 
   reactions: { flexDirection: 'row', gap: 8 },
   reaction: {

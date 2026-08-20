@@ -1,4 +1,5 @@
 import { useSyncExternalStore } from 'react';
+import { Platform } from 'react-native';
 
 import { AuthEndpoints } from '@/constants/config';
 import { DEMO_USER } from '@/constants/demo';
@@ -11,6 +12,7 @@ import {
   saveDemoFlag,
   saveTokens,
 } from '@/lib/secureStore';
+import { chatStore } from '@/state/chat';
 import { outfitAnalysisStore } from '@/state/outfit-analysis';
 
 /**
@@ -34,6 +36,8 @@ export type AuthUser = {
   email: string;
   nickname: string | null;
   profile_image: string | null;
+  /** 사용자가 직접 올린 사진인지 — 소셜 사진과 구분해 '기본으로 되돌리기' 노출을 정한다. */
+  profile_image_uploaded?: boolean;
   social_accounts: SocialAccountInfo[];
 };
 
@@ -118,6 +122,45 @@ export const authStore = {
     return user;
   },
 
+  /**
+   * 프로필 사진 올리기 — POST /users/me/profile-image/ (multipart).
+   *
+   * 서버가 정사각 JPEG 로 줄여 S3 에 넣고, 갱신된 사용자를 돌려준다. 응답의
+   * profile_image 는 **만료되는 presigned URL** 이라 오래 들고 있으면 안 된다.
+   */
+  async uploadProfileImage(uri: string): Promise<AuthUser> {
+    const form = new FormData();
+    /* RN 의 FormData 는 {uri,name,type} 모양을 파일로 취급한다. 웹에서는 blob 을 만들어
+       넣어야 한다 — 같은 코드가 두 플랫폼에서 다르게 동작하는 몇 안 되는 자리다. */
+    if (Platform.OS === 'web') {
+      const blob = await (await fetch(uri)).blob();
+      form.append('image', blob, 'profile.jpg');
+    } else {
+      form.append('image', { uri, name: 'profile.jpg', type: 'image/jpeg' } as never);
+    }
+    const user = await api.post<AuthUser>(AuthEndpoints.profileImage, form);
+    setState({ user });
+    return user;
+  },
+
+  /** 올린 사진 지우기 — 소셜 사진이 있으면 그리로 되돌아간다. */
+  async removeProfileImage(): Promise<AuthUser> {
+    const user = await api.delete<AuthUser>(AuthEndpoints.profileImage);
+    setState({ user });
+    return user;
+  },
+
+  /**
+   * 회원 탈퇴 — DELETE /users/me/. 계정과 딸린 데이터가 서버에서 지워진다.
+   *
+   * 서버가 지운 뒤에 로그아웃과 **같은 뒷정리**를 한다(토큰·기기 데이터). 순서를 바꿔
+   * 먼저 로그아웃하면 토큰이 없어져 탈퇴 요청 자체가 401 이 된다.
+   */
+  async withdraw(): Promise<void> {
+    await api.delete(AuthEndpoints.me);
+    await authStore.signOut();
+  },
+
   /** 로그아웃: simplejwt(stateless)라 서버 엔드포인트가 없다 → 클라이언트 토큰 폐기로 처리 */
   async signOut(): Promise<void> {
     await Promise.all([clearTokens(), clearDemoFlag()]);
@@ -125,6 +168,9 @@ export const authStore = {
        (서버 데이터가 새는 건 아니지만, 로그아웃 후에도 홈에 그 사람 분석 카드가 남는다)
        claim 토큰은 비로그인으로 접수한 건이라 다음 로그인 때 넘겨야 하므로 남긴다. */
     await outfitAnalysisStore.clear();
+    /* 대화 목록·내용은 메모리에만 있다. 안 지우면 로그아웃한 뒤 게스트로 채팅에 들어갔을 때
+       방금 나간 사람의 대화 목록이 그대로 보인다. */
+    chatStore.reset();
     setState({ status: 'guest', user: null, isDemo: false });
   },
 };
@@ -133,6 +179,8 @@ export const authStore = {
 // 데모 세션은 애초에 토큰이 없어 401 이 정상이므로 강등하지 않는다 — 화면별 에러로만 드러난다.
 onUnauthorized(() => {
   if (state.isDemo) return;
+  // 세션 만료도 로그아웃과 같다 — 남은 대화를 지우지 않으면 게스트 화면에 그대로 비친다.
+  chatStore.reset();
   setState({ status: 'guest', user: null, isDemo: false });
 });
 
@@ -151,5 +199,6 @@ export function useAuth() {
     isDemo: snapshot.isDemo,
     signIn: authStore.signIn,
     signOut: authStore.signOut,
+    withdraw: authStore.withdraw,
   };
 }

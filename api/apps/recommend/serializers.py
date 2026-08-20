@@ -672,6 +672,28 @@ def _snapshot_text(snapshot: object, *keys: str) -> str | None:
     return None
 
 
+def _snapshot_label(snapshot: object, *keys: str) -> str | None:
+    """표시용 태그를 문자열 또는 문자열 배열에서 안전하게 꺼낸다."""
+
+    if not isinstance(snapshot, dict):
+        return None
+    for key in keys:
+        value = snapshot.get(key)
+        if isinstance(value, str):
+            if text := value.strip():
+                return text
+            continue
+        if isinstance(value, (list, tuple)):
+            labels = [
+                entry.strip()
+                for entry in value
+                if isinstance(entry, str) and entry.strip()
+            ]
+            if labels:
+                return ", ".join(labels)
+    return None
+
+
 class RecommendationCardItemSerializer(serializers.ModelSerializer):
     item_id = serializers.UUIDField(source="id", read_only=True)
     display_name = serializers.SerializerMethodField()
@@ -694,6 +716,7 @@ class RecommendationCardItemSerializer(serializers.ModelSerializer):
             "price_snapshot",
             "purchase_url",
             "reasons",
+            "note",
         ]
 
     def get_display_name(self, obj: OutfitCompositionItem) -> str:
@@ -710,7 +733,7 @@ class RecommendationCardItemSerializer(serializers.ModelSerializer):
         )
 
     def get_category(self, obj: OutfitCompositionItem) -> str | None:
-        return _snapshot_text(
+        return _snapshot_label(
             obj.item_snapshot,
             "category_small",
             "category",
@@ -719,7 +742,7 @@ class RecommendationCardItemSerializer(serializers.ModelSerializer):
         )
 
     def get_color(self, obj: OutfitCompositionItem) -> str | None:
-        return _snapshot_text(obj.item_snapshot, "color", "base_color")
+        return _snapshot_label(obj.item_snapshot, "color", "base_color")
 
     def get_purchase_url(self, obj: OutfitCompositionItem) -> str | None:
         if obj.source_type != OutfitCompositionItem.SourceType.PRODUCT:
@@ -731,7 +754,6 @@ class RecommendationCardItemSerializer(serializers.ModelSerializer):
             "link",
             "url",
         )
-
 
 class WishlistItemSerializer(serializers.ModelSerializer):
     """찜 한 줄. 앱은 이 값만으로 목록을 그리고 판매처로 나간다.
@@ -781,6 +803,7 @@ class RecommendationCardSerializer(serializers.ModelSerializer):
             "validation_reasons",
             "reference_match",
             "warnings",
+            "rationale",
             "items",
             "feedback",
             "is_saved",
@@ -797,7 +820,6 @@ class RecommendationCardSerializer(serializers.ModelSerializer):
     @extend_schema_field(serializers.BooleanField())
     def get_is_saved(self, obj: OutfitComposition) -> bool:
         return bool(obj.saved_records.all())
-
 
 class OutfitRenderJobSerializer(serializers.ModelSerializer):
     job_id = serializers.UUIDField(source="id", read_only=True)

@@ -57,16 +57,17 @@ export default function ChatMode() {
      여기를 돌아갈 자리로 삼으면 뒤로가기가 '다시 모드 고르기'가 돼 빈 대화가 하나 더 생긴다. */
   const { from } = useLocalSearchParams<{ from?: string }>();
   const { contentStyle } = useBreakpoint();
-  const { isLoggedIn } = useAuth();
+  const { isLoggedIn, isDemo } = useAuth();
+  const hasMemberSession = isLoggedIn && !isDemo;
   const toast = useToast();
   /* 옷장 화면과 **같은 조건으로** 센다(필터 없음). confirmed=true 로 거르면 0 이 나온다 —
      백엔드에서 직접 넣은 옷은 확인 단계를 거치지 않아 확정 표시가 없기 때문이다(closet.tsx 참고).
      여기서만 다르게 세면 옷장엔 18벌인데 "옷을 먼저 등록해 주세요" 라고 말하게 된다. */
-  const { items, loading } = useWardrobeItems({}, isLoggedIn);
+  const { items, loading } = useWardrobeItems({}, hasMemberSession);
 
   /* 개수를 고정값으로 두면 옷장이 비어 있어도 "42개로 조합"이라고 말하게 된다.
      불러오는 중이거나 비회원이면 개수를 빼고, 옷이 없으면 먼저 등록하라고 알린다. */
-  const closetNote = !isLoggedIn
+  const closetNote = !hasMemberSession
     ? '로그인하면 내 옷으로 조합해요'
     : loading
       ? '내 옷장으로 조합'
@@ -80,13 +81,13 @@ export default function ChatMode() {
   const sessions = useChatSessions();
   const { loadedOnce, error } = useChatStatus();
   useEffect(() => {
-    if (isLoggedIn) chatStore.loadSessions();
-  }, [isLoggedIn]);
+    if (hasMemberSession) chatStore.loadSessions();
+  }, [hasMemberSession]);
 
   const recent = sessions.slice(0, RECENT_LIMIT);
   /* 못 불러왔을 때 이 화면에 오류를 띄우지 않는다 — 여기서 할 일(새 대화 시작)은
      목록이 없어도 그대로 되고, 다시 시도할 자리는 채팅 목록 화면이다. */
-  const showRecent = isLoggedIn && error === null;
+  const showRecent = hasMemberSession && error === null;
   const recentLoading = showRecent && !loadedOnce;
 
   /* 여기서 세션을 만들고 대화 화면으로 넘긴다. replace 인 이유 — 모드 선택은 대화로 가는
@@ -98,9 +99,14 @@ export default function ChatMode() {
 
   const startChat = async (mode: Mode) => {
     if (starting) return;
+    if (mode === 'closet' && !hasMemberSession) {
+      toast('옷장 기반 추천은 로그인 후 이용할 수 있어요.');
+      router.push({ pathname: '/login', params: { redirect: '/chat-mode' } });
+      return;
+    }
     setStarting(mode);
     try {
-      const session = await chatStore.createSession(mode);
+      const session = await chatStore.createSession(mode, { asGuest: !hasMemberSession });
       router.replace({
         pathname: '/chat-room',
         params: { id: session.id, ...(from ? { from } : {}) },

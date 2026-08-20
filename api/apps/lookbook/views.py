@@ -15,7 +15,7 @@ from pathlib import Path
 
 import redis as redis_lib
 from django.shortcuts import get_object_or_404
-from django.http import FileResponse, Http404
+from django.http import FileResponse, Http404, HttpResponse
 from django.conf import settings
 from rest_framework import status
 from rest_framework.parsers import FormParser, MultiPartParser
@@ -32,7 +32,7 @@ from apps.lookbook.serializers import (
     LookbookProcessingStatusSerializer,
     LookbookWardrobeCreateSerializer,
 )
-from apps.lookbook.services import discovery, lookbook_service
+from apps.lookbook.services import cover_image, discovery, lookbook_service
 from apps.wardrobe.services import jobs as wardrobe_jobs
 
 logger = logging.getLogger(__name__)
@@ -66,7 +66,12 @@ class DiscoveryLookDetailView(APIView):
 
 
 class DiscoveryLookCoverView(APIView):
-    """운영 CSV가 가리키는 로컬 전신사진을 개발·배포 환경에 동일하게 제공한다."""
+    """운영 CSV가 가리키는 로컬 전신사진을 개발·배포 환경에 동일하게 제공한다.
+
+    `?w=400|800`을 주면 그 폭의 JPEG 축소본을 준다. 원본은 1080x1350 PNG(장당 약 2MB)라
+    목록에서 그대로 받으면 한 화면에 수십 MB가 된다. **파라미터가 없으면 원본 그대로**라
+    기존 호출은 달라지지 않는다. 자세한 배경은 services/cover_image.py 참고.
+    """
 
     permission_classes = (AllowAny,)
 
@@ -78,7 +83,18 @@ class DiscoveryLookCoverView(APIView):
         path = (root / look.cover_image_url).resolve()
         if root.resolve() not in path.parents or not path.is_file():
             raise Http404
-        return FileResponse(path.open("rb"), content_type="image/png")
+
+        width = cover_image.requested_width(request.query_params.get("w"))
+        if width is None:
+            return FileResponse(path.open("rb"), content_type="image/png")
+
+        data = cover_image.cached_thumbnail(
+            path, width, root / cover_image.THUMB_DIR, external_id
+        )
+        response = HttpResponse(data, content_type="image/jpeg")
+        # 축소본은 원본이 바뀌지 않는 한 같은 바이트다 — 브라우저가 다시 받지 않게 한다.
+        response["Cache-Control"] = "public, max-age=86400"
+        return response
 
 
 def _creation_error_response(error: Exception) -> Response | None:

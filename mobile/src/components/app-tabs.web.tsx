@@ -278,9 +278,10 @@ const styles = StyleSheet.create({
   // 데스크톱 사이드바
   sidebar: {
     width: SidebarWidth,
+    /* 테두리가 경계의 전부다 — 면 색은 본문과 1.03:1 이라 선을 빼면 사이드바가 사라진다. */
     borderRightWidth: 1,
     borderRightColor: ink(0.08),
-    backgroundColor: Editorial.page,
+    backgroundColor: Editorial.nav,
     paddingHorizontal: 16,
     paddingTop: 28,
     gap: 8,
@@ -316,9 +317,12 @@ const styles = StyleSheet.create({
     zIndex: 10,
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: 'rgba(255, 255, 255, 0.6)',
+    /* 본문보다 밝기 1.6포인트만 높은 면이라 색만으로는 구분되지 않는다.
+       위쪽 헤어라인과 global.css 의 그림자가 경계를 만든다 — 둘 다 빼면 바가 사라진다.
+       불투명하게 둔다: 반투명이면 뒤로 지나가는 사진이 비쳐 그 작은 차이마저 없어진다. */
+    backgroundColor: Editorial.nav,
     borderTopWidth: 1,
-    borderTopColor: ink(0.06),
+    borderTopColor: ink(0.08),
     paddingTop: 8,
   },
   item: { flex: 1, alignItems: 'center', gap: 3, paddingVertical: 2 },

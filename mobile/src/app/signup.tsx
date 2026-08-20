@@ -40,36 +40,19 @@ const MIN_PW = 8;
    아니면 통과시키는데, 그 문구는 무엇을 쓰라는 말인지 알려주지 못한다. 더 엄격한 쪽이라
    이 화면을 통과하면 서버도 반드시 통과한다.
 
-   '이메일 아이디 그대로 쓰지 않기'는 본래 서버 몫(UserAttributeSimilarityValidator)인데,
-   가입 시리얼라이저가 validate_password(value) 를 **user 없이** 부르고 있어 서버에는
-   비교할 대상이 없다 — 이메일을 그대로 비밀번호로 써도 통과한다. 서버가 고쳐질 때까지
-   앱이 막는다(서버가 고쳐져도 이 규칙은 그대로 맞는 말이라 그냥 둬도 된다).
-
-   흔한 비밀번호(2만 건 목록)만은 서버만 판정할 수 있어 체크 대신 안내로 두고, 거절당하면
-   그 자리에 사유를 붙인다 — 지킬 수 없는 ✓ 를 미리 켜 두면 통과한 줄 알았다가 거절당한다. */
+   '이메일 아이디 그대로 쓰기'와 '흔한 비밀번호'는 **줄에서 뺐다.** 둘 다 서버가 판정하는
+   규칙이라(UserAttributeSimilarityValidator·CommonPasswordValidator), 미리 늘어놓으면
+   지킬 것만 많아 보이고 정작 통과 여부는 눌러 봐야 안다. 거절당하면 그 자리에 사유가 붙는다. */
 type PwRule = { label: string; ok: (pw: string, email: string) => boolean };
 
 const PW_RULES: PwRule[] = [
   { label: `${MIN_PW}자 이상`, ok: (pw) => pw.length >= MIN_PW },
   { label: '영문과 숫자 함께 쓰기', ok: (pw) => /[A-Za-z]/.test(pw) && /\d/.test(pw) },
-  { label: '이메일 아이디를 그대로 쓰지 않기', ok: (pw, email) => !reusesEmail(pw, email) },
 ];
-const PW_SERVER_RULE = '흔히 쓰이는 비밀번호가 아닐 것 (가입할 때 확인해요)';
 
 /* 빈칸에는 어떤 ✓ 도 켜지 않는다. 한 글자도 안 썼는데 만족한 것처럼 보이면 남은 조건만
    맞추면 되는 줄 안다 (예전 '숫자로만 이루어지지 않기'가 빈칸에서 켜져 있던 문제). */
 const ruleMet = (rule: PwRule, pw: string, email: string) => pw.length > 0 && rule.ok(pw, email);
-
-/** 이메일이나 그 앞 아이디를 그대로 비밀번호로 쓰는 경우. */
-function reusesEmail(pw: string, email: string): boolean {
-  const p = pw.toLowerCase();
-  const e = email.trim().toLowerCase();
-  if (!p || !e) return false;
-  if (p === e) return true;
-  const id = e.split('@')[0];
-  /* 짧은 아이디(예: 'kim')까지 '포함'으로 막으면 멀쩡한 비밀번호가 애먼 이유로 걸린다. */
-  return id.length >= 4 && p.includes(id);
-}
 
 // A4 회원가입 — 이메일/비밀번호 + 약관 동의 → 권한 동의(A6)로 진입
 export default function Signup() {
@@ -206,12 +189,14 @@ export default function Signup() {
                   </View>
                 );
               })}
-              <View style={styles.pwRuleRow}>
-                <Text style={[styles.pwRuleMark, pwServerError && styles.pwRuleMarkError]}>•</Text>
-                <Text style={[styles.pwRuleText, pwServerError && styles.pwRuleTextError]}>
-                  {pwServerError ?? PW_SERVER_RULE}
-                </Text>
-              </View>
+              {/* 서버가 거절했을 때만 그 사유를 한 줄로 붙인다 — 미리 띄워 두면
+                  지킬 수 없는 조건이 늘 켜져 있는 것처럼 보인다. */}
+              {pwServerError ? (
+                <View style={styles.pwRuleRow}>
+                  <Text style={[styles.pwRuleMark, styles.pwRuleMarkError]}>•</Text>
+                  <Text style={[styles.pwRuleText, styles.pwRuleTextError]}>{pwServerError}</Text>
+                </View>
+              ) : null}
             </View>
           </View>
 

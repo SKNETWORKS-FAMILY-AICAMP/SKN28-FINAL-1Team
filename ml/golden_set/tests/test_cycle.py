@@ -120,8 +120,11 @@ class FakePrincipleClient:
         system_instruction: str,
         schema: dict[str, Any],
     ) -> dict[str, Any]:
+        # 프롬프트는 evidence JSON 뒤에 "사용할 수 있는 근거" 목록을 덧붙인다.
+        # 꼬리를 통째로 파싱하면 그 목록에서 깨지므로 JSON 배열까지만 끊는다.
         marker = prompt.index("[")
-        evidence = json.loads(prompt[marker:])
+        decoder = json.JSONDecoder()
+        evidence, _ = decoder.raw_decode(prompt[marker:])
         first = evidence[0]
         return {
             "principles": [

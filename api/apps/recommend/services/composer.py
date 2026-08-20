@@ -22,6 +22,7 @@ from apps.recommend.services.outfit_types import (
     OutfitSlot,
     RecommendationMode,
 )
+from apps.recommend.services.outfit_slots import is_required_outfit_slot
 from apps.recommend.services.qdrant import GOLDEN_ITEM_COLLECTION
 
 
@@ -88,12 +89,15 @@ def _slot_id(template: TemplateItem) -> str:
 
 
 def _outfit_slot(template: TemplateItem) -> OutfitSlot:
+    category_large = _payload_text(template.payload, "category_large")
+    layer_role = _payload_text(template.payload, "layer_role")
     return OutfitSlot(
         slot_id=_slot_id(template),
         template_point_id=template.point_id,
-        category_large=_payload_text(template.payload, "category_large"),
+        category_large=category_large,
         category_small=_payload_text(template.payload, "category_small"),
-        layer_role=_payload_text(template.payload, "layer_role"),
+        layer_role=layer_role,
+        required=is_required_outfit_slot(category_large, layer_role),
     )
 
 
@@ -318,7 +322,8 @@ class CompositionEngine:
                 category_budget = (policy.category_budgets or {}).get(category)
                 price = candidate.price
                 if (
-                    policy.total_budget is not None or category_budget is not None
+                    policy.total_budget is not None
+                    or category_budget is not None
                 ) and price is None:
                     continue
                 if (

@@ -15,6 +15,7 @@ from apps.users.constants import (
     category_keys,
     effective_category_budgets,
 )
+from apps.users.services import profile_image as profile_image_service
 from apps.users.models import (
     BodyMeasurement,
     BodyPhotoTransaction,
@@ -85,7 +86,16 @@ class EmailSignupSerializer(serializers.Serializer):
         return email
 
     def validate_password(self, value: str) -> str:
-        validate_password(value)
+        """이메일과 비슷한 비밀번호까지 걸러낸다.
+
+        `validate_password(value)` 만 부르면 user=None 이라 UserAttributeSimilarityValidator가
+        비교할 대상이 없어 **이메일을 그대로 비밀번호로 써도 통과**한다(앱 가입 화면은
+        "이메일과 비슷하지 않을 것"이라 안내하고 있어 말과 동작이 달랐다).
+        가입 시점에는 아직 저장된 인스턴스가 없으므로, 제출된 이메일만 담은 임시 User로
+        대신한다 — 저장하지 않고 검증에만 쓴다.
+        """
+        email = str(self.initial_data.get("email") or "").strip().lower()
+        validate_password(value, User(email=email) if email else None)
         return value
 
     @transaction.atomic
@@ -175,11 +185,33 @@ class BudgetSerializer(serializers.ModelSerializer):
 
 class UserSerializer(serializers.ModelSerializer):
     social_accounts = SocialAccountSerializer(many=True, read_only=True)
+    # 직접 올린 사진(S3 key)이 있으면 그것을, 없으면 소셜 provider 가 준 URL 을 준다.
+    # 프론트는 예전과 똑같이 profile_image 한 자리만 읽으면 된다.
+    profile_image = serializers.SerializerMethodField()
+    # 프론트가 '기본으로 되돌리기' 를 보여줄지 정하려면 소셜 사진과 구분해야 한다.
+    # presigned URL 을 문자열로 넘겨짚는 것보다 서버가 사실대로 알려주는 편이 정확하다.
+    profile_image_uploaded = serializers.SerializerMethodField()
 
     class Meta:
         model = User
-        fields = ["id", "username", "email", "nickname", "profile_image", "social_accounts"]
+        fields = [
+            "id", "username", "email", "nickname",
+            "profile_image", "profile_image_uploaded", "social_accounts",
+        ]
         read_only_fields = ["id", "username", "email", "social_accounts"]
+
+    def get_profile_image(self, obj: User) -> str:
+        if obj.profile_image_key:
+            # presigned URL 은 만료된다(기본 1시간). 오래 캐시하지 말 것.
+            try:
+                return profile_image_service.presigned_get(obj.profile_image_key)
+            except profile_image_service.ProfileImageConfigurationError:
+                # S3 가 설정되지 않은 환경(로컬 등)에서 프로필 조회 자체가 실패하면 안 된다.
+                return obj.profile_image or ""
+        return obj.profile_image or ""
+
+    def get_profile_image_uploaded(self, obj: User) -> bool:
+        return bool(obj.profile_image_key)
 
 
 BODY_BASIC_FIELDS = ["gender", "height", "weight"]

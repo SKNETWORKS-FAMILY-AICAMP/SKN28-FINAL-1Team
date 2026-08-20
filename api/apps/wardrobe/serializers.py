@@ -5,9 +5,11 @@
 """
 from __future__ import annotations
 
+import math
 import os
 import re
 
+from django.conf import settings
 from drf_spectacular.utils import extend_schema_field
 from rest_framework import serializers
 
@@ -299,6 +301,55 @@ class CallbackSerializer(serializers.Serializer):
     items = CallbackItemSerializer(many=True, default=list)
 
 
+class WardrobeReindexCallbackSerializer(serializers.Serializer):
+    """GPU 재인덱싱 워커가 돌려주는 기존 아이템 벡터."""
+
+    item_id = serializers.UUIDField()
+    status = serializers.ChoiceField(choices=["success", "failed"])
+    source_updated_at = serializers.DateTimeField()
+    embedding_version = serializers.CharField(
+        max_length=40,
+        allow_blank=True,
+        default="",
+    )
+    error = serializers.CharField(
+        max_length=2000,
+        allow_blank=True,
+        default="",
+    )
+    image_vector = serializers.ListField(
+        child=serializers.FloatField(),
+        allow_empty=True,
+        default=list,
+    )
+    text_vector = serializers.ListField(
+        child=serializers.FloatField(),
+        allow_empty=True,
+        default=list,
+    )
+
+    def validate(self, attrs):
+        if attrs["status"] != "success":
+            return attrs
+
+        expected_sizes = {
+            "image_vector": settings.QDRANT_IMAGE_VECTOR_DIM,
+            "text_vector": settings.QDRANT_TEXT_VECTOR_DIM,
+        }
+        errors = {}
+        for field, expected_size in expected_sizes.items():
+            vector = attrs[field]
+            if len(vector) != expected_size:
+                errors[field] = f"벡터 차원은 {expected_size}이어야 합니다."
+            elif not all(math.isfinite(value) for value in vector):
+                errors[field] = "벡터 값은 모두 유한한 숫자여야 합니다."
+        if not attrs["embedding_version"]:
+            errors["embedding_version"] = "성공 콜백에는 임베딩 버전이 필요합니다."
+        if errors:
+            raise serializers.ValidationError(errors)
+        return attrs
+
+
 # ── 공유 옷장 (Shared Wardrobe) 시리얼라이저 ─────────────────
 from django.contrib.auth import get_user_model
 from .models import (
@@ -399,7 +450,7 @@ class SharedWardrobeItemSerializer(serializers.ModelSerializer):
 
     @extend_schema_field(serializers.BooleanField())
     def get_reference_eligible(self, obj) -> bool:
-        return evaluate_reference_eligibility(obj).eligible
+        return self._reference_eligibility(obj).eligible
 
     @extend_schema_field(
         serializers.ChoiceField(
@@ -408,7 +459,14 @@ class SharedWardrobeItemSerializer(serializers.ModelSerializer):
         )
     )
     def get_reference_unavailable_reason(self, obj) -> str | None:
-        return evaluate_reference_eligibility(obj).unavailable_reason
+        return self._reference_eligibility(obj).unavailable_reason
+
+    def _reference_eligibility(self, obj):
+        resolved = self.context.get("reference_eligibilities", {})
+        eligibility = resolved.get(str(obj.pk))
+        if eligibility is not None:
+            return eligibility
+        return evaluate_reference_eligibility(obj)
 
 
 class SharedWardrobeJoinSerializer(serializers.Serializer):

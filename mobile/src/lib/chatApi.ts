@@ -126,6 +126,11 @@ export type ApiChatSession = {
   persona_selection_updated_at?: string | null;
 };
 
+export type ApiGuestIdentity = {
+  identity_id: string;
+  expires_at: string;
+};
+
 export type ApiChatRun = {
   id: string;
   session_id: string;
@@ -177,8 +182,26 @@ export function listSessions(): Promise<ApiChatSession[]> {
   return api.get<ApiChatSession[]>(ChatEndpoints.sessions);
 }
 
-export function createSession(mode: ApiChatMode, title?: string): Promise<ApiChatSession> {
-  return api.post<ApiChatSession>(ChatEndpoints.sessions, { mode, ...(title ? { title } : {}) });
+export function ensureGuestIdentity(): Promise<ApiGuestIdentity> {
+  return api.post<ApiGuestIdentity>(ChatEndpoints.guest, undefined, { auth: false });
+}
+
+export async function createSession(
+  mode: ApiChatMode,
+  title?: string,
+  options: { asGuest?: boolean } = {},
+): Promise<ApiChatSession> {
+  const asGuest = options.asGuest === true || !(await getAccessToken());
+  if (asGuest) {
+    await ensureGuestIdentity();
+  }
+  return api.post<ApiChatSession>(
+    ChatEndpoints.sessions,
+    { mode, ...(title ? { title } : {}) },
+    // 화면이 비회원으로 확정한 요청에는 저장소에 남은 오래된 토큰을 절대 섞지 않는다.
+    // 게스트 신원은 바로 위에서 받은 HttpOnly 쿠키로 전달된다.
+    { auth: !asGuest },
+  );
 }
 
 export function renameSession(sessionId: string, title: string): Promise<ApiChatSession> {

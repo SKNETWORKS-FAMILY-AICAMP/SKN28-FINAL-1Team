@@ -68,3 +68,19 @@ export async function pickFromCamera(): Promise<string | null> {
   if (result.canceled || !result.assets[0]) return null;
   return result.assets[0].uri;
 }
+
+/**
+ * 프로필 사진 1장 선택. 원형 아바타로 잘려 나가므로 1:1 크롭을 강제한다 —
+ * 자유 비율로 두면 사용자가 맞춰 둔 구도가 원 안에서 잘려 얼굴이 치우친다.
+ */
+export async function pickProfilePhoto(): Promise<string | null> {
+  if (!(await ensurePermission('library'))) return null;
+  const result = await ImagePicker.launchImageLibraryAsync({
+    mediaTypes: ['images'],
+    allowsEditing: true,
+    aspect: [1, 1],
+    quality: 0.9,
+  });
+  if (result.canceled || !result.assets[0]) return null;
+  return result.assets[0].uri;
+}

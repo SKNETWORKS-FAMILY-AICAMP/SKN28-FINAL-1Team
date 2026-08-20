@@ -6,11 +6,11 @@ import { useColorScheme } from 'react-native';
 import { AnimatedSplashOverlay } from '@/components/animated-icon';
 import { DevReset } from '@/components/dev-reset';
 import { ConfirmProvider, ErrorBoundary, ToastProvider } from '@/components/ui';
-import { useKakaoInviteLink } from '@/hooks/use-kakao-link';
 import { clearLegacyPendingShare } from '@/lib/secureStore';
 import { initSocialSDKs } from '@/lib/socialLogin';
 import { authStore } from '@/state/auth';
 import { likesStore } from '@/state/likes';
+import { lookVoteStore } from '@/state/look-votes';
 import { outfitAnalysisStore } from '@/state/outfit-analysis';
 import { outfitClaimStore } from '@/state/outfit-claim';
 import { prefsStore } from '@/state/prefs';
@@ -19,10 +19,6 @@ SplashScreen.preventAutoHideAsync();
 
 export default function RootLayout() {
   const colorScheme = useColorScheme();
-
-  /* 카카오 초대 카드로 앱이 열리면 초대장 화면으로 보낸다. 최상위에 둬야
-     앱이 꺼져 있다 켜진 경우(getInitialURL)도 놓치지 않는다. */
-  useKakaoInviteLink();
 
   // 앱 시작 시: 소셜 SDK 초기화(카카오/네이버/구글) + 저장된 토큰으로 세션 복원
   useEffect(() => {
@@ -33,6 +29,8 @@ export default function RootLayout() {
     outfitAnalysisStore.bootstrap();
     /* 룩북 피드에서 하트로 담아 둔 룩(위시)을 되살린다 — 서버에 자리가 없어 기기 보관이다. */
     void likesStore.bootstrap();
+    /* 룩에 남긴 좋아요/별로예요 — 룩북 정렬이 이 값을 쓰므로 목록보다 먼저 준비돼야 한다. */
+    void lookVoteStore.bootstrap();
     /* 두 스토어를 구독하므로 뒤에 둔다 — 비로그인 분석의 claim 토큰을 모았다가 로그인 때 넘긴다. */
     outfitClaimStore.bootstrap();
     /* 공유 예약이 서버로 옮겨가기 전(secureStore) 남은 값을 치운다. 아무도 읽지 않지만

@@ -11,6 +11,7 @@ import { Icon, type IconName } from '@/components/icon';
 import { useMultiSelectFilter } from '@/hooks/useMultiSelectFilter';
 import { useRefresh } from '@/hooks/use-refresh';
 import { LOOKBOOK_FILTER_OPTIONS, lookbookStore, useLookbook } from '@/state/lookbook';
+import { useLookVotes } from '@/state/look-votes';
 import type { LookGenderFilter } from '@/lib/discoveryLookApi';
 import { likesStore, useLikedLooks } from '@/state/likes';
 import { savedLookStore, useSavedLooks, useSavedLooksState, type LookOrigin } from '@/state/saved';
@@ -18,6 +19,9 @@ import { router, useLocalSearchParams } from 'expo-router';
 import { withReturn } from '@/lib/goBack';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
+  ActivityIndicator,
+  type NativeScrollEvent,
+  type NativeSyntheticEvent,
   Pressable,
   RefreshControl,
   ScrollView,
@@ -54,6 +58,20 @@ const MODE_OPTIONS: { value: Mode; label: string }[] = [
  * 둘러보기 칩과 달리 **한 번에 하나만** 켜진다(같은 룩이 양쪽에 서지 않으므로 겹쳐 볼 이유가 없다).
  */
 type MineTab = 'uploaded' | 'wish';
+/**
+ * 그리드를 한 번에 다 그리지 않고 이만큼씩 늘려 간다.
+ *
+ * 커버 한 장이 1080x1350 PNG 로 평균 2MB 라, 138건을 한 화면에 다 걸면 100MB 를
+ * 내려받기 시작한다. 폰에서는 수십 초 동안 빈 칸으로 남아 '사진이 안 뜬다'로 보인다.
+ * 목록 JSON 자체는 0.3MB 로 가벼우니 **받는 건 그대로 두고 그리는 것만** 창으로 자른다
+ * (필터·검색은 전체 목록 위에서 걸리므로 결과가 달라지지 않는다).
+ *
+ * 근본 해결은 서버가 목록용 썸네일을 주는 것이다. 그때 이 창을 넓히거나 걷어내면 된다.
+ */
+const GRID_PAGE = 8;
+/** 바닥에서 이만큼 남았을 때 다음 묶음을 그린다 — 스크롤이 멈추기 전에 채워지도록. */
+const GRID_PREFETCH_PX = 600;
+
 const UPLOADED = '올린 룩';
 const WISH = '위시';
 const MINE_CHIPS = [UPLOADED, WISH];
@@ -200,7 +218,53 @@ export default function LookbookScreen() {
     [allLooks, gender, selected, query],
   );
 
-  const cards: CardData[] = !isMine ? feedCards : mineTab === 'wish' ? wishCards : uploadedCards;
+  /* '별로예요' 한 룩은 목록 뒤로 민다 — **지우지는 않는다.** 마음이 바뀌거나 비슷한 룩을
+     다시 찾아볼 수 있는데, 목록에서 사라지면 되돌릴 길이 없다.
+     좋아요는 순서를 건드리지 않는다: 위로 끌어올리면 이미 본 룩으로 앞이 채워져
+     '둘러보기'가 아니라 '다시 보기'가 된다. */
+  const votes = useLookVotes();
+  const cards: CardData[] = useMemo(() => {
+    const base = !isMine ? feedCards : mineTab === 'wish' ? wishCards : uploadedCards;
+    const disliked = (card: CardData) => votes[card.variantId ?? card.id] === 'down';
+    // 하나도 없으면 원래 배열을 그대로 돌려준다(새 배열을 만들면 아래 memo 들이 헛돈다).
+    if (!base.some(disliked)) return base;
+    return [...base.filter((card) => !disliked(card)), ...base.filter(disliked)];
+  }, [isMine, mineTab, feedCards, wishCards, uploadedCards, votes]);
+
+  /* 지금 그리는 카드 수. 갈래·필터·검색이 바뀌면 목록이 통째로 달라지므로 처음으로 되돌린다
+     (안 그러면 새 목록을 이전 스크롤만큼 펼친 채 시작해 이미지를 또 왕창 받는다). */
+  const [shown, setShown] = useState(GRID_PAGE);
+  /* 스크롤 영역의 높이. 아래 '화면을 다 못 채웠으면 더 그린다' 판정에 쓴다. */
+  const [gridH, setGridH] = useState(0);
+  const selectedKey = selected.join('|');
+  useEffect(() => {
+    setShown(GRID_PAGE);
+  }, [mode, mineTab, gender, query, selectedKey]);
+
+  const visibleCards = useMemo(() => cards.slice(0, shown), [cards, shown]);
+  const hasMore = shown < cards.length;
+
+  /* 바닥 근처에 닿으면 다음 묶음을 그린다. onEndReached 가 없는 ScrollView 라 직접 잰다. */
+  /* 넓은 화면에서는 한 줄에 여러 장이 들어가 GRID_PAGE 장으로 화면이 안 찬다.
+     그러면 스크롤이 생기지 않아 다음 묶음을 부를 계기도 없어진다 — 스피너만 남는다.
+     내용이 화면보다 짧으면 찰 때까지 늘린다(hasMore 가 꺼지면 자연히 멈춘다). */
+  const onGridContentSize = useCallback(
+    (_w: number, h: number) => {
+      /* 여기서는 프리페치 여유(GRID_PREFETCH_PX)를 더하지 않는다 — 그걸 더하면 폰에서도
+         첫 화면이 한 묶음 더 늘어 받는 양이 두 배가 된다. 순수하게 '화면이 안 찼는가'만 본다. */
+      if (hasMore && gridH > 0 && h <= gridH) setShown((n) => n + GRID_PAGE);
+    },
+    [hasMore, gridH],
+  );
+
+  const onGridScroll = useCallback(
+    (e: NativeSyntheticEvent<NativeScrollEvent>) => {
+      const { contentOffset, layoutMeasurement, contentSize } = e.nativeEvent;
+      const remaining = contentSize.height - (contentOffset.y + layoutMeasurement.height);
+      if (remaining <= GRID_PREFETCH_PX) setShown((n) => n + GRID_PAGE);
+    },
+    [],
+  );
 
   /** 서버에서 오는 목록을 보고 있는가 — 로딩·에러·당겨서 새로고침은 그때만 뜬다. */
   const usesServer = isMine;
@@ -250,6 +314,11 @@ export default function LookbookScreen() {
         <ScrollView
           style={styles.gridScroll}
           showsVerticalScrollIndicator={false}
+          onScroll={onGridScroll}
+          /* 16 이면 매 프레임 — 스크롤 중 한 번은 재야 바닥 전에 채워진다. */
+          scrollEventThrottle={16}
+          onLayout={(e) => setGridH(e.nativeEvent.layout.height)}
+          onContentSizeChange={onGridContentSize}
           refreshControl={
             usesServer ? (
               <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={INK} />
@@ -284,7 +353,8 @@ export default function LookbookScreen() {
               )}
             </View>
           ) : (
-            cards.map((c) => (
+            <>
+              {visibleCards.map((c) => (
               <Pressable
                 key={c.id}
                 style={[styles.card, { width: cardW }]}
@@ -336,7 +406,14 @@ export default function LookbookScreen() {
                   ) : null}
                 </View>
               </Pressable>
-            ))
+              ))}
+              {/* 아래로 더 있다는 신호. 빈 칸으로 두면 '여기가 끝'으로 읽힌다. */}
+              {hasMore ? (
+                <View style={styles.gridMore}>
+                  <ActivityIndicator size="small" color={ink(0.4)} />
+                </View>
+              ) : null}
+            </>
           )}
         </ScrollView>
 
@@ -389,6 +466,8 @@ const styles = StyleSheet.create({
   },
   // width/height 는 창 폭에서 파생되므로 컴포넌트에서 인라인으로 덧붙인다.
   card: { marginBottom: 12 },
+  /* 그리드가 flexWrap 이라 가로 전체를 차지해야 자기 줄에 선다. */
+  gridMore: { width: '100%', alignItems: 'center', paddingVertical: 18 },
   cardImage: {
     width: '100%',
     borderRadius: GridCard.radius,

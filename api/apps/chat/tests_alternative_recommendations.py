@@ -9,6 +9,7 @@ from apps.chat.services import identity as identity_service
 from apps.chat.services import orchestrator, sessions
 from apps.chat.services.alternative_recommendations import (
     AlternativeRecommendationNotReady,
+    mark_alternative_processing_failed,
     prepare_alternative_recommendation,
 )
 from apps.recommend.models import RecommendationResult
@@ -84,6 +85,54 @@ class AlternativeRecommendationStateTests(TestCase):
                 run_id=self.run.pk,
                 persona_id="practical",
             )
+
+    def test_start_locks_run_without_nullable_outer_join(self) -> None:
+        prepared = prepare_alternative_recommendation(
+            run_id=self.run.pk,
+            persona_id="minimal",
+        )
+
+        started_run, started_execution = (
+            orchestrator.ChatOrchestrator._start_persona_alternative(
+                run_id=prepared.run_id,
+                persona_id=prepared.persona_id,
+                source_result_id=prepared.source_result_id,
+                generation=prepared.generation,
+            )
+        )
+
+        self.assertEqual(started_run.status, ChatRun.Status.RUNNING)
+        self.assertEqual(
+            started_execution.alternative_status,
+            ChatRunPersona.AlternativeStatus.RUNNING,
+        )
+
+    def test_worker_failure_restores_current_card_and_terminal_state(self) -> None:
+        prepare_alternative_recommendation(
+            run_id=self.run.pk,
+            persona_id="minimal",
+        )
+
+        recovered = mark_alternative_processing_failed(
+            run_id=self.run.pk,
+            persona_id="minimal",
+        )
+
+        self.run.refresh_from_db()
+        self.minimal.refresh_from_db()
+        self.current.refresh_from_db()
+        self.assertTrue(recovered)
+        self.assertEqual(self.run.status, ChatRun.Status.SUCCEEDED)
+        self.assertEqual(self.minimal.status, ChatRunPersona.Status.SUCCEEDED)
+        self.assertEqual(
+            self.minimal.alternative_status,
+            ChatRunPersona.AlternativeStatus.FAILED,
+        )
+        self.assertEqual(
+            self.minimal.alternative_error_code,
+            "STYLIST_ALTERNATIVE_FAILED",
+        )
+        self.assertTrue(self.current.is_current)
 
     def test_result_generations_keep_previous_result(self) -> None:
         self.current.is_current = False

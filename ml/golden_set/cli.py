@@ -17,7 +17,11 @@ from .principles import apply_principle_reviews, synthesize_principles
 from .qdrant_index import index_run
 from .review import collect_accepted_claims, create_review_templates
 from .review_manifest import build_review_manifest
+from .review_apply import apply_review_payload
+from .review_intake import prepare_review_run
+from .review_publish import load_review, publish_review
 from .review_sheets import build_review_sheets
+from .style_clusters import build_style_clusters
 
 
 def main() -> None:
@@ -71,6 +75,48 @@ def main() -> None:
         "--analysis",
         type=Path,
         help="golden_id별 관찰·claim·최소 수정 JSONL. 미리 채워 둔 내용",
+    )
+
+    intake = subparsers.add_parser(
+        "prepare-review-run",
+        help="검수자에게 받은 파일을 run 디렉터리로 들인다 (스키마 변환 + 2인 병합)",
+    )
+    intake.add_argument("--run-dir", type=Path, required=True)
+    intake.add_argument(
+        "--analysis",
+        type=Path,
+        required=True,
+        help="검수표를 만든 analysis.jsonl (스킬 산출)",
+    )
+    for name, help_text in (
+        ("observation", "관찰 검수표"),
+        ("claim", "claim 검수표"),
+        ("pairwise", "쌍대 비교표"),
+    ):
+        intake.add_argument(
+            f"--{name}",
+            type=Path,
+            action="append",
+            default=[],
+            metavar="CSV",
+            help=f"{help_text} (검수자마다 하나씩, 반복 지정)",
+        )
+
+    style_clusters = subparsers.add_parser(
+        "style-clusters",
+        help="스타일 라벨로 clusters.jsonl 생성 (이미지 임베딩 없이)",
+    )
+    style_clusters.add_argument("--run-dir", type=Path, required=True)
+    style_clusters.add_argument("--metadata-csv", type=Path, required=True)
+    style_clusters.add_argument(
+        "--style-labels",
+        type=Path,
+        help="사람이 채운 style_labels.csv. 비어 있는 style만 메운다",
+    )
+    style_clusters.add_argument(
+        "--out-metadata",
+        type=Path,
+        help="병합 결과를 쓸 경로. 지정하지 않으면 metadata를 건드리지 않는다",
     )
 
     prepare = subparsers.add_parser(
@@ -131,6 +177,35 @@ def main() -> None:
     fit_anchors.add_argument("--pairwise-reviews", type=Path, required=True)
     fit_anchors.add_argument("--observation-reviews", type=Path)
 
+    publish = subparsers.add_parser(
+        "publish-review",
+        help="사람 검수 결과(앵커·승인 이미지)를 S3로 발행 — sha256으로 잇는다",
+    )
+    publish.add_argument("--run-dir", type=Path, required=True)
+    publish.add_argument(
+        "--metadata-csv",
+        type=Path,
+        required=True,
+        help="정규화 golden_id ↔ image_sha256 대응표 (review-manifest 산출)",
+    )
+    publish.add_argument(
+        "--dry-run", action="store_true", help="올리지 않고 요약만 출력"
+    )
+
+    apply_review = subparsers.add_parser(
+        "apply-review",
+        help="재임베딩 없이 코디 payload에만 검수 결과 반영 (GPU 불필요)",
+    )
+    apply_review.add_argument(
+        "--human-review",
+        type=Path,
+        help="검수 결과 JSON 경로. 생략하면 S3에서 읽는다 (개발용 우회)",
+    )
+    apply_review.add_argument("--limit", type=int, help="처리할 최대 코디 수 (시험용)")
+    apply_review.add_argument(
+        "--dry-run", action="store_true", help="쓰지 않고 대상 건수만 출력"
+    )
+
     synthesize = subparsers.add_parser(
         "synthesize-principles",
         help="2인 승인 claim만으로 조건부 원칙 초안 합성",
@@ -138,6 +213,16 @@ def main() -> None:
     synthesize.add_argument("--run-dir", type=Path, required=True)
     synthesize.add_argument("--observation-reviews", type=Path, required=True)
     synthesize.add_argument("--claim-reviews", type=Path, required=True)
+    synthesize.add_argument(
+        "--provider",
+        choices=["gemini", "openai"],
+        default="gemini",
+        help="원칙 합성에 쓸 LLM. openai는 OPENAI_API_KEY를 읽는다",
+    )
+    synthesize.add_argument(
+        "--model",
+        help="공급자 기본 모델을 덮어쓴다 (캐시 키는 GOLDEN_GEMINI_MODEL을 따른다)",
+    )
 
     finalize = subparsers.add_parser(
         "finalize",
@@ -212,6 +297,35 @@ def main() -> None:
         for unknown in summary["unknown_styles"]:
             print(f"[taxonomy 밖 값] {unknown}")
         print(f"요약: {summary['out_dir'] / 'inventory_summary.md'}")
+    elif args.command == "prepare-review-run":
+        result = prepare_review_run(
+            run_dir=args.run_dir,
+            analysis_jsonl=args.analysis,
+            observation_csvs=args.observation,
+            claim_csvs=args.claim,
+            pairwise_csvs=args.pairwise,
+        )
+        print(f"분석 초안: {result.num_analyses}건 → {result.run_dir / 'analyses.jsonl'}")
+        for name, count in result.counts.items():
+            labels = ", ".join(result.reviewers.get(name, []))
+            print(f"{name}: {count}행 (검수자 {labels})")
+    elif args.command == "style-clusters":
+        report = build_style_clusters(
+            run_dir=args.run_dir,
+            metadata_csv=args.metadata_csv,
+            style_labels_csv=args.style_labels,
+            out_metadata_csv=args.out_metadata,
+        )
+        merge = report.get("merge")
+        if merge:
+            print(f"라벨 {merge['num_labels']}건 중 {merge['num_filled']}건을 채웠다")
+        print(f"묶음 {report['num_clusters']}개 → {report['clusters_jsonl']}")
+        for name, size in sorted(
+            report["cluster_sizes"].items(), key=lambda kv: -kv[1]
+        ):
+            print(f"   {name:<10} {size}장")
+        if report["metadata_csv"] if "metadata_csv" in report else None:
+            print(f"병합 metadata: {report['metadata_csv']}")
     elif args.command == "prepare":
         run_dir = args.run_dir or settings.run_dir
         if args.input_dir is not None:
@@ -277,12 +391,56 @@ def main() -> None:
             run_dir=args.run_dir,
         )
         print(f"점수 앵커: {len(anchors)}건")
+    elif args.command == "publish-review":
+        key, payload = publish_review(
+            run_dir=args.run_dir,
+            metadata_csv=args.metadata_csv,
+            settings=settings,
+            dry_run=args.dry_run,
+        )
+        print(f"코디 {payload['num_images']}건 "
+              f"(검수 통과 {payload['num_verified']} / 앵커 {payload['num_anchored']})")
+        if payload["unmatched_golden_ids"]:
+            print(f"sha256 미확인: {len(payload['unmatched_golden_ids'])}건")
+        if args.dry_run:
+            print(f"dry-run: 올리지 않았습니다. 대상 키 = {key}")
+        else:
+            print(f"발행: s3://{settings.s3_bucket}/{key}")
+    elif args.command == "apply-review":
+        review = load_review(settings=settings, local_path=args.human_review)
+        summary = apply_review_payload(
+            settings=settings,
+            review=review,
+            dry_run=args.dry_run,
+            limit=args.limit,
+        )
+        print(
+            f"S3 코디 {summary['num_manifests']}건 / 검수 {summary['num_reviews_loaded']}건 "
+            f"→ 일치 {summary['num_matched']}건"
+        )
+        if summary["applied"]:
+            print(f"payload 갱신: {summary['num_updated']}건")
+            print(f"검수 키 제거: {summary['num_cleared']}건")
+            if summary["num_not_indexed"]:
+                print(f"미적재라 반영 못 함: {summary['num_not_indexed']}건")
+        else:
+            print(f"dry-run: 쓰지 않았습니다 (제거 대상 후보 {summary['num_cleared_candidates']}건)")
     elif args.command == "synthesize-principles":
+        client = None
+        if args.provider == "openai":
+            from .openai_client import OpenAIPrincipleClient
+
+            client = OpenAIPrincipleClient(
+                model=args.model,
+                timeout_seconds=settings.gemini_timeout_seconds,
+            )
+            print(f"공급자: openai ({client.model})")
         principles = synthesize_principles(
             run_dir=args.run_dir,
             observation_reviews_csv=args.observation_reviews,
             claim_reviews_csv=args.claim_reviews,
             settings=settings,
+            client=client,
         )
         print(f"원칙 초안: {len(principles)}건")
         print(f"원칙 검수표: {args.run_dir / 'principle_reviews.template.csv'}")

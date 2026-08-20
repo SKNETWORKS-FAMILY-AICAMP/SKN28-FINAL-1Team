@@ -268,6 +268,7 @@ function toItems(sample: Sample, cardId: string): ApiRecommendationItem[] {
     price_snapshot: it.price,
     purchase_url: null,
     reasons: [],
+    note: '',
   }));
 }
 

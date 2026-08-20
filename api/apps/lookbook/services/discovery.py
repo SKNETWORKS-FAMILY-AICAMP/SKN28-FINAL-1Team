@@ -4,12 +4,14 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from django.db.models import Q
+from django.db.models import Case, IntegerField, Q, Value, When
 
 from apps.catalog.models import NaverProduct
 from apps.lookbook.models import CuratedLook, CuratedLookItem
+from apps.wardrobe.taxonomy import CATEGORY_LARGE
 
 MAX_RELATED = 3
+MIN_RELATED_KEYWORD_MATCHES = 2
 
 
 @dataclass(frozen=True)
@@ -24,6 +26,7 @@ class DiscoveryQuery:
 def _product(product: NaverProduct) -> dict:
     return {
         "id": str(product.naver_product_id),
+        "category_large": product.category_large,
         "name": product.title,
         "brand": product.brand or product.mall_name or "네이버쇼핑",
         "image": product.image_url or "",
@@ -34,17 +37,35 @@ def _product(product: NaverProduct) -> dict:
 
 
 def _related(item: CuratedLookItem) -> list[dict]:
-    words = [word for word in item.related_keyword.split() if len(word) >= 2]
-    query = Q()
-    for word in words:
-        query |= Q(title__icontains=word)
-    if not query:
+    slot = item.slot.strip()
+    if slot not in CATEGORY_LARGE:
         return []
+
+    words = tuple(
+        dict.fromkeys(
+            word.strip()
+            for word in item.related_keyword.split()
+            if len(word.strip()) >= 2
+        )
+    )
+    if len(words) < MIN_RELATED_KEYWORD_MATCHES:
+        return []
+
+    keyword_matches = Value(0, output_field=IntegerField())
+    for word in words:
+        keyword_matches += Case(
+            When(title__icontains=word, then=Value(1)),
+            default=Value(0),
+            output_field=IntegerField(),
+        )
+
     products = (
-        NaverProduct.objects.filter(query, lprice__gt=0)
+        NaverProduct.objects.filter(category_large=slot, lprice__gt=0)
         .exclude(image_url__isnull=True)
         .exclude(image_url="")
-        .order_by("lprice", "id")[:MAX_RELATED]
+        .annotate(keyword_matches=keyword_matches)
+        .filter(keyword_matches__gte=MIN_RELATED_KEYWORD_MATCHES)
+        .order_by("-keyword_matches", "lprice", "id")[:MAX_RELATED]
     )
     return [_product(product) for product in products]
 
@@ -52,19 +73,11 @@ def _related(item: CuratedLookItem) -> list[dict]:
 def _look(look: CuratedLook) -> dict:
     items = []
     for source in look.items.all():
-        original_product = {
-            "id": f"original-{source.pk}",
-            "name": source.name,
-            "brand": source.brand or "네이버쇼핑",
-            "image": source.image_url,
-            "price": source.price,
-            "mall_name": "네이버쇼핑 · 원본",
-            "link": source.product_url,
-        }
         items.append(
             {
                 "id": f"curated-{source.pk}",
                 "slot": source.slot,
+                "category_large": source.slot.strip(),
                 "category_small": source.related_keyword,
                 "name": source.name,
                 "brand": source.brand or "네이버쇼핑",
@@ -72,7 +85,7 @@ def _look(look: CuratedLook) -> dict:
                 "price": source.price,
                 "mall_name": "네이버쇼핑",
                 "link": source.product_url,
-                "similar_products": [original_product, *_related(source)],
+                "similar_products": _related(source),
             }
         )
     return {

@@ -9,6 +9,8 @@ import {
   StyleSheet,
   Text,
   TextInput,
+  type NativeSyntheticEvent,
+  type TextInputKeyPressEventData,
   View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -21,6 +23,7 @@ import { Icon } from '@/components/icon';
 import { SmartImage, useToast } from '@/components/ui';
 import { ContentMax, Editorial, Fonts, ink, Type } from '@/constants/theme';
 import { useBreakpoint } from '@/hooks/use-breakpoint';
+import { shouldSubmitChatInputOnKeyPress } from '@/lib/chatInput';
 import { pickOutfitPhoto } from '@/lib/pickItemPhoto';
 import type { StylistId } from '@/lib/stylistApi';
 import {
@@ -36,6 +39,17 @@ const INK = Editorial.ink;
 const BONE = Editorial.bone;
 
 const QUICK = ['더 캐주얼하게', '다른 색으로', '아우터 추천', '신발만 바꿔줘'];
+
+type WebTextInputKeyPressEvent = NativeSyntheticEvent<
+  TextInputKeyPressEventData & {
+    isComposing?: boolean;
+    keyCode?: number;
+    shiftKey?: boolean;
+  }
+> & {
+  keyCode?: number;
+  shiftKey?: boolean;
+};
 
 /** 사이드 패널에서 쓰는 시작 인사 — 넓은 화면에선 옷장을 보며 바로 물어보는 흐름이다. */
 const PANEL_SEED: ChatMessage[] = [
@@ -221,6 +235,21 @@ export function ChatConversation({
       setTyping(false);
       scrollToEnd();
     }
+  };
+
+  const handleInputKeyPress = (event: NativeSyntheticEvent<TextInputKeyPressEventData>) => {
+    const webEvent = event as WebTextInputKeyPressEvent;
+    const { nativeEvent } = webEvent;
+    const shouldSubmit = shouldSubmitChatInputOnKeyPress(Platform.OS, {
+      key: nativeEvent.key,
+      shiftKey: webEvent.shiftKey ?? nativeEvent.shiftKey,
+      isComposing: nativeEvent.isComposing,
+      keyCode: webEvent.keyCode ?? nativeEvent.keyCode,
+    });
+    if (!shouldSubmit) return;
+
+    event.preventDefault();
+    void send();
   };
 
   /**
@@ -502,9 +531,20 @@ export function ChatConversation({
              답변인 척하면 실패한 것을 답으로 읽게 된다. */
           if (m.kind === 'error') {
             return (
-              <View key={m.id} style={styles.errorRow}>
-                <Icon name="exclamationmark.triangle" tintColor={Editorial.wine} size={13} />
-                <Text style={styles.errorText}>{m.text}</Text>
+              <View key={m.id} style={styles.errorBlock}>
+                <View style={styles.errorRow}>
+                  <Icon name="exclamationmark.triangle" tintColor={Editorial.wine} size={13} />
+                  <Text style={styles.errorText}>{m.text}</Text>
+                </View>
+                {m.action === 'OPEN_WARDROBE' ? (
+                  <Pressable
+                    style={styles.errorCta}
+                    onPress={() => router.push('/(tabs)/closet')}
+                    accessibilityRole="button">
+                    <Icon name="plus" tintColor="#fff" size={13} />
+                    <Text style={styles.errorCtaText}>옷장에 옷 추가하기</Text>
+                  </Pressable>
+                ) : null}
               </View>
             );
           }
@@ -534,6 +574,8 @@ export function ChatConversation({
                 onAlternative={(personaId) => alternativeCard(m.runId, personaId)}
                 onRetry={(personaId) => retryCard(m.runId, personaId)}
                 onRenderRetry={(personaId) => retryCardRender(m.runId, personaId)}
+                wardrobeBased={session?.mode === 'closet'}
+                onOpenWardrobe={() => router.push('/(tabs)/closet')}
               />
             );
           }
@@ -544,17 +586,25 @@ export function ChatConversation({
               </View>
               <View style={styles.aiCol}>
                 {m.kind === 'rec' ? (
-                  /* 눌러서 상세로 — 구매 링크·선택 근거·코디 이미지·피드백은 그쪽에 있다.
-                     (/look-detail 은 목업이라 쓰지 않는다. 방금 받은 추천과 상관없는 룩이 열린다.) */
-                  <Pressable
-                    style={styles.recCard}
-                    onPress={() =>
-                      router.push({
-                        pathname: '/rec-card',
-                        params: { resultId: m.resultId, cardId: m.cardId },
-                      })
-                    }>
-                    <View style={styles.recBody}>
+                  <View style={styles.recGroup}>
+                    {/* 눌러서 상세로 — 구매 링크·코디 이미지·피드백은 그쪽에 있다.
+                        (/look-detail 은 목업이라 쓰지 않는다. 방금 받은 추천과 상관없는 룩이 열린다.) */}
+                    <Pressable
+                      style={styles.recCard}
+                      onPress={() =>
+                        router.push({
+                          pathname: '/rec-card',
+                          params: {
+                            resultId: m.resultId,
+                            cardId: m.cardId,
+                            /* 돌아올 자리를 함께 넘긴다 — 안 넘기면 상세가 기본값인 대화 '목록'으로
+                               되돌려, 보고 있던 대화방을 한 칸 더 지나친다.
+                               (패널에서 연 대화는 sessionId 가 없어 목록으로 두는 게 맞다) */
+                            ...(activeId ? { from: `/chat-room?id=${activeId}` } : {}),
+                          },
+                        })
+                      }>
+                      <View style={styles.recBody}>
                       <Text style={styles.recTitle}>{m.title}</Text>
                       {/* 공유 옷을 참고했으면 무엇과 비슷한 것인지 먼저 말한다.
                           참고 안 한 추천은 배지가 null 이라 아무것도 안 그린다. */}
@@ -601,18 +651,16 @@ export function ChatConversation({
                         </Text>
                       ) : null}
 
-                      {m.warnings.map((w) => (
-                        <Text key={w} style={styles.recWarning}>
-                          {w}
-                        </Text>
-                      ))}
-
                       <View style={styles.recCta}>
                         <Text style={styles.recCtaText}>코디 자세히 보기</Text>
                         <Icon name="chevron.right" tintColor={INK} size={12} />
                       </View>
-                    </View>
-                  </Pressable>
+                      </View>
+                    </Pressable>
+                    {m.rationale ? (
+                      <Text style={styles.recRationale}>{m.rationale}</Text>
+                    ) : null}
+                  </View>
                 ) : m.kind === 'mood' ? (
                   <View style={styles.moodCard}>
                     <Text style={styles.moodLead}>사진에서 이런 무드가 보여요</Text>
@@ -782,6 +830,7 @@ export function ChatConversation({
             placeholderTextColor={ink(0.35)}
             multiline
             numberOfLines={1}
+            onKeyPress={Platform.OS === 'web' ? handleInputKeyPress : undefined}
           />
           <Pressable
             style={[styles.sendBtn, text.trim().length > 0 && styles.sendBtnOn]}
@@ -821,14 +870,28 @@ const styles = StyleSheet.create({
   aiCol: { flex: 1, gap: 10 },
 
   /* 아바타 자리(30) + 간격(8)만큼 들여 코지 말풍선과 왼쪽 선을 맞춘다. */
-  errorRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
+  errorBlock: {
+    gap: 9,
     paddingLeft: 38,
     maxWidth: '90%',
+    alignItems: 'flex-start',
+  },
+  errorRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 6,
   },
   errorText: { flex: 1, fontSize: Type.caption, color: Editorial.wine, lineHeight: 18 },
+  errorCta: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    minHeight: 36,
+    paddingHorizontal: 14,
+    borderRadius: 999,
+    backgroundColor: Editorial.cta,
+  },
+  errorCtaText: { fontSize: Type.caption, color: '#fff', fontWeight: '600' },
   avatar: {
     width: 30,
     height: 30,
@@ -876,6 +939,7 @@ const styles = StyleSheet.create({
   },
 
   // 추천 카드
+  recGroup: { alignSelf: 'stretch', gap: 8 },
   recCard: {
     alignSelf: 'stretch',
     borderWidth: 1,
@@ -907,8 +971,8 @@ const styles = StyleSheet.create({
   recItemMeta: { fontSize: Type.micro, color: Editorial.textCaption },
 
   recTotal: { fontSize: Type.caption, fontWeight: '600', color: INK },
-  /* 서버가 붙이는 주의 문구(예: 예산 초과). 경고색은 쓰되 문장은 서버 말을 그대로 보여준다. */
-  recWarning: { fontSize: Type.caption, color: Editorial.wine },
+  /* 카드 아래는 왜 이 룩이 사용자에게 맞는지만 설명한다. 아이템별 선택 이유는 상세로 분리한다. */
+  recRationale: { fontSize: Type.footnote, color: Editorial.textSoft, lineHeight: 20 },
   /* 무드 태그는 최대 5개라 한 줄을 넘길 수 있다 — 넘치면 잘리지 않고 줄바꿈으로 받는다. */
   recTags: { flexDirection: 'row', flexWrap: 'wrap', gap: 6 },
   recTag: {

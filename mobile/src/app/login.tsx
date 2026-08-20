@@ -20,7 +20,12 @@ import { APPLE_LOGIN_ENABLED } from '@/constants/config';
 import { Editorial, ink, Fonts , ContentMax} from '@/constants/theme';
 import { useBreakpoint } from '@/hooks/use-breakpoint';
 import { useSocialLogin } from '@/hooks/use-social-login';
-import { emailAuthErrorMessage, loginWithEmail } from '@/lib/emailAuth';
+import {
+  emailAuthErrorMessage,
+  isEmailUnverifiedError,
+  loginWithEmail,
+  resendVerificationEmail,
+} from '@/lib/emailAuth';
 import type { SocialLoginResult } from '@/lib/socialLogin';
 import { authStore } from '@/state/auth';
 
@@ -76,6 +81,22 @@ export default function Login() {
         goAfterLogin();
       }
     } catch (error) {
+      /* 가입은 했는데 메일 인증을 안 끝낸 경우 — 안내만 띄우면 인증하러 갈 길이 없다.
+         (인증 화면은 가입 직후 한 번만 열리는 자리였다) 코드를 새로 보내고 그 화면으로 보낸다. */
+      if (isEmailUnverifiedError(error)) {
+        toast('이메일 인증이 남아 있어요. 인증 코드를 보낼게요', { variant: 'error' });
+        /* 재발송이 실패해도(예: 60초 제한) 화면은 열어 준다 — 이미 받은 코드가 있을 수 있고,
+           그 화면에도 재발송 버튼이 있다. */
+        const sent = await resendVerificationEmail(email.trim().toLowerCase()).catch(() => null);
+        router.push({
+          pathname: '/email-verification',
+          params: {
+            email: email.trim().toLowerCase(),
+            ...(sent?.retry_after ? { retryAfter: String(sent.retry_after) } : {}),
+          },
+        });
+        return;
+      }
       toast(emailAuthErrorMessage(error), { variant: 'error' });
     } finally {
       setEmailPending(false);
