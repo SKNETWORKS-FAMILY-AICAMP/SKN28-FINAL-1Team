@@ -275,6 +275,8 @@ services:
       QDRANT_URL: http://qdrant:6333
       DJANGO_SETTINGS_MODULE: ${DJANGO_SETTINGS_MODULE:-config.settings.prod}
       OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
+      # 이미지 백엔드 키: OUTFIT_RENDER_BACKEND=gemini(기본)면 .env의 GEMINI_API_KEY를,
+      # openrouter면 위 OPENROUTER_API_KEY를 쓴다. 가상 착장은 항상 OpenRouter다.
       SERVICE_NAME: outfit-render-worker
     volumes:
       - ./ml:/ml:ro
