@@ -103,10 +103,16 @@ export default function Login() {
     }
   };
 
-  // 소셜 로그인 성공 시 홈으로. (is_new_user 로 온보딩 분기는 Phase 3에서)
+  /* 소셜 가입 후 첫 로그인도 이메일 가입과 같은 온보딩을 태운다.
+     여기서 갈라 주지 않으면 소셜로 가입한 사람은 체형·추구미를 물어보는 자리가 아예 없다. */
   const onSocial = async (login: () => Promise<SocialLoginResult>) => {
     const result = await login();
-    if (result) goAfterLogin();
+    if (!result) return;
+    if (result.isNewUser) {
+      router.replace({ pathname: '/permissions', params: { onboarding: '1' } });
+      return;
+    }
+    goAfterLogin();
   };
 
   // 비회원 진입: 로그인하지 않은 상태를 확정하고 홈으로. (직전 데모 세션이 남아있어도 정리)
