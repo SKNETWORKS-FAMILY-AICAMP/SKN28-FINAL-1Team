@@ -26,6 +26,10 @@ type HashtagItemManageSheetProps = {
   onDelete?: () => Promise<boolean>;
 };
 
+const ITEM_COLUMNS = 5;
+const ITEM_GAP = 8;
+const ITEM_COPY_HEIGHT = 42;
+
 function sameIds(left: Set<string>, right: Set<string>): boolean {
   return left.size === right.size && [...left].every((id) => right.has(id));
 }
@@ -40,7 +44,9 @@ export function HashtagItemManageSheet({
 }: HashtagItemManageSheetProps) {
   const { width } = useWindowDimensions();
   const sheetWidth = Math.min(width, GridCard.maxWidth);
-  const cardWidth = (sheetWidth - GridCard.pad * 2 - GridCard.gap) / 2;
+  const cardWidth =
+    (sheetWidth - GridCard.pad * 2 - ITEM_GAP * (ITEM_COLUMNS - 1)) / ITEM_COLUMNS;
+  const twoRowHeight = (cardWidth + ITEM_COPY_HEIGHT) * 2 + ITEM_GAP;
   const [initialSelected, setInitialSelected] = useState<Set<string>>(new Set());
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [saving, setSaving] = useState(false);
@@ -130,20 +136,25 @@ export function HashtagItemManageSheet({
             </Pressable>
           </View>
 
-          <TextInput
-            value={name}
-            onChangeText={setName}
-            placeholder="# 없이 해시태그 입력"
-            placeholderTextColor={Editorial.textMuted}
-            maxLength={30}
-            style={styles.nameInput}
-            autoFocus={!hashtag}
-            editable={!saving}
-            accessibilityLabel="해시태그 이름"
-          />
+          <View style={styles.nameInputBar}>
+            <Icon name="magnifyingglass" tintColor={ink(0.35)} size={16} />
+            <TextInput
+              value={name}
+              onChangeText={setName}
+              placeholder="# 없이 해시태그 입력"
+              placeholderTextColor={ink(0.35)}
+              maxLength={30}
+              style={styles.nameInput}
+              autoFocus={!hashtag}
+              editable={!saving}
+              returnKeyType="done"
+              clearButtonMode="while-editing"
+              accessibilityLabel="해시태그 이름"
+            />
+          </View>
 
           <ScrollView
-            style={styles.scroll}
+            style={[styles.scroll, { maxHeight: twoRowHeight }]}
             contentContainerStyle={styles.grid}
             showsVerticalScrollIndicator={false}>
             {items.length === 0 ? (
@@ -168,7 +179,7 @@ export function HashtagItemManageSheet({
                         uri={item.image_url}
                         width="100%"
                         aspectRatio={GridCard.imageRatio}
-                        radius={GridCard.radius - 2}
+                        radius={8}
                       />
                       <View style={[styles.check, active && styles.checkSelected]}>
                         {active ? (
@@ -269,42 +280,49 @@ const styles = StyleSheet.create({
     backgroundColor: Editorial.control,
   },
   scroll: { flexGrow: 0 },
-  nameInput: {
-    height: 46,
+  nameInputBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    height: 44,
     marginBottom: 14,
     paddingHorizontal: 14,
     borderWidth: 1,
     borderColor: Editorial.line,
     borderRadius: 12,
-    fontSize: Type.body,
-    color: Editorial.ink,
     backgroundColor: Editorial.control,
+  },
+  nameInput: {
+    flex: 1,
+    padding: 0,
+    fontSize: 14,
+    color: Editorial.ink,
   },
   grid: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    gap: GridCard.gap,
+    gap: ITEM_GAP,
     paddingBottom: 8,
   },
   card: {
-    padding: 3,
+    padding: 2,
     borderWidth: 1,
     borderColor: 'transparent',
-    borderRadius: GridCard.radius,
+    borderRadius: 10,
   },
   cardSelected: { borderColor: Editorial.selected },
   imageWrap: { position: 'relative' },
   check: {
     position: 'absolute',
-    top: 9,
-    right: 9,
-    width: 24,
-    height: 24,
+    top: 5,
+    right: 5,
+    width: 20,
+    height: 20,
     alignItems: 'center',
     justifyContent: 'center',
     borderWidth: 1.5,
     borderColor: ink(0.28),
-    borderRadius: 12,
+    borderRadius: 10,
     backgroundColor: ink(0.04),
   },
   checkSelected: {
@@ -312,17 +330,17 @@ const styles = StyleSheet.create({
     backgroundColor: Editorial.selected,
   },
   itemName: {
-    marginTop: 8,
-    paddingHorizontal: 3,
-    fontSize: Type.footnote,
+    marginTop: 5,
+    paddingHorizontal: 2,
+    fontSize: Type.micro,
     fontWeight: '600',
     color: Editorial.ink,
   },
   itemMeta: {
-    marginTop: 2,
-    marginBottom: 4,
-    paddingHorizontal: 3,
-    fontSize: Type.micro,
+    marginTop: 1,
+    marginBottom: 3,
+    paddingHorizontal: 2,
+    fontSize: 10,
     color: Editorial.textCaption,
   },
   empty: {
