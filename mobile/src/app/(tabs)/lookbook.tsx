@@ -131,6 +131,7 @@ export default function LookbookScreen() {
     progress: lookbookProgress,
   } = useLookbookLoadState();
   const [displayedLookbookProgress, setDisplayedLookbookProgress] = useState(0);
+  const [lookbookProgressCycleActive, setLookbookProgressCycleActive] = useState(false);
   const savedLooks = useSavedLooks();
   const likedLooks = useLikedLooks();
   const [query, setQuery] = useState('');
@@ -161,6 +162,7 @@ export default function LookbookScreen() {
 
     if (lookbookLoading && lookbookProgress <= 8) {
       setDisplayedLookbookProgress(0);
+      setLookbookProgressCycleActive(true);
     }
 
     const targetProgress = lookbookLoading ? lookbookProgress : 100;
@@ -175,6 +177,15 @@ export default function LookbookScreen() {
 
     return () => clearInterval(timer);
   }, [lookbookLoading, lookbookProgress]);
+
+  useEffect(() => {
+    if (lookbookLoading || !lookbookProgressCycleActive || displayedLookbookProgress < 100) {
+      return;
+    }
+
+    const timer = setTimeout(() => setLookbookProgressCycleActive(false), 450);
+    return () => clearTimeout(timer);
+  }, [displayedLookbookProgress, lookbookLoading, lookbookProgressCycleActive]);
 
   /* 모드도 내 룩북 안 갈래도 URL 파라미터에서 파생한다(useState+useEffect 동기화는
      불필요한 리렌더를 만들어 지양). 갈래까지 URL 에 두는 이유는 상세에서 뒤로 왔을 때
@@ -359,7 +370,7 @@ export default function LookbookScreen() {
           contentContainerStyle={[styles.grid, { paddingBottom: 24 }, contentStyle(ContentMax.wide)]}>
           {!isMine &&
           (lookbookLoading ||
-            (lookbookProgress === 100 && displayedLookbookProgress < 100)) ? (
+            lookbookProgressCycleActive) ? (
             <View
               style={styles.empty}
               accessibilityRole="progressbar"
