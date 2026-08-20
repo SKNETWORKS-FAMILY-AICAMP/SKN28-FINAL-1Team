@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import time
+from typing import Any
 from copy import deepcopy
 from dataclasses import dataclass
 
@@ -66,8 +67,61 @@ from apps.chat.services.stylist_execution import (
 from apps.chat.services.stylist_personas import load_stylist_personas
 from apps.chat.services.wardrobe_scope import build_wardrobe_scope_snapshot
 from apps.recommend.models import OutfitComposition, RecommendationResult
+from apps.recommend.services.retriever import retrieve_principles
 
 logger = logging.getLogger(__name__)
+
+
+def _principle_styles_from_payload(approved: dict[str, Any]) -> list[str]:
+    """승인된 코디의 아이템 attributes에서 스타일 값을 모은다.
+
+    코디 자체에는 스타일 필드가 없고 아이템 태그에만 있다. 여러 코디의 스타일을
+    합쳐 한 번만 조회한다 — 코디마다 따로 부르면 Qdrant 호출이 코디 수만큼 늘고,
+    승인된 원칙이 53건뿐이라 그렇게 나눌 실익이 없다.
+    """
+    styles: list[str] = []
+    for outfit in approved.get("compositions", []) or []:
+        for item in outfit.get("items", []) or []:
+            value = (item.get("attributes") or {}).get("style")
+            values = value if isinstance(value, list) else [value]
+            for entry in values:
+                text = str(entry or "").strip()
+                if text and text not in styles:
+                    styles.append(text)
+    return styles
+
+
+def _principle_context(
+    approved: dict[str, Any],
+    current_request: str,
+    conditions: dict[str, Any],
+) -> list[dict[str, Any]]:
+    """설명 LLM에 넘길 원칙 참고 자료. 실패하거나 없으면 빈 목록.
+
+    골든셋은 아직 1차 사이클이라 스타일에 따라 승인된 원칙이 없을 수 있다. 그때
+    추천을 막지 않고 원칙 없이 설명하도록, 여기서 예외를 바깥으로 올리지 않는다.
+    """
+    try:
+        query = " ".join(
+            part
+            for part in (
+                current_request,
+                str(conditions.get("style") or ""),
+                str(conditions.get("occasion") or ""),
+            )
+            if part
+        ).strip()
+        if not query:
+            return []
+        principles = retrieve_principles(
+            query=query,
+            styles=_principle_styles_from_payload(approved),
+            limit=5,
+        )
+        return [principle.as_prompt_context() for principle in principles]
+    except Exception:
+        logger.warning("원칙 조회 실패, 원칙 없이 설명한다.", exc_info=True)
+        return []
 
 
 class ChatOrchestrationError(RuntimeError):
@@ -500,6 +554,11 @@ class ChatOrchestrator:
                             weather=context.payload["weather"],
                             budget=analysis.conditions.budget,
                             conditions=analysis.conditions.model_dump(),
+                            principles=_principle_context(
+                                pipeline_result.approved_payload,
+                                context.payload["current_request"],
+                                analysis.conditions.model_dump(),
+                            ),
                         )
                         usage += explained.usage
                         provider_response_id = explained.response_id

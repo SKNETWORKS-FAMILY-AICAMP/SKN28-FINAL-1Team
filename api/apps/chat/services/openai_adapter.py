@@ -158,6 +158,10 @@ approved_recommendation의 코디마다 같은 outfit_id로 outfits 항목을 �
 rationale은 1~3문장으로 요청 스타일·TPO·날씨·예산 중 입력으로 확인된 사실을 종합해
 룩 전체를 추천한 이유를 설명한다.
 item.note는 한 문장으로 해당 아이템을 고른 이유만 설명하며 룩 전체 rationale을 반복하지 않는다.
+style_principles는 사람이 검수해 승인한 스타일링 원칙이다. 이 코디에 실제로 해당하는 것이
+있으면 rationale에서 그 관계를 근거로 삼는다. 원칙 문장을 그대로 옮기지 말고 이 코디의
+아이템에 맞게 다시 쓴다. 해당하지 않으면 쓰지 않는다. exceptions에 걸리는 코디라면
+그 원칙을 근거로 삼지 않는다. style_principles가 비어 있으면 없는 대로 설명한다.
 아이템의 색상·소재·핏·브랜드·가격·사이즈·세탁법·날씨 적합성은 해당 아이템의
 attributes, price, reasons 또는 validation_reasons에 실제 값이나 근거가 있을 때만 언급한다.
 weather와 conditions는 사용자 요청의 확정된 사실이지만, 특정 아이템의 날씨 적합성을
@@ -280,6 +284,7 @@ class OpenAIChatAdapter:
         weather: dict,
         budget: int | None,
         conditions: dict,
+        principles: list[dict] | None = None,
     ) -> LLMResult[RecommendationExplanation]:
         return self._parse(
             schema=RecommendationExplanation,
@@ -295,6 +300,8 @@ class OpenAIChatAdapter:
                 "budget": budget,
                 "conditions": conditions,
                 "approved_recommendation": approved_recommendation,
+                # 골든셋에서 사람이 승인한 조건부 원칙. 비어 있을 수 있다.
+                "style_principles": principles or [],
             },
         )
 

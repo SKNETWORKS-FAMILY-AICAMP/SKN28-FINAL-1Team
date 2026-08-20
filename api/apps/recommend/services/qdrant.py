@@ -26,6 +26,7 @@ TEXT_VECTOR = "text"
 # 직접 사용하지 않도록 이전 golenset_new 인터페이스도 유지한다.
 GOLDEN_OUTFIT_COLLECTION = settings.QDRANT_GOLDEN_OUTFIT_COLLECTION
 GOLDEN_ITEM_COLLECTION = settings.QDRANT_GOLDEN_ITEM_COLLECTION
+GOLDEN_KNOWLEDGE_COLLECTION = settings.QDRANT_KNOWLEDGE_COLLECTION
 # 기존 feature 브랜치가 직접 참조하던 상수도 유지하되, 컬렉션 이름의 단일
 # 출처는 Django 설정으로 둔다. 환경변수는 settings 로딩 단계에서 반영된다.
 WARDROBE_ITEM_COLLECTION = settings.QDRANT_WARDROBE_COLLECTION

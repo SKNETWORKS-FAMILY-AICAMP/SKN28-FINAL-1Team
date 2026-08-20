@@ -41,6 +41,7 @@ from apps.recommend.services.gender import (
 )
 from apps.recommend.services.qdrant import (
     GOLDEN_ITEM_COLLECTION,
+    GOLDEN_KNOWLEDGE_COLLECTION,
     GOLDEN_OUTFIT_COLLECTION,
     WARDROBE_ITEM_COLLECTION,
     IMAGE_VECTOR,
@@ -56,6 +57,7 @@ from apps.recommend.services.style_rules import (
 )
 from apps.recommend.services.text_embedding import (
     TextEmbeddingClient,
+    TextEmbeddingError,
     get_text_embedding_client,
 )
 
@@ -1068,3 +1070,154 @@ def retrieve_accessible_substitutes(
         allowed_item_ids=accessible_item_ids(user),
         limit=limit,
     )
+
+
+# ── 원칙 검색 (knowledge 컬렉션) ─────────────────────────────
+
+#: 스타일로 좁혔을 때 이만큼도 안 나오면 필터를 푼다. 골든셋 1차 사이클 기준으로
+#: 스타일당 승인 원칙이 1~15건이라, 시크(1건)·아메카지(2건) 같은 스타일은 스타일
+#: 필터만으로는 설명 재료가 부족하다.
+PRINCIPLE_WIDEN_THRESHOLD = 2
+
+
+@dataclass(frozen=True)
+class Principle:
+    """추천 이유를 쓸 때 참고하는 조건부 원칙 한 건.
+
+    사람이 검수해 승인한 문장이지만 그대로 노출하지 않고 LLM 프롬프트의 참고
+    자료로만 넣는다. 문장은 LLM이 상황에 맞게 다시 쓴다.
+    """
+
+    principle_key: str
+    statement: str
+    axis: str
+    styles: tuple[str, ...]
+    exceptions: tuple[str, ...]
+    support_image_count: int
+    score: float
+    widened: bool = False
+
+    def as_prompt_context(self) -> dict[str, Any]:
+        """LLM에 넘길 최소 형태. 내부 식별자와 점수는 빼고 판단 재료만 남긴다."""
+        return {
+            "statement": self.statement,
+            "axis": self.axis,
+            "styles": list(self.styles),
+            "exceptions": list(self.exceptions),
+        }
+
+
+def _principle_filter(styles: Iterable[str]) -> qm.Filter:
+    """승인된 원칙만, 주어진 스타일로 좁힌다.
+
+    status=APPROVED가 핵심이다. DRAFT는 "반례가 더 필요하다"고 검수자가 판단한
+    것이라 설명 근거로 쓰면 안 된다. style은 payload 인덱스가 있어 필터가 가볍다.
+    """
+    must: list[Any] = [
+        qm.FieldCondition(key="status", match=qm.MatchValue(value="APPROVED")),
+        qm.FieldCondition(
+            key="knowledge_type", match=qm.MatchValue(value="golden_principle")
+        ),
+    ]
+    values = sorted({str(value).strip() for value in styles if str(value).strip()})
+    if values:
+        must.append(_any_of("style", values))
+    return qm.Filter(must=must)
+
+
+def _to_principle(record: Any, *, widened: bool) -> Principle:
+    payload = getattr(record, "payload", None) or {}
+    styles = payload.get("style") or []
+    if isinstance(styles, str):
+        styles = [styles]
+    return Principle(
+        principle_key=str(payload.get("principle_key", "")),
+        statement=str(payload.get("statement", "")),
+        axis=str(payload.get("axis") or payload.get("dimension", "")),
+        styles=tuple(str(value) for value in styles),
+        exceptions=tuple(str(value) for value in payload.get("exceptions", []) or []),
+        support_image_count=int(payload.get("support_image_count", 0) or 0),
+        score=float(getattr(record, "score", 0.0) or 0.0),
+        widened=widened,
+    )
+
+
+def retrieve_principles(
+    *,
+    query: str,
+    styles: Iterable[str] = (),
+    limit: int = 5,
+    client=None,
+    embedding_client=None,
+) -> tuple[Principle, ...]:
+    """코디에 붙일 원칙을 찾는다. 없으면 빈 튜플.
+
+    스타일로 먼저 좁히고, 그것만으로 너무 적으면 필터를 풀어 벡터 유사도로만 다시
+    찾는다. 좁힌 결과가 앞이고 넓힌 결과가 뒤다 — 스타일이 맞는 원칙이 늘 더 적절하다.
+
+    **원칙이 하나도 없어도 추천은 진행한다.** 골든셋은 아직 1차 사이클이라 스타일에
+    따라 승인된 원칙이 없을 수 있고, 임베딩 서비스나 Qdrant가 죽어도 추천 자체를
+    막으면 안 된다. 그래서 실패를 예외로 올리지 않고 빈 결과로 돌려준다. 호출자는
+    빈 튜플을 "설명에 참고 자료를 안 넣는다"로만 다루면 된다.
+    """
+    text = (query or "").strip()
+    if not text:
+        return ()
+    try:
+        embedding = (embedding_client or get_text_embedding_client()).embed(text)
+    except TextEmbeddingError:
+        logger.warning("원칙 검색용 질의 임베딩 실패, 원칙 없이 진행한다.", exc_info=True)
+        return ()
+
+    qdrant = client or get_client()
+    vector = list(embedding.vector)
+
+    def _search(search_filter: qm.Filter, count: int) -> list[Any]:
+        # query_points/search 분기는 _fetch와 같다. 최신 qdrant-client는 search를
+        # 없앴고, 구버전은 query_points가 없다.
+        try:
+            if hasattr(qdrant, "query_points"):
+                return qdrant.query_points(
+                    collection_name=GOLDEN_KNOWLEDGE_COLLECTION,
+                    query=vector,
+                    using=TEXT_VECTOR,
+                    query_filter=search_filter,
+                    limit=count,
+                    with_payload=True,
+                ).points
+            return qdrant.search(
+                collection_name=GOLDEN_KNOWLEDGE_COLLECTION,
+                query_vector=(TEXT_VECTOR, vector),
+                query_filter=search_filter,
+                limit=count,
+                with_payload=True,
+            )
+        except Exception:
+            logger.warning("원칙 검색 실패, 원칙 없이 진행한다.", exc_info=True)
+            return []
+
+    style_values = [str(value).strip() for value in styles if str(value).strip()]
+    if not style_values:
+        return tuple(
+            _to_principle(record, widened=True)
+            for record in _search(_principle_filter(()), limit)
+        )
+
+    found = [
+        _to_principle(record, widened=False)
+        for record in _search(_principle_filter(style_values), limit)
+    ]
+    if len(found) >= PRINCIPLE_WIDEN_THRESHOLD:
+        return tuple(found[:limit])
+
+    # 스타일로 좁힌 결과가 부족하다. 필터를 풀어 채우되 중복은 뺀다.
+    seen = {item.principle_key for item in found}
+    for record in _search(_principle_filter(()), limit * 2):
+        principle = _to_principle(record, widened=True)
+        if principle.principle_key in seen:
+            continue
+        found.append(principle)
+        seen.add(principle.principle_key)
+        if len(found) >= limit:
+            break
+    return tuple(found[:limit])
