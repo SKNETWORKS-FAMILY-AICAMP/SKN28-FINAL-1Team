@@ -26,6 +26,9 @@ export type LookPost = {
   createdAt: number;
 };
 
+/** 둘러보기 목록 응답의 룩 한 건. 서버 페이지를 섞고 모으는 자리마다 쓴다. */
+type CuratedLookDto = Awaited<ReturnType<typeof getDiscoveryLooks>>['results'][number];
+
 let curatedLooks: LookPost[] = [];
 let publicLooks: LookPost[] = [];
 let looks: LookPost[] = [];
@@ -76,11 +79,21 @@ export const lookbookStore = {
             return page;
           }),
         );
-        const unique = new Map(pages.flatMap((page) => page.results).map((look) => [look.id, look]));
+        /* 태그별 응답을 그대로 이어 붙이면 앞 태그 룩 수십 장이 먼저 서고 뒤 태그는 한참 아래로
+           밀린다 — 한 룩에 태그는 보통 하나뿐이고 그리드는 8장씩만 그리니, 두 번째 태그를 켜도
+           화면은 그대로인 것처럼 보인다. 태그를 번갈아 한 장씩 꺼내 섞어서 첫 줄부터 같이 선다. */
+        const unique = new Map<string, CuratedLookDto>();
+        const longest = Math.max(0, ...pages.map((page) => page.results.length));
+        for (let index = 0; index < longest; index += 1) {
+          for (const page of pages) {
+            const look = page.results[index];
+            if (look) unique.set(look.id, look);
+          }
+        }
         return [...unique.values()];
       }
 
-      const accumulated = new Map<string, Awaited<ReturnType<typeof getDiscoveryLooks>>['results'][number]>();
+      const accumulated = new Map<string, CuratedLookDto>();
       let offset = 0;
       while (true) {
         const page = await getDiscoveryLooks('', '', gender, 20, offset);
