@@ -96,7 +96,7 @@ export const DAILY_LOOK_ONCE_A_DAY =
  * 오늘의 룩만은 체형·추구미가 바뀌면 그 자리에서 다시 만든다(ensure_today_look).
  */
 export const DAILY_LOOK_EMPTY_RETRY =
-  '체형과 추구미를 채우면 오늘의 룩을 만들어 드려요.';
+  '체형과 추구미를 입력하시면 오늘의 룩을 만들어 드려요.';
 
 /** 아직 결과가 없어 폴링을 계속해야 하는 상태 */
 export function isDailyLookPending(look: DailyLook | null): boolean {
