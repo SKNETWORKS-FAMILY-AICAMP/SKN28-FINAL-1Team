@@ -305,7 +305,7 @@ export default function Calendar() {
               <View style={styles.emptyIcon}>
                 <Icon name="tshirt" tintColor={ink(0.3)} size={26} />
               </View>
-              <Text style={styles.emptyText}>이 날은 기록된 착장이 없어요</Text>
+              <Text style={styles.emptyText}>이 날의 착장을 기록해 보세요</Text>
 
               {/* 이 카드가 뜬 이유는 '이 날 기록이 없어서'다. 그러니 지난 날이든 앞날이든
                   기록하기가 먼저고, 추천은 그다음이다. */}

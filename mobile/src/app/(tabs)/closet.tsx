@@ -653,7 +653,7 @@ export default function ClosetScreen() {
   const emptyTitle = useMemo(() => {
     if (query.trim()) return `'${query.trim()}' 검색 결과가 없어요`;
     if (label !== '전체') return `'${label}' 결과가 없어요`;
-    return tab === 'shared' ? '공유 옷장이 비어있어요' : '옷장이 비어있어요';
+    return tab === 'shared' ? '첫 옷을 공유해 보세요' : '첫 옷을 등록해 보세요';
   }, [query, label, tab]);
 
   const emptyDescription = useMemo(() => {
@@ -661,8 +661,8 @@ export default function ClosetScreen() {
       return '다른 검색어나 카테고리를 선택해 보세요.';
     }
     return tab === 'shared'
-      ? '내 옷을 공유하거나, 친구를 초대해 보세요.'
-      : '첫 아이템을 추가해 옷장을 채워보세요.';
+      ? '내 옷을 올리거나 친구를 초대하면 함께 골라볼 수 있어요.'
+      : '등록해 두면 가진 옷 안에서 코디를 골라드려요.';
   }, [query, label, tab]);
 
   const handleTabChange = (key: ClosetTab) => {

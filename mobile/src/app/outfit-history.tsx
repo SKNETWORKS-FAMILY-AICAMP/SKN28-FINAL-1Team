@@ -89,7 +89,7 @@ export default function OutfitHistoryScreen() {
         ) : items.length === 0 ? (
           <EmptyState
             icon="archivebox"
-            title="아직 분석한 착장이 없어요"
+            title="첫 착장을 분석해 보세요"
             description="사진 한 장이면 잘 어울리는 포인트를 짚어드려요."
             actionLabel="착장 분석하러 가기"
             onAction={() => router.push('/outfit-review')}

@@ -102,8 +102,8 @@ export function ChatRoomView({
         </SafeAreaView>
         <EmptyState
           icon="bubble.left.and.bubble.right"
-          title="이어갈 대화가 없어요"
-          description="추천 방식을 고르면 새 대화를 시작해요."
+          title="첫 대화를 시작해 보세요"
+          description="추천 방식을 고르면 바로 시작할 수 있어요."
           actionLabel="새 채팅 시작하기"
           onAction={() => router.push('/chat-mode')}
         />

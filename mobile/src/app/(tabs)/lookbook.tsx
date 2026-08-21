@@ -329,7 +329,7 @@ export default function LookbookScreen() {
 
   const emptyText = useMemo(() => {
     if (query.trim()) return `'${query.trim()}' 검색 결과가 없어요`;
-    if (isMine) return mineTab === 'wish' ? '아직 담아둔 룩이 없어요' : '아직 올린 룩이 없어요';
+    if (isMine) return mineTab === 'wish' ? '마음에 드는 룩을 담아 보세요' : '첫 룩을 올려 보세요';
     if (selected.length) return `'${label}' 태그 룩이 없어요`;
     return '아직 올라온 룩이 없어요';
   }, [isMine, mineTab, selected, query, label]);

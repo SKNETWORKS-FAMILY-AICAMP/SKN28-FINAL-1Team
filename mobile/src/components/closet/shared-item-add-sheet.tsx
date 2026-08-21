@@ -153,8 +153,8 @@ export function SharedItemAddSheet({
           ) : items.length === 0 ? (
             <View style={styles.center}>
               <Text style={styles.emptyText}>
-                공유할 수 있는 옷이 없어요.{'\n'}
-                태그를 확인한 옷만 공유할 수 있어요.
+                태그를 확인한 옷만 공유할 수 있어요.{'\n'}
+                옷장에서 태그를 확인하고 다시 와 주세요.
               </Text>
             </View>
           ) : (

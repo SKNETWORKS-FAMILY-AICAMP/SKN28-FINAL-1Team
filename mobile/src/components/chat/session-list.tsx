@@ -203,7 +203,7 @@ export function SessionList({
         ) : isEmpty ? (
           <EmptyState
             icon="bubble.left.and.bubble.right"
-            title="아직 대화가 없어요"
+            title="첫 대화를 시작해 보세요"
             description="무엇을 입을지 물어보면 코지가 룩을 골라드려요."
             actionLabel="새 채팅 시작하기"
             onAction={startNew}

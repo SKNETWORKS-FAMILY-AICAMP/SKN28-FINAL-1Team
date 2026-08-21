@@ -137,12 +137,12 @@ export function ItemPickerSheet({
             <View style={styles.state}>
               <Text style={styles.emptyText}>
                 {tab === 'closet'
-                  ? '옷장에 등록한 옷이 없어요.'
+                  ? '옷장에 옷을 등록하면 여기서 고를 수 있어요.'
                   : tab === 'shared'
                     ? /* 방이 없는 것과 방은 있는데 빈 것은 다음 할 일이 다르다 */
                       shared.hasRoom
-                      ? '공유 옷장에 올라온 옷이 없어요.'
-                      : '참여 중인 공유 옷장이 없어요.'
+                      ? '공유 옷장에 옷이 올라오면 여기서 고를 수 있어요.'
+                      : '공유 옷장에 참여하면 함께 고를 수 있어요.'
                     : '고를 수 있는 옷이 없어요.'}
               </Text>
             </View>
