@@ -163,8 +163,8 @@ export function HashtagItemManageSheet({
             {items.length === 0 ? (
               <View style={styles.empty}>
                 <Icon name="tshirt" tintColor={Editorial.textMuted} size={30} />
-                <Text style={styles.emptyTitle}>아직 옷장에 옷이 없어요</Text>
-                <Text style={styles.emptyBody}>옷을 추가한 뒤 해시태그를 붙여보세요.</Text>
+                <Text style={styles.emptyTitle}>옷장에 옷을 먼저 추가해 보세요</Text>
+                <Text style={styles.emptyBody}>옷을 추가하면 여기서 해시태그를 붙일 수 있어요.</Text>
               </View>
             ) : (
               items.map((item) => {

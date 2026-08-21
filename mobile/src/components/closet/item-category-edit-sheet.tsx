@@ -139,8 +139,8 @@ export function ItemHashtagEditSheet({
             ) : hashtags.length === 0 && selected.size === 0 ? (
               <View style={styles.state}>
                 <Icon name="archivebox" tintColor={Editorial.textMuted} size={28} />
-                <Text style={styles.emptyTitle}>아직 해시태그가 없어요</Text>
-                <Text style={styles.stateText}>위 입력창에서 이 옷의 첫 해시태그를 만들어 보세요.</Text>
+                <Text style={styles.emptyTitle}>첫 해시태그를 만들어 보세요</Text>
+                <Text style={styles.stateText}>위 입력창에 이름을 적으면 바로 붙일 수 있어요.</Text>
               </View>
             ) : (
               [...new Set([...selected, ...hashtags.map((hashtag) => hashtag.name)])].map((name) => {

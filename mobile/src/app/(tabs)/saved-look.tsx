@@ -171,8 +171,8 @@ export default function SavedLook() {
         </SafeAreaView>
         <EmptyState
           icon="book"
-          title="저장한 룩이 없어요"
-          description="추천 룩에서 마음에 드는 것을 저장하면 여기에 모여요."
+          title="마음에 드는 룩을 저장해 보세요"
+          description="추천 룩에서 저장하면 여기에 모여요."
           actionLabel="추천 룩 보러 가기"
           onAction={() => router.push('/look-detail')}
         />

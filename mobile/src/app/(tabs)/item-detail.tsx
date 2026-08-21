@@ -461,29 +461,8 @@ export default function ItemDetail() {
                       ))}
                     </View>
                   ) : (
-                    <Text style={styles.categoryEmpty}>아직 붙인 해시태그가 없어요.</Text>
+                    <Text style={styles.categoryEmpty}>해시태그를 붙여 두면 나중에 찾기 쉬워요.</Text>
                   )}
-                </View>
-              ) : null}
-
-              {/* 확인 대기 — 확정 전에는 추천에 쓰이지 않는다는 걸 알려준다 */}
-              {!isReadOnly && !item.confirmed ? (
-                <View style={styles.pending}>
-                  <View style={styles.pendingHead}>
-                    <Icon name="exclamationmark.triangle" tintColor={Editorial.wine} size={15} />
-                    <Text style={styles.pendingText}>
-                      AI가 붙인 태그를 아직 확인하지 않았어요. 확인해야 추천에 함께 쓰여요.
-                    </Text>
-                  </View>
-                  <Pressable
-                    style={[styles.confirmBtn, confirming && styles.confirmBtnOff]}
-                    onPress={onConfirm}
-                    disabled={confirming}>
-                    <Icon name="checkmark" tintColor="#fff" size={14} />
-                    <Text style={styles.confirmText}>
-                      {confirming ? '확인 중…' : '태그가 맞아요'}
-                    </Text>
-                  </Pressable>
                 </View>
               ) : null}
 
@@ -499,16 +478,40 @@ export default function ItemDetail() {
               ) : !isReadOnly ? (
                 <Pressable style={styles.noSpec} onPress={() => setEditing(true)}>
                   <Text style={styles.noSpecText}>
-                    태그가 아직 비어 있어요. 눌러서 채워 주세요.
+                    눌러서 이 옷의 태그를 채워 보세요.
                   </Text>
                 </Pressable>
               ) : null}
 
+              {/* 확인 대기 안내와 두 버튼을 태그 바로 밑에 한 덩어리로 둔다 */}
               {!isReadOnly ? (
-                <Pressable style={styles.editRow} onPress={() => setEditing(true)}>
-                  <Icon name="square.and.pencil" tintColor={ink(0.55)} size={15} />
-                  <Text style={styles.editText}>태그 수정</Text>
-                </Pressable>
+                <View style={!item.confirmed ? styles.pending : styles.tagActions}>
+                  {!item.confirmed ? (
+                    <View style={styles.pendingHead}>
+                      <Icon name="exclamationmark.triangle" tintColor={Editorial.wine} size={15} />
+                      <Text style={styles.pendingText}>
+                        AI가 붙인 태그예요. 확인해야 추천에 쓰여요.
+                      </Text>
+                    </View>
+                  ) : null}
+                  <View style={styles.tagButtons}>
+                    {!item.confirmed ? (
+                      <Pressable
+                        style={[styles.confirmBtn, confirming && styles.confirmBtnOff]}
+                        onPress={onConfirm}
+                        disabled={confirming}>
+                        <Icon name="checkmark" tintColor="#fff" size={14} />
+                        <Text style={styles.confirmText}>
+                          {confirming ? '확인 중…' : '태그가 맞아요'}
+                        </Text>
+                      </Pressable>
+                    ) : null}
+                    <Pressable style={styles.editRow} onPress={() => setEditing(true)}>
+                      <Icon name="square.and.pencil" tintColor={ink(0.55)} size={15} />
+                      <Text style={styles.editText}>태그 수정</Text>
+                    </Pressable>
+                  </View>
+                </View>
               ) : null}
             </View>
           }
@@ -854,6 +857,8 @@ const styles = StyleSheet.create({
   categoryChipText: { fontSize: Type.micro, fontWeight: '600', color: Editorial.ink },
   categoryEmpty: { marginTop: 12, fontSize: Type.caption, color: Editorial.textCaption },
 
+  tagActions: { marginTop: 18 },
+  tagButtons: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
   pending: {
     gap: 12,
     marginTop: 18,
@@ -867,12 +872,11 @@ const styles = StyleSheet.create({
   pendingHead: { flexDirection: 'row', alignItems: 'center', gap: 9 },
   pendingText: { flex: 1, fontSize: 12.5, color: Editorial.wine, lineHeight: 18 },
   confirmBtn: {
-    alignSelf: 'flex-start',
     flexDirection: 'row',
     alignItems: 'center',
     gap: 6,
     paddingHorizontal: 14,
-    height: 36,
+    height: 40,
     borderRadius: 999,
     backgroundColor: Editorial.cta,
   },
@@ -907,8 +911,6 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 7,
-    alignSelf: 'flex-start',
-    marginTop: 18,
     paddingHorizontal: 14,
     height: 40,
     borderRadius: 999,

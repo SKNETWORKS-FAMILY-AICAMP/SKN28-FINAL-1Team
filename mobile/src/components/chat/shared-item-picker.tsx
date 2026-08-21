@@ -222,7 +222,7 @@ export function SharedItemPicker({
               <Text style={styles.emptyText}>
                 {state.failedRooms > 0
                   ? '참고할 수 있는 공유 옷을 불러오지 못했어요.'
-                  : '참고할 수 있는 공유 옷이 없어요.'}
+                  : '공유 옷장에 옷이 올라오면 참고할 수 있어요.'}
               </Text>
             </View>
           ) : (
