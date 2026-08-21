@@ -24,7 +24,7 @@ import type { LookRelated } from '@/constants/today-look';
 import { useBreakpoint } from '@/hooks/use-breakpoint';
 import { useDailyLook } from '@/hooks/use-daily-look';
 import { useHome } from '@/hooks/use-home';
-import { DAILY_LOOK_ONCE_A_DAY, dailyLookPhase } from '@/lib/dailyLookApi';
+import { DAILY_LOOK_EMPTY_RETRY, DAILY_LOOK_ONCE_A_DAY, dailyLookPhase } from '@/lib/dailyLookApi';
 import { DetailTwoPane } from '@/components/detail-two-pane';
 import { isDiscoveryLookId, useDiscoveryLook } from '@/hooks/use-discovery-look';
 import { lookVoteStore, useLookVotes } from '@/state/look-votes';
@@ -385,7 +385,7 @@ export default function LookDetail() {
              체형·추구미 입력이 모여 있는 마이 탭이 목적지다.) */
           <ErrorState
             title="오늘 추천할 룩을 찾지 못했어요"
-            description={dailyLook?.detail ?? '체형·추구미를 채우면 그에 맞는 코디를 찾아드릴 수 있어요.'}
+            description={DAILY_LOOK_EMPTY_RETRY}
             onRetry={() => router.push('/(tabs)/my')}
             retryLabel="프로필 채우기"
             retryIcon="person"

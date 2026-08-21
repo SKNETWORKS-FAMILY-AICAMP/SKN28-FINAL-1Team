@@ -513,11 +513,9 @@ function UnavailableLook({
       <Text style={styles.pendingTitle}>
         {empty ? '오늘 추천할 룩을 찾지 못했어요' : '오늘의 룩을 준비하지 못했어요'}
       </Text>
+      {/* EMPTY 는 서버 detail 을 쓰지 않는다 — 같은 말을 다르게 적은 문장이라 두 번 읽힌다. */}
       <Text style={styles.pendingBody}>
-        {detail ??
-          (empty
-            ? '체형·추구미를 채우면 그에 맞는 코디를 찾아드릴 수 있어요.'
-            : '잠시 뒤 다시 시도해 주세요.')}
+        {empty ? DAILY_LOOK_EMPTY_RETRY : (detail ?? '잠시 뒤 다시 시도해 주세요.')}
       </Text>
       <Pressable
         style={styles.unavailableBtn}
@@ -526,11 +524,8 @@ function UnavailableLook({
         onPress={() => (empty ? router.push('/(tabs)/my') : onRetry())}>
         <Text style={styles.unavailableBtnText}>{empty ? '프로필 채우기' : '다시 시도'}</Text>
       </Pressable>
-      {/* EMPTY 는 '오늘 것은 이미 만들어졌다'가 적용되지 않는 유일한 상태다 —
-          서버가 프로필 변경을 보고 다시 만들어 준다. 그래서 안내도 갈라 놓는다. */}
-      <Text style={styles.onceADay}>
-        {empty ? DAILY_LOOK_EMPTY_RETRY : DAILY_LOOK_ONCE_A_DAY}
-      </Text>
+      {/* EMPTY 안내는 버튼 위 한 줄로 끝난다 — '내일 도착'은 EMPTY 에는 해당하지 않는다. */}
+      {empty ? null : <Text style={styles.onceADay}>{DAILY_LOOK_ONCE_A_DAY}</Text>}
     </View>
   );
 }
